@@ -30,6 +30,11 @@ Colours are theme tokens, so a theme sets its own palette:
 }
 ```
 
+Code blocks of two or more lines are numbered. The numbers are drawn by CSS, so copying
+the code, with the button or by selecting it, never includes them. Plain-text fences
+(`text`, `output`) are not numbered. A theme turns numbering off with
+`"options": { "codeLineNumbers": false }`.
+
 A theme that prefers another highlighter sets `"options": { "codeHighlighting": false }`
 and loads its own through `scripts`; the engine then only adds the copy buttons.
 

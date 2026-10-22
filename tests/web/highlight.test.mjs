@@ -2,7 +2,7 @@
 // Run with: node --test tests/web/
 import test from "node:test";
 import assert from "node:assert/strict";
-import { detectLanguage, highlight, isKnownLanguage } from "../../web/components/ob-highlight.js";
+import { detectLanguage, highlight, isKnownLanguage, isPlainText, splitLines } from "../../web/components/ob-highlight.js";
 
 /** The class given to the first token whose text is exactly `text`. */
 function clsOf(tokens, text) {
@@ -224,6 +224,19 @@ test("detection stays out of prose and output", () => {
     "",
   ];
   for (const code of cases) assert.equal(detectLanguage(code), null, code);
+});
+
+test("tokens split into lines for line numbers", () => {
+  const code = "/* a\n   b */\nlet x = `1\n2`;\n\nx\n";
+  const lines = splitLines(highlight(code, "js"));
+  assert.equal(lines.length, 6, "the trailing newline does not add a line");
+  assert.equal(lines.map((l) => l.map((t) => t.text).join("")).join("\n") + "\n", code);
+  assert.deepEqual(lines[1], [{ text: "   b */", cls: "comment" }], "a comment spanning lines is cut per line");
+  assert.deepEqual(lines[4], [], "blank lines stay as empty lines");
+  assert.equal(splitLines([{ text: "one line", cls: null }]).length, 1);
+  assert.equal(isPlainText("text"), true);
+  assert.equal(isPlainText("output"), true);
+  assert.equal(isPlainText("rust"), false);
 });
 
 test("fetch with an options object is javascript, not css", () => {

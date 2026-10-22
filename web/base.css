@@ -629,6 +629,24 @@ h2.ob-title {
 .tok-constant { color: var(--ob-color-code-constant, var(--ob-color-code-number)); }
 .tok-regex { color: var(--ob-color-code-regex, var(--ob-color-code-string)); }
 
+/* Line numbers (added by <ob-code line-numbers>). They are a CSS counter, not
+   text, so copying the code never includes them. */
+.ob-prose code.ob-numbered {
+  counter-reset: ob-line;
+}
+
+.ob-line::before {
+  display: inline-block;
+  min-width: calc(var(--ob-line-digits, 2) * 1ch);
+  margin-right: 1.6ch;
+  color: var(--ob-color-code-line-number, var(--ob-color-subtle));
+  text-align: right;
+  content: counter(ob-line);
+  counter-increment: ob-line;
+  opacity: 0.75;
+  user-select: none;
+}
+
 /* ---------- Embeds (a standalone CodePen link becomes a pen) ---------- */
 
 .ob-embed {

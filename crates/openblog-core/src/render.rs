@@ -959,12 +959,16 @@ impl<'a> Renderer<'a> {
         c.apply_base_path(&html)
     }
 
-    fn code_attr(&self, theme: &Theme) -> &'static str {
+    /// Attributes for `<ob-code>`: what the component does to code blocks.
+    fn code_attr(&self, theme: &Theme) -> String {
+        let mut attrs = String::new();
         if theme.code_highlighting {
-            " highlight"
-        } else {
-            ""
+            attrs.push_str(" highlight");
         }
+        if theme.code_line_numbers {
+            attrs.push_str(" line-numbers");
+        }
+        attrs
     }
 
     fn series_box(&self, index: usize, post: &Post, series: &Series) -> String {
@@ -1315,7 +1319,7 @@ mod tests {
         if extra_theme {
             themes.insert(
                 "loud",
-                ThemeFile::from_json(r##"{"extends":"base","options":{"headingCodeLabels":true,"headingWrapper":"x-type","navLabel":"//{index}. <{label}/>","listStyle":"cards"},"scripts":["fx.js"],"colors":{"dark":{"accent":"#ff0"}}}"##).unwrap(),
+                ThemeFile::from_json(r##"{"extends":"base","options":{"headingCodeLabels":true,"headingWrapper":"x-type","navLabel":"//{index}. <{label}/>","listStyle":"cards","codeLineNumbers":false},"scripts":["fx.js"],"colors":{"dark":{"accent":"#ff0"}}}"##).unwrap(),
             );
         }
         generate(&site, &themes).unwrap()
@@ -1382,6 +1386,21 @@ mod tests {
         assert!(!solo.contains("x-type"));
         assert!(!solo.contains("fx.js"));
         assert!(file(&files, "series/s/index.html").contains("data-ob-theme=\"loud\""));
+    }
+
+    #[test]
+    fn code_blocks_get_highlighting_and_line_numbers_per_theme() {
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            true,
+        );
+        assert!(file(&files, "solo/index.html").contains("<ob-code highlight line-numbers>"));
+        let themed = file(&files, "one/index.html");
+        assert!(themed.contains("data-ob-theme=\"loud\""));
+        assert!(
+            themed.contains("<ob-code highlight>"),
+            "the series theme turned numbers off"
+        );
     }
 
     #[test]

@@ -710,6 +710,28 @@ export function isKnownLanguage(language) {
   return lang === "markup" || Object.hasOwn(LANGUAGES, lang);
 }
 
+/** True for fences marked as plain text or program output (`text`, `output`). */
+export function isPlainText(language) {
+  return ALIASES[language] === "none";
+}
+
+/**
+ * Split tokens into lines, cutting tokens that span lines (block comments,
+ * multi-line strings). A final newline does not start an extra empty line.
+ */
+export function splitLines(tokens) {
+  const lines = [[]];
+  for (const t of tokens) {
+    const parts = t.text.split("\n");
+    parts.forEach((part, i) => {
+      if (i > 0) lines.push([]);
+      if (part) lines[lines.length - 1].push({ text: part, cls: t.cls });
+    });
+  }
+  if (lines.length > 1 && lines[lines.length - 1].length === 0) lines.pop();
+  return lines;
+}
+
 // ---------- Language detection for blocks without a language ----------
 //
 // Imported posts often have fences with no language. Each candidate scores

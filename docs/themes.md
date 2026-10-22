@@ -86,6 +86,7 @@ text colour, `codeNumber`, and `codeString`.
 | `listStyle` | `rows` (compact, hover fill) or `cards` (cover images) |
 | `postCovers` | Show the cover image on the post page |
 | `codeHighlighting` | Colour code blocks with the built-in highlighter (`codeKeyword`, `codeString`, ... colour tokens); off when the theme brings its own |
+| `codeLineNumbers` | Number the lines of code blocks with two or more lines (default `true`). The numbers are never copied with the code |
 
 ## Light and dark
 

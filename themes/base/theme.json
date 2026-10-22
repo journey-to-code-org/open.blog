@@ -104,7 +104,8 @@
     "headingCodeLabels": false,
     "listStyle": "cards",
     "postCovers": true,
-    "codeHighlighting": true
+    "codeHighlighting": true,
+    "codeLineNumbers": true
   },
   "stylesheets": []
 }

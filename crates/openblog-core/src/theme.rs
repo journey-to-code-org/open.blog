@@ -70,6 +70,8 @@ pub struct ThemeOptions {
     /// Colour code blocks with the built-in highlighter. Turn off when the
     /// theme ships its own through `scripts`.
     pub code_highlighting: Option<bool>,
+    /// Number the lines of code blocks that have more than one line.
+    pub code_line_numbers: Option<bool>,
 }
 
 /// A fully resolved theme with its inheritance chain flattened.
@@ -94,6 +96,7 @@ pub struct Theme {
     pub list_style: String,
     pub post_covers: bool,
     pub code_highlighting: bool,
+    pub code_line_numbers: bool,
     /// Absolute site URLs of extra stylesheets, in link order.
     pub stylesheets: Vec<String>,
     /// Absolute site URLs of theme scripts, in load order.
@@ -176,6 +179,7 @@ impl ThemeSet {
             list_style: "rows".into(),
             post_covers: true,
             code_highlighting: true,
+            code_line_numbers: true,
             ..Theme::default()
         };
         for n in &chain {
@@ -236,6 +240,9 @@ impl ThemeSet {
             }
             if let Some(v) = file.options.code_highlighting {
                 theme.code_highlighting = v;
+            }
+            if let Some(v) = file.options.code_line_numbers {
+                theme.code_line_numbers = v;
             }
             for sheet in &file.stylesheets {
                 theme.stylesheets.push(absolutize(&base_url, sheet));
@@ -396,6 +403,7 @@ impl Theme {
                 "listStyle": self.list_style,
                 "postCovers": self.post_covers,
                 "codeHighlighting": self.code_highlighting,
+                "codeLineNumbers": self.code_line_numbers,
             },
             "stylesheets": self.stylesheets,
             "scripts": self.scripts,
