@@ -55,6 +55,7 @@ pub struct AppState {
     pub analytics: Mutex<crate::analytics::Store>,
     pub analytics_path: PathBuf,
     pub analytics_enabled: bool,
+    pub cdn: openblog_core::config::CdnConfig,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -63,7 +64,9 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl AppState {
     pub fn new(root: PathBuf, out_override: Option<PathBuf>, include_drafts: bool, admin: bool) -> Self {
-        let analytics_config = site::load_config(&root).map(|c| c.analytics).unwrap_or_default();
+        let loaded = site::load_config(&root).unwrap_or_default();
+        let analytics_config = loaded.analytics.clone();
+        let cdn = loaded.cdn.clone();
         let analytics_path = root.join(".openblog").join("analytics.json");
         Self {
             root,
@@ -76,6 +79,7 @@ impl AppState {
             analytics: Mutex::new(crate::analytics::Store::load(&analytics_path, analytics_config.retention_days)),
             analytics_path,
             analytics_enabled: analytics_config.builtin,
+            cdn,
         }
     }
 

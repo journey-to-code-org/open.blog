@@ -218,7 +218,15 @@ pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response
     }
     match resolve(out_dir, &req.path) {
         Some(file) => match fs::read(&file) {
-            Ok(bytes) => Response::new(200, mime(&file), bytes).with_header("Cache-Control", "no-cache"),
+            Ok(bytes) => {
+                // Assets may be cached by browsers and CDNs; pages always revalidate.
+                let cache = if state.cdn.max_age > 0 && state.cdn.is_asset_path(&req.path) {
+                    format!("public, max-age={}", state.cdn.max_age)
+                } else {
+                    "no-cache".to_string()
+                };
+                Response::new(200, mime(&file), bytes).with_header("Cache-Control", &cache)
+            }
             Err(_) => Response::text(500, "Read error"),
         },
         None => {

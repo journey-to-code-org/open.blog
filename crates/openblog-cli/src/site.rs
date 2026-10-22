@@ -104,8 +104,45 @@ pub fn load_themes(root: &Path, config: &SiteConfig) -> Result<ThemeSet, String>
     Ok(set)
 }
 
+/// When a CDN is configured without an explicit version, derive one from the
+/// asset files so a changed stylesheet, script, font, or image gets a new URL
+/// and old cached copies are never served.
+pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
+    if !config.cdn.enabled() || !config.cdn.version.trim().is_empty() {
+        return config;
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut mix = |bytes: &[u8]| {
+        for b in bytes {
+            h ^= u64::from(*b);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    for dir in [&config.paths.web, &config.paths.themes, &config.paths.static_dir] {
+        let base = root.join(dir);
+        for file in fsutil::walk(&base) {
+            mix(fsutil::relative(&base, &file).as_bytes());
+            // Text assets by content; everything else (images, fonts) by size, which is
+            // cheap and changes whenever the file is replaced.
+            let is_text = file.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e, "css" | "js" | "mjs" | "json"));
+            if is_text {
+                if let Ok(bytes) = fs::read(&file) {
+                    mix(&bytes);
+                }
+            } else if let Ok(meta) = fs::metadata(&file) {
+                mix(&meta.len().to_le_bytes());
+            }
+        }
+    }
+    for (_, embedded) in EMBEDDED_WEB {
+        mix(embedded.as_bytes());
+    }
+    config.cdn.version = format!("{:08x}", (h >> 32) as u32 ^ h as u32);
+    config
+}
+
 pub fn load_site(root: &Path, include_drafts: bool, now: Option<DateTime>) -> Result<(Site, ThemeSet), String> {
-    let config = load_config(root)?;
+    let config = with_asset_version(root, load_config(root)?);
     let sources = read_sources(root, &config)?;
     let themes = load_themes(root, &config)?;
     let site = Site::load(config, sources, LoadOptions { include_drafts, now }).map_err(|errors| {

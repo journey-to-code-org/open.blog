@@ -38,6 +38,12 @@
     "bodyEnd": ""
   },
   "relatedPosts": 3,
+  "cdn": {
+    "url": "",
+    "paths": ["/assets/", "/themes/", "/images/"],
+    "version": "",
+    "maxAge": 86400
+  },
   "home": {
     "heading": "Latest posts",
     "intro": "",

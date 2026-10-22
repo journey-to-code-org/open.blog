@@ -77,6 +77,37 @@ Each post ends with up to `relatedPosts` (default 3) other posts, ranked by shar
 and series. Posts with nothing in common are never listed, so a lone post shows no
 section. Set `"relatedPosts": 0` to turn it off.
 
+## Serving assets from a CDN
+
+The site is static, so the simplest CDN setup is to put the whole of `dist/` behind one
+(Cloudflare, a CDN in front of your host, or an object store). Nothing needs configuring
+for that. `openblog serve` sends `Cache-Control: public, max-age=86400` for asset paths and
+`no-cache` for pages, so a CDN in front of the server caches assets and always revalidates
+pages. Views and the admin are never cached.
+
+To serve assets from a different origin than the pages, set a CDN URL:
+
+```jsonc
+"cdn": {
+  "url": "https://cdn.example.com",          // empty disables rewriting
+  "paths": ["/assets/", "/themes/", "/images/"],
+  "version": "",                             // derived from the files when empty
+  "maxAge": 86400
+}
+```
+
+With `url` set, stylesheet, script, font, and image URLs under those paths point at the CDN
+and carry `?v=<version>`, so a changed file gets a new URL and stale copies are never used.
+Page links, feeds, and the sitemap keep the site's own URLs. Mirror `dist/` to the CDN
+origin (every build, with the same paths) before deploying the pages.
+
+Two things to know:
+
+- Fonts and stylesheets loaded cross-origin need the CDN to send
+  `Access-Control-Allow-Origin` for them; most CDNs do, or can be told to.
+- The search engine's WebAssembly module stays on the site's own origin on purpose, because
+  cross-origin module loading depends on CDN headers that are easy to get wrong.
+
 ## Already built in
 
 Reading time, a table of contents for longer posts, previous and next links, series

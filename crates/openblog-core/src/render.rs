@@ -146,7 +146,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     theme_names.sort();
     for name in theme_names {
         let theme = &resolved[name];
-        out.add(format!("themes/{name}/tokens.css"), theme.tokens_css())?;
+        out.add(format!("themes/{name}/tokens.css"), c.cdn.apply(&theme.tokens_css()))?;
         out.add(format!("themes/{name}/resolved.json"), theme.manifest_json())?;
     }
 
@@ -279,7 +279,7 @@ impl<'a> Renderer<'a> {
             h.push('\n');
         }
         h.push_str("</body>\n</html>\n");
-        h
+        c.cdn.apply(&h)
     }
 
     fn site_header(&self, theme: &Theme, current: &str) -> String {
@@ -1002,6 +1002,21 @@ mod tests {
         );
         let one = file(&files, "posts/one/index.html");
         assert!(!one.contains("ob-share") && !one.contains("ob-views") && !one.contains("Related posts"));
+    }
+
+    #[test]
+    fn cdn_points_assets_elsewhere_but_not_pages_or_feeds() {
+        let files = build(r#"{"title":"T","url":"https://t.dev","cdn":{"url":"https://cdn.t.dev","version":"v1"}}"#, true);
+        let one = file(&files, "posts/one/index.html");
+        assert!(one.contains("href=\"https://cdn.t.dev/assets/base.css?v=v1\""));
+        assert!(one.contains("src=\"https://cdn.t.dev/assets/openblog.js?v=v1\""));
+        assert!(one.contains("href=\"https://cdn.t.dev/themes/loud/tokens.css?v=v1\""), "the series theme's tokens come from the CDN too");
+        assert!(one.contains("href=\"/posts/two/\""), "page links stay on the site");
+        assert!(one.contains("href=\"/rss.xml\""));
+        assert!(one.contains("wasm=\"/assets/wasm/") || !one.contains("wasm="), "the WebAssembly module stays same-origin");
+        assert!(!file(&files, "rss.xml").contains("cdn.t.dev"), "feeds keep canonical site URLs");
+        let search = file(&files, "search/index.html");
+        assert!(search.contains("wasm=\"/assets/wasm/openblog_wasm.js\""));
     }
 
     #[test]

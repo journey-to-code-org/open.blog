@@ -41,6 +41,8 @@ pub struct SiteConfig {
     pub snippets: Snippets,
     /// How many related posts to show under each post. `0` disables the section.
     pub related_posts: usize,
+    /// Optional CDN for static assets.
+    pub cdn: CdnConfig,
     pub feeds: FeedsConfig,
     pub markdown: MarkdownConfig,
     pub paths: PathsConfig,
@@ -141,6 +143,7 @@ impl Default for SiteConfig {
             analytics: AnalyticsConfig::default(),
             snippets: Snippets::default(),
             related_posts: 3,
+            cdn: CdnConfig::default(),
             feeds: FeedsConfig::default(),
             markdown: MarkdownConfig::default(),
             paths: PathsConfig::default(),
@@ -216,6 +219,96 @@ impl Default for AnalyticsConfig {
     fn default() -> Self {
         Self { builtin: true, show_views: true, retention_days: 400 }
     }
+}
+
+/// Serve static assets from another origin (a CDN or object store that mirrors
+/// `dist/`). When `url` is set, asset URLs in the generated pages point there
+/// and carry a cache-busting `?v=` query; `openblog serve` also sends long
+/// `Cache-Control` headers for those paths so a CDN in front of it caches them.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CdnConfig {
+    /// Asset origin, e.g. `https://cdn.example.com`. Empty disables rewriting.
+    pub url: String,
+    /// Site paths served from the CDN. Page URLs are never rewritten.
+    pub paths: Vec<String>,
+    /// Appended as `?v=` to rewritten asset URLs. Left empty, the build derives
+    /// one from the asset files, so a changed file gets a new URL.
+    pub version: String,
+    /// `Cache-Control: max-age` in seconds that `openblog serve` sends for asset
+    /// paths. `0` sends `no-cache`.
+    pub max_age: u32,
+}
+
+impl Default for CdnConfig {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            paths: vec!["/assets/".into(), "/themes/".into(), "/images/".into()],
+            version: String::new(),
+            max_age: 86_400,
+        }
+    }
+}
+
+impl CdnConfig {
+    pub fn enabled(&self) -> bool {
+        !self.url.trim().is_empty()
+    }
+
+    /// Asset path prefixes, each normalised to `/name/`. The site root alone is
+    /// never accepted, because that would rewrite every page link.
+    pub fn prefixes(&self) -> Vec<String> {
+        self.paths
+            .iter()
+            .map(|p| format!("/{}/", p.trim().trim_matches('/')))
+            .filter(|p| p.len() > 2)
+            .collect()
+    }
+
+    pub fn is_asset_path(&self, path: &str) -> bool {
+        self.prefixes().iter().any(|p| path.starts_with(p))
+    }
+
+    /// Point static asset URLs in HTML or CSS at the CDN origin and add the
+    /// cache-busting version. Only `src="/…"`, `href="/…"` and `url("/…")`
+    /// under the configured prefixes change; page links and feeds do not.
+    pub fn apply(&self, text: &str) -> String {
+        if !self.enabled() {
+            return text.to_string();
+        }
+        let base = self.url.trim().trim_end_matches('/');
+        let mut out = text.to_string();
+        for prefix in self.prefixes() {
+            for marker in ["src=\"", "href=\"", "url(\""] {
+                out = rewrite_urls(&out, marker, &prefix, base, self.version.trim());
+            }
+        }
+        out
+    }
+}
+
+fn rewrite_urls(input: &str, marker: &str, prefix: &str, base: &str, version: &str) -> String {
+    let needle = format!("{marker}{prefix}");
+    let mut out = String::with_capacity(input.len() + 256);
+    let mut rest = input;
+    while let Some(i) = rest.find(&needle) {
+        let after = &rest[i + needle.len()..];
+        let end = after.find('"').unwrap_or(after.len());
+        let path = &after[..end];
+        out.push_str(&rest[..i]);
+        out.push_str(marker);
+        out.push_str(base);
+        out.push_str(prefix);
+        out.push_str(path);
+        if !version.is_empty() && !path.contains('?') {
+            out.push_str("?v=");
+            out.push_str(version);
+        }
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Raw HTML inserted verbatim. Only the site owner writes `openblog.json`, so
@@ -312,6 +405,23 @@ impl SiteConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cdn_rewrites_only_asset_urls() {
+        let cdn = CdnConfig { url: "https://cdn.example.com/".into(), version: "abc".into(), ..Default::default() };
+        let html = r#"<link href="/assets/base.css"><img src="/images/a.png?w=1"><a href="/posts/x/">p</a><a href="/images/">i</a><script src="/themes/t/fx.js"></script>"#;
+        let out = cdn.apply(html);
+        assert!(out.contains(r#"href="https://cdn.example.com/assets/base.css?v=abc""#));
+        assert!(out.contains(r#"src="https://cdn.example.com/images/a.png?w=1""#), "an existing query is kept as is");
+        assert!(out.contains(r#"href="/posts/x/""#), "page links are untouched");
+        assert!(out.contains(r#"src="https://cdn.example.com/themes/t/fx.js?v=abc""#));
+        assert_eq!(cdn.apply(r#"src: url("/themes/t/fonts/a.woff2")"#), r#"src: url("https://cdn.example.com/themes/t/fonts/a.woff2?v=abc")"#);
+        let off = CdnConfig::default();
+        assert_eq!(off.apply(html), html);
+        let root_only = CdnConfig { url: "https://c.dev".into(), paths: vec!["/".into()], ..Default::default() };
+        assert!(root_only.prefixes().is_empty(), "the root is never an asset prefix");
+        assert!(cdn.is_asset_path("/assets/x.js") && !cdn.is_asset_path("/posts/x/"));
+    }
 
     #[test]
     fn defaults_and_normalization() {
