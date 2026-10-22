@@ -73,7 +73,10 @@ a machine you control and put it behind HTTPS (a reverse proxy such as Caddy or 
 }
 ```
 
-Entries in `trustedProxies` are exact IP addresses, not ranges. A connection from one of
+Entries in `trustedProxies` are exact IP addresses, not ranges, or the single entry `"*"`
+to trust every connection's `X-Forwarded-For` (only right when nothing can reach the
+server except through the proxy, as in a container on a PaaS; the
+`OPENBLOG_BEHIND_PROXY=1` environment variable sets this and `secureCookies` together). A connection from one of
 them takes the client address from the last `X-Forwarded-For` entry, the one that proxy
 appended; if the header is missing, the proxy's own address is used and every visitor
 shares one login limit. Connections from a trusted proxy are also exempt from the

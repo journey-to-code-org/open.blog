@@ -114,6 +114,38 @@ A common hybrid: run `openblog serve --admin` privately for writing, and let the
 workflow deploy `dist/` for readers. The editor's Publish button commits and pushes for
 you; see [Publishing from home](publishing.md).
 
+## Docker, and Render as a web service
+
+The repository ships a `Dockerfile` that builds the engine and serves the blog in the
+same image with `openblog serve --admin`: pages, the editor, the view counter, and the
+analytics dashboard in one process. It suits Render, Fly, a VPS with Docker, or a NAS.
+
+```sh
+docker build -t my-blog .
+docker run -p 8080:8080 \
+  -e OPENBLOG_ADMIN_USER=you -e OPENBLOG_ADMIN_PASSWORD='a long passphrase' \
+  -e OPENBLOG_BEHIND_PROXY=1 my-blog
+```
+
+- `OPENBLOG_ADMIN_USER` and `OPENBLOG_ADMIN_PASSWORD` create the login at start (or
+  update its password), so a host without a persistent disk still has one.
+- `OPENBLOG_BEHIND_PROXY=1` tells the server an HTTPS proxy is in front: cookies are
+  marked Secure and the client address comes from `X-Forwarded-For` whatever the proxy's
+  address is. Set it on any PaaS; leave it unset when you run the container directly on
+  plain HTTP.
+- Mount a volume at `/blog/.openblog` to keep users, analytics, and the trash across
+  restarts.
+
+`render.yaml` at the repository root is a Render blueprint for exactly this: create a
+Blueprint from the repository, then set `OPENBLOG_ADMIN_PASSWORD` in the dashboard. On
+Render's free tier there is no disk, so treat the editor there as a writing surface and
+press Publish to get posts into git; view counts survive through the analytics branch. A
+paid plan can mount the disk (the commented section in `render.yaml`).
+
+The Dockerfile assumes the blog lives in a clone of the engine repository (the layout a
+fork has). For a blog made with `openblog init`, replace the build stage with
+`cargo install --git https://github.com/journey-to-code-org/open.blog openblog-cli`.
+
 ## A theme that is not in the repository
 
 Builds in CI only see committed files. If a theme is kept out of the repository

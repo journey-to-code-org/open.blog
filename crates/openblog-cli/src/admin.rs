@@ -593,7 +593,7 @@ pub(crate) fn client_ip(config: &SiteConfig, req: &Request) -> String {
         .admin
         .trusted_proxies
         .iter()
-        .any(|p| p.trim() == req.peer);
+        .any(|p| p.trim() == "*" || p.trim() == req.peer);
     if trusted {
         if let Some(forwarded) = req.header("x-forwarded-for") {
             if let Some(last) = forwarded
@@ -1566,6 +1566,24 @@ mod tests {
             attempt("2.2.2.2, 203.0.113.10", "correct horse battery"),
             429
         );
+        // "*" trusts every peer's X-Forwarded-For (containers behind a PaaS proxy).
+        cfg["admin"]["trustedProxies"] = json!(["*"]);
+        fs::write(&cfg_path, cfg.to_string()).unwrap();
+        let mut any = json_req(
+            "POST",
+            "/admin/api/login",
+            json!({ "username": "mikey", "password": "correct horse battery" }),
+        );
+        any.peer = "172.16.0.77".into();
+        any.headers
+            .insert("x-forwarded-for".into(), "203.0.113.9".into());
+        assert_eq!(
+            handle(&f.state, &any).status,
+            429,
+            "the forwarded client is still locked out through any proxy"
+        );
+        cfg["admin"]["trustedProxies"] = json!(["10.0.0.1"]);
+        fs::write(&cfg_path, cfg.to_string()).unwrap();
         // An untrusted peer's X-Forwarded-For is ignored entirely.
         let mut r = json_req(
             "POST",

@@ -149,7 +149,17 @@ pub fn load_config(root: &Path) -> Result<SiteConfig, String> {
             path.display()
         )
     })?;
-    SiteConfig::from_json(&json)
+    let mut config = SiteConfig::from_json(&json)?;
+    // Containers and PaaS hosts always sit behind an HTTPS proxy whose address
+    // is not known in advance; one variable sets both proxy-related options.
+    if std::env::var("OPENBLOG_BEHIND_PROXY")
+        .map(|v| matches!(v.trim(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+    {
+        config.admin.secure_cookies = true;
+        config.admin.trusted_proxies = vec!["*".to_string()];
+    }
+    Ok(config)
 }
 
 pub fn read_sources(root: &Path, config: &SiteConfig) -> Result<Sources, String> {

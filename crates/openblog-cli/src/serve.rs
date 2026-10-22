@@ -180,7 +180,7 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
         let proxied = state
             .trusted_proxies
             .iter()
-            .any(|p| p.trim() == peer.ip().to_string());
+            .any(|p| p.trim() == "*" || p.trim() == peer.ip().to_string());
         let Some(guard) = SlotGuard::acquire(&active, &per_ip, peer.ip(), proxied) else {
             continue;
         };
