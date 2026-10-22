@@ -36,6 +36,7 @@ openblog analytics backup               Save view counts to the analytics branch
 openblog analytics pull <url> --secret s
                                         Merge counts from a hosted counter
 openblog analytics worker [dir]         Write a Cloudflare Worker counter
+openblog analytics service [dir]        Write a Node + MongoDB counter (Render)
 openblog user add|passwd|remove|list <name> [--password-stdin]
 openblog import hashnode <host> [--source public|graphql] [--token t]
                                         [--limit n] [--no-images] [--delay ms] [--overwrite]

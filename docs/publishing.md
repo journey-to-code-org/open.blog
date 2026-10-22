@@ -125,6 +125,45 @@ Pulling replaces the worker's share of the data each time, so pulling twice neve
 twice. A scheduled job that runs these two commands keeps the branch, and therefore the
 baked counts, fresh; the admin's Analytics tab shows the merged numbers.
 
+## A counter you host: Render with MongoDB
+
+If you would rather have a database you can query, or already use Render, open.blog
+ships the same counter as a small Node service whose only dependency is the official
+MongoDB driver (the HTTP server is Node's own):
+
+```sh
+openblog analytics service       # writes counter-service/ (server.js, package.json, render.yaml, README)
+```
+
+Create a MongoDB database (Atlas has a free tier), push the folder to a repository, and
+create a Render Blueprint from it; `render.yaml` sets the build and start commands and
+asks for `MONGODB_URI`, generates `EXPORT_SECRET`, and sets `SITE_ORIGIN` to your blog.
+Then point the blog at it, exactly as with the worker:
+
+```jsonc
+"analytics": { "builtin": false, "endpoint": "https://openblog-counter.onrender.com" }
+```
+
+`openblog analytics pull <that address> --secret <EXPORT_SECRET>` works the same, since
+every counter speaks the same three routes. One difference to know: a free Render
+service sleeps after fifteen minutes without traffic and takes some seconds to wake, so
+the first view after a quiet spell may go unrecorded; posts show the last baked count
+meanwhile. The Cloudflare Worker has no such delay.
+
+## Writing your own counter
+
+Any service that answers these three routes works with `<ob-views>` and
+`openblog analytics pull`:
+
+```
+POST /hit            JSON {path, referrer}            → {views}
+GET  /views?path=    → {views}
+GET  /export         Authorization: Bearer <secret>   → {version: 1, days: {...}, totals: {...}}
+```
+
+`days` maps `YYYY-MM-DD` to `{views: {path: n}, uniques: {path: n}, referrers: {host: n}}`
+and `totals` maps paths to all-time views. The two shipped counters are the reference.
+
 ## What stays manual
 
 Creating the GitHub repository and the Cloudflare account, setting *Pages → Source*, and

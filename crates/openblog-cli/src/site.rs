@@ -95,6 +95,27 @@ pub const PAGES_WORKFLOW: &str = include_str!("../templates/pages.yml");
 pub const COUNTER_WORKER: &str = include_str!("../templates/counter-worker.js");
 pub const COUNTER_WRANGLER: &str = include_str!("../templates/wrangler.toml");
 
+/// A view counter as a Node + MongoDB web service (Render blueprint included),
+/// written by `openblog analytics service`.
+pub const COUNTER_SERVICE: &[(&str, &str)] = &[
+    (
+        "server.js",
+        include_str!("../templates/counter-service/server.js"),
+    ),
+    (
+        "package.json",
+        include_str!("../templates/counter-service/package.json"),
+    ),
+    (
+        "render.yaml",
+        include_str!("../templates/counter-service/render.yaml"),
+    ),
+    (
+        "README.md",
+        include_str!("../templates/counter-service/README.md"),
+    ),
+];
+
 pub struct BuildOptions {
     /// Include drafts and scheduled posts (a preview build).
     pub include_drafts: bool,

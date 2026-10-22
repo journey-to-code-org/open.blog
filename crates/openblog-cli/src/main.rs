@@ -38,6 +38,7 @@ COMMANDS
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
+    analytics service [dir]    Write a Node + MongoDB counter for Render (default: counter-service/)
     themes                     List themes and the inheritance chain of each
     import hashnode <host>     Import a Hashnode blog (e.g. yourname.hashnode.dev)
     build-wasm                 Rebuild the WebAssembly module (engine repository only)
@@ -472,9 +473,37 @@ fn analytics_command(root: &std::path::Path, args: &Args) -> Result<(), String> 
             println!("then set \"analytics\": {{ \"endpoint\": \"https://<name>.<you>.workers.dev\" }} in openblog.json.");
             Ok(())
         }
-        _ => {
-            Err("usage: openblog analytics backup | pull <url> --secret <s> | worker [dir]".into())
+        "service" => {
+            let dir = root.join(
+                args.positional
+                    .get(1)
+                    .map(String::as_str)
+                    .unwrap_or("counter-service"),
+            );
+            if dir.join("server.js").exists() {
+                return Err(format!(
+                    "{} already has a server.js; delete it to regenerate",
+                    dir.display()
+                ));
+            }
+            for (name, contents) in site::COUNTER_SERVICE {
+                fsutil::write_file(
+                    &dir.join(name),
+                    contents.replace("SITE_URL", &config.url).as_bytes(),
+                )?;
+                println!("wrote {}", dir.join(name).display());
+            }
+            println!(
+                "Next: read {} for the Render and MongoDB steps,",
+                dir.join("README.md").display()
+            );
+            println!("then set \"analytics\": {{ \"endpoint\": \"https://<service>.onrender.com\" }} in openblog.json.");
+            Ok(())
         }
+        _ => Err(
+            "usage: openblog analytics backup | pull <url> --secret <s> | worker [dir] | service [dir]"
+                .into(),
+        ),
     }
 }
 
