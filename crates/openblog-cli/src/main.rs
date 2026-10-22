@@ -62,10 +62,21 @@ struct Args {
     switches: HashSet<String>,
 }
 
-const SWITCHES: &[&str] = &["drafts", "draft", "no-images", "help", "admin", "password-stdin"];
+const SWITCHES: &[&str] = &[
+    "drafts",
+    "draft",
+    "no-images",
+    "help",
+    "admin",
+    "password-stdin",
+];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
-    let mut args = Args { positional: Vec::new(), options: HashMap::new(), switches: HashSet::new() };
+    let mut args = Args {
+        positional: Vec::new(),
+        options: HashMap::new(),
+        switches: HashSet::new(),
+    };
     let mut i = 0;
     while i < raw.len() {
         let token = &raw[i];
@@ -76,7 +87,9 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
                 args.switches.insert(name.to_string());
             } else {
                 i += 1;
-                let value = raw.get(i).ok_or_else(|| format!("--{name} needs a value"))?;
+                let value = raw
+                    .get(i)
+                    .ok_or_else(|| format!("--{name} needs a value"))?;
                 args.options.insert(name.to_string(), value.clone());
             }
         } else {
@@ -121,36 +134,79 @@ fn run(raw: &[String]) -> Result<(), String> {
             let title = args.options.get("title").map(String::as_str);
             let created = scaffold::init(&dir, title)?;
             if created.is_empty() {
-                println!("Nothing to do: {} already looks like an open.blog project.", dir.display());
+                println!(
+                    "Nothing to do: {} already looks like an open.blog project.",
+                    dir.display()
+                );
             } else {
                 for file in &created {
                     println!("created {file}");
                 }
-                println!("\nNext: cd into the folder, run `openblog serve`, and edit openblog.json.");
+                println!(
+                    "\nNext: cd into the folder, run `openblog serve`, and edit openblog.json."
+                );
             }
             Ok(())
         }
         "new" => {
-            let title = args.positional.first().ok_or("usage: openblog new \"Post title\"")?;
+            let title = args
+                .positional
+                .first()
+                .ok_or("usage: openblog new \"Post title\"")?;
             let tags: Vec<String> = args
                 .options
                 .get("tags")
-                .map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+                .map(|t| {
+                    t.split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
                 .unwrap_or_default();
-            let created = scaffold::new_post(&root, title, args.options.get("series").map(String::as_str), &tags, args.switches.contains("draft"))?;
+            let created = scaffold::new_post(
+                &root,
+                title,
+                args.options.get("series").map(String::as_str),
+                &tags,
+                args.switches.contains("draft"),
+            )?;
             println!("created {created}");
             Ok(())
         }
         "build" => {
             let out = args.options.get("out").map(PathBuf::from);
-            let report = site::build(&root, &site::BuildOptions { include_drafts: drafts, out_override: out, now: Some(clock::now()) })?;
+            let report = site::build(
+                &root,
+                &site::BuildOptions {
+                    include_drafts: drafts,
+                    out_override: out,
+                    now: Some(clock::now()),
+                },
+            )?;
             serve::print_report(&report);
             Ok(())
         }
         "serve" => {
-            let port: u16 = args.options.get("port").map(|p| p.parse().map_err(|_| format!("`{p}` is not a valid port"))).transpose()?.unwrap_or(8080);
-            let host = args.options.get("host").cloned().unwrap_or_else(|| "127.0.0.1".to_string());
-            serve::run(&root, &serve::ServeOptions { include_drafts: drafts, host, port, admin: args.switches.contains("admin") })
+            let port: u16 = args
+                .options
+                .get("port")
+                .map(|p| p.parse().map_err(|_| format!("`{p}` is not a valid port")))
+                .transpose()?
+                .unwrap_or(8080);
+            let host = args
+                .options
+                .get("host")
+                .cloned()
+                .unwrap_or_else(|| "127.0.0.1".to_string());
+            serve::run(
+                &root,
+                &serve::ServeOptions {
+                    include_drafts: drafts,
+                    host,
+                    port,
+                    admin: args.switches.contains("admin"),
+                },
+            )
         }
         "user" => user_command(&root, &args),
         "check" => {
@@ -175,7 +231,11 @@ fn run(raw: &[String]) -> Result<(), String> {
             for name in themes.names() {
                 match themes.resolve(&name) {
                     Ok(t) => {
-                        let default = if name == config.theme { "  (site default)" } else { "" };
+                        let default = if name == config.theme {
+                            "  (site default)"
+                        } else {
+                            ""
+                        };
                         println!("{name:<16} {}  [{}]{default}", t.label, t.chain.join(" > "));
                     }
                     Err(e) => println!("{name:<16} ERROR: {e}"),
@@ -188,8 +248,16 @@ fn run(raw: &[String]) -> Result<(), String> {
             if platform != "hashnode" {
                 return Err("usage: openblog import hashnode <host>   (only `hashnode` is supported so far)".into());
             }
-            let host = args.positional.get(1).ok_or("usage: openblog import hashnode <host>, e.g. journeytocode.io")?;
-            let source = match args.options.get("source").map(String::as_str).unwrap_or("public") {
+            let host = args
+                .positional
+                .get(1)
+                .ok_or("usage: openblog import hashnode <host>, e.g. journeytocode.io")?;
+            let source = match args
+                .options
+                .get("source")
+                .map(String::as_str)
+                .unwrap_or("public")
+            {
                 "public" => hashnode::Source::Public,
                 "graphql" => hashnode::Source::GraphQl,
                 other => return Err(format!("unknown --source `{other}`; use public or graphql")),
@@ -202,19 +270,35 @@ fn run(raw: &[String]) -> Result<(), String> {
                 content_dir: root.join(&config.paths.content),
                 static_dir: root.join(&config.paths.static_dir),
                 download_images: !args.switches.contains("no-images"),
-                limit: args.options.get("limit").map(|l| l.parse().map_err(|_| format!("`{l}` is not a number"))).transpose()?,
-                delay_ms: args.options.get("delay").map(|d| d.parse().map_err(|_| format!("`{d}` is not a number"))).transpose()?.unwrap_or(250),
+                limit: args
+                    .options
+                    .get("limit")
+                    .map(|l| l.parse().map_err(|_| format!("`{l}` is not a number")))
+                    .transpose()?,
+                post_path: config.post_path.clone(),
+                delay_ms: args
+                    .options
+                    .get("delay")
+                    .map(|d| d.parse().map_err(|_| format!("`{d}` is not a number")))
+                    .transpose()?
+                    .unwrap_or(250),
             };
             let report = hashnode::run(&options)?;
             println!(
                 "\nImported: {} posts written, {} unchanged, {} series, {} images downloaded.",
-                report.posts_written, report.posts_unchanged, report.series_written, report.images_downloaded
+                report.posts_written,
+                report.posts_unchanged,
+                report.series_written,
+                report.images_downloaded
             );
             for note in &report.skipped {
                 println!("note: {note}");
             }
             if !report.image_failures.is_empty() {
-                eprintln!("\n{} image(s) could not be downloaded and still point at Hashnode:", report.image_failures.len());
+                eprintln!(
+                    "\n{} image(s) could not be downloaded and still point at Hashnode:",
+                    report.image_failures.len()
+                );
                 for failure in &report.image_failures {
                     eprintln!("  - {failure}");
                 }
@@ -225,9 +309,23 @@ fn run(raw: &[String]) -> Result<(), String> {
         "build-wasm" => {
             let status = Command::new("wasm-pack")
                 .current_dir(&root)
-                .args(["build", "crates/openblog-wasm", "--target", "web", "--release", "--out-dir", "../../web/wasm", "--out-name", "openblog_wasm"])
+                .args([
+                    "build",
+                    "crates/openblog-wasm",
+                    "--target",
+                    "web",
+                    "--release",
+                    "--out-dir",
+                    "../../web/wasm",
+                    "--out-name",
+                    "openblog_wasm",
+                ])
                 .status()
-                .map_err(|e| format!("could not run wasm-pack ({e}). Install it with `cargo install wasm-pack`."))?;
+                .map_err(|e| {
+                    format!(
+                        "could not run wasm-pack ({e}). Install it with `cargo install wasm-pack`."
+                    )
+                })?;
             if status.success() {
                 Ok(())
             } else {
@@ -249,16 +347,25 @@ fn read_password(args: &Args, confirm: bool) -> Result<String, String> {
     let mut line = String::new();
     if !args.switches.contains("password-stdin") {
         eprintln!("Note: the password is shown as you type. Use --password-stdin or OPENBLOG_PASSWORD to avoid that.");
-        eprint!("Password (at least {} characters): ", auth::MIN_PASSWORD_LEN);
+        eprint!(
+            "Password (at least {} characters): ",
+            auth::MIN_PASSWORD_LEN
+        );
         std::io::stderr().flush().ok();
     }
-    stdin.lock().read_line(&mut line).map_err(|e| e.to_string())?;
+    stdin
+        .lock()
+        .read_line(&mut line)
+        .map_err(|e| e.to_string())?;
     let password = line.trim_end_matches(['\r', '\n']).to_string();
     if confirm && !args.switches.contains("password-stdin") {
         eprint!("Repeat password: ");
         std::io::stderr().flush().ok();
         let mut again = String::new();
-        stdin.lock().read_line(&mut again).map_err(|e| e.to_string())?;
+        stdin
+            .lock()
+            .read_line(&mut again)
+            .map_err(|e| e.to_string())?;
         if again.trim_end_matches(['\r', '\n']) != password {
             return Err("the passwords do not match".into());
         }
@@ -284,7 +391,9 @@ fn user_command(root: &std::path::Path, args: &Args) -> Result<(), String> {
         }
         "add" | "passwd" => {
             if !auth::valid_username(name) {
-                return Err("usernames are 1 to 32 characters: lowercase letters, digits, and . _ -".into());
+                return Err(
+                    "usernames are 1 to 32 characters: lowercase letters, digits, and . _ -".into(),
+                );
             }
             let exists = users.find(name).is_some();
             if action == "add" && exists {
@@ -296,7 +405,11 @@ fn user_command(root: &std::path::Path, args: &Args) -> Result<(), String> {
             let password = read_password(args, true)?;
             users.set(name, &password)?;
             users.save(&path)?;
-            println!("{} `{name}`. The admin users file is {}; keep it out of version control.", if exists { "Updated" } else { "Added" }, path.display());
+            println!(
+                "{} `{name}`. The admin users file is {}; keep it out of version control.",
+                if exists { "Updated" } else { "Added" },
+                path.display()
+            );
             if action == "passwd" {
                 println!("Any sessions that user had open are ended.");
             }
@@ -324,7 +437,16 @@ mod tests {
 
     #[test]
     fn parses_flags_values_and_positionals() {
-        let a = parse_args(&strings(&["Title", "--series", "guide", "--drafts", "--tags=a,b", "--port", "9000"])).unwrap();
+        let a = parse_args(&strings(&[
+            "Title",
+            "--series",
+            "guide",
+            "--drafts",
+            "--tags=a,b",
+            "--port",
+            "9000",
+        ]))
+        .unwrap();
         assert_eq!(a.positional, vec!["Title"]);
         assert_eq!(a.options["series"], "guide");
         assert_eq!(a.options["tags"], "a,b");

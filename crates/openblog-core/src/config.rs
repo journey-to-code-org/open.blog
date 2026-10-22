@@ -130,10 +130,22 @@ impl Default for SiteConfig {
             post_path: "/posts/{slug}/".to_string(),
             posts_per_page: 10,
             nav: vec![
-                Link { label: "Home".into(), href: "/".into() },
-                Link { label: "Series".into(), href: "/series/".into() },
-                Link { label: "Archive".into(), href: "/archive/".into() },
-                Link { label: "Search".into(), href: "/search/".into() },
+                Link {
+                    label: "Home".into(),
+                    href: "/".into(),
+                },
+                Link {
+                    label: "Series".into(),
+                    href: "/series/".into(),
+                },
+                Link {
+                    label: "Archive".into(),
+                    href: "/archive/".into(),
+                },
+                Link {
+                    label: "Search".into(),
+                    href: "/search/".into(),
+                },
             ],
             social: Vec::new(),
             footer: "© {year} {author}".to_string(),
@@ -198,7 +210,10 @@ impl Default for ShareConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            networks: ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"].iter().map(|s| s.to_string()).collect(),
+            networks: ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         }
     }
 }
@@ -217,7 +232,11 @@ pub struct AnalyticsConfig {
 
 impl Default for AnalyticsConfig {
     fn default() -> Self {
-        Self { builtin: true, show_views: true, retention_days: 400 }
+        Self {
+            builtin: true,
+            show_views: true,
+            retention_days: 400,
+        }
     }
 }
 
@@ -288,6 +307,27 @@ impl CdnConfig {
     }
 }
 
+fn prefix_root_urls(input: &str, marker: &str, base: &str) -> String {
+    let needle = format!("{marker}/");
+    let mut out = String::with_capacity(input.len() + 256);
+    let mut rest = input;
+    while let Some(i) = rest.find(&needle) {
+        let after = &rest[i + needle.len()..];
+        out.push_str(&rest[..i]);
+        out.push_str(marker);
+        if after.starts_with('/') {
+            // Protocol-relative: leave as is.
+            out.push('/');
+        } else {
+            out.push_str(base);
+            out.push('/');
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
 fn rewrite_urls(input: &str, marker: &str, prefix: &str, base: &str, version: &str) -> String {
     let needle = format!("{marker}{prefix}");
     let mut out = String::with_capacity(input.len() + 256);
@@ -326,19 +366,35 @@ pub struct Snippets {
 
 impl Default for HomeConfig {
     fn default() -> Self {
-        Self { heading: "Latest posts".into(), intro: String::new(), show_series: true }
+        Self {
+            heading: "Latest posts".into(),
+            intro: String::new(),
+            show_series: true,
+        }
     }
 }
 
 impl Default for FeedsConfig {
     fn default() -> Self {
-        Self { rss: true, json: true, sitemap: true, portfolio_snapshot: true, limit: 20, full_content: true }
+        Self {
+            rss: true,
+            json: true,
+            sitemap: true,
+            portfolio_snapshot: true,
+            limit: 20,
+            full_content: true,
+        }
     }
 }
 
 impl Default for MarkdownConfig {
     fn default() -> Self {
-        Self { smart_punctuation: false, heading_anchors: true, toc_depth: 3, toc_min_headings: 3 }
+        Self {
+            smart_punctuation: false,
+            heading_anchors: true,
+            toc_depth: 3,
+            toc_min_headings: 3,
+        }
     }
 }
 
@@ -394,11 +450,61 @@ impl SiteConfig {
         if path.starts_with("http://") || path.starts_with("https://") {
             return path.to_string();
         }
-        format!("{}{}", self.url, if path.starts_with('/') { path.to_string() } else { format!("/{path}") })
+        format!(
+            "{}{}",
+            self.url,
+            if path.starts_with('/') {
+                path.to_string()
+            } else {
+                format!("/{path}")
+            }
+        )
+    }
+
+    /// The path part of `url`, for sites hosted under a folder such as
+    /// `https://user.github.io/blog`. Empty when the site lives at the root.
+    pub fn base_path(&self) -> String {
+        let without_scheme = self.url.split("://").nth(1).unwrap_or(&self.url);
+        match without_scheme.find('/') {
+            Some(i) => {
+                let p = without_scheme[i..].trim_matches('/');
+                if p.is_empty() {
+                    String::new()
+                } else {
+                    format!("/{p}")
+                }
+            }
+            None => String::new(),
+        }
+    }
+
+    /// Prefix root-relative URLs in generated HTML, CSS or JSON with the base
+    /// path. Protocol-relative (`//`) and absolute URLs are left alone.
+    pub fn apply_base_path(&self, text: &str) -> String {
+        let base = self.base_path();
+        if base.is_empty() {
+            return text.to_string();
+        }
+        let mut out = text.to_string();
+        for marker in [
+            "href=\"",
+            "src=\"",
+            "action=\"",
+            "index=\"",
+            "wasm=\"",
+            "url(\"",
+            "; url=",
+            "\"url\":\"",
+        ] {
+            out = prefix_root_urls(&out, marker, &base);
+        }
+        out
     }
 
     pub fn footer_text(&self, year: i64) -> String {
-        self.footer.replace("{year}", &year.to_string()).replace("{author}", &self.author.name)
+        self.footer
+            .replace("{year}", &year.to_string())
+            .replace("{author}", &self.author.name)
     }
 }
 
@@ -407,25 +513,72 @@ mod tests {
     use super::*;
 
     #[test]
+    fn base_path_comes_from_the_url_and_prefixes_root_links() {
+        let c = SiteConfig::from_json(r#"{"url":"https://user.github.io/blog/"}"#).unwrap();
+        assert_eq!(c.base_path(), "/blog");
+        assert_eq!(
+            c.absolute("/posts/x/"),
+            "https://user.github.io/blog/posts/x/"
+        );
+        let html = r#"<a href="/posts/x/">p</a><link href="/assets/base.css"><img src="//cdn.example/x.png"><a href="https://x.dev/">ext</a><meta content="0; url=/posts/y/"> url("/themes/t/f.woff2") {"url":"/posts/z/"}"#;
+        let out = c.apply_base_path(html);
+        assert!(out.contains(r#"href="/blog/posts/x/""#));
+        assert!(out.contains(r#"href="/blog/assets/base.css""#));
+        assert!(
+            out.contains(r#"src="//cdn.example/x.png""#),
+            "protocol-relative stays"
+        );
+        assert!(out.contains(r#"href="https://x.dev/""#));
+        assert!(out.contains(r#"url=/blog/posts/y/""#));
+        assert!(out.contains(r#"url("/blog/themes/t/f.woff2")"#));
+        assert!(out.contains(r#"{"url":"/blog/posts/z/"}"#));
+        let root = SiteConfig::from_json(r#"{"url":"https://t.dev"}"#).unwrap();
+        assert_eq!(root.base_path(), "");
+        assert_eq!(root.apply_base_path(html), html);
+    }
+
+    #[test]
     fn cdn_rewrites_only_asset_urls() {
-        let cdn = CdnConfig { url: "https://cdn.example.com/".into(), version: "abc".into(), ..Default::default() };
+        let cdn = CdnConfig {
+            url: "https://cdn.example.com/".into(),
+            version: "abc".into(),
+            ..Default::default()
+        };
         let html = r#"<link href="/assets/base.css"><img src="/images/a.png?w=1"><a href="/posts/x/">p</a><a href="/images/">i</a><script src="/themes/t/fx.js"></script>"#;
         let out = cdn.apply(html);
         assert!(out.contains(r#"href="https://cdn.example.com/assets/base.css?v=abc""#));
-        assert!(out.contains(r#"src="https://cdn.example.com/images/a.png?w=1""#), "an existing query is kept as is");
-        assert!(out.contains(r#"href="/posts/x/""#), "page links are untouched");
+        assert!(
+            out.contains(r#"src="https://cdn.example.com/images/a.png?w=1""#),
+            "an existing query is kept as is"
+        );
+        assert!(
+            out.contains(r#"href="/posts/x/""#),
+            "page links are untouched"
+        );
         assert!(out.contains(r#"src="https://cdn.example.com/themes/t/fx.js?v=abc""#));
-        assert_eq!(cdn.apply(r#"src: url("/themes/t/fonts/a.woff2")"#), r#"src: url("https://cdn.example.com/themes/t/fonts/a.woff2?v=abc")"#);
+        assert_eq!(
+            cdn.apply(r#"src: url("/themes/t/fonts/a.woff2")"#),
+            r#"src: url("https://cdn.example.com/themes/t/fonts/a.woff2?v=abc")"#
+        );
         let off = CdnConfig::default();
         assert_eq!(off.apply(html), html);
-        let root_only = CdnConfig { url: "https://c.dev".into(), paths: vec!["/".into()], ..Default::default() };
-        assert!(root_only.prefixes().is_empty(), "the root is never an asset prefix");
+        let root_only = CdnConfig {
+            url: "https://c.dev".into(),
+            paths: vec!["/".into()],
+            ..Default::default()
+        };
+        assert!(
+            root_only.prefixes().is_empty(),
+            "the root is never an asset prefix"
+        );
         assert!(cdn.is_asset_path("/assets/x.js") && !cdn.is_asset_path("/posts/x/"));
     }
 
     #[test]
     fn defaults_and_normalization() {
-        let c = SiteConfig::from_json(r#"{"title":"T","url":"https://x.dev/","postPath":"{slug}"}"#).unwrap();
+        let c =
+            SiteConfig::from_json(r#"{"title":"T","url":"https://x.dev/","postPath":"{slug}"}"#)
+                .unwrap();
         assert_eq!(c.url, "https://x.dev");
         assert_eq!(c.post_url("a"), "/a/");
         assert_eq!(c.absolute("/rss.xml"), "https://x.dev/rss.xml");

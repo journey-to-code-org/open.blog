@@ -71,6 +71,8 @@ pub struct Post {
     pub source_url: Option<String>,
     /// Theme override for this post.
     pub theme: Option<String>,
+    /// Old addresses that redirect here (`/old-slug/`), for moved or renamed posts.
+    pub aliases: Vec<String>,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -118,6 +120,7 @@ pub struct Page {
     pub theme: Option<String>,
     /// Add this page to the header navigation.
     pub nav: bool,
+    pub aliases: Vec<String>,
     pub source: String,
 }
 
@@ -137,7 +140,11 @@ pub struct Site {
 impl Site {
     /// Build the site model. Hard errors (unparseable front matter, missing
     /// titles, duplicate slugs) fail the build; softer problems become warnings.
-    pub fn load(config: SiteConfig, sources: Sources, options: LoadOptions) -> Result<Site, Vec<String>> {
+    pub fn load(
+        config: SiteConfig,
+        sources: Sources,
+        options: LoadOptions,
+    ) -> Result<Site, Vec<String>> {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
         let render_options = RenderOptions {
@@ -165,7 +172,8 @@ impl Site {
         let mut scheduled: Vec<Scheduled> = Vec::new();
         // Every slug seen so far, including held-back posts, so a draft or
         // scheduled post cannot silently collide with a published one later.
-        let mut slug_sources: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut slug_sources: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         for file in &sources.posts {
             match load_post(file, &config, render_options) {
                 Ok(post) => {
@@ -201,7 +209,10 @@ impl Site {
             match load_page(file, render_options) {
                 Ok(page) => {
                     if pages.iter().any(|p| p.slug == page.slug) {
-                        errors.push(format!("{}: duplicate page slug `{}`", file.path, page.slug));
+                        errors.push(format!(
+                            "{}: duplicate page slug `{}`",
+                            file.path, page.slug
+                        ));
                     } else {
                         pages.push(page);
                     }
@@ -217,7 +228,9 @@ impl Site {
 
         // Attach posts to series, creating implicit series for unknown slugs.
         for (index, post) in posts.iter().enumerate() {
-            let Some(series_slug) = &post.series else { continue };
+            let Some(series_slug) = &post.series else {
+                continue;
+            };
             let position = match series.iter().position(|s| &s.slug == series_slug) {
                 Some(p) => p,
                 None => {
@@ -272,10 +285,23 @@ impl Site {
             }
         }
         let mut tags: Vec<Tag> = tag_map.into_values().collect();
-        tags.sort_by(|a, b| b.posts.len().cmp(&a.posts.len()).then_with(|| a.name.cmp(&b.name)));
+        tags.sort_by(|a, b| {
+            b.posts
+                .len()
+                .cmp(&a.posts.len())
+                .then_with(|| a.name.cmp(&b.name))
+        });
 
         scheduled.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.slug.cmp(&b.slug)));
-        Ok(Site { config, posts, series, tags, pages, scheduled, warnings })
+        Ok(Site {
+            config,
+            posts,
+            series,
+            tags,
+            pages,
+            scheduled,
+            warnings,
+        })
     }
 
     pub fn series_by_slug(&self, slug: &str) -> Option<&Series> {
@@ -364,7 +390,11 @@ impl Site {
             .enumerate()
             .filter(|(i, _)| *i != index)
             .map(|(i, other)| {
-                let shared_tags = other.tags.iter().filter(|t| post.tags.iter().any(|p| p.slug == t.slug)).count() as u32;
+                let shared_tags = other
+                    .tags
+                    .iter()
+                    .filter(|t| post.tags.iter().any(|p| p.slug == t.slug))
+                    .count() as u32;
                 let same_series = u32::from(post.series.is_some() && post.series == other.series);
                 (shared_tags * 2 + same_series * 3, i)
             })
@@ -381,7 +411,10 @@ impl Site {
 }
 
 fn first<'a>(fm: &'a FrontMatter, keys: &[&str]) -> Option<&'a str> {
-    keys.iter().find_map(|k| fm.get(k)).map(str::trim).filter(|v| !v.is_empty())
+    keys.iter()
+        .find_map(|k| fm.get(k))
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
 }
 
 fn file_stem(path: &str) -> &str {
@@ -394,7 +427,11 @@ fn optional_string(value: Option<&str>) -> Option<String> {
 }
 
 /// Parse one post file.
-pub fn load_post(file: &SourceFile, config: &SiteConfig, options: RenderOptions) -> Result<Post, String> {
+pub fn load_post(
+    file: &SourceFile,
+    config: &SiteConfig,
+    options: RenderOptions,
+) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
     let rendered = markdown::render(&doc.body, options);
@@ -408,42 +445,62 @@ pub fn load_post(file: &SourceFile, config: &SiteConfig, options: RenderOptions)
             .map(|h| h.text.clone())
             .ok_or("post needs a `title` in its front matter (or a leading # heading)")?,
     };
-    let slug = first(fm, &["slug"]).map(slugify).unwrap_or_else(|| from_file_stem(file_stem(&file.path)));
+    let slug = first(fm, &["slug"])
+        .map(slugify)
+        .unwrap_or_else(|| from_file_stem(file_stem(&file.path)));
     if slug.is_empty() {
         return Err("could not derive a slug; add `slug:` to the front matter".into());
     }
     let draft = fm.get_bool("draft").unwrap_or(false)
         || first(fm, &["status"]).is_some_and(|s| s.eq_ignore_ascii_case("draft"));
     let date = match first(fm, &["date", "published", "publishedAt", "pubDate"]) {
-        Some(raw) => DateTime::parse(raw).ok_or_else(|| format!("unrecognised date `{raw}` (use YYYY-MM-DD or RFC 3339)"))?,
+        Some(raw) => DateTime::parse(raw)
+            .ok_or_else(|| format!("unrecognised date `{raw}` (use YYYY-MM-DD or RFC 3339)"))?,
         None if draft => DateTime::from_unix(0),
         None => return Err("post needs a `date` (YYYY-MM-DD or RFC 3339)".into()),
     };
     let updated = match first(fm, &["updated", "lastmod", "modified", "updatedAt"]) {
-        Some(raw) => Some(DateTime::parse(raw).ok_or_else(|| format!("unrecognised updated date `{raw}`"))?),
+        Some(raw) => {
+            Some(DateTime::parse(raw).ok_or_else(|| format!("unrecognised updated date `{raw}`"))?)
+        }
         None => None,
     };
     let tags: Vec<TagRef> = {
         let mut seen = Vec::new();
         let mut out = Vec::new();
-        for name in fm.get_list("tags").into_iter().chain(fm.get_list("categories")) {
+        for name in fm
+            .get_list("tags")
+            .into_iter()
+            .chain(fm.get_list("categories"))
+        {
             let name = name.trim().to_string();
             let tag_slug = crate::slug::limit(&slugify(&name), 64);
             if name.is_empty() || tag_slug.is_empty() || seen.contains(&tag_slug) {
                 continue;
             }
             seen.push(tag_slug.clone());
-            out.push(TagRef { name, slug: tag_slug });
+            out.push(TagRef {
+                name,
+                slug: tag_slug,
+            });
         }
         out
     };
-    let series = first(fm, &["series"]).map(slugify).filter(|s| !s.is_empty());
-    let series_order = fm.get_u32("seriesOrder").or_else(|| fm.get_u32("series_order")).or_else(|| fm.get_u32("part"));
+    let series = first(fm, &["series"])
+        .map(slugify)
+        .filter(|s| !s.is_empty());
+    let series_order = fm
+        .get_u32("seriesOrder")
+        .or_else(|| fm.get_u32("series_order"))
+        .or_else(|| fm.get_u32("part"));
     let description = first(fm, &["description", "summary", "brief", "excerpt"])
         .map(str::to_string)
         .unwrap_or_else(|| markdown::excerpt(&rendered.text, 180));
-    let cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"])).or(rendered.first_image.clone());
-    let cover_alt = first(fm, &["coverAlt", "imageAlt", "cover_alt"]).unwrap_or("").to_string();
+    let cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]))
+        .or(rendered.first_image.clone());
+    let cover_alt = first(fm, &["coverAlt", "imageAlt", "cover_alt"])
+        .unwrap_or("")
+        .to_string();
 
     Ok(Post {
         url: config.post_url(&slug),
@@ -459,8 +516,12 @@ pub fn load_post(file: &SourceFile, config: &SiteConfig, options: RenderOptions)
         description,
         draft,
         canonical: optional_string(first(fm, &["canonical", "canonicalUrl", "canonical_url"])),
-        source_url: optional_string(first(fm, &["sourceUrl", "source_url", "hashnodeUrl", "originalUrl"])),
+        source_url: optional_string(first(
+            fm,
+            &["sourceUrl", "source_url", "hashnodeUrl", "originalUrl"],
+        )),
         theme: optional_string(first(fm, &["theme"])),
+        aliases: aliases(fm)?,
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
@@ -476,14 +537,20 @@ fn load_series(file: &SourceFile, options: RenderOptions) -> Result<Series, Stri
     let fm = &doc.front_matter;
     let rendered = markdown::render(&doc.body, options);
     let stem = file_stem(&file.path);
-    let slug = first(fm, &["slug"]).map(slugify).unwrap_or_else(|| slugify(stem));
-    let name = first(fm, &["name", "title"]).map(str::to_string).unwrap_or_else(|| humanize(&slug));
+    let slug = first(fm, &["slug"])
+        .map(slugify)
+        .unwrap_or_else(|| slugify(stem));
+    let name = first(fm, &["name", "title"])
+        .map(str::to_string)
+        .unwrap_or_else(|| humanize(&slug));
     Ok(Series {
         url: format!("/series/{slug}/"),
         name,
         slug,
         description_html: rendered.html,
-        description_text: first(fm, &["description"]).map(str::to_string).unwrap_or_else(|| markdown::excerpt(&rendered.text, 200)),
+        description_text: first(fm, &["description"])
+            .map(str::to_string)
+            .unwrap_or_else(|| markdown::excerpt(&rendered.text, 200)),
         theme: optional_string(first(fm, &["theme"])),
         cover: optional_string(first(fm, &["cover", "image"])),
         order: fm.get_u32("order").unwrap_or(1000),
@@ -497,23 +564,68 @@ fn load_page(file: &SourceFile, options: RenderOptions) -> Result<Page, String> 
     let fm = &doc.front_matter;
     let rendered = markdown::render(&doc.body, options);
     let stem = file_stem(&file.path);
-    let slug = first(fm, &["slug"]).map(slugify).unwrap_or_else(|| slugify(stem));
+    let slug = first(fm, &["slug"])
+        .map(slugify)
+        .unwrap_or_else(|| slugify(stem));
     let title = match first(fm, &["title"]) {
         Some(t) => t.to_string(),
-        None => rendered.headings.iter().find(|h| h.level == 1).map(|h| h.text.clone()).unwrap_or_else(|| humanize(&slug)),
+        None => rendered
+            .headings
+            .iter()
+            .find(|h| h.level == 1)
+            .map(|h| h.text.clone())
+            .unwrap_or_else(|| humanize(&slug)),
     };
     Ok(Page {
         url: format!("/{slug}/"),
         title,
         slug,
-        description: first(fm, &["description"]).map(str::to_string).unwrap_or_else(|| markdown::excerpt(&rendered.text, 180)),
+        description: first(fm, &["description"])
+            .map(str::to_string)
+            .unwrap_or_else(|| markdown::excerpt(&rendered.text, 180)),
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
         theme: optional_string(first(fm, &["theme"])),
         nav: fm.get_bool("nav").unwrap_or(false),
+        aliases: aliases(fm)?,
         source: file.path.clone(),
     })
+}
+
+/// Normalise `aliases:` (or `redirectFrom:`) to `/path/` form and reject
+/// anything that is not a site path.
+fn aliases(fm: &FrontMatter) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for raw in fm
+        .get_list("aliases")
+        .into_iter()
+        .chain(fm.get_list("redirectFrom"))
+        .chain(fm.get_list("redirect_from"))
+    {
+        let value = raw.trim();
+        if value.is_empty() {
+            continue;
+        }
+        if value.contains("://")
+            || value.contains("..")
+            || value.contains(['?', '#', '\\'])
+            || value.len() > 200
+        {
+            return Err(format!(
+                "alias `{value}` must be a site path like /old-slug/"
+            ));
+        }
+        let trimmed = value.trim_matches('/');
+        if trimmed.is_empty() {
+            return Err("an alias cannot be the site root".into());
+        }
+        let normalised = format!("/{trimmed}/");
+        if !out.contains(&normalised) {
+            out.push(normalised);
+        }
+    }
+    Ok(out)
 }
 
 /// `rust-game-dev` -> `Rust Game Dev`
@@ -536,11 +648,17 @@ mod tests {
     use super::*;
 
     fn post(path: &str, body: &str) -> SourceFile {
-        SourceFile { path: path.into(), contents: body.into() }
+        SourceFile {
+            path: path.into(),
+            contents: body.into(),
+        }
     }
 
     fn site(sources: Sources) -> Site {
-        let config = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","theme":"base","postPath":"/{slug}/"}"#).unwrap();
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","theme":"base","postPath":"/{slug}/"}"#,
+        )
+        .unwrap();
         Site::load(config, sources, LoadOptions::default()).unwrap()
     }
 
@@ -573,50 +691,128 @@ mod tests {
     }
 
     #[test]
+    fn aliases_are_normalised_and_validated() {
+        let s = site(Sources {
+            posts: vec![post("posts/a.md", "---\ntitle: A\ndate: 2026-01-01\naliases: [old-a, /2024/03/old-a/, /old-a/]\n---\nx")],
+            pages: vec![post("pages/p.md", "---\ntitle: P\nredirectFrom:\n  - /about-me/\n---\nx")],
+            ..Default::default()
+        });
+        assert_eq!(s.posts[0].aliases, vec!["/old-a/", "/2024/03/old-a/"]);
+        assert_eq!(s.pages[0].aliases, vec!["/about-me/"]);
+        let bad = Site::load(
+            SiteConfig::default(),
+            Sources { posts: vec![post("posts/b.md", "---\ntitle: B\ndate: 2026-01-01\naliases: [https://elsewhere.example/x]\n---\nx")], ..Default::default() },
+            LoadOptions::default(),
+        )
+        .unwrap_err();
+        assert!(bad[0].contains("alias"));
+    }
+
+    #[test]
     fn related_posts_rank_by_series_and_shared_tags() {
         let s = site(Sources {
             posts: vec![
-                post("posts/a.md", "---\ntitle: A\ndate: 2026-04-01\ntags: [rust, wasm]\nseries: s\n---\nx"),
-                post("posts/b.md", "---\ntitle: B\ndate: 2026-03-01\ntags: [rust]\nseries: s\n---\nx"),
-                post("posts/c.md", "---\ntitle: C\ndate: 2026-02-01\ntags: [rust, wasm]\n---\nx"),
-                post("posts/d.md", "---\ntitle: D\ndate: 2026-01-01\ntags: [cooking]\n---\nx"),
-                post("posts/e.md", "---\ntitle: E\ndate: 2025-12-01\ntags: [rust]\n---\nx"),
+                post(
+                    "posts/a.md",
+                    "---\ntitle: A\ndate: 2026-04-01\ntags: [rust, wasm]\nseries: s\n---\nx",
+                ),
+                post(
+                    "posts/b.md",
+                    "---\ntitle: B\ndate: 2026-03-01\ntags: [rust]\nseries: s\n---\nx",
+                ),
+                post(
+                    "posts/c.md",
+                    "---\ntitle: C\ndate: 2026-02-01\ntags: [rust, wasm]\n---\nx",
+                ),
+                post(
+                    "posts/d.md",
+                    "---\ntitle: D\ndate: 2026-01-01\ntags: [cooking]\n---\nx",
+                ),
+                post(
+                    "posts/e.md",
+                    "---\ntitle: E\ndate: 2025-12-01\ntags: [rust]\n---\nx",
+                ),
             ],
             ..Default::default()
         });
-        let names = |ids: Vec<usize>| ids.iter().map(|&i| s.posts[i].title.as_str()).collect::<Vec<_>>();
+        let names = |ids: Vec<usize>| {
+            ids.iter()
+                .map(|&i| s.posts[i].title.as_str())
+                .collect::<Vec<_>>()
+        };
         // A: B shares series + rust (5), C shares rust + wasm (4), E shares rust (2); D nothing.
         assert_eq!(names(s.related(0, 10)), vec!["B", "C", "E"]);
         assert_eq!(names(s.related(0, 1)), vec!["B"]);
-        assert!(s.related(3, 10).is_empty(), "no overlap means no related posts");
+        assert!(
+            s.related(3, 10).is_empty(),
+            "no overlap means no related posts"
+        );
         assert!(s.related(0, 0).is_empty());
     }
 
     #[test]
     fn future_dated_posts_are_held_back_until_their_time() {
-        let config = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#).unwrap();
+        let config =
+            SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#)
+                .unwrap();
         let sources = || Sources {
             posts: vec![
                 post("posts/now.md", "---\ntitle: Now\ndate: 2026-10-01\n---\nx"),
-                post("posts/later.md", "---\ntitle: Later\ndate: 2026-12-25T09:00:00Z\nseries: s\n---\ny"),
-                post("posts/later2.md", "---\ntitle: Later 2\ndate: 2026-11-30\n---\nz"),
+                post(
+                    "posts/later.md",
+                    "---\ntitle: Later\ndate: 2026-12-25T09:00:00Z\nseries: s\n---\ny",
+                ),
+                post(
+                    "posts/later2.md",
+                    "---\ntitle: Later 2\ndate: 2026-11-30\n---\nz",
+                ),
             ],
             series: vec![post("series/s.md", "---\nname: S\n---\nabout")],
             ..Default::default()
         };
         let now = DateTime::parse("2026-10-22T00:00:00Z").unwrap();
-        let s = Site::load(config.clone(), sources(), LoadOptions { include_drafts: false, now: Some(now) }).unwrap();
+        let s = Site::load(
+            config.clone(),
+            sources(),
+            LoadOptions {
+                include_drafts: false,
+                now: Some(now),
+            },
+        )
+        .unwrap();
         assert_eq!(s.posts.len(), 1);
-        assert_eq!(s.scheduled.iter().map(|x| x.slug.as_str()).collect::<Vec<_>>(), vec!["later2", "later"]);
+        assert_eq!(
+            s.scheduled
+                .iter()
+                .map(|x| x.slug.as_str())
+                .collect::<Vec<_>>(),
+            vec!["later2", "later"]
+        );
         assert_eq!(s.next_scheduled().unwrap().ymd(), "2026-11-30");
         assert!(s.series_by_slug("s").unwrap().posts.is_empty());
         // Once the date passes, the same sources publish.
         let later = DateTime::parse("2026-12-26T00:00:00Z").unwrap();
-        let s = Site::load(config.clone(), sources(), LoadOptions { include_drafts: false, now: Some(later) }).unwrap();
+        let s = Site::load(
+            config.clone(),
+            sources(),
+            LoadOptions {
+                include_drafts: false,
+                now: Some(later),
+            },
+        )
+        .unwrap();
         assert_eq!(s.posts.len(), 3);
         assert!(s.scheduled.is_empty());
         // Previews include everything; no clock means no scheduling.
-        let s = Site::load(config.clone(), sources(), LoadOptions { include_drafts: true, now: Some(now) }).unwrap();
+        let s = Site::load(
+            config.clone(),
+            sources(),
+            LoadOptions {
+                include_drafts: true,
+                now: Some(now),
+            },
+        )
+        .unwrap();
         assert_eq!(s.posts.len(), 3);
         let s = Site::load(config, sources(), LoadOptions::default()).unwrap();
         assert_eq!(s.posts.len(), 3);
@@ -630,12 +826,21 @@ mod tests {
             config,
             Sources {
                 posts: vec![
-                    post("posts/a.md", "---\ntitle: A\nslug: same\ndate: 2030-01-01\n---\nx"),
-                    post("posts/b.md", "---\ntitle: B\nslug: same\ndate: 2026-01-01\n---\ny"),
+                    post(
+                        "posts/a.md",
+                        "---\ntitle: A\nslug: same\ndate: 2030-01-01\n---\nx",
+                    ),
+                    post(
+                        "posts/b.md",
+                        "---\ntitle: B\nslug: same\ndate: 2026-01-01\n---\ny",
+                    ),
                 ],
                 ..Default::default()
             },
-            LoadOptions { include_drafts: false, now: Some(now) },
+            LoadOptions {
+                include_drafts: false,
+                now: Some(now),
+            },
         )
         .unwrap_err();
         assert!(err[0].contains("duplicate post slug"));
@@ -644,7 +849,10 @@ mod tests {
     #[test]
     fn missing_series_file_is_a_warning_and_errors_are_collected() {
         let s = site(Sources {
-            posts: vec![post("posts/a.md", "---\ntitle: A\ndate: 2026-01-01\nseries: Mystery Series\n---\nx")],
+            posts: vec![post(
+                "posts/a.md",
+                "---\ntitle: A\ndate: 2026-01-01\nseries: Mystery Series\n---\nx",
+            )],
             ..Default::default()
         });
         assert_eq!(s.series[0].slug, "mystery-series");
@@ -654,7 +862,13 @@ mod tests {
         let config = SiteConfig::default();
         let err = Site::load(
             config,
-            Sources { posts: vec![post("posts/bad.md", "---\ntitle: No date\n---\nx"), post("posts/worse.md", "---\ndate: 2026-01-01\n---\nno title")], ..Default::default() },
+            Sources {
+                posts: vec![
+                    post("posts/bad.md", "---\ntitle: No date\n---\nx"),
+                    post("posts/worse.md", "---\ndate: 2026-01-01\n---\nno title"),
+                ],
+                ..Default::default()
+            },
             LoadOptions::default(),
         )
         .unwrap_err();

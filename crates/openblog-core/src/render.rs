@@ -1,7 +1,7 @@
 //! HTML page generation. Pages are semantic HTML (`header`, `nav`, `main`,
 //! `article`, `time`, `details`, ...) enhanced by a few autonomous custom
 //! elements (`<ob-theme-toggle>`, `<ob-typewriter>`, `<ob-search>`,
-//! `<ob-code-copy>`, `<ob-back-to-top>`). Every page works without JavaScript.
+//! `<ob-code>`, `<ob-back-to-top>`). Every page works without JavaScript.
 //!
 //! Appearance comes entirely from CSS custom properties (`--ob-*`) written by
 //! the theme, so the same markup can look like any theme.
@@ -22,7 +22,9 @@ pub struct OutputFile {
 }
 
 /// Paths reserved by the generator. Pages and posts may not use them.
-const RESERVED: &[&str] = &["series", "tags", "archive", "search", "page", "themes", "assets", "api"];
+const RESERVED: &[&str] = &[
+    "series", "tags", "archive", "search", "page", "themes", "assets", "api",
+];
 
 struct Meta<'a> {
     title: String,
@@ -98,7 +100,12 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         }
     }
     for post in &site.posts {
-        let first = post.url.trim_start_matches('/').split('/').next().unwrap_or("");
+        let first = post
+            .url
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .unwrap_or("");
         if RESERVED.contains(&first) {
             return Err(format!(
                 "{}: the post URL `{}` collides with a reserved path; adjust `postPath` or the slug",
@@ -107,21 +114,41 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         }
     }
 
-    let r = Renderer { site, themes: &resolved };
+    let r = Renderer {
+        site,
+        themes: &resolved,
+    };
     let c = &site.config;
-    let mut out = Output { files: Vec::new(), seen: HashSet::new() };
+    let mut out = Output {
+        files: Vec::new(),
+        seen: HashSet::new(),
+    };
     let default_theme = &resolved[&c.theme];
 
     // Home and pagination.
-    let per_page = if c.posts_per_page == 0 { site.posts.len().max(1) } else { c.posts_per_page };
+    let per_page = if c.posts_per_page == 0 {
+        site.posts.len().max(1)
+    } else {
+        c.posts_per_page
+    };
     let page_count = site.posts.len().div_ceil(per_page).max(1);
     for page_number in 1..=page_count {
-        let path = if page_number == 1 { "index.html".to_string() } else { format!("page/{page_number}/index.html") };
-        out.add(path, r.home(default_theme, page_number, page_count, per_page))?;
+        let path = if page_number == 1 {
+            "index.html".to_string()
+        } else {
+            format!("page/{page_number}/index.html")
+        };
+        out.add(
+            path,
+            r.home(default_theme, page_number, page_count, per_page),
+        )?;
     }
 
     for (index, post) in site.posts.iter().enumerate() {
         out.add(url_to_file(&post.url), r.post(index, post))?;
+        for alias in &post.aliases {
+            out.add(url_to_file(alias), r.alias_page(&post.url, &post.title))?;
+        }
     }
 
     out.add("series/index.html".into(), r.series_index(default_theme))?;
@@ -138,7 +165,12 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     out.add("search/index.html".into(), r.search_page(default_theme))?;
     for page in &site.pages {
         out.add(url_to_file(&page.url), r.page(page))?;
+        for alias in &page.aliases {
+            out.add(url_to_file(alias), r.alias_page(&page.url, &page.title))?;
+        }
     }
+    // GitHub Pages skips Jekyll processing when this file exists.
+    out.add(".nojekyll".into(), String::new())?;
     out.add("404.html".into(), r.not_found(default_theme))?;
 
     // Per-theme generated assets.
@@ -146,8 +178,14 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     theme_names.sort();
     for name in theme_names {
         let theme = &resolved[name];
-        out.add(format!("themes/{name}/tokens.css"), c.cdn.apply(&theme.tokens_css()))?;
-        out.add(format!("themes/{name}/resolved.json"), theme.manifest_json())?;
+        out.add(
+            format!("themes/{name}/tokens.css"),
+            c.apply_base_path(&c.cdn.apply(&theme.tokens_css())),
+        )?;
+        out.add(
+            format!("themes/{name}/resolved.json"),
+            theme.manifest_json(),
+        )?;
     }
 
     if c.feeds.rss {
@@ -157,13 +195,19 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         out.add("feed.json".into(), feeds::json_feed(site))?;
     }
     if c.feeds.sitemap {
-        out.add("sitemap.xml".into(), feeds::sitemap(site, &["/search/".to_string(), "/archive/".to_string()]))?;
+        out.add(
+            "sitemap.xml".into(),
+            feeds::sitemap(site, &["/search/".to_string(), "/archive/".to_string()]),
+        )?;
         out.add("robots.txt".into(), feeds::robots(site))?;
     }
     if c.feeds.portfolio_snapshot {
         out.add("api/blog.json".into(), feeds::portfolio_snapshot(site, 4))?;
     }
-    out.add("search.json".into(), feeds::search_index(site))?;
+    out.add(
+        "search.json".into(),
+        c.apply_base_path(&feeds::search_index(site)),
+    )?;
 
     Ok(out.files)
 }
@@ -183,11 +227,18 @@ impl<'a> Renderer<'a> {
         } else {
             format!("{} · {}", meta.title, c.title)
         };
-        let canonical = meta.canonical.clone().unwrap_or_else(|| c.absolute(&meta.path));
+        let canonical = meta
+            .canonical
+            .clone()
+            .unwrap_or_else(|| c.absolute(&meta.path));
         let image = meta
             .image
             .as_deref()
-            .or(if c.og_image.is_empty() { None } else { Some(c.og_image.as_str()) })
+            .or(if c.og_image.is_empty() {
+                None
+            } else {
+                Some(c.og_image.as_str())
+            })
             .map(|i| c.absolute(i));
 
         let mut h = String::with_capacity(body.len() + 4096);
@@ -200,12 +251,18 @@ impl<'a> Renderer<'a> {
         h.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
         h.push_str(&format!("<title>{}</title>\n", text(&full_title)));
         if !meta.description.is_empty() {
-            h.push_str(&format!("<meta name=\"description\" content=\"{}\">\n", attr(&meta.description)));
+            h.push_str(&format!(
+                "<meta name=\"description\" content=\"{}\">\n",
+                attr(&meta.description)
+            ));
         }
         if meta.noindex {
             h.push_str("<meta name=\"robots\" content=\"noindex\">\n");
         }
-        h.push_str(&format!("<link rel=\"canonical\" href=\"{}\">\n", attr(&canonical)));
+        h.push_str(&format!(
+            "<link rel=\"canonical\" href=\"{}\">\n",
+            attr(&canonical)
+        ));
         h.push_str("<meta name=\"generator\" content=\"open.blog\">\n");
         if let Some(page) = theme.colors.get("light").and_then(|m| m.get("page")) {
             h.push_str(&format!("<meta name=\"theme-color\" content=\"{}\" media=\"(prefers-color-scheme: light)\">\n", attr(page)));
@@ -214,27 +271,54 @@ impl<'a> Renderer<'a> {
             h.push_str(&format!("<meta name=\"theme-color\" content=\"{}\" media=\"(prefers-color-scheme: dark)\">\n", attr(page)));
         }
         // Social cards.
-        h.push_str(&format!("<meta property=\"og:site_name\" content=\"{}\">\n", attr(&c.title)));
-        h.push_str(&format!("<meta property=\"og:type\" content=\"{}\">\n", meta.kind));
-        h.push_str(&format!("<meta property=\"og:title\" content=\"{}\">\n", attr(&meta.title.clone().if_empty(&c.title))));
+        h.push_str(&format!(
+            "<meta property=\"og:site_name\" content=\"{}\">\n",
+            attr(&c.title)
+        ));
+        h.push_str(&format!(
+            "<meta property=\"og:type\" content=\"{}\">\n",
+            meta.kind
+        ));
+        h.push_str(&format!(
+            "<meta property=\"og:title\" content=\"{}\">\n",
+            attr(&meta.title.clone().if_empty(&c.title))
+        ));
         if !meta.description.is_empty() {
-            h.push_str(&format!("<meta property=\"og:description\" content=\"{}\">\n", attr(&meta.description)));
+            h.push_str(&format!(
+                "<meta property=\"og:description\" content=\"{}\">\n",
+                attr(&meta.description)
+            ));
         }
-        h.push_str(&format!("<meta property=\"og:url\" content=\"{}\">\n", attr(&canonical)));
+        h.push_str(&format!(
+            "<meta property=\"og:url\" content=\"{}\">\n",
+            attr(&canonical)
+        ));
         if let Some(image) = &image {
-            h.push_str(&format!("<meta property=\"og:image\" content=\"{}\">\n", attr(image)));
+            h.push_str(&format!(
+                "<meta property=\"og:image\" content=\"{}\">\n",
+                attr(image)
+            ));
             h.push_str("<meta name=\"twitter:card\" content=\"summary_large_image\">\n");
         } else {
             h.push_str("<meta name=\"twitter:card\" content=\"summary\">\n");
         }
         if let Some(p) = &meta.published {
-            h.push_str(&format!("<meta property=\"article:published_time\" content=\"{}\">\n", attr(p)));
+            h.push_str(&format!(
+                "<meta property=\"article:published_time\" content=\"{}\">\n",
+                attr(p)
+            ));
         }
         if let Some(m) = &meta.modified {
-            h.push_str(&format!("<meta property=\"article:modified_time\" content=\"{}\">\n", attr(m)));
+            h.push_str(&format!(
+                "<meta property=\"article:modified_time\" content=\"{}\">\n",
+                attr(m)
+            ));
         }
         for tag in &meta.tags {
-            h.push_str(&format!("<meta property=\"article:tag\" content=\"{}\">\n", attr(tag)));
+            h.push_str(&format!(
+                "<meta property=\"article:tag\" content=\"{}\">\n",
+                attr(tag)
+            ));
         }
         // Feeds.
         if c.feeds.rss {
@@ -244,22 +328,37 @@ impl<'a> Renderer<'a> {
             h.push_str(&format!("<link rel=\"alternate\" type=\"application/feed+json\" title=\"{}\" href=\"/feed.json\">\n", attr(&c.title)));
         }
         if !c.favicon.is_empty() {
-            h.push_str(&format!("<link rel=\"icon\" href=\"{}\">\n", attr(&c.favicon)));
+            h.push_str(&format!(
+                "<link rel=\"icon\" href=\"{}\">\n",
+                attr(&c.favicon)
+            ));
         }
         // Restore a visitor's saved color scheme before first paint.
         h.push_str("<script>try{var s=localStorage.getItem(\"ob-scheme\");if(s===\"light\"||s===\"dark\")document.documentElement.dataset.theme=s}catch(e){}</script>\n");
         // Order matters: structure, then tokens, then the theme's own rules.
         h.push_str("<link rel=\"stylesheet\" href=\"/assets/base.css\">\n");
-        h.push_str(&format!("<link rel=\"stylesheet\" href=\"{}\">\n", attr(&theme.tokens_url())));
+        h.push_str(&format!(
+            "<link rel=\"stylesheet\" href=\"{}\">\n",
+            attr(&theme.tokens_url())
+        ));
         for sheet in &theme.stylesheets {
-            h.push_str(&format!("<link rel=\"stylesheet\" href=\"{}\">\n", attr(sheet)));
+            h.push_str(&format!(
+                "<link rel=\"stylesheet\" href=\"{}\">\n",
+                attr(sheet)
+            ));
         }
         h.push_str("<script type=\"module\" src=\"/assets/openblog.js\"></script>\n");
         for script in &theme.scripts {
-            h.push_str(&format!("<script type=\"module\" src=\"{}\"></script>\n", attr(script)));
+            h.push_str(&format!(
+                "<script type=\"module\" src=\"{}\"></script>\n",
+                attr(script)
+            ));
         }
         if let Some(ld) = &meta.json_ld {
-            h.push_str(&format!("<script type=\"application/ld+json\">{}</script>\n", ld.replace("</", "<\\/")));
+            h.push_str(&format!(
+                "<script type=\"application/ld+json\">{}</script>\n",
+                ld.replace("</", "<\\/")
+            ));
         }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
         if !c.snippets.head.trim().is_empty() {
@@ -279,13 +378,17 @@ impl<'a> Renderer<'a> {
             h.push('\n');
         }
         h.push_str("</body>\n</html>\n");
-        c.cdn.apply(&h)
+        // CDN first (it matches site-relative asset paths), then the base path for everything else.
+        c.apply_base_path(&c.cdn.apply(&h))
     }
 
     fn site_header(&self, theme: &Theme, current: &str) -> String {
         let c = &self.site.config;
-        let mut links: Vec<(String, String)> =
-            c.nav.iter().map(|l| (l.label.clone(), l.href.clone())).collect();
+        let mut links: Vec<(String, String)> = c
+            .nav
+            .iter()
+            .map(|l| (l.label.clone(), l.href.clone()))
+            .collect();
         for page in self.site.pages.iter().filter(|p| p.nav) {
             links.push((page.title.clone(), page.url.clone()));
         }
@@ -300,7 +403,11 @@ impl<'a> Renderer<'a> {
                 text(&c.title)
             )
         };
-        h.push_str(&format!("<a class=\"ob-brand\" href=\"/\" aria-label=\"{} home\">{}</a>\n", attr(&c.title), brand_inner));
+        h.push_str(&format!(
+            "<a class=\"ob-brand\" href=\"/\" aria-label=\"{} home\">{}</a>\n",
+            attr(&c.title),
+            brand_inner
+        ));
         h.push_str("<nav class=\"ob-nav\" aria-label=\"Main navigation\">\n<ul>\n");
         for (i, (label, href)) in links.iter().enumerate() {
             let visible = match &theme.nav_label {
@@ -309,7 +416,11 @@ impl<'a> Renderer<'a> {
                     .replace("{label}", label),
                 None => label.clone(),
             };
-            let current_attr = if href == current { " aria-current=\"page\"" } else { "" };
+            let current_attr = if href == current {
+                " aria-current=\"page\""
+            } else {
+                ""
+            };
             h.push_str(&format!(
                 "<li><a class=\"ob-nav-link\" href=\"{}\" aria-label=\"{}\"{}>{}</a></li>\n",
                 attr(href),
@@ -329,7 +440,11 @@ impl<'a> Renderer<'a> {
         let year = self.site.latest_update().map(|d| d.year()).unwrap_or(2026);
         let mut h = String::from("<footer class=\"ob-footer\">\n<div class=\"ob-footer-inner\">\n");
         h.push_str(&format!("<p>{}</p>\n", text(&c.footer_text(year))));
-        let mut links: Vec<(String, String)> = c.social.iter().map(|l| (l.label.clone(), l.href.clone())).collect();
+        let mut links: Vec<(String, String)> = c
+            .social
+            .iter()
+            .map(|l| (l.label.clone(), l.href.clone()))
+            .collect();
         if c.feeds.rss {
             links.push(("RSS".into(), "/rss.xml".into()));
         }
@@ -338,7 +453,12 @@ impl<'a> Renderer<'a> {
             for (label, href) in links {
                 let external = href.starts_with("http");
                 let rel = if external { " rel=\"me noopener\"" } else { "" };
-                h.push_str(&format!("<li><a href=\"{}\"{}>{}</a></li>\n", attr(&href), rel, text(&label)));
+                h.push_str(&format!(
+                    "<li><a href=\"{}\"{}>{}</a></li>\n",
+                    attr(&href),
+                    rel,
+                    text(&label)
+                ));
             }
             h.push_str("</ul></nav>\n");
         }
@@ -368,7 +488,11 @@ impl<'a> Renderer<'a> {
     }
 
     fn time(&self, post: &Post) -> String {
-        format!("<time datetime=\"{}\">{}</time>", post.date.rfc3339(), text(&post.date.short()))
+        format!(
+            "<time datetime=\"{}\">{}</time>",
+            post.date.rfc3339(),
+            text(&post.date.short())
+        )
     }
 
     fn post_list(&self, theme: &Theme, indices: &[usize]) -> String {
@@ -376,7 +500,14 @@ impl<'a> Renderer<'a> {
             return "<p class=\"ob-empty\">Nothing here yet.</p>".to_string();
         }
         let cards = theme.list_style == "cards";
-        let mut h = format!("<ul class=\"ob-list {}\">\n", if cards { "ob-list-cards" } else { "ob-list-rows" });
+        let mut h = format!(
+            "<ul class=\"ob-list {}\">\n",
+            if cards {
+                "ob-list-cards"
+            } else {
+                "ob-list-rows"
+            }
+        );
         for &i in indices {
             let post = &self.site.posts[i];
             if cards {
@@ -393,8 +524,14 @@ impl<'a> Renderer<'a> {
                 h.push_str("<span class=\"ob-card-body\"><span class=\"ob-meta\">");
                 h.push_str(&self.time(post));
                 h.push_str(&format!(" · {} min read</span>", post.reading_minutes));
-                h.push_str(&format!("<h3 class=\"ob-card-title\">{}</h3>", text(&post.title)));
-                h.push_str(&format!("<span class=\"ob-card-summary\">{}</span>", text(&post.description)));
+                h.push_str(&format!(
+                    "<h3 class=\"ob-card-title\">{}</h3>",
+                    text(&post.title)
+                ));
+                h.push_str(&format!(
+                    "<span class=\"ob-card-summary\">{}</span>",
+                    text(&post.description)
+                ));
                 h.push_str("</span></a></li>\n");
             } else {
                 h.push_str(&format!(
@@ -414,7 +551,11 @@ impl<'a> Renderer<'a> {
         for s in self.site.series.iter().filter(|s| !s.posts.is_empty()) {
             let own = self.theme(self.site.theme_for_series(s));
             let _ = theme;
-            h.push_str(&format!("<li class=\"ob-card\" data-ob-theme=\"{}\"><a class=\"ob-card-link\" href=\"{}\">", attr(&own.name), attr(&s.url)));
+            h.push_str(&format!(
+                "<li class=\"ob-card\" data-ob-theme=\"{}\"><a class=\"ob-card-link\" href=\"{}\">",
+                attr(&own.name),
+                attr(&s.url)
+            ));
             if let Some(cover) = &s.cover {
                 h.push_str(&format!("<img class=\"ob-card-cover\" src=\"{}\" alt=\"\" loading=\"lazy\" decoding=\"async\">", attr(cover)));
             }
@@ -424,8 +565,14 @@ impl<'a> Renderer<'a> {
                 s.posts.len(),
                 if s.posts.len() == 1 { "part" } else { "parts" }
             ));
-            h.push_str(&format!("<h3 class=\"ob-card-title\">{}</h3>", text(&s.name)));
-            h.push_str(&format!("<span class=\"ob-card-summary\">{}</span>", text(&s.description_text)));
+            h.push_str(&format!(
+                "<h3 class=\"ob-card-title\">{}</h3>",
+                text(&s.name)
+            ));
+            h.push_str(&format!(
+                "<span class=\"ob-card-summary\">{}</span>",
+                text(&s.description_text)
+            ));
             h.push_str("</span></a></li>\n");
         }
         h.push_str("</ul>");
@@ -436,16 +583,30 @@ impl<'a> Renderer<'a> {
         if page_count <= 1 {
             return String::new();
         }
-        let url = |n: usize| if n == 1 { "/".to_string() } else { format!("/page/{n}/") };
+        let url = |n: usize| {
+            if n == 1 {
+                "/".to_string()
+            } else {
+                format!("/page/{n}/")
+            }
+        };
         let mut h = String::from("<nav class=\"ob-pager\" aria-label=\"Pagination\">");
         if page_number > 1 {
-            h.push_str(&format!("<a rel=\"prev\" href=\"{}\">← Newer</a>", url(page_number - 1)));
+            h.push_str(&format!(
+                "<a rel=\"prev\" href=\"{}\">← Newer</a>",
+                url(page_number - 1)
+            ));
         } else {
             h.push_str("<span></span>");
         }
-        h.push_str(&format!("<span class=\"ob-pager-status\">Page {page_number} of {page_count}</span>"));
+        h.push_str(&format!(
+            "<span class=\"ob-pager-status\">Page {page_number} of {page_count}</span>"
+        ));
         if page_number < page_count {
-            h.push_str(&format!("<a rel=\"next\" href=\"{}\">Older →</a>", url(page_number + 1)));
+            h.push_str(&format!(
+                "<a rel=\"next\" href=\"{}\">Older →</a>",
+                url(page_number + 1)
+            ));
         } else {
             h.push_str("<span></span>");
         }
@@ -455,30 +616,70 @@ impl<'a> Renderer<'a> {
 
     // ----- pages ---------------------------------------------------------
 
-    fn home(&self, theme: &Theme, page_number: usize, page_count: usize, per_page: usize) -> String {
+    fn home(
+        &self,
+        theme: &Theme,
+        page_number: usize,
+        page_count: usize,
+        per_page: usize,
+    ) -> String {
         let c = &self.site.config;
         let start = (page_number - 1) * per_page;
         let indices: Vec<usize> = (start..self.site.posts.len().min(start + per_page)).collect();
         let mut body = String::from("<div class=\"ob-container\">\n");
         if page_number == 1 && !c.home.intro.trim().is_empty() {
-            let intro = markdown::render(&c.home.intro, RenderOptions { heading_anchors: false, ..Default::default() });
-            body.push_str(&format!("<section class=\"ob-intro ob-prose\">{}</section>\n", intro.html));
+            let intro = markdown::render(
+                &c.home.intro,
+                RenderOptions {
+                    heading_anchors: false,
+                    ..Default::default()
+                },
+            );
+            body.push_str(&format!(
+                "<section class=\"ob-intro ob-prose\">{}</section>\n",
+                intro.html
+            ));
         }
         body.push_str("<section class=\"ob-section\" aria-labelledby=\"latest\">\n");
-        body.push_str(&self.heading(theme, 2, &c.home.heading, "ob-section-heading").replace("<h2 class=\"ob-title\"", "<h2 id=\"latest\" class=\"ob-title\""));
+        body.push_str(
+            &self
+                .heading(theme, 2, &c.home.heading, "ob-section-heading")
+                .replace(
+                    "<h2 class=\"ob-title\"",
+                    "<h2 id=\"latest\" class=\"ob-title\"",
+                ),
+        );
         body.push_str(&self.post_list(theme, &indices));
         body.push_str(&self.pager(page_number, page_count));
         body.push_str("\n</section>\n");
-        if page_number == 1 && c.home.show_series && self.site.series.iter().any(|s| !s.posts.is_empty()) {
+        if page_number == 1
+            && c.home.show_series
+            && self.site.series.iter().any(|s| !s.posts.is_empty())
+        {
             body.push_str("<section class=\"ob-section\" aria-labelledby=\"series\">\n");
-            body.push_str(&self.heading(theme, 2, "Series", "ob-section-heading").replace("<h2 class=\"ob-title\"", "<h2 id=\"series\" class=\"ob-title\""));
+            body.push_str(
+                &self
+                    .heading(theme, 2, "Series", "ob-section-heading")
+                    .replace(
+                        "<h2 class=\"ob-title\"",
+                        "<h2 id=\"series\" class=\"ob-title\"",
+                    ),
+            );
             body.push_str(&self.series_cards(theme));
             body.push_str("\n</section>\n");
         }
         body.push_str("</div>");
-        let path = if page_number == 1 { "/".to_string() } else { format!("/page/{page_number}/") };
+        let path = if page_number == 1 {
+            "/".to_string()
+        } else {
+            format!("/page/{page_number}/")
+        };
         let meta = Meta {
-            title: if page_number == 1 { c.title.clone() } else { format!("Page {page_number}") },
+            title: if page_number == 1 {
+                c.title.clone()
+            } else {
+                format!("Page {page_number}")
+            },
             description: c.description.clone(),
             path,
             canonical: None,
@@ -507,7 +708,10 @@ impl<'a> Renderer<'a> {
     fn post(&self, index: usize, post: &Post) -> String {
         let c = &self.site.config;
         let theme = self.theme(self.site.theme_for_post(post));
-        let series = post.series.as_deref().and_then(|s| self.site.series_by_slug(s));
+        let series = post
+            .series
+            .as_deref()
+            .and_then(|s| self.site.series_by_slug(s));
 
         let mut body = String::from("<div class=\"ob-container ob-container-reading\">\n");
         body.push_str("<article class=\"ob-post h-entry\">\n<header class=\"ob-post-header\">\n");
@@ -518,7 +722,11 @@ impl<'a> Renderer<'a> {
                 text(&s.name)
             ));
         }
-        body.push_str(&self.heading(theme, 1, &post.title, "ob-post-title").replace("class=\"ob-title\"", "class=\"ob-title p-name\""));
+        body.push_str(
+            &self
+                .heading(theme, 1, &post.title, "ob-post-title")
+                .replace("class=\"ob-title\"", "class=\"ob-title p-name\""),
+        );
         body.push_str("\n<p class=\"ob-meta\">");
         body.push_str(&format!(
             "<time class=\"dt-published\" datetime=\"{}\">{}</time>",
@@ -527,19 +735,30 @@ impl<'a> Renderer<'a> {
         ));
         if let Some(updated) = post.updated {
             if updated.ymd() != post.date.ymd() {
-                body.push_str(&format!(" · Updated <time class=\"dt-updated\" datetime=\"{}\">{}</time>", updated.rfc3339(), text(&updated.short())));
+                body.push_str(&format!(
+                    " · Updated <time class=\"dt-updated\" datetime=\"{}\">{}</time>",
+                    updated.rfc3339(),
+                    text(&updated.short())
+                ));
             }
         }
         body.push_str(&format!(" · {} min read", post.reading_minutes));
         if c.analytics.builtin && c.analytics.show_views {
             // Filled in by the server's counter; stays empty (and invisible) on static hosts.
-            body.push_str(&format!("<ob-views path=\"{}\"></ob-views>", attr(&post.url)));
+            body.push_str(&format!(
+                "<ob-views path=\"{}\"></ob-views>",
+                attr(&post.url)
+            ));
         }
         body.push_str("</p>\n");
         if !post.tags.is_empty() {
             body.push_str("<ul class=\"ob-tags\" aria-label=\"Tags\">");
             for t in &post.tags {
-                body.push_str(&format!("<li><a class=\"p-category\" href=\"/tags/{}/\">{}</a></li>", attr(&t.slug), text(&t.name)));
+                body.push_str(&format!(
+                    "<li><a class=\"p-category\" href=\"/tags/{}/\">{}</a></li>",
+                    attr(&t.slug),
+                    text(&t.name)
+                ));
             }
             body.push_str("</ul>\n");
         }
@@ -571,7 +790,11 @@ impl<'a> Renderer<'a> {
             }
             body.push_str("</ol></details></nav>\n");
         }
-        body.push_str(&format!("<ob-code-copy><div class=\"ob-prose e-content\">{}</div></ob-code-copy>\n", post.html));
+        body.push_str(&format!(
+            "<ob-code{}><div class=\"ob-prose e-content\">{}</div></ob-code>\n",
+            self.code_attr(theme),
+            post.html
+        ));
 
         if let Some(source_url) = &post.source_url {
             body.push_str(&format!(
@@ -645,13 +868,41 @@ impl<'a> Renderer<'a> {
         let mut links: Vec<(&str, String, bool)> = Vec::new();
         for network in &c.share.networks {
             let (label, href, external) = match network.trim().to_ascii_lowercase().as_str() {
-                "x" | "twitter" => ("X", format!("https://twitter.com/intent/tweet?text={t}&url={u}"), true),
-                "bluesky" => ("Bluesky", format!("https://bsky.app/intent/compose?text={t}%20{u}"), true),
-                "mastodon" => ("Mastodon", format!("https://mastodonshare.com/?text={t}&url={u}"), true),
-                "linkedin" => ("LinkedIn", format!("https://www.linkedin.com/sharing/share-offsite/?url={u}"), true),
-                "facebook" => ("Facebook", format!("https://www.facebook.com/sharer/sharer.php?u={u}"), true),
-                "reddit" => ("Reddit", format!("https://www.reddit.com/submit?url={u}&title={t}"), true),
-                "hackernews" | "hn" => ("Hacker News", format!("https://news.ycombinator.com/submitlink?u={u}&t={t}"), true),
+                "x" | "twitter" => (
+                    "X",
+                    format!("https://twitter.com/intent/tweet?text={t}&url={u}"),
+                    true,
+                ),
+                "bluesky" => (
+                    "Bluesky",
+                    format!("https://bsky.app/intent/compose?text={t}%20{u}"),
+                    true,
+                ),
+                "mastodon" => (
+                    "Mastodon",
+                    format!("https://mastodonshare.com/?text={t}&url={u}"),
+                    true,
+                ),
+                "linkedin" => (
+                    "LinkedIn",
+                    format!("https://www.linkedin.com/sharing/share-offsite/?url={u}"),
+                    true,
+                ),
+                "facebook" => (
+                    "Facebook",
+                    format!("https://www.facebook.com/sharer/sharer.php?u={u}"),
+                    true,
+                ),
+                "reddit" => (
+                    "Reddit",
+                    format!("https://www.reddit.com/submit?url={u}&title={t}"),
+                    true,
+                ),
+                "hackernews" | "hn" => (
+                    "Hacker News",
+                    format!("https://news.ycombinator.com/submitlink?u={u}&t={t}"),
+                    true,
+                ),
                 "email" => ("Email", format!("mailto:?subject={t}&body={u}"), false),
                 _ => continue,
             };
@@ -663,17 +914,49 @@ impl<'a> Renderer<'a> {
             attr(&post.title)
         );
         for (label, href, external) in links {
-            let extra = if external { " target=\"_blank\" rel=\"noopener noreferrer\"" } else { "" };
-            h.push_str(&format!("<li><a href=\"{}\"{extra}>{}</a></li>\n", attr(&href), text(label)));
+            let extra = if external {
+                " target=\"_blank\" rel=\"noopener noreferrer\""
+            } else {
+                ""
+            };
+            h.push_str(&format!(
+                "<li><a href=\"{}\"{extra}>{}</a></li>\n",
+                attr(&href),
+                text(label)
+            ));
         }
         h.push_str("</ul>\n</nav>\n</ob-share>\n");
         h
     }
 
+    /// A tiny page at an old address that sends readers (and search engines,
+    /// via the canonical link) to the post's current address.
+    fn alias_page(&self, target: &str, title: &str) -> String {
+        let c = &self.site.config;
+        let absolute = c.absolute(target);
+        let html = format!(
+            "<!doctype html>\n<html lang=\"{lang}\">\n<head>\n<meta charset=\"utf-8\">\n<title>{title}</title>\n<meta name=\"robots\" content=\"noindex\">\n<link rel=\"canonical\" href=\"{abs}\">\n<meta http-equiv=\"refresh\" content=\"0; url={target}\">\n</head>\n<body>\n<p>This page has moved to <a href=\"{target}\">{abs}</a>.</p>\n</body>\n</html>\n",
+            lang = attr(&c.language),
+            title = text(title),
+            abs = attr(&absolute),
+            target = attr(target),
+        );
+        c.apply_base_path(&html)
+    }
+
+    fn code_attr(&self, theme: &Theme) -> &'static str {
+        if theme.code_highlighting {
+            " highlight"
+        } else {
+            ""
+        }
+    }
+
     fn series_box(&self, index: usize, post: &Post, series: &Series) -> String {
         let position = series.posts.iter().position(|&i| i == index).unwrap_or(0);
         let (prev, next) = self.site.series_neighbors(index);
-        let mut h = String::from("<aside class=\"ob-series-box\" aria-label=\"Series navigation\">\n");
+        let mut h =
+            String::from("<aside class=\"ob-series-box\" aria-label=\"Series navigation\">\n");
         h.push_str(&format!(
             "<p class=\"ob-eyebrow\">Part {} of {} in <a href=\"{}\">{}</a></p>\n",
             position + 1,
@@ -701,8 +984,17 @@ impl<'a> Renderer<'a> {
         h.push_str("</div>\n<details class=\"ob-series-parts-details\"><summary>All parts</summary><ol class=\"ob-series-parts\">");
         for &i in &series.posts {
             let part = &self.site.posts[i];
-            let current = if part.slug == post.slug { " aria-current=\"page\"" } else { "" };
-            h.push_str(&format!("<li><a href=\"{}\"{}>{}</a></li>", attr(&part.url), current, text(&part.title)));
+            let current = if part.slug == post.slug {
+                " aria-current=\"page\""
+            } else {
+                ""
+            };
+            h.push_str(&format!(
+                "<li><a href=\"{}\"{}>{}</a></li>",
+                attr(&part.url),
+                current,
+                text(&part.title)
+            ));
         }
         h.push_str("</ol></details>\n</aside>\n");
         h
@@ -715,13 +1007,22 @@ impl<'a> Renderer<'a> {
         if newer.is_none() && older.is_none() {
             return String::new();
         }
-        let mut h = String::from("<nav class=\"ob-pager ob-post-pager\" aria-label=\"More posts\">");
+        let mut h =
+            String::from("<nav class=\"ob-pager ob-post-pager\" aria-label=\"More posts\">");
         match older {
-            Some(p) => h.push_str(&format!("<a rel=\"prev\" href=\"{}\">← {}</a>", attr(&p.url), text(&p.title))),
+            Some(p) => h.push_str(&format!(
+                "<a rel=\"prev\" href=\"{}\">← {}</a>",
+                attr(&p.url),
+                text(&p.title)
+            )),
             None => h.push_str("<span></span>"),
         }
         match newer {
-            Some(p) => h.push_str(&format!("<a rel=\"next\" href=\"{}\">{} →</a>", attr(&p.url), text(&p.title))),
+            Some(p) => h.push_str(&format!(
+                "<a rel=\"next\" href=\"{}\">{} →</a>",
+                attr(&p.url),
+                text(&p.title)
+            )),
             None => h.push_str("<span></span>"),
         }
         h.push_str("</nav>\n");
@@ -729,7 +1030,8 @@ impl<'a> Renderer<'a> {
     }
 
     fn series_index(&self, theme: &Theme) -> String {
-        let mut body = String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
         body.push_str(&self.heading(theme, 1, "Series", "ob-section-heading"));
         body.push_str("\n<p class=\"ob-lede\">Multi-part guides, in reading order.</p>\n");
         if self.site.series.iter().any(|s| !s.posts.is_empty()) {
@@ -738,19 +1040,30 @@ impl<'a> Renderer<'a> {
             body.push_str("<p class=\"ob-empty\">No series yet. Add <code>series: my-series</code> to a post's front matter.</p>");
         }
         body.push_str("\n</section>\n</div>");
-        self.simple(theme, "Series", "Multi-part guides and tutorials.", "/series/", &body)
+        self.simple(
+            theme,
+            "Series",
+            "Multi-part guides and tutorials.",
+            "/series/",
+            &body,
+        )
     }
 
     fn series_page(&self, series: &Series) -> String {
         let theme = self.theme(self.site.theme_for_series(series));
-        let mut body = String::from("<div class=\"ob-container ob-container-reading\">\n<section class=\"ob-section\">\n");
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<section class=\"ob-section\">\n",
+        );
         body.push_str("<p class=\"ob-eyebrow\"><a href=\"/series/\">Series</a></p>\n");
         body.push_str(&self.heading(theme, 1, &series.name, "ob-section-heading"));
         if let Some(cover) = &series.cover {
             body.push_str(&format!("<figure class=\"ob-cover\"><img src=\"{}\" alt=\"\" decoding=\"async\"></figure>\n", attr(cover)));
         }
         if !series.description_html.trim().is_empty() {
-            body.push_str(&format!("<div class=\"ob-prose\">{}</div>\n", series.description_html));
+            body.push_str(&format!(
+                "<div class=\"ob-prose\">{}</div>\n",
+                series.description_html
+            ));
         }
         body.push_str("<ol class=\"ob-series-parts ob-series-parts-full\">\n");
         for (n, &i) in series.posts.iter().enumerate() {
@@ -766,32 +1079,52 @@ impl<'a> Renderer<'a> {
             ));
         }
         body.push_str("</ol>\n</section>\n</div>");
-        self.simple(theme, &series.name, &series.description_text, &series.url, &body)
+        self.simple(
+            theme,
+            &series.name,
+            &series.description_text,
+            &series.url,
+            &body,
+        )
     }
 
     fn tags_index(&self, theme: &Theme) -> String {
-        let mut body = String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
         body.push_str(&self.heading(theme, 1, "Tags", "ob-section-heading"));
         body.push_str("\n<ul class=\"ob-tags ob-tag-cloud\">");
         for t in &self.site.tags {
-            body.push_str(&format!("<li><a href=\"{}\">{} <span class=\"ob-count\">{}</span></a></li>", attr(&t.url), text(&t.name), t.posts.len()));
+            body.push_str(&format!(
+                "<li><a href=\"{}\">{} <span class=\"ob-count\">{}</span></a></li>",
+                attr(&t.url),
+                text(&t.name),
+                t.posts.len()
+            ));
         }
         body.push_str("</ul>\n</section>\n</div>");
         self.simple(theme, "Tags", "Browse posts by topic.", "/tags/", &body)
     }
 
     fn tag_page(&self, theme: &Theme, tag: &crate::model::Tag) -> String {
-        let mut body = String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
         body.push_str("<p class=\"ob-eyebrow\"><a href=\"/tags/\">Tag</a></p>\n");
         body.push_str(&self.heading(theme, 1, &tag.name, "ob-section-heading"));
         body.push('\n');
         body.push_str(&self.post_list(theme, &tag.posts));
         body.push_str("\n</section>\n</div>");
-        self.simple(theme, &tag.name, &format!("Posts tagged {}.", tag.name), &tag.url, &body)
+        self.simple(
+            theme,
+            &tag.name,
+            &format!("Posts tagged {}.", tag.name),
+            &tag.url,
+            &body,
+        )
     }
 
     fn archive(&self, theme: &Theme) -> String {
-        let mut body = String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
         body.push_str(&self.heading(theme, 1, "Archive", "ob-section-heading"));
         let mut year = i64::MIN;
         for (i, post) in self.site.posts.iter().enumerate() {
@@ -800,7 +1133,9 @@ impl<'a> Renderer<'a> {
                 if year != i64::MIN {
                     body.push_str("</ul>\n");
                 }
-                body.push_str(&format!("<h2 class=\"ob-archive-year\">{y}</h2>\n<ul class=\"ob-archive\">\n"));
+                body.push_str(&format!(
+                    "<h2 class=\"ob-archive-year\">{y}</h2>\n<ul class=\"ob-archive\">\n"
+                ));
                 year = y;
             }
             let _ = i;
@@ -817,11 +1152,18 @@ impl<'a> Renderer<'a> {
             body.push_str("<p class=\"ob-empty\">Nothing here yet.</p>");
         }
         body.push_str("</section>\n</div>");
-        self.simple(theme, "Archive", "Every post, newest first.", "/archive/", &body)
+        self.simple(
+            theme,
+            "Archive",
+            "Every post, newest first.",
+            "/archive/",
+            &body,
+        )
     }
 
     fn search_page(&self, theme: &Theme) -> String {
-        let mut body = String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
         body.push_str(&self.heading(theme, 1, "Search", "ob-section-heading"));
         body.push_str(
             "\n<ob-search index=\"/search.json\" wasm=\"/assets/wasm/openblog_wasm.js\">\n<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\"><label for=\"q\">Search posts</label><input id=\"q\" name=\"q\" type=\"search\" autocomplete=\"off\" placeholder=\"Rust, web components, …\"></form>\n<p class=\"ob-search-status\" role=\"status\" aria-live=\"polite\"></p>\n<ol class=\"ob-search-results\"></ol>\n</ob-search>\n<noscript><p>Search needs JavaScript. You can also browse the <a href=\"/archive/\">archive</a> or <a href=\"/tags/\">tags</a>.</p></noscript>\n",
@@ -834,9 +1176,15 @@ impl<'a> Renderer<'a> {
 
     fn page(&self, page: &crate::model::Page) -> String {
         let theme = self.theme(self.site.theme_for_page(page));
-        let mut body = String::from("<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page\">\n");
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page\">\n",
+        );
         body.push_str(&self.heading(theme, 1, &page.title, "ob-post-title"));
-        body.push_str(&format!("\n<ob-code-copy><div class=\"ob-prose\">{}</div></ob-code-copy>\n</article>\n</div>", page.html));
+        body.push_str(&format!(
+            "\n<ob-code{}><div class=\"ob-prose\">{}</div></ob-code>\n</article>\n</div>",
+            self.code_attr(theme),
+            page.html
+        ));
         self.simple(theme, &page.title, &page.description, &page.url, &body)
     }
 
@@ -850,10 +1198,20 @@ impl<'a> Renderer<'a> {
         self.document(&meta, &body)
     }
 
-    fn meta_simple<'t>(&self, theme: &'t Theme, title: &str, description: &str, path: &str) -> Meta<'t> {
+    fn meta_simple<'t>(
+        &self,
+        theme: &'t Theme,
+        title: &str,
+        description: &str,
+        path: &str,
+    ) -> Meta<'t> {
         Meta {
             title: title.to_string(),
-            description: if description.is_empty() { self.site.config.description.clone() } else { description.to_string() },
+            description: if description.is_empty() {
+                self.site.config.description.clone()
+            } else {
+                description.to_string()
+            },
             path: path.to_string(),
             canonical: None,
             kind: "website",
@@ -867,7 +1225,14 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    fn simple(&self, theme: &Theme, title: &str, description: &str, path: &str, body: &str) -> String {
+    fn simple(
+        &self,
+        theme: &Theme,
+        title: &str,
+        description: &str,
+        path: &str,
+        body: &str,
+    ) -> String {
         let meta = self.meta_simple(theme, title, description, path);
         self.document(&meta, body)
     }
@@ -902,7 +1267,10 @@ mod tests {
 
     fn build(config_json: &str, extra_theme: bool) -> Vec<OutputFile> {
         let config = SiteConfig::from_json(config_json).unwrap();
-        let src = |p: &str, c: &str| SourceFile { path: p.into(), contents: c.into() };
+        let src = |p: &str, c: &str| SourceFile {
+            path: p.into(),
+            contents: c.into(),
+        };
         let site = Site::load(
             config,
             Sources {
@@ -928,18 +1296,41 @@ mod tests {
     }
 
     fn file<'a>(files: &'a [OutputFile], path: &str) -> &'a str {
-        &files.iter().find(|f| f.path == path).unwrap_or_else(|| panic!("missing {path}")).contents
+        &files
+            .iter()
+            .find(|f| f.path == path)
+            .unwrap_or_else(|| panic!("missing {path}"))
+            .contents
     }
 
     #[test]
     fn generates_every_page_and_feed() {
-        let files = build(r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","postsPerPage":2}"#, true);
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","postsPerPage":2}"#,
+            true,
+        );
         for path in [
-            "index.html", "page/2/index.html", "one/index.html", "two/index.html", "solo/index.html",
-            "series/index.html", "series/s/index.html", "tags/index.html", "tags/a/index.html",
-            "archive/index.html", "search/index.html", "about/index.html", "404.html", "rss.xml",
-            "feed.json", "sitemap.xml", "robots.txt", "api/blog.json", "search.json",
-            "themes/base/tokens.css", "themes/loud/tokens.css",
+            "index.html",
+            "page/2/index.html",
+            "one/index.html",
+            "two/index.html",
+            "solo/index.html",
+            "series/index.html",
+            "series/s/index.html",
+            "tags/index.html",
+            "tags/a/index.html",
+            "archive/index.html",
+            "search/index.html",
+            "about/index.html",
+            "404.html",
+            "rss.xml",
+            "feed.json",
+            "sitemap.xml",
+            "robots.txt",
+            "api/blog.json",
+            "search.json",
+            "themes/base/tokens.css",
+            "themes/loud/tokens.css",
         ] {
             assert!(files.iter().any(|f| f.path == path), "missing {path}");
         }
@@ -947,7 +1338,10 @@ mod tests {
 
     #[test]
     fn series_theme_applies_to_its_posts_only() {
-        let files = build(r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#, true);
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            true,
+        );
         let one = file(&files, "one/index.html");
         assert!(one.contains("data-ob-theme=\"loud\""));
         assert!(one.contains("/themes/loud/tokens.css"));
@@ -966,12 +1360,18 @@ mod tests {
 
     #[test]
     fn escapes_and_keeps_raw_html_out_of_titles() {
-        let files = build(r#"{"title":"T & Co","url":"https://t.dev","postPath":"/{slug}/"}"#, true);
+        let files = build(
+            r#"{"title":"T & Co","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            true,
+        );
         let solo = file(&files, "solo/index.html");
         assert!(solo.contains("<title>Solo · T &amp; Co</title>"));
         assert!(solo.contains("application/ld+json"));
-        assert!(solo.contains("Powered by <a href=\"https://github.com/journey-to-code-org/open.blog\""));
-        let config = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","poweredBy":false}"#).unwrap();
+        assert!(solo
+            .contains("Powered by <a href=\"https://github.com/journey-to-code-org/open.blog\""));
+        let config =
+            SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","poweredBy":false}"#)
+                .unwrap();
         let site = Site::load(config, Sources::default(), LoadOptions::default()).unwrap();
         let files = generate(&site, &ThemeSet::new()).unwrap();
         assert!(!file(&files, "index.html").contains("Powered by"));
@@ -986,52 +1386,174 @@ mod tests {
         );
         let one = file(&files, "one/index.html");
         assert!(one.contains("<ob-share url=\"https://t.dev/one/\" title=\"One\">"));
-        assert!(one.contains("https://twitter.com/intent/tweet?text=One&amp;url=https%3A%2F%2Ft.dev%2Fone%2F"));
+        assert!(one.contains(
+            "https://twitter.com/intent/tweet?text=One&amp;url=https%3A%2F%2Ft.dev%2Fone%2F"
+        ));
         assert!(one.contains("href=\"mailto:?subject=One&amp;body=https%3A%2F%2Ft.dev%2Fone%2F\""));
         assert!(one.contains("<ob-views path=\"/one/\"></ob-views>"));
-        assert!(one.contains("Related posts") && one.contains("href=\"/two/\""), "two shares the series");
+        assert!(
+            one.contains("Related posts") && one.contains("href=\"/two/\""),
+            "two shares the series"
+        );
         assert!(one.contains("<meta name=\"x-verify\" content=\"1\">\n</head>"));
         assert!(one.contains("<div id=\"comments\"></div>"));
         assert!(one.contains("<script src=\"/x.js\"></script>\n</body>"));
         let solo = file(&files, "solo/index.html");
-        assert!(!solo.contains("Related posts"), "nothing overlaps with solo");
+        assert!(
+            !solo.contains("Related posts"),
+            "nothing overlaps with solo"
+        );
 
         let files = build(
             r#"{"title":"T","url":"https://t.dev","share":{"enabled":false},"analytics":{"showViews":false},"relatedPosts":0}"#,
             true,
         );
         let one = file(&files, "posts/one/index.html");
-        assert!(!one.contains("ob-share") && !one.contains("ob-views") && !one.contains("Related posts"));
+        assert!(
+            !one.contains("ob-share")
+                && !one.contains("ob-views")
+                && !one.contains("Related posts")
+        );
+    }
+
+    #[test]
+    fn aliases_redirect_and_stay_out_of_the_sitemap() {
+        let config =
+            SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#)
+                .unwrap();
+        let src = |p: &str, c: &str| SourceFile {
+            path: p.into(),
+            contents: c.into(),
+        };
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![src(
+                    "posts/new.md",
+                    "---\ntitle: New\ndate: 2026-01-01\naliases: [/old/, /2024/old-name]\n---\nx",
+                )],
+                pages: vec![src(
+                    "pages/about.md",
+                    "---\ntitle: About\naliases: [/about-me/]\n---\nx",
+                )],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let files = generate(&site, &ThemeSet::new()).unwrap();
+        let old = file(&files, "old/index.html");
+        assert!(old.contains("<meta http-equiv=\"refresh\" content=\"0; url=/new/\">"));
+        assert!(old.contains("<link rel=\"canonical\" href=\"https://t.dev/new/\">"));
+        assert!(old.contains("noindex"));
+        assert!(files.iter().any(|f| f.path == "2024/old-name/index.html"));
+        assert!(files.iter().any(|f| f.path == "about-me/index.html"));
+        assert!(files.iter().any(|f| f.path == ".nojekyll"));
+        let sitemap = file(&files, "sitemap.xml");
+        assert!(!sitemap.contains("/old/") && !sitemap.contains("about-me"));
+
+        // An alias that collides with a real page is an error, not a silent overwrite.
+        let config =
+            SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#)
+                .unwrap();
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![
+                    src(
+                        "posts/a.md",
+                        "---\ntitle: A\ndate: 2026-01-01\naliases: [/b/]\n---\nx",
+                    ),
+                    src("posts/b.md", "---\ntitle: B\ndate: 2026-01-02\n---\ny"),
+                ],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        assert!(generate(&site, &ThemeSet::new())
+            .unwrap_err()
+            .contains("b/index.html"));
+    }
+
+    #[test]
+    fn base_path_prefixes_every_root_relative_url() {
+        let files = build(
+            r#"{"title":"T","url":"https://user.github.io/blog","postPath":"/{slug}/"}"#,
+            true,
+        );
+        let one = file(&files, "one/index.html");
+        assert!(one.contains("href=\"/blog/assets/base.css\""));
+        assert!(
+            one.contains("href=\"/blog/two/\""),
+            "post links carry the base path"
+        );
+        assert!(
+            one.contains("href=\"/blog/\" aria-label"),
+            "the brand link too"
+        );
+        assert!(one.contains("<link rel=\"canonical\" href=\"https://user.github.io/blog/one/\">"));
+        assert!(file(&files, "search/index.html")
+            .contains("index=\"/blog/search.json\" wasm=\"/blog/assets/wasm/"));
+        assert!(file(&files, "search.json").contains("\"url\":\"/blog/one/\""));
+        assert!(file(&files, "rss.xml").contains("<link>https://user.github.io/blog/one/</link>"));
+        assert!(file(&files, "sitemap.xml").contains("<loc>https://user.github.io/blog/</loc>"));
     }
 
     #[test]
     fn cdn_points_assets_elsewhere_but_not_pages_or_feeds() {
-        let files = build(r#"{"title":"T","url":"https://t.dev","cdn":{"url":"https://cdn.t.dev","version":"v1"}}"#, true);
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","cdn":{"url":"https://cdn.t.dev","version":"v1"}}"#,
+            true,
+        );
         let one = file(&files, "posts/one/index.html");
         assert!(one.contains("href=\"https://cdn.t.dev/assets/base.css?v=v1\""));
         assert!(one.contains("src=\"https://cdn.t.dev/assets/openblog.js?v=v1\""));
-        assert!(one.contains("href=\"https://cdn.t.dev/themes/loud/tokens.css?v=v1\""), "the series theme's tokens come from the CDN too");
-        assert!(one.contains("href=\"/posts/two/\""), "page links stay on the site");
+        assert!(
+            one.contains("href=\"https://cdn.t.dev/themes/loud/tokens.css?v=v1\""),
+            "the series theme's tokens come from the CDN too"
+        );
+        assert!(
+            one.contains("href=\"/posts/two/\""),
+            "page links stay on the site"
+        );
         assert!(one.contains("href=\"/rss.xml\""));
-        assert!(one.contains("wasm=\"/assets/wasm/") || !one.contains("wasm="), "the WebAssembly module stays same-origin");
-        assert!(!file(&files, "rss.xml").contains("cdn.t.dev"), "feeds keep canonical site URLs");
+        assert!(
+            one.contains("wasm=\"/assets/wasm/") || !one.contains("wasm="),
+            "the WebAssembly module stays same-origin"
+        );
+        assert!(
+            !file(&files, "rss.xml").contains("cdn.t.dev"),
+            "feeds keep canonical site URLs"
+        );
         let search = file(&files, "search/index.html");
         assert!(search.contains("wasm=\"/assets/wasm/openblog_wasm.js\""));
     }
 
     #[test]
     fn unknown_theme_is_an_error_and_reserved_slugs_are_rejected() {
-        let config = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","theme":"nope"}"#).unwrap();
+        let config =
+            SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","theme":"nope"}"#).unwrap();
         let site = Site::load(config, Sources::default(), LoadOptions::default()).unwrap();
-        assert!(generate(&site, &ThemeSet::new()).unwrap_err().contains("not found"));
+        assert!(generate(&site, &ThemeSet::new())
+            .unwrap_err()
+            .contains("not found"));
 
         let config = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev"}"#).unwrap();
         let site = Site::load(
             config,
-            Sources { pages: vec![SourceFile { path: "pages/search.md".into(), contents: "x".into() }], ..Default::default() },
+            Sources {
+                pages: vec![SourceFile {
+                    path: "pages/search.md".into(),
+                    contents: "x".into(),
+                }],
+                ..Default::default()
+            },
             LoadOptions::default(),
         )
         .unwrap();
-        assert!(generate(&site, &ThemeSet::new()).unwrap_err().contains("reserved"));
+        assert!(generate(&site, &ThemeSet::new())
+            .unwrap_err()
+            .contains("reserved"));
     }
 }

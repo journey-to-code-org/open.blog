@@ -25,7 +25,9 @@ It reads the pages your readers see:
    reported and left pointing at its original URL; it never stops the import.
 
 Output is `content/posts/<date>-<slug>.md` plus `content/series/<series>.md`. Slugs are
-kept, so with `postPath: "/{slug}/"` your URLs stay identical. Re-running is safe: unchanged
+kept, so with `postPath: "/{slug}/"` your URLs stay identical. With any other `postPath`,
+each imported post gets `aliases: ["/<slug>/"]`, so the old Hashnode address redirects to
+the new one. Re-running is safe: unchanged
 posts are left alone, and an existing series file (where you may have set a `theme`) is
 never overwritten.
 

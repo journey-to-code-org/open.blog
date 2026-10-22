@@ -31,7 +31,11 @@ struct SlotGuard {
 }
 
 impl SlotGuard {
-    fn acquire(active: &Arc<AtomicUsize>, per_ip: &Arc<Mutex<HashMap<IpAddr, usize>>>, ip: IpAddr) -> Option<Self> {
+    fn acquire(
+        active: &Arc<AtomicUsize>,
+        per_ip: &Arc<Mutex<HashMap<IpAddr, usize>>>,
+        ip: IpAddr,
+    ) -> Option<Self> {
         if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             active.fetch_sub(1, Ordering::SeqCst);
             return None;
@@ -45,7 +49,11 @@ impl SlotGuard {
             }
             *count += 1;
         }
-        Some(Self { active: Arc::clone(active), per_ip: Arc::clone(per_ip), ip })
+        Some(Self {
+            active: Arc::clone(active),
+            per_ip: Arc::clone(per_ip),
+            ip,
+        })
     }
 }
 
@@ -70,7 +78,12 @@ pub struct ServeOptions {
 }
 
 pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
-    let state = Arc::new(AppState::new(root.to_path_buf(), None, options.include_drafts, options.admin));
+    let state = Arc::new(AppState::new(
+        root.to_path_buf(),
+        None,
+        options.include_drafts,
+        options.admin,
+    ));
     let report = state.rebuild()?;
     print_report(&report);
     let out_dir = report.out_dir.clone();
@@ -124,7 +137,10 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
         thread::sleep(Duration::from_secs(5));
         if let Some(result) = schedule_state.tick_scheduler() {
             match result {
-                Ok(r) => println!("scheduled posts published; {} live, {} still waiting", r.posts, r.scheduled),
+                Ok(r) => println!(
+                    "scheduled posts published; {} live, {} still waiting",
+                    r.posts, r.scheduled
+                ),
                 Err(e) => eprintln!("scheduled build failed:\n{e}"),
             }
         }
@@ -132,16 +148,30 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
 
     let listener = TcpListener::bind((options.host.as_str(), options.port))
         .map_err(|e| format!("cannot listen on {}:{}: {e}", options.host, options.port))?;
-    println!("\nServing {} at http://{}:{}/  (Ctrl+C to stop)", out_dir.display(), display_host(&options.host), options.port);
+    println!(
+        "\nServing {} at http://{}:{}{}/  (Ctrl+C to stop)",
+        out_dir.display(),
+        display_host(&options.host),
+        options.port,
+        state.base_path
+    );
     if options.admin {
-        println!("Admin editor:  http://{}:{}/admin", display_host(&options.host), options.port);
+        println!(
+            "Admin editor:  http://{}:{}/admin",
+            display_host(&options.host),
+            options.port
+        );
     }
 
     let active = Arc::new(AtomicUsize::new(0));
     let per_ip: Arc<Mutex<HashMap<IpAddr, usize>>> = Arc::new(Mutex::new(HashMap::new()));
     for stream in listener.incoming().flatten() {
-        let Ok(peer) = stream.peer_addr() else { continue };
-        let Some(guard) = SlotGuard::acquire(&active, &per_ip, peer.ip()) else { continue };
+        let Ok(peer) = stream.peer_addr() else {
+            continue;
+        };
+        let Some(guard) = SlotGuard::acquire(&active, &per_ip, peer.ip()) else {
+            continue;
+        };
         let state = Arc::clone(&state);
         let out = out_dir.clone();
         thread::spawn(move || {
@@ -171,7 +201,10 @@ pub fn print_report(report: &site::BuildReport) {
         report.out_dir.display()
     );
     if report.scheduled > 0 {
-        let next = report.next_due.map(|d| format!(", next on {}", d.rfc3339())).unwrap_or_default();
+        let next = report
+            .next_due
+            .map(|d| format!(", next on {}", d.rfc3339()))
+            .unwrap_or_default();
         println!("{} scheduled post(s) waiting{next}.", report.scheduled);
     }
     for w in &report.warnings {
@@ -216,7 +249,25 @@ pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response
     if req.method != "GET" && req.method != "HEAD" {
         return Response::text(405, "Method Not Allowed");
     }
-    match resolve(out_dir, &req.path) {
+    // A site built for https://host/base/ is previewed at http://localhost/base/.
+    let path = if state.base_path.is_empty() {
+        req.path.as_str()
+    } else if req.path == state.base_path {
+        "/"
+    } else if let Some(rest) = req.path.strip_prefix(&format!("{}/", state.base_path)) {
+        &req.path[req.path.len() - rest.len() - 1..]
+    } else {
+        return Response::new(
+            404,
+            "text/html; charset=utf-8",
+            format!(
+                "<p>This site is served under <a href=\"{0}/\">{0}/</a>.</p>",
+                state.base_path
+            )
+            .into_bytes(),
+        );
+    };
+    match resolve(out_dir, path) {
         Some(file) => match fs::read(&file) {
             Ok(bytes) => {
                 // Assets may be cached by browsers and CDNs; pages always revalidate.
@@ -265,7 +316,13 @@ pub(crate) fn resolve(out_dir: &Path, url_path: &str) -> Option<PathBuf> {
 }
 
 fn mime(path: &Path) -> &'static str {
-    match path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "html" => "text/html; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
@@ -303,9 +360,19 @@ mod tests {
         for _ in 0..MAX_PER_IP {
             held.push(SlotGuard::acquire(&active, &per_ip, a).expect("under the per-IP cap"));
         }
-        assert!(SlotGuard::acquire(&active, &per_ip, a).is_none(), "one address cannot take more");
-        assert!(SlotGuard::acquire(&active, &per_ip, b).is_some(), "other addresses still get in");
-        assert_eq!(active.load(Ordering::SeqCst), MAX_PER_IP, "a refused acquire leaves no slot behind");
+        assert!(
+            SlotGuard::acquire(&active, &per_ip, a).is_none(),
+            "one address cannot take more"
+        );
+        assert!(
+            SlotGuard::acquire(&active, &per_ip, b).is_some(),
+            "other addresses still get in"
+        );
+        assert_eq!(
+            active.load(Ordering::SeqCst),
+            MAX_PER_IP,
+            "a refused acquire leaves no slot behind"
+        );
         held.clear();
         assert_eq!(active.load(Ordering::SeqCst), 0);
         assert!(per_ip.lock().unwrap().is_empty());

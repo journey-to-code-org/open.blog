@@ -38,6 +38,8 @@ pub struct ImportOptions {
     pub download_images: bool,
     pub limit: Option<usize>,
     pub delay_ms: u64,
+    /// The site's `postPath`; when it is not `/{slug}/`, imported posts get an alias.
+    pub post_path: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -55,6 +57,8 @@ struct ImportedPost {
     source_url: String,
     /// Remote image URLs found in the body, to download and rewrite.
     images: Vec<String>,
+    /// The original `/slug/` address, kept as a redirect when `postPath` moves posts.
+    alias: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -91,7 +95,12 @@ pub fn run(options: &ImportOptions) -> Result<ImportReport, String> {
     // Series order from the series pages (public source).
     let order: HashMap<String, (String, u32)> = series
         .iter()
-        .flat_map(|s| s.post_urls.iter().enumerate().map(move |(i, u)| (u.clone(), (s.slug.clone(), i as u32 + 1))))
+        .flat_map(|s| {
+            s.post_urls
+                .iter()
+                .enumerate()
+                .map(move |(i, u)| (u.clone(), (s.slug.clone(), i as u32 + 1)))
+        })
         .collect();
     for post in &mut posts {
         if let Some((series_slug, n)) = order.get(&post.source_url) {
@@ -105,16 +114,27 @@ pub fn run(options: &ImportOptions) -> Result<ImportReport, String> {
     let mut downloaded: HashMap<String, String> = HashMap::new();
 
     for post in &mut posts {
+        if options.post_path != "/{slug}/" {
+            post.alias = Some(format!("/{}/", post.slug));
+        }
         let (kept, dropped) = clean_tags(std::mem::take(&mut post.tags));
         post.tags = kept;
         for tag in dropped {
             let shown: String = tag.chars().take(60).collect();
-            report.skipped.push(format!("dropped tag on `{}`: \"{shown}{}\"", post.slug, if tag.chars().count() > 60 { "..." } else { "" }));
+            report.skipped.push(format!(
+                "dropped tag on `{}`: \"{shown}{}\"",
+                post.slug,
+                if tag.chars().count() > 60 { "..." } else { "" }
+            ));
         }
         if options.download_images {
             localize_images(&agent, post, options, &mut downloaded, &mut report);
         }
-        let file = options.content_dir.join("posts").join(format!("{}-{}.md", ymd(&post.date), post.slug));
+        let file =
+            options
+                .content_dir
+                .join("posts")
+                .join(format!("{}-{}.md", ymd(&post.date), post.slug));
         let text = render_post_file(post);
         let existing = fs::read_to_string(&file).ok();
         if existing.as_deref() == Some(text.as_str()) {
@@ -126,13 +146,24 @@ pub fn run(options: &ImportOptions) -> Result<ImportReport, String> {
     }
 
     for s in &series {
-        if !posts.iter().any(|p| p.series.as_deref() == Some(s.slug.as_str())) {
+        if !posts
+            .iter()
+            .any(|p| p.series.as_deref() == Some(s.slug.as_str()))
+        {
             continue;
         }
         let mut cover = s.cover.clone();
         if options.download_images {
             if let Some(url) = &s.cover {
-                if let Some(local) = fetch_image(&agent, url, options, &format!("series-{}", s.slug), "cover", &mut downloaded, &mut report) {
+                if let Some(local) = fetch_image(
+                    &agent,
+                    url,
+                    options,
+                    &format!("series-{}", s.slug),
+                    "cover",
+                    &mut downloaded,
+                    &mut report,
+                ) {
                     cover = Some(local);
                 }
             }
@@ -150,10 +181,16 @@ pub fn run(options: &ImportOptions) -> Result<ImportReport, String> {
             text.push_str(&s.description);
             text.push('\n');
         }
-        let file = options.content_dir.join("series").join(format!("{}.md", s.slug));
+        let file = options
+            .content_dir
+            .join("series")
+            .join(format!("{}.md", s.slug));
         // Series files may have been customised (theme!), so never overwrite one.
         if file.exists() {
-            report.skipped.push(format!("series/{}.md already exists; kept your version", s.slug));
+            report.skipped.push(format!(
+                "series/{}.md already exists; kept your version",
+                s.slug
+            ));
         } else {
             fsutil::write_file(&file, text.as_bytes())?;
             report.series_written += 1;
@@ -166,7 +203,11 @@ pub fn run(options: &ImportOptions) -> Result<ImportReport, String> {
 // Public source
 // ---------------------------------------------------------------------------
 
-fn import_public(agent: &ureq::Agent, base: &str, options: &ImportOptions) -> Result<(Vec<ImportedPost>, Vec<ImportedSeries>), String> {
+fn import_public(
+    agent: &ureq::Agent,
+    base: &str,
+    options: &ImportOptions,
+) -> Result<(Vec<ImportedPost>, Vec<ImportedSeries>), String> {
     println!("Reading {base}/sitemap.xml ...");
     let urls = discover_post_urls(agent, base)?;
     println!("Found {} candidate pages.", urls.len());
@@ -217,10 +258,14 @@ fn discover_post_urls(agent: &ureq::Agent, base: &str) -> Result<Vec<String>, St
             if let Some(path) = loc.strip_prefix(base) {
                 let path = path.trim_matches('/');
                 // Posts live at /<slug>. Skip home, /tag/x, /series/x, /archive, and sitemaps.
-                if path.is_empty() || path.contains('/') || path.contains('?') || path.contains('.') {
+                if path.is_empty() || path.contains('/') || path.contains('?') || path.contains('.')
+                {
                     continue;
                 }
-                if matches!(path, "archive" | "members" | "series" | "tag" | "newsletter" | "badge") {
+                if matches!(
+                    path,
+                    "archive" | "members" | "series" | "tag" | "newsletter" | "badge"
+                ) {
                     continue;
                 }
                 if !urls.contains(&loc) {
@@ -230,7 +275,9 @@ fn discover_post_urls(agent: &ureq::Agent, base: &str) -> Result<Vec<String>, St
         }
     }
     if urls.is_empty() {
-        return Err(format!("{base}/sitemap.xml listed no posts; is the host correct?"));
+        return Err(format!(
+            "{base}/sitemap.xml listed no posts; is the host correct?"
+        ));
     }
     Ok(urls)
 }
@@ -240,12 +287,20 @@ fn parse_post_page(url: &str, html: &str) -> Result<Option<ImportedPost>, String
     let Some(post) = blocks.iter().find(|b| b["@type"] == "BlogPosting") else {
         return Ok(None);
     };
-    let slug = url.trim_end_matches('/').rsplit('/').next().unwrap_or("").to_string();
+    let slug = url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .to_string();
     let title = post["headline"].as_str().unwrap_or("").trim().to_string();
     if slug.is_empty() || title.is_empty() {
         return Err("page has no slug or headline".into());
     }
-    let date = post["datePublished"].as_str().ok_or("page has no datePublished")?.to_string();
+    let date = post["datePublished"]
+        .as_str()
+        .ok_or("page has no datePublished")?
+        .to_string();
     let modified = post["dateModified"].as_str().map(str::to_string);
     let updated = modified.filter(|m| ymd(m) != ymd(&date));
 
@@ -260,12 +315,22 @@ fn parse_post_page(url: &str, html: &str) -> Result<Option<ImportedPost>, String
 
     let keyword_tags: Vec<String> = post["keywords"]
         .as_str()
-        .map(|k| k.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect())
+        .map(|k| {
+            k.split(',')
+                .map(|t| t.trim().to_string())
+                .filter(|t| !t.is_empty())
+                .collect()
+        })
         .unwrap_or_default();
-    let tags = if keyword_tags.is_empty() { link_slugs(html, "/tag/") } else { keyword_tags };
+    let tags = if keyword_tags.is_empty() {
+        link_slugs(html, "/tag/")
+    } else {
+        keyword_tags
+    };
     let series = link_slugs(html, "/series/").into_iter().next();
 
-    let body = extract_prose(html).ok_or("could not find the article body; Hashnode's page markup may have changed")?;
+    let body = extract_prose(html)
+        .ok_or("could not find the article body; Hashnode's page markup may have changed")?;
     let body = strip_heading_anchors(&body);
     let images = image_urls(&body);
     let markdown = html_to_markdown(&body)?;
@@ -283,6 +348,7 @@ fn parse_post_page(url: &str, html: &str) -> Result<Option<ImportedPost>, String
         markdown,
         source_url: url.to_string(),
         images,
+        alias: None,
     }))
 }
 
@@ -295,11 +361,20 @@ fn parse_series_page(slug: &str, html: &str) -> Result<ImportedSeries, String> {
     Ok(ImportedSeries {
         slug: slug.to_string(),
         name: page["name"].as_str().unwrap_or(slug).trim().to_string(),
-        description: page["description"].as_str().unwrap_or("").trim().to_string(),
+        description: page["description"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string(),
         cover: page["image"]["url"].as_str().map(str::to_string),
         post_urls: page["hasPart"]
             .as_array()
-            .map(|parts| parts.iter().filter_map(|p| p["url"].as_str().map(str::to_string)).collect())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|p| p["url"].as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default(),
     })
 }
@@ -326,13 +401,21 @@ const POSTS_QUERY: &str = "query Posts($host: String!, $first: Int!, $after: Str
   }
 }";
 
-fn import_graphql(agent: &ureq::Agent, base: &str, options: &ImportOptions) -> Result<(Vec<ImportedPost>, Vec<ImportedSeries>), String> {
+fn import_graphql(
+    agent: &ureq::Agent,
+    base: &str,
+    options: &ImportOptions,
+) -> Result<(Vec<ImportedPost>, Vec<ImportedSeries>), String> {
     let token = options
         .token
         .clone()
         .or_else(|| std::env::var("HASHNODE_TOKEN").ok())
-        .ok_or("the GraphQL source needs a personal access token: pass --token or set HASHNODE_TOKEN")?;
-    let host = base.trim_start_matches("https://").trim_start_matches("http://");
+        .ok_or(
+            "the GraphQL source needs a personal access token: pass --token or set HASHNODE_TOKEN",
+        )?;
+    let host = base
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
     let mut posts = Vec::new();
     let mut series: Vec<ImportedSeries> = Vec::new();
     let mut after: Option<String> = None;
@@ -360,18 +443,30 @@ fn import_graphql(agent: &ureq::Agent, base: &str, options: &ImportOptions) -> R
             return Err(format!("Hashnode has no publication for host `{host}`"));
         }
         if series.is_empty() {
-            for edge in publication["seriesList"]["edges"].as_array().into_iter().flatten() {
+            for edge in publication["seriesList"]["edges"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
                 let n = &edge["node"];
                 series.push(ImportedSeries {
                     slug: n["slug"].as_str().unwrap_or("").to_string(),
                     name: n["name"].as_str().unwrap_or("").to_string(),
-                    description: n["description"]["markdown"].as_str().unwrap_or("").trim().to_string(),
+                    description: n["description"]["markdown"]
+                        .as_str()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string(),
                     cover: n["coverImage"].as_str().map(str::to_string),
                     post_urls: Vec::new(),
                 });
             }
         }
-        for edge in publication["posts"]["edges"].as_array().into_iter().flatten() {
+        for edge in publication["posts"]["edges"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
             let n = &edge["node"];
             let markdown = n["content"]["markdown"].as_str().unwrap_or("").to_string();
             let updated = n["updatedAt"].as_str().map(str::to_string);
@@ -382,13 +477,19 @@ fn import_graphql(agent: &ureq::Agent, base: &str, options: &ImportOptions) -> R
                 updated: updated.filter(|u| ymd(u) != ymd(&date)),
                 date,
                 description: n["brief"].as_str().unwrap_or("").to_string(),
-                tags: n["tags"].as_array().into_iter().flatten().filter_map(|t| t["name"].as_str().map(str::to_string)).collect(),
+                tags: n["tags"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|t| t["name"].as_str().map(str::to_string))
+                    .collect(),
                 series: n["series"]["slug"].as_str().map(str::to_string),
                 series_order: None,
                 cover: n["coverImage"]["url"].as_str().map(str::to_string),
                 images: markdown_image_urls(&markdown),
                 markdown,
                 source_url: n["url"].as_str().unwrap_or("").to_string(),
+                alias: None,
             });
             if options.limit.is_some_and(|l| posts.len() >= l) {
                 return Ok((posts, series));
@@ -417,13 +518,23 @@ fn localize_images(
     report: &mut ImportReport,
 ) {
     if let Some(cover) = post.cover.clone() {
-        if let Some(local) = fetch_image(agent, &cover, options, &post.slug, "cover", downloaded, report) {
+        if let Some(local) = fetch_image(
+            agent, &cover, options, &post.slug, "cover", downloaded, report,
+        ) {
             post.cover = Some(local);
         }
     }
     let urls = post.images.clone();
     for (i, url) in urls.iter().enumerate() {
-        if let Some(local) = fetch_image(agent, url, options, &post.slug, &format!("{:02}", i + 1), downloaded, report) {
+        if let Some(local) = fetch_image(
+            agent,
+            url,
+            options,
+            &post.slug,
+            &format!("{:02}", i + 1),
+            downloaded,
+            report,
+        ) {
             post.markdown = post.markdown.replace(url.as_str(), &local);
         }
     }
@@ -474,7 +585,9 @@ fn fetch_image(
             Some(local)
         }
         Err(e) => {
-            report.image_failures.push(format!("{url} ({e}) used by {folder}"));
+            report
+                .image_failures
+                .push(format!("{url} ({e}) used by {folder}"));
             None
         }
     }
@@ -496,7 +609,11 @@ fn extension_for(url: &str, content_type: &str) -> String {
     let path = url.split(['?', '#']).next().unwrap_or(url);
     let last = path.rsplit('/').next().unwrap_or("");
     match last.rsplit_once('.') {
-        Some((_, ext)) if (1..=5).contains(&ext.len()) && ext.chars().all(|c| c.is_ascii_alphanumeric()) => ext.to_ascii_lowercase(),
+        Some((_, ext))
+            if (1..=5).contains(&ext.len()) && ext.chars().all(|c| c.is_ascii_alphanumeric()) =>
+        {
+            ext.to_ascii_lowercase()
+        }
         _ => "bin".to_string(),
     }
 }
@@ -532,6 +649,9 @@ fn render_post_file(post: &ImportedPost) -> String {
     if !post.source_url.is_empty() {
         fields.push(("sourceUrl", Value::Scalar(post.source_url.clone())));
     }
+    if let Some(alias) = &post.alias {
+        fields.push(("aliases", Value::List(vec![alias.clone()])));
+    }
     let mut out = frontmatter::serialize(&fields);
     out.push('\n');
     out.push_str(post.markdown.trim());
@@ -563,7 +683,9 @@ fn clean_tags(tags: Vec<String>) -> (Vec<String>, Vec<String>) {
 }
 
 fn ymd(date: &str) -> String {
-    DateTime::parse(date).map(|d| d.ymd()).unwrap_or_else(|| date.chars().take(10).collect())
+    DateTime::parse(date)
+        .map(|d| d.ymd())
+        .unwrap_or_else(|| date.chars().take(10).collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -572,10 +694,15 @@ fn ymd(date: &str) -> String {
 
 fn normalize_host(input: &str) -> Result<String, String> {
     let trimmed = input.trim().trim_end_matches('/');
-    let without_scheme = trimmed.strip_prefix("https://").or_else(|| trimmed.strip_prefix("http://")).unwrap_or(trimmed);
+    let without_scheme = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+        .unwrap_or(trimmed);
     let host = without_scheme.split('/').next().unwrap_or("");
     if host.is_empty() || !host.contains('.') || host.contains(char::is_whitespace) {
-        return Err(format!("`{input}` is not a blog host like `yourname.hashnode.dev` or `blog.example.com`"));
+        return Err(format!(
+            "`{input}` is not a blog host like `yourname.hashnode.dev` or `blog.example.com`"
+        ));
     }
     Ok(format!("https://{host}"))
 }
@@ -600,7 +727,9 @@ fn json_ld_blocks(html: &str) -> Vec<Json> {
     let mut rest = html;
     while let Some(start) = rest.find(marker) {
         let after = &rest[start + marker.len()..];
-        let Some(end) = after.find("</script>") else { break };
+        let Some(end) = after.find("</script>") else {
+            break;
+        };
         if let Ok(value) = serde_json::from_str::<Json>(&after[..end]) {
             out.push(value);
         }
@@ -714,7 +843,11 @@ fn markdown_image_urls(markdown: &str) -> Vec<String> {
         let Some(open) = after.find("](") else { break };
         let value = &after[open + 2..];
         let Some(close) = value.find(')') else { break };
-        let url = value[..close].split_whitespace().next().unwrap_or("").to_string();
+        let url = value[..close]
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_string();
         if url.starts_with("http") && !out.contains(&url) {
             out.push(url);
         }
@@ -726,9 +859,15 @@ fn markdown_image_urls(markdown: &str) -> Vec<String> {
 fn html_to_markdown(html: &str) -> Result<String, String> {
     use htmd::options::{BulletListMarker, HrStyle, Options};
     let converter = htmd::HtmlToMarkdown::builder()
-        .options(Options { hr_style: HrStyle::Dashes, bullet_list_marker: BulletListMarker::Dash, ..Options::default() })
+        .options(Options {
+            hr_style: HrStyle::Dashes,
+            bullet_list_marker: BulletListMarker::Dash,
+            ..Options::default()
+        })
         .build();
-    let markdown = converter.convert(html).map_err(|e| format!("HTML to Markdown conversion failed: {e}"))?;
+    let markdown = converter
+        .convert(html)
+        .map_err(|e| format!("HTML to Markdown conversion failed: {e}"))?;
     Ok(normalize_rules(markdown.trim()))
 }
 
@@ -747,8 +886,10 @@ fn normalize_rules(markdown: &str) -> String {
             out.push(line);
         }
     }
-    out.join("
-")
+    out.join(
+        "
+",
+    )
 }
 
 fn decode_entities(input: &str) -> String {
@@ -767,7 +908,11 @@ fn decode_entities(input: &str) -> String {
                     "quot" => Some('"'),
                     "apos" => Some('\''),
                     "nbsp" => Some(' '),
-                    e if e.starts_with("#x") || e.starts_with("#X") => u32::from_str_radix(&e[2..], 16).ok().and_then(char::from_u32),
+                    e if e.starts_with("#x") || e.starts_with("#X") => {
+                        u32::from_str_radix(&e[2..], 16)
+                            .ok()
+                            .and_then(char::from_u32)
+                    }
                     e if e.starts_with('#') => e[1..].parse::<u32>().ok().and_then(char::from_u32),
                     _ => None,
                 };
@@ -805,7 +950,10 @@ fn http_agent() -> ureq::Agent {
 }
 
 fn get_text(agent: &ureq::Agent, url: &str) -> Result<String, String> {
-    let mut response = agent.get(url).call().map_err(|e| format!("GET {url}: {e}"))?;
+    let mut response = agent
+        .get(url)
+        .call()
+        .map_err(|e| format!("GET {url}: {e}"))?;
     let bytes = response
         .body_mut()
         .with_config()
@@ -843,7 +991,9 @@ mod tests {
 
     #[test]
     fn parses_a_public_post_page() {
-        let post = parse_post_page("https://blog.example.com/hello", PAGE).unwrap().unwrap();
+        let post = parse_post_page("https://blog.example.com/hello", PAGE)
+            .unwrap()
+            .unwrap();
         assert_eq!(post.slug, "hello");
         assert_eq!(post.title, "Hello &amp; World");
         assert_eq!(post.description, "Learn & build 'things'");
@@ -854,7 +1004,11 @@ mod tests {
         assert_eq!(post.images, vec!["https://cdn.example.com/i.png?w=1&h=2"]);
         assert!(post.markdown.contains("## Intro"), "{}", post.markdown);
         assert!(!post.markdown.contains("heading-anchor"));
-        assert!(post.markdown.contains("```rust\nfn main() {}\n```"), "{}", post.markdown);
+        assert!(
+            post.markdown.contains("```rust\nfn main() {}\n```"),
+            "{}",
+            post.markdown
+        );
         assert!(!post.markdown.contains("after"));
     }
 
@@ -868,19 +1022,29 @@ mod tests {
 - - -
 ```
 ";
-        assert_eq!(normalize_rules(md), "a
+        assert_eq!(
+            normalize_rules(md),
+            "a
 
 ---
 
 ```
 - - -
-```");
+```"
+        );
     }
 
     #[test]
     fn cleans_tags() {
         let long = format!("#{}", "GitThing ".repeat(20));
-        let (kept, dropped) = clean_tags(vec!["#Git".into(), "git".into(), " Rust lang ".into(), long.clone(), "a #b".into(), "".into()]);
+        let (kept, dropped) = clean_tags(vec![
+            "#Git".into(),
+            "git".into(),
+            " Rust lang ".into(),
+            long.clone(),
+            "a #b".into(),
+            "".into(),
+        ]);
         assert_eq!(kept, vec!["Git", "Rust lang"]);
         assert_eq!(dropped, vec![long, "a #b".to_string()]);
     }
@@ -888,7 +1052,9 @@ mod tests {
     #[test]
     fn non_posts_are_skipped() {
         let page = r#"<script type="application/ld+json">{"@type":"WebSite"}</script>"#;
-        assert!(parse_post_page("https://x.dev/about", page).unwrap().is_none());
+        assert!(parse_post_page("https://x.dev/about", page)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -902,18 +1068,36 @@ mod tests {
 
     #[test]
     fn normalizes_hosts_and_sitemap_urls() {
-        assert_eq!(normalize_host("https://journeytocode.io/").unwrap(), "https://journeytocode.io");
-        assert_eq!(normalize_host("me.hashnode.dev").unwrap(), "https://me.hashnode.dev");
+        assert_eq!(
+            normalize_host("https://journeytocode.io/").unwrap(),
+            "https://journeytocode.io"
+        );
+        assert_eq!(
+            normalize_host("me.hashnode.dev").unwrap(),
+            "https://me.hashnode.dev"
+        );
         assert!(normalize_host("nope").is_err());
-        assert_eq!(tag_values("<loc>https://a/b</loc><loc> https://a/c?x=1&amp;y=2 </loc>", "loc"), vec!["https://a/b", "https://a/c?x=1&y=2"]);
+        assert_eq!(
+            tag_values(
+                "<loc>https://a/b</loc><loc> https://a/c?x=1&amp;y=2 </loc>",
+                "loc"
+            ),
+            vec!["https://a/b", "https://a/c?x=1&y=2"]
+        );
     }
 
     #[test]
     fn extension_detection_and_markdown_images() {
         assert_eq!(extension_for("https://c/u.png?w=1", ""), "png");
-        assert_eq!(extension_for("https://c/u", "image/webp; charset=x"), "webp");
+        assert_eq!(
+            extension_for("https://c/u", "image/webp; charset=x"),
+            "webp"
+        );
         assert_eq!(extension_for("https://c/u", ""), "bin");
-        assert_eq!(markdown_image_urls("a ![x](https://c/1.png \"t\") b ![y](/local.png)"), vec!["https://c/1.png"]);
+        assert_eq!(
+            markdown_image_urls("a ![x](https://c/1.png \"t\") b ![y](/local.png)"),
+            vec!["https://c/1.png"]
+        );
     }
 
     #[test]
@@ -933,7 +1117,10 @@ mod tests {
         let text = render_post_file(&post);
         let config = openblog_core::SiteConfig::default();
         let loaded = openblog_core::model::load_post(
-            &openblog_core::SourceFile { path: "posts/2026-10-21-hello.md".into(), contents: text },
+            &openblog_core::SourceFile {
+                path: "posts/2026-10-21-hello.md".into(),
+                contents: text,
+            },
             &config,
             Default::default(),
         )
