@@ -110,11 +110,15 @@ pub const COUNTER_SERVICE: &[(&str, &str)] = &[
         "render.yaml",
         include_str!("../templates/counter-service/render.yaml"),
     ),
+    // keep-awake.yml goes into the blog's own .github/workflows/, see KEEP_AWAKE_WORKFLOW.
     (
         "README.md",
         include_str!("../templates/counter-service/README.md"),
     ),
 ];
+
+/// A workflow that pings the counter so a free Render service never sleeps.
+pub const KEEP_AWAKE_WORKFLOW: &str = include_str!("../templates/counter-service/keep-awake.yml");
 
 pub struct BuildOptions {
     /// Include drafts and scheduled posts (a preview build).

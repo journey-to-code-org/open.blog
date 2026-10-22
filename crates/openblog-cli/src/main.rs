@@ -493,6 +493,11 @@ fn analytics_command(root: &std::path::Path, args: &Args) -> Result<(), String> 
                 )?;
                 println!("wrote {}", dir.join(name).display());
             }
+            let workflow = root.join(".github/workflows/keep-counter-awake.yml");
+            if !workflow.exists() {
+                fsutil::write_file(&workflow, site::KEEP_AWAKE_WORKFLOW.as_bytes())?;
+                println!("wrote {} (pings the service every 14 minutes so it never sleeps)", workflow.display());
+            }
             println!(
                 "Next: read {} for the Render and MongoDB steps,",
                 dir.join("README.md").display()

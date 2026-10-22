@@ -28,8 +28,13 @@ openblog analytics pull https://openblog-counter.onrender.com --secret <EXPORT_S
 openblog analytics backup
 ```
 
-Free Render services sleep after fifteen minutes without traffic, so the first view after
-a quiet spell takes a while to record. Posts still show the last baked count meanwhile.
+Free Render services sleep after fifteen minutes without traffic. The blog repository gets
+`.github/workflows/keep-counter-awake.yml`, which requests `/health` every 14 minutes so
+the service stays up; set the repository variable `COUNTER_URL` (Settings → Secrets and
+variables → Actions → Variables) to the service address, or edit the file. Without it,
+the first view after a quiet spell takes a while to record, and posts show the last
+baked count meanwhile. A free Render workspace allows 750 instance hours a month, which
+one always-awake service uses almost entirely.
 
 ## Run locally
 

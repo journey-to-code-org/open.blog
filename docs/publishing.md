@@ -145,10 +145,13 @@ Then point the blog at it, exactly as with the worker:
 ```
 
 `openblog analytics pull <that address> --secret <EXPORT_SECRET>` works the same, since
-every counter speaks the same three routes. One difference to know: a free Render
-service sleeps after fifteen minutes without traffic and takes some seconds to wake, so
-the first view after a quiet spell may go unrecorded; posts show the last baked count
-meanwhile. The Cloudflare Worker has no such delay.
+every counter speaks the same three routes. A free Render service sleeps after fifteen
+minutes without traffic, so the command also writes
+`.github/workflows/keep-counter-awake.yml` into the blog: a workflow that requests the
+service's health page every 14 minutes (on minutes 7, 21, 35 and 49, away from the
+top-of-hour rush when GitHub's scheduler runs late). Set the repository variable
+`COUNTER_URL` to the service address and the counter never sleeps. One always-awake free
+service uses most of Render's 750 free instance hours a month, so keep it to one.
 
 ## Writing your own counter
 
