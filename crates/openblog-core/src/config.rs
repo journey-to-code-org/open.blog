@@ -35,6 +35,12 @@ pub struct SiteConfig {
     /// Show a small "Powered by open.blog" link in the footer.
     pub powered_by: bool,
     pub home: HomeConfig,
+    pub share: ShareConfig,
+    pub analytics: AnalyticsConfig,
+    /// Raw HTML the owner wants on every page: third-party analytics, comments, forms.
+    pub snippets: Snippets,
+    /// How many related posts to show under each post. `0` disables the section.
+    pub related_posts: usize,
     pub feeds: FeedsConfig,
     pub markdown: MarkdownConfig,
     pub paths: PathsConfig,
@@ -131,6 +137,10 @@ impl Default for SiteConfig {
             footer: "© {year} {author}".to_string(),
             powered_by: true,
             home: HomeConfig::default(),
+            share: ShareConfig::default(),
+            analytics: AnalyticsConfig::default(),
+            snippets: Snippets::default(),
+            related_posts: 3,
             feeds: FeedsConfig::default(),
             markdown: MarkdownConfig::default(),
             paths: PathsConfig::default(),
@@ -169,6 +179,56 @@ impl Default for AdminConfig {
             trusted_proxies: Vec::new(),
         }
     }
+}
+
+/// Share links under each post. Rendered as plain links, so they work without
+/// JavaScript; `<ob-share>` adds the device's share sheet and "Copy link".
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShareConfig {
+    pub enabled: bool,
+    /// Any of: x, bluesky, mastodon, linkedin, facebook, reddit, hackernews, email.
+    pub networks: Vec<String>,
+}
+
+impl Default for ShareConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            networks: ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"].iter().map(|s| s.to_string()).collect(),
+        }
+    }
+}
+
+/// The built-in, cookie-free view counter served by `openblog serve`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AnalyticsConfig {
+    /// Record page views in `.openblog/analytics.json` and answer `/api/views`.
+    pub builtin: bool,
+    /// Show "N views" on posts (needs `builtin` and the server; hidden on static hosts).
+    pub show_views: bool,
+    /// Days of daily statistics to keep.
+    pub retention_days: u32,
+}
+
+impl Default for AnalyticsConfig {
+    fn default() -> Self {
+        Self { builtin: true, show_views: true, retention_days: 400 }
+    }
+}
+
+/// Raw HTML inserted verbatim. Only the site owner writes `openblog.json`, so
+/// this is the one place where unescaped markup is accepted.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Snippets {
+    /// Before `</head>` on every page: analytics tags, fonts, verification metas.
+    pub head: String,
+    /// After the related posts on every post page: comments (giscus, utterances), a subscribe form.
+    pub post_footer: String,
+    /// Before `</body>` on every page.
+    pub body_end: String,
 }
 
 impl Default for HomeConfig {

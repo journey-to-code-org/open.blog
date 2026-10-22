@@ -630,6 +630,64 @@ h2.ob-title {
   }
 }
 
+/* ---------- Share, related ---------- */
+
+.ob-share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 2.5rem 0 1rem;
+}
+
+.ob-share-label {
+  margin-right: 0.25rem;
+  color: var(--ob-color-muted);
+  font-size: 0.875rem;
+}
+
+.ob-share ul {
+  display: contents;
+}
+
+.ob-share a,
+.ob-share button {
+  display: inline-block;
+  padding: 0.3rem 0.8rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ob-share a:hover,
+.ob-share button:hover {
+  border-color: var(--ob-color-accent-border);
+  color: var(--ob-color-accent-soft);
+}
+
+.ob-related {
+  margin-top: 2.5rem;
+}
+
+.ob-related-title {
+  margin: 0 0 1rem;
+  font-family: var(--ob-font-heading);
+  font-size: 1.2rem;
+}
+
+.ob-post-extra {
+  margin-top: 2.5rem;
+}
+
+ob-views:empty {
+  display: none;
+}
+
 /* ---------- Series ---------- */
 
 .ob-series-box {

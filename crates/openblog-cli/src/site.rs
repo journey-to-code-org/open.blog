@@ -20,6 +20,8 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     ("components/ob-code-copy.js", include_str!("../../../web/components/ob-code-copy.js")),
     ("components/ob-back-to-top.js", include_str!("../../../web/components/ob-back-to-top.js")),
     ("components/ob-search.js", include_str!("../../../web/components/ob-search.js")),
+    ("components/ob-share.js", include_str!("../../../web/components/ob-share.js")),
+    ("components/ob-views.js", include_str!("../../../web/components/ob-views.js")),
 ];
 
 /// The admin editor. Served only by `serve --admin`, never copied into the

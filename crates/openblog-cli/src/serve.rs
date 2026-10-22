@@ -109,6 +109,15 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
         }
     });
 
+    // Persist view counts shortly after they change.
+    let flush_state = Arc::clone(&state);
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(5));
+        if let Err(e) = flush_state.flush_analytics() {
+            eprintln!("analytics: {e}");
+        }
+    });
+
     // Publish scheduled posts the moment they are due.
     let schedule_state = Arc::clone(&state);
     thread::spawn(move || loop {
@@ -189,9 +198,20 @@ fn handle(stream: &TcpStream, state: &AppState, out_dir: &Path) -> std::io::Resu
     http::write_response(stream, &response, head_only)
 }
 
-fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response {
+pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response {
     if req.path == "/admin" || req.path.starts_with("/admin/") {
         return admin::handle(state, req);
+    }
+    if state.analytics_enabled {
+        if req.path == "/api/hit" {
+            return crate::analytics::hit(state, req, out_dir);
+        }
+        if req.path == "/api/views" {
+            if req.method != "GET" && req.method != "HEAD" {
+                return Response::error(405, "Use GET");
+            }
+            return crate::analytics::views(state, req, out_dir);
+        }
     }
     if req.method != "GET" && req.method != "HEAD" {
         return Response::text(405, "Method Not Allowed");
@@ -208,7 +228,7 @@ fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response {
     }
 }
 
-fn resolve(out_dir: &Path, url_path: &str) -> Option<PathBuf> {
+pub(crate) fn resolve(out_dir: &Path, url_path: &str) -> Option<PathBuf> {
     let rel = Path::new(url_path.trim_start_matches('/'));
     let mut clean = PathBuf::new();
     for component in rel.components() {

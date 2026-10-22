@@ -52,6 +52,9 @@ pub struct AppState {
     pub build: Mutex<BuildStatus>,
     pub sessions: Mutex<Sessions>,
     pub throttle: Mutex<Throttle>,
+    pub analytics: Mutex<crate::analytics::Store>,
+    pub analytics_path: PathBuf,
+    pub analytics_enabled: bool,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -60,6 +63,8 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl AppState {
     pub fn new(root: PathBuf, out_override: Option<PathBuf>, include_drafts: bool, admin: bool) -> Self {
+        let analytics_config = site::load_config(&root).map(|c| c.analytics).unwrap_or_default();
+        let analytics_path = root.join(".openblog").join("analytics.json");
         Self {
             root,
             out_override,
@@ -68,7 +73,18 @@ impl AppState {
             build: Mutex::new(BuildStatus::default()),
             sessions: Mutex::new(Sessions::default()),
             throttle: Mutex::new(Throttle::default()),
+            analytics: Mutex::new(crate::analytics::Store::load(&analytics_path, analytics_config.retention_days)),
+            analytics_path,
+            analytics_enabled: analytics_config.builtin,
         }
+    }
+
+    /// Write analytics to disk if anything changed. Called every few seconds.
+    pub fn flush_analytics(&self) -> Result<(), String> {
+        if !self.analytics_enabled {
+            return Ok(());
+        }
+        lock(&self.analytics).save(&self.analytics_path)
     }
 
     /// Build the public site. The caller holds the build lock, which also
@@ -130,6 +146,9 @@ fn scheduled_list(root: &Path, now: DateTime) -> Vec<(String, String, String)> {
 /// send. Unauthenticated callers get a rejection (or a tiny limit for login)
 /// before any body is buffered.
 pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
+    if req.path == "/api/hit" {
+        return Ok(if state.analytics_enabled && req.method == "POST" { 2048 } else { 0 });
+    }
     if !req.path.starts_with("/admin") {
         return Ok(0);
     }
@@ -216,6 +235,14 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ("GET", "session") => Response::json(200, &json!({ "user": session.user, "csrf": session.csrf, "now": clock::now().rfc3339() })),
         ("GET", "meta") => meta(state),
         ("GET", "status") => status(state),
+        ("GET", "analytics") => {
+            if !state.analytics_enabled {
+                return Response::error(404, "The built-in counter is off (analytics.builtin)");
+            }
+            let days = req.query.get("days").and_then(|d| d.parse().ok()).unwrap_or(30);
+            let summary = lock(&state.analytics).summary(clock::now(), days);
+            Response::json(200, &summary)
+        }
         ("GET", "documents") => list_documents(state, req),
         ("GET", "document") => get_document(state, req),
         ("POST", "document") => save_document(state, req, None),
@@ -1312,6 +1339,48 @@ mod tests {
         users.remove("mikey");
         users.save(&users_path).unwrap();
         assert_eq!(handle(&f.state, &authed(req("GET", "/admin/api/session"), &fresh, false)).status, 401, "removed user is signed out");
+    }
+
+    #[test]
+    fn view_counter_endpoints_and_dashboard() {
+        let f = fixture("analytics");
+        let dist = f.dir.join("dist");
+        let hit = |path: &str, headers: &[(&str, &str)]| {
+            let mut r = json_req("POST", "/api/hit", json!({ "path": path, "referrer": "https://news.ycombinator.com/item?id=1" }));
+            for (k, v) in headers {
+                r.headers.insert(k.to_string(), v.to_string());
+            }
+            crate::serve::route(&f.state, &r, &dist)
+        };
+        assert_eq!(preflight(&f.state, &req("POST", "/api/hit")).unwrap(), 2048, "hits may carry a small body without a session");
+        assert_eq!(preflight(&f.state, &req("GET", "/api/hit")).unwrap(), 0);
+        let first = hit("/posts/hello-world/", &[("user-agent", "Mozilla")]);
+        assert_eq!(first.status, 200, "{}", String::from_utf8_lossy(&first.body));
+        assert_eq!(body_json(&first)["views"], 1);
+        assert_eq!(body_json(&hit("/posts/hello-world", &[("user-agent", "Mozilla")]))["views"], 2, "path is normalised");
+        assert_eq!(hit("/nope/", &[]).status, 404);
+        assert_eq!(hit("/rss.xml", &[]).status, 404);
+        assert_eq!(hit("/posts/hello-world/", &[("dnt", "1")]).status, 204, "Do Not Track is honoured");
+        assert_eq!(hit("/posts/hello-world/", &[("sec-gpc", "1")]).status, 204);
+        let views = crate::serve::route(&f.state, &req("GET", "/api/views?path=/posts/hello-world/"), &dist);
+        assert_eq!(body_json(&views)["views"], 2, "opted-out requests were not counted");
+        assert_eq!(crate::serve::route(&f.state, &req("GET", "/api/views?path=/secret/"), &dist).status, 404);
+        assert_eq!(crate::serve::route(&f.state, &req("POST", "/api/views?path=/posts/hello-world/"), &dist).status, 405);
+
+        // Dashboard needs a session; shows what was recorded.
+        assert_eq!(handle(&f.state, &req("GET", "/admin/api/analytics")).status, 401);
+        let session = login_ok(&f);
+        let dash = body_json(&handle(&f.state, &authed(req("GET", "/admin/api/analytics?days=7"), &session, false)));
+        assert_eq!(dash["views"], 2);
+        assert_eq!(dash["uniques"], 1, "one browser, one visitor");
+        assert_eq!(dash["topPosts"][0]["path"], "/posts/hello-world/");
+        assert_eq!(dash["referrers"][0]["host"], "news.ycombinator.com");
+        assert_eq!(dash["series"].as_array().unwrap().len(), 7);
+
+        // Flushing writes a file that holds counts but no visitor data.
+        f.state.flush_analytics().unwrap();
+        let text = fs::read_to_string(f.dir.join(".openblog/analytics.json")).unwrap();
+        assert!(text.contains("/posts/hello-world/") && !text.contains("Mozilla") && !text.contains("10.0.0.1"));
     }
 
     #[test]

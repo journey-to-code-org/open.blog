@@ -23,6 +23,21 @@
   "social": [],
   "footer": "© {year} {author}",
   "poweredBy": true,
+  "share": {
+    "enabled": true,
+    "networks": ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"]
+  },
+  "analytics": {
+    "builtin": true,
+    "showViews": true,
+    "retentionDays": 400
+  },
+  "snippets": {
+    "head": "",
+    "postFooter": "",
+    "bodyEnd": ""
+  },
+  "relatedPosts": 3,
   "home": {
     "heading": "Latest posts",
     "intro": "",

@@ -7,6 +7,7 @@ An open-source, self-hosted blogging platform built with native web technologies
 - **Native HTML and web components.** Semantic pages, no framework, no client-side build step. Everything works without JavaScript; four small custom elements enhance it, and a theme can ship its own.
 - **A real design system.** Themes are JSON design tokens that compile to CSS custom properties. Themes inherit from each other, each **series** (or post) can have its own, and a theme can bring scripts and a heading effect (see `themes/demo/`).
 - **RSS, JSON Feed, sitemap** and a snapshot feed for your portfolio.
+- **Share links, a cookie-free view counter with an analytics dashboard, related posts, and embed slots** for comments, newsletters, or another analytics service.
 - **Log in, edit, create, and schedule posts** from a browser editor (`openblog serve --admin`), still saving plain Markdown files.
 - **Hashnode import that works without Pro.**
 - **Few dependencies.** The core needs `pulldown-cmark`, `serde`, and `serde_json`. Only the CLI adds an HTTP client and an HTML-to-Markdown converter, for importing.
@@ -82,6 +83,7 @@ Every post has Open Graph tags, JSON-LD, a canonical link, and microformats.
 ## Docs
 
 - [The admin editor: login, editing, scheduling](docs/admin.md)
+- [Sharing, views, analytics, and embeds](docs/features.md)
 - [Themes and the design system](docs/themes.md), including per-series themes
 - [Adding web components to a theme](docs/theme-components.md), with the `demo` heading effect to copy
 - [Migrating from Hashnode](docs/hashnode-migration.md), with and without Pro

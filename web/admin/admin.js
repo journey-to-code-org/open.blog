@@ -19,6 +19,8 @@ function h(tag, props = {}, ...children) {
   for (const [key, value] of Object.entries(props)) {
     if (value === null || value === undefined || value === false) continue;
     if (key === "class") el.className = value;
+    // The admin's CSP forbids style *attributes*; assigning through the CSSOM is allowed.
+    else if (key === "style") el.style.cssText = value;
     else if (key.startsWith("on")) el.addEventListener(key.slice(2).toLowerCase(), value);
     else if (["value", "checked", "disabled", "selected"].includes(key)) el[key] = value;
     else el.setAttribute(key, value === true ? "" : String(value));
@@ -239,6 +241,7 @@ class ObAdmin extends HTMLElement {
       Object.entries(KINDS).map(([kind, info]) =>
         h("a", { class: "oba-tab", role: "tab", "aria-selected": String(kind === active), href: `#/${kind}` }, info.label),
       ),
+      h("a", { class: "oba-tab", role: "tab", "aria-selected": String(active === "analytics"), href: "#/analytics" }, "Analytics"),
     );
     return h(
       "div",
@@ -275,6 +278,7 @@ class ObAdmin extends HTMLElement {
     try {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
+      else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else await this.showList(KINDS[head] ? head : "posts");
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) this.showLogin("Your session ended. Sign in again.");
@@ -363,6 +367,64 @@ class ObAdmin extends HTMLElement {
         ...banner,
         h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: `#/new/${kind}`, style: null }, `New ${KINDS[kind].single}`), filter, kind === "posts" ? stateSel : null, h("span", { class: "oba-spacer" }), rebuild),
         table,
+      ),
+    );
+  }
+
+  // ---- analytics
+
+  async showAnalytics(days) {
+    let data;
+    try {
+      data = await this.api.call("GET", `analytics?days=${days}`);
+    } catch (err) {
+      if (err.status === 404) {
+        this.mount(this.shell("analytics", h("p", { class: "oba-notice" }, "The built-in view counter is switched off (analytics.builtin in openblog.json).")));
+        return;
+      }
+      throw err;
+    }
+    const n = (v) => Number(v || 0).toLocaleString();
+    const tile = (label, value, note) =>
+      h("div", { class: "oba-tile" }, h("span", { class: "oba-tile-value" }, value), h("span", { class: "oba-tile-label" }, label), note ? h("span", { class: "oba-small" }, note) : null);
+    const ranges = h(
+      "div",
+      { class: "oba-tabs" },
+      [7, 30, 90, 365].map((d) => h("a", { class: "oba-tab", "aria-selected": String(d === data.days), href: `#/analytics/${d}` }, `${d} days`)),
+    );
+    const maxViews = Math.max(1, ...data.series.map((s) => s.views));
+    const bars = h(
+      "ol",
+      { class: "oba-chart", "aria-label": "Views per day" },
+      data.series.map((s) =>
+        h(
+          "li",
+          { title: `${s.day}: ${n(s.views)} views, ${n(s.uniques)} visitors` },
+          h("span", { class: "oba-chart-bar", style: `height:${Math.round((s.views / maxViews) * 100)}%` }),
+          h("span", { class: "oba-sr" }, `${s.day}: ${s.views} views`),
+        ),
+      ),
+    );
+    const table = (caption, rows, cols) =>
+      h(
+        "table",
+        { class: "oba-table" },
+        h("caption", { class: "oba-legend" }, caption),
+        h("thead", {}, h("tr", {}, cols.map((c) => h("th", {}, c)))),
+        h("tbody", {}, rows.length ? rows : h("tr", {}, h("td", { colspan: cols.length }, "Nothing yet."))),
+      );
+    const posts = data.topPosts.map((p) =>
+      h("tr", {}, h("td", {}, h("a", { href: p.path, target: "_blank", rel: "noopener" }, p.path)), h("td", {}, n(p.views)), h("td", {}, n(p.uniques)), h("td", {}, n(p.allTime))),
+    );
+    const refs = data.referrers.map((r) => h("tr", {}, h("td", {}, r.host), h("td", {}, n(r.views))));
+    this.mount(
+      this.shell(
+        "analytics",
+        ranges,
+        h("div", { class: "oba-tiles" }, tile("Views", n(data.views), `${data.from} to ${data.to}`), tile("Unique visitors", n(data.uniques), "per page, per day"), tile("All-time views", n(data.allTimeViews), data.firstDay ? `since ${data.firstDay}` : "")),
+        bars,
+        h("div", { class: "oba-columns" }, table("Top pages", posts, ["Page", "Views", "Visitors", "All time"]), table("Referrers", refs, ["Site", "Views"])),
+        h("p", { class: "oba-small" }, "No cookies and no addresses are stored. Readers with Do Not Track or Global Privacy Control are not counted."),
       ),
     );
   }

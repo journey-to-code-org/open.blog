@@ -261,6 +261,11 @@ impl<'a> Renderer<'a> {
         if let Some(ld) = &meta.json_ld {
             h.push_str(&format!("<script type=\"application/ld+json\">{}</script>\n", ld.replace("</", "<\\/")));
         }
+        // Owner-supplied raw HTML (third-party analytics, verification tags).
+        if !c.snippets.head.trim().is_empty() {
+            h.push_str(c.snippets.head.trim());
+            h.push('\n');
+        }
         h.push_str("</head>\n<body>\n");
         h.push_str("<a class=\"ob-skip\" href=\"#main\">Skip to content</a>\n");
         h.push_str(&self.site_header(theme, &meta.path));
@@ -268,7 +273,12 @@ impl<'a> Renderer<'a> {
         h.push_str(body);
         h.push_str("\n</main>\n");
         h.push_str(&self.site_footer());
-        h.push_str("<ob-back-to-top></ob-back-to-top>\n</body>\n</html>\n");
+        h.push_str("<ob-back-to-top></ob-back-to-top>\n");
+        if !c.snippets.body_end.trim().is_empty() {
+            h.push_str(c.snippets.body_end.trim());
+            h.push('\n');
+        }
+        h.push_str("</body>\n</html>\n");
         h
     }
 
@@ -520,7 +530,12 @@ impl<'a> Renderer<'a> {
                 body.push_str(&format!(" · Updated <time class=\"dt-updated\" datetime=\"{}\">{}</time>", updated.rfc3339(), text(&updated.short())));
             }
         }
-        body.push_str(&format!(" · {} min read</p>\n", post.reading_minutes));
+        body.push_str(&format!(" · {} min read", post.reading_minutes));
+        if c.analytics.builtin && c.analytics.show_views {
+            // Filled in by the server's counter; stays empty (and invisible) on static hosts.
+            body.push_str(&format!("<ob-views path=\"{}\"></ob-views>", attr(&post.url)));
+        }
+        body.push_str("</p>\n");
         if !post.tags.is_empty() {
             body.push_str("<ul class=\"ob-tags\" aria-label=\"Tags\">");
             for t in &post.tags {
@@ -565,10 +580,24 @@ impl<'a> Renderer<'a> {
                 text(source_url.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/'))
             ));
         }
+        if c.share.enabled {
+            body.push_str(&self.share_block(post));
+        }
         if let Some(s) = series {
             body.push_str(&self.series_box(index, post, s));
         }
+        let related = self.site.related(index, c.related_posts);
+        if !related.is_empty() {
+            body.push_str("<section class=\"ob-related\" aria-labelledby=\"related\">\n<h2 id=\"related\" class=\"ob-related-title\">Related posts</h2>\n");
+            body.push_str(&self.post_list(theme, &related));
+            body.push_str("\n</section>\n");
+        }
         body.push_str(&self.chronological_nav(index));
+        if !c.snippets.post_footer.trim().is_empty() {
+            body.push_str("<div class=\"ob-post-extra\">\n");
+            body.push_str(c.snippets.post_footer.trim());
+            body.push_str("\n</div>\n");
+        }
         body.push_str("</article>\n</div>");
 
         let canonical = post.canonical.clone();
@@ -604,6 +633,41 @@ impl<'a> Renderer<'a> {
             noindex: false,
         };
         self.document(&meta, &body)
+    }
+
+    /// Share links. Plain anchors, so they work without JavaScript; the
+    /// `<ob-share>` element adds the native share sheet and a copy button.
+    fn share_block(&self, post: &Post) -> String {
+        let c = &self.site.config;
+        let url = c.absolute(&post.url);
+        let u = crate::escape::url_component(&url);
+        let t = crate::escape::url_component(&post.title);
+        let mut links: Vec<(&str, String, bool)> = Vec::new();
+        for network in &c.share.networks {
+            let (label, href, external) = match network.trim().to_ascii_lowercase().as_str() {
+                "x" | "twitter" => ("X", format!("https://twitter.com/intent/tweet?text={t}&url={u}"), true),
+                "bluesky" => ("Bluesky", format!("https://bsky.app/intent/compose?text={t}%20{u}"), true),
+                "mastodon" => ("Mastodon", format!("https://mastodonshare.com/?text={t}&url={u}"), true),
+                "linkedin" => ("LinkedIn", format!("https://www.linkedin.com/sharing/share-offsite/?url={u}"), true),
+                "facebook" => ("Facebook", format!("https://www.facebook.com/sharer/sharer.php?u={u}"), true),
+                "reddit" => ("Reddit", format!("https://www.reddit.com/submit?url={u}&title={t}"), true),
+                "hackernews" | "hn" => ("Hacker News", format!("https://news.ycombinator.com/submitlink?u={u}&t={t}"), true),
+                "email" => ("Email", format!("mailto:?subject={t}&body={u}"), false),
+                _ => continue,
+            };
+            links.push((label, href, external));
+        }
+        let mut h = format!(
+            "<ob-share url=\"{}\" title=\"{}\">\n<nav class=\"ob-share\" aria-label=\"Share this post\">\n<span class=\"ob-share-label\">Share</span>\n<ul>\n",
+            attr(&url),
+            attr(&post.title)
+        );
+        for (label, href, external) in links {
+            let extra = if external { " target=\"_blank\" rel=\"noopener noreferrer\"" } else { "" };
+            h.push_str(&format!("<li><a href=\"{}\"{extra}>{}</a></li>\n", attr(&href), text(label)));
+        }
+        h.push_str("</ul>\n</nav>\n</ob-share>\n");
+        h
     }
 
     fn series_box(&self, index: usize, post: &Post, series: &Series) -> String {
@@ -912,6 +976,32 @@ mod tests {
         let files = generate(&site, &ThemeSet::new()).unwrap();
         assert!(!file(&files, "index.html").contains("Powered by"));
         assert!(file(&files, "api/blog.json").contains("\"schemaVersion\": 1"));
+    }
+
+    #[test]
+    fn posts_get_share_links_views_related_and_snippets() {
+        let files = build(
+            r##"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","snippets":{"head":"<meta name=\"x-verify\" content=\"1\">","postFooter":"<div id=\"comments\"></div>","bodyEnd":"<script src=\"/x.js\"></script>"}}"##,
+            true,
+        );
+        let one = file(&files, "one/index.html");
+        assert!(one.contains("<ob-share url=\"https://t.dev/one/\" title=\"One\">"));
+        assert!(one.contains("https://twitter.com/intent/tweet?text=One&amp;url=https%3A%2F%2Ft.dev%2Fone%2F"));
+        assert!(one.contains("href=\"mailto:?subject=One&amp;body=https%3A%2F%2Ft.dev%2Fone%2F\""));
+        assert!(one.contains("<ob-views path=\"/one/\"></ob-views>"));
+        assert!(one.contains("Related posts") && one.contains("href=\"/two/\""), "two shares the series");
+        assert!(one.contains("<meta name=\"x-verify\" content=\"1\">\n</head>"));
+        assert!(one.contains("<div id=\"comments\"></div>"));
+        assert!(one.contains("<script src=\"/x.js\"></script>\n</body>"));
+        let solo = file(&files, "solo/index.html");
+        assert!(!solo.contains("Related posts"), "nothing overlaps with solo");
+
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","share":{"enabled":false},"analytics":{"showViews":false},"relatedPosts":0}"#,
+            true,
+        );
+        let one = file(&files, "posts/one/index.html");
+        assert!(!one.contains("ob-share") && !one.contains("ob-views") && !one.contains("Related posts"));
     }
 
     #[test]

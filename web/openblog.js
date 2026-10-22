@@ -7,3 +7,5 @@ import "./components/ob-theme-toggle.js";
 import "./components/ob-code-copy.js";
 import "./components/ob-back-to-top.js";
 import "./components/ob-search.js";
+import "./components/ob-share.js";
+import "./components/ob-views.js";

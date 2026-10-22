@@ -350,6 +350,31 @@ impl Site {
         self.scheduled.first().map(|s| s.date)
     }
 
+    /// Posts most related to `index`: shared tags count double, the same series
+    /// counts most, and ties go to newer posts. Only posts with some overlap
+    /// are returned, so unrelated posts never pad the list.
+    pub fn related(&self, index: usize, limit: usize) -> Vec<usize> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let post = &self.posts[index];
+        let mut scored: Vec<(u32, usize)> = self
+            .posts
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != index)
+            .map(|(i, other)| {
+                let shared_tags = other.tags.iter().filter(|t| post.tags.iter().any(|p| p.slug == t.slug)).count() as u32;
+                let same_series = u32::from(post.series.is_some() && post.series == other.series);
+                (shared_tags * 2 + same_series * 3, i)
+            })
+            .filter(|(score, _)| *score > 0)
+            .collect();
+        // `posts` is newest first, so a smaller index is newer.
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        scored.into_iter().take(limit).map(|(_, i)| i).collect()
+    }
+
     pub fn latest_update(&self) -> Option<DateTime> {
         self.posts.iter().map(|p| p.updated.unwrap_or(p.date)).max()
     }
@@ -545,6 +570,26 @@ mod tests {
         assert_eq!(prev.unwrap().slug, "first");
         assert!(next.is_none());
         assert!(s.pages[0].nav);
+    }
+
+    #[test]
+    fn related_posts_rank_by_series_and_shared_tags() {
+        let s = site(Sources {
+            posts: vec![
+                post("posts/a.md", "---\ntitle: A\ndate: 2026-04-01\ntags: [rust, wasm]\nseries: s\n---\nx"),
+                post("posts/b.md", "---\ntitle: B\ndate: 2026-03-01\ntags: [rust]\nseries: s\n---\nx"),
+                post("posts/c.md", "---\ntitle: C\ndate: 2026-02-01\ntags: [rust, wasm]\n---\nx"),
+                post("posts/d.md", "---\ntitle: D\ndate: 2026-01-01\ntags: [cooking]\n---\nx"),
+                post("posts/e.md", "---\ntitle: E\ndate: 2025-12-01\ntags: [rust]\n---\nx"),
+            ],
+            ..Default::default()
+        });
+        let names = |ids: Vec<usize>| ids.iter().map(|&i| s.posts[i].title.as_str()).collect::<Vec<_>>();
+        // A: B shares series + rust (5), C shares rust + wasm (4), E shares rust (2); D nothing.
+        assert_eq!(names(s.related(0, 10)), vec!["B", "C", "E"]);
+        assert_eq!(names(s.related(0, 1)), vec!["B"]);
+        assert!(s.related(3, 10).is_empty(), "no overlap means no related posts");
+        assert!(s.related(0, 0).is_empty());
     }
 
     #[test]
