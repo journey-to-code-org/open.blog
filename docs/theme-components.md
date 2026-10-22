@@ -32,11 +32,15 @@ JavaScript runs, and search engines and feed readers see ordinary headings.
 
 ## Try the demo
 
+`openblog init` writes the `demo` theme (and `paper`) into your blog's `themes/` folder,
+so it is there to try and to copy. In an older blog without it, copy `themes/demo/` from
+the open.blog repository.
+
 ```sh
 openblog serve
 ```
 
-Add `"theme": "demo"` to `openblog.json`, or give one series `theme: demo` in its front
+Set `"theme": "demo"` in `openblog.json`, or give one series `theme: demo` in its front
 matter to see the effect on that series only. Every title's words rise into place when the
 heading scrolls into view. The whole effect is three small files in `themes/demo/`:
 

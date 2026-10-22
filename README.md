@@ -1,42 +1,68 @@
 # open.blog
 
-An open-source, self-hosted blogging platform built with native web technologies, portable themes, and a focus on owning your content.
+An open-source, self-hosted blogging platform. Write Markdown files, get a fast static
+site with feeds, search, themes, scheduling, and an optional browser editor. Built in Rust
+and WebAssembly on native HTML and web components, with a focus on owning your content.
 
-- **Markdown in, static site out.** Drop `.md` files in `content/posts/`.
-- **Rust core, WebAssembly in the browser.** One crate does front matter, Markdown, themes, feeds, and search. It runs in the CLI and, compiled to WASM, powers search in the page.
-- **Native HTML and web components.** Semantic pages, no framework, no client-side build step. Everything works without JavaScript; four small custom elements enhance it, and a theme can ship its own.
-- **A real design system.** Themes are JSON design tokens that compile to CSS custom properties. Themes inherit from each other, each **series** (or post) can have its own, and a theme can bring scripts and a heading effect (see `themes/demo/`).
-- **RSS, JSON Feed, sitemap** and a snapshot feed for your portfolio.
-- **Built-in syntax highlighting** with no external library, URL aliases for moved posts, and a GitHub Pages workflow that also publishes scheduled posts on time.
-- **Share links, a cookie-free view counter with an analytics dashboard, related posts, and embed slots** for comments, newsletters, or another analytics service. Optional CDN support with cache-busting asset URLs.
-- **Log in, edit, create, and schedule posts** from a browser editor (`openblog serve --admin`), still saving plain Markdown files.
-- **Hashnode import that works without Pro.**
-- **Few dependencies.** The core needs `pulldown-cmark`, `serde`, and `serde_json`. Only the CLI adds an HTTP client and an HTML-to-Markdown converter, for importing.
+- **Markdown in, static site out.** Posts are plain `.md` files in a folder. No database.
+- **Themes are design tokens.** A theme is a JSON file of colours, fonts, and sizes that
+  compiles to CSS custom properties. Themes inherit from each other, each series can have
+  its own, and a theme can ship its own web components.
+- **Everything works without JavaScript.** A handful of small custom elements add search,
+  a light/dark toggle, copy buttons, syntax highlighting, sharing, and view counts on top.
+- **Feeds and metadata built in.** RSS, JSON Feed, sitemap, Open Graph, JSON-LD, canonical
+  links, and a small JSON of your latest posts for embedding on another site.
+- **Browser editor.** `openblog serve --admin` adds a login-protected editor with live
+  preview, image uploads, drafts, and scheduled posts. It edits the same Markdown files.
+- **Privacy-respecting analytics.** An optional cookie-free view counter with a dashboard.
+- **Import from Hashnode** without a paid plan.
+- **Few dependencies.** The engine needs a Markdown parser and JSON support; only the
+  command-line tool adds an HTTP client, an HTML-to-Markdown converter, and password hashing.
+
+## Requirements
+
+- [Rust](https://www.rust-lang.org/tools/install) 1.85 or newer (`cargo` on your path),
+  to install the `openblog` command. Nothing else: the search engine's WebAssembly module
+  is built into the command and written out by `openblog init`.
+
+Windows, macOS, and Linux are supported.
+
+## Install
+
+```sh
+cargo install --git https://github.com/journey-to-code-org/open.blog openblog-cli
+```
+
+This puts an `openblog` command on your path. To work from a clone instead, run
+`cargo run -p openblog-cli -- <command>` in the repository; the clone also contains a
+starter site you can run straight away.
 
 ## Quick start
 
 ```sh
-cargo install --path crates/openblog-cli     # installs the `openblog` command
-openblog init my-blog && cd my-blog
-openblog serve                               # http://localhost:8080, rebuilds on change
+openblog init my-blog          # a starter site: config, a post, a page, three themes
+                               # add --github-pages for a ready-made deploy workflow
+cd my-blog
+openblog serve                 # http://localhost:8080, rebuilds whenever a file changes
 ```
 
-Or work in this repository directly: `cargo run -p openblog-cli -- serve`.
+Then:
 
 ```sh
-openblog new "My first post" --series guide --tags rust,wasm
-openblog build            # writes dist/, deploy it to any static host
-openblog check            # validate content and themes
-openblog themes
+openblog new "My first post"   # creates content/posts/<today>-my-first-post.md
+openblog build                 # writes the finished site to dist/
 ```
 
-Search uses WebAssembly. Build it once (needs `cargo install wasm-pack`):
+Edit `openblog.json` to set your title, description, address, and author. Upload `dist/`
+to any static host, or keep running `openblog serve` on a server of your own. See
+[Deploying](docs/deploy.md).
+
+To write from a browser:
 
 ```sh
-openblog build-wasm       # writes web/wasm/, which `build` copies to dist/assets/wasm/
+openblog user add you          # create a login
+openblog serve --admin         # editor at http://localhost:8080/admin
 ```
-
-Search falls back to a small JavaScript matcher if the module is missing.
 
 ## A post
 
@@ -45,58 +71,64 @@ Search falls back to a small JavaScript matcher if the module is missing.
 title: Rust enums and match
 date: 2026-10-21
 tags: [rust, webassembly]
-series: rustbound          # slug of content/series/rustbound.md
-seriesOrder: 4             # optional; defaults to date order
-cover: /images/enums.png
-description: Optional; defaults to an excerpt.
+series: rustbound              # optional: slug of content/series/rustbound.md
+description: Optional; an excerpt is used otherwise.
+cover: /images/enums.png       # optional
 draft: false
-theme: mnix                # optional per-post override
-canonical: https://example.com/original   # optional, for cross-posts
 ---
 
-Markdown here. Tables, task lists, footnotes, fenced code, and heading anchors included.
+Markdown here: tables, task lists, footnotes, fenced code, images, raw HTML.
 ```
 
-File names may start with a date (`2026-10-21-my-post.md`); the slug is the rest.
-Series live in `content/series/<slug>.md` (`name`, `description`, `theme`, `cover`, `order`).
-Pages live in `content/pages/` (`nav: true` adds them to the header).
+A post dated in the future is scheduled and appears by itself when the time comes. The
+full list of fields is in [Writing content](docs/content.md).
 
-## Layout
+## Project layout
 
 ```
-openblog.json         site settings: title, url, theme, nav, feeds, paths
-content/              posts/ series/ pages/
-static/               copied to the site root (images, favicon, CNAME)
-themes/<name>/        theme.json (+ theme.css, fonts/)
-web/                  base.css, components/, wasm/ (front end; embedded defaults ship in the binary)
-crates/openblog-core  the engine (no I/O; also compiles to WebAssembly)
-crates/openblog-wasm  wasm-bindgen bindings
-crates/openblog-cli   the `openblog` command
+openblog.json         site settings (title, address, theme, navigation, feeds, ...)
+content/posts/        posts, one Markdown file each
+content/series/       series descriptions (optional)
+content/pages/        pages such as About (optional)
+static/               copied to the site root as is (images, favicon, CNAME)
+themes/<name>/        theme.json, plus optional theme.css, scripts, and fonts
+web/                  the stylesheet, web components, and the search module (wasm/)
+dist/                 the generated site (do not edit; rebuilt every time)
 ```
 
-## Output
+## Documentation
 
-`/` and `/page/N/`, `/<slug>/` for posts (configurable with `postPath`), `/series/`,
-`/series/<slug>/`, `/tags/`, `/tags/<slug>/`, `/archive/`, `/search/`, pages, `/404.html`,
-`/rss.xml`, `/feed.json`, `/sitemap.xml`, `/robots.txt`, `/api/blog.json`, `/search.json`.
-Every post has Open Graph tags, JSON-LD, a canonical link, and microformats.
+Start with [the docs index](docs/README.md). The main guides:
 
-## Docs
-
-- [Deploying: GitHub Pages, other static hosts, self-hosting, moving URLs](docs/deploy.md)
-- [The admin editor: login, editing, scheduling](docs/admin.md)
+- [Writing content](docs/content.md): posts, series, pages, and every front matter field
+- [Configuration](docs/configuration.md): every setting in `openblog.json`
+- [Themes and the design system](docs/themes.md) and
+  [adding web components to a theme](docs/theme-components.md)
+- [The admin editor](docs/admin.md): login, editing, scheduling, running it safely
 - [Sharing, views, analytics, and embeds](docs/features.md)
-- [Themes and the design system](docs/themes.md), including per-series themes
-- [Adding web components to a theme](docs/theme-components.md), with the `demo` heading effect to copy
-- [Migrating from Hashnode](docs/hashnode-migration.md), with and without Pro
-- [Integrating with the mnix.dev portfolio](docs/portfolio-integration.md)
+- [Deploying](docs/deploy.md): GitHub Pages, other hosts, self-hosting, moving URLs
+- [Showing your posts on another site](docs/integrations.md)
+- [Migrating from Hashnode](docs/hashnode-migration.md)
 
-## Development
+## Contributing
+
+Issues and pull requests are welcome. The repository is a Cargo workspace:
+
+```
+crates/openblog-core   the engine: parsing, rendering, themes, feeds, search (no I/O)
+crates/openblog-wasm   WebAssembly bindings for the browser
+crates/openblog-cli    the openblog command: build, serve, admin, import
+web/                   stylesheet and web components
+themes/                base theme and examples
+```
 
 ```sh
 cargo test --workspace
-cargo clippy --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all
 ```
+
+Continuous integration runs the same three on every push.
 
 ## License
 

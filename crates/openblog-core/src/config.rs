@@ -9,7 +9,7 @@ pub struct SiteConfig {
     pub title: String,
     /// One or two sentences for `<meta name="description">` and the feeds.
     pub description: String,
-    /// Canonical origin without a trailing slash, e.g. `https://journeytocode.io`.
+    /// The public address, e.g. `https://blog.example.com` (a path is allowed: `https://user.github.io/blog`).
     pub url: String,
     /// BCP 47 language tag.
     pub language: String,
@@ -28,7 +28,7 @@ pub struct SiteConfig {
     pub posts_per_page: usize,
     /// Header navigation. Pages with `nav: true` in their front matter are appended.
     pub nav: Vec<Link>,
-    /// Footer links (GitHub, LinkedIn, portfolio, ...).
+    /// Footer links (GitHub, Mastodon, a personal site, ...).
     pub social: Vec<Link>,
     /// Footer text. `{year}` and `{author}` are replaced.
     pub footer: String,
@@ -84,7 +84,8 @@ pub struct FeedsConfig {
     pub json: bool,
     /// Write `/sitemap.xml` and `/robots.txt`.
     pub sitemap: bool,
-    /// Write `/api/blog.json`, the snapshot shape the mnix.dev portfolio consumes.
+    /// Write `/api/blog.json`: the four newest posts as `{ schemaVersion, posts: [{ title, date, link }] }`,
+    /// for embedding a "latest posts" list on another site.
     pub portfolio_snapshot: bool,
     /// Maximum items in RSS and JSON feeds.
     pub limit: usize,

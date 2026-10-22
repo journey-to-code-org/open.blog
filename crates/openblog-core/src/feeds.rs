@@ -1,4 +1,4 @@
-//! RSS 2.0, JSON Feed 1.1, sitemap, robots.txt, the portfolio snapshot, and
+//! RSS 2.0, JSON Feed 1.1, sitemap, robots.txt, the latest-posts snapshot, and
 //! the search index. All are plain string builders over the site model.
 
 use crate::escape;
@@ -131,7 +131,7 @@ pub fn json_feed(site: &Site) -> String {
     serde_json::to_string_pretty(&feed).unwrap_or_default()
 }
 
-/// The exact shape `mnix.dev` reads from its `/api/blog` function:
+/// A small list of the newest posts for other sites to embed:
 /// `{ "schemaVersion": 1, "posts": [{ "title", "date", "link" }] }` with at most four posts.
 pub fn portfolio_snapshot(site: &Site, limit: usize) -> String {
     let c = &site.config;
@@ -249,7 +249,7 @@ mod tests {
 
     fn site() -> Site {
         let config = SiteConfig::from_json(
-            r#"{"title":"Journey","url":"https://j.io","postPath":"/{slug}/","author":{"name":"Mikey"}}"#,
+            r#"{"title":"Journey","url":"https://j.io","postPath":"/{slug}/","author":{"name":"Alex"}}"#,
         )
         .unwrap();
         Site::load(
@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn rss_matches_what_the_portfolio_parser_needs() {
+    fn rss_has_what_feed_readers_and_widgets_need() {
         let xml = rss(&site());
         assert!(xml.contains("<title>A &amp; B</title>"));
         assert!(xml.contains("<link>https://j.io/a/</link>"));

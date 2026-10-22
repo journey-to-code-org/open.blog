@@ -9,7 +9,7 @@
 //! - [`model`]: posts, series, tags, and pages
 //! - [`theme`]: design tokens in JSON, emitted as CSS custom properties, with inheritance
 //! - [`render`]: semantic HTML pages built from native elements and web components
-//! - [`feeds`]: RSS 2.0, JSON Feed, sitemap, and the portfolio snapshot
+//! - [`feeds`]: RSS 2.0, JSON Feed, sitemap, and the latest-posts snapshot
 //! - [`search`]: a small ranked search over a JSON index
 
 pub mod config;

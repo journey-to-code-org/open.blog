@@ -5,12 +5,12 @@ serves your blog. The editor reads and writes the same Markdown files you would 
 hand, so your content stays plain files you own. There is no database.
 
 ```sh
-openblog user add mikey            # create a login (prompts for a password)
+openblog user add you              # create a login (prompts for a password)
 openblog serve --admin             # http://localhost:8080/admin
 ```
 
 Passwords need at least 12 characters. To avoid typing one where it is echoed, use
-`echo "your passphrase" | openblog user add mikey --password-stdin` or set
+`echo "your passphrase" | openblog user add you --password-stdin` or set
 `OPENBLOG_PASSWORD`. Other commands: `user passwd <name>`, `user remove <name>`,
 `user list`. Changing a password or removing a user ends that person's open sessions
 immediately.
@@ -42,7 +42,7 @@ A post's status is one of:
 
 Pick *Scheduled* and a date and time (your local time; it is stored as UTC) and save. The
 post is held back from the pages, feeds, sitemap, search index, tags, series, and the
-portfolio snapshot. The server checks every few seconds and rebuilds at the moment the post
+latest-posts JSON. The server checks every few seconds and rebuilds at the moment the post
 comes due, so it appears by itself.
 
 This works in plain files too: any post with a future `date:` stays hidden until a build
@@ -72,13 +72,23 @@ a machine you control and put it behind HTTPS (a reverse proxy such as Caddy or 
 }
 ```
 
-With `trustedProxies` set, a connection from one of those addresses takes the client address
-from the last `X-Forwarded-For` entry, the one that proxy appended. Without it, every visitor
-behind the proxy would share one login limit.
+Entries in `trustedProxies` are exact IP addresses, not ranges. A connection from one of
+them takes the client address from the last `X-Forwarded-For` entry, the one that proxy
+appended; if the header is missing, the proxy's own address is used and every visitor
+shares one login limit. Connections from a trusted proxy are also exempt from the
+per-address connection cap, so the whole readership is not squeezed through one slot.
 
 ```sh
-openblog serve --admin --host 0.0.0.0 --port 8080
+openblog serve --admin --port 8080
 ```
+
+Keep the default `--host 127.0.0.1` when the proxy runs on the same machine, so only the
+proxy can reach the plain-HTTP port; use `--host 0.0.0.0` only when the proxy is elsewhere,
+and firewall the port. The proxy must pass the original `Host` header through and add
+`X-Forwarded-For` (Caddy does both by default; nginx needs `proxy_set_header Host $host;`
+and `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`). Without the `Host`
+header every login and save is refused as cross-origin; without `X-Forwarded-For` all
+visitors share one login limit. [Deploying](deploy.md) has a complete nginx example.
 
 Without HTTPS, passwords and sessions cross the network in clear text; the server prints a
 warning if you expose it that way with `secureCookies` off. Keep `.openblog/` (users file and
@@ -108,7 +118,8 @@ and publish `dist/` onward (for example with a git push or rsync after each buil
 - The admin page is served with a strict Content-Security-Policy (no inline scripts), and the
   Markdown preview is rendered in a sandboxed iframe that cannot run scripts.
 - Front matter values are always quoted so a value containing a newline cannot add fields.
-- Limits: 64 concurrent connections (16 per address), header and body size caps, deadlines
-  for slow senders and slow readers, and no chunked bodies.
+- Limits: 64 concurrent connections (16 per address, not applied to trusted proxies),
+  header and body size caps, deadlines for slow senders and slow readers, and no chunked
+  bodies.
 
 What it does not do: multi-factor login or per-user roles (every user can edit everything).

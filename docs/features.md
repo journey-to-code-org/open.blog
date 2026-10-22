@@ -131,7 +131,7 @@ Two things to know:
 - The search engine's WebAssembly module stays on the site's own origin on purpose, because
   cross-origin module loading depends on CDN headers that are easy to get wrong.
 
-## Already built in
+## Everything else that is already built in
 
 Reading time, a table of contents for longer posts, previous and next links, series
 navigation, tag pages, an archive, client-side search, RSS and JSON feeds, a sitemap,

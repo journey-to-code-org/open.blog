@@ -13,21 +13,35 @@ automatic publishing of scheduled posts).
 | View counter and analytics | no (`<ob-views>` hides itself) | yes |
 | HTTPS | provided | put a reverse proxy in front |
 
+A blog made with `openblog init` is a folder of Markdown, settings, and themes. It has
+no Rust code of its own: the `openblog` command does the building. The instructions below
+assume that layout. (If you instead work inside a clone of the open.blog repository, its
+own `.github/workflows/pages.yml` builds the starter site from source; replace
+`openblog build` with `cargo run --release -p openblog-cli -- build` in the commands here.)
+
 ## GitHub Pages
 
-The repository ships `.github/workflows/pages.yml`. It builds the WebAssembly module and
-the site, then deploys `dist/` on every push to `main` and once an hour, so scheduled posts
-publish on time. Setup:
+1. Create the blog with the workflow included, or add it to an existing blog:
 
-1. In the repository settings, under *Pages*, set *Source* to **GitHub Actions**.
-2. Set `"url"` in `openblog.json` to the address the site will have.
-3. For a custom domain, add the domain to `static/CNAME` (one line) and configure it under
-   *Pages*. The build copies the file to the site root.
+   ```sh
+   openblog init my-blog --github-pages
+   ```
 
-Two addresses are possible:
+   This writes `.github/workflows/pages.yml`. It installs `openblog` on the build machine
+   (cached between runs), runs `openblog build`, and deploys `dist/`, on every push to `main`
+   and once an hour so scheduled posts publish on time. Edit the `cron` line if you want a
+   different rhythm.
 
-- **A custom domain or `user.github.io` user site**: the site lives at the root. With
-  `"postPath": "/{slug}/"`, URLs imported from Hashnode stay identical.
+2. Push the blog to a GitHub repository.
+3. In the repository settings, under *Pages*, set *Source* to **GitHub Actions**.
+4. Set `"url"` in `openblog.json` to the address the site will have.
+
+Two kinds of address are possible:
+
+- **A custom domain, or a `user.github.io` user site**: the site lives at the root. Add the
+  domain to `static/CNAME` (one line) and configure it under *Pages*; the build copies the
+  file to the site root. With `"postPath": "/{slug}/"`, URLs imported from Hashnode stay
+  identical.
 - **A project site, `https://user.github.io/repo/`**: set `"url"` to exactly that. The build
   reads the path from it and prefixes every root-relative link, asset, and the search index,
   while feeds and the sitemap use the full address. `openblog serve` honours the same prefix
@@ -35,36 +49,79 @@ Two addresses are possible:
 
 The build also writes a `.nojekyll` file so Pages serves everything as is.
 
-## Netlify, Cloudflare Pages, Vercel
+## Netlify, Cloudflare Pages, Vercel, and others
 
-Point the build at `dist/` with a command that installs Rust, for example:
+Set the publish directory to `dist/` and use a build command that installs Rust and the
+`openblog` command, then builds:
 
 ```sh
 curl https://sh.rustup.rs -sSf | sh -s -- -y && . "$HOME/.cargo/env" \
-  && rustup target add wasm32-unknown-unknown && cargo install wasm-pack --locked \
-  && cargo run --release -p openblog-cli -- build-wasm \
-  && cargo run --release -p openblog-cli -- build
+  && cargo install --git https://github.com/journey-to-code-org/open.blog openblog-cli \
+  && openblog build
 ```
 
-Or build in CI and deploy the folder with the host's CLI. For scheduled posts, trigger a
-build on a schedule (a build hook called from a cron job, or a scheduled workflow).
+The install step compiles the engine, which takes a few minutes the first time; most
+hosts cache `~/.cargo` between builds. Alternatively build in GitHub Actions (the Pages
+workflow above, minus the deploy job) and push `dist/` with the host's own tool.
+
+For scheduled posts, trigger a build on a schedule: a build hook called from a cron job,
+or a scheduled workflow.
 
 ## Self-hosting with `openblog serve`
 
 ```sh
 openblog user add you
-openblog serve --admin --host 0.0.0.0 --port 8080
+openblog serve --admin --port 8080
 ```
 
-Put Caddy, nginx, or another reverse proxy in front for HTTPS, set
-`admin.secureCookies` to `true` and `admin.trustedProxies` to the proxy's address, and keep
-`.openblog/` (users, trash, analytics) out of version control and in your backups. See
-[admin.md](admin.md) for the full checklist. Run it under a process manager (systemd, a
-container, or a Windows service) so it restarts with the machine.
+Then put a reverse proxy with HTTPS in front (Caddy, nginx, Traefik, ...) and set, in
+`openblog.json`:
 
-A common hybrid: run `openblog serve --admin` privately for writing, and let a workflow
-deploy `dist/` to a static host for readers. The admin writes the same Markdown files the
-workflow builds from.
+```jsonc
+"admin": {
+  "secureCookies": true,              // required over HTTPS
+  "trustedProxies": ["127.0.0.1"]     // the proxy's address, exact IP (no ranges)
+}
+```
+
+Three things the proxy must do, or logins and saves are refused as cross-origin and
+every visitor shares one login limit:
+
+- Pass the original `Host` header through. Caddy does by default. For nginx add
+  `proxy_set_header Host $host;`.
+- Add `X-Forwarded-For`. Caddy does by default. For nginx add
+  `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`.
+- Reach `openblog serve` on the address it listens on. Keep the default `--host 127.0.0.1`
+  when the proxy runs on the same machine, so only the proxy can reach the plain-HTTP port.
+  Use `--host 0.0.0.0` or the machine's private address only when the proxy is elsewhere,
+  and firewall the port so it is not reachable from the internet.
+
+A minimal nginx location:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+Run the server under a process manager (systemd, a container, or a Windows service) so it
+restarts with the machine, and keep `.openblog/` (users, trash, analytics) out of version
+control and in your backups. [The admin editor](admin.md) has the full checklist.
+
+A common hybrid: run `openblog serve --admin` privately for writing, and let the Pages
+workflow deploy `dist/` for readers. The editor writes the same Markdown files the
+workflow builds from; commit and push after writing.
+
+## A theme that is not in the repository
+
+Builds in CI only see committed files. If a theme is kept out of the repository
+(private fonts, a design you do not want to publish), either commit it after all, add a
+workflow step that checks the theme out from a private repository into `themes/<name>/`
+(a second `actions/checkout` with a deploy key or token), or build locally and upload
+`dist/` instead of building in CI. A missing theme fails the build with
+"theme `name` not found".
 
 ## Moving URLs
 
@@ -80,5 +137,5 @@ Each alias becomes a small page that redirects to the post, carries a canonical 
 the new address, and is excluded from the sitemap. An alias that collides with a real page
 fails the build instead of overwriting it. Pages support `aliases` too.
 
-The Hashnode importer adds an alias for the original `/slug/` address automatically when
-`postPath` is not `/{slug}/`.
+Changing `postPath` moves every post at once; add an alias for the old address to each
+post you care about, or keep `postPath` as it was.

@@ -6,8 +6,9 @@ cheapest to most powerful:
 
 1. **Tokens** in `theme.json`: colours, fonts, sizes, radii. They compile to CSS
    custom properties (`--ob-*`) in a generated `tokens.css`.
-2. **Options** in `theme.json`: small rendering switches (code-label headings, typing
-   effect, navigation label template, list style).
+2. **Options** in `theme.json`: small rendering switches (code-label headings, a heading
+   wrapper element for the theme's own effect, navigation label template, list style, post
+   covers, code highlighting).
 3. **A stylesheet** (`theme.css`, listed under `stylesheets`) for anything tokens can't
    express. Scope its rules with `[data-ob-theme="<name>"]`.
 
@@ -22,14 +23,17 @@ overrides a handful of values is a complete theme.
   "extends": "base",            // inherit everything, override what differs
   "colorScheme": "dark",        // scheme used when the visitor has no preference
   "colors": {
-    "dark":  { "page": "#111", "text": "#f3f3f4", "accent": "#e3de13" },
-    "light": { "page": "#fafaf3", "text": "#202516", "accent": "#e3de13" }
+    "dark":  { "page": "#111418", "text": "#eceff4", "accent": "#7aa2ff" },
+    "light": { "page": "#ffffff", "text": "#14171c", "accent": "#2457d6" }
   },
   "fonts": {
-    "body": "\"CallingCode\", monospace",
-    "heading": "\"Larabie\", monospace",
+    "body": "\"Inter\", system-ui, sans-serif",
+    "heading": "\"Fraunces\", Georgia, serif",
     "mono": "ui-monospace, monospace",
-    "faces": [{ "family": "Larabie", "src": "fonts/Code-Squared.woff2", "format": "woff2" }]
+    "faces": [                                     // font files you place in the theme folder
+      { "family": "Inter", "src": "fonts/Inter.woff2", "format": "woff2" },
+      { "family": "Fraunces", "src": "fonts/Fraunces-Bold.woff2", "format": "woff2", "weight": "700" }
+    ]
   },
   "tokens": { "maxWidth": "70rem", "radius": "12px", "headingWeight": "400" },
   "options": {
@@ -46,6 +50,10 @@ overrides a handful of values is a complete theme.
 
 Every key under `colors.<scheme>` becomes `--ob-color-<kebab-name>`; every key under
 `tokens` becomes `--ob-<kebab-name>`. Add your own and use them in `theme.css`.
+
+A font face takes `family`, `src` (relative to the theme folder), and optionally `format`,
+`weight` (default `400`), `style` (default `normal`), `display` (default `swap`), and
+`unicodeRange`. Declare one entry per file, so a bold or italic face is its own entry.
 Relative `src`, `stylesheets`, and `scripts` paths resolve against the theme folder.
 A theme's scripts are linked on every page that uses it; see
 [Adding web components to a theme](theme-components.md) and the `demo` theme.
@@ -54,7 +62,9 @@ A theme's scripts are linked on every page that uses it; see
 
 `page`, `outer`, `surface`, `surfaceRaised`, `text`, `muted`, `subtle`, `border`,
 `accent`, `accentSoft`, `accentBorder`, `accentContrast`, `link`, `glow`, `codeBg`,
-`codeText`, `ink` (text drawn on top of the accent fill).
+`codeText`, `ink` (text drawn on top of the accent fill), and the syntax highlighting
+colours `codeKeyword`, `codeString`, `codeComment`, `codeNumber`, `codeFunction`,
+`codeType`, `codeAttr`, `codeTag`, `codeMeta`, `codeVariable`.
 
 ### Other tokens
 
@@ -67,7 +77,7 @@ A theme's scripts are linked on every page that uses it; see
 
 | Option | Effect |
 | --- | --- |
-| `headingCodeLabels` | Wrap page titles in dim `<h1>` / `</h1>` labels, as on mnix.dev |
+| `headingCodeLabels` | Wrap page and section titles in dim `<h1>` / `</h1>` (or `<h2>` / `</h2>`) labels, a code-themed look |
 | `headingWrapper` | Custom element name to wrap page and section titles in, for a theme's own effect (see [theme-components.md](theme-components.md)) |
 | `navLabel` | Template for nav text; `{index}` is 01, 02, ... and `{label}` the link text |
 | `listStyle` | `rows` (compact, hover fill) or `cards` (cover images) |
@@ -87,30 +97,37 @@ the site `theme` in `openblog.json`.
 
 ```markdown
 ---
-# content/series/rustbound-build-your-first-rust-app.md
-name: Rustbound
+# content/series/getting-started.md  (the file name is the series slug)
+name: Getting started
 theme: paper
 ---
 ```
 
 Every post in that series, and the series page itself, then render with `paper`. A single
-post can override with `theme: mnix` in its own front matter. Pages work the same way.
-Series cards on the home page preview each series in its own theme.
+post can override with `theme:` in its own front matter. Pages work the same way. On the
+home page, each series card carries `data-ob-theme="<its theme>"`, so a theme's own
+stylesheet can style the cards that lead to it.
 
-## Reproducing mnix.dev
+## Reproducing the look of a site you already have
 
-The author's `mnix` theme (kept in a private repository, not in this one) reproduces the
-portfolio: the yellow-on-black palette (sampled values from the portfolio's `src/index.css`,
-including the light variant), the CallingCode body font and the Larabie "Code Squared"
-headings, `<h2>` code labels, `//01. <Home/>` navigation, bordered rows that fill with the
-accent on hover, and typing headings. The typing effect is a web component the theme ships
-itself (`"scripts": ["typewriter.js"]` plus `"headingWrapper": "mnx-typewriter"`); the
-engine knows nothing about it. It uses a stylesheet only for the centred headings and a few
-details; delete `theme.css` and it still works from tokens.
+A theme is the place to carry an existing design over. Copy the colours from the site's
+stylesheet into `colors.light` and `colors.dark`, name its fonts in `fonts` (with
+`@font-face` entries under `faces` for files you ship in the theme folder), and set
+`tokens` such as `maxWidth`, `radius`, `headingWeight`, and `headingTransform`. The
+`headingCodeLabels` and `navLabel` options cover two common "developer site" touches,
+and anything structural goes in `theme.css`. A heading animation or other behaviour
+becomes a web component the theme ships; see
+[Adding web components to a theme](theme-components.md).
 
-The fonts are copied from the portfolio repository into `themes/mnix/fonts/` and are
-git-ignored on purpose. Check their licences before committing them to a public repo.
-Without them the theme falls back to system monospace.
+Check the licences of any fonts before publishing them in a theme.
+
+## Keeping a theme private
+
+A theme can live in the blog's repository, in a private repository, or be copied in at
+build time. If you publish your blog's source but not its theme, add the theme folder to
+`.gitignore`. A build in CI then needs the theme from somewhere else: check it out from a
+private repository in a workflow step, or build locally and upload `dist/`. See
+[Deploying](deploy.md).
 
 ## Making a theme
 

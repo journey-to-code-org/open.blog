@@ -20,8 +20,8 @@ export later: your posts are plain text in a folder you own.
 
 ## What a post needs
 
-The block between the `---` lines at the top is the front matter. Only `title` and `date`
-are required. `tags`, `description`, `series`, `cover`, `draft`, and `theme` are optional;
+The block between the `---` lines at the top is the front matter. Only `date` is required,
+plus a `title` unless the body starts with a `#` heading. `tags`, `description`, `series`, `cover`, `draft`, and `theme` are optional;
 the [Getting started](/series/getting-started/) series walks through them.
 
 ## Make it yours

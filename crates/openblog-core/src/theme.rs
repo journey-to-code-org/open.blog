@@ -1,6 +1,6 @@
 //! The design system: a theme is a JSON file of design tokens that becomes a
 //! stylesheet of CSS custom properties, plus optional extra stylesheets and
-//! assets. Themes can extend one another, so `mnix` only states what differs
+//! assets. Themes can extend one another, so a child theme only states what differs
 //! from `base`. The same renderer output is restyled by swapping tokens.
 
 use std::collections::{BTreeMap, HashMap};
@@ -56,7 +56,7 @@ pub struct FontFace {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ThemeOptions {
-    /// Decorate headings with `<h2>` / `</h2>` code labels, as on mnix.dev.
+    /// Decorate headings with `<h2>` / `</h2>` code labels, a code-themed look.
     pub heading_code_labels: Option<bool>,
     /// Template for navigation labels, e.g. `//{index}. <{label}/>`.
     pub nav_label: Option<String>,
