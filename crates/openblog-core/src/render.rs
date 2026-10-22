@@ -125,7 +125,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     }
 
     out.add("series/index.html".into(), r.series_index(default_theme))?;
-    for series in &site.series {
+    for series in site.series.iter().filter(|s| !s.posts.is_empty()) {
         out.add(url_to_file(&series.url), r.series_page(series))?;
     }
 
@@ -255,6 +255,9 @@ impl<'a> Renderer<'a> {
             h.push_str(&format!("<link rel=\"stylesheet\" href=\"{}\">\n", attr(sheet)));
         }
         h.push_str("<script type=\"module\" src=\"/assets/openblog.js\"></script>\n");
+        for script in &theme.scripts {
+            h.push_str(&format!("<script type=\"module\" src=\"{}\"></script>\n", attr(script)));
+        }
         if let Some(ld) = &meta.json_ld {
             h.push_str(&format!("<script type=\"application/ld+json\">{}</script>\n", ld.replace("</", "<\\/")));
         }
@@ -337,10 +340,10 @@ impl<'a> Renderer<'a> {
 
     fn heading(&self, theme: &Theme, level: u8, label: &str, extra_class: &str) -> String {
         let tag = format!("h{level}");
-        let inner = if theme.typewriter {
-            format!("<ob-typewriter>{}</ob-typewriter>", text(label))
-        } else {
-            text(label)
+        // The wrapper name was validated as a custom element name when the theme resolved.
+        let inner = match &theme.heading_wrapper {
+            Some(tag) => format!("<{tag}>{}</{tag}>", text(label)),
+            None => text(label),
         };
         if theme.heading_code_labels {
             format!(
@@ -851,7 +854,7 @@ mod tests {
         if extra_theme {
             themes.insert(
                 "loud",
-                ThemeFile::from_json(r##"{"extends":"base","options":{"headingCodeLabels":true,"typewriter":true,"navLabel":"//{index}. <{label}/>","listStyle":"cards"},"colors":{"dark":{"accent":"#ff0"}}}"##).unwrap(),
+                ThemeFile::from_json(r##"{"extends":"base","options":{"headingCodeLabels":true,"headingWrapper":"x-type","navLabel":"//{index}. <{label}/>","listStyle":"cards"},"scripts":["fx.js"],"colors":{"dark":{"accent":"#ff0"}}}"##).unwrap(),
             );
         }
         generate(&site, &themes).unwrap()
@@ -882,13 +885,15 @@ mod tests {
         assert!(one.contains("data-ob-theme=\"loud\""));
         assert!(one.contains("/themes/loud/tokens.css"));
         assert!(one.contains("&lt;h1&gt;"));
-        assert!(one.contains("<ob-typewriter>One</ob-typewriter>"));
+        assert!(one.contains("<x-type>One</x-type>"));
+        assert!(one.contains("<script type=\"module\" src=\"/themes/loud/fx.js\"></script>"));
         assert!(one.contains("Part 1 of 2 in"));
         assert!(one.contains("//01. &lt;Home/&gt;"));
         assert!(one.contains("On this page"));
         let solo = file(&files, "solo/index.html");
         assert!(solo.contains("data-ob-theme=\"base\""));
-        assert!(!solo.contains("ob-typewriter"));
+        assert!(!solo.contains("x-type"));
+        assert!(!solo.contains("fx.js"));
         assert!(file(&files, "series/s/index.html").contains("data-ob-theme=\"loud\""));
     }
 

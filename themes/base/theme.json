@@ -71,7 +71,6 @@
   },
   "options": {
     "headingCodeLabels": false,
-    "typewriter": false,
     "listStyle": "cards",
     "postCovers": true
   },

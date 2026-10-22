@@ -25,6 +25,9 @@ pub struct ThemeFile {
     pub options: ThemeOptions,
     /// Extra stylesheets relative to the theme directory, linked after `base.css`.
     pub stylesheets: Vec<String>,
+    /// ES module scripts relative to the theme directory, loaded after `openblog.js`.
+    /// This is how a theme ships its own web components.
+    pub scripts: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -57,8 +60,9 @@ pub struct ThemeOptions {
     pub heading_code_labels: Option<bool>,
     /// Template for navigation labels, e.g. `//{index}. <{label}/>`.
     pub nav_label: Option<String>,
-    /// Wrap headings in `<ob-typewriter>` for the typing effect.
-    pub typewriter: Option<bool>,
+    /// A custom element name (e.g. `demo-reveal`) to wrap page and section
+    /// titles in, so a theme's own script can animate them. Empty disables it.
+    pub heading_wrapper: Option<String>,
     /// `"rows"` (compact list) or `"cards"` (cover images).
     pub list_style: Option<String>,
     /// Show cover images on post pages.
@@ -82,11 +86,23 @@ pub struct Theme {
     pub tokens: BTreeMap<String, String>,
     pub heading_code_labels: bool,
     pub nav_label: Option<String>,
-    pub typewriter: bool,
+    /// Custom element that wraps titles, validated as a custom element name.
+    pub heading_wrapper: Option<String>,
     pub list_style: String,
     pub post_covers: bool,
     /// Absolute site URLs of extra stylesheets, in link order.
     pub stylesheets: Vec<String>,
+    /// Absolute site URLs of theme scripts, in load order.
+    pub scripts: Vec<String>,
+}
+
+/// A valid custom element name: lowercase ASCII, starts with a letter, and
+/// contains a hyphen. Anything else would be an HTML injection vector.
+pub fn valid_custom_element_name(name: &str) -> bool {
+    name.len() <= 64
+        && name.contains('-')
+        && name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.' || c == '_')
 }
 
 /// Every theme available to a build, keyed by directory name.
@@ -187,8 +203,17 @@ impl ThemeSet {
             if let Some(v) = &file.options.nav_label {
                 theme.nav_label = if v.is_empty() { None } else { Some(v.clone()) };
             }
-            if let Some(v) = file.options.typewriter {
-                theme.typewriter = v;
+            if let Some(v) = &file.options.heading_wrapper {
+                let v = v.trim();
+                if v.is_empty() {
+                    theme.heading_wrapper = None;
+                } else if valid_custom_element_name(v) {
+                    theme.heading_wrapper = Some(v.to_string());
+                } else {
+                    return Err(format!(
+                        "theme `{n}`: headingWrapper `{v}` is not a valid custom element name (lowercase, with a hyphen, like `my-effect`)"
+                    ));
+                }
             }
             if let Some(v) = &file.options.list_style {
                 theme.list_style = v.clone();
@@ -198,6 +223,9 @@ impl ThemeSet {
             }
             for sheet in &file.stylesheets {
                 theme.stylesheets.push(absolutize(&base_url, sheet));
+            }
+            for script in &file.scripts {
+                theme.scripts.push(absolutize(&base_url, script));
             }
         }
         if theme.label.is_empty() {
@@ -315,11 +343,12 @@ impl Theme {
             "options": {
                 "headingCodeLabels": self.heading_code_labels,
                 "navLabel": self.nav_label,
-                "typewriter": self.typewriter,
+                "headingWrapper": self.heading_wrapper,
                 "listStyle": self.list_style,
                 "postCovers": self.post_covers,
             },
             "stylesheets": self.stylesheets,
+            "scripts": self.scripts,
         })
         .to_string()
     }
@@ -363,7 +392,7 @@ mod tests {
     fn child_overrides_and_inherits() {
         let mut set = ThemeSet::new();
         let child = ThemeFile::from_json(
-            r##"{"extends":"base","label":"Kid","colors":{"dark":{"accent":"#e3de13"}},"stylesheets":["theme.css"],"options":{"headingCodeLabels":true},"fonts":{"faces":[{"family":"X","src":"fonts/x.woff2"}]}}"##,
+            r##"{"extends":"base","label":"Kid","colors":{"dark":{"accent":"#e3de13"}},"stylesheets":["theme.css"],"scripts":["fx.js"],"options":{"headingCodeLabels":true,"headingWrapper":"kid-fx"},"fonts":{"faces":[{"family":"X","src":"fonts/x.woff2"}]}}"##,
         )
         .unwrap();
         set.insert("kid", child);
@@ -373,6 +402,17 @@ mod tests {
         assert!(theme.colors["dark"].contains_key("text"));
         assert!(theme.heading_code_labels);
         assert_eq!(theme.stylesheets, vec!["/themes/kid/theme.css"]);
+        assert_eq!(theme.scripts, vec!["/themes/kid/fx.js"]);
+        assert_eq!(theme.heading_wrapper.as_deref(), Some("kid-fx"));
+        let grandchild = ThemeFile::from_json(r#"{"extends":"kid","options":{"headingWrapper":""}}"#).unwrap();
+        set.insert("grandkid", grandchild);
+        let theme = set.resolve("grandkid").unwrap();
+        assert_eq!(theme.heading_wrapper, None, "an empty wrapper switches the parent's off");
+        assert_eq!(theme.scripts, vec!["/themes/kid/fx.js"], "parent scripts are inherited");
+        for bad in ["noHyphen", "Upper-Case", "<x-y>", "x-y onclick=", "-x"] {
+            set.insert("bad", ThemeFile::from_json(&format!(r#"{{"options":{{"headingWrapper":"{bad}"}}}}"#)).unwrap());
+            assert!(set.resolve("bad").unwrap_err().contains("not a valid custom element name"), "{bad}");
+        }
         assert_eq!(theme.faces[0].src, "/themes/kid/fonts/x.woff2");
         assert!(theme.tokens_css().contains("--ob-color-accent: #e3de13;"));
     }

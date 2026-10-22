@@ -34,18 +34,21 @@ overrides a handful of values is a complete theme.
   "tokens": { "maxWidth": "70rem", "radius": "12px", "headingWeight": "400" },
   "options": {
     "headingCodeLabels": true,
-    "typewriter": true,
+    "headingWrapper": "my-effect",      // wrap titles in your own custom element
     "navLabel": "//{index}. <{label}/>",
     "listStyle": "rows",
     "postCovers": true
   },
-  "stylesheets": ["theme.css"]
+  "stylesheets": ["theme.css"],
+  "scripts": ["effect.js"]              // ES modules the theme ships, e.g. web components
 }
 ```
 
 Every key under `colors.<scheme>` becomes `--ob-color-<kebab-name>`; every key under
 `tokens` becomes `--ob-<kebab-name>`. Add your own and use them in `theme.css`.
-Relative `src` and `stylesheets` paths resolve against the theme folder.
+Relative `src`, `stylesheets`, and `scripts` paths resolve against the theme folder.
+A theme's scripts are linked on every page that uses it; see
+[Adding web components to a theme](theme-components.md) and the `demo` theme.
 
 ### Colour tokens `base.css` uses
 
@@ -65,7 +68,7 @@ Relative `src` and `stylesheets` paths resolve against the theme folder.
 | Option | Effect |
 | --- | --- |
 | `headingCodeLabels` | Wrap page titles in dim `<h1>` / `</h1>` labels, as on mnix.dev |
-| `typewriter` | Type headings out on first view (`<ob-typewriter>`); off for reduced motion |
+| `headingWrapper` | Custom element name to wrap page and section titles in, for a theme's own effect (see [theme-components.md](theme-components.md)) |
 | `navLabel` | Template for nav text; `{index}` is 01, 02, ... and `{label}` the link text |
 | `listStyle` | `rows` (compact, hover fill) or `cards` (cover images) |
 | `postCovers` | Show the cover image on the post page |
@@ -95,11 +98,14 @@ Series cards on the home page preview each series in its own theme.
 
 ## Reproducing mnix.dev
 
-`themes/mnix` reproduces the portfolio: the yellow-on-black palette (sampled values from
-`src/index.css`, including the light variant), the CallingCode body font and the Larabie
-"Code Squared" headings, `<h2>` code labels, typing headings, `//01. <Home/>` navigation,
-and bordered rows that fill with the accent on hover. It uses a stylesheet only for the
-centred headings and a few details; delete `theme.css` and it still works from tokens.
+The author's `mnix` theme (kept in a private repository, not in this one) reproduces the
+portfolio: the yellow-on-black palette (sampled values from the portfolio's `src/index.css`,
+including the light variant), the CallingCode body font and the Larabie "Code Squared"
+headings, `<h2>` code labels, `//01. <Home/>` navigation, bordered rows that fill with the
+accent on hover, and typing headings. The typing effect is a web component the theme ships
+itself (`"scripts": ["typewriter.js"]` plus `"headingWrapper": "mnx-typewriter"`); the
+engine knows nothing about it. It uses a stylesheet only for the centred headings and a few
+details; delete `theme.css` and it still works from tokens.
 
 The fonts are copied from the portfolio repository into `themes/mnix/fonts/` and are
 git-ignored on purpose. Check their licences before committing them to a public repo.

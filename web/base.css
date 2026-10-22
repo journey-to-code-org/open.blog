@@ -893,19 +893,6 @@ ob-back-to-top button:hover {
   color: var(--ob-color-accent-contrast);
 }
 
-/* ---------- Typewriter ---------- */
-
-ob-typewriter {
-  display: inline-block;
-  position: relative;
-  vertical-align: bottom;
-}
-
-/* The full text stays in the layout so the heading never reflows while typing. */
-ob-typewriter[typing]::after {
-  content: "_";
-}
-
 /* ---------- Motion and print ---------- */
 
 @media (prefers-reduced-motion: reduce) {
