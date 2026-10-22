@@ -877,7 +877,124 @@ fn html_to_markdown(html: &str) -> Result<String, String> {
     let markdown = converter
         .convert(html)
         .map_err(|e| format!("HTML to Markdown conversion failed: {e}"))?;
-    Ok(normalize_rules(markdown.trim()))
+    Ok(lift_code_labels(&normalize_rules(markdown.trim())))
+}
+
+/// Hashnode shows a language label above each code block, and the HTML
+/// conversion glues it onto the first line of code: `bashgit push`,
+/// `javascript// note`. Move such a label onto the fence instead, so the code
+/// reads right and the highlighter knows its language.
+fn lift_code_labels(markdown: &str) -> String {
+    let lines: Vec<&str> = markdown.lines().collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let t = line.trim_start();
+        let Some(marker) = t.chars().next().filter(|c| *c == '`' || *c == '~') else {
+            out.push(line.to_string());
+            i += 1;
+            continue;
+        };
+        let fence_len = t.chars().take_while(|c| *c == marker).count();
+        if fence_len < 3 {
+            out.push(line.to_string());
+            i += 1;
+            continue;
+        }
+        let fence = &t[..fence_len];
+        let info = t[fence_len..].trim();
+        out.push(line.to_string());
+        i += 1;
+        if info.is_empty() && i < lines.len() {
+            if let Some((label, code)) = split_code_label(lines[i]) {
+                let last = out.len() - 1;
+                out[last] = format!("{}{}", line.trim_end(), label);
+                out.push(code);
+                i += 1;
+            }
+        }
+        // Copy the block through its closing fence untouched.
+        while i < lines.len() {
+            let l = lines[i];
+            out.push(l.to_string());
+            i += 1;
+            let lt = l.trim_start();
+            if lt.starts_with(fence) && lt.trim_start_matches(marker).trim().is_empty() {
+                break;
+            }
+        }
+    }
+    out.join("\n")
+}
+
+/// `bashgit push` -> ("bash", "git push"). Only when the label is clearly
+/// glued on: followed by a symbol that starts code, or by a common first word.
+fn split_code_label(line: &str) -> Option<(&'static str, String)> {
+    const LABELS: &[&str] = &[
+        "javascript",
+        "typescript",
+        "plaintext",
+        "powershell",
+        "markdown",
+        "python",
+        "shell",
+        "scss",
+        "rust",
+        "bash",
+        "html",
+        "json",
+        "yaml",
+        "text",
+        "java",
+        "css",
+        "sql",
+        "xml",
+        "jsx",
+        "tsx",
+        "cpp",
+        "go",
+        "ts",
+        "js",
+        "sh",
+    ];
+    const STARTERS: &[&str] = &[
+        "git ",
+        "npm ",
+        "npx ",
+        "yarn ",
+        "pnpm ",
+        "cargo ",
+        "cd ",
+        "mkdir ",
+        "echo ",
+        "curl ",
+        "docker ",
+        "const ",
+        "let ",
+        "var ",
+        "function ",
+        "async ",
+        "class ",
+        "import ",
+        "export ",
+        "fn ",
+        "use ",
+        "pub ",
+        "def ",
+        "from ",
+        "if ",
+        "for ",
+        "await ",
+    ];
+    let trimmed = line.trim_start();
+    let indent = &line[..line.len() - trimmed.len()];
+    LABELS.iter().find_map(|label| {
+        let rest = trimmed.strip_prefix(label)?;
+        let next = rest.chars().next()?;
+        let glued = "#/$<{@[!*".contains(next) || STARTERS.iter().any(|s| rest.starts_with(s));
+        glued.then(|| (*label, format!("{indent}{rest}")))
+    })
 }
 
 /// htmd writes horizontal rules as `- - -`; use the conventional `---`.
@@ -1019,6 +1136,25 @@ mod tests {
             post.markdown
         );
         assert!(!post.markdown.contains("after"));
+    }
+
+    #[test]
+    fn glued_code_labels_move_onto_the_fence() {
+        let md = "```\nbashgit merge --no-ff topic\n```\n\n  ```\n  javascript// note\n  const a = 1;\n  ```\n\n```\ngo run main.go\n```\n\n```rust\nbash# kept\n```";
+        assert_eq!(
+            lift_code_labels(md),
+            "```bash\ngit merge --no-ff topic\n```\n\n  ```javascript\n  // note\n  const a = 1;\n  ```\n\n```\ngo run main.go\n```\n\n```rust\nbash# kept\n```"
+        );
+        assert_eq!(
+            split_code_label("bash$ mkdir app"),
+            Some(("bash", "$ mkdir app".into()))
+        );
+        assert_eq!(
+            split_code_label("javascriptconst x = 1;"),
+            Some(("javascript", "const x = 1;".into()))
+        );
+        assert_eq!(split_code_label("json.dumps(x)"), None);
+        assert_eq!(split_code_label("textContent = 'a'"), None);
     }
 
     #[test]
