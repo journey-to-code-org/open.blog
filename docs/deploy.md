@@ -63,7 +63,10 @@ it is the natural choice when the repository is private. A clone of the engine r
 3. For scheduled posts, create a build hook under *Site configuration → Build & deploy →
    Build hooks*, and store its URL as a repository secret named `NETLIFY_BUILD_HOOK`. The
    included workflow `.github/workflows/netlify-schedule.yml` then triggers a rebuild
-   every hour, which is when a due post appears.
+   once a day (06:23 UTC), which is when a due post appears. Every build compiles the
+   engine and counts against Netlify's build minutes (300 a month on the free tier), so
+   the default is deliberately rare; edit the `cron` line for more, and date scheduled
+   posts for the rebuild time.
 
 The file also sets cache headers for assets and CORS headers for the feeds and the
 latest-posts JSON. Aliases are plain redirect pages, so they need no Netlify redirects.
