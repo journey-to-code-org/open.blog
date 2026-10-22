@@ -64,7 +64,10 @@ A theme's scripts are linked on every page that uses it; see
 `accent`, `accentSoft`, `accentBorder`, `accentContrast`, `link`, `glow`, `codeBg`,
 `codeText`, `ink` (text drawn on top of the accent fill), and the syntax highlighting
 colours `codeKeyword`, `codeString`, `codeComment`, `codeNumber`, `codeFunction`,
-`codeType`, `codeAttr`, `codeTag`, `codeMeta`, `codeVariable`.
+`codeType`, `codeAttr`, `codeTag`, `codeMeta`, `codeVariable`, `codeProperty`,
+`codeOperator`, `codePunctuation`, `codeConstant`, `codeRegex`. The last five are
+optional: a theme without them falls back to `codeAttr`, `codeVariable`, the code
+text colour, `codeNumber`, and `codeString`.
 
 ### Other tokens
 

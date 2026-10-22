@@ -24,5 +24,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo test --workspace
+      - name: Test the front-end highlighter
+        run: node --test tests/web/highlight.test.mjs
       - name: Build the starter site
         run: cargo run -p openblog-cli -- build

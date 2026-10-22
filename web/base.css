@@ -622,6 +622,12 @@ h2.ob-title {
 .tok-meta { color: var(--ob-color-code-meta); }
 .tok-variable { color: var(--ob-color-code-variable); }
 .tok-prompt { color: var(--ob-color-code-comment); user-select: none; }
+/* Finer tokens; a theme that predates them falls back to an older colour. */
+.tok-property { color: var(--ob-color-code-property, var(--ob-color-code-attr)); }
+.tok-operator { color: var(--ob-color-code-operator, var(--ob-color-code-variable)); }
+.tok-punctuation { color: var(--ob-color-code-punctuation, inherit); }
+.tok-constant { color: var(--ob-color-code-constant, var(--ob-color-code-number)); }
+.tok-regex { color: var(--ob-color-code-regex, var(--ob-color-code-string)); }
 
 /* ---------- Embeds (a standalone CodePen link becomes a pen) ---------- */
 

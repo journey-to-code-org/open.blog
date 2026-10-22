@@ -5,8 +5,16 @@
 Code blocks are coloured in the browser by `<ob-code highlight>`, a small tokenizer built
 into the engine. No library is downloaded and nothing is sent anywhere. It understands
 Rust, JavaScript and TypeScript, HTML and XML, CSS, JSON, YAML, TOML, Bash, Python, Ruby,
-Go, SQL, Markdown, and the C family (C, C++, Java, C#, Kotlin, Swift). Unknown languages
-stay plain, and a tokenizer error can never blank out the code.
+Go, SQL, Markdown, and the C family (C, C++, Java, C#, Kotlin, Swift). Inside HTML, the
+contents of `<script>` and `<style>` are coloured as JavaScript and CSS, and template
+literals colour the code inside `${…}`. Unknown languages stay plain, and a tokenizer
+error can never blank out the code.
+
+A fence without a language, which is common in posts imported from other platforms, is
+guessed from its content: HTML, CSS, JavaScript, TypeScript, shell commands, Rust,
+Python, Go, SQL, JSON, YAML, TOML, or the C family. When the guess is unsure the block
+stays plain, and a fence marked `text` is never coloured. Tag a fence with its language
+to skip the guess.
 
 Colours are theme tokens, so a theme sets its own palette:
 
@@ -15,7 +23,9 @@ Colours are theme tokens, so a theme sets its own palette:
   "dark": {
     "codeKeyword": "#c678dd", "codeString": "#98c379", "codeComment": "#7f8794",
     "codeNumber": "#d19a66", "codeFunction": "#61afef", "codeType": "#e5c07b",
-    "codeAttr": "#e06c75", "codeTag": "#7aa2ff", "codeMeta": "#7f8794", "codeVariable": "#56b6c2"
+    "codeAttr": "#e06c75", "codeTag": "#7aa2ff", "codeMeta": "#61afef", "codeVariable": "#56b6c2",
+    "codeProperty": "#e06c75", "codeOperator": "#56b6c2", "codePunctuation": "#abb2bf",
+    "codeConstant": "#d19a66", "codeRegex": "#56b6c2"
   }
 }
 ```
