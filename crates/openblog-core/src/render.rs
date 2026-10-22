@@ -332,6 +332,9 @@ impl<'a> Renderer<'a> {
             }
             h.push_str("</ul></nav>\n");
         }
+        if c.powered_by {
+            h.push_str("<p class=\"ob-powered\">Powered by <a href=\"https://github.com/journey-to-code-org/open.blog\" rel=\"noopener\">open.blog</a></p>\n");
+        }
         h.push_str("</div>\n</footer>\n");
         h
     }
@@ -903,6 +906,11 @@ mod tests {
         let solo = file(&files, "solo/index.html");
         assert!(solo.contains("<title>Solo · T &amp; Co</title>"));
         assert!(solo.contains("application/ld+json"));
+        assert!(solo.contains("Powered by <a href=\"https://github.com/journey-to-code-org/open.blog\""));
+        let config = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","poweredBy":false}"#).unwrap();
+        let site = Site::load(config, Sources::default(), LoadOptions::default()).unwrap();
+        let files = generate(&site, &ThemeSet::new()).unwrap();
+        assert!(!file(&files, "index.html").contains("Powered by"));
         assert!(file(&files, "api/blog.json").contains("\"schemaVersion\": 1"));
     }
 

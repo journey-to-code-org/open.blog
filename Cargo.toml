@@ -10,7 +10,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/mnichols08/open.blog"
+repository = "https://github.com/journey-to-code-org/open.blog"
 
 [workspace.dependencies]
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }

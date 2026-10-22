@@ -20,10 +20,9 @@
     { "label": "Archive", "href": "/archive/" },
     { "label": "Search", "href": "/search/" }
   ],
-  "social": [
-    { "label": "GitHub", "href": "https://github.com/mnichols08/open.blog" }
-  ],
+  "social": [],
   "footer": "© {year} {author}",
+  "poweredBy": true,
   "home": {
     "heading": "Latest posts",
     "intro": "",

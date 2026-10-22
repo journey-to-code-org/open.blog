@@ -32,6 +32,8 @@ pub struct SiteConfig {
     pub social: Vec<Link>,
     /// Footer text. `{year}` and `{author}` are replaced.
     pub footer: String,
+    /// Show a small "Powered by open.blog" link in the footer.
+    pub powered_by: bool,
     pub home: HomeConfig,
     pub feeds: FeedsConfig,
     pub markdown: MarkdownConfig,
@@ -127,6 +129,7 @@ impl Default for SiteConfig {
             ],
             social: Vec::new(),
             footer: "© {year} {author}".to_string(),
+            powered_by: true,
             home: HomeConfig::default(),
             feeds: FeedsConfig::default(),
             markdown: MarkdownConfig::default(),

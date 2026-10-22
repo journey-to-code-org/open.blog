@@ -855,6 +855,12 @@ h2.ob-title {
   color: var(--ob-color-accent-soft);
 }
 
+.ob-powered {
+  flex-basis: 100%;
+  color: var(--ob-color-subtle);
+  font-size: 0.8rem;
+}
+
 ob-back-to-top {
   position: fixed;
   right: max(1rem, env(safe-area-inset-right));

@@ -799,7 +799,7 @@ fn decode_entities(input: &str) -> String {
 fn http_agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(30)))
-        .user_agent("open.blog-importer/0.1 (+https://github.com/mnichols08/open.blog)")
+        .user_agent("open.blog-importer/0.1 (+https://github.com/journey-to-code-org/open.blog)")
         .build()
         .into()
 }
