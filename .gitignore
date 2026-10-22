@@ -1,6 +1,7 @@
 /target
 /dist
 /web/wasm
+/.openblog
 *.tmp
 .DS_Store
 Thumbs.db

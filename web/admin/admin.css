@@ -1,0 +1,345 @@
+/* Admin editor styles. Uses the same --ob-* tokens as the blog, so it follows
+   the base theme's light and dark colours. Class prefix: oba- */
+
+ob-admin {
+  display: block;
+  min-height: 100vh;
+}
+
+.oba-shell {
+  width: min(88rem, 100% - 2rem);
+  margin: 0 auto;
+  padding-block: 1rem 4rem;
+}
+
+.oba-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding-bottom: 1rem;
+  border-bottom: var(--ob-border-width) solid var(--ob-color-border);
+}
+
+.oba-bar h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.oba-spacer {
+  flex: 1;
+}
+
+.oba-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 1rem 0;
+}
+
+.oba-tab,
+.oba-btn {
+  min-height: 40px;
+  padding: 0.45rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.oba-tab[aria-selected="true"] {
+  border-color: var(--ob-color-accent);
+  color: var(--ob-color-accent-soft);
+  font-weight: 600;
+}
+
+.oba-btn:hover {
+  border-color: var(--ob-color-accent-border);
+}
+
+.oba-btn-primary {
+  border-color: var(--ob-color-accent);
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+  font-weight: 600;
+}
+
+.oba-btn-primary:hover {
+  background: var(--ob-color-accent-soft);
+}
+
+.oba-btn-danger {
+  color: #c0392b;
+  border-color: #c0392b66;
+}
+
+.oba-btn[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.oba-card {
+  width: min(26rem, 100%);
+  margin: 12vh auto 0;
+  padding: 1.5rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-card h1 {
+  margin: 0 0 1rem;
+  font-size: 1.4rem;
+}
+
+.oba-field {
+  display: grid;
+  gap: 0.3rem;
+  margin-bottom: 1rem;
+}
+
+.oba-field > label,
+.oba-legend {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ob-color-muted);
+}
+
+.oba-field input[type="text"],
+.oba-field input[type="password"],
+.oba-field input[type="number"],
+.oba-field input[type="datetime-local"],
+.oba-field input[type="search"],
+.oba-field select,
+.oba-field textarea,
+.oba-search {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.oba-field textarea {
+  resize: vertical;
+}
+
+.oba-help {
+  margin: 0;
+  color: var(--ob-color-subtle);
+  font-size: 0.8rem;
+}
+
+.oba-notice,
+.oba-error,
+.oba-ok {
+  margin: 0.75rem 0;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--ob-radius-sm);
+  border-left: 3px solid var(--ob-color-accent-border);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-error {
+  border-left-color: #c0392b;
+}
+
+.oba-ok {
+  border-left-color: #2e8b57;
+}
+
+.oba-error ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.oba-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.oba-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.oba-table th,
+.oba-table td {
+  padding: 0.6rem 0.5rem;
+  border-bottom: var(--ob-border-width) solid var(--ob-color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.oba-table th {
+  color: var(--ob-color-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.oba-table a {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.oba-table tr:hover td {
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-badge {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.oba-badge-published {
+  border-color: #2e8b57;
+  color: #2e8b57;
+}
+
+.oba-badge-scheduled {
+  border-color: #b9770e;
+  color: #b9770e;
+}
+
+.oba-badge-draft {
+  color: var(--ob-color-muted);
+}
+
+.oba-badge-error {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
+.oba-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.oba-side {
+  position: sticky;
+  top: 1rem;
+}
+
+.oba-fieldset {
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+}
+
+.oba-radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.oba-main {
+  min-width: 0;
+}
+
+.oba-title-input {
+  width: 100%;
+  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.2rem;
+  border: 0;
+  border-bottom: var(--ob-border-width) solid var(--ob-color-border);
+  background: transparent;
+  color: var(--ob-color-text);
+  font-family: var(--ob-font-heading);
+  font-size: 1.6rem;
+  font-weight: var(--ob-heading-weight);
+}
+
+.oba-panes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.oba-body,
+.oba-preview {
+  width: 100%;
+  min-height: 60vh;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+}
+
+.oba-body {
+  padding: 0.8rem;
+  color: var(--ob-color-text);
+  font-family: var(--ob-font-mono);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  resize: vertical;
+  tab-size: 4;
+}
+
+.oba-preview {
+  background: #fff;
+}
+
+.oba-small {
+  color: var(--ob-color-subtle);
+  font-size: 0.8rem;
+}
+
+.oba-dropping {
+  outline: 2px dashed var(--ob-color-accent);
+}
+
+.oba-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 56rem) {
+  .oba-editor,
+  .oba-panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-side {
+    position: static;
+  }
+}
+
+/* Anchors styled as buttons or tabs should not look like prose links. */
+a.oba-btn,
+a.oba-tab {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--ob-color-text);
+}
+
+a.oba-btn-primary {
+  color: var(--ob-color-accent-contrast);
+}
+
+/* Compact filter controls in the list toolbar. */
+.oba-toolbar .oba-search {
+  width: auto;
+  flex: 1 1 14rem;
+  max-width: 22rem;
+}

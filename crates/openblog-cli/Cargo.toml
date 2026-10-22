@@ -17,3 +17,6 @@ serde_json = { workspace = true }
 # Only the importer needs HTTP and HTML-to-Markdown conversion.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 htmd = "0.5"
+# Admin login: a vetted password hash and OS randomness, never hand-rolled crypto.
+argon2 = "0.5"
+getrandom = "0.3"

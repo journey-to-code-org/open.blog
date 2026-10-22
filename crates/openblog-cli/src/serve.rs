@@ -1,24 +1,99 @@
-//! A small development server: rebuilds when files change and serves the
-//! output directory. Plain `std::net`, no async runtime and no dependencies.
+//! The development and self-hosting server: serves the built site, rebuilds
+//! when files change, publishes scheduled posts on time, and (with `--admin`)
+//! serves the login-protected editor. Plain `std::net`, no async runtime.
 
+use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, TcpListener, TcpStream};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::admin::{self, AppState};
 use crate::fsutil;
-use crate::site::{self, BuildOptions};
+use crate::http::{self, Conn, Request, Response};
+use crate::site;
 
-pub fn run(root: &Path, include_drafts: bool, port: u16) -> Result<(), String> {
-    let report = site::build(root, &BuildOptions { include_drafts, out_override: None })?;
+/// Concurrent connections served at once; extras are dropped, so a flood of
+/// slow clients cannot exhaust threads.
+const MAX_CONNECTIONS: usize = 64;
+/// Concurrent connections from one address, so a single client cannot take
+/// every slot. Browsers open at most six or so per host.
+const MAX_PER_IP: usize = 16;
+
+/// Holds one connection slot and releases it on drop, even if the handler panics.
+struct SlotGuard {
+    active: Arc<AtomicUsize>,
+    per_ip: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    ip: IpAddr,
+}
+
+impl SlotGuard {
+    fn acquire(active: &Arc<AtomicUsize>, per_ip: &Arc<Mutex<HashMap<IpAddr, usize>>>, ip: IpAddr) -> Option<Self> {
+        if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+            active.fetch_sub(1, Ordering::SeqCst);
+            return None;
+        }
+        {
+            let mut map = per_ip.lock().unwrap_or_else(|e| e.into_inner());
+            let count = map.entry(ip).or_insert(0);
+            if *count >= MAX_PER_IP {
+                active.fetch_sub(1, Ordering::SeqCst);
+                return None;
+            }
+            *count += 1;
+        }
+        Some(Self { active: Arc::clone(active), per_ip: Arc::clone(per_ip), ip })
+    }
+}
+
+impl Drop for SlotGuard {
+    fn drop(&mut self) {
+        self.active.fetch_sub(1, Ordering::SeqCst);
+        let mut map = self.per_ip.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(count) = map.get_mut(&self.ip) {
+            *count -= 1;
+            if *count == 0 {
+                map.remove(&self.ip);
+            }
+        }
+    }
+}
+
+pub struct ServeOptions {
+    pub include_drafts: bool,
+    pub host: String,
+    pub port: u16,
+    pub admin: bool,
+}
+
+pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
+    let state = Arc::new(AppState::new(root.to_path_buf(), None, options.include_drafts, options.admin));
+    let report = state.rebuild()?;
     print_report(&report);
     let out_dir = report.out_dir.clone();
 
     let config = site::load_config(root)?;
+    if options.admin {
+        let users = crate::auth::Users::load(&root.join(&config.admin.users_file))?;
+        if users.users.is_empty() {
+            println!("\nNo admin users yet. Create one with:  openblog user add <name>");
+        }
+        let loopback = matches!(options.host.as_str(), "127.0.0.1" | "localhost" | "::1");
+        if !loopback && !config.admin.secure_cookies {
+            eprintln!(
+                "\nwarning: the admin is reachable from the network but `admin.secureCookies` is false.\n\
+                 Put it behind HTTPS (a reverse proxy) and set `admin.secureCookies: true`; otherwise\n\
+                 passwords and sessions cross the network unencrypted."
+            );
+        }
+    }
+
+    // Rebuild when files change on disk.
     let watched = site::watched_paths(root, &config);
-    let root_for_watch = root.to_path_buf();
+    let watch_state = Arc::clone(&state);
     thread::spawn(move || {
         let mut last = fsutil::fingerprint(&watched);
         loop {
@@ -26,7 +101,7 @@ pub fn run(root: &Path, include_drafts: bool, port: u16) -> Result<(), String> {
             let now = fsutil::fingerprint(&watched);
             if now != last {
                 last = now;
-                match site::build(&root_for_watch, &BuildOptions { include_drafts, out_override: None }) {
+                match watch_state.rebuild() {
                     Ok(r) => println!("rebuilt: {} posts, {} files", r.posts, r.files),
                     Err(e) => eprintln!("build failed (still serving the previous build):\n{e}"),
                 }
@@ -34,15 +109,46 @@ pub fn run(root: &Path, include_drafts: bool, port: u16) -> Result<(), String> {
         }
     });
 
-    let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("cannot listen on port {port}: {e}"))?;
-    println!("\nServing {} at http://localhost:{port}/  (Ctrl+C to stop)", out_dir.display());
+    // Publish scheduled posts the moment they are due.
+    let schedule_state = Arc::clone(&state);
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(5));
+        if let Some(result) = schedule_state.tick_scheduler() {
+            match result {
+                Ok(r) => println!("scheduled posts published; {} live, {} still waiting", r.posts, r.scheduled),
+                Err(e) => eprintln!("scheduled build failed:\n{e}"),
+            }
+        }
+    });
+
+    let listener = TcpListener::bind((options.host.as_str(), options.port))
+        .map_err(|e| format!("cannot listen on {}:{}: {e}", options.host, options.port))?;
+    println!("\nServing {} at http://{}:{}/  (Ctrl+C to stop)", out_dir.display(), display_host(&options.host), options.port);
+    if options.admin {
+        println!("Admin editor:  http://{}:{}/admin", display_host(&options.host), options.port);
+    }
+
+    let active = Arc::new(AtomicUsize::new(0));
+    let per_ip: Arc<Mutex<HashMap<IpAddr, usize>>> = Arc::new(Mutex::new(HashMap::new()));
     for stream in listener.incoming().flatten() {
+        let Ok(peer) = stream.peer_addr() else { continue };
+        let Some(guard) = SlotGuard::acquire(&active, &per_ip, peer.ip()) else { continue };
+        let state = Arc::clone(&state);
         let out = out_dir.clone();
         thread::spawn(move || {
-            let _ = handle(stream, &out);
+            let _guard = guard;
+            let _ = handle(&stream, &state, &out);
         });
     }
     Ok(())
+}
+
+fn display_host(host: &str) -> &str {
+    if host == "127.0.0.1" {
+        "localhost"
+    } else {
+        host
+    }
 }
 
 pub fn print_report(report: &site::BuildReport) {
@@ -55,41 +161,49 @@ pub fn print_report(report: &site::BuildReport) {
         report.files,
         report.out_dir.display()
     );
+    if report.scheduled > 0 {
+        let next = report.next_due.map(|d| format!(", next on {}", d.rfc3339())).unwrap_or_default();
+        println!("{} scheduled post(s) waiting{next}.", report.scheduled);
+    }
     for w in &report.warnings {
         eprintln!("warning: {w}");
     }
 }
 
-fn handle(mut stream: TcpStream, out_dir: &Path) -> std::io::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    let mut reader = BufReader::new(stream.try_clone()?);
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line)?;
-    // Drain headers.
-    loop {
-        let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 || line == "\r\n" || line == "\n" {
-            break;
-        }
+fn handle(stream: &TcpStream, state: &AppState, out_dir: &Path) -> std::io::Result<()> {
+    let mut conn = Conn::new(stream);
+    let mut req = match conn.read_head() {
+        Ok(r) => r,
+        Err(e) => return http::write_response(stream, &Response::text(e.status, e.message), false),
+    };
+    let head_only = req.method == "HEAD";
+    // Authorise from the headers alone, then read the body only up to what this route allows.
+    let max_body = match admin::preflight(state, &req) {
+        Ok(max) => max,
+        Err(response) => return http::write_response(stream, &response, head_only),
+    };
+    if let Err(e) = conn.read_body(&mut req, max_body) {
+        return http::write_response(stream, &Response::text(e.status, e.message), false);
     }
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("");
-    let target = parts.next().unwrap_or("/");
-    if method != "GET" && method != "HEAD" {
-        return respond(&mut stream, 405, "text/plain", b"Method Not Allowed", false);
-    }
-    let path_part = target.split(['?', '#']).next().unwrap_or("/");
-    let decoded = percent_decode(path_part);
-    let head_only = method == "HEAD";
+    let response = route(state, &req, out_dir);
+    http::write_response(stream, &response, head_only)
+}
 
-    match resolve(out_dir, &decoded) {
+fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response {
+    if req.path == "/admin" || req.path.starts_with("/admin/") {
+        return admin::handle(state, req);
+    }
+    if req.method != "GET" && req.method != "HEAD" {
+        return Response::text(405, "Method Not Allowed");
+    }
+    match resolve(out_dir, &req.path) {
         Some(file) => match fs::read(&file) {
-            Ok(bytes) => respond(&mut stream, 200, mime(&file), &bytes, head_only),
-            Err(_) => respond(&mut stream, 500, "text/plain", b"Read error", head_only),
+            Ok(bytes) => Response::new(200, mime(&file), bytes).with_header("Cache-Control", "no-cache"),
+            Err(_) => Response::text(500, "Read error"),
         },
         None => {
             let body = fs::read(out_dir.join("404.html")).unwrap_or_else(|_| b"Not found".to_vec());
-            respond(&mut stream, 404, "text/html; charset=utf-8", &body, head_only)
+            Response::new(404, "text/html; charset=utf-8", body)
         }
     }
 }
@@ -111,29 +225,15 @@ fn resolve(out_dir: &Path, url_path: &str) -> Option<PathBuf> {
         return index.is_file().then_some(index);
     }
     if candidate.is_file() {
+        // Never serve our own bookkeeping file.
+        if candidate.file_name().is_some_and(|n| n == fsutil::MARKER) {
+            return None;
+        }
         return Some(candidate);
     }
     // `/about` -> `/about/index.html`, like most static hosts.
     let index = candidate.join("index.html");
     index.is_file().then_some(index)
-}
-
-fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8], head_only: bool) -> std::io::Result<()> {
-    let reason = match status {
-        200 => "OK",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        _ => "Error",
-    };
-    write!(
-        stream,
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-cache\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
-        body.len()
-    )?;
-    if !head_only {
-        stream.write_all(body)?;
-    }
-    stream.flush()
 }
 
 fn mime(path: &Path) -> &'static str {
@@ -161,28 +261,28 @@ fn mime(path: &Path) -> &'static str {
     }
 }
 
-fn percent_decode(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hex = |b: u8| (b as char).to_digit(16);
-            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
-                out.push((hi * 16 + lo) as u8);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slots_are_capped_globally_and_per_address_and_released_on_drop() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let per_ip = Arc::new(Mutex::new(HashMap::new()));
+        let a: IpAddr = "10.0.0.1".parse().unwrap();
+        let b: IpAddr = "10.0.0.2".parse().unwrap();
+        let mut held = Vec::new();
+        for _ in 0..MAX_PER_IP {
+            held.push(SlotGuard::acquire(&active, &per_ip, a).expect("under the per-IP cap"));
+        }
+        assert!(SlotGuard::acquire(&active, &per_ip, a).is_none(), "one address cannot take more");
+        assert!(SlotGuard::acquire(&active, &per_ip, b).is_some(), "other addresses still get in");
+        assert_eq!(active.load(Ordering::SeqCst), MAX_PER_IP, "a refused acquire leaves no slot behind");
+        held.clear();
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert!(per_ip.lock().unwrap().is_empty());
+        assert!(SlotGuard::acquire(&active, &per_ip, a).is_some());
+    }
 
     #[test]
     fn resolves_directories_and_rejects_traversal() {
@@ -190,19 +290,14 @@ mod tests {
         fs::create_dir_all(dir.join("about")).unwrap();
         fs::write(dir.join("about/index.html"), "x").unwrap();
         fs::write(dir.join("a.css"), "x").unwrap();
+        fs::write(dir.join(fsutil::MARKER), "x").unwrap();
         assert!(resolve(&dir, "/about/").is_some());
         assert!(resolve(&dir, "/about").is_some());
         assert!(resolve(&dir, "/a.css").is_some());
         assert!(resolve(&dir, "/nope").is_none());
         assert!(resolve(&dir, "/../secret").is_none());
         assert!(resolve(&dir, "/about/../../x").is_none());
+        assert!(resolve(&dir, "/.openblog-output").is_none());
         let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn decodes_percent_escapes() {
-        assert_eq!(percent_decode("/a%20b"), "/a b");
-        assert_eq!(percent_decode("/100%"), "/100%");
-        assert_eq!(percent_decode("/%zz"), "/%zz");
     }
 }

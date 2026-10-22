@@ -1,7 +1,11 @@
 //! The `openblog` command line.
 
+mod admin;
+mod auth;
+mod clock;
 mod fsutil;
 mod hashnode;
+mod http;
 mod scaffold;
 mod serve;
 mod site;
@@ -19,7 +23,11 @@ COMMANDS
     init [dir]                 Create a new blog in dir (default: current directory)
     new \"Title\"                Create content/posts/<date>-<slug>.md
     build                      Build the site into dist/
-    serve                      Build, serve at http://localhost:8080, rebuild on change
+    serve                      Build, serve at http://localhost:8080, rebuild on change,
+                               and publish scheduled posts on time
+    serve --admin              Also serve the login-protected editor at /admin
+    user add|passwd|remove|list <name>
+                               Manage who can sign in to the admin editor
     check                      Validate content and themes without writing anything
     themes                     List themes and the inheritance chain of each
     import hashnode <host>     Import a Hashnode blog (e.g. journeytocode.io)
@@ -31,6 +39,8 @@ COMMON OPTIONS
     --drafts                   Include posts marked draft
     --out <dir>                Output directory for build (default: paths.output)
     --port <n>                 Port for serve (default: 8080)
+    --host <addr>              Address for serve (default: 127.0.0.1; use 0.0.0.0 behind HTTPS)
+    --password-stdin           For `user`: read the password from standard input
 
 new OPTIONS
     --series <slug>            Put the post in a series
@@ -51,7 +61,7 @@ struct Args {
     switches: HashSet<String>,
 }
 
-const SWITCHES: &[&str] = &["drafts", "draft", "no-images", "help"];
+const SWITCHES: &[&str] = &["drafts", "draft", "no-images", "help", "admin", "password-stdin"];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
     let mut args = Args { positional: Vec::new(), options: HashMap::new(), switches: HashSet::new() };
@@ -132,16 +142,18 @@ fn run(raw: &[String]) -> Result<(), String> {
         }
         "build" => {
             let out = args.options.get("out").map(PathBuf::from);
-            let report = site::build(&root, &site::BuildOptions { include_drafts: drafts, out_override: out })?;
+            let report = site::build(&root, &site::BuildOptions { include_drafts: drafts, out_override: out, now: Some(clock::now()) })?;
             serve::print_report(&report);
             Ok(())
         }
         "serve" => {
             let port: u16 = args.options.get("port").map(|p| p.parse().map_err(|_| format!("`{p}` is not a valid port"))).transpose()?.unwrap_or(8080);
-            serve::run(&root, drafts, port)
+            let host = args.options.get("host").cloned().unwrap_or_else(|| "127.0.0.1".to_string());
+            serve::run(&root, &serve::ServeOptions { include_drafts: drafts, host, port, admin: args.switches.contains("admin") })
         }
+        "user" => user_command(&root, &args),
         "check" => {
-            let (site, themes) = site::load_site(&root, true)?;
+            let (site, themes) = site::load_site(&root, true, None)?;
             let files = openblog_core::generate(&site, &themes)?;
             println!(
                 "OK: {} posts, {} series, {} tags, {} pages; would write {} generated files.",
@@ -222,6 +234,82 @@ fn run(raw: &[String]) -> Result<(), String> {
             }
         }
         other => Err(format!("unknown command `{other}`. Run `openblog help`.")),
+    }
+}
+
+fn read_password(args: &Args, confirm: bool) -> Result<String, String> {
+    use std::io::{BufRead, Write};
+    if let Ok(p) = std::env::var("OPENBLOG_PASSWORD") {
+        if !p.is_empty() {
+            return Ok(p);
+        }
+    }
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    if !args.switches.contains("password-stdin") {
+        eprintln!("Note: the password is shown as you type. Use --password-stdin or OPENBLOG_PASSWORD to avoid that.");
+        eprint!("Password (at least {} characters): ", auth::MIN_PASSWORD_LEN);
+        std::io::stderr().flush().ok();
+    }
+    stdin.lock().read_line(&mut line).map_err(|e| e.to_string())?;
+    let password = line.trim_end_matches(['\r', '\n']).to_string();
+    if confirm && !args.switches.contains("password-stdin") {
+        eprint!("Repeat password: ");
+        std::io::stderr().flush().ok();
+        let mut again = String::new();
+        stdin.lock().read_line(&mut again).map_err(|e| e.to_string())?;
+        if again.trim_end_matches(['\r', '\n']) != password {
+            return Err("the passwords do not match".into());
+        }
+    }
+    Ok(password)
+}
+
+fn user_command(root: &std::path::Path, args: &Args) -> Result<(), String> {
+    let config = site::load_config(root)?;
+    let path = root.join(&config.admin.users_file);
+    let action = args.positional.first().map(String::as_str).unwrap_or("");
+    let name = args.positional.get(1).map(String::as_str).unwrap_or("");
+    let mut users = auth::Users::load(&path)?;
+    match action {
+        "list" => {
+            if users.users.is_empty() {
+                println!("No users. Add one with `openblog user add <name>`.");
+            }
+            for u in &users.users {
+                println!("{}", u.name);
+            }
+            Ok(())
+        }
+        "add" | "passwd" => {
+            if !auth::valid_username(name) {
+                return Err("usernames are 1 to 32 characters: lowercase letters, digits, and . _ -".into());
+            }
+            let exists = users.find(name).is_some();
+            if action == "add" && exists {
+                return Err(format!("`{name}` already exists; use `openblog user passwd {name}` to change the password"));
+            }
+            if action == "passwd" && !exists {
+                return Err(format!("no user named `{name}`"));
+            }
+            let password = read_password(args, true)?;
+            users.set(name, &password)?;
+            users.save(&path)?;
+            println!("{} `{name}`. The admin users file is {}; keep it out of version control.", if exists { "Updated" } else { "Added" }, path.display());
+            if action == "passwd" {
+                println!("Any sessions that user had open are ended.");
+            }
+            Ok(())
+        }
+        "remove" => {
+            if !users.remove(name) {
+                return Err(format!("no user named `{name}`"));
+            }
+            users.save(&path)?;
+            println!("Removed `{name}`. Their open sessions end immediately.");
+            Ok(())
+        }
+        _ => Err("usage: openblog user add|passwd|remove|list <name>".into()),
     }
 }
 

@@ -2,7 +2,6 @@
 
 use std::fs;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::slug::slugify;
@@ -12,8 +11,7 @@ use crate::fsutil;
 use crate::site::{self, CONFIG_FILE, EMBEDDED_BASE_THEME, EMBEDDED_WEB};
 
 pub fn today() -> DateTime {
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
-    DateTime::from_unix(secs)
+    crate::clock::now()
 }
 
 const WELCOME: &str = "Welcome to your new blog. This post is a plain Markdown file in `content/posts/`.
@@ -72,7 +70,7 @@ pub fn init(dir: &Path, title: Option<&str>) -> Result<Vec<String>, String> {
     for (rel, contents) in EMBEDDED_WEB {
         write(&format!("web/{rel}"), contents)?;
     }
-    write(".gitignore", "/dist\n/target\n")?;
+    write(".gitignore", "/dist\n/target\n/.openblog\n")?;
     Ok(created)
 }
 
@@ -121,7 +119,7 @@ mod tests {
         assert!(init(&dir, Some("Other")).unwrap().is_empty());
         assert!(fs::read_to_string(dir.join("content/posts/hello-world.md")).unwrap().contains("keep"));
 
-        let report = site::build(&dir, &site::BuildOptions { include_drafts: false, out_override: None }).unwrap();
+        let report = site::build(&dir, &site::BuildOptions { include_drafts: false, out_override: None, now: None }).unwrap();
         assert_eq!(report.posts, 1);
         assert!(dir.join("dist/index.html").exists());
         assert!(dir.join("dist/rss.xml").exists());
@@ -131,7 +129,7 @@ mod tests {
         let rel = new_post(&dir, "A New Post!", Some("My Series"), &["rust".into()], true).unwrap();
         assert!(rel.ends_with("-a-new-post.md"));
         assert!(new_post(&dir, "A New Post!", None, &[], false).is_err());
-        let drafts = site::build(&dir, &site::BuildOptions { include_drafts: true, out_override: None }).unwrap();
+        let drafts = site::build(&dir, &site::BuildOptions { include_drafts: true, out_override: None, now: None }).unwrap();
         assert_eq!(drafts.posts, 2);
         let _ = fs::remove_dir_all(&dir);
     }

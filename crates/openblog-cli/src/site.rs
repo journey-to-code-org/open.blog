@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use openblog_core::theme::{ThemeFile, ThemeSet};
-use openblog_core::{generate, LoadOptions, Site, SiteConfig, SourceFile, Sources};
+use openblog_core::{generate, DateTime, LoadOptions, Site, SiteConfig, SourceFile, Sources};
 
 use crate::fsutil;
 
@@ -17,17 +17,27 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     ("base.css", include_str!("../../../web/base.css")),
     ("openblog.js", include_str!("../../../web/openblog.js")),
     ("components/ob-theme-toggle.js", include_str!("../../../web/components/ob-theme-toggle.js")),
-    ("components/ob-typewriter.js", include_str!("../../../web/components/ob-typewriter.js")),
     ("components/ob-code-copy.js", include_str!("../../../web/components/ob-code-copy.js")),
     ("components/ob-back-to-top.js", include_str!("../../../web/components/ob-back-to-top.js")),
     ("components/ob-search.js", include_str!("../../../web/components/ob-search.js")),
 ];
 
+/// The admin editor. Served only by `serve --admin`, never copied into the
+/// public site. A copy under `web/admin/` overrides the embedded one.
+pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
+    ("index.html", include_str!("../../../web/admin/index.html")),
+    ("admin.js", include_str!("../../../web/admin/admin.js")),
+    ("admin.css", include_str!("../../../web/admin/admin.css")),
+];
+
 pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.json");
 
 pub struct BuildOptions {
+    /// Include drafts and scheduled posts (a preview build).
     pub include_drafts: bool,
     pub out_override: Option<PathBuf>,
+    /// The current time; posts dated later are held back as scheduled.
+    pub now: Option<DateTime>,
 }
 
 pub struct BuildReport {
@@ -36,6 +46,9 @@ pub struct BuildReport {
     pub tags: usize,
     pub pages: usize,
     pub files: usize,
+    pub scheduled: usize,
+    /// When the next scheduled post goes live.
+    pub next_due: Option<DateTime>,
     pub out_dir: PathBuf,
     pub warnings: Vec<String>,
 }
@@ -89,14 +102,22 @@ pub fn load_themes(root: &Path, config: &SiteConfig) -> Result<ThemeSet, String>
     Ok(set)
 }
 
-pub fn load_site(root: &Path, include_drafts: bool) -> Result<(Site, ThemeSet), String> {
+pub fn load_site(root: &Path, include_drafts: bool, now: Option<DateTime>) -> Result<(Site, ThemeSet), String> {
     let config = load_config(root)?;
     let sources = read_sources(root, &config)?;
     let themes = load_themes(root, &config)?;
-    let site = Site::load(config, sources, LoadOptions { include_drafts }).map_err(|errors| {
+    let site = Site::load(config, sources, LoadOptions { include_drafts, now }).map_err(|errors| {
         format!("{} problem(s) in your content:\n  - {}", errors.len(), errors.join("\n  - "))
     })?;
     Ok((site, themes))
+}
+
+/// An admin UI file: from `web/admin/` if present, else the embedded copy.
+pub fn admin_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
+    if let Ok(bytes) = fs::read(root.join(&config.paths.web).join("admin").join(rel)) {
+        return Some(bytes);
+    }
+    EMBEDDED_ADMIN.iter().find(|(p, _)| *p == rel).map(|(_, c)| c.as_bytes().to_vec())
 }
 
 fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
@@ -108,7 +129,7 @@ fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
 }
 
 pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
-    let (site, themes) = load_site(root, options.include_drafts)?;
+    let (site, themes) = load_site(root, options.include_drafts, options.now)?;
     let config = &site.config;
     let out_dir = options.out_override.clone().unwrap_or_else(|| root.join(&config.paths.output));
     fsutil::guard_output_dir(root, &out_dir)?;
@@ -136,6 +157,9 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     let web_dir = root.join(&config.paths.web);
     for file in fsutil::walk(&web_dir) {
         let rel = fsutil::relative(&web_dir, &file);
+        if rel.starts_with("admin/") {
+            continue;
+        }
         let is_asset = rel.ends_with(".css") || rel.ends_with(".js") || rel.ends_with(".mjs");
         let is_wasm = rel.starts_with("wasm/") && (rel.ends_with(".js") || rel.ends_with(".wasm"));
         if (is_asset || is_wasm) && !asset_names.contains(&rel) {
@@ -171,6 +195,8 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         tags: site.tags.len(),
         pages: site.pages.len(),
         files: count,
+        scheduled: site.scheduled.len(),
+        next_due: site.next_scheduled(),
         out_dir,
         warnings: site.warnings.clone(),
     })
