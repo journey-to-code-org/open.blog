@@ -135,6 +135,9 @@ pub struct Site {
     /// Posts waiting for their publish date, soonest first.
     pub scheduled: Vec<Scheduled>,
     pub warnings: Vec<String>,
+    /// Known view totals per page path, supplied by the caller (for example from
+    /// the analytics backup) so static builds can show counts.
+    pub view_counts: BTreeMap<String, u64>,
 }
 
 impl Site {
@@ -301,6 +304,7 @@ impl Site {
             pages,
             scheduled,
             warnings,
+            view_counts: BTreeMap::new(),
         })
     }
 

@@ -47,6 +47,7 @@ pub struct SiteConfig {
     pub markdown: MarkdownConfig,
     pub paths: PathsConfig,
     pub admin: AdminConfig,
+    pub publish: PublishConfig,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -161,6 +162,7 @@ impl Default for SiteConfig {
             markdown: MarkdownConfig::default(),
             paths: PathsConfig::default(),
             admin: AdminConfig::default(),
+            publish: PublishConfig::default(),
         }
     }
 }
@@ -229,6 +231,16 @@ pub struct AnalyticsConfig {
     pub show_views: bool,
     /// Days of daily statistics to keep.
     pub retention_days: u32,
+    /// Where pages send views: empty means the same origin (`/api/hit`, served by
+    /// `openblog serve`). Set to the address of a counter you host elsewhere, such
+    /// as the Cloudflare Worker written by `openblog analytics worker`.
+    pub endpoint: String,
+    /// Git branch that holds `analytics.json` as a backup, written by
+    /// `openblog analytics backup` and by the server. Empty disables it.
+    pub branch: String,
+    /// Bake the counts known at build time into the pages and `/api/views.json`,
+    /// so a static host shows them even with no live counter.
+    pub bake_counts: bool,
 }
 
 impl Default for AnalyticsConfig {
@@ -237,6 +249,43 @@ impl Default for AnalyticsConfig {
             builtin: true,
             show_views: true,
             retention_days: 400,
+            endpoint: String::new(),
+            branch: "analytics".to_string(),
+            bake_counts: true,
+        }
+    }
+}
+
+/// Publishing: commit and push content with git from the admin or the CLI.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PublishConfig {
+    /// Git remote to push to.
+    pub remote: String,
+    /// Branch that deploys (the Pages workflow watches `main`).
+    pub branch: String,
+    /// Commit and push after every save in the admin, instead of on request.
+    pub auto: bool,
+    /// Commit draft posts too. Off by default: a draft in a public repository is public text.
+    pub include_drafts: bool,
+    /// Paths that publishing commits, relative to the blog root.
+    pub paths: Vec<String>,
+    /// Run `git pull --rebase` before pushing, so edits made elsewhere are kept.
+    pub pull_first: bool,
+}
+
+impl Default for PublishConfig {
+    fn default() -> Self {
+        Self {
+            remote: "origin".to_string(),
+            branch: "main".to_string(),
+            auto: false,
+            include_drafts: false,
+            paths: ["content", "static", "openblog.json", "themes", ".github"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            pull_first: true,
         }
     }
 }

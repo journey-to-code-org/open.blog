@@ -204,6 +204,18 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     if c.feeds.portfolio_snapshot {
         out.add("api/blog.json".into(), feeds::portfolio_snapshot(site, 4))?;
     }
+    if c.analytics.bake_counts && !site.view_counts.is_empty() {
+        // Counts as of this build, for static hosts and for scripts.
+        let counts: serde_json::Map<String, serde_json::Value> = site
+            .view_counts
+            .iter()
+            .map(|(k, v)| (k.clone(), serde_json::Value::from(*v)))
+            .collect();
+        out.add(
+            "api/views.json".into(),
+            serde_json::Value::Object(counts).to_string(),
+        )?;
+    }
     out.add(
         "search.json".into(),
         c.apply_base_path(&feeds::search_index(site)),
@@ -743,11 +755,14 @@ impl<'a> Renderer<'a> {
             }
         }
         body.push_str(&format!(" · {} min read", post.reading_minutes));
-        if c.analytics.builtin && c.analytics.show_views {
-            // Filled in by the server's counter; stays empty (and invisible) on static hosts.
+        if c.analytics.show_views && (c.analytics.builtin || !c.analytics.endpoint.is_empty()) {
+            // A live counter updates this; a baked count shows until then, or forever on a static host.
+            let baked = site_views_text(self.site, &post.url);
             body.push_str(&format!(
-                "<ob-views path=\"{}\"></ob-views>",
-                attr(&post.url)
+                "<ob-views path=\"{}\" endpoint=\"{}\">{}</ob-views>",
+                attr(&post.url),
+                attr(c.analytics.endpoint.trim().trim_end_matches('/')),
+                text(&baked)
             ));
         }
         body.push_str("</p>\n");
@@ -1238,6 +1253,17 @@ impl<'a> Renderer<'a> {
     }
 }
 
+/// ` · N views` for a page with a known count, else empty.
+fn site_views_text(site: &Site, path: &str) -> String {
+    if !site.config.analytics.bake_counts {
+        return String::new();
+    }
+    match site.view_counts.get(path) {
+        Some(&n) if n > 0 => format!(" · {n} {}", if n == 1 { "view" } else { "views" }),
+        _ => String::new(),
+    }
+}
+
 trait IfEmpty {
     fn if_empty(self, fallback: &str) -> String;
 }
@@ -1390,7 +1416,7 @@ mod tests {
             "https://twitter.com/intent/tweet?text=One&amp;url=https%3A%2F%2Ft.dev%2Fone%2F"
         ));
         assert!(one.contains("href=\"mailto:?subject=One&amp;body=https%3A%2F%2Ft.dev%2Fone%2F\""));
-        assert!(one.contains("<ob-views path=\"/one/\"></ob-views>"));
+        assert!(one.contains("<ob-views path=\"/one/\" endpoint=\"\"></ob-views>"));
         assert!(
             one.contains("Related posts") && one.contains("href=\"/two/\""),
             "two shares the series"
@@ -1498,6 +1524,42 @@ mod tests {
         assert!(file(&files, "search.json").contains("\"url\":\"/blog/one/\""));
         assert!(file(&files, "rss.xml").contains("<link>https://user.github.io/blog/one/</link>"));
         assert!(file(&files, "sitemap.xml").contains("<loc>https://user.github.io/blog/</loc>"));
+    }
+
+    #[test]
+    fn baked_view_counts_and_external_endpoint() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","analytics":{"builtin":false,"endpoint":"https://counter.example.workers.dev/"}}"#,
+        )
+        .unwrap();
+        let src = |p: &str, c: &str| SourceFile {
+            path: p.into(),
+            contents: c.into(),
+        };
+        let mut site = Site::load(
+            config,
+            Sources {
+                posts: vec![
+                    src("posts/a.md", "---\ntitle: A\ndate: 2026-01-01\n---\nx"),
+                    src("posts/b.md", "---\ntitle: B\ndate: 2026-01-02\n---\ny"),
+                ],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        site.view_counts.insert("/a/".into(), 1234);
+        let files = generate(&site, &ThemeSet::new()).unwrap();
+        let a = file(&files, "a/index.html");
+        assert!(a.contains("<ob-views path=\"/a/\" endpoint=\"https://counter.example.workers.dev\"> · 1234 views</ob-views>"), "{a}");
+        assert!(file(&files, "b/index.html").contains(
+            "<ob-views path=\"/b/\" endpoint=\"https://counter.example.workers.dev\"></ob-views>"
+        ));
+        assert_eq!(file(&files, "api/views.json"), "{\"/a/\":1234}");
+        // No live counter at all: the element is not emitted.
+        site.config.analytics.endpoint.clear();
+        let files = generate(&site, &ThemeSet::new()).unwrap();
+        assert!(!file(&files, "a/index.html").contains("<ob-views"));
     }
 
     #[test]
