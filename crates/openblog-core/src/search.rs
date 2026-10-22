@@ -65,7 +65,11 @@ pub fn query(index: &Index, raw: &str, limit: usize) -> Vec<Hit> {
             for term in &terms {
                 let mut term_score = 0u32;
                 if title.contains(term.as_str()) {
-                    term_score += if title.starts_with(term.as_str()) { 12 } else { 8 };
+                    term_score += if title.starts_with(term.as_str()) {
+                        12
+                    } else {
+                        8
+                    };
                 }
                 if tags.iter().any(|t| t.contains(term.as_str())) {
                     term_score += 6;
@@ -77,7 +81,8 @@ pub fn query(index: &Index, raw: &str, limit: usize) -> Vec<Hit> {
                     term_score += 3;
                 }
                 if let Some(pos) = entry.text.find(term.as_str()) {
-                    term_score += 1 + (entry.text.matches(term.as_str()).count().min(10) as u32) / 2;
+                    term_score +=
+                        1 + (entry.text.matches(term.as_str()).count().min(10) as u32) / 2;
                     first_body_match = Some(first_body_match.map_or(pos, |p: usize| p.min(pos)));
                 }
                 if term_score == 0 {
@@ -93,7 +98,9 @@ pub fn query(index: &Index, raw: &str, limit: usize) -> Vec<Hit> {
                 tags: entry.tags.clone(),
                 series: entry.series.clone(),
                 score,
-                snippet: first_body_match.map(|pos| snippet(&entry.text, pos)).unwrap_or_default(),
+                snippet: first_body_match
+                    .map(|pos| snippet(&entry.text, pos))
+                    .unwrap_or_default(),
             })
         })
         .collect();
@@ -103,8 +110,17 @@ pub fn query(index: &Index, raw: &str, limit: usize) -> Vec<Hit> {
 }
 
 fn snippet(text: &str, pos: usize) -> String {
-    let start = text[..pos].char_indices().rev().nth(60).map(|(i, _)| i).unwrap_or(0);
-    let end = text[pos..].char_indices().nth(120).map(|(i, _)| pos + i).unwrap_or(text.len());
+    let start = text[..pos]
+        .char_indices()
+        .rev()
+        .nth(60)
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let end = text[pos..]
+        .char_indices()
+        .nth(120)
+        .map(|(i, _)| pos + i)
+        .unwrap_or(text.len());
     let mut s = String::new();
     if start > 0 {
         s.push('…');
@@ -152,7 +168,9 @@ mod tests {
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].url, "/rust-enums/");
         assert!(hits[1].snippet.contains("rust"));
-        assert!(query(&index(), "rust shadow", 10).iter().all(|h| h.url == "/wc/"));
+        assert!(query(&index(), "rust shadow", 10)
+            .iter()
+            .all(|h| h.url == "/wc/"));
         assert!(query(&index(), "x", 10).is_empty());
     }
 }

@@ -39,7 +39,11 @@ pub struct RenderOptions {
 
 impl Default for RenderOptions {
     fn default() -> Self {
-        Self { smart_punctuation: false, lazy_images: true, heading_anchors: true }
+        Self {
+            smart_punctuation: false,
+            lazy_images: true,
+            heading_anchors: true,
+        }
     }
 }
 
@@ -132,7 +136,11 @@ pub fn render(markdown: &str, options: RenderOptions) -> Rendered {
                     );
                     events.push(Event::Html(CowStr::from(anchor)));
                 }
-                headings.push(Heading { level: level_num, id, text: title.trim().to_string() });
+                headings.push(Heading {
+                    level: level_num,
+                    id,
+                    text: title.trim().to_string(),
+                });
                 text.push(' ');
             }
         }
@@ -148,7 +156,14 @@ pub fn render(markdown: &str, options: RenderOptions) -> Rendered {
 
     let text = collapse_whitespace(&text);
     let word_count = text.split_whitespace().count();
-    Rendered { html, headings, text, word_count, code_languages, first_image }
+    Rendered {
+        html,
+        headings,
+        text,
+        word_count,
+        code_languages,
+        first_image,
+    }
 }
 
 fn heading_level(level: HeadingLevel) -> u8 {
@@ -209,7 +224,10 @@ mod tests {
 
     #[test]
     fn renders_headings_with_ids_and_anchors() {
-        let r = render("# Title\n\n## Hello World\n\ntext\n\n## Hello World\n", RenderOptions::default());
+        let r = render(
+            "# Title\n\n## Hello World\n\ntext\n\n## Hello World\n",
+            RenderOptions::default(),
+        );
         assert!(r.html.contains("<h2 id=\"hello-world\">"));
         assert!(r.html.contains("<h2 id=\"hello-world-2\">"));
         assert!(r.html.contains("ob-heading-anchor"));
@@ -220,7 +238,10 @@ mod tests {
 
     #[test]
     fn collects_code_languages_and_skips_code_text() {
-        let r = render("Intro\n\n```rust\nfn main() {}\n```\n\n```js\nlet x\n```\n", RenderOptions::default());
+        let r = render(
+            "Intro\n\n```rust\nfn main() {}\n```\n\n```js\nlet x\n```\n",
+            RenderOptions::default(),
+        );
         assert_eq!(r.code_languages, vec!["rust", "js"]);
         assert_eq!(r.text, "Intro");
         assert!(r.html.contains("<pre><code class=\"language-rust\">"));
@@ -230,7 +251,9 @@ mod tests {
     fn lazy_images_and_first_image() {
         let r = render("![alt](/a.png)\n\n![b](/b.png)", RenderOptions::default());
         assert_eq!(r.first_image.as_deref(), Some("/a.png"));
-        assert!(r.html.contains("<img loading=\"lazy\" decoding=\"async\" src=\"/a.png\""));
+        assert!(r
+            .html
+            .contains("<img loading=\"lazy\" decoding=\"async\" src=\"/a.png\""));
     }
 
     #[test]
@@ -243,7 +266,10 @@ mod tests {
 
     #[test]
     fn tables_footnotes_tasks() {
-        let r = render("| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\nnote[^1]\n\n[^1]: foot\n", RenderOptions::default());
+        let r = render(
+            "| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\nnote[^1]\n\n[^1]: foot\n",
+            RenderOptions::default(),
+        );
         assert!(r.html.contains("<table>"));
         assert!(r.html.contains("type=\"checkbox\""));
         assert!(r.html.contains("footnote"));

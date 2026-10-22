@@ -99,7 +99,11 @@ pub fn parse(source: &str) -> Result<Document, String> {
     }
     let front_matter = parse_fields(&fm_lines)?;
     let body: Vec<&str> = lines.collect();
-    Ok(Document { front_matter, body: body.join("\n"), body_line: line_no + 1 })
+    Ok(Document {
+        front_matter,
+        body: body.join("\n"),
+        body_line: line_no + 1,
+    })
 }
 
 fn parse_fields(lines: &[&str]) -> Result<FrontMatter, String> {
@@ -115,7 +119,9 @@ fn parse_fields(lines: &[&str]) -> Result<FrontMatter, String> {
             return Err(format!("unexpected indentation in front matter: `{line}`"));
         }
         let Some(colon) = find_key_colon(line) else {
-            return Err(format!("expected `key: value` in front matter, found `{line}`"));
+            return Err(format!(
+                "expected `key: value` in front matter, found `{line}`"
+            ));
         };
         let key = line[..colon].trim().to_string();
         let rest = line[colon + 1..].trim();
@@ -276,8 +282,23 @@ pub fn serialize(fields: &[(&str, Value)]) -> String {
 
 /// Preferred key order when writing a document, so edits produce stable diffs.
 const KEY_ORDER: &[&str] = &[
-    "title", "slug", "date", "updated", "description", "tags", "series", "seriesOrder", "cover",
-    "coverAlt", "theme", "canonical", "sourceUrl", "draft", "name", "order", "nav",
+    "title",
+    "slug",
+    "date",
+    "updated",
+    "description",
+    "tags",
+    "series",
+    "seriesOrder",
+    "cover",
+    "coverAlt",
+    "theme",
+    "canonical",
+    "sourceUrl",
+    "draft",
+    "name",
+    "order",
+    "nav",
 ];
 
 /// Write a full document from a field map and a body. Known keys come first in
@@ -387,12 +408,18 @@ mod tests {
     fn values_with_newlines_cannot_inject_fields() {
         let mut fields = BTreeMap::new();
         fields.insert("title".to_string(), Value::Scalar("T".into()));
-        fields.insert("description".to_string(), Value::Scalar("line one\nslug: evil\r\n---\ndraft: true".into()));
+        fields.insert(
+            "description".to_string(),
+            Value::Scalar("line one\nslug: evil\r\n---\ndraft: true".into()),
+        );
         let text = compose(&fields, "body");
         let doc = parse(&text).unwrap();
         assert_eq!(doc.front_matter.get("slug"), None);
         assert_eq!(doc.front_matter.get("draft"), None);
-        assert_eq!(doc.front_matter.get("description"), Some("line one\nslug: evil\n---\ndraft: true"));
+        assert_eq!(
+            doc.front_matter.get("description"),
+            Some("line one\nslug: evil\n---\ndraft: true")
+        );
         assert_eq!(doc.body.trim(), "body");
     }
 
@@ -400,12 +427,18 @@ mod tests {
     fn serialize_round_trips() {
         let text = serialize(&[
             ("title", Value::Scalar("A: colon".into())),
-            ("tags", Value::List(vec!["rust".into(), "web assembly".into()])),
+            (
+                "tags",
+                Value::List(vec!["rust".into(), "web assembly".into()]),
+            ),
             ("draft", Value::Scalar("true".into())),
         ]);
         let doc = parse(&format!("{text}body")).unwrap();
         assert_eq!(doc.front_matter.get("title"), Some("A: colon"));
-        assert_eq!(doc.front_matter.get_list("tags"), vec!["rust", "web assembly"]);
+        assert_eq!(
+            doc.front_matter.get_list("tags"),
+            vec!["rust", "web assembly"]
+        );
         assert_eq!(doc.front_matter.get("draft"), Some("true"));
     }
 }

@@ -78,7 +78,10 @@ mod tests {
         assert_eq!(classify_source("posts/a.md"), Some(SourceKind::Post));
         assert_eq!(classify_source("posts\\deep\\a.md"), Some(SourceKind::Post));
         assert_eq!(classify_source("series/x.md"), Some(SourceKind::Series));
-        assert_eq!(classify_source("pages/about.markdown"), Some(SourceKind::Page));
+        assert_eq!(
+            classify_source("pages/about.markdown"),
+            Some(SourceKind::Page)
+        );
         assert_eq!(classify_source("loose.md"), Some(SourceKind::Post));
         assert_eq!(classify_source("posts/README.txt"), None);
         assert_eq!(classify_source("other/x.md"), None);

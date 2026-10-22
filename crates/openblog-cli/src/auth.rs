@@ -30,7 +30,8 @@ pub struct Users {
 impl Users {
     pub fn load(path: &Path) -> Result<Users, String> {
         match fs::read_to_string(path) {
-            Ok(text) => serde_json::from_str(&text).map_err(|e| format!("{} is not valid: {e}", path.display())),
+            Ok(text) => serde_json::from_str(&text)
+                .map_err(|e| format!("{} is not valid: {e}", path.display())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Users::default()),
             Err(e) => Err(format!("cannot read {}: {e}", path.display())),
         }
@@ -38,7 +39,8 @@ impl Users {
 
     pub fn save(&self, path: &Path) -> Result<(), String> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         }
         let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())? + "\n";
         let tmp = path.with_extension("json.tmp");
@@ -59,7 +61,10 @@ impl Users {
         let hash = hash_password(password)?;
         match self.users.iter_mut().find(|u| u.name == name) {
             Some(u) => u.hash = hash,
-            None => self.users.push(UserRecord { name: name.to_string(), hash }),
+            None => self.users.push(UserRecord {
+                name: name.to_string(),
+                hash,
+            }),
         }
         Ok(())
     }
@@ -74,23 +79,30 @@ impl Users {
 pub fn valid_username(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 32
-        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.' | '-'))
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.' | '-'))
 }
 
 pub fn check_password_policy(password: &str) -> Result<(), String> {
     let len = password.chars().count();
     if len < MIN_PASSWORD_LEN {
-        return Err(format!("password must be at least {MIN_PASSWORD_LEN} characters"));
+        return Err(format!(
+            "password must be at least {MIN_PASSWORD_LEN} characters"
+        ));
     }
     if len > MAX_PASSWORD_LEN {
-        return Err(format!("password must be at most {MAX_PASSWORD_LEN} characters"));
+        return Err(format!(
+            "password must be at most {MAX_PASSWORD_LEN} characters"
+        ));
     }
     Ok(())
 }
 
 pub fn random_bytes<const N: usize>() -> Result<[u8; N], String> {
     let mut buf = [0u8; N];
-    getrandom::fill(&mut buf).map_err(|e| format!("the operating system's random source failed: {e}"))?;
+    getrandom::fill(&mut buf)
+        .map_err(|e| format!("the operating system's random source failed: {e}"))?;
     Ok(buf)
 }
 
@@ -112,7 +124,9 @@ pub fn hash_password(password: &str) -> Result<String, String> {
 
 pub fn verify_password(hash: &str, password: &str) -> bool {
     match PasswordHash::new(hash) {
-        Ok(parsed) => Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok(),
+        Ok(parsed) => Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok(),
         Err(_) => false,
     }
 }
@@ -151,16 +165,31 @@ pub struct Sessions {
 const MAX_SESSIONS: usize = 200;
 
 impl Sessions {
-    pub fn create(&mut self, user: &str, credential: &str, ttl: Duration) -> Result<(String, Session), String> {
+    pub fn create(
+        &mut self,
+        user: &str,
+        credential: &str,
+        ttl: Duration,
+    ) -> Result<(String, Session), String> {
         self.purge();
         if self.map.len() >= MAX_SESSIONS {
             // Drop the session closest to expiry rather than refuse a legitimate login.
-            if let Some(oldest) = self.map.iter().min_by_key(|(_, s)| s.expires).map(|(k, _)| k.clone()) {
+            if let Some(oldest) = self
+                .map
+                .iter()
+                .min_by_key(|(_, s)| s.expires)
+                .map(|(k, _)| k.clone())
+            {
                 self.map.remove(&oldest);
             }
         }
         let token = random_token()?;
-        let session = Session { user: user.to_string(), credential: credential.to_string(), csrf: random_token()?, expires: Instant::now() + ttl };
+        let session = Session {
+            user: user.to_string(),
+            credential: credential.to_string(),
+            csrf: random_token()?,
+            expires: Instant::now() + ttl,
+        };
         self.map.insert(token.clone(), session.clone());
         Ok((token, session))
     }
@@ -218,9 +247,14 @@ impl Throttle {
     pub fn fail(&mut self, key: &str) {
         let now = Instant::now();
         if self.map.len() > 5000 {
-            self.map.retain(|_, e| now.duration_since(e.window_start) < WINDOW);
+            self.map
+                .retain(|_, e| now.duration_since(e.window_start) < WINDOW);
         }
-        let entry = self.map.entry(key.to_string()).or_insert(Entry { failures: 0, window_start: now, locked_until: None });
+        let entry = self.map.entry(key.to_string()).or_insert(Entry {
+            failures: 0,
+            window_start: now,
+            locked_until: None,
+        });
         if now.duration_since(entry.window_start) > WINDOW {
             entry.failures = 0;
             entry.window_start = now;
@@ -254,7 +288,11 @@ impl Throttle {
     /// owner out; they can only make guesses slow.
     pub fn delay(&mut self, key: &str) -> Duration {
         let now = Instant::now();
-        let entry = self.map.entry(key.to_string()).or_insert(Entry { failures: 0, window_start: now, locked_until: None });
+        let entry = self.map.entry(key.to_string()).or_insert(Entry {
+            failures: 0,
+            window_start: now,
+            locked_until: None,
+        });
         if now.duration_since(entry.window_start) > WINDOW {
             entry.failures = 0;
             entry.window_start = now;
@@ -327,13 +365,20 @@ mod tests {
         for _ in 0..MAX_FAILURES {
             assert!(t.reserve("ip:9").is_ok());
         }
-        assert!(t.reserve("ip:9").is_err(), "the fifth reservation locks before any verification happens");
+        assert!(
+            t.reserve("ip:9").is_err(),
+            "the fifth reservation locks before any verification happens"
+        );
         assert_eq!(t.delay("user:x"), Duration::ZERO);
         assert_eq!(t.delay("user:x"), Duration::from_millis(400));
         for _ in 0..20 {
             t.delay("user:x");
         }
-        assert_eq!(t.delay("user:x"), Duration::from_millis(3200), "delay is capped");
+        assert_eq!(
+            t.delay("user:x"),
+            Duration::from_millis(3200),
+            "delay is capped"
+        );
         assert!(t.check("user:x").is_ok(), "a username is never locked out");
         t.clear("user:x");
         assert_eq!(t.delay("user:x"), Duration::ZERO);
@@ -347,8 +392,14 @@ mod tests {
         users.set("mikey", "correct horse battery").unwrap();
         users.save(&path).unwrap();
         let loaded = Users::load(&path).unwrap();
-        assert!(verify_password(&loaded.find("mikey").unwrap().hash, "correct horse battery"));
-        assert_eq!(Users::load(&dir.join("missing.json")).unwrap(), Users::default());
+        assert!(verify_password(
+            &loaded.find("mikey").unwrap().hash,
+            "correct horse battery"
+        ));
+        assert_eq!(
+            Users::load(&dir.join("missing.json")).unwrap(),
+            Users::default()
+        );
         assert!(users.remove("mikey"));
         assert!(!users.remove("mikey"));
         let _ = fs::remove_dir_all(&dir);

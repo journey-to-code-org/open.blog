@@ -77,7 +77,16 @@ impl Store {
             .ok()
             .and_then(|t| serde_json::from_str::<Data>(&t).ok())
             .unwrap_or_default();
-        Store { data, dirty: false, day: String::new(), salt: 0, seen: HashSet::new(), minute: 0, rate: HashMap::new(), retention_days }
+        Store {
+            data,
+            dirty: false,
+            day: String::new(),
+            salt: 0,
+            seen: HashSet::new(),
+            minute: 0,
+            rate: HashMap::new(),
+            retention_days,
+        }
     }
 
     /// Serialise the data if anything changed. The caller writes it to disk
@@ -96,7 +105,8 @@ impl Store {
     /// Write a snapshot atomically.
     pub fn write_snapshot(path: &Path, text: &str) -> Result<(), String> {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         }
         let tmp = path.with_extension("json.tmp");
         fs::write(&tmp, text).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
@@ -136,7 +146,13 @@ impl Store {
 
     /// Record one view. `visitor` is the address and user agent joined; it is
     /// hashed with the daily salt and never stored. Returns the page's total.
-    pub fn record(&mut self, now: DateTime, path: &str, referrer_host: Option<&str>, visitor: &str) -> Result<u64, String> {
+    pub fn record(
+        &mut self,
+        now: DateTime,
+        path: &str,
+        referrer_host: Option<&str>,
+        visitor: &str,
+    ) -> Result<u64, String> {
         self.roll_day(now)?;
         // Caps apply to every map a client can add keys to, including the all-time totals.
         let new_total = !self.data.totals.contains_key(path);
@@ -148,7 +164,8 @@ impl Store {
             return Ok(self.data.totals.get(path).copied().unwrap_or(0));
         }
         *day.views.entry(path.to_string()).or_insert(0) += 1;
-        let fingerprint = fnv64(self.salt, visitor.as_bytes()) ^ fnv64(self.salt.rotate_left(17), path.as_bytes());
+        let fingerprint = fnv64(self.salt, visitor.as_bytes())
+            ^ fnv64(self.salt.rotate_left(17), path.as_bytes());
         // Past the cap, new visitors are still counted as views but not as uniques.
         if self.seen.len() < MAX_UNIQUES_PER_DAY && self.seen.insert(fingerprint) {
             *day.uniques.entry(path.to_string()).or_insert(0) += 1;
@@ -197,7 +214,10 @@ impl Store {
         for offset in 0..days {
             let day = DateTime::from_unix(now.unix() - i64::from(days - 1 - offset) * 86_400).ymd();
             let (v, u) = match self.data.days.get(&day) {
-                Some(stats) => (stats.views.values().sum::<u64>(), stats.uniques.values().sum::<u64>()),
+                Some(stats) => (
+                    stats.views.values().sum::<u64>(),
+                    stats.uniques.values().sum::<u64>(),
+                ),
                 None => (0, 0),
             };
             views_total += v;
@@ -247,9 +267,20 @@ fn fnv64(seed: u64, bytes: &[u8]) -> u64 {
 /// The host part of a referrer URL, lower-cased and cleaned, or `None` for
 /// empty, same-site, or malformed values. Nothing else from the referrer is kept.
 pub fn referrer_host(referrer: &str, own_host: &str) -> Option<String> {
-    let rest = referrer.trim().strip_prefix("https://").or_else(|| referrer.trim().strip_prefix("http://"))?;
-    let host = rest.split(['/', '?', '#']).next()?.trim_start_matches("www.").to_ascii_lowercase();
-    let clean: String = host.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':')).take(100).collect();
+    let rest = referrer
+        .trim()
+        .strip_prefix("https://")
+        .or_else(|| referrer.trim().strip_prefix("http://"))?;
+    let host = rest
+        .split(['/', '?', '#'])
+        .next()?
+        .trim_start_matches("www.")
+        .to_ascii_lowercase();
+    let clean: String = host
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':'))
+        .take(100)
+        .collect();
     if clean.is_empty() || clean == own_host.trim_start_matches("www.").to_ascii_lowercase() {
         return None;
     }
@@ -273,7 +304,9 @@ pub fn public_path(out_dir: &Path, raw: &str) -> Option<String> {
                 && segment.len() <= 100
                 && !segment.starts_with('.')
                 && !segment.ends_with('.')
-                && segment.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'))
+                && segment.chars().all(|c| {
+                    c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.')
+                })
                 && segment != "index.html";
             if !ok {
                 return None;
@@ -289,7 +322,11 @@ pub fn public_path(out_dir: &Path, raw: &str) -> Option<String> {
     if !dir.is_dir() || !dir.join("index.html").is_file() {
         return None;
     }
-    Some(if segments.is_empty() { "/".to_string() } else { format!("/{}/", segments.join("/")) })
+    Some(if segments.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}/", segments.join("/"))
+    })
 }
 
 /// `POST /api/hit` with `{ "path": "/posts/x/", "referrer": "https://..." }`.
@@ -300,7 +337,11 @@ pub fn hit(state: &crate::admin::AppState, req: &Request, out_dir: &Path) -> Res
     // Only our own pages may record hits: a JSON content type forces a CORS
     // preflight (which this server never answers), and a browser-supplied
     // Origin or Sec-Fetch-Site must be same-origin.
-    if !req.header("content-type").is_some_and(|t| t.trim().to_ascii_lowercase().starts_with("application/json")) {
+    if !req.header("content-type").is_some_and(|t| {
+        t.trim()
+            .to_ascii_lowercase()
+            .starts_with("application/json")
+    }) {
         return Response::error(415, "Content-Type must be application/json");
     }
     if let Err(r) = crate::admin::check_origin(req) {
@@ -318,10 +359,22 @@ pub fn hit(state: &crate::admin::AppState, req: &Request, out_dir: &Path) -> Res
     if opted_out {
         // Count nothing, but still answer with the total so the page can show it.
         let store = state.analytics.lock().unwrap_or_else(|e| e.into_inner());
-        return Response::json(200, &json!({ "views": store.views(&path), "counted": false }));
+        return Response::json(
+            200,
+            &json!({ "views": store.views(&path), "counted": false }),
+        );
     }
-    let own_host = config.url.trim_start_matches("https://").trim_start_matches("http://").split('/').next().unwrap_or("").to_string();
-    let referrer = body["referrer"].as_str().and_then(|r| referrer_host(r, &own_host));
+    let own_host = config
+        .url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .to_string();
+    let referrer = body["referrer"]
+        .as_str()
+        .and_then(|r| referrer_host(r, &own_host));
     let client = crate::admin::client_ip(&config, req);
     let visitor = format!("{client}|{}", req.header("user-agent").unwrap_or(""));
     let now = crate::clock::now();
@@ -341,7 +394,8 @@ pub fn views(state: &crate::admin::AppState, req: &Request, out_dir: &Path) -> R
         return Response::error(404, "Not a page on this site");
     };
     let store = state.analytics.lock().unwrap_or_else(|e| e.into_inner());
-    Response::json(200, &json!({ "views": store.views(&path) })).with_header("Cache-Control", "no-store")
+    Response::json(200, &json!({ "views": store.views(&path) }))
+        .with_header("Cache-Control", "no-store")
 }
 
 #[cfg(test)]
@@ -356,13 +410,24 @@ mod tests {
     fn counts_views_uniques_and_referrers_per_day() {
         let mut s = Store::load(Path::new("/nonexistent/analytics.json"), 400);
         let d1 = at("2026-10-22T10:00:00Z");
-        assert_eq!(s.record(d1, "/a/", Some("news.ycombinator.com"), "1.1.1.1|ua").unwrap(), 1);
+        assert_eq!(
+            s.record(d1, "/a/", Some("news.ycombinator.com"), "1.1.1.1|ua")
+                .unwrap(),
+            1
+        );
         assert_eq!(s.record(d1, "/a/", None, "1.1.1.1|ua").unwrap(), 2);
-        assert_eq!(s.record(d1, "/a/", Some("news.ycombinator.com"), "2.2.2.2|ua").unwrap(), 3);
+        assert_eq!(
+            s.record(d1, "/a/", Some("news.ycombinator.com"), "2.2.2.2|ua")
+                .unwrap(),
+            3
+        );
         assert_eq!(s.record(d1, "/b/", None, "1.1.1.1|ua").unwrap(), 1);
         let sum = s.summary(d1, 7);
         assert_eq!(sum["views"], 4);
-        assert_eq!(sum["uniques"], 3, "same visitor on the same page counts once per day");
+        assert_eq!(
+            sum["uniques"], 3,
+            "same visitor on the same page counts once per day"
+        );
         assert_eq!(sum["topPosts"][0]["path"], "/a/");
         assert_eq!(sum["topPosts"][0]["uniques"], 2);
         assert_eq!(sum["referrers"][0]["host"], "news.ycombinator.com");
@@ -383,13 +448,25 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ob-analytics-{}", std::process::id()));
         let path = dir.join("analytics.json");
         let mut s = Store::load(&path, 400);
-        s.record(at("2026-10-22"), "/a/", Some("example.org"), "9.9.9.9|Mozilla").unwrap();
+        s.record(
+            at("2026-10-22"),
+            "/a/",
+            Some("example.org"),
+            "9.9.9.9|Mozilla",
+        )
+        .unwrap();
         s.save(&path).unwrap();
         let text = fs::read_to_string(&path).unwrap();
-        assert!(!text.contains("9.9.9.9") && !text.contains("Mozilla"), "no visitor data on disk: {text}");
+        assert!(
+            !text.contains("9.9.9.9") && !text.contains("Mozilla"),
+            "no visitor data on disk: {text}"
+        );
         let again = Store::load(&path, 400);
         assert_eq!(again.views("/a/"), 1);
-        assert_eq!(again.summary(at("2026-10-22"), 1)["referrers"][0]["host"], "example.org");
+        assert_eq!(
+            again.summary(at("2026-10-22"), 1)["referrers"][0]["host"],
+            "example.org"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -409,23 +486,40 @@ mod tests {
             s.record(now2, &format!("/p{i}/"), None, "x").unwrap();
         }
         assert!(s.data.totals.len() <= MAX_TRACKED_PATHS);
-        assert_eq!(s.record(now2, "/a/", None, "x").unwrap(), 4, "known pages still count past the cap");
+        assert_eq!(
+            s.record(now2, "/a/", None, "x").unwrap(),
+            4,
+            "known pages still count past the cap"
+        );
         let now = at("2026-10-22T10:00:00Z");
         for _ in 0..MAX_HITS_PER_MINUTE {
             assert!(s.allow_hit(now, "1.2.3.4"));
         }
         assert!(!s.allow_hit(now, "1.2.3.4"));
         assert!(s.allow_hit(now, "5.6.7.8"));
-        assert!(s.allow_hit(DateTime::from_unix(now.unix() + 60), "1.2.3.4"), "a new minute resets");
+        assert!(
+            s.allow_hit(DateTime::from_unix(now.unix() + 60), "1.2.3.4"),
+            "a new minute resets"
+        );
     }
 
     #[test]
     fn referrer_hosts_are_reduced_to_a_clean_host() {
-        assert_eq!(referrer_host("https://www.Example.org/some/page?q=1", "t.dev"), Some("example.org".into()));
-        assert_eq!(referrer_host("https://t.dev/other/", "t.dev"), None, "internal navigation is not a referrer");
+        assert_eq!(
+            referrer_host("https://www.Example.org/some/page?q=1", "t.dev"),
+            Some("example.org".into())
+        );
+        assert_eq!(
+            referrer_host("https://t.dev/other/", "t.dev"),
+            None,
+            "internal navigation is not a referrer"
+        );
         assert_eq!(referrer_host("", "t.dev"), None);
         assert_eq!(referrer_host("javascript:alert(1)", "t.dev"), None);
-        assert_eq!(referrer_host("http://evil.com/<script>", "t.dev"), Some("evil.com".into()));
+        assert_eq!(
+            referrer_host("http://evil.com/<script>", "t.dev"),
+            Some("evil.com".into())
+        );
     }
 
     #[test]
@@ -444,10 +538,26 @@ mod tests {
         assert_eq!(public_path(&dir, "posts/x/"), None);
         assert_eq!(public_path(&dir, "/../x/"), None);
         assert_eq!(public_path(&dir, &format!("/{}/", "a".repeat(300))), None);
-        for alias in ["/posts//x/", "/./posts/x/", "/posts/./x/", "/Posts/X/", "/posts/x/index.html", "/posts/x./", "/posts/x /", "//posts/x/"] {
-            assert_eq!(public_path(&dir, alias), None, "{alias:?} is not a canonical spelling");
+        for alias in [
+            "/posts//x/",
+            "/./posts/x/",
+            "/posts/./x/",
+            "/Posts/X/",
+            "/posts/x/index.html",
+            "/posts/x./",
+            "/posts/x /",
+            "//posts/x/",
+        ] {
+            assert_eq!(
+                public_path(&dir, alias),
+                None,
+                "{alias:?} is not a canonical spelling"
+            );
         }
-        assert_eq!(rate_key("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), "2001:db8:1:2::/64");
+        assert_eq!(
+            rate_key("2001:db8:1:2:aaaa:bbbb:cccc:dddd"),
+            "2001:db8:1:2::/64"
+        );
         assert_eq!(rate_key("2001:db8:1:2:1:1:1:1"), "2001:db8:1:2::/64");
         assert_eq!(rate_key("203.0.113.9"), "203.0.113.9");
         let _ = fs::remove_dir_all(&dir);

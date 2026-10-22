@@ -61,7 +61,10 @@ mod tests {
 
     #[test]
     fn slugifies_punctuation_and_case() {
-        assert_eq!(slugify(" `false` Is Not an Answer. "), "false-is-not-an-answer");
+        assert_eq!(
+            slugify(" `false` Is Not an Answer. "),
+            "false-is-not-an-answer"
+        );
         assert_eq!(slugify("Rust & WASM: a tale"), "rust-wasm-a-tale");
         assert_eq!(slugify("Déjà vu"), "déjà-vu");
     }

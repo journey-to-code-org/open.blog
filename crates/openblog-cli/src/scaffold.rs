@@ -58,10 +58,19 @@ pub fn init(dir: &Path, title: Option<&str>) -> Result<Vec<String>, String> {
         ("title", Value::Scalar("Hello, world".into())),
         ("date", Value::Scalar(date)),
         ("tags", Value::List(vec!["meta".into()])),
-        ("description", Value::Scalar("The first post on a new open.blog.".into())),
+        (
+            "description",
+            Value::Scalar("The first post on a new open.blog.".into()),
+        ),
     ]);
-    write("content/posts/hello-world.md", &format!("{post}\n{WELCOME}"))?;
-    let page = frontmatter::serialize(&[("title", Value::Scalar("About".into())), ("nav", Value::Scalar("true".into()))]);
+    write(
+        "content/posts/hello-world.md",
+        &format!("{post}\n{WELCOME}"),
+    )?;
+    let page = frontmatter::serialize(&[
+        ("title", Value::Scalar("About".into())),
+        ("nav", Value::Scalar("true".into())),
+    ]);
     write("content/pages/about.md", &format!("{page}\n{ABOUT}"))?;
     write("content/series/.gitkeep", "")?;
     write("static/.gitkeep", "")?;
@@ -75,7 +84,13 @@ pub fn init(dir: &Path, title: Option<&str>) -> Result<Vec<String>, String> {
 }
 
 /// Create `content/posts/<date>-<slug>.md` and return its path.
-pub fn new_post(root: &Path, title: &str, series: Option<&str>, tags: &[String], draft: bool) -> Result<String, String> {
+pub fn new_post(
+    root: &Path,
+    title: &str,
+    series: Option<&str>,
+    tags: &[String],
+    draft: bool,
+) -> Result<String, String> {
     let config = site::load_config(root)?;
     let slug = slugify(title);
     if slug.is_empty() {
@@ -87,7 +102,10 @@ pub fn new_post(root: &Path, title: &str, series: Option<&str>, tags: &[String],
     if path.exists() {
         return Err(format!("{rel} already exists"));
     }
-    let mut fields: Vec<(&str, Value)> = vec![("title", Value::Scalar(title.to_string())), ("date", Value::Scalar(date))];
+    let mut fields: Vec<(&str, Value)> = vec![
+        ("title", Value::Scalar(title.to_string())),
+        ("date", Value::Scalar(date)),
+    ];
     if let Some(s) = series {
         fields.push(("series", Value::Scalar(slugify(s))));
     }
@@ -115,21 +133,50 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         let created = init(&dir, Some("My Blog")).unwrap();
         assert!(created.iter().any(|c| c == "openblog.json"));
-        fs::write(dir.join("content/posts/hello-world.md"), "---\ntitle: Mine\ndate: 2026-01-01\n---\nkeep").unwrap();
+        fs::write(
+            dir.join("content/posts/hello-world.md"),
+            "---\ntitle: Mine\ndate: 2026-01-01\n---\nkeep",
+        )
+        .unwrap();
         assert!(init(&dir, Some("Other")).unwrap().is_empty());
-        assert!(fs::read_to_string(dir.join("content/posts/hello-world.md")).unwrap().contains("keep"));
+        assert!(fs::read_to_string(dir.join("content/posts/hello-world.md"))
+            .unwrap()
+            .contains("keep"));
 
-        let report = site::build(&dir, &site::BuildOptions { include_drafts: false, out_override: None, now: None }).unwrap();
+        let report = site::build(
+            &dir,
+            &site::BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .unwrap();
         assert_eq!(report.posts, 1);
         assert!(dir.join("dist/index.html").exists());
         assert!(dir.join("dist/rss.xml").exists());
         assert!(dir.join("dist/assets/base.css").exists());
         assert!(dir.join("dist/themes/base/tokens.css").exists());
 
-        let rel = new_post(&dir, "A New Post!", Some("My Series"), &["rust".into()], true).unwrap();
+        let rel = new_post(
+            &dir,
+            "A New Post!",
+            Some("My Series"),
+            &["rust".into()],
+            true,
+        )
+        .unwrap();
         assert!(rel.ends_with("-a-new-post.md"));
         assert!(new_post(&dir, "A New Post!", None, &[], false).is_err());
-        let drafts = site::build(&dir, &site::BuildOptions { include_drafts: true, out_override: None, now: None }).unwrap();
+        let drafts = site::build(
+            &dir,
+            &site::BuildOptions {
+                include_drafts: true,
+                out_override: None,
+                now: None,
+            },
+        )
+        .unwrap();
         assert_eq!(drafts.posts, 2);
         let _ = fs::remove_dir_all(&dir);
     }

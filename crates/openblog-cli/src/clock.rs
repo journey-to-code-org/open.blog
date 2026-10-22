@@ -6,6 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use openblog_core::DateTime;
 
 pub fn now() -> DateTime {
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
     DateTime::from_unix(secs)
 }

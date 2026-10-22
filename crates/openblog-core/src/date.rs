@@ -83,7 +83,14 @@ impl DateTime {
         let year: i64 = s[0..4].parse().ok()?;
         let month: u32 = s[5..7].parse().ok()?;
         let day: u32 = s[8..10].parse().ok()?;
-        let mut civil = Civil { year, month, day, hour: 0, minute: 0, second: 0 };
+        let mut civil = Civil {
+            year,
+            month,
+            day,
+            hour: 0,
+            minute: 0,
+            second: 0,
+        };
         let mut rest = &s[10..];
         let mut offset_seconds = 0i64;
         if !rest.is_empty() {
@@ -128,7 +135,9 @@ impl DateTime {
             }
         }
         let local = Self::from_civil(civil)?;
-        Some(Self { unix: local.unix - offset_seconds })
+        Some(Self {
+            unix: local.unix - offset_seconds,
+        })
     }
 
     pub fn civil(self) -> Civil {
@@ -185,7 +194,12 @@ impl DateTime {
     /// `October 21, 2026`
     pub fn long(self) -> String {
         let c = self.civil();
-        format!("{} {}, {}", MONTHS_LONG[(c.month - 1) as usize], c.day, c.year)
+        format!(
+            "{} {}, {}",
+            MONTHS_LONG[(c.month - 1) as usize],
+            c.day,
+            c.year
+        )
     }
 
     pub fn year(self) -> i64 {
@@ -263,7 +277,10 @@ mod tests {
 
     #[test]
     fn epoch_and_leap_years() {
-        assert_eq!(DateTime::from_unix(0).rfc2822(), "Thu, 01 Jan 1970 00:00:00 GMT");
+        assert_eq!(
+            DateTime::from_unix(0).rfc2822(),
+            "Thu, 01 Jan 1970 00:00:00 GMT"
+        );
         assert_eq!(DateTime::parse("2024-02-29").unwrap().ymd(), "2024-02-29");
         assert!(DateTime::parse("2023-02-29").is_none());
         assert!(DateTime::parse("not a date").is_none());
@@ -271,7 +288,13 @@ mod tests {
 
     #[test]
     fn non_ascii_input_never_panics() {
-        for s in ["2026-10-1\u{fffd}", "2026-10-21T0\u{e9}:00", "２０２６-10-21", "2026-10-21T04:15:10+0\u{3b1}:00", "\u{1f600}\u{1f600}\u{1f600}\u{1f600}-10-21"] {
+        for s in [
+            "2026-10-1\u{fffd}",
+            "2026-10-21T0\u{e9}:00",
+            "２０２６-10-21",
+            "2026-10-21T04:15:10+0\u{3b1}:00",
+            "\u{1f600}\u{1f600}\u{1f600}\u{1f600}-10-21",
+        ] {
             assert!(DateTime::parse(s).is_none(), "{s:?}");
         }
     }

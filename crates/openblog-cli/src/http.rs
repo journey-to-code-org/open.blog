@@ -57,15 +57,27 @@ pub struct Response {
 
 impl Response {
     pub fn new(status: u16, content_type: &str, body: Vec<u8>) -> Self {
-        Self { status, headers: vec![("Content-Type".into(), content_type.into())], body }
+        Self {
+            status,
+            headers: vec![("Content-Type".into(), content_type.into())],
+            body,
+        }
     }
 
     pub fn text(status: u16, body: &str) -> Self {
-        Self::new(status, "text/plain; charset=utf-8", body.as_bytes().to_vec())
+        Self::new(
+            status,
+            "text/plain; charset=utf-8",
+            body.as_bytes().to_vec(),
+        )
     }
 
     pub fn json(status: u16, value: &serde_json::Value) -> Self {
-        Self::new(status, "application/json; charset=utf-8", value.to_string().into_bytes())
+        Self::new(
+            status,
+            "application/json; charset=utf-8",
+            value.to_string().into_bytes(),
+        )
     }
 
     pub fn error(status: u16, message: &str) -> Self {
@@ -104,16 +116,32 @@ impl<'a> Conn<'a> {
     pub fn new(stream: &'a TcpStream) -> Self {
         stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
         stream.set_write_timeout(Some(WRITE_TIMEOUT)).ok();
-        Self { reader: BufReader::new(stream), started: Instant::now(), body_length: 0 }
+        Self {
+            reader: BufReader::new(stream),
+            started: Instant::now(),
+            body_length: 0,
+        }
     }
 
     /// Read the request line and headers. The returned request has an empty body.
     pub fn read_head(&mut self) -> Result<Request, ReadError> {
-        let peer = self.reader.get_ref().peer_addr().map(|a| a.ip().to_string()).unwrap_or_default();
-        let request_line = read_line(&mut self.reader, self.started)?.ok_or_else(|| err(400, "empty request"))?;
+        let peer = self
+            .reader
+            .get_ref()
+            .peer_addr()
+            .map(|a| a.ip().to_string())
+            .unwrap_or_default();
+        let request_line =
+            read_line(&mut self.reader, self.started)?.ok_or_else(|| err(400, "empty request"))?;
         let mut parts = request_line.split_whitespace();
-        let method = parts.next().ok_or_else(|| err(400, "bad request line"))?.to_string();
-        let target = parts.next().ok_or_else(|| err(400, "bad request line"))?.to_string();
+        let method = parts
+            .next()
+            .ok_or_else(|| err(400, "bad request line"))?
+            .to_string();
+        let target = parts
+            .next()
+            .ok_or_else(|| err(400, "bad request line"))?
+            .to_string();
         let version = parts.next().unwrap_or("");
         if !version.starts_with("HTTP/1.") {
             return Err(err(505, "unsupported HTTP version"));
@@ -124,7 +152,8 @@ impl<'a> Conn<'a> {
 
         let mut headers: HashMap<String, String> = HashMap::new();
         loop {
-            let line = read_line(&mut self.reader, self.started)?.ok_or_else(|| err(400, "truncated headers"))?;
+            let line = read_line(&mut self.reader, self.started)?
+                .ok_or_else(|| err(400, "truncated headers"))?;
             if line.is_empty() {
                 break;
             }
@@ -137,7 +166,12 @@ impl<'a> Conn<'a> {
                 return Err(err(400, "bad header name"));
             }
             // A repeated Content-Length is a request-smuggling vector; refuse it.
-            if headers.contains_key(&name) && matches!(name.as_str(), "content-length" | "host" | "transfer-encoding") {
+            if headers.contains_key(&name)
+                && matches!(
+                    name.as_str(),
+                    "content-length" | "host" | "transfer-encoding"
+                )
+            {
                 return Err(err(400, "duplicate header"));
             }
             headers.insert(name, value.trim().to_string());
@@ -163,10 +197,20 @@ impl<'a> Conn<'a> {
             .filter(|p| !p.is_empty())
             .map(|pair| {
                 let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-                (percent_decode(&k.replace('+', " ")), percent_decode(&v.replace('+', " ")))
+                (
+                    percent_decode(&k.replace('+', " ")),
+                    percent_decode(&v.replace('+', " ")),
+                )
             })
             .collect();
-        Ok(Request { method, path, query, headers, body: Vec::new(), peer })
+        Ok(Request {
+            method,
+            path,
+            query,
+            headers,
+            body: Vec::new(),
+            peer,
+        })
     }
 
     /// Read the declared body into `request`, refusing anything over `max`.
@@ -212,10 +256,16 @@ fn read_line<R: BufRead>(reader: &mut R, started: Instant) -> Result<Option<Stri
     while matches!(buf.last(), Some(b'\n' | b'\r')) {
         buf.pop();
     }
-    String::from_utf8(buf).map(Some).map_err(|_| err(400, "non-UTF-8 header"))
+    String::from_utf8(buf)
+        .map(Some)
+        .map_err(|_| err(400, "non-UTF-8 header"))
 }
 
-pub fn write_response(mut stream: &TcpStream, response: &Response, head_only: bool) -> std::io::Result<()> {
+pub fn write_response(
+    mut stream: &TcpStream,
+    response: &Response,
+    head_only: bool,
+) -> std::io::Result<()> {
     let reason = match response.status {
         200 => "OK",
         201 => "Created",
@@ -296,7 +346,9 @@ mod tests {
         });
         let (server_side, _) = listener.accept().unwrap();
         let mut conn = Conn::new(&server_side);
-        let result = conn.read_head().and_then(|mut req| conn.read_body(&mut req, max_body).map(|_| req));
+        let result = conn
+            .read_head()
+            .and_then(|mut req| conn.read_body(&mut req, max_body).map(|_| req));
         drop(client.join().unwrap());
         result
     }
@@ -319,12 +371,48 @@ mod tests {
 
     #[test]
     fn rejects_oversized_chunked_duplicate_and_malformed_requests() {
-        assert_eq!(roundtrip(b"POST / HTTP/1.1\r\nContent-Length: 500\r\n\r\n", 100).unwrap_err().status, 413);
-        assert_eq!(roundtrip(b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n", 100).unwrap_err().status, 501);
-        assert_eq!(roundtrip(b"POST / HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\nx", 100).unwrap_err().status, 400);
-        assert_eq!(roundtrip(b"GET / HTTP/2.0\r\n\r\n", 100).unwrap_err().status, 505);
-        assert_eq!(roundtrip(b"GET nope HTTP/1.1\r\n\r\n", 100).unwrap_err().status, 400);
-        assert_eq!(roundtrip(b"GET / HTTP/1.1\r\nBroken\r\n\r\n", 100).unwrap_err().status, 400);
+        assert_eq!(
+            roundtrip(b"POST / HTTP/1.1\r\nContent-Length: 500\r\n\r\n", 100)
+                .unwrap_err()
+                .status,
+            413
+        );
+        assert_eq!(
+            roundtrip(
+                b"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n",
+                100
+            )
+            .unwrap_err()
+            .status,
+            501
+        );
+        assert_eq!(
+            roundtrip(
+                b"POST / HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\nx",
+                100
+            )
+            .unwrap_err()
+            .status,
+            400
+        );
+        assert_eq!(
+            roundtrip(b"GET / HTTP/2.0\r\n\r\n", 100)
+                .unwrap_err()
+                .status,
+            505
+        );
+        assert_eq!(
+            roundtrip(b"GET nope HTTP/1.1\r\n\r\n", 100)
+                .unwrap_err()
+                .status,
+            400
+        );
+        assert_eq!(
+            roundtrip(b"GET / HTTP/1.1\r\nBroken\r\n\r\n", 100)
+                .unwrap_err()
+                .status,
+            400
+        );
     }
 
     #[test]

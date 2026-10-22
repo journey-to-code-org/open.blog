@@ -15,30 +15,51 @@ pub fn rss(site: &Site) -> String {
     out.push_str("<channel>\n");
     out.push_str(&format!("<title>{}</title>\n", escape::xml(&c.title)));
     out.push_str(&format!("<link>{}</link>\n", escape::xml(&c.absolute("/"))));
-    out.push_str(&format!("<description>{}</description>\n", escape::xml(&c.description)));
-    out.push_str(&format!("<language>{}</language>\n", escape::xml(&c.language)));
+    out.push_str(&format!(
+        "<description>{}</description>\n",
+        escape::xml(&c.description)
+    ));
+    out.push_str(&format!(
+        "<language>{}</language>\n",
+        escape::xml(&c.language)
+    ));
     out.push_str(&format!(
         "<atom:link href=\"{}\" rel=\"self\" type=\"application/rss+xml\"/>\n",
         escape::xml(&c.absolute("/rss.xml"))
     ));
     out.push_str("<generator>open.blog</generator>\n");
     if let Some(latest) = site.latest_update() {
-        out.push_str(&format!("<lastBuildDate>{}</lastBuildDate>\n", latest.rfc2822()));
+        out.push_str(&format!(
+            "<lastBuildDate>{}</lastBuildDate>\n",
+            latest.rfc2822()
+        ));
     }
     for post in site.posts.iter().take(c.feeds.limit.max(1)) {
         let link = c.absolute(&post.url);
         out.push_str("<item>\n");
         out.push_str(&format!("<title>{}</title>\n", escape::xml(&post.title)));
         out.push_str(&format!("<link>{}</link>\n", escape::xml(&link)));
-        out.push_str(&format!("<guid isPermaLink=\"true\">{}</guid>\n", escape::xml(&link)));
+        out.push_str(&format!(
+            "<guid isPermaLink=\"true\">{}</guid>\n",
+            escape::xml(&link)
+        ));
         out.push_str(&format!("<pubDate>{}</pubDate>\n", post.date.rfc2822()));
         if !c.author.name.is_empty() {
-            out.push_str(&format!("<dc:creator>{}</dc:creator>\n", escape::xml(&c.author.name)));
+            out.push_str(&format!(
+                "<dc:creator>{}</dc:creator>\n",
+                escape::xml(&c.author.name)
+            ));
         }
         for tag in &post.tags {
-            out.push_str(&format!("<category>{}</category>\n", escape::xml(&tag.name)));
+            out.push_str(&format!(
+                "<category>{}</category>\n",
+                escape::xml(&tag.name)
+            ));
         }
-        out.push_str(&format!("<description>{}</description>\n", escape::xml(&post.description)));
+        out.push_str(&format!(
+            "<description>{}</description>\n",
+            escape::xml(&post.description)
+        ));
         if let Some(cover) = &post.cover {
             out.push_str(&format!(
                 "<enclosure url=\"{}\" length=\"0\" type=\"{}\"/>\n",
@@ -47,7 +68,10 @@ pub fn rss(site: &Site) -> String {
             ));
         }
         if c.feeds.full_content {
-            out.push_str(&format!("<content:encoded>{}</content:encoded>\n", escape::cdata(&absolutize_html(&post.html, &c.url))));
+            out.push_str(&format!(
+                "<content:encoded>{}</content:encoded>\n",
+                escape::cdata(&absolutize_html(&post.html, &c.url))
+            ));
         }
         out.push_str("</item>\n");
     }
@@ -79,7 +103,8 @@ pub fn json_feed(site: &Site) -> String {
                 item["image"] = serde_json::Value::String(c.absolute(cover));
             }
             if c.feeds.full_content {
-                item["content_html"] = serde_json::Value::String(absolutize_html(&post.html, &c.url));
+                item["content_html"] =
+                    serde_json::Value::String(absolutize_html(&post.html, &c.url));
             }
             if let Some(canonical) = &post.canonical {
                 item["external_url"] = serde_json::Value::String(canonical.clone());
@@ -116,7 +141,8 @@ pub fn portfolio_snapshot(site: &Site, limit: usize) -> String {
         .take(limit)
         .map(|p| serde_json::json!({ "title": p.title, "date": p.date.rfc3339(), "link": c.absolute(&p.url) }))
         .collect();
-    serde_json::to_string_pretty(&serde_json::json!({ "schemaVersion": 1, "posts": posts })).unwrap_or_default()
+    serde_json::to_string_pretty(&serde_json::json!({ "schemaVersion": 1, "posts": posts }))
+        .unwrap_or_default()
 }
 
 /// Every public URL, for `/sitemap.xml`.
@@ -138,7 +164,11 @@ pub fn sitemap(site: &Site, extra_paths: &[String]) -> String {
         push(&post.url, Some(post.updated.unwrap_or(post.date).ymd()));
     }
     for series in site.series.iter().filter(|s| !s.posts.is_empty()) {
-        let lastmod = series.posts.iter().map(|&i| site.posts[i].updated.unwrap_or(site.posts[i].date)).max();
+        let lastmod = series
+            .posts
+            .iter()
+            .map(|&i| site.posts[i].updated.unwrap_or(site.posts[i].date))
+            .max();
         push(&series.url, lastmod.map(|d| d.ymd()));
     }
     for tag in &site.tags {
@@ -155,7 +185,10 @@ pub fn sitemap(site: &Site, extra_paths: &[String]) -> String {
 }
 
 pub fn robots(site: &Site) -> String {
-    format!("User-agent: *\nAllow: /\n\nSitemap: {}\n", site.config.absolute("/sitemap.xml"))
+    format!(
+        "User-agent: *\nAllow: /\n\nSitemap: {}\n",
+        site.config.absolute("/sitemap.xml")
+    )
 }
 
 /// The client-side search index. Body text is lower-cased and truncated to keep
@@ -169,7 +202,11 @@ pub fn search_index(site: &Site) -> String {
             url: post.url.clone(),
             date: post.date.ymd(),
             tags: post.tags.iter().map(|t| t.name.clone()).collect(),
-            series: post.series.as_deref().and_then(|s| site.series_by_slug(s)).map(|s| s.name.clone()),
+            series: post
+                .series
+                .as_deref()
+                .and_then(|s| site.series_by_slug(s))
+                .map(|s| s.name.clone()),
             description: post.description.clone(),
             text: {
                 let lower = post.text.to_lowercase();
@@ -177,12 +214,17 @@ pub fn search_index(site: &Site) -> String {
             },
         })
         .collect();
-    serde_json::to_string(&Index { version: INDEX_VERSION, entries }).unwrap_or_default()
+    serde_json::to_string(&Index {
+        version: INDEX_VERSION,
+        entries,
+    })
+    .unwrap_or_default()
 }
 
 /// Feed readers need absolute URLs. Rewrite root-relative `src`/`href` values.
 fn absolutize_html(html: &str, origin: &str) -> String {
-    html.replace("src=\"/", &format!("src=\"{origin}/")).replace("href=\"/", &format!("href=\"{origin}/"))
+    html.replace("src=\"/", &format!("src=\"{origin}/"))
+        .replace("href=\"/", &format!("href=\"{origin}/"))
 }
 
 fn mime_for(path: &str) -> &'static str {
@@ -238,7 +280,8 @@ mod tests {
 
     #[test]
     fn snapshot_json_and_sitemap() {
-        let snap: serde_json::Value = serde_json::from_str(&portfolio_snapshot(&site(), 4)).unwrap();
+        let snap: serde_json::Value =
+            serde_json::from_str(&portfolio_snapshot(&site(), 4)).unwrap();
         assert_eq!(snap["schemaVersion"], 1);
         assert_eq!(snap["posts"][0]["link"], "https://j.io/a/");
         assert_eq!(snap["posts"][0]["date"], "2026-10-21T04:15:10Z");

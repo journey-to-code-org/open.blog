@@ -38,7 +38,9 @@ pub fn url_component(input: &str) -> String {
     let mut out = String::with_capacity(input.len() * 3);
     for byte in input.bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
             _ => out.push_str(&format!("%{byte:02X}")),
         }
     }
@@ -65,7 +67,10 @@ mod tests {
     #[test]
     fn url_components_match_encode_uri_component() {
         assert_eq!(url_component("a b&c=d/é~"), "a%20b%26c%3Dd%2F%C3%A9~");
-        assert_eq!(url_component("https://x.dev/p/"), "https%3A%2F%2Fx.dev%2Fp%2F");
+        assert_eq!(
+            url_component("https://x.dev/p/"),
+            "https%3A%2F%2Fx.dev%2Fp%2F"
+        );
     }
 
     #[test]

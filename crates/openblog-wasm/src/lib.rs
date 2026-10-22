@@ -85,7 +85,10 @@ mod tests {
 
     #[test]
     fn theme_css_compiles_with_extends_and_reports_errors() {
-        let css = theme_css(r##"{"x":{"extends":"base","colors":{"light":{"accent":"#f00"}}}}"##, "x");
+        let css = theme_css(
+            r##"{"x":{"extends":"base","colors":{"light":{"accent":"#f00"}}}}"##,
+            "x",
+        );
         assert!(css.contains("--ob-color-accent: #f00;"));
         assert!(theme_css("{}", "missing").starts_with("/* error:"));
         assert!(theme_css("not json", "base").starts_with("/* error:"));
