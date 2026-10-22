@@ -1,0 +1,9 @@
+/target
+/dist
+/web/wasm
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Personal theme, kept in a private repository (its fonts also need a licence check).
+/themes/mnix/
