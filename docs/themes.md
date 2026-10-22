@@ -68,7 +68,7 @@ colours `codeKeyword`, `codeString`, `codeComment`, `codeNumber`, `codeFunction`
 
 ### Other tokens
 
-`maxWidth`, `readingWidth`, `gutter`, `radius`, `radiusSm`, `borderWidth`, `bodySize`,
+`maxWidth`, `readingWidth` (the article column; text, code, tables, and embeds all share it), `gutter`, `radius`, `radiusSm`, `borderWidth`, `bodySize`,
 `bodyLeading`, `headingLeading`, `headingWeight`, `headingTransform`, `headingTracking`,
 `titleSize`, `sectionTitleSize`, `rowTitleSize`, `shadow`, `focusRing`, `rowBorderWidth`,
 `hoverText`, `motion`. The full defaults are in `themes/base/theme.json`.
