@@ -1,0 +1,60 @@
+{
+  "title": "open.blog",
+  "description": "A blog built with open.blog: Markdown files in, a fast static site out.",
+  "url": "https://example.com",
+  "language": "en",
+  "author": {
+    "name": "Your Name",
+    "url": "https://example.com",
+    "email": ""
+  },
+  "logo": "",
+  "favicon": "",
+  "ogImage": "",
+  "theme": "base",
+  "postPath": "/posts/{slug}/",
+  "postsPerPage": 10,
+  "nav": [
+    { "label": "Home", "href": "/" },
+    { "label": "Series", "href": "/series/" },
+    { "label": "Archive", "href": "/archive/" },
+    { "label": "Search", "href": "/search/" }
+  ],
+  "social": [
+    { "label": "GitHub", "href": "https://github.com/mnichols08/open.blog" }
+  ],
+  "footer": "© {year} {author}",
+  "home": {
+    "heading": "Latest posts",
+    "intro": "",
+    "showSeries": true
+  },
+  "feeds": {
+    "rss": true,
+    "json": true,
+    "sitemap": true,
+    "portfolioSnapshot": true,
+    "limit": 20,
+    "fullContent": true
+  },
+  "markdown": {
+    "smartPunctuation": false,
+    "headingAnchors": true,
+    "tocDepth": 3,
+    "tocMinHeadings": 3
+  },
+  "paths": {
+    "content": "content",
+    "static": "static",
+    "output": "dist",
+    "themes": "themes",
+    "web": "web"
+  },
+  "admin": {
+    "usersFile": ".openblog/users.json",
+    "sessionHours": 12,
+    "secureCookies": false,
+    "maxUploadMb": 10,
+    "trustedProxies": []
+  }
+}
