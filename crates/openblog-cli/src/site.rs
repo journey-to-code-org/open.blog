@@ -91,6 +91,10 @@ pub const EMBEDDED_THEMES: &[(&str, &str)] = &[
 /// A GitHub Pages workflow for a blog in its own repository.
 pub const PAGES_WORKFLOW: &str = include_str!("../templates/pages.yml");
 
+/// A view counter for Cloudflare Workers, written by `openblog analytics worker`.
+pub const COUNTER_WORKER: &str = include_str!("../templates/counter-worker.js");
+pub const COUNTER_WRANGLER: &str = include_str!("../templates/wrangler.toml");
+
 pub struct BuildOptions {
     /// Include drafts and scheduled posts (a preview build).
     pub include_drafts: bool,
@@ -223,12 +227,46 @@ pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
     config
 }
 
+/// View totals known at build time: the local analytics store if present,
+/// otherwise the copy on the analytics branch (what a CI build sees).
+pub fn view_counts(root: &Path, config: &SiteConfig) -> std::collections::BTreeMap<String, u64> {
+    if !config.analytics.bake_counts {
+        return Default::default();
+    }
+    let local = root.join(".openblog").join("analytics.json");
+    if local.exists() {
+        return crate::analytics::Store::load(&local, config.analytics.retention_days).all_totals();
+    }
+    let branch = config.analytics.branch.trim();
+    if branch.is_empty() {
+        return Default::default();
+    }
+    let git = crate::git::Git::new(root);
+    let from_branch = git
+        .read_file(branch, "analytics.json")
+        .or_else(|| git.read_file(&format!("origin/{branch}"), "analytics.json"));
+    match from_branch {
+        Some(json) => {
+            let mut store = crate::analytics::Store::load(
+                Path::new("/nonexistent"),
+                config.analytics.retention_days,
+            );
+            if store.restore_from_json(&json).is_ok() {
+                return store.all_totals();
+            }
+            Default::default()
+        }
+        None => Default::default(),
+    }
+}
+
 pub fn load_site(
     root: &Path,
     include_drafts: bool,
     now: Option<DateTime>,
 ) -> Result<(Site, ThemeSet), String> {
     let config = with_asset_version(root, load_config(root)?);
+    let counts = view_counts(root, &config);
     let sources = read_sources(root, &config)?;
     let themes = load_themes(root, &config)?;
     let site = Site::load(
@@ -246,6 +284,8 @@ pub fn load_site(
             errors.join("\n  - ")
         )
     })?;
+    let mut site = site;
+    site.view_counts = counts;
     Ok((site, themes))
 }
 

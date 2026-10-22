@@ -41,6 +41,11 @@ jobs:
           key: openblog-${{ runner.os }}-OPENBLOG_VERSION
       - name: Install openblog
         run: command -v openblog || cargo install --git https://github.com/journey-to-code-org/open.blog openblog-cli
+      - name: Restore view counts from the analytics branch, if there is one
+        run: |
+          if git fetch -q origin analytics:analytics 2>/dev/null; then
+            mkdir -p .openblog && git show analytics:analytics.json > .openblog/analytics.json
+          fi
       - name: Build the site
         run: openblog build
       - uses: actions/upload-pages-artifact@v3

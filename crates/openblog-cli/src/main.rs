@@ -5,8 +5,10 @@ mod analytics;
 mod auth;
 mod clock;
 mod fsutil;
+mod git;
 mod hashnode;
 mod http;
+mod publish;
 mod scaffold;
 mod serve;
 mod site;
@@ -31,6 +33,11 @@ COMMANDS
     user add|passwd|remove|list <name>
                                Manage who can sign in to the admin editor
     check                      Validate content and themes without writing anything
+    publish [summary]          Commit changed content with git and push (deploys via CI)
+    publish setup              Create the repository and Pages workflow, report what is left
+    analytics backup           Save view counts to the analytics branch (and push)
+    analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
+    analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
     themes                     List themes and the inheritance chain of each
     import hashnode <host>     Import a Hashnode blog (e.g. yourname.hashnode.dev)
     build-wasm                 Rebuild the WebAssembly module (engine repository only)
@@ -214,6 +221,26 @@ fn run(raw: &[String]) -> Result<(), String> {
             )
         }
         "user" => user_command(&root, &args),
+        "publish" => {
+            let config = site::load_config(&root)?;
+            if args.positional.first().map(String::as_str) == Some("setup") {
+                for note in publish::setup(&root, &config)? {
+                    println!("- {note}");
+                }
+                return Ok(());
+            }
+            let outcome =
+                publish::publish(&root, &config, args.positional.first().map(String::as_str))?;
+            for p in &outcome.committed {
+                println!("  + {p}");
+            }
+            for p in &outcome.skipped_drafts {
+                println!("  (draft, not committed) {p}");
+            }
+            println!("{}", outcome.message);
+            Ok(())
+        }
+        "analytics" => analytics_command(&root, &args),
         "check" => {
             let (site, themes) = site::load_site(&root, true, None)?;
             let files = openblog_core::generate(&site, &themes)?;
@@ -341,6 +368,113 @@ fn run(raw: &[String]) -> Result<(), String> {
             }
         }
         other => Err(format!("unknown command `{other}`. Run `openblog help`.")),
+    }
+}
+
+fn analytics_command(root: &std::path::Path, args: &Args) -> Result<(), String> {
+    let config = site::load_config(root)?;
+    let store_path = root.join(".openblog").join("analytics.json");
+    match args.positional.first().map(String::as_str).unwrap_or("") {
+        "backup" => {
+            let branch = config.analytics.branch.trim().to_string();
+            if branch.is_empty() {
+                return Err("analytics.branch is empty in openblog.json".into());
+            }
+            let store = analytics::Store::load(&store_path, config.analytics.retention_days);
+            let git = git::Git::new(root);
+            if !git.is_repo() {
+                return Err(
+                    "this blog is not a git repository; run `openblog publish setup` first".into(),
+                );
+            }
+            let message = format!("Analytics backup {}", clock::now().rfc3339());
+            match git.commit_file_to_branch(
+                &branch,
+                "analytics.json",
+                &store.export_json(),
+                &message,
+            )? {
+                Some(id) => println!("saved analytics.json to branch `{branch}` ({id})"),
+                None => println!("branch `{branch}` already has the latest analytics"),
+            }
+            if git.has_remote(&config.publish.remote) {
+                git.push_branch(&config.publish.remote, &branch)
+                    .map_err(|e| format!("push failed: {e}"))?;
+                println!("pushed `{branch}` to {}", config.publish.remote);
+            }
+            Ok(())
+        }
+        "pull" => {
+            let url = args
+                .positional
+                .get(1)
+                .ok_or("usage: openblog analytics pull <counter url> --secret <secret>")?;
+            let secret = args
+                .options
+                .get("secret")
+                .cloned()
+                .or_else(|| std::env::var("OPENBLOG_COUNTER_SECRET").ok())
+                .ok_or("pass --secret <secret> (the worker's EXPORT_SECRET) or set OPENBLOG_COUNTER_SECRET")?;
+            let name = args
+                .options
+                .get("name")
+                .cloned()
+                .unwrap_or_else(|| "worker".to_string());
+            let export_url = format!("{}/export", url.trim_end_matches('/'));
+            let agent: ureq::Agent = ureq::Agent::config_builder()
+                .timeout_global(Some(std::time::Duration::from_secs(60)))
+                .build()
+                .into();
+            let body = agent
+                .get(&export_url)
+                .header("Authorization", &format!("Bearer {secret}"))
+                .call()
+                .map_err(|e| format!("GET {export_url}: {e}"))?
+                .body_mut()
+                .read_to_string()
+                .map_err(|e| e.to_string())?;
+            let data: analytics::SourceData = serde_json::from_str(&body)
+                .map_err(|e| format!("the counter returned something unexpected: {e}"))?;
+            let pages = data.totals.len();
+            let mut store = analytics::Store::load(&store_path, config.analytics.retention_days);
+            store.import_source(&name, data);
+            store.save(&store_path)?;
+            println!(
+                "merged counts for {pages} page(s) from `{name}` into .openblog/analytics.json"
+            );
+            println!("run `openblog analytics backup` to save them to the branch, then rebuild to bake them in");
+            Ok(())
+        }
+        "worker" => {
+            let dir = root.join(
+                args.positional
+                    .get(1)
+                    .map(String::as_str)
+                    .unwrap_or("counter"),
+            );
+            let worker = dir.join("worker.js");
+            let toml = dir.join("wrangler.toml");
+            if worker.exists() || toml.exists() {
+                return Err(format!(
+                    "{} already has worker files; delete them to regenerate",
+                    dir.display()
+                ));
+            }
+            fsutil::write_file(&worker, site::COUNTER_WORKER.as_bytes())?;
+            fsutil::write_file(
+                &toml,
+                site::COUNTER_WRANGLER
+                    .replace("SITE_URL", &config.url)
+                    .as_bytes(),
+            )?;
+            println!("wrote {} and {}", worker.display(), toml.display());
+            println!("Next: follow the steps at the top of worker.js (wrangler kv namespace create, secret put, deploy),");
+            println!("then set \"analytics\": {{ \"endpoint\": \"https://<name>.<you>.workers.dev\" }} in openblog.json.");
+            Ok(())
+        }
+        _ => {
+            Err("usage: openblog analytics backup | pull <url> --secret <s> | worker [dir]".into())
+        }
     }
 }
 

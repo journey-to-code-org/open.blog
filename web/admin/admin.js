@@ -217,6 +217,8 @@ class ObAdmin extends HTMLElement {
   }
 
   shell(active, ...content) {
+    const publishBox = h("span", { class: "oba-publish" });
+    this.loadPublishStatus(publishBox);
     const logout = h(
       "button",
       {
@@ -253,12 +255,58 @@ class ObAdmin extends HTMLElement {
         h("span", { class: "oba-small" }, "Admin"),
         h("span", { class: "oba-spacer" }),
         h("a", { href: "/", target: "_blank", rel: "noopener" }, "View site"),
+        publishBox,
         h("span", { class: "oba-small" }, `Signed in as ${this.user}`),
         logout,
       ),
       tabs,
       ...content,
     );
+  }
+
+  /** Fill the header's publish area: pending changes and a Publish button. */
+  async loadPublishStatus(box) {
+    let st;
+    try {
+      st = await this.api.call("GET", "publish");
+    } catch {
+      return;
+    }
+    if (!st.repo) {
+      box.replaceChildren(h("span", { class: "oba-small", title: "Run `openblog publish setup` to publish with git" }, "Not a git repository"));
+      return;
+    }
+    const pending = st.changed.length;
+    const drafts = st.drafts.length;
+    const summary = [
+      pending ? `${pending} unpublished change${pending === 1 ? "" : "s"}` : st.ahead ? `${st.ahead} commit${st.ahead === 1 ? "" : "s"} to push` : "Everything published",
+      drafts ? `${drafts} draft${drafts === 1 ? "" : "s"} kept local` : null,
+      st.behind ? `${st.behind} new elsewhere` : null,
+    ].filter(Boolean).join(" · ");
+    const button = h(
+      "button",
+      {
+        class: `oba-btn ${pending || st.ahead ? "oba-btn-primary" : ""}`,
+        type: "button",
+        disabled: !(pending || st.ahead),
+        title: st.remote ? `Commit and push to ${st.remote}` : "Commit locally (no remote configured)",
+        onClick: async () => {
+          button.disabled = true;
+          button.textContent = "Publishing…";
+          try {
+            const res = await this.api.call("POST", "publish", { json: { summary: "" } });
+            box.replaceChildren(h("span", { class: "oba-ok" }, res.message));
+            setTimeout(() => this.loadPublishStatus(box), 4000);
+          } catch (err) {
+            box.replaceChildren(h("span", { class: "oba-error", role: "alert" }, err.data?.error || err.message), button);
+            button.disabled = false;
+            button.textContent = "Publish";
+          }
+        },
+      },
+      st.auto ? "Publish now" : "Publish",
+    );
+    box.replaceChildren(h("span", { class: "oba-small" }, summary + (st.auto ? " · auto" : "")), " ", button);
   }
 
   async confirmLeave() {

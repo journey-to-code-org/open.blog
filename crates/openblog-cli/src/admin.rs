@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use openblog_core::frontmatter::{self, Value};
@@ -60,6 +60,33 @@ pub struct AppState {
     pub base_path: String,
     /// Reverse proxies whose connections are exempt from the per-address cap.
     pub trusted_proxies: Vec<String>,
+    /// Serialises publishes so two saves never run git at the same time.
+    pub publish_lock: Mutex<()>,
+    /// Last analytics backup to the branch, as a unix time.
+    pub last_backup: Mutex<i64>,
+}
+
+/// The server registers its `Arc<AppState>` here so request handlers, which
+/// only hold `&AppState`, can hand a clone to background work.
+static SHARED: std::sync::OnceLock<Mutex<Vec<Arc<AppState>>>> = std::sync::OnceLock::new();
+
+pub fn register(state: &Arc<AppState>) {
+    lock(SHARED.get_or_init(|| Mutex::new(Vec::new()))).push(Arc::clone(state));
+}
+
+fn state_arc(state: &AppState) -> Arc<AppState> {
+    let list = lock(SHARED.get_or_init(|| Mutex::new(Vec::new())));
+    list.iter()
+        .find(|s| std::ptr::eq(s.as_ref(), state))
+        .cloned()
+        .unwrap_or_else(|| {
+            Arc::new(AppState::new(
+                state.root.clone(),
+                state.out_override.clone(),
+                state.include_drafts,
+                state.admin,
+            ))
+        })
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -96,7 +123,55 @@ impl AppState {
             cdn,
             base_path,
             trusted_proxies,
+            publish_lock: Mutex::new(()),
+            last_backup: Mutex::new(0),
         }
+    }
+
+    /// Commit the analytics store to the backup branch and push it, at most
+    /// every 15 minutes. Errors are returned for logging, never fatal.
+    pub fn backup_analytics(&self, force: bool) -> Result<Option<String>, String> {
+        let config = site::load_config(&self.root).unwrap_or_default();
+        let branch = config.analytics.branch.trim().to_string();
+        if !self.analytics_enabled || branch.is_empty() {
+            return Ok(None);
+        }
+        let now = clock::now().unix();
+        {
+            let mut last = lock(&self.last_backup);
+            if !force && now - *last < 15 * 60 {
+                return Ok(None);
+            }
+            *last = now;
+        }
+        let git = crate::git::Git::new(&self.root);
+        if !git.is_repo() {
+            return Ok(None);
+        }
+        let json = lock(&self.analytics).export_json();
+        let message = format!("Analytics backup {}", clock::now().rfc3339());
+        let committed = git.commit_file_to_branch(&branch, "analytics.json", &json, &message)?;
+        if committed.is_some() && git.has_remote(&config.publish.remote) {
+            git.push_branch(&config.publish.remote, &branch)
+                .map_err(|e| format!("analytics backup push failed: {e}"))?;
+        }
+        Ok(committed)
+    }
+
+    /// Publish in the background after a save, when `publish.auto` is on.
+    pub fn auto_publish(self: &Arc<Self>, summary: String) {
+        let config = site::load_config(&self.root).unwrap_or_default();
+        if !config.publish.auto {
+            return;
+        }
+        let state = Arc::clone(self);
+        std::thread::spawn(move || {
+            let _guard = lock(&state.publish_lock);
+            match crate::publish::publish(&state.root, &config, Some(&summary)) {
+                Ok(outcome) => eprintln!("publish: {}", outcome.message),
+                Err(e) => eprintln!("publish failed: {e}"),
+            }
+        });
     }
 
     /// Write analytics to disk if anything changed. Called every few seconds.
@@ -314,6 +389,31 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ("POST", "upload") => upload(state, req),
         ("POST", "preview") => preview(req),
         ("POST", "rebuild") => rebuild(state),
+        ("GET", "publish") => {
+            let config = site::load_config(&state.root).unwrap_or_default();
+            match crate::publish::status(&state.root, &config) {
+                Ok(v) => Response::json(200, &v),
+                Err(e) => Response::error(500, &e),
+            }
+        }
+        ("POST", "publish") => {
+            if let Err(r) = require_json(req) {
+                return r;
+            }
+            let body: Json = serde_json::from_slice(&req.body).unwrap_or(Json::Null);
+            let summary = body["summary"]
+                .as_str()
+                .map(|s| s.chars().take(120).collect::<String>());
+            let config = site::load_config(&state.root).unwrap_or_default();
+            let _guard = lock(&state.publish_lock);
+            match crate::publish::publish(&state.root, &config, summary.as_deref()) {
+                Ok(o) => Response::json(
+                    200,
+                    &json!({ "ok": true, "message": o.message, "commit": o.commit, "pushed": o.pushed, "committed": o.committed, "drafts": o.skipped_drafts }),
+                ),
+                Err(e) => Response::json(500, &json!({ "ok": false, "error": e })),
+            }
+        }
         _ => Response::error(404, "Unknown API route"),
     }
 }
@@ -1027,6 +1127,15 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     };
     let (post_status, url) = describe(&rel, &source, &config, now);
     eprintln!("admin: {} {rel}", if created { "created" } else { "saved" });
+    let title = fields
+        .get("title")
+        .or_else(|| fields.get("name"))
+        .and_then(|v| match v {
+            Value::Scalar(s) => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| rel.clone());
+    state_arc(state).auto_publish(title);
     Response::json(
         if created { 201 } else { 200 },
         &json!({ "path": rel, "etag": etag(&source), "status": post_status, "url": url, "build": build_json }),

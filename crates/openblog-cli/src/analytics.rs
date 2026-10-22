@@ -19,7 +19,7 @@ use serde_json::{json, Value as Json};
 use crate::http::{Request, Response};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-struct DayStats {
+pub struct DayStats {
     #[serde(default)]
     views: BTreeMap<String, u64>,
     #[serde(default)]
@@ -36,6 +36,21 @@ struct Data {
     days: BTreeMap<String, DayStats>,
     #[serde(default)]
     totals: BTreeMap<String, u64>,
+    /// Counts pulled from other counters, keyed by source name. Each pull
+    /// replaces that source, so pulling twice never double counts.
+    #[serde(default)]
+    sources: BTreeMap<String, SourceData>,
+}
+
+/// What an external counter exports: the same per-day and total shapes.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct SourceData {
+    #[serde(default)]
+    pub version: u32,
+    #[serde(default)]
+    pub days: BTreeMap<String, DayStats>,
+    #[serde(default)]
+    pub totals: BTreeMap<String, u64>,
 }
 
 pub struct Store {
@@ -115,7 +130,6 @@ impl Store {
 
     /// Persist if anything changed. The server uses `snapshot` + `write_snapshot`
     /// so the lock is not held during I/O; this is the one-call form for tests.
-    #[cfg(test)]
     pub fn save(&mut self, path: &Path) -> Result<(), String> {
         match self.snapshot()? {
             Some(text) => Self::write_snapshot(path, &text),
@@ -183,6 +197,86 @@ impl Store {
 
     pub fn views(&self, path: &str) -> u64 {
         self.data.totals.get(path).copied().unwrap_or(0)
+            + self
+                .data
+                .sources
+                .values()
+                .map(|src| src.totals.get(path).copied().unwrap_or(0))
+                .sum::<u64>()
+    }
+
+    /// All-time totals per page across the local counter and every source.
+    pub fn all_totals(&self) -> BTreeMap<String, u64> {
+        let mut out = self.data.totals.clone();
+        for src in self.data.sources.values() {
+            for (path, n) in &src.totals {
+                *out.entry(path.clone()).or_insert(0) += n;
+            }
+        }
+        out
+    }
+
+    /// Per-day statistics with every source added in.
+    fn merged_days(&self) -> BTreeMap<String, DayStats> {
+        let mut out = self.data.days.clone();
+        for src in self.data.sources.values() {
+            for (day, stats) in &src.days {
+                let entry = out.entry(day.clone()).or_default();
+                for (k, v) in &stats.views {
+                    *entry.views.entry(k.clone()).or_insert(0) += v;
+                }
+                for (k, v) in &stats.uniques {
+                    *entry.uniques.entry(k.clone()).or_insert(0) += v;
+                }
+                for (k, v) in &stats.referrers {
+                    *entry.referrers.entry(k.clone()).or_insert(0) += v;
+                }
+            }
+        }
+        out
+    }
+
+    /// Replace the data of a named external source (idempotent).
+    pub fn import_source(&mut self, name: &str, data: SourceData) {
+        self.data.sources.insert(name.to_string(), data);
+        self.dirty = true;
+    }
+
+    /// The whole store as JSON, for the backup branch. Unlike `snapshot` this
+    /// does not clear the dirty flag.
+    pub fn export_json(&self) -> String {
+        serde_json::to_string(&self.data).unwrap_or_default()
+    }
+
+    /// Replace everything with a previously exported store, keeping whichever
+    /// side has more for each counter so a restore never loses local hits.
+    pub fn restore_from_json(&mut self, json: &str) -> Result<(), String> {
+        let other: Data =
+            serde_json::from_str(json).map_err(|e| format!("invalid analytics backup: {e}"))?;
+        for (day, stats) in other.days {
+            let entry = self.data.days.entry(day).or_default();
+            for (k, v) in stats.views {
+                let e = entry.views.entry(k).or_insert(0);
+                *e = (*e).max(v);
+            }
+            for (k, v) in stats.uniques {
+                let e = entry.uniques.entry(k).or_insert(0);
+                *e = (*e).max(v);
+            }
+            for (k, v) in stats.referrers {
+                let e = entry.referrers.entry(k).or_insert(0);
+                *e = (*e).max(v);
+            }
+        }
+        for (k, v) in other.totals {
+            let e = self.data.totals.entry(k).or_insert(0);
+            *e = (*e).max(v);
+        }
+        for (name, src) in other.sources {
+            self.data.sources.entry(name).or_insert(src);
+        }
+        self.dirty = true;
+        Ok(())
     }
 
     /// `true` when this address may record another hit this minute. IPv6
@@ -205,6 +299,8 @@ impl Store {
     /// The admin dashboard's numbers for the last `days` days.
     pub fn summary(&self, now: DateTime, days: u32) -> Json {
         let days = days.clamp(1, 366);
+        let merged = self.merged_days();
+        let totals = self.all_totals();
         let start = DateTime::from_unix(now.unix() - i64::from(days - 1) * 86_400).ymd();
         let mut series = Vec::new();
         let mut views_total = 0u64;
@@ -213,7 +309,7 @@ impl Store {
         let mut referrers: BTreeMap<&str, u64> = BTreeMap::new();
         for offset in 0..days {
             let day = DateTime::from_unix(now.unix() - i64::from(days - 1 - offset) * 86_400).ymd();
-            let (v, u) = match self.data.days.get(&day) {
+            let (v, u) = match merged.get(&day) {
                 Some(stats) => (
                     stats.views.values().sum::<u64>(),
                     stats.uniques.values().sum::<u64>(),
@@ -224,7 +320,7 @@ impl Store {
             uniques_total += u;
             series.push(json!({ "day": day, "views": v, "uniques": u }));
         }
-        for (day, stats) in self.data.days.range(start.clone()..) {
+        for (day, stats) in merged.range(start.clone()..) {
             let _ = day;
             for (path, v) in &stats.views {
                 let entry = per_path.entry(path.as_str()).or_insert((0, 0));
@@ -239,7 +335,7 @@ impl Store {
         top.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then_with(|| a.0.cmp(b.0)));
         let mut refs: Vec<(&str, u64)> = referrers.into_iter().collect();
         refs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-        let all_time: u64 = self.data.totals.values().sum();
+        let all_time: u64 = totals.values().sum();
         json!({
             "days": days,
             "from": start,
@@ -247,9 +343,9 @@ impl Store {
             "views": views_total,
             "uniques": uniques_total,
             "allTimeViews": all_time,
-            "firstDay": self.data.days.keys().next(),
+            "firstDay": merged.keys().next(),
             "series": series,
-            "topPosts": top.iter().take(25).map(|(p, (v, u))| json!({ "path": p, "views": v, "uniques": u, "allTime": self.views(p) })).collect::<Vec<_>>(),
+            "topPosts": top.iter().take(25).map(|(p, (v, u))| json!({ "path": p, "views": v, "uniques": u, "allTime": totals.get(*p).copied().unwrap_or(0) })).collect::<Vec<_>>(),
             "referrers": refs.iter().take(25).map(|(h, n)| json!({ "host": h, "views": n })).collect::<Vec<_>>(),
         })
     }
@@ -441,6 +537,31 @@ mod tests {
         assert_eq!(sum["series"][1]["uniques"], 1);
         assert_eq!(s.views("/a/"), 4);
         assert_eq!(s.summary(d2, 1)["views"], 1);
+    }
+
+    #[test]
+    fn external_sources_merge_without_double_counting() {
+        let mut s = Store::load(Path::new("/nonexistent"), 400);
+        let d = at("2026-10-22T10:00:00Z");
+        s.record(d, "/a/", None, "x").unwrap();
+        let worker: SourceData = serde_json::from_str(r#"{"version":1,"days":{"2026-10-22":{"views":{"/a/":5,"/b/":2},"uniques":{"/a/":3,"/b/":1},"referrers":{"lobste.rs":1}}},"totals":{"/a/":5,"/b/":2}}"#).unwrap();
+        s.import_source("worker", worker.clone());
+        s.import_source("worker", worker);
+        assert_eq!(s.views("/a/"), 6, "local 1 + worker 5, pulled twice");
+        assert_eq!(s.views("/b/"), 2);
+        let sum = s.summary(d, 1);
+        assert_eq!(sum["views"], 8);
+        assert_eq!(sum["topPosts"][0]["path"], "/a/");
+        assert_eq!(sum["topPosts"][0]["allTime"], 6);
+        assert_eq!(s.all_totals()["/b/"], 2);
+        // A backup restore keeps the larger counter on each side.
+        let exported = s.export_json();
+        let mut fresh = Store::load(Path::new("/nonexistent"), 400);
+        fresh.record(d, "/a/", None, "y").unwrap();
+        fresh.record(d, "/a/", None, "z").unwrap();
+        fresh.restore_from_json(&exported).unwrap();
+        assert_eq!(fresh.views("/a/"), 7, "local 2 (kept, larger) + worker 5");
+        assert!(fresh.restore_from_json("not json").is_err());
     }
 
     #[test]

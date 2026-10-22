@@ -86,6 +86,7 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
         options.include_drafts,
         options.admin,
     ));
+    admin::register(&state);
     let report = state.rebuild()?;
     print_report(&report);
     let out_dir = report.out_dir.clone();
@@ -130,6 +131,11 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
         thread::sleep(Duration::from_secs(5));
         if let Err(e) = flush_state.flush_analytics() {
             eprintln!("analytics: {e}");
+        }
+        match flush_state.backup_analytics(false) {
+            Ok(Some(id)) => println!("analytics backed up to the branch ({id})"),
+            Ok(None) => {}
+            Err(e) => eprintln!("analytics backup: {e}"),
         }
     });
 

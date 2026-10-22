@@ -1,16 +1,20 @@
-// <ob-views path="/posts/slug/"> counts a page view with the blog's own
-// server and shows the total. It stays empty when the site is hosted
-// statically (no counter to talk to), when the reader asked not to be
-// tracked (Do Not Track or Global Privacy Control), or for automated browsers.
+// <ob-views path="/posts/slug/" endpoint=""> shows a page's view count.
 //
-// What is sent: the page path and the referring site. No cookies, no
-// identifiers; the server keeps a per-day salted hash in memory only to
-// count unique visitors. One view per page per browser session.
+// The build may have baked a count into the element already (from the
+// analytics backup), so a static host shows something even with no live
+// counter. If a counter is reachable (same origin via `openblog serve`, or the
+// `endpoint` address, such as a Cloudflare Worker), this records one view per
+// page per browser session and shows the live total.
+//
+// Nothing is sent for readers with Do Not Track or Global Privacy Control, or
+// from automated browsers. What is sent: the page path and the referring site.
+// No cookies, no identifiers.
 
 class ObViews extends HTMLElement {
   async connectedCallback() {
     const path = this.getAttribute("path");
     if (!path) return;
+    const base = (this.getAttribute("endpoint") || "/api").replace(/\/$/, "");
     // The server also honours the DNT and Sec-GPC headers; this just avoids the request.
     const optedOut = navigator.doNotTrack === "1" || navigator.globalPrivacyControl === true || navigator.webdriver;
     const key = `ob-viewed:${path}`;
@@ -24,10 +28,10 @@ class ObViews extends HTMLElement {
     let views = null;
     try {
       if (optedOut || seen) {
-        const res = await fetch(`/api/views?path=${encodeURIComponent(path)}`, { credentials: "omit" });
+        const res = await fetch(`${base}/views?path=${encodeURIComponent(path)}`, { credentials: "omit" });
         if (res.ok) views = (await res.json()).views;
       } else {
-        const res = await fetch("/api/hit", {
+        const res = await fetch(`${base}/hit`, {
           method: "POST",
           credentials: "omit",
           keepalive: true,
@@ -44,7 +48,7 @@ class ObViews extends HTMLElement {
         }
       }
     } catch {
-      // No server (static host) or offline: show nothing.
+      // No counter reachable (static host, offline): keep whatever was baked in.
       return;
     }
     if (typeof views === "number" && views > 0) {
