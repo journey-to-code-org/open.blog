@@ -10,7 +10,7 @@
   },
   "logo": "",
   "favicon": "",
-  "ogImage": "",
+  "ogImage": "/images/open-blog-og.png",
   "theme": "base",
   "postPath": "/posts/{slug}/",
   "postsPerPage": 10,
