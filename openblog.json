@@ -1,11 +1,11 @@
 {
   "title": "open.blog",
-  "description": "A blog built with open.blog: Markdown files in, a fast static site out.",
-  "url": "https://example.com",
+  "description": "The example site for open.blog: Markdown files in, a fast static site out. This is the starter content every new blog begins with.",
+  "url": "https://journey-to-code-org.github.io/open.blog",
   "language": "en",
   "author": {
-    "name": "Your Name",
-    "url": "https://example.com",
+    "name": "open.blog",
+    "url": "https://github.com/journey-to-code-org/open.blog",
     "email": ""
   },
   "logo": "",
