@@ -154,6 +154,7 @@ impl Site {
             smart_punctuation: config.markdown.smart_punctuation,
             lazy_images: true,
             heading_anchors: config.markdown.heading_anchors,
+            embeds: config.markdown.embeds,
         };
 
         // Series definitions first, so posts can reference them.

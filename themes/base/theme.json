@@ -68,7 +68,9 @@
   },
   "tokens": {
     "maxWidth": "70rem",
-    "readingWidth": "44rem",
+    "readingWidth": "clamp(42rem, 48vw, 50rem)",
+    "wideWidth": "64rem",
+    "embedHeight": "30rem",
     "gutter": "1rem",
     "radius": "12px",
     "radiusSm": "6px",

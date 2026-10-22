@@ -14,6 +14,7 @@
 
 pub mod config;
 pub mod date;
+pub mod embed;
 pub mod escape;
 pub mod feeds;
 pub mod frontmatter;

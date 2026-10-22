@@ -99,6 +99,8 @@ pub struct FeedsConfig {
 pub struct MarkdownConfig {
     pub smart_punctuation: bool,
     pub heading_anchors: bool,
+    /// Turn a CodePen link that stands alone in its paragraph into an embedded pen.
+    pub embeds: bool,
     /// Headings at or below this level appear in the table of contents (2 = h2 only).
     pub toc_depth: u8,
     /// Minimum number of headings before a table of contents is shown.
@@ -442,6 +444,7 @@ impl Default for MarkdownConfig {
         Self {
             smart_punctuation: false,
             heading_anchors: true,
+            embeds: true,
             toc_depth: 3,
             toc_min_headings: 3,
         }

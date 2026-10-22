@@ -623,6 +623,41 @@ h2.ob-title {
 .tok-variable { color: var(--ob-color-code-variable); }
 .tok-prompt { color: var(--ob-color-code-comment); user-select: none; }
 
+/* ---------- Embeds (a standalone CodePen link becomes a pen) ---------- */
+
+.ob-embed {
+  margin: 2em 0;
+}
+
+.ob-embed iframe {
+  display: block;
+  width: 100%;
+  height: var(--ob-embed-height, 30rem);
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.ob-embed figcaption {
+  margin-top: 0.4rem;
+  color: var(--ob-color-muted);
+  font-size: 0.85rem;
+}
+
+/* ---------- Wider code, tables and embeds on large screens ----------
+   Prose keeps a comfortable line length (--ob-reading-width); code blocks,
+   tables and embeds may grow to --ob-wide-width, centred on the text column. */
+
+@media (min-width: 64rem) {
+  .ob-container-reading .ob-prose > :is(pre, table, .ob-embed) {
+    position: relative;
+    left: 50%;
+    width: min(var(--ob-wide-width, var(--ob-reading-width)), 100vw - 2 * var(--ob-gutter) - 2rem);
+    max-width: none;
+    transform: translateX(-50%);
+  }
+}
+
 /* ---------- Code copy button (added by <ob-code>) ---------- */
 
 .ob-copy {

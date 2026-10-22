@@ -35,6 +35,9 @@ pub struct RenderOptions {
     pub lazy_images: bool,
     /// Wrap headings in anchor links so they can be shared.
     pub heading_anchors: bool,
+    /// Turn a link that stands alone in its paragraph (to CodePen, for now)
+    /// into an embedded frame. See [`crate::embed`].
+    pub embeds: bool,
 }
 
 impl Default for RenderOptions {
@@ -43,8 +46,59 @@ impl Default for RenderOptions {
             smart_punctuation: false,
             lazy_images: true,
             heading_anchors: true,
+            embeds: true,
         }
     }
+}
+
+/// The URL a paragraph consists of, if it is nothing but one link (or the bare
+/// URL as text, or Hashnode's `%[url]`).
+fn standalone_url(inner: &[Event]) -> Option<String> {
+    match inner {
+        [Event::Start(Tag::Link { dest_url, .. }), middle @ .., Event::End(TagEnd::Link)]
+            if middle
+                .iter()
+                .all(|e| matches!(e, Event::Text(_) | Event::Code(_))) =>
+        {
+            Some(dest_url.to_string())
+        }
+        _ if !inner.is_empty() && inner.iter().all(|e| matches!(e, Event::Text(_))) => {
+            let joined: String = inner
+                .iter()
+                .map(|e| match e {
+                    Event::Text(t) => t.as_ref(),
+                    _ => "",
+                })
+                .collect();
+            let joined = joined.trim();
+            (joined.starts_with("http") || joined.starts_with("%[http")).then(|| joined.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Replace standalone embeddable links with their embed HTML.
+fn apply_embeds(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
+    let mut out = Vec::with_capacity(events.len());
+    let mut i = 0;
+    while i < events.len() {
+        if matches!(events[i], Event::Start(Tag::Paragraph)) {
+            if let Some(len) = events[i + 1..]
+                .iter()
+                .position(|e| matches!(e, Event::End(TagEnd::Paragraph)))
+            {
+                let inner = &events[i + 1..i + 1 + len];
+                if let Some(embed) = standalone_url(inner).and_then(|u| crate::embed::detect(&u)) {
+                    out.push(Event::Html(CowStr::from(crate::embed::html(&embed))));
+                    i += len + 2;
+                    continue;
+                }
+            }
+        }
+        out.push(events[i].clone());
+        i += 1;
+    }
+    out
 }
 
 pub fn render(markdown: &str, options: RenderOptions) -> Rendered {
@@ -148,6 +202,11 @@ pub fn render(markdown: &str, options: RenderOptions) -> Rendered {
         events.push(event);
     }
 
+    let events = if options.embeds {
+        apply_embeds(events)
+    } else {
+        events
+    };
     let mut html = String::with_capacity(markdown.len() * 2);
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
     if options.lazy_images {
@@ -254,6 +313,48 @@ mod tests {
         assert!(r
             .html
             .contains("<img loading=\"lazy\" decoding=\"async\" src=\"/a.png\""));
+    }
+
+    #[test]
+    fn standalone_codepen_links_become_embeds_but_inline_links_do_not() {
+        let md = "Intro.\n\n[https://codepen.io/u/pen/abc](https://codepen.io/u/pen/abc)\n\nSee [this pen](https://codepen.io/u/pen/def) inline.\n\n<https://codepen.io/u/pen/ghi>\n\n%[https://codepen.io/u/pen/jkl]\n\n[docs](https://example.com)\n";
+        let r = render(md, RenderOptions::default());
+        assert!(r
+            .html
+            .contains("<iframe src=\"https://codepen.io/u/embed/abc?default-tab=result\""));
+        assert!(
+            r.html
+                .contains("<iframe src=\"https://codepen.io/u/embed/ghi?default-tab=result\""),
+            "autolink"
+        );
+        assert!(
+            r.html
+                .contains("<iframe src=\"https://codepen.io/u/embed/jkl?default-tab=result\""),
+            "Hashnode syntax"
+        );
+        assert!(
+            !r.html.contains("embed/def"),
+            "a link inside a sentence stays a link"
+        );
+        assert!(r
+            .html
+            .contains("<a href=\"https://codepen.io/u/pen/def\">this pen</a>"));
+        assert!(
+            r.html.contains("<a href=\"https://example.com\">docs</a>"),
+            "other standalone links stay links"
+        );
+        assert!(
+            !r.html.contains("<p><figure"),
+            "the embed replaces the paragraph"
+        );
+        let off = render(
+            md,
+            RenderOptions {
+                embeds: false,
+                ..Default::default()
+            },
+        );
+        assert!(!off.html.contains("<iframe"));
     }
 
     #[test]

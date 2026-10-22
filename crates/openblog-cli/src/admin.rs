@@ -335,7 +335,7 @@ fn secured(response: Response) -> Response {
         .with_header(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: https:; \
-             object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+             frame-src 'self' https://codepen.io; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
         )
         .with_header("X-Frame-Options", "DENY")
         .with_header("Referrer-Policy", "same-origin")
