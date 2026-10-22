@@ -30,6 +30,9 @@ concurrency:
 
 jobs:
   build:
+    # The engine repository deploys its example site. In a fork, change the name
+    # below to your own repository to deploy, or delete this file if you host elsewhere.
+    if: github.repository == 'journey-to-code-org/open.blog'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,6 +52,7 @@ jobs:
 
   deploy:
     needs: build
+    if: github.repository == 'journey-to-code-org/open.blog'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

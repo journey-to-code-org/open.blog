@@ -1,0 +1,49 @@
+# Netlify settings for a blog that lives in a clone of the open.blog repository.
+# Connect the repository in Netlify and it builds from this file: the engine is
+# compiled, then `openblog build` writes dist/. Netlify installs the Rust
+# toolchain named in rust-toolchain.toml.
+#
+# Scheduled posts publish on the first build after their date. Add a build hook
+# in Netlify (Site configuration > Build & deploy > Build hooks) and put its URL
+# in a repository secret named NETLIFY_BUILD_HOOK; the included GitHub workflow
+# then triggers a rebuild every hour.
+
+[build]
+  command = "cargo build --release -p openblog-cli --locked && ./target/release/openblog build"
+  publish = "dist"
+
+[build.environment]
+  CARGO_TERM_COLOR = "always"
+
+# Pages always revalidate; assets and theme files may be cached for a day.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+[[headers]]
+  for = "/themes/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+[[headers]]
+  for = "/images/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+# The latest-posts JSON and the feeds may be read by scripts on other sites.
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "public, max-age=300"
+
+[[headers]]
+  for = "/feed.json"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "/rss.xml"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"

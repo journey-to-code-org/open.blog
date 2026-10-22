@@ -49,10 +49,27 @@ Two kinds of address are possible:
 
 The build also writes a `.nojekyll` file so Pages serves everything as is.
 
-## Netlify, Cloudflare Pages, Vercel, and others
+## Netlify
 
-Set the publish directory to `dist/` and use a build command that installs Rust and the
-`openblog` command, then builds:
+Netlify builds from private repositories on its free tier and handles custom domains, so
+it is the natural choice when the repository is private. A clone of the engine repository
+(such as a fork) already contains `netlify.toml` and `rust-toolchain.toml`:
+
+1. In Netlify, add a new site from the repository. The settings come from `netlify.toml`:
+   Netlify installs Rust, compiles the engine, runs `openblog build`, and publishes
+   `dist/`. The first build takes several minutes; later ones reuse the cache.
+2. Set `"url"` in `openblog.json` to the site's address (the Netlify subdomain, or your
+   custom domain once it is configured under *Domain management*).
+3. For scheduled posts, create a build hook under *Site configuration → Build & deploy →
+   Build hooks*, and store its URL as a repository secret named `NETLIFY_BUILD_HOOK`. The
+   included workflow `.github/workflows/netlify-schedule.yml` then triggers a rebuild
+   every hour, which is when a due post appears.
+
+The file also sets cache headers for assets and CORS headers for the feeds and the
+latest-posts JSON. Aliases are plain redirect pages, so they need no Netlify redirects.
+
+For a blog made with `openblog init` (no engine source in the repository), use this
+build command instead, with `dist` as the publish directory:
 
 ```sh
 curl https://sh.rustup.rs -sSf | sh -s -- -y && . "$HOME/.cargo/env" \
@@ -60,12 +77,12 @@ curl https://sh.rustup.rs -sSf | sh -s -- -y && . "$HOME/.cargo/env" \
   && openblog build
 ```
 
-The install step compiles the engine, which takes a few minutes the first time; most
-hosts cache `~/.cargo` between builds. Alternatively build in GitHub Actions (the Pages
-workflow above, minus the deploy job) and push `dist/` with the host's own tool.
+## Cloudflare Pages, Vercel, and others
 
-For scheduled posts, trigger a build on a schedule: a build hook called from a cron job,
-or a scheduled workflow.
+Same shape: publish `dist/`, and build with either the clone command
+(`cargo build --release -p openblog-cli --locked && ./target/release/openblog build`) or
+the `cargo install --git` command above. Trigger a build on a schedule for scheduled
+posts: a build hook called from a cron job or a scheduled workflow, as with Netlify.
 
 ## Self-hosting with `openblog serve`
 
