@@ -56,6 +56,20 @@ pub struct Store {
 const MAX_HITS_PER_MINUTE: u32 = 30;
 const MAX_PATH_LEN: usize = 200;
 const MAX_TRACKED_PATHS: usize = 5000;
+/// Distinct visitor fingerprints kept in memory per day.
+const MAX_UNIQUES_PER_DAY: usize = 200_000;
+/// Distinct addresses tracked by the rate limiter per minute.
+const MAX_RATE_ENTRIES: usize = 20_000;
+
+/// The rate-limit key for an address: the address itself for IPv4, the /64
+/// prefix for IPv6.
+fn rate_key(address: &str) -> String {
+    if let Ok(std::net::IpAddr::V6(v6)) = address.parse::<std::net::IpAddr>() {
+        let s = v6.segments();
+        return format!("{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3]);
+    }
+    address.to_string()
+}
 
 impl Store {
     pub fn load(path: &Path, retention_days: u32) -> Store {
@@ -66,22 +80,37 @@ impl Store {
         Store { data, dirty: false, day: String::new(), salt: 0, seen: HashSet::new(), minute: 0, rate: HashMap::new(), retention_days }
     }
 
-    /// Persist if anything changed. Called from a background thread.
-    pub fn save(&mut self, path: &Path) -> Result<(), String> {
+    /// Serialise the data if anything changed. The caller writes it to disk
+    /// *after* releasing the lock, so hits are never blocked by file I/O.
+    pub fn snapshot(&mut self) -> Result<Option<String>, String> {
         if !self.dirty {
-            return Ok(());
+            return Ok(None);
         }
         self.prune();
         self.data.version = 1;
+        let text = serde_json::to_string(&self.data).map_err(|e| e.to_string())?;
+        self.dirty = false;
+        Ok(Some(text))
+    }
+
+    /// Write a snapshot atomically.
+    pub fn write_snapshot(path: &Path, text: &str) -> Result<(), String> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         }
-        let text = serde_json::to_string(&self.data).map_err(|e| e.to_string())?;
         let tmp = path.with_extension("json.tmp");
         fs::write(&tmp, text).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-        fs::rename(&tmp, path).map_err(|e| format!("cannot replace {}: {e}", path.display()))?;
-        self.dirty = false;
-        Ok(())
+        fs::rename(&tmp, path).map_err(|e| format!("cannot replace {}: {e}", path.display()))
+    }
+
+    /// Persist if anything changed. The server uses `snapshot` + `write_snapshot`
+    /// so the lock is not held during I/O; this is the one-call form for tests.
+    #[cfg(test)]
+    pub fn save(&mut self, path: &Path) -> Result<(), String> {
+        match self.snapshot()? {
+            Some(text) => Self::write_snapshot(path, &text),
+            None => Ok(()),
+        }
     }
 
     fn prune(&mut self) {
@@ -109,13 +138,19 @@ impl Store {
     /// hashed with the daily salt and never stored. Returns the page's total.
     pub fn record(&mut self, now: DateTime, path: &str, referrer_host: Option<&str>, visitor: &str) -> Result<u64, String> {
         self.roll_day(now)?;
+        // Caps apply to every map a client can add keys to, including the all-time totals.
+        let new_total = !self.data.totals.contains_key(path);
+        if new_total && self.data.totals.len() >= MAX_TRACKED_PATHS {
+            return Ok(0);
+        }
         let day = self.data.days.entry(self.day.clone()).or_default();
         if !day.views.contains_key(path) && day.views.len() >= MAX_TRACKED_PATHS {
             return Ok(self.data.totals.get(path).copied().unwrap_or(0));
         }
         *day.views.entry(path.to_string()).or_insert(0) += 1;
         let fingerprint = fnv64(self.salt, visitor.as_bytes()) ^ fnv64(self.salt.rotate_left(17), path.as_bytes());
-        if self.seen.insert(fingerprint) {
+        // Past the cap, new visitors are still counted as views but not as uniques.
+        if self.seen.len() < MAX_UNIQUES_PER_DAY && self.seen.insert(fingerprint) {
             *day.uniques.entry(path.to_string()).or_insert(0) += 1;
         }
         if let Some(host) = referrer_host {
@@ -133,14 +168,19 @@ impl Store {
         self.data.totals.get(path).copied().unwrap_or(0)
     }
 
-    /// `true` when this address may record another hit this minute.
+    /// `true` when this address may record another hit this minute. IPv6
+    /// clients are keyed by their /64, since one subscriber controls all of it.
     pub fn allow_hit(&mut self, now: DateTime, address: &str) -> bool {
         let minute = now.unix() / 60;
         if minute != self.minute {
             self.minute = minute;
             self.rate.clear();
         }
-        let count = self.rate.entry(address.to_string()).or_insert(0);
+        let key = rate_key(address);
+        if !self.rate.contains_key(&key) && self.rate.len() >= MAX_RATE_ENTRIES {
+            return false;
+        }
+        let count = self.rate.entry(key).or_insert(0);
         *count += 1;
         *count <= MAX_HITS_PER_MINUTE
     }
@@ -219,15 +259,37 @@ pub fn referrer_host(referrer: &str, own_host: &str) -> Option<String> {
 /// Normalise a client-supplied page path and make sure it is a page this site
 /// actually serves, so junk paths cannot bloat the data.
 pub fn public_path(out_dir: &Path, raw: &str) -> Option<String> {
-    if raw.len() > MAX_PATH_LEN || !raw.starts_with('/') || raw.contains(['?', '#', '\\', '\0']) || raw.contains("..") {
+    if raw.len() > MAX_PATH_LEN || !raw.starts_with('/') || raw.contains("//") {
         return None;
     }
-    let mut path = raw.to_string();
-    if !path.ends_with('/') {
-        path.push('/');
+    // One spelling per page: every segment is a plain lowercase slug, so
+    // `/posts//x/`, `/./posts/x/`, `/Posts/X/` and `/posts/x/index.html` can
+    // never become separate keys for the same page.
+    let trimmed = raw.trim_matches('/');
+    let mut segments: Vec<&str> = Vec::new();
+    if !trimmed.is_empty() {
+        for segment in trimmed.split('/') {
+            let ok = !segment.is_empty()
+                && segment.len() <= 100
+                && !segment.starts_with('.')
+                && !segment.ends_with('.')
+                && segment.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'))
+                && segment != "index.html";
+            if !ok {
+                return None;
+            }
+            segments.push(segment);
+        }
     }
-    let file = crate::serve::resolve(out_dir, &path)?;
-    file.file_name().is_some_and(|n| n == "index.html").then_some(path)
+    // The page must exist as a directory index, which is how every page is written.
+    let mut dir = out_dir.to_path_buf();
+    for segment in &segments {
+        dir.push(segment);
+    }
+    if !dir.is_dir() || !dir.join("index.html").is_file() {
+        return None;
+    }
+    Some(if segments.is_empty() { "/".to_string() } else { format!("/{}/", segments.join("/")) })
 }
 
 /// `POST /api/hit` with `{ "path": "/posts/x/", "referrer": "https://..." }`.
@@ -235,8 +297,14 @@ pub fn hit(state: &crate::admin::AppState, req: &Request, out_dir: &Path) -> Res
     if req.method != "POST" {
         return Response::error(405, "Use POST");
     }
-    if req.header("dnt") == Some("1") || req.header("sec-gpc") == Some("1") {
-        return Response::json(204, &json!({}));
+    // Only our own pages may record hits: a JSON content type forces a CORS
+    // preflight (which this server never answers), and a browser-supplied
+    // Origin or Sec-Fetch-Site must be same-origin.
+    if !req.header("content-type").is_some_and(|t| t.trim().to_ascii_lowercase().starts_with("application/json")) {
+        return Response::error(415, "Content-Type must be application/json");
+    }
+    if let Err(r) = crate::admin::check_origin(req) {
+        return r;
     }
     let body: Json = match serde_json::from_slice(&req.body) {
         Ok(b) => b,
@@ -246,12 +314,19 @@ pub fn hit(state: &crate::admin::AppState, req: &Request, out_dir: &Path) -> Res
         return Response::error(404, "Not a page on this site");
     };
     let config = crate::site::load_config(&state.root).unwrap_or_default();
+    let opted_out = req.header("dnt") == Some("1") || req.header("sec-gpc") == Some("1");
+    if opted_out {
+        // Count nothing, but still answer with the total so the page can show it.
+        let store = state.analytics.lock().unwrap_or_else(|e| e.into_inner());
+        return Response::json(200, &json!({ "views": store.views(&path), "counted": false }));
+    }
     let own_host = config.url.trim_start_matches("https://").trim_start_matches("http://").split('/').next().unwrap_or("").to_string();
     let referrer = body["referrer"].as_str().and_then(|r| referrer_host(r, &own_host));
-    let visitor = format!("{}|{}", req.peer, req.header("user-agent").unwrap_or(""));
+    let client = crate::admin::client_ip(&config, req);
+    let visitor = format!("{client}|{}", req.header("user-agent").unwrap_or(""));
     let now = crate::clock::now();
     let mut store = state.analytics.lock().unwrap_or_else(|e| e.into_inner());
-    if !store.allow_hit(now, &req.peer) {
+    if !store.allow_hit(now, &client) {
         return Response::error(429, "Too many hits").with_header("Retry-After", "60");
     }
     match store.record(now, &path, referrer.as_deref(), &visitor) {
@@ -328,6 +403,13 @@ mod tests {
         assert_eq!(s.data.days.len(), 2);
         assert!(!s.data.days.contains_key("2026-01-01"));
         assert_eq!(s.views("/a/"), 3, "totals survive pruning");
+        // Totals are capped too, so junk paths cannot grow the file forever.
+        let now2 = at("2026-10-22");
+        for i in 0..MAX_TRACKED_PATHS + 10 {
+            s.record(now2, &format!("/p{i}/"), None, "x").unwrap();
+        }
+        assert!(s.data.totals.len() <= MAX_TRACKED_PATHS);
+        assert_eq!(s.record(now2, "/a/", None, "x").unwrap(), 4, "known pages still count past the cap");
         let now = at("2026-10-22T10:00:00Z");
         for _ in 0..MAX_HITS_PER_MINUTE {
             assert!(s.allow_hit(now, "1.2.3.4"));
@@ -352,14 +434,22 @@ mod tests {
         fs::create_dir_all(dir.join("posts/x")).unwrap();
         fs::write(dir.join("posts/x/index.html"), "x").unwrap();
         fs::write(dir.join("rss.xml"), "x").unwrap();
+        fs::write(dir.join("index.html"), "x").unwrap();
         assert_eq!(public_path(&dir, "/posts/x/"), Some("/posts/x/".into()));
         assert_eq!(public_path(&dir, "/posts/x"), Some("/posts/x/".into()));
+        assert_eq!(public_path(&dir, "/"), Some("/".into()));
         assert_eq!(public_path(&dir, "/posts/x/?utm=1"), None);
         assert_eq!(public_path(&dir, "/rss.xml"), None, "only HTML pages");
         assert_eq!(public_path(&dir, "/nope/"), None);
         assert_eq!(public_path(&dir, "posts/x/"), None);
         assert_eq!(public_path(&dir, "/../x/"), None);
         assert_eq!(public_path(&dir, &format!("/{}/", "a".repeat(300))), None);
+        for alias in ["/posts//x/", "/./posts/x/", "/posts/./x/", "/Posts/X/", "/posts/x/index.html", "/posts/x./", "/posts/x /", "//posts/x/"] {
+            assert_eq!(public_path(&dir, alias), None, "{alias:?} is not a canonical spelling");
+        }
+        assert_eq!(rate_key("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), "2001:db8:1:2::/64");
+        assert_eq!(rate_key("2001:db8:1:2:1:1:1:1"), "2001:db8:1:2::/64");
+        assert_eq!(rate_key("203.0.113.9"), "203.0.113.9");
         let _ = fs::remove_dir_all(&dir);
     }
 }

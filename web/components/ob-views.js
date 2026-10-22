@@ -11,6 +11,7 @@ class ObViews extends HTMLElement {
   async connectedCallback() {
     const path = this.getAttribute("path");
     if (!path) return;
+    // The server also honours the DNT and Sec-GPC headers; this just avoids the request.
     const optedOut = navigator.doNotTrack === "1" || navigator.globalPrivacyControl === true || navigator.webdriver;
     const key = `ob-viewed:${path}`;
     let seen = false;

@@ -84,7 +84,12 @@ impl AppState {
         if !self.analytics_enabled {
             return Ok(());
         }
-        lock(&self.analytics).save(&self.analytics_path)
+        // Serialise under the lock, write to disk without it.
+        let snapshot = lock(&self.analytics).snapshot()?;
+        match snapshot {
+            Some(text) => crate::analytics::Store::write_snapshot(&self.analytics_path, &text),
+            None => Ok(()),
+        }
     }
 
     /// Build the public site. The caller holds the build lock, which also
@@ -292,7 +297,7 @@ fn check_csrf(req: &Request, session: &auth::Session) -> Result<(), Response> {
     }
 }
 
-fn check_origin(req: &Request) -> Result<(), Response> {
+pub(crate) fn check_origin(req: &Request) -> Result<(), Response> {
     if let Some(origin) = req.header("origin") {
         let host = req.header("host").unwrap_or("");
         let origin_host = origin.strip_prefix("https://").or_else(|| origin.strip_prefix("http://")).unwrap_or("");
@@ -395,7 +400,7 @@ fn login(state: &AppState, req: &Request) -> Response {
 /// The address login limits apply to. The socket peer, unless that peer is a
 /// configured trusted proxy, in which case the last `X-Forwarded-For` entry
 /// (the one the trusted proxy itself appended; earlier entries are client-controlled).
-fn client_ip(config: &SiteConfig, req: &Request) -> String {
+pub(crate) fn client_ip(config: &SiteConfig, req: &Request) -> String {
     let trusted = config.admin.trusted_proxies.iter().any(|p| p.trim() == req.peer);
     if trusted {
         if let Some(forwarded) = req.header("x-forwarded-for") {
@@ -1360,10 +1365,24 @@ mod tests {
         assert_eq!(body_json(&hit("/posts/hello-world", &[("user-agent", "Mozilla")]))["views"], 2, "path is normalised");
         assert_eq!(hit("/nope/", &[]).status, 404);
         assert_eq!(hit("/rss.xml", &[]).status, 404);
-        assert_eq!(hit("/posts/hello-world/", &[("dnt", "1")]).status, 204, "Do Not Track is honoured");
-        assert_eq!(hit("/posts/hello-world/", &[("sec-gpc", "1")]).status, 204);
+        for alias in ["/posts//hello-world/", "/./posts/hello-world/", "/Posts/Hello-World/", "/posts/hello-world/index.html", "/posts/hello-world/./"] {
+            assert_eq!(hit(alias, &[]).status, 404, "{alias} must not become a second key for the same page");
+        }
+        let dnt = hit("/posts/hello-world/", &[("dnt", "1")]);
+        assert_eq!(dnt.status, 200, "Do Not Track still gets the count");
+        assert_eq!(body_json(&dnt)["counted"], false);
+        assert_eq!(hit("/posts/hello-world/", &[("sec-gpc", "1")]).status, 200);
+        // Cross-site requests cannot forge hits.
+        let mut cross = json_req("POST", "/api/hit", json!({ "path": "/posts/hello-world/" }));
+        cross.headers.insert("origin".into(), "https://evil.example".into());
+        assert_eq!(crate::serve::route(&f.state, &cross, &dist).status, 403);
+        let mut plain = req("POST", "/api/hit");
+        plain.headers.insert("content-type".into(), "text/plain".into());
+        plain.body = json!({ "path": "/posts/hello-world/" }).to_string().into_bytes();
+        assert_eq!(crate::serve::route(&f.state, &plain, &dist).status, 415, "a simple cross-origin POST is refused");
         let views = crate::serve::route(&f.state, &req("GET", "/api/views?path=/posts/hello-world/"), &dist);
-        assert_eq!(body_json(&views)["views"], 2, "opted-out requests were not counted");
+        assert_eq!(body_json(&views)["views"], 2, "opted-out and refused requests were not counted");
+
         assert_eq!(crate::serve::route(&f.state, &req("GET", "/api/views?path=/secret/"), &dist).status, 404);
         assert_eq!(crate::serve::route(&f.state, &req("POST", "/api/views?path=/posts/hello-world/"), &dist).status, 405);
 
@@ -1381,6 +1400,18 @@ mod tests {
         f.state.flush_analytics().unwrap();
         let text = fs::read_to_string(f.dir.join(".openblog/analytics.json")).unwrap();
         assert!(text.contains("/posts/hello-world/") && !text.contains("Mozilla") && !text.contains("10.0.0.1"));
+
+        // Behind a trusted proxy the forwarded client is what gets limited and fingerprinted.
+        let cfg_path = f.dir.join("openblog.json");
+        let mut cfg: Json = serde_json::from_str(&fs::read_to_string(&cfg_path).unwrap()).unwrap();
+        cfg["admin"]["trustedProxies"] = json!(["10.0.0.1"]);
+        fs::write(&cfg_path, cfg.to_string()).unwrap();
+        let forwarded = |client: &str| hit("/posts/hello-world/", &[("user-agent", "Mozilla"), ("x-forwarded-for", client)]);
+        for _ in 0..30 {
+            assert_eq!(forwarded("203.0.113.5").status, 200);
+        }
+        assert_eq!(forwarded("203.0.113.5").status, 429, "one forwarded client is limited");
+        assert_eq!(forwarded("198.51.100.9").status, 200, "another client behind the same proxy is not");
     }
 
     #[test]
