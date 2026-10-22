@@ -6,7 +6,12 @@
 # Scheduled posts publish on the first build after their date. Add a build hook
 # in Netlify (Site configuration > Build & deploy > Build hooks) and put its URL
 # in a repository secret named NETLIFY_BUILD_HOOK; the included GitHub workflow
-# then triggers a rebuild every hour.
+# then triggers a rebuild once a day.
+#
+# Caching: Netlify's default (revalidate with an ETag) is kept on purpose.
+# Pages reference stylesheets and scripts with a content-derived ?v= so they
+# change URL when they change, but modules imported by other scripts are not
+# versioned, so long path-based cache rules would serve stale code after a deploy.
 
 [build]
   command = "cargo build --release -p openblog-cli --locked && ./target/release/openblog build"
@@ -15,28 +20,11 @@
 [build.environment]
   CARGO_TERM_COLOR = "always"
 
-# Pages always revalidate; assets and theme files may be cached for a day.
-[[headers]]
-  for = "/assets/*"
-  [headers.values]
-    Cache-Control = "public, max-age=86400"
-
-[[headers]]
-  for = "/themes/*"
-  [headers.values]
-    Cache-Control = "public, max-age=86400"
-
-[[headers]]
-  for = "/images/*"
-  [headers.values]
-    Cache-Control = "public, max-age=86400"
-
 # The latest-posts JSON and the feeds may be read by scripts on other sites.
 [[headers]]
   for = "/api/*"
   [headers.values]
     Access-Control-Allow-Origin = "*"
-    Cache-Control = "public, max-age=300"
 
 [[headers]]
   for = "/feed.json"

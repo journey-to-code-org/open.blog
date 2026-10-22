@@ -2216,6 +2216,40 @@ mod tests {
     }
 
     #[test]
+    fn only_versioned_assets_are_cached_long() {
+        let f = fixture("cache");
+        let dist = f.dir.join("dist");
+        let header = |path: &str| {
+            let resp = crate::serve::route(&f.state, &req("GET", path), &dist);
+            assert_eq!(resp.status, 200, "{path}");
+            resp.headers
+                .iter()
+                .find(|(k, _)| k == "Cache-Control")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        };
+        assert!(header("/assets/base.css?v=abc").starts_with("public, max-age="));
+        assert_eq!(
+            header("/assets/base.css"),
+            "no-cache",
+            "unversioned assets revalidate"
+        );
+        assert_eq!(
+            header("/assets/components/ob-code.js"),
+            "no-cache",
+            "modules imported by other scripts revalidate"
+        );
+        assert_eq!(header("/"), "no-cache");
+        // The built pages reference versioned assets.
+        let home = fs::read_to_string(dist.join("index.html")).unwrap();
+        assert!(
+            home.contains("href=\"/assets/base.css?v="),
+            "{}",
+            &home[..home.len().min(1500)]
+        );
+    }
+
+    #[test]
     fn health_route_answers_without_a_session() {
         let f = fixture("health");
         let resp = crate::serve::route(&f.state, &req("GET", "/health"), &f.dir.join("dist"));

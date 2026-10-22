@@ -291,11 +291,16 @@ pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response
         Some(file) => match fs::read(&file) {
             Ok(bytes) => {
                 // Assets may be cached by browsers and CDNs; pages always revalidate.
-                let cache = if state.cdn.max_age > 0 && state.cdn.is_asset_path(&req.path) {
-                    format!("public, max-age={}", state.cdn.max_age)
-                } else {
-                    "no-cache".to_string()
-                };
+                // Only versioned asset URLs (`?v=`) may be cached long: an
+                // unversioned one (such as a module imported by another script)
+                // must revalidate, or a deploy would leave readers on stale code.
+                let versioned = req.query.contains_key("v");
+                let cache =
+                    if versioned && state.cdn.max_age > 0 && state.cdn.is_asset_path(&req.path) {
+                        format!("public, max-age={}", state.cdn.max_age)
+                    } else {
+                        "no-cache".to_string()
+                    };
                 let mut response =
                     Response::new(200, mime(&file), bytes).with_header("Cache-Control", &cache);
                 // Public data files may be read by scripts on other sites (a "latest posts" list).

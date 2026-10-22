@@ -345,10 +345,16 @@ impl CdnConfig {
     /// cache-busting version. Only `src="/…"`, `href="/…"` and `url("/…")`
     /// under the configured prefixes change; page links and feeds do not.
     pub fn apply(&self, text: &str) -> String {
-        if !self.enabled() {
+        // With a version, asset URLs are always versioned (so browsers can cache
+        // them safely); with a CDN URL, they also move to the CDN origin.
+        if !self.enabled() && self.version.trim().is_empty() {
             return text.to_string();
         }
-        let base = self.url.trim().trim_end_matches('/');
+        let base = if self.enabled() {
+            self.url.trim().trim_end_matches('/')
+        } else {
+            ""
+        };
         let mut out = text.to_string();
         for prefix in self.prefixes() {
             for marker in ["src=\"", "href=\"", "url(\""] {
@@ -615,6 +621,18 @@ mod tests {
         );
         let off = CdnConfig::default();
         assert_eq!(off.apply(html), html);
+        // No CDN but a version: URLs stay on the site and are versioned.
+        let versioned = CdnConfig {
+            version: "abc".into(),
+            ..Default::default()
+        };
+        let out = versioned.apply(html);
+        assert!(out.contains(r#"href="/assets/base.css?v=abc""#));
+        assert!(out.contains(r#"src="/themes/t/fx.js?v=abc""#));
+        assert!(
+            out.contains(r#"href="/posts/x/""#),
+            "page links stay unversioned"
+        );
         let root_only = CdnConfig {
             url: "https://c.dev".into(),
             paths: vec!["/".into()],

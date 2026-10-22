@@ -222,7 +222,9 @@ pub fn load_themes(root: &Path, config: &SiteConfig) -> Result<ThemeSet, String>
 /// asset files so a changed stylesheet, script, font, or image gets a new URL
 /// and old cached copies are never served.
 pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
-    if !config.cdn.enabled() || !config.cdn.version.trim().is_empty() {
+    // Always version asset URLs, CDN or not: a changed file gets a new URL, so
+    // browsers and caches may keep assets without ever serving a stale one.
+    if !config.cdn.version.trim().is_empty() {
         return config;
     }
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;

@@ -114,9 +114,12 @@ section. Set `"relatedPosts": 0` to turn it off.
 
 The site is static, so the simplest CDN setup is to put the whole of `dist/` behind one
 (Cloudflare, a CDN in front of your host, or an object store). Nothing needs configuring
-for that. `openblog serve` sends `Cache-Control: public, max-age=86400` for asset paths and
-`no-cache` for pages, so a CDN in front of the server caches assets and always revalidates
-pages. Views and the admin are never cached.
+for that. Every build references stylesheets, scripts, fonts, and images with a
+content-derived `?v=` version, so a changed file always gets a new URL. `openblog serve`
+sends `Cache-Control: public, max-age=86400` only for those versioned requests and
+`no-cache` for everything else (pages, and modules that other scripts import without a
+version), so a CDN in front of the server caches what is safe to cache. Views and the
+admin are never cached.
 
 To serve assets from a different origin than the pages, set a CDN URL:
 
