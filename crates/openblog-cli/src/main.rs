@@ -22,6 +22,7 @@ USAGE
 
 COMMANDS
     init [dir]                 Create a new blog in dir (default: current directory)
+    init [dir] --github-pages  Also write a GitHub Pages deployment workflow
     new \"Title\"                Create content/posts/<date>-<slug>.md
     build                      Build the site into dist/
     serve                      Build, serve at http://localhost:8080, rebuild on change,
@@ -31,13 +32,13 @@ COMMANDS
                                Manage who can sign in to the admin editor
     check                      Validate content and themes without writing anything
     themes                     List themes and the inheritance chain of each
-    import hashnode <host>     Import a Hashnode blog (e.g. journeytocode.io)
-    build-wasm                 Compile the WebAssembly module with wasm-pack
+    import hashnode <host>     Import a Hashnode blog (e.g. yourname.hashnode.dev)
+    build-wasm                 Rebuild the WebAssembly module (engine repository only)
     help                       Show this help
 
 COMMON OPTIONS
     --root <dir>               Project directory (default: .)
-    --drafts                   Include posts marked draft
+    --drafts                   Include drafts and scheduled posts (for previews)
     --out <dir>                Output directory for build (default: paths.output)
     --port <n>                 Port for serve (default: 8080)
     --host <addr>              Address for serve (default: 127.0.0.1; use 0.0.0.0 behind HTTPS)
@@ -52,6 +53,8 @@ import hashnode OPTIONS
     --source public|graphql    public (default) reads your live site and needs no account;
                                graphql uses Hashnode's API (needs Pro plus --token or HASHNODE_TOKEN)
     --no-images                Keep remote image URLs instead of downloading them
+    --token <pat>              Personal access token for --source graphql (or HASHNODE_TOKEN)
+    --overwrite                Replace imported posts you have edited since the last run
     --limit <n>                Import only the first n posts (useful for a trial run)
     --delay <ms>               Pause between requests (default: 250)
 ";
@@ -69,6 +72,8 @@ const SWITCHES: &[&str] = &[
     "help",
     "admin",
     "password-stdin",
+    "github-pages",
+    "overwrite",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -132,7 +137,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         "init" => {
             let dir = args.positional.first().map(PathBuf::from).unwrap_or(root);
             let title = args.options.get("title").map(String::as_str);
-            let created = scaffold::init(&dir, title)?;
+            let created = scaffold::init(&dir, title, args.switches.contains("github-pages"))?;
             if created.is_empty() {
                 println!(
                     "Nothing to do: {} already looks like an open.blog project.",
@@ -251,7 +256,7 @@ fn run(raw: &[String]) -> Result<(), String> {
             let host = args
                 .positional
                 .get(1)
-                .ok_or("usage: openblog import hashnode <host>, e.g. journeytocode.io")?;
+                .ok_or("usage: openblog import hashnode <host>, e.g. yourname.hashnode.dev")?;
             let source = match args
                 .options
                 .get("source")
@@ -270,6 +275,7 @@ fn run(raw: &[String]) -> Result<(), String> {
                 content_dir: root.join(&config.paths.content),
                 static_dir: root.join(&config.paths.static_dir),
                 download_images: !args.switches.contains("no-images"),
+                overwrite: args.switches.contains("overwrite"),
                 limit: args
                     .options
                     .get("limit")
@@ -327,6 +333,8 @@ fn run(raw: &[String]) -> Result<(), String> {
                     )
                 })?;
             if status.success() {
+                // wasm-pack writes a `.gitignore` containing `*`; the artifacts are meant to be committed.
+                let _ = std::fs::remove_file(root.join("web/wasm/.gitignore"));
                 Ok(())
             } else {
                 Err("wasm-pack failed".into())

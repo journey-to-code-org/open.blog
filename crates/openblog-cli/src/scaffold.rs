@@ -35,7 +35,7 @@ const ABOUT: &str = "This page is `content/pages/about.md`. Pages with `nav: tru
 ";
 
 /// Create a new project in `dir`. Existing files are never overwritten.
-pub fn init(dir: &Path, title: Option<&str>) -> Result<Vec<String>, String> {
+pub fn init(dir: &Path, title: Option<&str>, github_pages: bool) -> Result<Vec<String>, String> {
     let mut created = Vec::new();
     let mut write = |rel: &str, contents: &str| -> Result<(), String> {
         let path = dir.join(rel);
@@ -76,10 +76,25 @@ pub fn init(dir: &Path, title: Option<&str>) -> Result<Vec<String>, String> {
     write("static/.gitkeep", "")?;
 
     write("themes/base/theme.json", EMBEDDED_BASE_THEME)?;
+    for (rel, contents) in site::EMBEDDED_THEMES {
+        write(&format!("themes/{rel}"), contents)?;
+    }
     for (rel, contents) in EMBEDDED_WEB {
         write(&format!("web/{rel}"), contents)?;
     }
-    write(".gitignore", "/dist\n/target\n/.openblog\n")?;
+    write(".gitignore", "/dist\n/.openblog\n")?;
+    if github_pages {
+        let workflow = site::PAGES_WORKFLOW.replace("OPENBLOG_VERSION", env!("CARGO_PKG_VERSION"));
+        write(".github/workflows/pages.yml", &workflow)?;
+    }
+    // Binary files (the WebAssembly search engine) go last, after the text closure is done.
+    for (rel, bytes) in site::EMBEDDED_WEB_BINARY {
+        let path = dir.join("web").join(rel);
+        if !path.exists() {
+            fsutil::write_file(&path, bytes)?;
+            created.push(format!("web/{rel}"));
+        }
+    }
     Ok(created)
 }
 
@@ -131,14 +146,24 @@ mod tests {
     fn init_creates_a_buildable_project_and_never_overwrites() {
         let dir = std::env::temp_dir().join(format!("ob-init-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        let created = init(&dir, Some("My Blog")).unwrap();
+        let created = init(&dir, Some("My Blog"), true).unwrap();
         assert!(created.iter().any(|c| c == "openblog.json"));
         fs::write(
             dir.join("content/posts/hello-world.md"),
             "---\ntitle: Mine\ndate: 2026-01-01\n---\nkeep",
         )
         .unwrap();
-        assert!(init(&dir, Some("Other")).unwrap().is_empty());
+        assert!(init(&dir, Some("Other"), false).unwrap().is_empty());
+        assert!(
+            dir.join("web/wasm/openblog_wasm_bg.wasm").exists(),
+            "search works without a workspace"
+        );
+        assert!(
+            dir.join("themes/demo/reveal.js").exists()
+                && dir.join("themes/paper/theme.json").exists()
+        );
+        let workflow = fs::read_to_string(dir.join(".github/workflows/pages.yml")).unwrap();
+        assert!(workflow.contains("openblog build") && !workflow.contains("OPENBLOG_VERSION"));
         assert!(fs::read_to_string(dir.join("content/posts/hello-world.md"))
             .unwrap()
             .contains("keep"));
@@ -157,6 +182,10 @@ mod tests {
         assert!(dir.join("dist/rss.xml").exists());
         assert!(dir.join("dist/assets/base.css").exists());
         assert!(dir.join("dist/themes/base/tokens.css").exists());
+        assert!(dir.join("dist/assets/wasm/openblog_wasm_bg.wasm").exists());
+        fs::write(dir.join("content/posts/_notes.md"), "not a post").unwrap();
+        fs::create_dir_all(dir.join("content/posts/_ideas")).unwrap();
+        fs::write(dir.join("content/posts/_ideas/x.md"), "not a post either").unwrap();
 
         let rel = new_post(
             &dir,

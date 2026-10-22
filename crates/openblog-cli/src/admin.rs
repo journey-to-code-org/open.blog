@@ -58,6 +58,8 @@ pub struct AppState {
     pub cdn: openblog_core::config::CdnConfig,
     /// `/repo` when the site is built for `https://user.github.io/repo/`, else empty.
     pub base_path: String,
+    /// Reverse proxies whose connections are exempt from the per-address cap.
+    pub trusted_proxies: Vec<String>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -75,6 +77,7 @@ impl AppState {
         let analytics_config = loaded.analytics.clone();
         let cdn = loaded.cdn.clone();
         let base_path = loaded.base_path();
+        let trusted_proxies = loaded.admin.trusted_proxies.clone();
         let analytics_path = root.join(".openblog").join("analytics.json");
         Self {
             root,
@@ -92,6 +95,7 @@ impl AppState {
             analytics_enabled: analytics_config.builtin,
             cdn,
             base_path,
+            trusted_proxies,
         }
     }
 
@@ -1240,7 +1244,7 @@ mod tests {
     fn fixture(tag: &str) -> Fixture {
         let dir = std::env::temp_dir().join(format!("ob-admin-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        scaffold::init(&dir, Some("Test Blog")).unwrap();
+        scaffold::init(&dir, Some("Test Blog"), false).unwrap();
         let mut users = Users::default();
         users.set("mikey", "correct horse battery").unwrap();
         users.save(&dir.join(".openblog/users.json")).unwrap();

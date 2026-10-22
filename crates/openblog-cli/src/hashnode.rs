@@ -36,6 +36,8 @@ pub struct ImportOptions {
     pub content_dir: PathBuf,
     pub static_dir: PathBuf,
     pub download_images: bool,
+    /// Replace post files that exist and differ (edited since the last import).
+    pub overwrite: bool,
     pub limit: Option<usize>,
     pub delay_ms: u64,
     /// The site's `postPath`; when it is not `/{slug}/`, imported posts get an alias.
@@ -138,6 +140,13 @@ pub fn run(options: &ImportOptions) -> Result<ImportReport, String> {
         let text = render_post_file(post);
         let existing = fs::read_to_string(&file).ok();
         if existing.as_deref() == Some(text.as_str()) {
+            report.posts_unchanged += 1;
+        } else if existing.is_some() && !options.overwrite {
+            report.skipped.push(format!(
+                "posts/{}-{}.md differs from the import (edited?); kept your version. Use --overwrite to replace it",
+                ymd(&post.date),
+                post.slug
+            ));
             report.posts_unchanged += 1;
         } else {
             fsutil::write_file(&file, text.as_bytes())?;
@@ -1069,8 +1078,8 @@ mod tests {
     #[test]
     fn normalizes_hosts_and_sitemap_urls() {
         assert_eq!(
-            normalize_host("https://journeytocode.io/").unwrap(),
-            "https://journeytocode.io"
+            normalize_host("https://blog.example.com/").unwrap(),
+            "https://blog.example.com"
         );
         assert_eq!(
             normalize_host("me.hashnode.dev").unwrap(),

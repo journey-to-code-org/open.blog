@@ -35,6 +35,7 @@ impl SlotGuard {
         active: &Arc<AtomicUsize>,
         per_ip: &Arc<Mutex<HashMap<IpAddr, usize>>>,
         ip: IpAddr,
+        exempt_from_per_ip: bool,
     ) -> Option<Self> {
         if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             active.fetch_sub(1, Ordering::SeqCst);
@@ -43,7 +44,8 @@ impl SlotGuard {
         {
             let mut map = per_ip.lock().unwrap_or_else(|e| e.into_inner());
             let count = map.entry(ip).or_insert(0);
-            if *count >= MAX_PER_IP {
+            // A reverse proxy funnels every reader through one address; only the global cap applies to it.
+            if !exempt_from_per_ip && *count >= MAX_PER_IP {
                 active.fetch_sub(1, Ordering::SeqCst);
                 return None;
             }
@@ -169,7 +171,11 @@ pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
         let Ok(peer) = stream.peer_addr() else {
             continue;
         };
-        let Some(guard) = SlotGuard::acquire(&active, &per_ip, peer.ip()) else {
+        let proxied = state
+            .trusted_proxies
+            .iter()
+            .any(|p| p.trim() == peer.ip().to_string());
+        let Some(guard) = SlotGuard::acquire(&active, &per_ip, peer.ip(), proxied) else {
             continue;
         };
         let state = Arc::clone(&state);
@@ -276,7 +282,16 @@ pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response
                 } else {
                     "no-cache".to_string()
                 };
-                Response::new(200, mime(&file), bytes).with_header("Cache-Control", &cache)
+                let mut response =
+                    Response::new(200, mime(&file), bytes).with_header("Cache-Control", &cache);
+                // Public data files may be read by scripts on other sites (a "latest posts" list).
+                if matches!(
+                    path,
+                    "/api/blog.json" | "/feed.json" | "/rss.xml" | "/search.json"
+                ) {
+                    response = response.with_header("Access-Control-Allow-Origin", "*");
+                }
+                response
             }
             Err(_) => Response::text(500, "Read error"),
         },
@@ -358,14 +373,16 @@ mod tests {
         let b: IpAddr = "10.0.0.2".parse().unwrap();
         let mut held = Vec::new();
         for _ in 0..MAX_PER_IP {
-            held.push(SlotGuard::acquire(&active, &per_ip, a).expect("under the per-IP cap"));
+            held.push(
+                SlotGuard::acquire(&active, &per_ip, a, false).expect("under the per-IP cap"),
+            );
         }
         assert!(
-            SlotGuard::acquire(&active, &per_ip, a).is_none(),
+            SlotGuard::acquire(&active, &per_ip, a, false).is_none(),
             "one address cannot take more"
         );
         assert!(
-            SlotGuard::acquire(&active, &per_ip, b).is_some(),
+            SlotGuard::acquire(&active, &per_ip, b, false).is_some(),
             "other addresses still get in"
         );
         assert_eq!(
@@ -376,7 +393,13 @@ mod tests {
         held.clear();
         assert_eq!(active.load(Ordering::SeqCst), 0);
         assert!(per_ip.lock().unwrap().is_empty());
-        assert!(SlotGuard::acquire(&active, &per_ip, a).is_some());
+        assert!(SlotGuard::acquire(&active, &per_ip, a, false).is_some());
+        for _ in 0..MAX_PER_IP + 4 {
+            held.push(
+                SlotGuard::acquire(&active, &per_ip, b, true)
+                    .expect("a trusted proxy is not capped per address"),
+            );
+        }
     }
 
     #[test]

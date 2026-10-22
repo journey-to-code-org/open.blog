@@ -52,6 +52,45 @@ pub const EMBEDDED_ADMIN: &[(&str, &str)] = &[
 
 pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.json");
 
+/// The search engine compiled to WebAssembly, so a blog created with
+/// `openblog init` gets search without a Rust workspace or wasm-pack.
+/// Rebuild with `openblog build-wasm` in the engine repository after changing
+/// openblog-core, and commit the result.
+pub const EMBEDDED_WEB_BINARY: &[(&str, &[u8])] = &[
+    (
+        "wasm/openblog_wasm.js",
+        include_bytes!("../../../web/wasm/openblog_wasm.js"),
+    ),
+    (
+        "wasm/openblog_wasm_bg.wasm",
+        include_bytes!("../../../web/wasm/openblog_wasm_bg.wasm"),
+    ),
+];
+
+/// Example themes written by `openblog init`, so the docs' examples exist in
+/// every new blog.
+pub const EMBEDDED_THEMES: &[(&str, &str)] = &[
+    (
+        "demo/theme.json",
+        include_str!("../../../themes/demo/theme.json"),
+    ),
+    (
+        "demo/reveal.js",
+        include_str!("../../../themes/demo/reveal.js"),
+    ),
+    (
+        "demo/theme.css",
+        include_str!("../../../themes/demo/theme.css"),
+    ),
+    (
+        "paper/theme.json",
+        include_str!("../../../themes/paper/theme.json"),
+    ),
+];
+
+/// A GitHub Pages workflow for a blog in its own repository.
+pub const PAGES_WORKFLOW: &str = include_str!("../templates/pages.yml");
+
 pub struct BuildOptions {
     /// Include drafts and scheduled posts (a preview build).
     pub include_drafts: bool,
@@ -90,7 +129,11 @@ pub fn read_sources(root: &Path, config: &SiteConfig) -> Result<Sources, String>
     for path in fsutil::walk(&content_dir) {
         let rel = fsutil::relative(&content_dir, &path);
         let lower = rel.to_ascii_lowercase();
-        if lower == "readme.md" || lower.ends_with("/readme.md") || lower.starts_with('_') {
+        // A README anywhere, and any file or folder whose name starts with `_`, is not content.
+        if lower == "readme.md"
+            || lower.ends_with("/readme.md")
+            || rel.split('/').any(|part| part.starts_with('_'))
+        {
             continue;
         }
         if openblog_core::classify_source(&rel).is_none() {
@@ -222,10 +265,13 @@ fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
     if let Ok(bytes) = fs::read(&on_disk) {
         return Some(bytes);
     }
-    EMBEDDED_WEB
+    if let Some((_, c)) = EMBEDDED_WEB.iter().find(|(p, _)| *p == rel) {
+        return Some(c.as_bytes().to_vec());
+    }
+    EMBEDDED_WEB_BINARY
         .iter()
         .find(|(p, _)| *p == rel)
-        .map(|(_, c)| c.as_bytes().to_vec())
+        .map(|(_, c)| c.to_vec())
 }
 
 pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
@@ -259,7 +305,11 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     }
 
     // 2. Front-end assets: base.css, the web components, and the WebAssembly build.
-    let mut asset_names: Vec<String> = EMBEDDED_WEB.iter().map(|(p, _)| p.to_string()).collect();
+    let mut asset_names: Vec<String> = EMBEDDED_WEB
+        .iter()
+        .map(|(p, _)| p.to_string())
+        .chain(EMBEDDED_WEB_BINARY.iter().map(|(p, _)| p.to_string()))
+        .collect();
     let web_dir = root.join(&config.paths.web);
     for file in fsutil::walk(&web_dir) {
         let rel = fsutil::relative(&web_dir, &file);
