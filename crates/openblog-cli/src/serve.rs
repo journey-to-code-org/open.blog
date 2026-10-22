@@ -247,6 +247,14 @@ pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response
     if req.path == "/admin" || req.path.starts_with("/admin/") {
         return admin::handle(state, req);
     }
+    // For load balancers, container health checks, and keep-awake pings.
+    if req.path == "/health" && req.is_read_only() {
+        return Response::json(
+            200,
+            &serde_json::json!({ "ok": true, "service": "open.blog", "version": env!("CARGO_PKG_VERSION") }),
+        )
+        .with_header("Cache-Control", "no-store");
+    }
     if state.analytics_enabled {
         if req.path == "/api/hit" {
             return crate::analytics::hit(state, req, out_dir);

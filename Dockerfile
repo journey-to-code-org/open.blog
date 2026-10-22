@@ -19,7 +19,7 @@ RUN cargo build --release -p openblog-cli --locked
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
+    && apt-get install -y --no-install-recommends git ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/target/release/openblog /usr/local/bin/openblog
 WORKDIR /blog
@@ -28,5 +28,5 @@ RUN rm -rf /blog/target /blog/dist && chmod +x /blog/docker-entrypoint.sh
 ENV PORT=8080
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-    CMD sh -c 'wget -qO- "http://127.0.0.1:${PORT}/" > /dev/null || exit 1'
+    CMD sh -c 'curl -fsS "http://127.0.0.1:${PORT}/health" > /dev/null || exit 1'
 ENTRYPOINT ["/blog/docker-entrypoint.sh"]

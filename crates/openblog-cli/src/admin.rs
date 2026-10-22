@@ -1673,7 +1673,7 @@ mod tests {
             .contains("Live Now"));
 
         // Schedule one a couple of seconds ahead: not public, listed as scheduled.
-        let when = DateTime::from_unix(clock::now().unix() + 2).rfc3339();
+        let when = DateTime::from_unix(clock::now().unix() + 5).rfc3339();
         let sched = json!({ "kind": "posts", "fields": { "title": "Coming Soon", "date": when }, "body": "later" });
         let resp = handle(
             &f.state,
@@ -1711,7 +1711,7 @@ mod tests {
 
         // Not yet due.
         assert!(f.state.tick_scheduler().is_none());
-        std::thread::sleep(Duration::from_millis(3200));
+        std::thread::sleep(Duration::from_millis(6500));
         let report = f
             .state
             .tick_scheduler()
@@ -2212,6 +2212,18 @@ mod tests {
             forwarded("198.51.100.9").status,
             200,
             "another client behind the same proxy is not"
+        );
+    }
+
+    #[test]
+    fn health_route_answers_without_a_session() {
+        let f = fixture("health");
+        let resp = crate::serve::route(&f.state, &req("GET", "/health"), &f.dir.join("dist"));
+        assert_eq!(resp.status, 200);
+        assert_eq!(body_json(&resp)["ok"], true);
+        assert_eq!(
+            crate::serve::route(&f.state, &req("POST", "/health"), &f.dir.join("dist")).status,
+            405
         );
     }
 

@@ -11,7 +11,7 @@ services:
     name: openblog
     runtime: docker
     plan: free
-    healthCheckPath: /
+    healthCheckPath: /health
     envVars:
       - key: OPENBLOG_BEHIND_PROXY
         value: "1"
