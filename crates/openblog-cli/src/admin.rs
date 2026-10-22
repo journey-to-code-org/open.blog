@@ -927,7 +927,7 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
         };
         items.push(item);
     }
-    items.sort_by(|a, b| b.0.cmp(&a.0));
+    items.sort_by_key(|item| std::cmp::Reverse(item.0));
     Response::json(
         200,
         &json!({ "kind": kind, "items": items.into_iter().map(|(_, j)| j).collect::<Vec<_>>() }),
