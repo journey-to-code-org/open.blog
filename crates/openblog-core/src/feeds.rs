@@ -137,7 +137,7 @@ pub fn sitemap(site: &Site, extra_paths: &[String]) -> String {
     for post in &site.posts {
         push(&post.url, Some(post.updated.unwrap_or(post.date).ymd()));
     }
-    for series in &site.series {
+    for series in site.series.iter().filter(|s| !s.posts.is_empty()) {
         let lastmod = series.posts.iter().map(|&i| site.posts[i].updated.unwrap_or(site.posts[i].date)).max();
         push(&series.url, lastmod.map(|d| d.ymd()));
     }

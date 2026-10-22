@@ -26,7 +26,7 @@ pub mod theme;
 
 pub use config::SiteConfig;
 pub use date::DateTime;
-pub use model::{LoadOptions, Page, Post, Series, Site, SourceFile, Sources, Tag};
+pub use model::{LoadOptions, Page, Post, Scheduled, Series, Site, SourceFile, Sources, Tag};
 pub use render::{generate, OutputFile};
 pub use theme::{Theme, ThemeFile, ThemeSet};
 

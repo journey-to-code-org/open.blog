@@ -71,6 +71,11 @@ impl DateTime {
     /// a missing offset means UTC. Fractional seconds are accepted and dropped.
     pub fn parse(input: &str) -> Option<Self> {
         let s = input.trim();
+        // Everything below slices by byte offset; a multi-byte character
+        // straddling an offset would panic instead of failing cleanly.
+        if !s.is_ascii() {
+            return None;
+        }
         let b = s.as_bytes();
         if b.len() < 10 || b[4] != b'-' || b[7] != b'-' {
             return None;
@@ -262,5 +267,12 @@ mod tests {
         assert_eq!(DateTime::parse("2024-02-29").unwrap().ymd(), "2024-02-29");
         assert!(DateTime::parse("2023-02-29").is_none());
         assert!(DateTime::parse("not a date").is_none());
+    }
+
+    #[test]
+    fn non_ascii_input_never_panics() {
+        for s in ["2026-10-1\u{fffd}", "2026-10-21T0\u{e9}:00", "２０２６-10-21", "2026-10-21T04:15:10+0\u{3b1}:00", "\u{1f600}\u{1f600}\u{1f600}\u{1f600}-10-21"] {
+            assert!(DateTime::parse(s).is_none(), "{s:?}");
+        }
     }
 }

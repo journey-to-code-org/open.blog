@@ -36,6 +36,7 @@ pub struct SiteConfig {
     pub feeds: FeedsConfig,
     pub markdown: MarkdownConfig,
     pub paths: PathsConfig,
+    pub admin: AdminConfig,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -130,6 +131,39 @@ impl Default for SiteConfig {
             feeds: FeedsConfig::default(),
             markdown: MarkdownConfig::default(),
             paths: PathsConfig::default(),
+            admin: AdminConfig::default(),
+        }
+    }
+}
+
+/// Settings for the login-protected editor (`openblog serve --admin`).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AdminConfig {
+    /// File holding users and password hashes, relative to the project root.
+    /// Keep it out of version control.
+    pub users_file: String,
+    /// Hours a login stays valid.
+    pub session_hours: u32,
+    /// Mark the session cookie `Secure`. Turn on when the admin is served over HTTPS.
+    pub secure_cookies: bool,
+    /// Largest image upload in megabytes.
+    pub max_upload_mb: u32,
+    /// Addresses of reverse proxies in front of this server. When a connection
+    /// comes from one of them, the client address is taken from the last
+    /// `X-Forwarded-For` entry (the one that proxy appended), so login limits
+    /// apply per real client instead of to everyone behind the proxy.
+    pub trusted_proxies: Vec<String>,
+}
+
+impl Default for AdminConfig {
+    fn default() -> Self {
+        Self {
+            users_file: ".openblog/users.json".to_string(),
+            session_hours: 12,
+            secure_cookies: false,
+            max_upload_mb: 10,
+            trusted_proxies: Vec::new(),
         }
     }
 }

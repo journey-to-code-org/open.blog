@@ -26,7 +26,20 @@ pub struct Sources {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LoadOptions {
+    /// Include drafts and scheduled posts (for previews and the admin editor).
     pub include_drafts: bool,
+    /// The current time. Posts dated after it are held back as scheduled.
+    /// `None` disables scheduling, which keeps pure builds deterministic.
+    pub now: Option<DateTime>,
+}
+
+/// A post that exists but is not public yet because its date is in the future.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Scheduled {
+    pub title: String,
+    pub slug: String,
+    pub date: DateTime,
+    pub source: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,6 +129,8 @@ pub struct Site {
     pub series: Vec<Series>,
     pub tags: Vec<Tag>,
     pub pages: Vec<Page>,
+    /// Posts waiting for their publish date, soonest first.
+    pub scheduled: Vec<Scheduled>,
     pub warnings: Vec<String>,
 }
 
@@ -147,17 +162,31 @@ impl Site {
         }
 
         let mut posts: Vec<Post> = Vec::new();
+        let mut scheduled: Vec<Scheduled> = Vec::new();
+        // Every slug seen so far, including held-back posts, so a draft or
+        // scheduled post cannot silently collide with a published one later.
+        let mut slug_sources: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         for file in &sources.posts {
             match load_post(file, &config, render_options) {
                 Ok(post) => {
+                    if let Some(existing) = slug_sources.get(&post.slug) {
+                        errors.push(format!(
+                            "{}: duplicate post slug `{}` (also in {})",
+                            file.path, post.slug, existing
+                        ));
+                        continue;
+                    }
+                    slug_sources.insert(post.slug.clone(), file.path.clone());
                     if post.draft && !options.include_drafts {
                         continue;
                     }
-                    if let Some(existing) = posts.iter().find(|p| p.slug == post.slug) {
-                        errors.push(format!(
-                            "{}: duplicate post slug `{}` (also in {})",
-                            file.path, post.slug, existing.source
-                        ));
+                    if !options.include_drafts && options.now.is_some_and(|now| post.date > now) {
+                        scheduled.push(Scheduled {
+                            title: post.title.clone(),
+                            slug: post.slug.clone(),
+                            date: post.date,
+                            source: post.source.clone(),
+                        });
                         continue;
                     }
                     posts.push(post);
@@ -245,7 +274,8 @@ impl Site {
         let mut tags: Vec<Tag> = tag_map.into_values().collect();
         tags.sort_by(|a, b| b.posts.len().cmp(&a.posts.len()).then_with(|| a.name.cmp(&b.name)));
 
-        Ok(Site { config, posts, series, tags, pages, warnings })
+        scheduled.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.slug.cmp(&b.slug)));
+        Ok(Site { config, posts, series, tags, pages, scheduled, warnings })
     }
 
     pub fn series_by_slug(&self, slug: &str) -> Option<&Series> {
@@ -313,6 +343,11 @@ impl Site {
         let prev = pos.checked_sub(1).map(|p| &self.posts[series.posts[p]]);
         let next = series.posts.get(pos + 1).map(|&i| &self.posts[i]);
         (prev, next)
+    }
+
+    /// When the next scheduled post becomes public, if any.
+    pub fn next_scheduled(&self) -> Option<DateTime> {
+        self.scheduled.first().map(|s| s.date)
     }
 
     pub fn latest_update(&self) -> Option<DateTime> {
@@ -510,6 +545,55 @@ mod tests {
         assert_eq!(prev.unwrap().slug, "first");
         assert!(next.is_none());
         assert!(s.pages[0].nav);
+    }
+
+    #[test]
+    fn future_dated_posts_are_held_back_until_their_time() {
+        let config = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#).unwrap();
+        let sources = || Sources {
+            posts: vec![
+                post("posts/now.md", "---\ntitle: Now\ndate: 2026-10-01\n---\nx"),
+                post("posts/later.md", "---\ntitle: Later\ndate: 2026-12-25T09:00:00Z\nseries: s\n---\ny"),
+                post("posts/later2.md", "---\ntitle: Later 2\ndate: 2026-11-30\n---\nz"),
+            ],
+            series: vec![post("series/s.md", "---\nname: S\n---\nabout")],
+            ..Default::default()
+        };
+        let now = DateTime::parse("2026-10-22T00:00:00Z").unwrap();
+        let s = Site::load(config.clone(), sources(), LoadOptions { include_drafts: false, now: Some(now) }).unwrap();
+        assert_eq!(s.posts.len(), 1);
+        assert_eq!(s.scheduled.iter().map(|x| x.slug.as_str()).collect::<Vec<_>>(), vec!["later2", "later"]);
+        assert_eq!(s.next_scheduled().unwrap().ymd(), "2026-11-30");
+        assert!(s.series_by_slug("s").unwrap().posts.is_empty());
+        // Once the date passes, the same sources publish.
+        let later = DateTime::parse("2026-12-26T00:00:00Z").unwrap();
+        let s = Site::load(config.clone(), sources(), LoadOptions { include_drafts: false, now: Some(later) }).unwrap();
+        assert_eq!(s.posts.len(), 3);
+        assert!(s.scheduled.is_empty());
+        // Previews include everything; no clock means no scheduling.
+        let s = Site::load(config.clone(), sources(), LoadOptions { include_drafts: true, now: Some(now) }).unwrap();
+        assert_eq!(s.posts.len(), 3);
+        let s = Site::load(config, sources(), LoadOptions::default()).unwrap();
+        assert_eq!(s.posts.len(), 3);
+    }
+
+    #[test]
+    fn scheduled_posts_still_reserve_their_slug() {
+        let config = SiteConfig::default();
+        let now = DateTime::parse("2026-10-22").unwrap();
+        let err = Site::load(
+            config,
+            Sources {
+                posts: vec![
+                    post("posts/a.md", "---\ntitle: A\nslug: same\ndate: 2030-01-01\n---\nx"),
+                    post("posts/b.md", "---\ntitle: B\nslug: same\ndate: 2026-01-01\n---\ny"),
+                ],
+                ..Default::default()
+            },
+            LoadOptions { include_drafts: false, now: Some(now) },
+        )
+        .unwrap_err();
+        assert!(err[0].contains("duplicate post slug"));
     }
 
     #[test]

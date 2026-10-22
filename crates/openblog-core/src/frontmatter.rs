@@ -274,16 +274,58 @@ pub fn serialize(fields: &[(&str, Value)]) -> String {
     out
 }
 
+/// Preferred key order when writing a document, so edits produce stable diffs.
+const KEY_ORDER: &[&str] = &[
+    "title", "slug", "date", "updated", "description", "tags", "series", "seriesOrder", "cover",
+    "coverAlt", "theme", "canonical", "sourceUrl", "draft", "name", "order", "nav",
+];
+
+/// Write a full document from a field map and a body. Known keys come first in
+/// a fixed order and any other keys follow alphabetically, so unknown fields a
+/// user added by hand survive an edit in the admin UI. Empty scalars and empty
+/// lists are omitted.
+pub fn compose(fields: &BTreeMap<String, Value>, body: &str) -> String {
+    let mut ordered: Vec<(&str, Value)> = Vec::new();
+    for key in KEY_ORDER {
+        if let Some(v) = fields.get(*key) {
+            ordered.push((key, v.clone()));
+        }
+    }
+    for (key, v) in fields {
+        if !KEY_ORDER.contains(&key.as_str()) {
+            ordered.push((key.as_str(), v.clone()));
+        }
+    }
+    ordered.retain(|(_, v)| match v {
+        Value::Scalar(s) => !s.trim().is_empty(),
+        Value::List(items) => !items.is_empty(),
+    });
+    let mut out = serialize(&ordered);
+    out.push('\n');
+    out.push_str(body.trim_start_matches(['\r', '\n']));
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out
+}
+
 fn quote_scalar(s: &str) -> String {
     let needs_quotes = s.is_empty()
         || s.contains(": ")
         || s.contains(" #")
-        || s.starts_with(['[', '{', '"', '\'', '-', '&', '*', '!', '|', '>', '%', '@', '`'])
+        || s.starts_with(['[', '{', '"', '\'', '-', '&', '*', '!', '|', '>', '%', '@', '`', '#'])
+        // A raw newline would let a value smuggle in extra front matter fields.
+        || s.chars().any(char::is_control)
         || s.ends_with(':')
         || s.trim() != s
         || matches!(s.to_ascii_lowercase().as_str(), "true" | "false" | "yes" | "no" | "null" | "~");
     if needs_quotes {
-        let escaped = s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+        let escaped = s
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\r', "")
+            .replace('\n', "\\n")
+            .replace('\t', "\\t");
         format!("\"{escaped}\"")
     } else {
         s.to_string()
@@ -320,6 +362,38 @@ mod tests {
     #[test]
     fn unterminated_is_an_error() {
         assert!(parse("---\ntitle: x\n").is_err());
+    }
+
+    #[test]
+    fn compose_orders_keys_keeps_unknown_and_drops_empties() {
+        let mut fields = BTreeMap::new();
+        fields.insert("zeta".to_string(), Value::Scalar("kept".into()));
+        fields.insert("date".to_string(), Value::Scalar("2026-10-21".into()));
+        fields.insert("title".to_string(), Value::Scalar("T: x".into()));
+        fields.insert("tags".to_string(), Value::List(vec!["a".into()]));
+        fields.insert("series".to_string(), Value::Scalar("".into()));
+        fields.insert("draft".to_string(), Value::List(vec![]));
+        let text = compose(&fields, "\n\nBody text");
+        assert_eq!(
+            text,
+            "---\ntitle: \"T: x\"\ndate: 2026-10-21\ntags:\n  - a\nzeta: kept\n---\n\nBody text\n"
+        );
+        let doc = parse(&text).unwrap();
+        assert_eq!(doc.front_matter.get("zeta"), Some("kept"));
+        assert_eq!(doc.body.trim(), "Body text");
+    }
+
+    #[test]
+    fn values_with_newlines_cannot_inject_fields() {
+        let mut fields = BTreeMap::new();
+        fields.insert("title".to_string(), Value::Scalar("T".into()));
+        fields.insert("description".to_string(), Value::Scalar("line one\nslug: evil\r\n---\ndraft: true".into()));
+        let text = compose(&fields, "body");
+        let doc = parse(&text).unwrap();
+        assert_eq!(doc.front_matter.get("slug"), None);
+        assert_eq!(doc.front_matter.get("draft"), None);
+        assert_eq!(doc.front_matter.get("description"), Some("line one\nslug: evil\n---\ndraft: true"));
+        assert_eq!(doc.body.trim(), "body");
     }
 
     #[test]
