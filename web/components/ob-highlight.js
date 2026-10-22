@@ -41,6 +41,7 @@ const ASSIGNS_FUNCTION = /^\s*=\s*(?:async\s+)?(?:function\b|\([^()]*\)\s*(?::\s
 const DEFINERS = words("fn function def func fun");
 const TYPE_INTRODUCERS = words("class new extends implements interface type enum struct trait impl union instanceof");
 const CONTEXTUAL = words("get set of from"); // keywords that are also common method names
+const ASSOCIATED_TYPES = words("Item Output Error Target Owned Err IntoIter");
 
 /**
  * Identifier rule shared by the C-like languages. Decides between keyword,
@@ -57,10 +58,13 @@ function ident(keywords, { types = new Set(), constants = new Set(), capsAreType
       if (p === "." || p === "?.") return call || ASSIGNS_FUNCTION.test(ahead) ? "function" : "property";
       // `{ key: value }` and struct fields, but not `(a: T, b: U)` parameters.
       if ((p === "{" || p === ",") && ctx.top === "{" && /^\s*\??:(?!:)/.test(ahead)) return "property";
-      // Enum variants: `Ordering::Less`, `Self::Empty`.
-      if (p === "::" && /^[A-Z][a-z]/.test(m) && ctx.prev2 && (ctx.prev2.cls === "type" || ctx.prev2.text === "Self") && !/^\s*(?:::|<|\()/.test(ahead)) return "constant";
+      // Enum variants: `Ordering::Less`, `Shape::Circle(r)`; not associated
+      // types in type position such as `Self::Item>` or `T::Output,`.
+      if (p === "::" && /^[A-Z][a-z]/.test(m) && ctx.prev2 && (ctx.prev2.cls === "type" || ctx.prev2.text === "Self") &&
+        !ASSOCIATED_TYPES.has(m) && !/^\s*(?:::|<|[>;]|=(?!>))/.test(ahead)) return "constant";
       if (constants.has(m)) return "constant";
-      if (CONTEXTUAL.has(m) && /^\s*\(/.test(ahead) && !DEFINERS.has(p)) return "function";
+      // `get(url) {}` is a method; `for (x of (list))` keeps `of` a keyword.
+      if (CONTEXTUAL.has(m) && /^\s*\(/.test(ahead) && (!prev || /^[{};,]$/.test(p) || /^(?:static|async)$/.test(p))) return "function";
       if (keywords.has(m)) return "keyword";
       if (prev && prev.cls === "keyword") {
         if (DEFINERS.has(p)) return "function";
@@ -102,7 +106,7 @@ const BASH_KW = words("if then else elif fi for while until do done case esac in
 
 const JS_REGEX_AFTER_KW = words("return typeof case do else in of yield await void delete throw new instanceof");
 const JS_REGEX = {
-  re: /\/(?![*/])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n[])+\/[dgimsuyv]*/y,
+  re: /\/(?![*/])(?:\\.|\[(?:\\.|[^\]\\\n]){0,200}\]|[^/\\\n[]){1,500}\/[dgimsuyv]*/y,
   cls: "regex",
   when: (prev) =>
     !prev ||
@@ -113,41 +117,49 @@ const JS_REGEX = {
 
 const SHEBANG = { re: /#![^\n]*/y, cls: "comment", when: (prev) => !prev };
 
-/** End index of the template literal that starts at s[i] (a backtick). */
-function scanTemplate(s, i) {
-  let j = i + 1;
-  while (j < s.length) {
-    const c = s[j];
-    if (c === "\\") j += 2;
-    else if (c === "`") return j + 1;
-    else if (c === "$" && s[j + 1] === "{") j = scanInterpolation(s, j + 2);
-    else j += 1;
-  }
-  return s.length;
+/** Index just past a quoted string starting at s[k] (stops at a newline). */
+function skipQuoted(s, k) {
+  const q = s[k];
+  k += 1;
+  while (k < s.length && s[k] !== q && s[k] !== "\n") k += s[k] === "\\" ? 2 : 1;
+  return Math.min(s.length, k + 1);
 }
 
-/** Index just past the `}` closing an interpolation whose code starts at k,
- * skipping strings and nested template literals. */
-function scanInterpolation(s, k) {
-  let depth = 1;
-  while (k < s.length) {
-    const c = s[k];
-    if (c === "`") {
-      k = scanTemplate(s, k);
-      continue;
-    }
-    if (c === '"' || c === "'") {
-      k += 1;
-      while (k < s.length && s[k] !== c && s[k] !== "\n") k += s[k] === "\\" ? 2 : 1;
-      k += 1;
-      continue;
-    }
-    if (c === "{") depth += 1;
-    else if (c === "}" && --depth === 0) return k + 1;
-    k += 1;
+/**
+ * Scan JavaScript from j with an explicit stack instead of recursion, so any
+ * nesting depth is safe. Stack entries: "`" template text, "$" a ${…}
+ * interpolation, "{" a brace block in code. Returns the index just past the
+ * point where the stack empties, or s.length.
+ */
+function scanCode(s, j, stack) {
+  while (j < s.length && stack.length) {
+    const c = s[j];
+    if (stack[stack.length - 1] === "`") {
+      if (c === "\\") j += 2;
+      else if (c === "`") {
+        stack.pop();
+        j += 1;
+      } else if (c === "$" && s[j + 1] === "{") {
+        stack.push("$");
+        j += 2;
+      } else j += 1;
+    } else if (c === "`") {
+      stack.push("`");
+      j += 1;
+    } else if (c === '"' || c === "'") j = skipQuoted(s, j);
+    else if (c === "{") {
+      stack.push("{");
+      j += 1;
+    } else if (c === "}") {
+      stack.pop();
+      j += 1;
+    } else j += 1;
   }
-  return s.length;
+  return Math.min(j, s.length);
 }
+
+const scanTemplate = (s, i) => scanCode(s, i + 1, ["`"]); // s[i] is a backtick
+const scanBraces = (s, k) => scanCode(s, k, ["{"]); // k is just past a `{`
 
 // A "regex" with its own exec, so template literals can nest inside ${…}.
 const TEMPLATE_SCANNER = {
@@ -155,48 +167,166 @@ const TEMPLATE_SCANNER = {
   exec(s) {
     const start = this.lastIndex;
     if (s[start] !== "`") return null;
-    return [s.slice(start, Math.min(s.length, scanTemplate(s, start)))];
+    return [s.slice(start, scanTemplate(s, start))];
   },
 };
 
-// JSX tags in expression position: `return <Card title="x" onClick={go} />`.
-const JSX_TAG = /<\/?[A-Za-z][\w.:-]*(?:\s+[\w:.-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|\{(?:[^{}]|\{[^{}]*\})*\}))?|\s+\{\.\.\.[^{}]*\})*\s*\/?>|<\/?>/y;
+/** One JSX or HTML tag starting at s[i] === "<": its end and name, or null
+ * when the text is not a tag (`a < b && c > d` is rejected). */
+function scanTag(s, i) {
+  let j = i + 1;
+  const closing = s[j] === "/";
+  if (closing) j += 1;
+  const nameRe = /[A-Za-z][\w.:-]*/y;
+  nameRe.lastIndex = j;
+  const nm = nameRe.exec(s);
+  const name = nm ? nm[0] : "";
+  if (!nm && s[j] !== ">") return null; // only <> and </> may be nameless
+  j += name.length;
+  while (j < s.length) {
+    const c = s[j];
+    if (c === ">") return { end: j + 1, name, closing, selfClosing: false };
+    if (c === "/" && s[j + 1] === ">") return { end: j + 2, name, closing, selfClosing: true };
+    if (c === "{") j = scanBraces(s, j + 1);
+    else if (c === '"' || c === "'") {
+      const e = s.indexOf(c, j + 1);
+      if (e < 0) return null;
+      j = e + 1;
+    } else if (/[\s\w:.@=-]/.test(c)) j += 1;
+    else return null;
+  }
+  return null;
+}
+
+/** A whole JSX element at s[i], children included, or null. */
+function scanJsxElement(s, i) {
+  const open = scanTag(s, i);
+  if (!open || open.closing) return null;
+  if (open.selfClosing) return open.end;
+  // `<number>value` is a TypeScript cast unless a matching close tag follows.
+  if (s.indexOf(`</${open.name}`, open.end) < 0) return null;
+  let depth = 1;
+  let j = open.end;
+  while (j < s.length) {
+    const lt = s.indexOf("<", j);
+    const lb = s.indexOf("{", j);
+    if (lb >= 0 && (lt < 0 || lb < lt)) {
+      j = scanBraces(s, lb + 1);
+      continue;
+    }
+    if (lt < 0) return null;
+    const t = scanTag(s, lt);
+    if (!t) {
+      j = lt + 1;
+      continue;
+    }
+    j = t.end;
+    if (t.closing) {
+      depth -= 1;
+      if (depth === 0) return j;
+    } else if (!t.selfClosing) depth += 1;
+  }
+  return null;
+}
+
+const JSX_SCANNER = {
+  lastIndex: 0,
+  exec(s) {
+    const start = this.lastIndex;
+    if (s[start] !== "<") return null;
+    const end = scanJsxElement(s, start);
+    return end ? [s.slice(start, end)] : null;
+  },
+};
+
+/** Tokens for a JSX element: tags, `{…}` as code, and text children plain. */
+function jsxTokens(text, rules) {
+  const out = [];
+  const code = (c) => tokenize(c, rules);
+  let j = 0;
+  while (j < text.length) {
+    const lt = text.indexOf("<", j);
+    const lb = text.indexOf("{", j);
+    const next = Math.min(lt < 0 ? text.length : lt, lb < 0 ? text.length : lb);
+    if (next > j) out.push({ text: text.slice(j, next), cls: null });
+    if (next >= text.length) break;
+    if (next === lb) {
+      const e = scanBraces(text, lb + 1);
+      const closed = text[e - 1] === "}";
+      out.push({ text: "{", cls: "punctuation" }, ...code(text.slice(lb + 1, closed ? e - 1 : e)));
+      if (closed) out.push({ text: "}", cls: "punctuation" });
+      j = e;
+    } else {
+      const t = scanTag(text, lt);
+      if (!t) {
+        out.push({ text: "<", cls: null });
+        j = lt + 1;
+      } else {
+        out.push(...tagTokens(text.slice(lt, t.end), code));
+        j = t.end;
+      }
+    }
+  }
+  return out;
+}
 
 function jsRules(kw, opts) {
   const rules = [WS, SHEBANG, LINE_COMMENT("//"), BLOCK_COMMENT, DQ_STRING, SQ_STRING];
   rules.push({ re: TEMPLATE_SCANNER, cls: (m) => templateTokens(m, rules) });
   rules.push(JS_REGEX);
-  rules.push({ re: JSX_TAG, cls: (m) => tagTokens(m, (code) => tokenize(code, rules)), when: (prev) => JS_REGEX.when(prev) || (prev && prev.cls === "punctuation" && prev.text === ">") });
-  rules.push({ re: /<\/[A-Za-z][\w.:-]*\s*>/y, cls: (m) => tagTokens(m) });
+  rules.push({ re: JSX_SCANNER, cls: (m) => jsxTokens(m, rules), when: JS_REGEX.when });
   rules.push(NUMBER, { re: /#[A-Za-z_]\w*/y, cls: "property" }, { re: /@[A-Za-z_][\w.]*/y, cls: "meta" }, ident(kw, opts), OPERATOR, PUNCTUATION);
   return rules;
 }
 
+// Template literals nest inside ${…}; past this depth the rest is one string,
+// which keeps pathological input linear.
+let templateNesting = 0;
+
 /** A template literal: string parts, with each ${…} highlighted as code. */
 function templateTokens(text, rules) {
-  const out = [];
-  let i = 0;
-  let str = "";
-  while (i < text.length) {
-    if (text[i] === "\\") {
-      str += text.slice(i, i + 2);
-      i += 2;
-    } else if (text.startsWith("${", i)) {
-      const j = Math.min(text.length, scanInterpolation(text, i + 2));
-      if (str) out.push({ text: str, cls: "string" });
-      str = "";
-      const closed = text[j - 1] === "}" && j > i + 2;
-      out.push({ text: "${", cls: "keyword" });
-      out.push(...tokenize(text.slice(i + 2, closed ? j - 1 : j), rules));
-      if (closed) out.push({ text: "}", cls: "keyword" });
-      i = j;
-    } else {
-      str += text[i];
-      i += 1;
+  if (templateNesting > 16) return [{ text, cls: "string" }];
+  templateNesting += 1;
+  try {
+    const out = [];
+    let i = 0;
+    let str = "";
+    while (i < text.length) {
+      if (text[i] === "\\") {
+        str += text.slice(i, i + 2);
+        i += 2;
+      } else if (text.startsWith("${", i)) {
+        const j = scanCode(text, i + 2, ["$"]);
+        if (str) out.push({ text: str, cls: "string" });
+        str = "";
+        const closed = text[j - 1] === "}" && j > i + 2;
+        out.push({ text: "${", cls: "keyword" });
+        out.push(...tokenize(text.slice(i + 2, closed ? j - 1 : j), rules));
+        if (closed) out.push({ text: "}", cls: "keyword" });
+        i = j;
+      } else {
+        str += text[i];
+        i += 1;
+      }
     }
+    if (str) out.push({ text: str, cls: "string" });
+    return out;
+  } finally {
+    templateNesting -= 1;
   }
-  if (str) out.push({ text: str, cls: "string" });
-  return out;
+}
+
+// CSS needs to know whether a word is in a selector (a `{` comes before the
+// next `;` or `}`). The answer for every position is computed once per source.
+let cssStops = { src: null, next: null };
+function selectorAhead(src, i) {
+  if (cssStops.src !== src) {
+    const next = new Int32Array(src.length + 1);
+    next[src.length] = src.length;
+    for (let k = src.length - 1; k >= 0; k -= 1) next[k] = "{};".includes(src[k]) ? k : next[k + 1];
+    cssStops = { src, next };
+  }
+  return src[cssStops.next[Math.min(i, src.length)]] === "{";
 }
 
 const CSS_RULES = [
@@ -205,14 +335,14 @@ const CSS_RULES = [
   { re: /!important/y, cls: "keyword" },
   { re: /--[\w-]+/y, cls: "variable" },
   { re: /\$[\w-]+/y, cls: "variable" },
-  { re: /#[\da-fA-F]{3,8}\b(?![^{};]*\{)/y, cls: "number" },
+  { re: /#[\da-fA-F]{3,8}(?![\w-])/y, cls: (m, src, end) => (selectorAhead(src, end) ? "tag" : "number") },
   { re: /-?(?:\d+\.?\d*|\.\d+)(?:%|[a-zA-Z]+)?/y, cls: "number" },
-  { re: /(?<=\(\s*)[\w-]+(?=\s*:)/y, cls: "attr" }, // @media (min-width: …)
-  { re: /[\w-]+(?=\s*:(?![^;{}]*\{))/y, cls: "attr" },
+  // @media (min-width: …): a feature name in an at-rule prelude.
+  { re: /(?<=@(?:media|supports|container|import)\b[^{;]{0,200}\(\s*)[\w-]+(?=\s*:)/y, cls: "attr" },
+  { re: /[\w-]+(?=\s*:)/y, cls: (m, src, end) => (selectorAhead(src, end) ? "tag" : "attr") }, // a:hover { vs color:
   { re: /[\w-]+(?=\()/y, cls: "function" },
-  { re: /(?:\.|#|::?)[\w-]+|\[[^\]\n]*\]|&/y, cls: "tag" },
-  { re: /[A-Za-z_][\w-]*(?=[^{};]*\{)/y, cls: "tag" },
-  { re: /[A-Za-z_][\w-]*/y, cls: "constant" },
+  { re: /(?:\.|#|::?)[\w-]+|\[[^\]\n]{0,200}\]|&/y, cls: "tag" },
+  { re: /[A-Za-z_][\w-]*/y, cls: (m, src, end) => (selectorAhead(src, end) ? "tag" : "constant") },
   { re: /[>+~*,/=]/y, cls: "operator" },
   { re: /[{}();:]/y, cls: "punctuation" },
 ];
@@ -222,9 +352,9 @@ const LANGUAGES = {
   typescript: jsRules(JS_KW, { types: new Set([...JS_TY, ...TS_TY]), constants: JS_CONST, capsAreTypes: true }),
   rust: [
     WS, LINE_COMMENT("//"), BLOCK_COMMENT,
-    { re: /#!?\[[^\]\n]*\]/y, cls: rustAttribute },
+    { re: /#!?\[[^\]\n]{0,300}\]/y, cls: rustAttribute },
     { re: /'[A-Za-z_]\w*(?!')/y, cls: "meta" }, // lifetime
-    { re: /b?r(#*)"[\s\S]*?"\1/y, cls: "string" },
+    { re: /b?r(#*)"[\s\S]*?(?:"\1|(?![\s\S]))/y, cls: "string" }, // unterminated: to the end
     { re: /b?"(?:\\[\s\S]|[^"\\])*"?/y, cls: "string" },
     { re: /b?'(?:\\.|\\u\{[\da-fA-F]+\}|[^'\\])'/y, cls: "string" },
     NUMBER,
@@ -261,17 +391,22 @@ const LANGUAGES = {
   ],
   bash: [
     { re: /(?<=^[ \t]*)(?:[\w@~:/.-]*\$|PS [^>\n]*>) /my, cls: "prompt" },
-    WS, LINE_COMMENT("#"),
+    WS,
+    { re: /(?<=^|[\s;|&(])#[^\n]*/my, cls: "comment" }, // not the # in page#section
+    // Shell strings may span lines; an unterminated quote stops at the line end.
+    { re: /'[^']*'|"(?:\\[\s\S]|[^"\\])*"/y, cls: "string" },
     DQ_STRING, SQ_STRING,
     { re: /\$(?:\{[^}\n]*\}|\(\(?|[\w@#?*$!-]+)/y, cls: "variable" },
     { re: /(?<=^|[\s|&;(])--?[\w-]+(?:=[^\s"']*)?/y, cls: "attr" },
     { re: /[A-Za-z_]\w*(?==)/y, cls: "variable" },
-    // 1.2.0 is one number; 7300a6f (a commit) is a plain argument.
-    { re: /\d+(?:\.\d+)*(?![\w./:-])/y, cls: "number" },
-    { re: /<<-?[ \t]*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?^[ \t]*\2$/my, cls: heredoc },
+    // 1.2.0 is one number; 7300a6f (a commit) and 8080:80 (a mapping) are words.
+    { re: /(?<![\w.:/@-])\d+(?:\.\d+)*(?![\w./:-])/y, cls: "number" },
+    // An unterminated heredoc runs to the end, so it is never rescanned.
+    { re: /<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1[^\n]*\n[\s\S]*?(?:^[ \t]*\2$|(?![\s\S]))/my, cls: heredoc },
     {
-      re: /[A-Za-z_./~][\w.\/~:@-]*/y,
+      re: /[\w./~][\w.\/~:@#%+,=-]*/y,
       cls: (m, src, end, start) => {
+        if (/^\d/.test(m)) return null;
         if (BASH_KW.has(m)) return "keyword";
         // A command is the first word of a line (after any prompt) or follows
         // a pipe, a separator, a condition, or a wrapper such as sudo.
@@ -340,7 +475,7 @@ const LANGUAGES = {
     { re: /```[\s\S]*?```/y, cls: "string" },
     { re: /`[^`\n]+`/y, cls: "string" },
     { re: /\*\*[^*\n]+\*\*|__[^_\n]+__/y, cls: "type" },
-    { re: /!?\[[^\]\n]*\]\([^)\n]*\)/y, cls: "function" },
+    { re: /!?\[[^\]\n]{0,300}\]\([^)\n]{0,500}\)/y, cls: "function" },
     { re: /^>[^\n]*/my, cls: "comment" },
     { re: /(?<=^[ \t]*)(?:[-*+]|\d+\.) /my, cls: "punctuation" },
   ],
@@ -361,9 +496,10 @@ function tokenize(src, rules) {
     plain = "";
   };
   const seen = (token) => {
+    if (token.cls === "comment") return; // comments are trivia for context
     prev2 = prev;
     prev = token;
-    if (token.text.length === 1 && token.cls !== "string" && token.cls !== "comment") {
+    if (token.text.length === 1 && token.cls !== "string") {
       if ("([{".includes(token.text)) brackets.push(token.text);
       else if (")]}".includes(token.text)) brackets.pop();
     }
@@ -383,7 +519,7 @@ function tokenize(src, rules) {
         // A nested run (template literal, tag, attribute) is balanced inside.
         flush();
         out.push(...cls);
-        const last = cls.filter((t) => /\S/.test(t.text));
+        const last = cls.filter((t) => t.cls !== "comment" && /\S/.test(t.text));
         if (last.length) {
           prev2 = last.length > 1 ? last[last.length - 2] : prev;
           prev = last[last.length - 1];
@@ -419,19 +555,42 @@ function tagTokens(tag, code) {
   const name = tag.slice(open.length).match(/^[^\s>/]*/)[0];
   out.push({ text: open, cls: "punctuation" });
   if (name) out.push({ text: name, cls: /[-.]|^[A-Z]/.test(name) ? "type" : "tag" });
-  const braces = (v) =>
-    code ? [{ text: "{", cls: "punctuation" }, ...code(v.slice(1, -1)), { text: "}", cls: "punctuation" }] : [{ text: v, cls: "string" }];
-  const attrRe = /\{(?:[^{}]|\{[^{}]*\})*\}|([^\s=/>{]+)(\s*=\s*)?("[^"]*"|'[^']*'|\{(?:[^{}]|\{[^{}]*\})*\}|[^\s>]+)?|\/?>|\s+|[\s\S]/g;
+  // `{…}` values (JSX) are code when `code` is given, at any brace depth.
+  const braces = (v) => {
+    if (!code) return [{ text: v, cls: "string" }];
+    const closed = v.endsWith("}") && v.length > 1;
+    return [{ text: "{", cls: "punctuation" }, ...code(v.slice(1, closed ? -1 : undefined)), ...(closed ? [{ text: "}", cls: "punctuation" }] : [])];
+  };
   const rest = tag.slice(open.length + name.length);
-  let a;
-  while ((a = attrRe.exec(rest))) {
-    if (a[0].startsWith("{")) out.push(...braces(a[0]));
-    else if (a[1]) {
-      out.push({ text: a[1], cls: "attr" });
-      if (a[2]) out.push({ text: a[2], cls: "operator" });
-      if (a[3]) out.push(...(a[3].startsWith("{") ? braces(a[3]) : [{ text: a[3], cls: "string" }]));
-    } else if (/^\/?>$/.test(a[0])) out.push({ text: a[0], cls: "punctuation" });
-    else out.push({ text: a[0], cls: null });
+  let j = 0;
+  let afterEquals = false;
+  while (j < rest.length) {
+    const c = rest[j];
+    let k = j + 1;
+    if (/\s/.test(c)) {
+      while (k < rest.length && /\s/.test(rest[k])) k += 1;
+      out.push({ text: rest.slice(j, k), cls: null });
+    } else if (c === "{") {
+      k = scanBraces(rest, j + 1);
+      out.push(...braces(rest.slice(j, k)));
+      afterEquals = false;
+    } else if (c === '"' || c === "'") {
+      const e = rest.indexOf(c, j + 1);
+      k = e < 0 ? rest.length : e + 1;
+      out.push({ text: rest.slice(j, k), cls: "string" });
+      afterEquals = false;
+    } else if (c === "=") {
+      out.push({ text: "=", cls: "operator" });
+      afterEquals = true;
+    } else if (c === ">" || (c === "/" && rest[j + 1] === ">")) {
+      k = c === ">" ? j + 1 : j + 2;
+      out.push({ text: rest.slice(j, k), cls: "punctuation" });
+    } else {
+      while (k < rest.length && !/[\s=>"'{]/.test(rest[k]) && !(rest[k] === "/" && rest[k + 1] === ">")) k += 1;
+      out.push({ text: rest.slice(j, k), cls: afterEquals ? "string" : "attr" }); // unquoted value or a name
+      afterEquals = false;
+    }
+    j = k;
   }
   return out;
 }
@@ -499,7 +658,8 @@ function tokenizeMarkup(src) {
     }
     if (last < s.length) out.push({ text: s.slice(last), cls: null });
   };
-  const re = /<!--[\s\S]*?(?:-->|$)|<!\[CDATA\[[\s\S]*?(?:\]\]>|$)|<![A-Za-z][^>]*>|<\?[\s\S]*?(?:\?>|$)|<\/?[A-Za-z][^\s>/]*(?:\s+(?:[^>"']|"[^"]*"|'[^']*')*?)?\/?>/g;
+  // A tag may not contain another `<`, so a failed attempt stops at the next one.
+  const re = /<!--[\s\S]*?(?:-->|$)|<!\[CDATA\[[\s\S]*?(?:\]\]>|$)|<![A-Za-z][^<>]*>|<\?[\s\S]*?(?:\?>|$)|<\/?[A-Za-z][^\s<>/]*(?:\s(?:[^<>"']|"[^"]*"|'[^']*')*)?\/?>/g;
   let last = 0;
   let m;
   while ((m = re.exec(src))) {
@@ -515,8 +675,11 @@ function tokenizeMarkup(src) {
       // Script and style bodies are code in another language.
       const lower = name.toLowerCase();
       if (open === "<" && !tag.endsWith("/>") && (lower === "script" || lower === "style")) {
-        const close = src.toLowerCase().indexOf(`</${lower}`, m.index + tag.length);
-        const end = close === -1 ? src.length : close;
+        // Search the original text: lower-casing can change its length (İ).
+        const closeRe = new RegExp(`</${lower}(?=[\\s>/])`, "gi");
+        closeRe.lastIndex = m.index + tag.length;
+        const cm = closeRe.exec(src);
+        const end = cm ? cm.index : src.length;
         const body = src.slice(m.index + tag.length, end);
         if (body) {
           const json = lower === "script" && /type\s*=\s*["']?application\/(?:ld\+)?json/i.test(tag);
@@ -581,6 +744,8 @@ const DETECTORS = {
     [/^[ \t]*-{0,2}[a-z][\w-]*\s*:\s*[^;{}\n=]+;\s*(?:\/\*.*\*\/)?\s*$/gim, 1.5],
     [/@media|@keyframes|@import|@font-face|@supports|@layer|@container|@scope|@property|:root\b|:host\b|::slotted|::part|!important|::?(?:hover|focus|before|after|nth-child|root|not|has|is|where)\b/g, 3],
     [/\b(?:for|while|switch|catch)\s*\(/g, -4],
+    // `fetch(url, {` and `headers: {` open JS objects, not CSS rules.
+    [/,\s*\{\s*$|^\s*['"]?[\w$-]+['"]?\s*:\s*\{\s*$|['"][^'"\n]*['"]\s*,\s*\{/gm, -3],
     [/\b\d+(?:px|rem|em|vh|vw|vmin|ms|deg|fr)\b/g, 1],
     [/\bvar\(--[\w-]+\)/g, 3],
     [/\b(?:const|let|var|function|return|import|export|fn|def|if|else)\b|=>|===|\bconsole\.|\(\)\s*\{/g, -4],
@@ -603,6 +768,7 @@ const DETECTORS = {
     [/^\s*[\w$]+(?:\.[\w$]+)+\s*=[^=\n]*;\s*(?:\/\/[^\n]*)?$/gm, 2.5], // obj.prop = value;
     [/^\s*[\w$'")\]]+(?:\.[\w$]+)*\.[\w$]+\([^\n]*\);\s*(?:\/\/[^\n]*)?$/gm, 1.5], // obj.method(…);
     [/\$\(\s*['"`]/g, 3], // jQuery
+    [/^\s*\}\)\s*;?\s*$/gm, 2], // }); closing a call with an object or callback
     [/^\s*\/\/ /gm, 0.5],
     [/\bmodule\.exports\b|\bprototype\b/g, 3],
     [/\bclass\s+[\w$]+(?:\s+extends\s+[\w$.]+)?\s*\{/g, 3],
@@ -714,7 +880,7 @@ export function detectLanguage(code) {
   // Merge-conflict markers around prose are not any language.
   if (/^(?:<{7}|>{7}) |^={7}$/m.test(src)) return null;
   // JSON, also with // comment lines (as in config files).
-  const uncommented = src.replace(/^\s*\/\/[^\n]*\n?/gm, "").trim();
+  const uncommented = /^[[{/]/.test(src) ? src.slice(0, 20000).replace(/^[ \t]*\/\/[^\n]*\n?/gm, "").trim() : "";
   if (/^[[{]/.test(uncommented) && /[\]}]$/.test(uncommented)) {
     try {
       JSON.parse(uncommented);

@@ -225,3 +225,77 @@ test("detection stays out of prose and output", () => {
   ];
   for (const code of cases) assert.equal(detectLanguage(code), null, code);
 });
+
+test("fetch with an options object is javascript, not css", () => {
+  const code = "fetch('https://api.example.com/x', {\n  headers: {\n    'Authorization': 'Bearer x'\n  }\n});";
+  assert.equal(detectLanguage(code), "javascript");
+});
+
+test("jsx children are text, and nested elements and braces work", () => {
+  const plainText = (t, w) => t.some((x) => x.cls === null && x.text.includes(w));
+  const a = highlight("return <p>Don't panic</p>;", "jsx");
+  assert.ok(plainText(a, "Don't panic"));
+  assert.equal(a.filter((x) => x.cls === "tag").length, 2);
+  const b = highlight("return <p>Hello <b>world</b> {name}</p>;", "jsx");
+  assert.equal(b.filter((x) => x.text === "b" && x.cls === "tag").length, 2);
+  const c = highlight("return <button onClick={() => { if (a) { b(); } }}>Go</button>;", "jsx");
+  assert.equal(clsOf(c, "onClick"), "attr");
+  assert.equal(clsOf(c, "if"), "keyword");
+  const cast = highlight("const n = <number>value;", "ts");
+  assert.ok(!cast.some((x) => x.cls === "tag"), "a TypeScript cast is not a tag");
+  const cmp = highlight("if (a < b && c > d) go();", "js");
+  assert.ok(!cmp.some((x) => x.cls === "tag"), "comparisons are not tags");
+});
+
+test("comments do not hide a regex or jsx after them", () => {
+  assert.ok(highlight("const re = /* digits */ /x+/g;", "js").some((x) => x.cls === "regex"));
+  assert.ok(highlight("return (\n  // note\n  <div>x</div>\n);", "jsx").some((x) => x.cls === "tag"));
+});
+
+test("shell strings span lines, # mid-word is not a comment, mappings stay whole", () => {
+  const t = highlight("psql -c 'SELECT 1\nFROM t' && echo done\ncurl https://x.dev/page#top -o out\ndocker run -p 8080:80 nginx", "bash");
+  assert.equal(clsOf(t, "'SELECT 1\nFROM t'"), "string");
+  assert.equal(clsOf(t, "echo"), "function");
+  assert.ok(!t.some((x) => x.cls === "comment"));
+  assert.equal(clsOf(t, "-o"), "attr");
+  assert.ok(!t.some((x) => x.cls === "number" && x.text === "80"));
+});
+
+test("html finds </script> after characters that change length when lower-cased", () => {
+  const t = highlight("<p>İİİİİ</p><script>let x = 1;</script><p>after</p>", "html");
+  assert.equal(t.filter((x) => x.text === "script" && x.cls === "tag").length, 2);
+  assert.equal(clsOf(t, "after"), null);
+});
+
+test("rust: variants are constants, associated types are not", () => {
+  const t = highlight("let s = Shape::Circle(5.0);\nfn next(&mut self) -> Option<Self::Item> {}", "rust");
+  assert.equal(clsOf(t, "Circle"), "constant");
+  assert.notEqual(clsOf(t, "Item"), "constant");
+  const f = highlight("for (const x of (await list())) {}", "js");
+  assert.equal(clsOf(f, "of"), "keyword");
+});
+
+test("pathological input stays fast and never throws", () => {
+  const N = 50000;
+  const rep = (s) => s.repeat(Math.ceil(N / s.length)).slice(0, N);
+  const cases = [
+    ["javascript", "`${".repeat(5000)],
+    ["javascript", rep("=/[ ")],
+    ["html", "<a" + " ".repeat(N)],
+    ["html", rep("if a<b then c<d\n")],
+    ["css", rep("color red\n")],
+    ["bash", "1".repeat(N) + "a"],
+    ["bash", rep("cat <<EOF\n")],
+    ["rust", rep('r##"a"# ')],
+  ];
+  for (const [lang, code] of cases) {
+    const start = performance.now();
+    const tokens = highlight(code, lang);
+    const ms = performance.now() - start;
+    assert.equal(tokens.map((x) => x.text).join(""), code, lang);
+    assert.ok(ms < 1000, `${lang} took ${Math.round(ms)}ms`);
+  }
+  const start = performance.now();
+  detectLanguage("a" + "\n".repeat(N) + "b");
+  assert.ok(performance.now() - start < 1000);
+});
