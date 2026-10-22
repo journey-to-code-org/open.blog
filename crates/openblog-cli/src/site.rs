@@ -16,12 +16,30 @@ pub const CONFIG_FILE: &str = "openblog.json";
 pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     ("base.css", include_str!("../../../web/base.css")),
     ("openblog.js", include_str!("../../../web/openblog.js")),
-    ("components/ob-theme-toggle.js", include_str!("../../../web/components/ob-theme-toggle.js")),
-    ("components/ob-code-copy.js", include_str!("../../../web/components/ob-code-copy.js")),
-    ("components/ob-back-to-top.js", include_str!("../../../web/components/ob-back-to-top.js")),
-    ("components/ob-search.js", include_str!("../../../web/components/ob-search.js")),
-    ("components/ob-share.js", include_str!("../../../web/components/ob-share.js")),
-    ("components/ob-views.js", include_str!("../../../web/components/ob-views.js")),
+    (
+        "components/ob-theme-toggle.js",
+        include_str!("../../../web/components/ob-theme-toggle.js"),
+    ),
+    (
+        "components/ob-code.js",
+        include_str!("../../../web/components/ob-code.js"),
+    ),
+    (
+        "components/ob-back-to-top.js",
+        include_str!("../../../web/components/ob-back-to-top.js"),
+    ),
+    (
+        "components/ob-search.js",
+        include_str!("../../../web/components/ob-search.js"),
+    ),
+    (
+        "components/ob-share.js",
+        include_str!("../../../web/components/ob-share.js"),
+    ),
+    (
+        "components/ob-views.js",
+        include_str!("../../../web/components/ob-views.js"),
+    ),
 ];
 
 /// The admin editor. Served only by `serve --admin`, never copied into the
@@ -80,7 +98,10 @@ pub fn read_sources(root: &Path, config: &SiteConfig) -> Result<Sources, String>
         }
         let bytes = fs::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
         let contents = String::from_utf8(bytes).map_err(|_| format!("{rel} is not valid UTF-8"))?;
-        sources.add(SourceFile { path: rel, contents });
+        sources.add(SourceFile {
+            path: rel,
+            contents,
+        });
     }
     Ok(sources)
 }
@@ -88,16 +109,27 @@ pub fn read_sources(root: &Path, config: &SiteConfig) -> Result<Sources, String>
 pub fn load_themes(root: &Path, config: &SiteConfig) -> Result<ThemeSet, String> {
     let themes_dir = root.join(&config.paths.themes);
     let mut set = ThemeSet::new();
-    let Ok(entries) = fs::read_dir(&themes_dir) else { return Ok(set) };
-    let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    let Ok(entries) = fs::read_dir(&themes_dir) else {
+        return Ok(set);
+    };
+    let mut dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
     dirs.sort();
     for dir in dirs {
-        let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let name = dir
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         let file = dir.join("theme.json");
         if !file.exists() {
             continue;
         }
-        let json = fs::read_to_string(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+        let json = fs::read_to_string(&file)
+            .map_err(|e| format!("cannot read {}: {e}", file.display()))?;
         let theme = ThemeFile::from_json(&json).map_err(|e| format!("{}: {e}", file.display()))?;
         set.insert(&name, theme);
     }
@@ -118,13 +150,20 @@ pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
             h = h.wrapping_mul(0x0100_0000_01b3);
         }
     };
-    for dir in [&config.paths.web, &config.paths.themes, &config.paths.static_dir] {
+    for dir in [
+        &config.paths.web,
+        &config.paths.themes,
+        &config.paths.static_dir,
+    ] {
         let base = root.join(dir);
         for file in fsutil::walk(&base) {
             mix(fsutil::relative(&base, &file).as_bytes());
             // Text assets by content; everything else (images, fonts) by size, which is
             // cheap and changes whenever the file is replaced.
-            let is_text = file.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e, "css" | "js" | "mjs" | "json"));
+            let is_text = file
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| matches!(e, "css" | "js" | "mjs" | "json"));
             if is_text {
                 if let Ok(bytes) = fs::read(&file) {
                     mix(&bytes);
@@ -141,12 +180,28 @@ pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
     config
 }
 
-pub fn load_site(root: &Path, include_drafts: bool, now: Option<DateTime>) -> Result<(Site, ThemeSet), String> {
+pub fn load_site(
+    root: &Path,
+    include_drafts: bool,
+    now: Option<DateTime>,
+) -> Result<(Site, ThemeSet), String> {
     let config = with_asset_version(root, load_config(root)?);
     let sources = read_sources(root, &config)?;
     let themes = load_themes(root, &config)?;
-    let site = Site::load(config, sources, LoadOptions { include_drafts, now }).map_err(|errors| {
-        format!("{} problem(s) in your content:\n  - {}", errors.len(), errors.join("\n  - "))
+    let site = Site::load(
+        config,
+        sources,
+        LoadOptions {
+            include_drafts,
+            now,
+        },
+    )
+    .map_err(|errors| {
+        format!(
+            "{} problem(s) in your content:\n  - {}",
+            errors.len(),
+            errors.join("\n  - ")
+        )
     })?;
     Ok((site, themes))
 }
@@ -156,7 +211,10 @@ pub fn admin_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>
     if let Ok(bytes) = fs::read(root.join(&config.paths.web).join("admin").join(rel)) {
         return Some(bytes);
     }
-    EMBEDDED_ADMIN.iter().find(|(p, _)| *p == rel).map(|(_, c)| c.as_bytes().to_vec())
+    EMBEDDED_ADMIN
+        .iter()
+        .find(|(p, _)| *p == rel)
+        .map(|(_, c)| c.as_bytes().to_vec())
 }
 
 fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
@@ -164,17 +222,26 @@ fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
     if let Ok(bytes) = fs::read(&on_disk) {
         return Some(bytes);
     }
-    EMBEDDED_WEB.iter().find(|(p, _)| *p == rel).map(|(_, c)| c.as_bytes().to_vec())
+    EMBEDDED_WEB
+        .iter()
+        .find(|(p, _)| *p == rel)
+        .map(|(_, c)| c.as_bytes().to_vec())
 }
 
 pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
     let (site, themes) = load_site(root, options.include_drafts, options.now)?;
     let config = &site.config;
-    let out_dir = options.out_override.clone().unwrap_or_else(|| root.join(&config.paths.output));
+    let out_dir = options
+        .out_override
+        .clone()
+        .unwrap_or_else(|| root.join(&config.paths.output));
     fsutil::guard_output_dir(root, &out_dir)?;
     // Claim the directory first, so a build that fails midway never leaves an
     // unmarked folder that every later build would refuse to touch.
-    fsutil::write_file(&out_dir.join(fsutil::MARKER), b"Generated by open.blog. Safe to delete.\n")?;
+    fsutil::write_file(
+        &out_dir.join(fsutil::MARKER),
+        b"Generated by open.blog. Safe to delete.\n",
+    )?;
 
     let mut written: HashSet<String> = HashSet::new();
     let mut put = |rel: String, bytes: &[u8]| -> Result<(), String> {

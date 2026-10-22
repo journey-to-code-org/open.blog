@@ -19,6 +19,16 @@
       "glow": "#e6edfc",
       "codeBg": "#f1f3f6",
       "codeText": "#14171c",
+      "codeKeyword": "#a626a4",
+      "codeString": "#50a14f",
+      "codeComment": "#8a909a",
+      "codeNumber": "#986801",
+      "codeFunction": "#4078f2",
+      "codeType": "#c18401",
+      "codeAttr": "#e45649",
+      "codeTag": "#2457d6",
+      "codeMeta": "#8a909a",
+      "codeVariable": "#0184bc",
       "ink": "#0b0d11"
     },
     "dark": {
@@ -38,6 +48,16 @@
       "glow": "#1b2640",
       "codeBg": "#1d222b",
       "codeText": "#eceff4",
+      "codeKeyword": "#c678dd",
+      "codeString": "#98c379",
+      "codeComment": "#7f8794",
+      "codeNumber": "#d19a66",
+      "codeFunction": "#61afef",
+      "codeType": "#e5c07b",
+      "codeAttr": "#e06c75",
+      "codeTag": "#7aa2ff",
+      "codeMeta": "#7f8794",
+      "codeVariable": "#56b6c2",
       "ink": "#0b0d11"
     }
   },
@@ -72,7 +92,8 @@
   "options": {
     "headingCodeLabels": false,
     "listStyle": "cards",
-    "postCovers": true
+    "postCovers": true,
+    "codeHighlighting": true
   },
   "stylesheets": []
 }

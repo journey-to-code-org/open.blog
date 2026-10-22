@@ -1,5 +1,28 @@
 # Sharing, views, analytics, and embeds
 
+## Syntax highlighting
+
+Code blocks are coloured in the browser by `<ob-code highlight>`, a small tokenizer built
+into the engine. No library is downloaded and nothing is sent anywhere. It understands
+Rust, JavaScript and TypeScript, HTML and XML, CSS, JSON, YAML, TOML, Bash, Python, Ruby,
+Go, SQL, Markdown, and the C family (C, C++, Java, C#, Kotlin, Swift). Unknown languages
+stay plain, and a tokenizer error can never blank out the code.
+
+Colours are theme tokens, so a theme sets its own palette:
+
+```jsonc
+"colors": {
+  "dark": {
+    "codeKeyword": "#c678dd", "codeString": "#98c379", "codeComment": "#7f8794",
+    "codeNumber": "#d19a66", "codeFunction": "#61afef", "codeType": "#e5c07b",
+    "codeAttr": "#e06c75", "codeTag": "#7aa2ff", "codeMeta": "#7f8794", "codeVariable": "#56b6c2"
+  }
+}
+```
+
+A theme that prefers another highlighter sets `"options": { "codeHighlighting": false }`
+and loads its own through `scripts`; the engine then only adds the copy buttons.
+
 ## Share links
 
 Every post ends with share links. They are plain anchors, so they work without

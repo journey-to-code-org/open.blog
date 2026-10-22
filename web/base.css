@@ -598,11 +598,32 @@ h2.ob-title {
 }
 
 .footnote-definition {
+  display: flex;
+  gap: 0.5em;
+  margin: 0.5em 0;
   font-size: 0.9em;
   color: var(--ob-color-muted);
 }
 
-/* ---------- Code copy button (added by <ob-code-copy>) ---------- */
+.footnote-definition p {
+  margin: 0;
+}
+
+/* ---------- Syntax highlighting (tokens painted by <ob-code highlight>) ---------- */
+
+.tok-keyword { color: var(--ob-color-code-keyword); }
+.tok-string { color: var(--ob-color-code-string); }
+.tok-comment { color: var(--ob-color-code-comment); font-style: italic; }
+.tok-number { color: var(--ob-color-code-number); }
+.tok-function { color: var(--ob-color-code-function); }
+.tok-type { color: var(--ob-color-code-type); }
+.tok-attr { color: var(--ob-color-code-attr); }
+.tok-tag { color: var(--ob-color-code-tag); }
+.tok-meta { color: var(--ob-color-code-meta); }
+.tok-variable { color: var(--ob-color-code-variable); }
+.tok-prompt { color: var(--ob-color-code-comment); user-select: none; }
+
+/* ---------- Code copy button (added by <ob-code>) ---------- */
 
 .ob-copy {
   position: absolute;
@@ -646,7 +667,8 @@ h2.ob-title {
   font-size: 0.875rem;
 }
 
-.ob-share ul {
+.ob-share ul,
+.ob-share li {
   display: contents;
 }
 

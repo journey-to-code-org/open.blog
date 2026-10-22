@@ -72,6 +72,7 @@ A theme's scripts are linked on every page that uses it; see
 | `navLabel` | Template for nav text; `{index}` is 01, 02, ... and `{label}` the link text |
 | `listStyle` | `rows` (compact, hover fill) or `cards` (cover images) |
 | `postCovers` | Show the cover image on the post page |
+| `codeHighlighting` | Colour code blocks with the built-in highlighter (`codeKeyword`, `codeString`, ... colour tokens); off when the theme brings its own |
 
 ## Light and dark
 
