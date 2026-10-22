@@ -14,7 +14,11 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
   links, and a small JSON of your latest posts for embedding on another site.
 - **Browser editor.** `openblog serve --admin` adds a login-protected editor with live
   preview, image uploads, drafts, and scheduled posts. It edits the same Markdown files.
-- **Privacy-respecting analytics.** An optional cookie-free view counter with a dashboard.
+- **Publish from home.** A Publish button commits and pushes with git, a GitHub Pages
+  workflow deploys, and the repository is the backup. Drafts stay out of commits.
+- **Privacy-respecting analytics.** A cookie-free view counter with a dashboard, counts
+  backed up to a git branch and baked into static builds, and a dependency-free counter
+  for Cloudflare Workers when the site is static.
 - **Import from Hashnode** without a paid plan.
 - **Few dependencies.** The engine needs a Markdown parser and JSON support; only the
   command-line tool adds an HTTP client, an HTML-to-Markdown converter, and password hashing.
@@ -107,6 +111,7 @@ Start with [the docs index](docs/README.md). The main guides:
 - [The admin editor](docs/admin.md): login, editing, scheduling, running it safely
 - [Sharing, views, analytics, and embeds](docs/features.md)
 - [Deploying](docs/deploy.md): GitHub Pages, other hosts, self-hosting, moving URLs
+- [Publishing from home, backups, and view counts without a server](docs/publishing.md)
 - [Showing your posts on another site](docs/integrations.md)
 - [Migrating from Hashnode](docs/hashnode-migration.md)
 

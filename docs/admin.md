@@ -26,6 +26,7 @@ immediately.
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
+| **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts stay local. See [publishing.md](publishing.md). |
 
 Every save is checked against the whole site before anything is written (duplicate slugs,
 unknown themes, bad dates), then the site is rebuilt. A save that would break the build is

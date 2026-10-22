@@ -7,16 +7,18 @@ If you are new, read these in order; each one stands alone otherwise.
 2. [Configuration](configuration.md): every setting in `openblog.json`, with defaults.
 3. [Deploying](deploy.md): GitHub Pages, other static hosts, running your own server,
    and keeping old URLs working.
-4. [Themes and the design system](themes.md): how a theme is built from design tokens,
+4. [Publishing from home](publishing.md): the Publish button, git as your backup, view
+   counts on a static host, and a counter you can host for free.
+5. [Themes and the design system](themes.md): how a theme is built from design tokens,
    light and dark, per-series themes, and making your own.
-5. [Adding web components to a theme](theme-components.md): scripts, heading effects,
+6. [Adding web components to a theme](theme-components.md): scripts, heading effects,
    and the demo theme to copy from.
-6. [The admin editor](admin.md): logging in, editing, scheduling, and running it safely
+7. [The admin editor](admin.md): logging in, editing, scheduling, and running it safely
    on the internet.
-7. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
+8. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
    syntax highlighting, related posts, a CDN, and slots for comments or newsletters.
-8. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-9. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+9. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+10. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
 
 ## Command reference
 
@@ -28,6 +30,12 @@ openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
 openblog check                          Validate content and themes, write nothing
 openblog themes                         List themes and what they extend
+openblog publish [summary]              Commit changed content with git and push
+openblog publish setup                  Create the repository and Pages workflow
+openblog analytics backup               Save view counts to the analytics branch
+openblog analytics pull <url> --secret s
+                                        Merge counts from a hosted counter
+openblog analytics worker [dir]         Write a Cloudflare Worker counter
 openblog user add|passwd|remove|list <name> [--password-stdin]
 openblog import hashnode <host> [--source public|graphql] [--token t]
                                         [--limit n] [--no-images] [--delay ms] [--overwrite]

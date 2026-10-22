@@ -28,14 +28,15 @@ default, so you can edit values in place and delete the ones you do not need.
   "poweredBy": true,                             // the "Powered by open.blog" footer link
   "home": { "heading": "Latest posts", "intro": "", "showSeries": true },
   "share": { "enabled": true, "networks": ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"] },
-  "analytics": { "builtin": true, "showViews": true, "retentionDays": 400 },
+  "analytics": { "builtin": true, "showViews": true, "retentionDays": 400, "endpoint": "", "branch": "analytics", "bakeCounts": true },
   "snippets": { "head": "", "postFooter": "", "bodyEnd": "" },
   "relatedPosts": 3,
   "cdn": { "url": "", "paths": ["/assets/", "/themes/", "/images/"], "version": "", "maxAge": 86400 },
   "feeds": { "rss": true, "json": true, "sitemap": true, "portfolioSnapshot": true, "limit": 20, "fullContent": true },
   "markdown": { "smartPunctuation": false, "headingAnchors": true, "tocDepth": 3, "tocMinHeadings": 3 },
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
-  "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] }
+  "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] },
+  "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true }
 }
 ```
 
@@ -61,7 +62,10 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
 - `share.networks` accepts `x`, `bluesky`, `mastodon`, `linkedin`, `facebook`, `reddit`,
   `hackernews`, and `email`.
 - `analytics.builtin` turns the view counter in `openblog serve` on or off;
-  `showViews` controls the count shown on posts.
+  `showViews` controls the count shown on posts. `endpoint` points pages at a counter
+  hosted elsewhere, `branch` names the git branch that backs the counts up, and
+  `bakeCounts` writes the known counts into static builds. See
+  [Publishing from home](publishing.md).
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.
@@ -100,6 +104,13 @@ Settings for the browser editor; see [The admin editor](admin.md).
 - `maxUploadMb` caps image uploads.
 - `trustedProxies` lists the addresses of reverse proxies in front of the server, so login
   limits and the view counter see real client addresses.
+
+## Publish
+
+How the Publish button and `openblog publish` commit and push; see
+[Publishing from home](publishing.md). `paths` lists what gets committed, `includeDrafts`
+keeps drafts out of public history unless set, `auto` publishes after every save, and
+`pullFirst` rebases on changes made elsewhere before pushing.
 
 ## Themes
 

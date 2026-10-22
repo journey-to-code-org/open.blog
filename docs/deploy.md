@@ -111,8 +111,8 @@ restarts with the machine, and keep `.openblog/` (users, trash, analytics) out o
 control and in your backups. [The admin editor](admin.md) has the full checklist.
 
 A common hybrid: run `openblog serve --admin` privately for writing, and let the Pages
-workflow deploy `dist/` for readers. The editor writes the same Markdown files the
-workflow builds from; commit and push after writing.
+workflow deploy `dist/` for readers. The editor's Publish button commits and pushes for
+you; see [Publishing from home](publishing.md).
 
 ## A theme that is not in the repository
 

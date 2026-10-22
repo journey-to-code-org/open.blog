@@ -46,7 +46,8 @@ Available networks: `x`, `bluesky`, `mastodon`, `linkedin`, `facebook`, `reddit`
 `.openblog/analytics.json`.
 
 - **On posts:** `<ob-views>` shows "N views" next to the reading time. On a static host
-  (no server) it stays invisible.
+  it shows the count as of the last build (see below), and updates live when a counter is
+  reachable.
 - **In the admin:** the Analytics tab shows views and unique visitors for the last 7, 30, 90,
   or 365 days, a bar per day, top pages, and referring sites.
 
@@ -54,9 +55,18 @@ Available networks: `x`, `bluesky`, `mastodon`, `linkedin`, `facebook`, `reddit`
 "analytics": {
   "builtin": true,        // record views and serve /api/views
   "showViews": true,      // show the count on posts
-  "retentionDays": 400    // daily statistics to keep (all-time totals are kept forever)
+  "retentionDays": 400,   // daily statistics to keep (all-time totals are kept forever)
+  "endpoint": "",         // a counter hosted elsewhere (Cloudflare Worker); empty = same origin
+  "branch": "analytics",  // git branch holding the backup of the counts
+  "bakeCounts": true      // write known counts into static builds and /api/views.json
 }
 ```
+
+### Static hosts, backups, and a counter you host
+
+The counts are backed up to a git branch, baked into pages at build time so a static host
+shows them, and can be recorded by a dependency-free Cloudflare Worker when there is no
+server. All of that is in [Publishing from home](publishing.md).
 
 ### What it records, and what it never records
 
