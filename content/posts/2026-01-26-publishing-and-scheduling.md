@@ -54,5 +54,8 @@ and cross-posting tools accept either. If you republish a post elsewhere, set th
 canonical URL to its address here; for a post that was first published elsewhere, set
 `canonical:` in its front matter.
 
+Continue with [Safely cross-posting your blog](/posts/automated-cross-posting/) for a
+review-first workflow covering Hashnode, DEV, Medium, Ghost, and WordPress.
+
 That is the whole workflow. Delete this series when your own posts arrive, or keep it as
 a reference.

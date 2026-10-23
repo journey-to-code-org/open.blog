@@ -119,6 +119,7 @@ Start with [the docs index](docs/README.md). The main guides:
 - [SEO and answer discovery](docs/seo.md)
 - [Deploying](docs/deploy.md): GitHub Pages, other hosts, self-hosting, moving URLs
 - [Publishing from home, backups, and view counts without a server](docs/publishing.md)
+- [Cross-posting to Hashnode, DEV, Medium, Ghost, and WordPress](docs/cross-posting.md)
 - [Showing your posts on another site](docs/integrations.md)
 - [Migrating from Hashnode](docs/hashnode-migration.md)
 

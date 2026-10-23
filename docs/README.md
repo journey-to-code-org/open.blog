@@ -9,18 +9,20 @@ If you are new, read these in order; each one stands alone otherwise.
    and keeping old URLs working.
 4. [Publishing from home](publishing.md): the Publish button, git as your backup, view
    counts on a static host, and a counter you can host for free.
-5. [Themes and the design system](themes.md): how a theme is built from design tokens,
+5. [Cross-posting](cross-posting.md): safely syndicate articles to Hashnode, DEV, Medium,
+   Ghost, and WordPress without leaking credentials or creating duplicate originals.
+6. [Themes and the design system](themes.md): how a theme is built from design tokens,
    light and dark, per-series themes, and making your own.
-6. [Adding web components to a theme](theme-components.md): scripts, heading effects,
+7. [Adding web components to a theme](theme-components.md): scripts, heading effects,
    and the demo theme to copy from.
-7. [The admin editor](admin.md): logging in, editing, scheduling, and running it safely
+8. [The admin editor](admin.md): logging in, editing, scheduling, and running it safely
    on the internet.
-8. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
+9. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
    syntax highlighting, related posts, a CDN, and slots for comments or newsletters.
-9. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
+10. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
    and machine-access analytics.
-10. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-11. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+11. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+12. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
 
 ## Command reference
 
