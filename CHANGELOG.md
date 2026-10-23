@@ -5,6 +5,19 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-23
+
+### Added
+
+- Added a runnable research and contributor-credit demonstration to the repository example
+  site, with synthetic registry identities, ordered Crossref/CRediT roles, an adjacent credit
+  sidecar, visible references, a reusable license, feeds, and scholarly structured data.
+
+### Changed
+
+- Linked the README and authoring documentation directly to the example's configuration,
+  Markdown, and sidecar files, with commands for inspecting them in Admin Studio or a build.
+
 ## [0.10.0] - 2026-10-23
 
 ### Added
@@ -211,7 +224,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.7.0...v0.8.0
