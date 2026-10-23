@@ -862,6 +862,126 @@ kbd {
   margin-inline: auto;
 }
 
+.oba-credit-editor {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.4rem;
+  padding-top: 1.25rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-credit-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.oba-credit-heading h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.oba-credit-explicit,
+.oba-credit-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.oba-credit-card {
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+  overflow: hidden;
+}
+
+.oba-credit-card > header {
+  display: grid;
+  grid-template-columns: auto minmax(10rem, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.75rem;
+}
+
+.oba-credit-card .oba-field {
+  margin: 0;
+}
+
+.oba-credit-order {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  align-self: center;
+  border-radius: 50%;
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+  font-weight: 750;
+}
+
+.oba-credit-actions,
+.oba-credit-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.oba-credit-actions .oba-btn {
+  padding: 0.42rem 0.58rem;
+}
+
+.oba-credit-role-picker {
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-credit-role-picker summary {
+  padding: 0.65rem 0.75rem;
+  color: var(--ob-color-muted);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.oba-credit-roles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem 0.8rem;
+  margin: 0;
+  padding: 0.75rem;
+  border: 0;
+  border-top: var(--ob-border-width) solid var(--ob-color-border);
+}
+
+.oba-credit-roles legend {
+  padding: 0 0.35rem;
+  font-weight: 700;
+}
+
+.oba-credit-roles label {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  min-width: 0;
+  font-size: 0.86rem;
+}
+
+.oba-credit-roles input {
+  margin-top: 0.18rem;
+}
+
+.oba-credit-roles.is-unknown {
+  border-left: 0.2rem solid var(--oba-danger);
+}
+
+.oba-credit-mode-badge {
+  margin-right: 0.45rem;
+}
+
+.oba-credit-mode-badge.is-explicit {
+  border-color: var(--ob-color-accent);
+  color: var(--ob-color-accent);
+}
+
 .oba-pane {
   min-width: 0;
 }
@@ -1504,6 +1624,18 @@ kbd {
 
   .oba-overview-recent {
     grid-row: auto;
+  }
+
+  .oba-credit-card > header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .oba-credit-actions {
+    grid-column: 1 / -1;
+  }
+
+  .oba-credit-roles {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

@@ -52,3 +52,19 @@ test("post settings expose content profiles without silently migrating legacy fi
   assert.match(admin, /ui\.previewWarnings\.replaceChildren/);
   assert.match(admin, /previewWarningsForDisplay\(preview\.warnings\)/);
 });
+
+test("post settings expose ordered contributor credits and repair states", () => {
+  assert.match(admin, /class: "oba-credit-editor"/);
+  assert.match(admin, /Inherit site author/);
+  assert.match(admin, /Set credits for this post/);
+  assert.match(admin, /Add contributor/);
+  assert.match(admin, /Publishing roles/);
+  assert.match(admin, /CRediT taxonomy/);
+  assert.match(admin, /creditRequestFields\(true\)/);
+  assert.match(admin, /creditEtag/);
+  assert.match(admin, /Explicit credits/);
+  assert.match(admin, /Choose contributor/);
+  assert.match(admin, /focusCreditControl/);
+  assert.match(styles, /\.oba-credit-card/);
+  assert.match(styles, /\.oba-credit-roles/);
+});

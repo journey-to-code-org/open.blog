@@ -1229,7 +1229,7 @@ fn get_document(state: &AppState, req: &Request) -> Response {
             Ok(path) => path,
             Err(error) => return Response::error(400, &error),
         };
-        document_credits(&sidecar)
+        document_credits(&sidecar, &config)
     } else {
         (Json::Null, Json::Null, Json::Null)
     };
@@ -1252,7 +1252,7 @@ fn get_document(state: &AppState, req: &Request) -> Response {
     }
 }
 
-fn document_credits(sidecar: &Path) -> (Json, Json, Json) {
+fn document_credits(sidecar: &Path, config: &SiteConfig) -> (Json, Json, Json) {
     let bytes = match fs::read(sidecar) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -1304,7 +1304,12 @@ fn document_credits(sidecar: &Path) -> (Json, Json, Json) {
             Json::String(format!("{} has no credits array", sidecar.display())),
         );
     };
-    (Json::Array(credits.clone()), credit_etag, Json::Null)
+    let credit_error =
+        openblog_core::contributor::resolve(&config.author, &config.contributors, Some(text))
+            .err()
+            .map(Json::String)
+            .unwrap_or(Json::Null);
+    (Json::Array(credits.clone()), credit_etag, credit_error)
 }
 
 // ---------------------------------------------------------------------------
@@ -3436,11 +3441,15 @@ mod tests {
         let sidecar = markdown.with_extension("credits.json");
         let session = login_ok(&f);
         let mut last = Json::Null;
-        for malformed in [
-            b"{".to_vec(),
-            br#"{"version":2,"credits":[]}"#.to_vec(),
-            br#"{"version":1,"credits":{}}"#.to_vec(),
-            vec![0xff, 0xfe],
+        for (malformed, keeps_editable_credits) in [
+            (b"{".to_vec(), false),
+            (br#"{"version":2,"credits":[]}"#.to_vec(), false),
+            (br#"{"version":1,"credits":{}}"#.to_vec(), false),
+            (
+                br#"{"version":1,"credits":[{"contributor":"missing","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#.to_vec(),
+                true,
+            ),
+            (vec![0xff, 0xfe], false),
         ] {
             fs::write(&sidecar, malformed).unwrap();
             let response = handle(
@@ -3453,7 +3462,7 @@ mod tests {
             );
             assert_eq!(response.status, 200);
             last = body_json(&response);
-            assert!(last["credits"].is_null());
+            assert_eq!(last["credits"].is_array(), keeps_editable_credits);
             assert!(last["creditEtag"].as_str().is_some());
             assert!(last["creditError"].as_str().is_some());
         }

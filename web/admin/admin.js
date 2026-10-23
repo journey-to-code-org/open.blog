@@ -163,6 +163,80 @@ export function applyProfileFieldDrafts(fields, drafts) {
   return next;
 }
 
+export function normalizeCreditDraft(value) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((credit) => {
+    if (!credit || typeof credit !== "object" || typeof credit.contributor !== "string") return [];
+    const roles = Array.isArray(credit.roles)
+      ? credit.roles.flatMap((role) =>
+          role && typeof role === "object" && typeof role.vocabulary === "string" && typeof role.role === "string"
+            ? [{ vocabulary: role.vocabulary, role: role.role }]
+            : [],
+        )
+      : [];
+    const seenRoles = new Set();
+    return [
+      {
+        contributor: credit.contributor,
+        roles: roles.filter((role) => {
+          const key = `${role.vocabulary}:${role.role}`;
+          if (seenRoles.has(key)) return false;
+          seenRoles.add(key);
+          return true;
+        }),
+      },
+    ];
+  });
+}
+
+export function creditPayload(mode, credits) {
+  if (mode === "unresolved") return undefined;
+  if (mode === "inherited") return null;
+  return normalizeCreditDraft(credits);
+}
+
+export function moveCredit(credits, from, to) {
+  const next = normalizeCreditDraft(credits);
+  if (from < 0 || from >= next.length || to < 0 || to >= next.length || from === to) return next;
+  const [credit] = next.splice(from, 1);
+  next.splice(to, 0, credit);
+  return next;
+}
+
+export function toggleCreditRole(credit, role, checked) {
+  const next = normalizeCreditDraft([credit])[0] || { contributor: "", roles: [] };
+  const same = (candidate) => candidate.vocabulary === role.vocabulary && candidate.role === role.role;
+  next.roles = checked ? [...next.roles.filter((candidate) => !same(candidate)), { vocabulary: role.vocabulary, role: role.role }] : next.roles.filter((candidate) => !same(candidate));
+  return next;
+}
+
+export function validateCreditDraft(mode, credits) {
+  if (mode === "unresolved") return "Choose how to repair the malformed contributor credits.";
+  if (mode !== "explicit") return "";
+  const normalized = normalizeCreditDraft(credits);
+  const contributors = normalized.map((credit) => credit.contributor);
+  if (contributors.some((contributor) => !contributor)) return "Choose a contributor for every credit.";
+  if (new Set(contributors).size !== contributors.length) return "Each contributor can appear only once. Combine their roles in one credit.";
+  if (normalized.some((credit) => credit.roles.length === 0)) return "Give every contributor at least one role.";
+  return "";
+}
+
+export function creditHasAuthor(credits, contributors = {}) {
+  return normalizeCreditDraft(credits).some(
+    (credit) =>
+      Boolean(contributors[credit.contributor]?.name) &&
+      credit.roles.some((role) => role.vocabulary === "crossref" && role.role === "author"),
+  );
+}
+
+export function focusCreditControl(ui, index, schedule = globalThis.requestAnimationFrame) {
+  const run = typeof schedule === "function" ? schedule : (callback) => callback();
+  run(() => {
+    if (index >= 0) ui.creditList?.querySelector(`#oba-credit-${index}-contributor`)?.focus();
+    else ui.addCredit?.focus();
+  });
+}
+
 export function previewWarningsForDisplay(warnings) {
   return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
 }
@@ -982,7 +1056,14 @@ export class ObAdmin extends AdminElement {
             h("td", {}, h("span", { class: `oba-badge oba-badge-${i.status}` }, i.status)),
             h("td", {}, h("a", { href: `#/edit/${encodeURIComponent(i.path)}` }, i.title || i.path), i.error ? h("div", { class: "oba-small" }, i.error) : null),
             h("td", { title: i.date || "" }, i.date ? formatWhen(i.date) : ""),
-            h("td", { class: "oba-small" }, [...(i.series ? [`Series: ${i.series}`] : []), ...(i.tags || [])].join(", ")),
+            h(
+              "td",
+              { class: "oba-small" },
+              kind === "posts" && i.creditMode
+                ? h("span", { class: `oba-badge oba-credit-mode-badge is-${i.creditMode}` }, i.creditMode === "explicit" ? "Explicit credits" : "Inherited author")
+                : null,
+              [...(i.series ? [`Series: ${i.series}`] : []), ...(i.tags || [])].join(", "),
+            ),
           ),
         ),
       );
@@ -1141,6 +1222,10 @@ class Editor {
     this.slugTouched = !this.isNew;
     this.previewTimer = 0;
     this.previewRequest = 0;
+    this.creditMode = doc.creditError ? "unresolved" : Array.isArray(doc.credits) ? "explicit" : "inherited";
+    this.credits = normalizeCreditDraft(doc.credits);
+    this.creditEtag = doc.creditEtag ?? null;
+    this.creditError = typeof doc.creditError === "string" ? doc.creditError : "";
   }
 
   get meta() {
@@ -1156,6 +1241,203 @@ class Editor {
 
   field(id, label, control, help) {
     return h("div", { class: "oba-field" }, h("label", { for: id }, label), control, help ? h("p", { class: "oba-help" }, help) : null);
+  }
+
+  creditRequestFields(includeEtag = false) {
+    if (this.kind !== "posts") return {};
+    const credits = creditPayload(this.creditMode, this.credits);
+    if (credits === undefined) return {};
+    return { credits, ...(includeEtag ? { creditEtag: this.creditEtag } : {}) };
+  }
+
+  creditChanged() {
+    this.app.dirty = true;
+    this.markDirty();
+    this.updateSeoAudit();
+    this.schedulePreview();
+  }
+
+  renderCreditEditor() {
+    const ui = this.ui;
+    ui.creditStatus = h("p", { class: "oba-help", role: "status", "aria-live": "polite" });
+    ui.creditError = h("p", { class: "oba-error", role: "alert", hidden: !this.creditError }, this.creditError);
+    ui.creditList = h("div", { class: "oba-credit-list" });
+    ui.addCredit = h("button", { class: "oba-btn", type: "button", onClick: () => this.addCredit() }, "Add contributor");
+    ui.creditExplicit = h(
+      "div",
+      { class: "oba-credit-explicit" },
+      ui.creditList,
+      h("div", { class: "oba-credit-add" }, ui.addCredit, h("span", { class: "oba-help" }, "Order controls the public byline and metadata.")),
+    );
+    ui.creditModeRadios = [
+      ["inherited", "Inherit site author"],
+      ["explicit", "Set credits for this post"],
+    ].map(([value, label]) => {
+      const input = h("input", { type: "radio", name: "oba-credit-mode", value, checked: this.creditMode === value });
+      input.addEventListener("change", () => {
+        if (!input.checked) return;
+        this.creditMode = value;
+        this.creditChanged();
+        this.syncCreditEditor();
+      });
+      return h("label", {}, input, " ", label);
+    });
+    const editor = h(
+      "section",
+      { class: "oba-credit-editor", "aria-labelledby": "oba-credit-heading" },
+      h("div", { class: "oba-credit-heading" }, h("h3", { id: "oba-credit-heading" }, "Contributors"), h("span", { class: "oba-badge" }, "Ordered credits")),
+      h("p", { class: "oba-help" }, "Choose who contributed to this post and the controlled roles they performed."),
+      ui.creditError,
+      h("fieldset", { class: "oba-fieldset" }, h("legend", { class: "oba-legend" }, "Authorship source"), h("div", { class: "oba-radios" }, ui.creditModeRadios)),
+      ui.creditStatus,
+      ui.creditExplicit,
+    );
+    this.syncCreditEditor();
+    return editor;
+  }
+
+  addCredit() {
+    const used = new Set(this.credits.map((credit) => credit.contributor));
+    const available = Object.keys(this.meta.contributors || {}).find((id) => !used.has(id));
+    if (!available) return;
+    const roles = this.meta.creditRoles || [];
+    const author = roles.find((role) => role.vocabulary === "crossref" && role.role === "author") || roles[0];
+    this.credits.push({ contributor: available, roles: author ? [{ vocabulary: author.vocabulary, role: author.role }] : [] });
+    this.creditChanged();
+    this.syncCreditEditor();
+    this.focusCredit(this.credits.length - 1);
+  }
+
+  syncCreditEditor() {
+    const ui = this.ui;
+    if (!ui?.creditList) return;
+    for (const label of ui.creditModeRadios) {
+      const input = label.querySelector("input");
+      input.checked = input.value === this.creditMode;
+    }
+    ui.creditError.hidden = !this.creditError;
+    ui.creditExplicit.hidden = this.creditMode !== "explicit";
+    ui.creditStatus.textContent =
+      this.creditMode === "unresolved"
+        ? "Choose how to repair these credits before saving. Inherit removes the broken sidecar; explicit credits replace it."
+        : this.creditMode === "inherited"
+          ? "This post uses the site author because it has no credit sidecar."
+          : this.credits.length
+            ? `${this.credits.length} explicit contributor${this.credits.length === 1 ? "" : "s"}.`
+            : "Explicitly anonymous: this post will not inherit the site author.";
+
+    const registry = this.meta.contributors || {};
+    const catalog = this.meta.creditRoles || [];
+    const used = new Set(this.credits.map((credit) => credit.contributor));
+    ui.creditList.replaceChildren(
+      ...(this.credits.length
+        ? this.credits.map((credit, index) => {
+            const contributorId = `oba-credit-${index}-contributor`;
+            const select = h(
+              "select",
+              { id: contributorId, "aria-label": `Contributor ${index + 1}` },
+              !credit.contributor ? h("option", { value: "", selected: true, disabled: true }, "Choose contributor") : null,
+              credit.contributor && !registry[credit.contributor]
+                ? h("option", { value: credit.contributor, selected: true }, `Unknown contributor: ${credit.contributor}`)
+                : null,
+              Object.entries(registry).map(([id, contributor]) =>
+                h("option", { value: id, selected: id === credit.contributor, disabled: id !== credit.contributor && used.has(id) }, contributor.name || id),
+              ),
+            );
+            select.addEventListener("change", () => {
+              this.credits[index].contributor = select.value;
+              this.creditChanged();
+              this.syncCreditEditor();
+              this.focusCredit(index);
+            });
+            const roleSummary = h("summary", {}, `${credit.roles.length} role${credit.roles.length === 1 ? "" : "s"}`);
+            const roleGroups = [
+              ["crossref", "Publishing roles"],
+              ["credit", "CRediT taxonomy"],
+            ].map(([vocabulary, label]) =>
+              h(
+                "fieldset",
+                { class: "oba-credit-roles" },
+                h("legend", {}, label),
+                catalog
+                  .filter((role) => role.vocabulary === vocabulary)
+                  .map((role) => {
+                    const id = `oba-credit-${index}-${role.vocabulary}-${role.role}`;
+                    const checked = credit.roles.some((candidate) => candidate.vocabulary === role.vocabulary && candidate.role === role.role);
+                    const input = h("input", { id, type: "checkbox", checked });
+                    input.addEventListener("change", () => {
+                      this.credits[index] = toggleCreditRole(this.credits[index], role, input.checked);
+                      roleSummary.textContent = `${this.credits[index].roles.length} role${this.credits[index].roles.length === 1 ? "" : "s"}`;
+                      this.creditChanged();
+                    });
+                    return h("label", { for: id }, input, h("span", {}, role.label || role.role));
+                  }),
+              ),
+            );
+            const knownRoles = new Set(catalog.map((role) => `${role.vocabulary}:${role.role}`));
+            const unknownRoles = credit.roles.filter((role) => !knownRoles.has(`${role.vocabulary}:${role.role}`));
+            if (unknownRoles.length) {
+              roleGroups.push(
+                h(
+                  "fieldset",
+                  { class: "oba-credit-roles is-unknown" },
+                  h("legend", {}, "Unknown roles — remove to continue"),
+                  unknownRoles.map((role) => {
+                    const id = `oba-credit-${index}-unknown-${role.vocabulary}-${role.role}`;
+                    const input = h("input", { id, type: "checkbox", checked: true });
+                    input.addEventListener("change", () => {
+                      this.credits[index] = toggleCreditRole(this.credits[index], role, input.checked);
+                      roleSummary.textContent = `${this.credits[index].roles.length} role${this.credits[index].roles.length === 1 ? "" : "s"}`;
+                      this.creditChanged();
+                    });
+                    return h("label", { for: id }, input, h("span", {}, `${role.vocabulary}: ${role.role}`));
+                  }),
+                ),
+              );
+            }
+            const name = registry[credit.contributor]?.name || credit.contributor || `Contributor ${index + 1}`;
+            return h(
+              "article",
+              { class: "oba-credit-card" },
+              h(
+                "header",
+                {},
+                h("span", { class: "oba-credit-order", "aria-hidden": "true" }, String(index + 1)),
+                h("div", { class: "oba-field" }, h("label", { for: contributorId }, `Contributor ${index + 1}`), select),
+                h(
+                  "div",
+                  { class: "oba-credit-actions" },
+                  h("button", { class: "oba-btn", type: "button", disabled: index === 0, "aria-label": `Move ${name} up`, onClick: () => this.moveCreditRow(index, index - 1) }, "↑"),
+                  h("button", { class: "oba-btn", type: "button", disabled: index === this.credits.length - 1, "aria-label": `Move ${name} down`, onClick: () => this.moveCreditRow(index, index + 1) }, "↓"),
+                  h("button", { class: "oba-btn oba-btn-danger", type: "button", "aria-label": `Remove ${name}`, onClick: () => this.removeCreditRow(index) }, "Remove"),
+                ),
+              ),
+              h("details", { class: "oba-credit-role-picker" }, roleSummary, roleGroups),
+            );
+          })
+        : [h("p", { class: "oba-notice" }, "No contributors selected. This explicit empty list suppresses inherited authorship.")]),
+    );
+    const available = Object.keys(registry).some((id) => !used.has(id));
+    ui.addCredit.disabled = !available;
+    ui.addCredit.textContent = Object.keys(registry).length ? "Add contributor" : "Add contributors in openblog.json first";
+  }
+
+  moveCreditRow(from, to) {
+    this.credits = moveCredit(this.credits, from, to);
+    this.creditChanged();
+    this.syncCreditEditor();
+    this.focusCredit(to);
+  }
+
+  removeCreditRow(index) {
+    this.credits.splice(index, 1);
+    this.creditChanged();
+    this.syncCreditEditor();
+    this.focusCredit(Math.min(index, this.credits.length - 1));
+  }
+
+  focusCredit(index) {
+    focusCreditControl(this.ui, index);
   }
 
   render() {
@@ -1331,6 +1613,7 @@ class Editor {
       side.push(this.field("oba-canonical", "Canonical URL", ui.canonical, "Only for posts first published elsewhere."));
       ui.coverAlt = h("input", { id: "oba-cover-alt", type: "text", value: f.coverAlt || "", placeholder: "Describe the meaningful image content" });
       side.push(this.field("oba-cover-alt", "Cover alternative text", ui.coverAlt, "Required when the cover conveys information; also helps image discovery."));
+      side.push(this.renderCreditEditor());
     }
 
     ui.saveBtn = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.save() }, this.isNew ? "Create" : "Save");
@@ -1669,6 +1952,7 @@ class Editor {
           path: action.path,
           fields,
           body: source,
+          ...this.creditRequestFields(),
         },
       });
       const current = {
@@ -1721,7 +2005,12 @@ class Editor {
       cover: ui.cover?.value.trim() || "",
       coverAlt: ui.coverAlt?.value.trim() || "",
       body,
-      authorReady: this.meta.authorReady,
+      authorReady:
+        this.kind === "posts" && this.creditMode === "explicit"
+          ? creditHasAuthor(this.credits, this.meta.contributors)
+          : this.kind === "posts" && this.creditMode === "unresolved"
+            ? false
+            : this.meta.authorReady,
     });
     ui.optimizeScore.textContent = String(result.score);
     ui.optimizeSummary.textContent = `${result.ready} of ${result.total} checks ready. Review the specific guidance before publishing.`;
@@ -1766,6 +2055,7 @@ class Editor {
           path: this.doc.path,
           fields: this.collect(),
           body: this.ui.body.value,
+          ...this.creditRequestFields(),
         },
       });
       if (request !== this.previewRequest) return;
@@ -2134,6 +2424,17 @@ class Editor {
 
   validateClient(fields) {
     if (!fields[KINDS[this.kind].titleKey] && !fields.slug) return "Give it a title first.";
+    if (this.kind === "posts") {
+      const creditProblem = validateCreditDraft(this.creditMode, this.credits);
+      if (creditProblem) return creditProblem;
+      if (this.creditMode === "explicit" && this.credits.some((credit) => !this.meta.contributors?.[credit.contributor])) {
+        return "Replace every unknown contributor with someone from the registry.";
+      }
+      const knownRoles = new Set((this.meta.creditRoles || []).map((role) => `${role.vocabulary}:${role.role}`));
+      if (this.creditMode === "explicit" && this.credits.some((credit) => credit.roles.some((role) => !knownRoles.has(`${role.vocabulary}:${role.role}`)))) {
+        return "Remove every unknown contributor role before saving.";
+      }
+    }
     if (this.kind === "posts" && this.currentStatus() === "scheduled") {
       if (!fields.date) return "Pick the date and time to publish.";
       if (new Date(fields.date) <= new Date()) return "A scheduled post needs a time in the future. Choose “Published” to publish now.";
@@ -2154,7 +2455,7 @@ class Editor {
     ui.saveBtn.disabled = true;
     ui.saveState.textContent = "Saving…";
     const saveVersion = this.app.editVersion;
-    const payload = { fields, body: ui.body.value, etag: this.doc.etag, kind: this.kind };
+    const payload = { fields, body: ui.body.value, etag: this.doc.etag, kind: this.kind, ...this.creditRequestFields(true) };
     try {
       const res = this.doc.path
         ? await this.app.api.call("PUT", `document?path=${encodeURIComponent(this.doc.path)}`, { json: payload })
@@ -2166,6 +2467,11 @@ class Editor {
       }
       this.doc.path = res.path;
       this.doc.etag = res.etag;
+      this.doc.creditEtag = res.creditEtag ?? null;
+      this.creditEtag = this.doc.creditEtag;
+      this.doc.creditError = null;
+      this.creditError = "";
+      if (ui.creditError) ui.creditError.hidden = true;
       this.isNew = false;
       this.slugTouched = true;
       const savedState = saveStateForVersions(saveVersion, this.app.editVersion);

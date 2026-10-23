@@ -133,8 +133,22 @@ include unsaved credits and are rendered through the same contributor rules as a
 An explicit empty credits list remains distinct from having no sidecar and inheriting the
 site author. A malformed sidecar does not hide the Markdown document: Admin reports the
 credit error and keeps a separate revision token so a credits-aware client can safely repair
-or remove it. The contributor and role controls that use this server support are being
-added incrementally; editing the JSON files by hand remains supported in the meantime.
+or remove it. Editing the JSON files by hand remains supported.
+
+### Credit contributors and roles
+
+For posts, open **Settings → Contributors** to choose between inheriting the site author
+and an explicit ordered credit list. Add people from the contributor registry, arrange the
+public byline order with the arrow buttons, and choose publishing roles or CRediT taxonomy
+roles for each person. Every selected person needs at least one role. An explicit list with
+no people intentionally suppresses inherited authorship; the editor labels this state so it
+cannot be confused with inheritance.
+
+The people available in the picker come from `openblog.json` `contributors`; add or update
+identities there for now. If a sidecar is malformed, Settings shows the error without hiding
+the Markdown and requires an explicit repair choice: inherit to remove the broken sidecar,
+or set new explicit credits to replace it. Credit-only changes participate in unsaved-change
+warnings, production preview, conflict detection, and the normal save validation.
 
 ## Scheduling
 

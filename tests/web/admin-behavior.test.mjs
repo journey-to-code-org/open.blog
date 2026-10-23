@@ -8,7 +8,12 @@ import {
   evidenceStudioState,
   applyPaneSelection,
   applyProfileFieldDrafts,
+  creditHasAuthor,
+  creditPayload,
+  focusCreditControl,
+  moveCredit,
   normalizeStatusFilter,
+  normalizeCreditDraft,
   parseAdminHash,
   preserveProfileFieldDrafts,
   previewWarningsForDisplay,
@@ -16,7 +21,69 @@ import {
   researchSectionIsPresent,
   researchActionIsCurrent,
   saveStateForVersions,
+  toggleCreditRole,
+  validateCreditDraft,
 } from "../../web/admin/admin.js";
+
+test("credit drafts preserve inherited, explicit empty, and ordered contributor semantics", () => {
+  const credits = normalizeCreditDraft([
+    { contributor: "ada", roles: [{ vocabulary: "crossref", role: "author" }] },
+    { contributor: "grace", roles: [{ vocabulary: "credit", role: "software" }] },
+    null,
+  ]);
+  assert.equal(creditPayload("unresolved", credits), undefined);
+  assert.equal(creditPayload("inherited", credits), null);
+  assert.deepEqual(creditPayload("explicit", []), []);
+  assert.deepEqual(moveCredit(credits, 1, 0).map((credit) => credit.contributor), ["grace", "ada"]);
+  assert.deepEqual(credits.map((credit) => credit.contributor), ["ada", "grace"], "moving does not mutate the saved draft");
+});
+
+test("controlled credit roles toggle without duplicates and validate author intent", () => {
+  const author = { vocabulary: "crossref", role: "author" };
+  const software = { vocabulary: "credit", role: "software" };
+  let credit = { contributor: "ada", roles: [author] };
+  credit = toggleCreditRole(credit, software, true);
+  credit = toggleCreditRole(credit, software, true);
+  assert.deepEqual(credit.roles, [author, software]);
+  credit = toggleCreditRole(credit, author, false);
+  assert.deepEqual(credit.roles, [software]);
+  assert.equal(validateCreditDraft("unresolved", []), "Choose how to repair the malformed contributor credits.");
+  assert.equal(validateCreditDraft("inherited", []), "");
+  assert.equal(validateCreditDraft("explicit", []), "");
+  assert.match(validateCreditDraft("explicit", [{ contributor: "ada", roles: [] }]), /at least one role/);
+  assert.match(
+    validateCreditDraft("explicit", [
+      { contributor: "ada", roles: [author] },
+      { contributor: "ada", roles: [software] },
+    ]),
+    /only once/,
+  );
+  assert.equal(creditHasAuthor([{ contributor: "ada", roles: [author] }], { ada: { name: "Ada" } }), true);
+  assert.equal(creditHasAuthor([{ contributor: "ada", roles: [software] }], { ada: { name: "Ada" } }), false);
+  assert.equal(creditHasAuthor([{ contributor: "missing", roles: [author] }], {}), false);
+  assert.deepEqual(normalizeCreditDraft([{ contributor: "ada", roles: [author, author] }])[0].roles, [author]);
+});
+
+test("credit list rerenders restore keyboard focus to a row or the add control", () => {
+  let selector = "";
+  let rowFocused = false;
+  let addFocused = false;
+  const ui = {
+    creditList: {
+      querySelector: (value) => {
+        selector = value;
+        return { focus: () => (rowFocused = true) };
+      },
+    },
+    addCredit: { focus: () => (addFocused = true) },
+  };
+  const immediately = (callback) => callback();
+  focusCreditControl(ui, 2, immediately);
+  assert.equal(selector, "#oba-credit-2-contributor");
+  assert.equal(rowFocused, true);
+  focusCreditControl(ui, -1, immediately);
+  assert.equal(addFocused, true);
+});
 
 test("profile metadata drafts survive profile switches including explicit clears", () => {
   const saved = new Map([
