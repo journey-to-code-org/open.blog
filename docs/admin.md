@@ -37,6 +37,11 @@ the publish action visible. Inside the editor, document settings, Markdown, and 
 preview are separate labeled panes. On smaller screens, use the **Settings**, **Markdown**,
 and **Preview** buttons to switch panes without losing edits.
 
+Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace
+commands. The palette opens content lists, creates documents, switches editor panes,
+saves the current document, changes the color scheme, and reaches account actions. Use
+the arrow keys and Enter to choose a result, or Escape to close it.
+
 The Markdown remains the source of truth. The visual structure only changes how the
 tools are arranged; saving, conflict detection, preview sandboxing, and publishing use
 the same file-based workflow and security checks.

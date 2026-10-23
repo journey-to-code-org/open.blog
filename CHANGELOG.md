@@ -10,6 +10,9 @@ All notable changes to open.blog are recorded here. Releases follow
 - Reworked the admin into a publishing workspace with grouped tools, a persistent
   publish-status bar, labeled settings/Markdown/preview panes, and an explicit
   mobile pane switcher inspired by the README Studio workspace pattern.
+- Added a `Ctrl/Cmd+K` workspace search for navigation, creation, account actions,
+  and contextual editor commands, with keyboard result navigation and unsaved-change
+  protection when moving between admin views.
 
 ## [0.4.1] - 2026-10-23
 

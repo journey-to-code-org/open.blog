@@ -79,6 +79,23 @@ ob-admin {
   text-transform: uppercase;
 }
 
+.oba-command-trigger {
+  gap: 0.65rem;
+  color: var(--ob-color-muted);
+}
+
+kbd {
+  padding: 0.12rem 0.38rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: 0.3rem;
+  background: var(--ob-color-surface-raised);
+  color: var(--ob-color-subtle);
+  font-family: var(--ob-font-mono);
+  font-size: 0.68rem;
+  line-height: 1.3;
+  box-shadow: 0 1px 0 var(--ob-color-border);
+}
+
 .oba-spacer {
   flex: 1;
 }
@@ -347,6 +364,85 @@ ob-admin {
 
 .oba-dialog h2 {
   margin-top: 0;
+}
+
+.oba-command-dialog {
+  width: min(36rem, calc(100vw - 2rem));
+  padding: 0;
+  overflow: hidden;
+}
+
+.oba-command-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1rem 0.5rem;
+}
+
+.oba-command-heading h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.oba-command-heading .oba-eyebrow {
+  margin-bottom: 0.15rem;
+}
+
+.oba-command-dialog > .oba-field {
+  margin: 0;
+  padding: 0.5rem 1rem 0;
+}
+
+.oba-command-dialog input[type="search"] {
+  width: 100%;
+  padding: 0.8rem 0.9rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+}
+
+.oba-command-dialog > .oba-small {
+  display: block;
+  margin: 0;
+  padding: 0.5rem 1rem;
+}
+
+.oba-command-results {
+  display: grid;
+  max-height: min(24rem, 55vh);
+  padding: 0 0.5rem 0.5rem;
+  overflow-y: auto;
+}
+
+.oba-command-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+  border: 0;
+  border-radius: var(--ob-radius-sm);
+  background: transparent;
+  color: var(--ob-color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.oba-command-result:hover,
+.oba-command-result:focus-visible {
+  outline: 0;
+  background: var(--ob-color-glow);
+  color: var(--ob-color-accent);
+}
+
+.oba-command-result small {
+  color: var(--ob-color-subtle);
+  font-size: 0.72rem;
 }
 
 .oba-quiz-editors {
@@ -713,6 +809,10 @@ ob-admin {
     padding-inline: 0.65rem;
   }
 
+  .oba-command-trigger > span {
+    display: none;
+  }
+
   .oba-context-copy p {
     display: none;
   }
@@ -770,6 +870,15 @@ ob-admin {
   .oba-brand-copy small,
   .oba-tool-label {
     display: none;
+  }
+
+  .oba-command-trigger kbd {
+    font-size: 0;
+  }
+
+  .oba-command-trigger kbd::after {
+    content: "⌕";
+    font-size: 0.9rem;
   }
 
   .oba-toolbelt {

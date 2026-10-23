@@ -99,6 +99,15 @@ function slugify(text) {
     .slice(0, 80);
 }
 
+function searchCommands(commands, query) {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return commands;
+  return commands.filter((command) => {
+    const haystack = `${command.label} ${command.category} ${command.keywords || ""}`.toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
 const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
 class ApiError extends Error {
@@ -164,6 +173,7 @@ class ObAdmin extends HTMLElement {
   user = "";
   dirty = false;
   skipRoute = false;
+  currentHash = "";
 
   connectedCallback() {
     this.addEventListener("input", (e) => {
@@ -177,6 +187,11 @@ class ObAdmin extends HTMLElement {
       }
     });
     addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        this.openCommandPalette();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && this.editor) {
         e.preventDefault();
         this.editor.save();
@@ -262,6 +277,7 @@ class ObAdmin extends HTMLElement {
       {
         class: "oba-btn",
         type: "button",
+        "data-action": "logout",
         onClick: async () => {
           if (!(await this.confirmLeave())) return;
           try {
@@ -274,6 +290,12 @@ class ObAdmin extends HTMLElement {
         },
       },
       "Sign out",
+    );
+    const commandTrigger = h(
+      "button",
+      { class: "oba-btn oba-command-trigger", type: "button", onClick: () => this.openCommandPalette() },
+      h("span", {}, "Search workspace"),
+      h("kbd", {}, "Ctrl K"),
     );
     const toolGroup = (label, ...tools) =>
       h("div", { class: "oba-tool-group" }, h("span", { class: "oba-tool-label" }, label), h("div", { class: "oba-tool-actions" }, tools));
@@ -296,6 +318,7 @@ class ObAdmin extends HTMLElement {
           h("span", { class: "oba-brand-copy" }, h("strong", {}, this.meta.siteTitle), h("small", {}, "Publishing studio")),
         ),
         h("span", { class: "oba-spacer" }),
+        commandTrigger,
         h("span", { class: "oba-small" }, `Signed in as ${this.user}`),
         themeButton(),
         logout,
@@ -316,6 +339,112 @@ class ObAdmin extends HTMLElement {
       ),
       h("main", { class: "oba-workspace-content" }, ...content),
     );
+  }
+
+  openCommandPalette() {
+    const activeDialog = document.querySelector("dialog[open]");
+    if (activeDialog?.classList.contains("oba-command-dialog")) {
+      activeDialog.close();
+      activeDialog.remove();
+      return;
+    }
+    if (activeDialog) return;
+    if (!this.meta) return;
+
+    const trigger = document.activeElement;
+    const go = (hash) => (location.hash = hash);
+    const commands = [
+      { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
+      { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
+      { label: "New series", category: "Create", keywords: "collection", run: () => go("#/new/series") },
+      { label: "Posts", category: "Content", keywords: "articles", run: () => go("#/posts") },
+      { label: "Pages", category: "Content", run: () => go("#/pages") },
+      { label: "Series", category: "Content", run: () => go("#/series") },
+      { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
+      { label: "View site", category: "Site", keywords: "public blog", run: () => open("/", "_blank", "noopener") },
+      { label: "Switch theme", category: "Workspace", keywords: "dark light mode", run: () => document.querySelector(".oba-theme-toggle")?.click() },
+      { label: "Sign out", category: "Account", keywords: "logout", run: () => this.querySelector('[data-action="logout"]')?.click() },
+    ];
+    if (this.editor) {
+      commands.unshift({ label: "Save document", category: "Editor", keywords: "publish ctrl s", run: () => this.editor.save() });
+      for (const pane of ["settings", "markdown", "preview"]) {
+        commands.unshift({ label: `Show ${pane}`, category: "Editor", keywords: "pane", run: () => this.editor.activatePane(pane) });
+      }
+    }
+
+    const input = h("input", { id: "oba-command-search", type: "search", autocomplete: "off", placeholder: "Type a command…" });
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const results = h("div", { class: "oba-command-results", "aria-label": "Command results" });
+    const dialog = h(
+      "dialog",
+      { class: "oba-dialog oba-command-dialog", "aria-labelledby": "oba-command-title" },
+      h("div", { class: "oba-command-heading" }, h("div", {}, h("p", { class: "oba-eyebrow" }, "Quick navigation"), h("h2", { id: "oba-command-title" }, "Search workspace")), h("kbd", {}, "Esc")),
+      h("label", { class: "oba-field", for: "oba-command-search" }, h("span", { class: "oba-sr" }, "Search commands and content"), input),
+      status,
+      results,
+    );
+    let found = [];
+    let activeIndex = 0;
+    const close = () => {
+      dialog.close();
+      dialog.remove();
+      if (trigger instanceof HTMLElement) trigger.focus();
+    };
+    const choose = (index) => {
+      const command = found[index];
+      if (!command) return;
+      close();
+      command.run();
+    };
+    const focusResult = (index) => {
+      const buttons = [...results.querySelectorAll("button")];
+      if (!buttons.length) return;
+      activeIndex = (index + buttons.length) % buttons.length;
+      buttons[activeIndex].focus();
+    };
+    const render = () => {
+      found = searchCommands(commands, input.value);
+      activeIndex = 0;
+      results.replaceChildren(
+        ...found.map((command, index) =>
+          h(
+            "button",
+            { class: "oba-command-result", type: "button", onClick: () => choose(index) },
+            h("span", {}, command.label),
+            h("small", {}, command.category),
+          ),
+        ),
+      );
+      status.textContent = found.length ? `${found.length} command${found.length === 1 ? "" : "s"}` : "No matching commands.";
+    };
+    input.addEventListener("input", render);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        choose(0);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        focusResult(0);
+      }
+    });
+    results.addEventListener("keydown", (e) => {
+      const current = [...results.querySelectorAll("button")].indexOf(document.activeElement);
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        focusResult(current + (e.key === "ArrowDown" ? 1 : -1));
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        choose(current);
+      }
+    });
+    dialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      close();
+    });
+    document.body.append(dialog);
+    render();
+    dialog.showModal();
+    input.focus();
   }
 
   /** Fill the header's publish area: pending changes and a Publish button. */
@@ -371,6 +500,12 @@ class ObAdmin extends HTMLElement {
   async onHash() {
     if (this.skipRoute) {
       this.skipRoute = false;
+      this.currentHash = location.hash;
+      return;
+    }
+    const nextHash = location.hash || "#/posts";
+    if (this.dirty && this.currentHash && nextHash !== this.currentHash && !(await this.confirmLeave())) {
+      history.replaceState(null, "", this.currentHash);
       return;
     }
     const hash = location.hash.replace(/^#\/?/, "");
@@ -386,6 +521,7 @@ class ObAdmin extends HTMLElement {
       if (err instanceof ApiError && err.status === 401) this.showLogin("Your session ended. Sign in again.");
       else this.showFatal(err);
     }
+    this.currentHash = location.hash || "#/posts";
   }
 
   // ---- list
@@ -713,6 +849,7 @@ class Editor {
         button.setAttribute("aria-pressed", String(selected));
       }
     };
+    this.activatePane = activatePane;
     paneButtons = ["settings", "markdown", "preview"].map((pane) =>
       h(
         "button",
