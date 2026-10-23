@@ -1031,6 +1031,9 @@ impl<'a> Renderer<'a> {
         if let Some(research) = &post.research {
             body.push_str(&self.research_work_meta(research));
         }
+        if let Some(journal) = &post.field_journal {
+            body.push_str(&self.field_journal_card(journal));
+        }
         if c.markdown.embeds {
             if let Some(video) = &post.video {
                 if let Some(url) = &video.url {
@@ -1206,6 +1209,18 @@ impl<'a> Renderer<'a> {
                             .iter()
                             .map(|reference| &reference.url)
                             .collect::<Vec<_>>());
+                    }
+                }
+                if let Some(journal) = &post.field_journal {
+                    posting["about"] = serde_json::json!({
+                        "@type": "Thing",
+                        "name": journal.activity,
+                    });
+                    if let Some(location) = &journal.location {
+                        posting["contentLocation"] = serde_json::json!({
+                            "@type": "Place",
+                            "name": location,
+                        });
                     }
                 }
                 match &post.recipe {
@@ -1395,6 +1410,78 @@ impl<'a> Renderer<'a> {
 
     /// The summary card at the top of a recipe: times, servings, and the
     /// "Jump to recipe" link. `<ob-recipe>` adds the interactive controls.
+    fn field_journal_card(&self, journal: &crate::field_journal::FieldJournalMetadata) -> String {
+        let mut facts = Vec::new();
+        let mut fact = |label: &str, value: String| {
+            facts.push(format!(
+                "<div><dt>{}</dt><dd>{}</dd></div>",
+                text(label),
+                text(&value)
+            ));
+        };
+        fact("Activity", journal.activity.clone());
+        if let Some(location) = &journal.location {
+            fact("Area", location.clone());
+        }
+        if let Some(distance) = &journal.distance_km {
+            fact("Distance", format!("{distance} km"));
+        }
+        if let Some(gain) = journal.elevation_gain_m {
+            fact("Elevation gain", format!("{gain} m"));
+        }
+        if let Some(seconds) = journal.duration_seconds {
+            let hours = seconds / 3600;
+            let minutes = seconds % 3600 / 60;
+            let value = if hours > 0 {
+                format!("{hours} hr {minutes} min")
+            } else {
+                format!("{minutes} min")
+            };
+            fact("Duration", value);
+        }
+        fact("Location privacy", journal.privacy.label().to_string());
+
+        let mut out = String::from(
+            "<aside class=\"ob-field-journal\" aria-label=\"Field journal summary\">\n<h2>Field notes</h2>\n",
+        );
+        out.push_str(&format!("<dl>{}</dl>\n", facts.join("")));
+        if let Some(conditions) = &journal.conditions {
+            out.push_str(&format!(
+                "<p><strong>Conditions:</strong> {}</p>\n",
+                text(conditions)
+            ));
+        }
+        if let Some(points) = &journal.route_shape {
+            let lines = points
+                .split('|')
+                .map(|segment| format!("<polyline points=\"{}\"></polyline>", attr(segment.trim())))
+                .collect::<String>();
+            out.push_str(&format!(
+                "<figure><svg class=\"ob-field-route\" viewBox=\"0 0 1000 100\" role=\"img\" aria-label=\"Privacy-filtered route outline\">{}</svg><figcaption>{}</figcaption></figure>\n",
+                lines,
+                text(journal.privacy.label())
+            ));
+        }
+        if let Some(points) = &journal.elevation_profile {
+            let lines = points
+                .split('|')
+                .map(|segment| format!("<polyline points=\"{}\"></polyline>", attr(segment.trim())))
+                .collect::<String>();
+            out.push_str(&format!(
+                "<figure><svg class=\"ob-field-elevation\" viewBox=\"0 0 1000 100\" role=\"img\" aria-label=\"Elevation profile\">{}</svg><figcaption>Elevation profile</figcaption></figure>\n",
+                lines
+            ));
+        }
+        if let Some(route) = &journal.route_url {
+            out.push_str(&format!(
+                "<p><a href=\"{}\" download>Download GPX track</a></p>\n",
+                attr(route)
+            ));
+        }
+        out.push_str("</aside>\n");
+        out
+    }
+
     fn recipe_card(&self, recipe: &crate::recipe::Recipe) -> String {
         use crate::recipe::{format_minutes, iso_duration};
         let rc = &self.site.config.recipes;

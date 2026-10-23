@@ -6,8 +6,10 @@ import {
   accessibilityReview,
   evidenceReview,
   evidenceStudioState,
+  fieldJournalReview,
   applyPaneSelection,
   applyProfileFieldDrafts,
+  analyzeGpx,
   buildVideoReleaseKit,
   creditHasAuthor,
   creditPayload,
@@ -29,6 +31,46 @@ import {
   validateCreditDraft,
   validateContributorDraft,
 } from "../../web/admin/admin.js";
+
+const SAMPLE_GPX = `<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>
+  <trkpt lat="42.0000" lon="-72.0000"><ele>100</ele><time>2026-10-23T10:00:00Z</time></trkpt>
+  <trkpt lat="42.0010" lon="-72.0000"><ele>130</ele><time>2026-10-23T10:10:00Z</time></trkpt>
+  <trkpt lat="42.0020" lon="-72.0000"><ele>120</ele><time>2026-10-23T10:20:00Z</time></trkpt>
+  <trkpt lat="42.0030" lon="-72.0000"><ele>160</ele><time>2026-10-23T10:30:00Z</time></trkpt>
+</trkseg></trk></gpx>`;
+
+test("GPX analysis derives portable facts and enforces route privacy", () => {
+  const exact = analyzeGpx(SAMPLE_GPX, { privacy: "exact" });
+  assert.equal(exact.pointCount, 4);
+  assert.ok(exact.distanceKm > 0.3 && exact.distanceKm < 0.4);
+  assert.equal(exact.elevationGainM, 70);
+  assert.equal(exact.durationSeconds, 1800);
+  assert.match(exact.routeShape, /^0,/);
+  assert.doesNotMatch(exact.routeShape, /42\.|-72\./, "published SVG data is normalized, never geographic coordinates");
+
+  const trimmed = analyzeGpx(SAMPLE_GPX, { privacy: "trimmed", trimMeters: 100 });
+  assert.ok(trimmed.keptPointCount < exact.pointCount);
+  assert.ok(trimmed.routeShape);
+  assert.equal(analyzeGpx(SAMPLE_GPX, { privacy: "hidden" }).routeShape, "");
+  assert.throws(() => analyzeGpx("<html>not a track</html>"), /valid GPX track/);
+
+  const split = analyzeGpx(`<gpx><trk><trkseg><trkpt lat="0" lon="0"></trkpt><trkpt lat="0" lon="0.001"></trkpt></trkseg><trkseg><trkpt lat="40" lon="40"></trkpt><trkpt lat="40" lon="40.001"></trkpt></trkseg></trk></gpx>`, { privacy: "approximate" });
+  assert.ok(split.distanceKm < 0.3, "recording gaps between track segments are not counted");
+  assert.equal(split.routeShape.split("|").length, 2, "each track segment remains visible without an invented connection");
+
+  const trimmedSplit = analyzeGpx(`<gpx><trk><trkseg><trkpt lat="0" lon="0"></trkpt><trkpt lat="0" lon="0.001"></trkpt><trkpt lat="0" lon="0.002"></trkpt></trkseg><trkseg><trkpt lat="1" lon="1"></trkpt><trkpt lat="1" lon="1.001"></trkpt><trkpt lat="1" lon="1.002"></trkpt></trkseg></trk></gpx>`, { privacy: "trimmed", trimMeters: 50 });
+  assert.equal(trimmedSplit.keptPointCount, 4, "privacy trimming removes only the overall route endpoints, not pause boundaries");
+  assert.equal(trimmedSplit.routeShape.split("|").length, 2);
+});
+
+test("field review makes exact-location risk and missing observations explicit", () => {
+  assert.equal(fieldJournalReview({ profile: "article" }).active, false);
+  const review = fieldJournalReview({ profile: "field-journal", locationPrivacy: "exact", distanceKm: "3.4" });
+  assert.equal(review.active, true);
+  assert.match(review.issues.join(" "), /sensitive species/);
+  assert.match(review.issues.join(" "), /conditions/);
+  assert.doesNotMatch(fieldJournalReview({ profile: "field-journal", locationPrivacy: "hidden", location: "North woods", conditions: "Dry", distanceKm: "3.4" }).status, /^\d/);
+});
 
 test("video release kits compose copy and enforce YouTube chapter rules", () => {
   const kit = buildVideoReleaseKit({

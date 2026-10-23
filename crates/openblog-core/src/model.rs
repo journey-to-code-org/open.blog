@@ -8,6 +8,7 @@ use crate::accessibility::{self, AccessibilityFinding, DocumentAuditInput};
 use crate::config::SiteConfig;
 use crate::contributor::{self, CreditProvenance, ResolvedCredit};
 use crate::date::DateTime;
+use crate::field_journal::FieldJournalMetadata;
 use crate::frontmatter::{self, FrontMatter};
 use crate::markdown::{self, Heading, RenderOptions};
 use crate::profile::{self, ProfileBehavior};
@@ -172,6 +173,8 @@ pub struct Post {
     pub research: Option<ResearchMetadata>,
     /// Set for posts using the video-production profile.
     pub video: Option<VideoMetadata>,
+    /// Set for outdoor logs using the field-journal profile.
+    pub field_journal: Option<FieldJournalMetadata>,
     /// Per-post code-block overrides from front matter (`highlight`, `lineNumbers`).
     pub code_highlight: Option<bool>,
     pub code_line_numbers: Option<bool>,
@@ -700,6 +703,8 @@ pub fn load_post(
         .then(|| ResearchMetadata::from_source(fm, &doc.body, doc.body_line));
     let video =
         (profile.behavior == ProfileBehavior::Video).then(|| VideoMetadata::from_front_matter(fm));
+    let field_journal = (profile.behavior == ProfileBehavior::FieldJournal)
+        .then(|| FieldJournalMetadata::from_front_matter(fm));
 
     let title = match first(fm, &["title"]) {
         Some(t) => t.to_string(),
@@ -834,6 +839,7 @@ pub fn load_post(
         recipe,
         research,
         video,
+        field_journal,
         code_highlight: fm
             .get_bool("highlight")
             .or_else(|| fm.get_bool("codeHighlighting")),

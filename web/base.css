@@ -13,6 +13,44 @@
   box-sizing: border-box;
 }
 
+.ob-field-journal {
+  margin-block: var(--ob-space-6, 2rem);
+  padding: var(--ob-space-5, 1.5rem);
+  border: 1px solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius, 0.5rem);
+}
+
+.ob-field-journal dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 1rem;
+}
+
+.ob-field-journal dt,
+.ob-field-journal figcaption {
+  font-size: 0.85em;
+  color: var(--ob-color-muted, inherit);
+}
+
+.ob-field-journal dd {
+  margin: 0.2rem 0 0;
+  font-weight: 650;
+}
+
+.ob-field-journal svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 5rem;
+}
+
+.ob-field-journal polyline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;

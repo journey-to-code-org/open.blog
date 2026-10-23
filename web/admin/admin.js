@@ -500,6 +500,126 @@ export function buildVideoReleaseKit({ profile, description = "", body = "", dur
   return { active: true, chapters, issues, description: sections.join("\n\n") };
 }
 
+function trackDistanceMeters(a, b) {
+  const radians = (degrees) => (degrees * Math.PI) / 180;
+  const latitude = radians(b.lat - a.lat);
+  const longitude = radians(b.lon - a.lon);
+  const sinLat = Math.sin(latitude / 2);
+  const sinLon = Math.sin(longitude / 2);
+  const value = sinLat * sinLat + Math.cos(radians(a.lat)) * Math.cos(radians(b.lat)) * sinLon * sinLon;
+  return 12_742_000 * Math.asin(Math.min(1, Math.sqrt(value)));
+}
+
+function normalizedSegments(segments, latitudeKey = "lat", longitudeKey = "lon") {
+  const points = segments.flat();
+  if (points.length < 2) return "";
+  const xs = points.map((point) => point[longitudeKey]);
+  const ys = points.map((point) => point[latitudeKey]);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const width = maxX - minX || 1;
+  const height = maxY - minY || 1;
+  return segments
+    .filter((segment) => segment.length >= 2)
+    .map((segment) => {
+      const sampled = segment.length <= 100 ? segment : segment.filter((_, index) => index % Math.ceil(segment.length / 100) === 0 || index === segment.length - 1);
+      return sampled.map((point) => `${Math.round(((point[longitudeKey] - minX) / width) * 1000)},${Math.round(100 - ((point[latitudeKey] - minY) / height) * 100)}`).join(" ");
+    })
+    .join("|");
+}
+
+function fieldChart(points, label) {
+  if (!points) return null;
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("viewBox", "0 0 1000 100");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", label);
+  for (const segment of points.split("|")) {
+    const line = document.createElementNS(namespace, "polyline");
+    line.setAttribute("points", segment.trim());
+    svg.append(line);
+  }
+  return h("figure", { class: "oba-field-chart" }, svg, h("figcaption", {}, label));
+}
+
+/** Parse a GPX track locally and return only publish-safe derived values. */
+export function analyzeGpx(source, { privacy = "hidden", trimMeters = 200 } = {}) {
+  const xml = String(source);
+  if (xml.length > 10 * 1024 * 1024) throw new Error("GPX tracks can be at most 10 MB.");
+  if (!/<(?:[\w-]+:)?gpx\b/i.test(xml) || /<!DOCTYPE|<!ENTITY|<script\b/i.test(xml)) throw new Error("Choose a valid GPX track without scripts or document entities.");
+  const parsePoints = (segment) => [...segment.matchAll(/<(?:[\w-]+:)?trkpt\b([^>]*)>([\s\S]*?)<\/(?:[\w-]+:)?trkpt>/gi)].flatMap((match) => {
+    const lat = /\blat\s*=\s*["']([^"']+)["']/i.exec(match[1]);
+    const lon = /\blon\s*=\s*["']([^"']+)["']/i.exec(match[1]);
+    const ele = /<(?:[\w-]+:)?ele\b[^>]*>\s*([^<]+)</i.exec(match[2]);
+    const time = /<(?:[\w-]+:)?time\b[^>]*>\s*([^<]+)</i.exec(match[2]);
+    const point = { lat: Number(lat?.[1]), lon: Number(lon?.[1]), ele: ele ? Number(ele[1]) : null, time: time ? Date.parse(time[1]) : null };
+    return Number.isFinite(point.lat) && Number.isFinite(point.lon) && Math.abs(point.lat) <= 90 && Math.abs(point.lon) <= 180 ? [point] : [];
+  });
+  const authoredSegments = [...xml.matchAll(/<(?:[\w-]+:)?trkseg\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?trkseg>/gi)].map((match) => parsePoints(match[1])).filter((segment) => segment.length);
+  const segments = authoredSegments.length ? authoredSegments : [parsePoints(xml)];
+  const points = segments.flat();
+  if (points.length > 100_000) throw new Error("GPX tracks can contain at most 100,000 track points.");
+  if (points.length < 2) throw new Error("Choose a valid GPX track with at least two track points.");
+  const segmentDistances = segments.map((segment) => segment.slice(1).map((point, index) => trackDistanceMeters(segment[index], point)));
+  const distanceMeters = segmentDistances.flat().reduce((sum, value) => sum + value, 0);
+  const elevationGainM = Math.round(segments.reduce((total, segment) => total + segment.slice(1).reduce((sum, point, index) => sum + (Number.isFinite(point.ele) && Number.isFinite(segment[index].ele) ? Math.max(0, point.ele - segment[index].ele) : 0), 0), 0));
+  const times = points.map((point) => point.time).filter(Number.isFinite);
+  const durationSeconds = times.length > 1 ? Math.max(0, Math.round((times.at(-1) - times[0]) / 1000)) : null;
+  let keptSegments = segments.map((segment) => [...segment]);
+  if (privacy === "trimmed") {
+    const trim = Math.max(0, Number(trimMeters) || 0);
+    keptSegments = keptSegments.map((segment, segmentIndex) => {
+      const distances = segmentDistances[segmentIndex];
+      let start = 0;
+      if (segmentIndex === 0) {
+        let walked = 0;
+        while (start < distances.length && walked < trim) walked += distances[start++];
+      }
+      let end = segment.length - 1;
+      if (segmentIndex === segments.length - 1) {
+        let walked = 0;
+        while (end > start && walked < trim) walked += distances[--end];
+      }
+      return segment.slice(start, end + 1);
+    });
+  }
+  const routeShape = privacy === "hidden" ? "" : normalizedSegments(keptSegments);
+  let distanceOffset = 0;
+  const elevationSegments = segments.map((segment, segmentIndex) => {
+    let localDistance = 0;
+    const elevations = segment.flatMap((point, index) => {
+      if (index > 0) localDistance += segmentDistances[segmentIndex][index - 1];
+      return Number.isFinite(point.ele) ? [{ distance: distanceOffset + localDistance, ele: point.ele }] : [];
+    });
+    distanceOffset += segmentDistances[segmentIndex].reduce((sum, value) => sum + value, 0);
+    return elevations;
+  });
+  return {
+    pointCount: points.length,
+    keptPointCount: keptSegments.flat().length,
+    distanceKm: Math.round((distanceMeters / 1000) * 100) / 100,
+    elevationGainM,
+    durationSeconds,
+    routeShape,
+    elevationProfile: normalizedSegments(elevationSegments, "ele", "distance"),
+  };
+}
+
+export function fieldJournalReview(fields = {}) {
+  const active = String(fields.profile || "").toLowerCase() === "field-journal";
+  if (!active) return { active, issues: [], status: "Choose the Field journal content profile to review a track." };
+  const privacy = ["exact", "trimmed", "approximate", "hidden"].includes(String(fields.locationPrivacy).toLowerCase()) ? String(fields.locationPrivacy).toLowerCase() : "hidden";
+  const issues = [];
+  if (!fields.location) issues.push("Add a publishable area name without revealing a sensitive location.");
+  if (!fields.conditions) issues.push("Record creator-observed conditions.");
+  if (privacy === "exact") issues.push("Confirm the exact track does not expose a home, campsite, sensitive species, or fragile habitat.");
+  if (!fields.distanceKm && !fields.routeShape) issues.push("Import a GPX track or add route measurements manually.");
+  return { active, privacy, issues, status: issues.length ? `${issues.length} field review item${issues.length === 1 ? "" : "s"}.` : "Field journal is ready for a final human privacy review." };
+}
+
 export function analyzeReadiness({ kind, title, description, slug, canonical, tags = [], cover, coverAlt, body, authorReady }) {
   const analysisBody = markdownOutsideCode(body).replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
   const wordCount = (analysisBody.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
@@ -707,9 +827,9 @@ export class ObAdmin extends AdminElement {
         this.editor.save();
         return;
       }
-      if (this.editor && e.altKey && ["1", "2", "3", "4", "5", "6", "7", "8"].includes(e.key)) {
+      if (this.editor && e.altKey && ["1", "2", "3", "4", "5", "6", "7", "8", "9"].includes(e.key)) {
         e.preventDefault();
-        const pane = ["write", "preview", "social", "release", "optimize", "settings", "accessibility", "evidence"][Number(e.key) - 1];
+        const pane = ["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence"][Number(e.key) - 1];
         this.editor.activatePane(pane, true);
       }
     });
@@ -896,7 +1016,7 @@ export class ObAdmin extends AdminElement {
     ];
     if (this.editor) {
       commands.unshift({ label: "Save document", category: "Editor", keywords: "publish ctrl s", run: () => this.editor.save() });
-      for (const pane of ["write", "preview", "social", "release", "optimize", "settings", "accessibility", "evidence"]) {
+      for (const pane of ["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence"]) {
         commands.unshift({ label: `Show ${pane}`, category: "Editor", keywords: "view pane", run: () => this.editor.activatePane(pane) });
       }
     }
@@ -1831,6 +1951,7 @@ class Editor {
               type: field.kind === "number" ? "number" : "text",
               value: this.profileFieldDrafts.has(field.key) ? this.profileFieldDrafts.get(field.key) : "",
               inputmode: field.kind === "number" ? "numeric" : null,
+              step: field.kind === "number" ? "any" : null,
             });
             control.addEventListener("input", () => {
               this.profileFieldDrafts.set(field.key, control.value);
@@ -1850,6 +1971,10 @@ class Editor {
       };
       ui.profile.addEventListener("change", () => {
         this.profileTouched = true;
+        if (ui.profile.value !== "field-journal") {
+          void this.discardPendingTrack();
+          this.profileFieldDrafts.set("route", "");
+        }
         syncProfileHelp();
         syncProfileFields();
       });
@@ -1978,6 +2103,7 @@ class Editor {
     const activatePane = (pane, focus = false) => {
       applyPaneSelection(this.root, paneButtons, pane);
       if (pane === "release") this.updateReleaseKit();
+      else if (pane === "field") this.updateFieldReview();
       else if (["preview", "social", "accessibility", "evidence"].includes(pane)) this.renderPreview();
       else {
         clearTimeout(this.previewTimer);
@@ -1990,8 +2116,8 @@ class Editor {
       }
     };
     this.activatePane = activatePane;
-    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", release: "Release kit", optimize: "Optimize", settings: "Settings", accessibility: "Accessibility", evidence: "Evidence" };
-    paneButtons = ["write", "preview", "social", "release", "optimize", "settings", "accessibility", "evidence"].map((pane) =>
+    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", release: "Release kit", field: "Field review", optimize: "Optimize", settings: "Settings", accessibility: "Accessibility", evidence: "Evidence" };
+    paneButtons = ["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence"].map((pane) =>
       h(
         "button",
         {
@@ -2031,6 +2157,35 @@ class Editor {
       },
       "Copy release description",
     );
+    ui.fieldStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    ui.fieldIssues = h("ul", { class: "oba-release-issues" });
+    ui.fieldPrivacy = h(
+      "select",
+      { id: "oba-field-privacy" },
+      [
+        ["hidden", "Hidden (safest)"],
+        ["trimmed", "Trim endpoints"],
+        ["approximate", "Approximate outline"],
+        ["exact", "Exact route + download"],
+      ].map(([value, label]) => h("option", { value, selected: value === String(this.profileFieldDrafts?.get("locationPrivacy") || f.locationPrivacy || "hidden").toLowerCase() }, label)),
+    );
+    ui.fieldTrim = h("input", { id: "oba-field-trim", type: "number", min: 0, value: 200, inputmode: "numeric" });
+    ui.fieldFile = h("input", { id: "oba-field-file", type: "file", accept: ".gpx,application/gpx+xml" });
+    ui.fieldFacts = h("dl", { class: "oba-social-meta" });
+    ui.fieldCharts = h("div", { class: "oba-field-charts" });
+    ui.fieldPrivacy.addEventListener("change", () => {
+      this.profileFieldDrafts.set("locationPrivacy", ui.fieldPrivacy.value);
+      if (ui.fieldPrivacy.value !== "exact") {
+        void this.discardPendingTrack();
+        this.profileFieldDrafts.set("route", "");
+      }
+      const control = ui.profileFieldControls?.get("locationPrivacy");
+      if (control) control.value = ui.fieldPrivacy.value;
+      this.app.dirty = true;
+      this.markDirty();
+      this.updateFieldReview();
+    });
+    ui.fieldImport = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.importGpx() }, "Analyze GPX locally");
 
     this.root = h(
       "div",
@@ -2081,6 +2236,23 @@ class Editor {
               ui.releaseIssues,
               ui.releaseOutput,
               h("div", { class: "oba-toolbar" }, ui.releaseCopy),
+            ),
+          ),
+          h(
+            "section",
+            { class: "oba-pane oba-field-pane", "data-pane": "field", "aria-label": "Field journal review" },
+            paneHeader("Publish", "Field Review", ui.fieldStatus),
+            h(
+              "div",
+              { class: "oba-release-workspace" },
+              h("p", {}, "Analyze a GPX file in this browser. Hidden, trimmed, and approximate modes save only derived statistics and normalized drawing points; only Exact uploads the source track."),
+              this.field("oba-field-privacy", "Location privacy", ui.fieldPrivacy),
+              this.field("oba-field-trim", "Trim each endpoint (metres)", ui.fieldTrim),
+              this.field("oba-field-file", "GPX track", ui.fieldFile),
+              h("div", { class: "oba-toolbar" }, ui.fieldImport),
+              ui.fieldIssues,
+              ui.fieldFacts,
+              ui.fieldCharts,
             ),
           ),
           h(
@@ -2373,6 +2545,10 @@ class Editor {
       this.updateReleaseKit();
       return;
     }
+    if (this.root?.dataset.editorView === "field") {
+      this.updateFieldReview();
+      return;
+    }
     if (!["preview", "social", "accessibility", "evidence"].includes(this.root?.dataset.editorView)) {
       this.previewRequest += 1;
       return;
@@ -2395,6 +2571,64 @@ class Editor {
     if (!kit.active) this.ui.releaseStatus.textContent = "Choose the Video production content profile to build a release kit.";
     else if (kit.issues.length) this.ui.releaseStatus.textContent = `${kit.issues.length} chapter issue${kit.issues.length === 1 ? "" : "s"} to resolve.`;
     else this.ui.releaseStatus.textContent = `${kit.chapters.length} valid chapters · ready to copy.`;
+  }
+
+  updateFieldReview() {
+    const fields = this.collect();
+    fields.profile = this.ui.profile?.value || fields.profile;
+    fields.locationPrivacy = this.ui.fieldPrivacy.value;
+    const review = fieldJournalReview(fields);
+    this.ui.fieldStatus.textContent = review.status;
+    this.ui.fieldIssues.replaceChildren(...review.issues.map((issue) => h("li", {}, issue)));
+    const facts = [
+      ["Distance", fields.distanceKm ? `${fields.distanceKm} km` : "Not set"],
+      ["Elevation gain", fields.elevationGainM ? `${fields.elevationGainM} m` : "Not set"],
+      ["Duration", fields.duration || "Not set"],
+      ["Published track", this.pendingTrack ? "Staged privately until save" : review.privacy === "exact" && fields.route ? "Downloadable GPX" : fields.routeShape ? "Normalized outline only" : "No route"],
+    ];
+    this.ui.fieldFacts.replaceChildren(...facts.map(([label, value]) => h("div", {}, h("dt", {}, label), h("dd", {}, value))));
+    this.ui.fieldCharts.replaceChildren(fieldChart(fields.routeShape, "Privacy-filtered route outline"), fieldChart(fields.elevationProfile, "Elevation profile"));
+  }
+
+  async importGpx() {
+    const file = this.ui.fieldFile.files[0];
+    if (!file) {
+      this.flash("error", "Choose a GPX file first.");
+      return;
+    }
+    try {
+      const privacy = this.ui.fieldPrivacy.value;
+      const source = await file.text();
+      const analysis = analyzeGpx(source, { privacy, trimMeters: this.ui.fieldTrim.value });
+      await this.discardPendingTrack();
+      if (privacy === "exact") {
+        const token = await this.uploadTrack(file);
+        if (!token) return;
+        this.pendingTrack = { token, name: file.name };
+      }
+      const duration = analysis.durationSeconds == null ? "" : analysis.durationSeconds >= 3600 ? `${Math.floor(analysis.durationSeconds / 3600)} hr ${Math.round((analysis.durationSeconds % 3600) / 60)} min` : `${Math.round(analysis.durationSeconds / 60)} min`;
+      const values = {
+        locationPrivacy: privacy,
+        distanceKm: analysis.distanceKm,
+        elevationGainM: analysis.elevationGainM,
+        duration,
+        routeShape: analysis.routeShape,
+        elevationProfile: analysis.elevationProfile,
+        route: "",
+      };
+      for (const [key, value] of Object.entries(values)) {
+        this.profileFieldDrafts.set(key, value == null ? "" : String(value));
+        const control = this.ui.profileFieldControls?.get(key);
+        if (control) control.value = value == null ? "" : String(value);
+      }
+      this.app.dirty = true;
+      this.markDirty();
+      this.updateFieldReview();
+      this.schedulePreview();
+      this.flash("ok", privacy === "exact" ? "Track analyzed and staged privately. It becomes public only when this post saves successfully." : "Track analyzed locally. Only privacy-filtered derived data will be saved.");
+    } catch (error) {
+      this.flash("error", error.message);
+    }
   }
 
   async renderPreview() {
@@ -2553,6 +2787,30 @@ class Editor {
     } catch (err) {
       this.flash("error", err.message);
       return null;
+    }
+  }
+
+  async uploadTrack(file) {
+    try {
+      const response = await this.app.api.call("POST", `track-upload?name=${encodeURIComponent(file.name)}`, {
+        body: file,
+        headers: { "Content-Type": "application/gpx+xml" },
+      });
+      return response.token;
+    } catch (error) {
+      this.flash("error", error.message);
+      return null;
+    }
+  }
+
+  async discardPendingTrack() {
+    const pending = this.pendingTrack;
+    this.pendingTrack = null;
+    if (!pending) return;
+    try {
+      await this.app.api.call("DELETE", `track-upload?token=${encodeURIComponent(pending.token)}`);
+    } catch (error) {
+      this.flash("error", `The private staged track could not be discarded: ${error.message}`);
     }
   }
 
@@ -2811,12 +3069,18 @@ class Editor {
     ui.saveBtn.disabled = true;
     ui.saveState.textContent = "Saving…";
     const saveVersion = this.app.editVersion;
-    const payload = { fields, body: ui.body.value, etag: this.doc.etag, kind: this.kind, ...this.creditRequestFields(true) };
+    const exactTrack = this.pendingTrack && fields.profile === "field-journal" && fields.locationPrivacy === "exact" ? this.pendingTrack : null;
+    const payload = { fields, body: ui.body.value, etag: this.doc.etag, kind: this.kind, ...(exactTrack ? { trackToken: exactTrack.token, trackName: exactTrack.name } : {}), ...this.creditRequestFields(true) };
     try {
       const res = this.doc.path
         ? await this.app.api.call("PUT", `document?path=${encodeURIComponent(this.doc.path)}`, { json: payload })
         : await this.app.api.call("POST", "document", { json: payload });
       this.f = fields;
+      if (res.trackUrl) {
+        fields.route = res.trackUrl;
+        this.profileFieldDrafts.set("route", res.trackUrl);
+        this.pendingTrack = null;
+      }
       if (this.kind === "posts") {
         this.profileSelection = resolveProfileSelection(fields, this.meta.profiles || [], this.doc.resolvedProfile);
         this.profileTouched = false;

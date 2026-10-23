@@ -440,6 +440,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         }
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "upload") => upload(state, req),
+        ("POST", "track-upload") => upload_track(state, req),
+        ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
         ("POST", "quiz/generate") => generate_quiz(state, req),
         ("POST", "rebuild") => rebuild(state),
@@ -1705,6 +1707,174 @@ fn write_document_with_credits_using(
     Ok(())
 }
 
+#[derive(Debug)]
+struct StagedTrack {
+    pending: PathBuf,
+    target: PathBuf,
+    url: String,
+    contents: Vec<u8>,
+}
+
+fn field_scalar<'a>(fields: &'a BTreeMap<String, Value>, key: &str) -> Option<&'a str> {
+    match fields.get(key) {
+        Some(Value::Scalar(value)) => Some(value.trim()),
+        _ => None,
+    }
+}
+
+fn staged_track(
+    root: &Path,
+    config: &SiteConfig,
+    body: &Json,
+    fields: &mut BTreeMap<String, Value>,
+) -> Result<Option<StagedTrack>, String> {
+    let Some(token) = body.get("trackToken").and_then(Json::as_str) else {
+        return Ok(None);
+    };
+    if field_scalar(fields, "profile") != Some("field-journal")
+        || field_scalar(fields, "locationPrivacy") != Some("exact")
+    {
+        return Err("staged tracks require the Field journal profile in Exact mode".into());
+    }
+    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("invalid staged track token".into());
+    }
+    let pending = root
+        .join(".openblog/pending-tracks")
+        .join(format!("{token}.gpx"));
+    let contents =
+        fs::read(&pending).map_err(|_| "staged track expired; import the GPX again".to_string())?;
+    let source =
+        std::str::from_utf8(&contents).map_err(|_| "staged GPX is not UTF-8".to_string())?;
+    validate_gpx(source)?;
+    let name = body
+        .get("trackName")
+        .and_then(Json::as_str)
+        .unwrap_or("track.gpx");
+    let stem = sanitize_upload_stem(name);
+    let year = clock::now().civil().year;
+    let dir_rel = format!("tracks/uploads/{year}");
+    let static_dir = root.join(&config.paths.static_dir);
+    let mut file_name = format!("{stem}.gpx");
+    let mut number = 2;
+    while static_dir.join(&dir_rel).join(&file_name).exists() {
+        file_name = format!("{stem}-{number}.gpx");
+        number += 1;
+    }
+    let relative = format!("{dir_rel}/{file_name}");
+    let url = format!("/{relative}");
+    fields.insert("route".into(), Value::Scalar(url.clone()));
+    Ok(Some(StagedTrack {
+        pending,
+        target: static_dir.join(relative),
+        url,
+        contents,
+    }))
+}
+
+fn static_track_path(root: &Path, config: &SiteConfig, route: &str) -> Option<PathBuf> {
+    let relative = route.strip_prefix("/tracks/uploads/")?;
+    if relative.is_empty()
+        || !relative.ends_with(".gpx")
+        || relative.contains("..")
+        || !relative
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'_' | b'.'))
+    {
+        return None;
+    }
+    Some(
+        root.join(&config.paths.static_dir)
+            .join("tracks/uploads")
+            .join(relative),
+    )
+}
+
+fn track_is_referenced_elsewhere(
+    root: &Path,
+    config: &SiteConfig,
+    route: &str,
+    excluded_document: &Path,
+) -> bool {
+    fn visit(dir: &Path, route: &str, excluded_document: &Path) -> bool {
+        let Ok(entries) = fs::read_dir(dir) else {
+            // If ownership cannot be proven exclusive, preserve the asset.
+            return true;
+        };
+        for entry in entries {
+            let Ok(entry) = entry else {
+                return true;
+            };
+            let Ok(file_type) = entry.file_type() else {
+                return true;
+            };
+            let path = entry.path();
+            if file_type.is_dir() {
+                if visit(&path, route, excluded_document) {
+                    return true;
+                }
+            } else if file_type.is_file()
+                && path != excluded_document
+                && path.extension().and_then(|value| value.to_str()) == Some("md")
+            {
+                let Ok(source) = fs::read_to_string(&path) else {
+                    return true;
+                };
+                let Ok(document) = frontmatter::parse(&source) else {
+                    return true;
+                };
+                if document.front_matter.get("route") == Some(route) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    visit(&root.join(&config.paths.content), route, excluded_document)
+}
+
+fn write_document_bundle(
+    path: &Path,
+    sidecar: &Path,
+    source: &str,
+    credit_edit: &CreditEdit,
+    upload: Option<&StagedTrack>,
+    retire: Option<&(PathBuf, PathBuf)>,
+) -> Result<(), String> {
+    let previous_document = read_optional_bytes(path)?;
+    let previous_sidecar = read_optional_bytes(sidecar)?;
+    let previous_upload = match upload {
+        Some(track) => read_optional_bytes(&track.target)?,
+        None => None,
+    };
+    write_document_with_credits(path, sidecar, source, credit_edit)?;
+    let result = (|| {
+        if let Some(track) = upload {
+            write_atomic_bytes(&track.target, &track.contents)?;
+        }
+        if let Some((from, to)) = retire {
+            if let Some(parent) = to.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+            }
+            fs::rename(from, to).map_err(|error| {
+                format!("cannot retire private track {}: {error}", from.display())
+            })?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = restore_file(path, previous_document.as_deref());
+        let _ = restore_file(sidecar, previous_sidecar.as_deref());
+        if let Some(track) = upload {
+            let _ = restore_file(&track.target, previous_upload.as_deref());
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// New file path for a created document, derived from its fields.
 fn derive_new_path(kind: &str, fields: &BTreeMap<String, Value>) -> Result<String, String> {
     let get = |k: &str| match fields.get(k) {
@@ -1740,7 +1910,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         Ok(b) => b,
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
-    let fields = match fields_from_json(&body["fields"]) {
+    let mut fields = match fields_from_json(&body["fields"]) {
         Ok(f) => f,
         Err(e) => return Response::error(422, &e),
     };
@@ -1748,8 +1918,6 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
         return Response::error(413, "The post body is too large");
     }
-    let source = frontmatter::compose(&fields, text_body);
-
     let mut status = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
         Ok(lock) => lock,
@@ -1759,6 +1927,16 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         Ok(c) => c,
         Err(e) => return Response::error(500, &e),
     };
+    let field_journal = field_scalar(&fields, "profile") == Some("field-journal");
+    let exact_location = field_journal && field_scalar(&fields, "locationPrivacy") == Some("exact");
+    if field_journal && !exact_location {
+        fields.remove("route");
+    }
+    let track_upload = match staged_track(&state.root, &config, &body, &mut fields) {
+        Ok(track) => track,
+        Err(error) => return Response::error(422, &error),
+    };
+    let mut source = frontmatter::compose(&fields, text_body);
 
     let (rel, created) = match existing_path {
         Some(rel) => (rel, false),
@@ -1788,6 +1966,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         Err(error) => return Response::error(422, &error),
     };
 
+    let mut retired_track = None;
     if created {
         if path.exists() {
             return Response::error(
@@ -1815,6 +1994,37 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
                     409,
                     "This file changed on disk since you opened it. Reload it before saving.",
                 )
+            }
+        }
+        let replacement = track_upload.as_ref().map(|track| track.url.as_str());
+        if let Ok(document) = frontmatter::parse(&current) {
+            let old_field_journal = openblog_core::profile::resolve(&document.front_matter)
+                .behavior
+                == openblog_core::profile::ProfileBehavior::FieldJournal;
+            if old_field_journal && !exact_location {
+                fields.remove("route");
+                source = frontmatter::compose(&fields, text_body);
+            }
+            if old_field_journal {
+                if let Some(old_route) = document.front_matter.get("route") {
+                    if (!exact_location || replacement.is_some_and(|url| url != old_route))
+                        && !track_is_referenced_elsewhere(&state.root, &config, old_route, &path)
+                    {
+                        if let Some(old_path) = static_track_path(&state.root, &config, old_route) {
+                            if old_path.is_file() {
+                                let trash = state.root.join(".openblog/trash/tracks");
+                                let name = old_path
+                                    .file_name()
+                                    .and_then(|name| name.to_str())
+                                    .unwrap_or("track.gpx")
+                                    .to_string();
+                                let stamp = clock::now().rfc3339().replace(':', "");
+                                let target = unique_trash_target(&trash, &stamp, &name);
+                                retired_track = Some((old_path, target));
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1848,8 +2058,18 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         );
     }
     let sidecar = credit_path.as_deref().unwrap_or(&path);
-    if let Err(e) = write_document_with_credits(&path, sidecar, &source, &credit_edit) {
+    if let Err(e) = write_document_bundle(
+        &path,
+        sidecar,
+        &source,
+        &credit_edit,
+        track_upload.as_ref(),
+        retired_track.as_ref(),
+    ) {
         return Response::error(500, &e);
+    }
+    if let Some(track) = &track_upload {
+        let _ = fs::remove_file(&track.pending);
     }
 
     let now = clock::now();
@@ -1880,7 +2100,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     };
     Response::json(
         if created { 201 } else { 200 },
-        &json!({ "path": rel, "etag": etag(&source), "creditEtag": credit_etag, "status": post_status, "url": url, "build": build_json }),
+        &json!({ "path": rel, "etag": etag(&source), "creditEtag": credit_etag, "status": post_status, "url": url, "build": build_json, "trackUrl": track_upload.as_ref().map(|track| &track.url) }),
     )
 }
 
@@ -1936,6 +2156,21 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
     if !path.is_file() {
         return Response::error(404, "No such document");
     }
+    let managed_track = fs::read_to_string(&path)
+        .ok()
+        .and_then(|source| frontmatter::parse(&source).ok())
+        .filter(|document| {
+            openblog_core::profile::resolve(&document.front_matter).behavior
+                == openblog_core::profile::ProfileBehavior::FieldJournal
+        })
+        .and_then(|document| {
+            document
+                .front_matter
+                .get("route")
+                .filter(|route| !track_is_referenced_elsewhere(&state.root, &config, route, &path))
+                .and_then(|route| static_track_path(&state.root, &config, route))
+        })
+        .filter(|track| track.is_file());
     // Never destroy content: move it to a trash folder that can be restored from.
     let trash = state.root.join(".openblog").join("trash");
     if let Err(e) = fs::create_dir_all(&trash) {
@@ -1958,6 +2193,13 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
             .replace('/', "_");
         unique_trash_target(&trash, &stamp, &sidecar_name)
     });
+    let track_target = managed_track.as_ref().map(|track| {
+        let name = track
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("track.gpx");
+        unique_trash_target(&trash.join("tracks"), &stamp, name)
+    });
     if let Err(e) = fs::rename(&path, &target) {
         return Response::error(500, &format!("cannot move the file to the trash: {e}"));
     }
@@ -1977,6 +2219,24 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
             );
         }
     }
+    if let (Some(track), Some(track_target)) = (&managed_track, &track_target) {
+        if let Some(parent) = track_target.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                if let (Some(sidecar), Some(sidecar_target)) = (&sidecar, &sidecar_target) {
+                    let _ = fs::rename(sidecar_target, sidecar);
+                }
+                let _ = fs::rename(&target, &path);
+                return Response::error(500, &format!("cannot create track trash: {error}"));
+            }
+        }
+        if let Err(error) = fs::rename(track, track_target) {
+            if let (Some(sidecar), Some(sidecar_target)) = (&sidecar, &sidecar_target) {
+                let _ = fs::rename(sidecar_target, sidecar);
+            }
+            let _ = fs::rename(&target, &path);
+            return Response::error(500, &format!("cannot move the track to trash: {error}"));
+        }
+    }
     eprintln!("admin: deleted {rel} (kept in .openblog/trash)");
     let build = state.rebuild_locked(&mut status);
     let build_json = match &build {
@@ -1989,6 +2249,7 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
             "ok": true,
             "trashedTo": target.file_name().map(|n| n.to_string_lossy().into_owned()),
             "trashedCreditsTo": sidecar_target.and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned())),
+            "trashedTrackTo": track_target.and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned())),
             "build": build_json
         }),
     )
@@ -2334,6 +2595,191 @@ fn upload(state: &AppState, req: &Request) -> Response {
         201,
         &json!({ "url": url, "markdown": format!("![]({url})") }),
     )
+}
+
+fn upload_track(state: &AppState, req: &Request) -> Response {
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let max = config.admin.max_upload_mb as usize * 1024 * 1024;
+    if req.body.is_empty() {
+        return Response::error(400, "No GPX data");
+    }
+    if req.body.len() > max {
+        return Response::error(
+            413,
+            &format!("Tracks can be at most {} MB", config.admin.max_upload_mb),
+        );
+    }
+    let Ok(source) = std::str::from_utf8(&req.body) else {
+        return Response::error(415, "GPX tracks must be UTF-8 XML");
+    };
+    if let Err(error) = validate_gpx(source) {
+        return Response::error(415, &error);
+    }
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => return Response::error(500, &error),
+    };
+    let pending_dir = state.root.join(".openblog/pending-tracks");
+    let _guard = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    prune_staged_tracks(&pending_dir);
+    if let Err(error) = fsutil::write_file(&pending_dir.join(format!("{token}.gpx")), &req.body) {
+        return Response::error(500, &error);
+    }
+    eprintln!("admin: staged track {token} ({} bytes)", req.body.len());
+    Response::json(201, &json!({ "token": token }))
+}
+
+fn discard_track(state: &AppState, req: &Request) -> Response {
+    let Some(token) = req.query.get("token") else {
+        return Response::error(400, "Missing track token");
+    };
+    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Response::error(400, "Invalid track token");
+    }
+    let _guard = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = state
+        .root
+        .join(".openblog/pending-tracks")
+        .join(format!("{token}.gpx"));
+    match fs::remove_file(path) {
+        Ok(()) => Response::json(200, &json!({ "discarded": true })),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Response::json(200, &json!({ "discarded": false }))
+        }
+        Err(error) => Response::error(500, &format!("cannot discard staged track: {error}")),
+    }
+}
+
+fn prune_staged_tracks(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let max_age = Duration::from_secs(24 * 60 * 60);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let stale = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
+            .is_ok_and(|age| age > max_age);
+        if stale && path.extension().and_then(|value| value.to_str()) == Some("gpx") {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+fn validate_gpx(source: &str) -> Result<(), String> {
+    let lower = source.to_ascii_lowercase();
+    if lower.contains("<!doctype")
+        || lower.contains("<!entity")
+        || lower.contains("<script")
+        || lower.contains("<?xml-stylesheet")
+    {
+        return Err("Choose a GPX track without scripts or document entities".into());
+    }
+    let mut stack: Vec<String> = Vec::new();
+    let mut root_seen = false;
+    let mut closed_root = false;
+    let mut points = 0usize;
+    for tag in source
+        .split('<')
+        .skip(1)
+        .filter_map(|part| part.split_once('>').map(|pair| pair.0))
+    {
+        let tag = tag.trim();
+        if let Some(closing) = tag.strip_prefix('/') {
+            let name = closing
+                .split_ascii_whitespace()
+                .next()
+                .unwrap_or("")
+                .rsplit(':')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if stack.pop().as_deref() != Some(name.as_str()) {
+                return Err("GPX XML elements are not properly nested".into());
+            }
+            if name == "gpx" {
+                closed_root = true;
+            }
+            continue;
+        }
+        if tag.starts_with(['?', '!']) {
+            continue;
+        }
+        let name = tag
+            .split_ascii_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim_end_matches('/');
+        let local_name = name.rsplit(':').next().unwrap_or(name).to_ascii_lowercase();
+        if stack.is_empty() {
+            if root_seen || closed_root {
+                return Err("GPX must contain one document root".into());
+            }
+            root_seen = true;
+            if local_name != "gpx" {
+                return Err("GPX must be the document root".into());
+            }
+        }
+        if local_name == "trkpt"
+            && stack.iter().any(|name| name == "trk")
+            && stack.iter().any(|name| name == "trkseg")
+        {
+            let lat = xml_attribute(tag, "lat").and_then(|value| value.parse::<f64>().ok());
+            let lon = xml_attribute(tag, "lon").and_then(|value| value.parse::<f64>().ok());
+            if lat.is_some_and(|value| value.is_finite() && value.abs() <= 90.0)
+                && lon.is_some_and(|value| value.is_finite() && value.abs() <= 180.0)
+            {
+                points += 1;
+            }
+        }
+        if tag.ends_with('/') {
+            if local_name == "gpx" {
+                closed_root = true;
+            }
+        } else {
+            stack.push(local_name);
+        }
+    }
+    if root_seen && closed_root && stack.is_empty() && points >= 2 {
+        Ok(())
+    } else {
+        Err("Choose a valid GPX document with at least two bounded track points".into())
+    }
+}
+
+fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
+    for (index, _) in tag.match_indices(key) {
+        if index == 0 || !tag.as_bytes()[index - 1].is_ascii_whitespace() {
+            continue;
+        }
+        let Some(candidate) = tag[index + key.len()..]
+            .trim_start()
+            .strip_prefix('=')
+            .map(str::trim_start)
+        else {
+            continue;
+        };
+        let quote = candidate.as_bytes().first().copied()?;
+        if !matches!(quote, b'\'' | b'"') {
+            continue;
+        }
+        let value = &candidate[1..];
+        return Some(&value[..value.find(quote as char)?]);
+    }
+    None
 }
 
 #[cfg(test)]
@@ -4093,6 +4539,226 @@ mod tests {
         let mut big = authed(req("POST", "/admin/api/upload?name=x.png"), &session, true);
         big.body = vec![0u8; 11 * 1024 * 1024];
         assert_eq!(handle(&f.state, &big).status, 413);
+    }
+
+    #[test]
+    fn exact_tracks_are_staged_until_save_and_retired_on_privacy_downgrade() {
+        let f = fixture("track-upload");
+        let session = login_ok(&f);
+        let send = |name: &str, bytes: &[u8]| {
+            let mut request = authed(
+                req("POST", &format!("/admin/api/track-upload?name={name}")),
+                &session,
+                true,
+            );
+            request.body = bytes.to_vec();
+            handle(&f.state, &request)
+        };
+        let gpx = br#"<?xml version="1.0"?><gpx version="1.1"><trk><trkseg><trkpt lat="42" lon="-72"></trkpt><trkpt lat="42.1" lon="-72.1"></trkpt></trkseg></trk></gpx>"#;
+        let abandoned = send("Abandoned.gpx", gpx);
+        let abandoned_token = body_json(&abandoned)["token"].as_str().unwrap().to_string();
+        let discarded = handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    &format!("/admin/api/track-upload?token={abandoned_token}"),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(discarded.status, 200);
+        assert!(!f
+            .dir
+            .join(format!(".openblog/pending-tracks/{abandoned_token}.gpx"))
+            .exists());
+        let first = send("Morning Ridge.gpx", gpx);
+        assert_eq!(first.status, 201);
+        let token = body_json(&first)["token"].as_str().unwrap().to_string();
+        assert!(f
+            .dir
+            .join(format!(".openblog/pending-tracks/{token}.gpx"))
+            .is_file());
+        assert!(!f.dir.join("static/tracks").exists());
+        assert!(!f.dir.join("dist/tracks").exists());
+        assert_eq!(send("track.gpx", b"<html>no track</html>").status, 415);
+        assert_eq!(
+            send(
+                "track.gpx",
+                b"<gpx><trkpt lat='no' lon='0'></trkpt><trkpt lat='91' lon='0'></trkpt></gpx>"
+            )
+            .status,
+            415
+        );
+        assert_eq!(
+            send(
+                "track.gpx",
+                b"<gpx></gpx><trk><trkseg><trkpt lat='0' lon='0'></trkpt><trkpt lat='1' lon='1'></trkpt></trkseg></trk>"
+            )
+            .status,
+            415
+        );
+        assert_eq!(
+            send(
+                "track.gpx",
+                b"<!DOCTYPE gpx [<!ENTITY x SYSTEM 'file:///secret'>]><gpx><trkpt lat='0' lon='0'></trkpt></gpx>"
+            )
+            .status,
+            415
+        );
+
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({
+                        "kind":"posts",
+                        "fields":{"title":"Morning Ridge","date":"2026-01-01","profile":"field-journal","locationPrivacy":"exact"},
+                        "body":"Trail notes.","trackToken":token,"trackName":"Morning Ridge.gpx"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created_json = body_json(&created);
+        let track_url = created_json["trackUrl"].as_str().unwrap();
+        assert!(track_url.ends_with("/morning-ridge.gpx"));
+        assert!(f
+            .dir
+            .join("static")
+            .join(track_url.trim_start_matches('/'))
+            .is_file());
+        assert!(f
+            .dir
+            .join("dist")
+            .join(track_url.trim_start_matches('/'))
+            .is_file());
+        assert!(!f
+            .dir
+            .join(format!(".openblog/pending-tracks/{token}.gpx"))
+            .exists());
+
+        fs::write(
+            f.dir.join("content/posts/2026-01-01-shared-ridge.md"),
+            format!(
+                "---\ntitle: Shared Ridge\ndate: 2026-01-01\nprofile: field-journal\nlocationPrivacy: exact\nroute: {track_url}\n---\nShared trail notes."
+            ),
+        )
+        .unwrap();
+
+        let hidden = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-01-morning-ridge.md",
+                    json!({
+                        "fields":{"title":"Morning Ridge","date":"2026-01-01","profile":"field-journal","locationPrivacy":"hidden","route":track_url},
+                        "body":"Trail notes.","etag":created_json["etag"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            hidden.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&hidden.body)
+        );
+        assert!(f
+            .dir
+            .join("static")
+            .join(track_url.trim_start_matches('/'))
+            .exists());
+        assert!(f
+            .dir
+            .join("dist")
+            .join(track_url.trim_start_matches('/'))
+            .exists());
+        let shared_deleted = handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    "/admin/api/document?path=posts/2026-01-01-shared-ridge.md",
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(shared_deleted.status, 200);
+        assert!(!f
+            .dir
+            .join("static")
+            .join(track_url.trim_start_matches('/'))
+            .exists());
+        assert!(!f
+            .dir
+            .join("dist")
+            .join(track_url.trim_start_matches('/'))
+            .exists());
+        assert!(fsutil::walk(&f.dir.join(".openblog/trash/tracks"))
+            .iter()
+            .any(|path| path.extension().and_then(|value| value.to_str()) == Some("gpx")));
+
+        let delete_stage = send("Delete Me.gpx", gpx);
+        let delete_token = body_json(&delete_stage)["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let delete_created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({
+                        "kind":"posts",
+                        "fields":{"title":"Delete Me","date":"2026-01-02","profile":"field-journal","locationPrivacy":"exact"},
+                        "body":"Trail notes.","trackToken":delete_token,"trackName":"Delete Me.gpx"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(delete_created.status, 201);
+        let delete_json = body_json(&delete_created);
+        let delete_url = delete_json["trackUrl"].as_str().unwrap();
+        let deleted = handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    "/admin/api/document?path=posts/2026-01-02-delete-me.md",
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 200);
+        assert!(!f
+            .dir
+            .join("static")
+            .join(delete_url.trim_start_matches('/'))
+            .exists());
+        assert!(!f
+            .dir
+            .join("dist")
+            .join(delete_url.trim_start_matches('/'))
+            .exists());
     }
 
     #[test]

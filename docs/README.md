@@ -29,9 +29,11 @@ If you are new, read these in order; each one stands alone otherwise.
    evidence checks, and their limits.
 13. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
    chapter validation, structured data, and reusable release copy.
-14. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-15. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
-16. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
+14. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,
+   trail facts, route drawings, and enforceable location-privacy modes.
+15. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+16. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+17. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

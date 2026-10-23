@@ -30,6 +30,7 @@ immediately.
 | **Formatting** | Apply H2, bold, italic, link, quote, list, and inline/fenced-code Markdown without converting or hiding the source. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in the editor. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
 | **Video release kit** | Validate authored YouTube chapters and copy a description assembled from the current summary, chapters, and AI-assistance disclosure. |
+| **Field Review** | Analyze GPX locally, derive route facts, and choose hidden, trimmed, approximate, or exact location publication. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
@@ -51,8 +52,8 @@ saves the current document, changes the color scheme, and reaches account action
 the arrow keys and Enter to choose a result, or Escape to close it.
 
 The editor footer shows whether the document is saved plus its line, word, and character
-counts. Press `Alt+1` through `Alt+8` to focus Write, Site preview, Social, Release kit,
-Optimize, Settings, Accessibility, or Evidence. The preview
+counts. Press `Alt+1` through `Alt+9` to focus Write, Site preview, Social, Release kit,
+Field Review, Optimize, Settings, Accessibility, or Evidence. The preview
 toolbar can constrain the canvas to wide, tablet, or mobile width; this preference is stored
 in the browser and does not change the published theme.
 
@@ -122,6 +123,11 @@ Research posts select Research and expose DOI and license fields. Values entered
 preserved when switching profiles and saved without discarding explicit clears.
 Video posts select Video production and expose YouTube URL, duration, thumbnail, and
 AI-assistance disclosure fields. The Release kit view remains inactive for other profiles.
+Field-journal posts expose activity, area, privacy, distance, elevation, duration, and
+conditions. Field Review analyzes GPX in the browser and privately stages the source track
+only in Exact mode; it becomes public as part of a successful post save. Other modes save
+privacy-filtered derived data. Downgrading a saved Exact route moves its managed GPX to
+`.openblog/trash/tracks/` so the next build retracts it without destroying the source.
 
 Every save is checked against the whole site before anything is written (duplicate slugs,
 unknown themes, bad dates), then the site is rebuilt. A save that would break the build is

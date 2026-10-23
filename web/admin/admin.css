@@ -1094,11 +1094,37 @@ kbd {
 .oba-editor[data-editor-view="preview"] .oba-preview-pane,
 .oba-editor[data-editor-view="social"] .oba-social-pane,
 .oba-editor[data-editor-view="release"] .oba-release-pane,
+.oba-editor[data-editor-view="field"] .oba-field-pane,
 .oba-editor[data-editor-view="optimize"] .oba-optimize-pane,
 .oba-editor[data-editor-view="settings"] .oba-settings-pane,
 .oba-editor[data-editor-view="accessibility"] .oba-accessibility-pane,
 .oba-editor[data-editor-view="evidence"] .oba-evidence-pane {
   display: block;
+}
+
+.oba-field-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+}
+
+.oba-field-chart {
+  margin: 0;
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-field-chart svg {
+  display: block;
+  width: 100%;
+}
+
+.oba-field-chart polyline {
+  fill: none;
+  stroke: var(--ob-color-accent);
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
 }
 
 .oba-release-workspace {

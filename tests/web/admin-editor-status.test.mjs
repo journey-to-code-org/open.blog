@@ -23,8 +23,8 @@ test("editor reports document size and save state", () => {
 });
 
 test("editor panes can be focused from Alt number shortcuts", () => {
-  assert.match(admin, /e\.altKey && \["1", "2", "3", "4", "5", "6", "7"\]\.includes\(e\.key\)/);
-  assert.match(admin, /\["write", "preview", "social", "optimize", "settings", "accessibility", "evidence"\]/);
+  assert.match(admin, /e\.altKey && \["1", "2", "3", "4", "5", "6", "7", "8", "9"\]\.includes\(e\.key\)/);
+  assert.match(admin, /\["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence"\]/);
   assert.match(admin, /this\.editor\.activatePane\(pane, true\)/);
   assert.match(admin, /target\?\.focus\(\)/);
 });

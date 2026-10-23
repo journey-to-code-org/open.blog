@@ -19,6 +19,7 @@ pub mod date;
 pub mod embed;
 pub mod escape;
 pub mod feeds;
+pub mod field_journal;
 pub mod frontmatter;
 pub mod markdown;
 pub mod model;

@@ -7,6 +7,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ### Added
 
+- Added a Field journal content profile for hikes and other place-based notes, with field
+  facts, route and elevation drawings, structured place metadata, and hidden-by-default
+  location handling.
+- Added an Admin Field Review workflow that analyzes GPX locally, derives deterministic
+  measurements, trims endpoints, and uploads source tracks only when Exact mode is chosen.
+
 - Added a Video production content profile with privacy-enhanced YouTube embeds, duration
   and thumbnail metadata, creator-authored AI-assistance disclosure, and `VideoObject`
   structured data.

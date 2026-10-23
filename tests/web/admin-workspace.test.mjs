@@ -34,6 +34,7 @@ test("editors expose one explicitly selected view at every width", () => {
   assert.match(styles, /\.oba-editor\[data-editor-view="preview"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="social"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="release"\]/);
+  assert.match(styles, /\.oba-editor\[data-editor-view="field"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="optimize"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="accessibility"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="evidence"\]/);
