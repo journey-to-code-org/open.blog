@@ -1820,6 +1820,7 @@ mod tests {
                     src("posts/two.md", "---\ntitle: Two\ndate: 2026-02-01\nseries: s\n---\nbody <script>x</script>"),
                     src("posts/solo.md", "---\ntitle: Solo\ndate: 2026-03-01\n---\nbody"),
                 ],
+                credits: Vec::new(),
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
             },

@@ -1,6 +1,10 @@
 //! Site configuration, read from `openblog.json`.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
+
+use crate::contributor::{self, Contributor};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -14,6 +18,8 @@ pub struct SiteConfig {
     /// BCP 47 language tag.
     pub language: String,
     pub author: Author,
+    /// Reusable person identities referenced by per-work credit sidecars.
+    pub contributors: BTreeMap<String, Contributor>,
     /// Site logo shown beside the title (a site path or URL). Optional.
     pub logo: String,
     /// Favicon path or URL. Optional.
@@ -202,6 +208,7 @@ impl Default for SiteConfig {
             url: "https://example.com".to_string(),
             language: "en".to_string(),
             author: Author::default(),
+            contributors: BTreeMap::new(),
             logo: String::new(),
             favicon: String::new(),
             og_image: String::new(),
@@ -571,7 +578,9 @@ impl SiteConfig {
     pub fn from_json(json: &str) -> Result<Self, String> {
         let mut config: Self =
             serde_json::from_str(json).map_err(|e| format!("invalid openblog.json: {e}"))?;
-        config.normalize();
+        config
+            .normalize()
+            .map_err(|error| format!("invalid openblog.json: {error}"))?;
         Ok(config)
     }
 
@@ -579,7 +588,7 @@ impl SiteConfig {
         serde_json::to_string_pretty(self).unwrap_or_default()
     }
 
-    fn normalize(&mut self) {
+    fn normalize(&mut self) -> Result<(), String> {
         while self.url.ends_with('/') {
             self.url.pop();
         }
@@ -595,6 +604,8 @@ impl SiteConfig {
         if self.theme.is_empty() {
             self.theme = "base".to_string();
         }
+        contributor::normalize_registry(&mut self.contributors)?;
+        Ok(())
     }
 
     /// URL path for a post slug, e.g. `/posts/hello/`.

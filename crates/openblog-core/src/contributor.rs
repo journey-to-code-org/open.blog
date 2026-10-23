@@ -1,0 +1,311 @@
+//! Reusable contributor identities and ordered, work-specific credit relationships.
+
+use std::collections::{BTreeMap, HashSet};
+
+use serde::{Deserialize, Serialize};
+
+use crate::config::Author;
+
+const CROSSREF_ROLES: &[&str] = &[
+    "author",
+    "corresponding-author",
+    "editor",
+    "chair",
+    "other",
+    "reviewer",
+    "review-assistant",
+    "reviewer-external",
+    "stats-reviewer",
+    "reader",
+    "translator",
+];
+
+const CREDIT_ROLES: &[&str] = &[
+    "conceptualization",
+    "data-curation",
+    "formal-analysis",
+    "funding-acquisition",
+    "investigation",
+    "methodology",
+    "project-administration",
+    "resources",
+    "software",
+    "supervision",
+    "validation",
+    "visualization",
+    "writing-original-draft",
+    "writing-review-editing",
+];
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct Contributor {
+    pub name: String,
+    pub url: String,
+    pub same_as: Vec<String>,
+    /// A manually supplied ORCID iD. Editable configuration can never assert
+    /// authenticated provenance.
+    pub orcid: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum RoleVocabulary {
+    Crossref,
+    Credit,
+}
+
+impl RoleVocabulary {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Crossref => "crossref",
+            Self::Credit => "credit",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CreditRole {
+    pub vocabulary: RoleVocabulary,
+    pub role: String,
+}
+
+impl CreditRole {
+    pub fn is_author(&self) -> bool {
+        self.vocabulary == RoleVocabulary::Crossref && self.role == "author"
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedCredit {
+    pub contributor_id: String,
+    pub contributor: Contributor,
+    pub roles: Vec<CreditRole>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreditProvenance {
+    LegacySiteAuthor,
+    ExplicitSidecar,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreditFile {
+    version: u32,
+    credits: Vec<AuthoredCredit>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuthoredCredit {
+    contributor: String,
+    roles: Vec<CreditRole>,
+}
+
+pub fn normalize_registry(contributors: &mut BTreeMap<String, Contributor>) -> Result<(), String> {
+    for (id, contributor) in contributors {
+        if !valid_registry_key(id) {
+            return Err(format!(
+                "contributors.{id}: key must be a lowercase ASCII slug such as `ada-lovelace`"
+            ));
+        }
+        if contributor.name.trim().is_empty() {
+            return Err(format!("contributors.{id}.name must not be empty"));
+        }
+        contributor.name = contributor.name.trim().to_string();
+        contributor.url = contributor.url.trim().to_string();
+        contributor.same_as = contributor
+            .same_as
+            .iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect();
+        contributor.orcid = normalize_orcid(&contributor.orcid)
+            .map_err(|error| format!("contributors.{id}.orcid: {error}"))?;
+    }
+    Ok(())
+}
+
+pub fn resolve(
+    legacy_author: &Author,
+    contributors: &BTreeMap<String, Contributor>,
+    sidecar: Option<&str>,
+) -> Result<(Vec<ResolvedCredit>, CreditProvenance), String> {
+    let Some(sidecar) = sidecar else {
+        let contributor = Contributor {
+            name: legacy_author.name.clone(),
+            url: legacy_author.url.clone(),
+            same_as: legacy_author.same_as.clone(),
+            orcid: String::new(),
+        };
+        return Ok((
+            vec![ResolvedCredit {
+                contributor_id: "site-author".into(),
+                contributor,
+                roles: vec![CreditRole {
+                    vocabulary: RoleVocabulary::Crossref,
+                    role: "author".into(),
+                }],
+            }],
+            CreditProvenance::LegacySiteAuthor,
+        ));
+    };
+
+    let authored: CreditFile =
+        serde_json::from_str(sidecar).map_err(|error| format!("invalid credit JSON: {error}"))?;
+    if authored.version != 1 {
+        return Err(format!(
+            "unsupported credit file version {}; expected version 1",
+            authored.version
+        ));
+    }
+
+    let mut seen_contributors = HashSet::new();
+    let mut resolved = Vec::with_capacity(authored.credits.len());
+    for credit in authored.credits {
+        if !seen_contributors.insert(credit.contributor.clone()) {
+            return Err(format!(
+                "duplicate contributor `{}`; combine that person's roles in one credit",
+                credit.contributor
+            ));
+        }
+        let contributor = contributors.get(&credit.contributor).ok_or_else(|| {
+            format!(
+                "unknown contributor `{}`; add it to openblog.json `contributors`",
+                credit.contributor
+            )
+        })?;
+        if credit.roles.is_empty() {
+            return Err(format!(
+                "contributor `{}` must have at least one role",
+                credit.contributor
+            ));
+        }
+        let mut seen_roles = HashSet::new();
+        for role in &credit.roles {
+            let known = match role.vocabulary {
+                RoleVocabulary::Crossref => CROSSREF_ROLES.contains(&role.role.as_str()),
+                RoleVocabulary::Credit => CREDIT_ROLES.contains(&role.role.as_str()),
+            };
+            if !known {
+                return Err(format!(
+                    "unknown {} role `{}` for contributor `{}`",
+                    role.vocabulary.as_str(),
+                    role.role,
+                    credit.contributor
+                ));
+            }
+            if !seen_roles.insert((role.vocabulary, role.role.as_str())) {
+                return Err(format!(
+                    "duplicate role `{}:{}` for contributor `{}`",
+                    role.vocabulary.as_str(),
+                    role.role,
+                    credit.contributor
+                ));
+            }
+        }
+        resolved.push(ResolvedCredit {
+            contributor_id: credit.contributor,
+            contributor: contributor.clone(),
+            roles: credit.roles,
+        });
+    }
+    Ok((resolved, CreditProvenance::ExplicitSidecar))
+}
+
+pub fn sidecar_path(post_path: &str) -> Option<String> {
+    let normalized = post_path.replace('\\', "/");
+    let stem = normalized
+        .strip_suffix(".markdown")
+        .or_else(|| normalized.strip_suffix(".md"))?;
+    Some(format!("{stem}.credits.json"))
+}
+
+fn valid_registry_key(value: &str) -> bool {
+    !value.is_empty()
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        && !value.contains("--")
+}
+
+fn normalize_orcid(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(String::new());
+    }
+    let id = value
+        .strip_prefix("https://orcid.org/")
+        .or_else(|| value.strip_prefix("http://orcid.org/"))
+        .unwrap_or(value);
+    if id.contains(['/', '?', '#']) {
+        return Err("must be an ORCID iD or a full orcid.org URL".into());
+    }
+    let parts: Vec<&str> = id.split('-').collect();
+    if parts.len() != 4 || parts.iter().any(|part| part.len() != 4) {
+        return Err("must use the `0000-0000-0000-000X` format".into());
+    }
+    let compact = parts.concat().to_ascii_uppercase();
+    let bytes = compact.as_bytes();
+    if bytes.len() != 16
+        || !bytes[..15].iter().all(u8::is_ascii_digit)
+        || !bytes
+            .last()
+            .is_some_and(|byte| byte.is_ascii_digit() || *byte == b'X')
+    {
+        return Err("contains invalid characters".into());
+    }
+    let mut total = 0_u32;
+    for byte in &bytes[..15] {
+        total = (total + u32::from(*byte - b'0')) * 2;
+    }
+    let result = (12 - total % 11) % 11;
+    let expected = if result == 10 {
+        'X'
+    } else {
+        char::from_digit(result, 10).unwrap_or('0')
+    };
+    if !compact.ends_with(expected) {
+        return Err("has an invalid MOD 11-2 checksum".into());
+    }
+    Ok(format!(
+        "https://orcid.org/{}-{}-{}-{}",
+        &compact[0..4],
+        &compact[4..8],
+        &compact[8..12],
+        &compact[12..16]
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidecars_follow_both_markdown_extensions() {
+        assert_eq!(
+            sidecar_path("posts/a.md").as_deref(),
+            Some("posts/a.credits.json")
+        );
+        assert_eq!(
+            sidecar_path("posts/a.markdown").as_deref(),
+            Some("posts/a.credits.json")
+        );
+        assert_eq!(sidecar_path("posts/a.txt"), None);
+    }
+
+    #[test]
+    fn normalizes_and_checks_orcid() {
+        assert_eq!(
+            normalize_orcid("0000-0002-1825-0097").unwrap(),
+            "https://orcid.org/0000-0002-1825-0097"
+        );
+        assert!(normalize_orcid("0000-0002-1825-0098")
+            .unwrap_err()
+            .contains("checksum"));
+    }
+}

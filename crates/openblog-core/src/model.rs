@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 use crate::accessibility::{self, AccessibilityFinding, DocumentAuditInput};
 use crate::config::SiteConfig;
+use crate::contributor::{self, CreditProvenance, ResolvedCredit};
 use crate::date::DateTime;
 use crate::frontmatter::{self, FrontMatter};
 use crate::markdown::{self, Heading, RenderOptions};
@@ -24,8 +25,76 @@ pub struct SourceFile {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Sources {
     pub posts: Vec<SourceFile>,
+    /// Adjacent, versioned work-credit sidecars for posts.
+    pub credits: Vec<SourceFile>,
     pub series: Vec<SourceFile>,
     pub pages: Vec<SourceFile>,
+}
+
+/// Validated association between Markdown posts and their adjacent credit
+/// sidecars. Consumers such as Admin Studio use this same index as `Site::load`
+/// so attribution never depends on directory iteration order.
+pub struct CreditSidecarIndex<'a> {
+    pub by_post: BTreeMap<String, &'a SourceFile>,
+    pub post_errors: BTreeMap<String, String>,
+    pub errors: Vec<String>,
+}
+
+pub fn associate_credit_sidecars(sources: &Sources) -> CreditSidecarIndex<'_> {
+    let mut owners: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for post in &sources.posts {
+        if let Some(path) = contributor::sidecar_path(&post.path) {
+            owners
+                .entry(path)
+                .or_default()
+                .push(post.path.replace('\\', "/"));
+        }
+    }
+
+    let mut sidecars: BTreeMap<String, Vec<&SourceFile>> = BTreeMap::new();
+    for sidecar in &sources.credits {
+        sidecars
+            .entry(sidecar.path.replace('\\', "/"))
+            .or_default()
+            .push(sidecar);
+    }
+
+    let mut by_post = BTreeMap::new();
+    let mut post_errors = BTreeMap::new();
+    let mut errors = Vec::new();
+    for (path, matching_sidecars) in sidecars {
+        let matching_owners = owners.get(&path).map(Vec::as_slice).unwrap_or_default();
+        let error = if matching_sidecars.len() > 1 {
+            Some(format!("{path}: duplicate credit sidecar path"))
+        } else if matching_owners.is_empty() {
+            Some(format!(
+                "{path}: credit sidecar has no matching Markdown post"
+            ))
+        } else if matching_owners.len() > 1 {
+            Some(format!(
+                "{path}: ambiguous credit sidecar target; both {} resolve to this path",
+                matching_owners
+                    .iter()
+                    .map(|owner| format!("`{owner}`"))
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            ))
+        } else {
+            by_post.insert(matching_owners[0].clone(), matching_sidecars[0]);
+            None
+        };
+        if let Some(error) = error {
+            for owner in matching_owners {
+                post_errors.insert(owner.clone(), error.clone());
+            }
+            errors.push(error);
+        }
+    }
+    CreditSidecarIndex {
+        by_post,
+        post_errors,
+        errors,
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -86,6 +155,10 @@ pub struct Post {
     pub word_count: usize,
     pub reading_minutes: u32,
     pub code_languages: Vec<String>,
+    /// Ordered, resolved work attribution. Legacy posts synthesize one author
+    /// from the site configuration until an explicit sidecar exists.
+    pub credits: Vec<ResolvedCredit>,
+    pub credit_provenance: CreditProvenance,
     /// Resolved content profile. Unknown authored ids are preserved here and
     /// use article behavior until a matching profile is available.
     pub profile: String,
@@ -101,6 +174,16 @@ pub struct Post {
     pub code_line_numbers: Option<bool>,
     /// The source file this post came from.
     pub source: String,
+}
+
+impl Post {
+    /// Actual authors only, in authored credit order. Secondary contributors
+    /// remain available through `credits` but never leak into author metadata.
+    pub fn authors(&self) -> impl Iterator<Item = &ResolvedCredit> {
+        self.credits
+            .iter()
+            .filter(|credit| credit.roles.iter().any(|role| role.is_author()))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -186,6 +269,8 @@ impl Site {
             embeds: config.markdown.embeds,
             recipe: false,
         };
+        let credit_sidecars = associate_credit_sidecars(&sources);
+        errors.extend(credit_sidecars.errors.iter().cloned());
 
         // Series definitions first, so posts can reference them.
         let mut series: Vec<Series> = Vec::new();
@@ -210,8 +295,27 @@ impl Site {
         let mut slug_sources: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
         for file in &sources.posts {
+            let Some(sidecar_path) = contributor::sidecar_path(&file.path) else {
+                errors.push(format!(
+                    "{}: post source path must end in `.md` or `.markdown`",
+                    file.path
+                ));
+                continue;
+            };
+            let normalized_path = file.path.replace('\\', "/");
+            if credit_sidecars.post_errors.contains_key(&normalized_path) {
+                continue;
+            }
+            let sidecar = credit_sidecars.by_post.get(&normalized_path).copied();
             match load_post(file, &config, render_options) {
-                Ok(post) => {
+                Ok(mut post) => {
+                    if let Err(error) = apply_credits(&mut post, &config, sidecar) {
+                        errors.push(format!(
+                            "{}: {error}",
+                            sidecar.map_or(sidecar_path.as_str(), |source| source.path.as_str())
+                        ));
+                        continue;
+                    }
                     if let Some(existing) = slug_sources.get(&post.slug) {
                         errors.push(format!(
                             "{}: duplicate post slug `{}` (also in {})",
@@ -264,7 +368,7 @@ impl Site {
                     evidence.extend(post.evidence.iter().cloned());
                     posts.push(post);
                 }
-                Err(e) => errors.push(format!("{}: {e}", file.path)),
+                Err(error) => errors.push(format!("{}: {error}", file.path)),
             }
         }
         posts.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.slug.cmp(&b.slug)));
@@ -669,6 +773,9 @@ pub fn load_post(
     } else {
         Vec::new()
     };
+    let (credits, credit_provenance) =
+        contributor::resolve(&config.author, &config.contributors, None)
+            .expect("legacy author resolution cannot fail");
 
     Ok(Post {
         url: config.post_url(&slug),
@@ -696,6 +803,8 @@ pub fn load_post(
         word_count: rendered.word_count,
         reading_minutes: markdown::reading_minutes(rendered.word_count),
         code_languages: rendered.code_languages,
+        credits,
+        credit_provenance,
         profile: profile.id,
         profile_warnings: profile.warnings,
         accessibility,
@@ -710,6 +819,49 @@ pub fn load_post(
             .or_else(|| fm.get_bool("showLineNumbers")),
         source: file.path.clone(),
     })
+}
+
+/// Parse one post and resolve its optional adjacent credit sidecar through the
+/// same contributor model used by a full site load.
+pub fn load_post_with_credits(
+    file: &SourceFile,
+    config: &SiteConfig,
+    options: RenderOptions,
+    sidecar: Option<&SourceFile>,
+) -> Result<Post, String> {
+    if let Some(sidecar) = sidecar {
+        let expected = contributor::sidecar_path(&file.path).ok_or_else(|| {
+            format!(
+                "post source path `{}` must end in `.md` or `.markdown`",
+                file.path
+            )
+        })?;
+        let actual = sidecar.path.replace('\\', "/");
+        if actual != expected {
+            return Err(format!(
+                "credit sidecar `{actual}` does not belong to `{}`; expected `{expected}`",
+                file.path
+            ));
+        }
+    }
+    let mut post = load_post(file, config, options)?;
+    apply_credits(&mut post, config, sidecar)?;
+    Ok(post)
+}
+
+fn apply_credits(
+    post: &mut Post,
+    config: &SiteConfig,
+    sidecar: Option<&SourceFile>,
+) -> Result<(), String> {
+    let (credits, provenance) = contributor::resolve(
+        &config.author,
+        &config.contributors,
+        sidecar.map(|source| source.contents.as_str()),
+    )?;
+    post.credits = credits;
+    post.credit_provenance = provenance;
+    Ok(())
 }
 
 fn load_series(file: &SourceFile, options: RenderOptions) -> Result<Series, String> {
@@ -872,6 +1024,7 @@ mod tests {
                 post("posts/first.md", "---\ntitle: First\ndate: 2026-10-01T10:00:00Z\ntags: [rust]\nseries: guide\ncover: /c.png\n---\nBody one"),
                 post("posts/draft.md", "---\ntitle: Draft\ndraft: true\n---\nnot yet"),
             ],
+            credits: Vec::new(),
             series: vec![post("series/guide.md", "---\nname: The Guide\ntheme: paper\n---\nAbout the guide")],
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
         });

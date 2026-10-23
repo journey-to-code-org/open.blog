@@ -1064,33 +1064,48 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
         "series" => &sources.series,
         _ => &sources.pages,
     };
+    let credit_sidecars = openblog_core::model::associate_credit_sidecars(&sources);
     let now = clock::now();
     let mut items: Vec<(i64, Json)> = Vec::new();
     for file in files {
         let item = match kind {
             "posts" => {
-                match openblog_core::model::load_post(file, &config, RenderOptions::default()) {
-                    Ok(p) => {
-                        let status = if p.draft {
-                            "draft"
-                        } else if p.date > now {
-                            "scheduled"
-                        } else {
-                            "published"
-                        };
-                        (
-                            p.date.unix(),
-                            json!({
-                                "path": file.path, "title": p.title, "slug": p.slug, "date": p.date.rfc3339(),
-                                "status": status, "series": p.series, "tags": p.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
-                                "url": p.url, "words": p.word_count,
-                            }),
-                        )
-                    }
-                    Err(e) => (
+                let normalized_path = file.path.replace('\\', "/");
+                if let Some(error) = credit_sidecars.post_errors.get(&normalized_path) {
+                    (
                         i64::MIN,
-                        json!({ "path": file.path, "title": file.path, "status": "error", "error": e }),
-                    ),
+                        json!({ "path": file.path, "title": file.path, "status": "error", "error": error }),
+                    )
+                } else {
+                    let sidecar = credit_sidecars.by_post.get(&normalized_path).copied();
+                    match openblog_core::model::load_post_with_credits(
+                        file,
+                        &config,
+                        RenderOptions::default(),
+                        sidecar,
+                    ) {
+                        Ok(p) => {
+                            let status = if p.draft {
+                                "draft"
+                            } else if p.date > now {
+                                "scheduled"
+                            } else {
+                                "published"
+                            };
+                            (
+                                p.date.unix(),
+                                json!({
+                                    "path": file.path, "title": p.title, "slug": p.slug, "date": p.date.rfc3339(),
+                                    "status": status, "series": p.series, "tags": p.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+                                    "url": p.url, "words": p.word_count,
+                                }),
+                            )
+                        }
+                        Err(e) => (
+                            i64::MIN,
+                            json!({ "path": file.path, "title": file.path, "status": "error", "error": e }),
+                        ),
+                    }
                 }
             }
             _ => match frontmatter::parse(&file.contents) {
@@ -1196,7 +1211,14 @@ fn validate_candidate(
     ) {
         Ok(site) => generate(&site, &themes).map(|_| ()).map_err(|e| vec![e]),
         Err(errors) => {
-            let mine: Vec<String> = errors.into_iter().filter(|e| e.contains(rel)).collect();
+            let sidecar = openblog_core::contributor::sidecar_path(rel);
+            let mine: Vec<String> = errors
+                .into_iter()
+                .filter(|error| {
+                    error.contains(rel)
+                        || sidecar.as_deref().is_some_and(|path| error.contains(path))
+                })
+                .collect();
             if mine.is_empty() {
                 Ok(())
             } else {
@@ -2622,6 +2644,102 @@ mod tests {
             1,
             "nothing was written"
         );
+    }
+
+    #[test]
+    fn admin_validation_and_listing_surface_matching_sidecar_errors() {
+        let f = fixture("credit-sidecar-errors");
+        let posts_dir = f.dir.join("content/posts");
+        let markdown = fs::read_dir(&posts_dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| path.extension().is_some_and(|extension| extension == "md"))
+            .unwrap();
+        let file_name = markdown.file_name().unwrap().to_string_lossy();
+        let rel = format!("posts/{file_name}");
+        let sidecar = markdown.with_extension("credits.json");
+        fs::write(
+            &sidecar,
+            r#"{"version":1,"credits":[{"contributor":"missing","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,
+        )
+        .unwrap();
+
+        let config = site::load_config(&f.dir).unwrap();
+        let source = fs::read_to_string(&markdown).unwrap();
+        let problems = validate_candidate(&f.dir, &config, &rel, &source).unwrap_err();
+        assert!(problems.iter().any(|problem| {
+            problem.contains(".credits.json") && problem.contains("unknown contributor `missing`")
+        }));
+
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/documents?kind=posts"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(response.status, 200);
+        let list = body_json(&response);
+        let item = list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == rel)
+            .unwrap();
+        assert_eq!(item["status"], "error");
+        assert!(item["error"]
+            .as_str()
+            .unwrap()
+            .contains("unknown contributor `missing`"));
+    }
+
+    #[test]
+    fn admin_listing_rejects_ambiguous_credit_sidecar_ownership() {
+        let f = fixture("credit-sidecar-collision");
+        let posts = f.dir.join("content/posts");
+        fs::write(
+            posts.join("study.md"),
+            "---\ntitle: MD study\nslug: md-study\ndate: 2026-01-01\n---\nBody",
+        )
+        .unwrap();
+        fs::write(
+            posts.join("study.markdown"),
+            "---\ntitle: Markdown study\nslug: markdown-study\ndate: 2026-01-01\n---\nBody",
+        )
+        .unwrap();
+        fs::write(
+            posts.join("study.credits.json"),
+            r#"{"version":1,"credits":[]}"#,
+        )
+        .unwrap();
+
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/documents?kind=posts"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(response.status, 200);
+        let list = body_json(&response);
+        for path in ["posts/study.md", "posts/study.markdown"] {
+            let item = list["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["path"] == path)
+                .unwrap();
+            assert_eq!(item["status"], "error");
+            assert!(item["error"]
+                .as_str()
+                .unwrap()
+                .contains("ambiguous credit sidecar target"));
+        }
     }
 
     #[test]

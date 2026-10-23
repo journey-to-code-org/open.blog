@@ -14,6 +14,7 @@
 
 pub mod accessibility;
 pub mod config;
+pub mod contributor;
 pub mod date;
 pub mod embed;
 pub mod escape;
@@ -38,6 +39,14 @@ pub use theme::{Theme, ThemeFile, ThemeSet};
 /// Classify a content file path into the source bucket it belongs to.
 pub fn classify_source(relative_path: &str) -> Option<SourceKind> {
     let normalized = relative_path.replace('\\', "/");
+    if normalized.ends_with(".credits.json") {
+        let first = normalized.split('/').next()?;
+        return match first {
+            "posts" => Some(SourceKind::PostCredits),
+            _ if !normalized.contains('/') => Some(SourceKind::PostCredits),
+            _ => None,
+        };
+    }
     if !normalized.ends_with(".md") && !normalized.ends_with(".markdown") {
         return None;
     }
@@ -56,6 +65,7 @@ pub fn classify_source(relative_path: &str) -> Option<SourceKind> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceKind {
     Post,
+    PostCredits,
     Series,
     Page,
 }
@@ -66,6 +76,7 @@ impl Sources {
     pub fn add(&mut self, file: SourceFile) -> bool {
         match classify_source(&file.path) {
             Some(SourceKind::Post) => self.posts.push(file),
+            Some(SourceKind::PostCredits) => self.credits.push(file),
             Some(SourceKind::Series) => self.series.push(file),
             Some(SourceKind::Page) => self.pages.push(file),
             None => return false,
@@ -88,6 +99,15 @@ mod tests {
             Some(SourceKind::Page)
         );
         assert_eq!(classify_source("loose.md"), Some(SourceKind::Post));
+        assert_eq!(
+            classify_source("posts/a.credits.json"),
+            Some(SourceKind::PostCredits)
+        );
+        assert_eq!(
+            classify_source("loose.credits.json"),
+            Some(SourceKind::PostCredits)
+        );
+        assert_eq!(classify_source("pages/a.credits.json"), None);
         assert_eq!(classify_source("posts/README.txt"), None);
         assert_eq!(classify_source("other/x.md"), None);
     }
