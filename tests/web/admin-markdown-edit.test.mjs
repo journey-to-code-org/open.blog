@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyMarkdownCommand, insertResearchSection } from "../../web/admin/admin.js";
+import { applyMarkdownCommand, insertResearchSection, parseVisualMarkdown, visualBlocksToMarkdown } from "../../web/admin/admin.js";
 
 test("inline formatting wraps selections and selects placeholders", () => {
   assert.deepEqual(applyMarkdownCommand("make this clear", 5, 9, "bold"), {
@@ -31,6 +31,8 @@ test("block formatting expands to complete selected lines", () => {
     end: 22,
   });
   assert.equal(applyMarkdownCommand("# Old heading", 3, 3, "heading").value, "## Old heading");
+  assert.equal(applyMarkdownCommand("## Old heading", 3, 3, "heading-4").value, "#### Old heading");
+  assert.equal(applyMarkdownCommand("#### Old heading", 3, 3, "paragraph").value, "Old heading");
 });
 
 test("block formatting respects newline selection boundaries", () => {
@@ -70,4 +72,82 @@ test("research section helpers preserve source and avoid duplicate headings", ()
     insertResearchSection("## Abstract\nSummary.\n", "references").value,
     "## Abstract\nSummary.\n\n## References\n\n",
   );
+});
+
+test("visual editing separates ordinary Markdown from protected advanced blocks without losing source", () => {
+  const source = [
+    "Opening with **bold text** and a [link](https://example.com).",
+    "",
+    "### Observations",
+    "",
+    "- First",
+    "- Second",
+    "",
+    "```quiz",
+    "What changed?",
+    "- [x] The trail",
+    "- [ ] The weather",
+    "```",
+    "",
+    "| Place | Note |",
+    "| --- | --- |",
+    "| Ridge | Wet |",
+    "",
+  ].join("\n");
+  const blocks = parseVisualMarkdown(source);
+  assert.deepEqual(
+    blocks.filter((block) => block.type !== "space").map((block) => [block.type, block.label || ""]),
+    [
+      ["paragraph", ""],
+      ["heading", ""],
+      ["unordered-list", ""],
+      ["protected", "Knowledge check"],
+      ["protected", "Table"],
+    ],
+  );
+  assert.equal(visualBlocksToMarkdown(blocks), source);
+});
+
+test("visual editing protects source that cannot be edited safely", () => {
+  const blocks = parseVisualMarkdown("> [!TIP]\n> Keep this callout.\n\n<custom-card>Keep me</custom-card>\n\nhttps://www.youtube.com/watch?v=abc\n\n- [x] Finished\n- [ ] Next\n\nSee [the guide][docs].\n[docs]: /guide/\n\n```js\nconst open = true;\n");
+  assert.deepEqual(
+    blocks.filter((block) => block.type !== "space").map((block) => block.label),
+    ["Callout", "Raw HTML", "Embedded media", "Task list", "Advanced formatting", "Unclosed code block"],
+  );
+});
+
+test("visual editing protects unsupported block grammar and ambiguous links", () => {
+  const source = [
+    "A setext heading",
+    "---",
+    "",
+    "***",
+    "",
+    "    const indented = true;",
+    "",
+    "Read [the docs](https://example.test/a_(b)_(c)).",
+    "",
+  ].join("\n");
+  const blocks = parseVisualMarkdown(source);
+  assert.deepEqual(
+    blocks.filter((block) => block.type !== "space").map((block) => block.label),
+    ["Setext heading", "Thematic break", "Indented code block", "Advanced link"],
+  );
+  assert.equal(visualBlocksToMarkdown(blocks), source);
+});
+
+test("visual editing protects nested-parenthesis link destinations", () => {
+  const source = "Read [the docs](https://example.test/a_((b))).\n";
+  const blocks = parseVisualMarkdown(source);
+  assert.equal(blocks[0].type, "protected");
+  assert.equal(blocks[0].label, "Advanced link");
+  assert.equal(visualBlocksToMarkdown(blocks), source);
+});
+
+test("fenced code only closes on a valid closing fence", () => {
+  const source = "```js\nfirst\n```not-a-close\nlast\n```\n";
+  const blocks = parseVisualMarkdown(source);
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].type, "code");
+  assert.equal(blocks[0].source, source);
 });

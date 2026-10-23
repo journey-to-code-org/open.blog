@@ -1148,6 +1148,7 @@ kbd {
 }
 
 .oba-body,
+.oba-rich-body,
 .oba-preview {
   display: block;
   width: 100%;
@@ -1167,6 +1168,121 @@ kbd {
   tab-size: 4;
 }
 
+.oba-body[hidden],
+.oba-rich-body[hidden] {
+  display: none;
+}
+
+.oba-rich-body {
+  min-height: 60vh;
+  padding: clamp(1rem, 3vw, 2.5rem);
+  overflow-wrap: anywhere;
+  color: var(--ob-color-text);
+  font-family: var(--ob-font-body);
+  font-size: var(--ob-body-size);
+  line-height: var(--ob-body-leading);
+  outline: none;
+}
+
+.oba-rich-body:focus-visible {
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--ob-color-accent) 35%, transparent);
+}
+
+.oba-rich-body > :first-child {
+  margin-top: 0;
+}
+
+.oba-rich-body > :last-child {
+  margin-bottom: 0;
+}
+
+.oba-rich-body h1,
+.oba-rich-body h2,
+.oba-rich-body h3,
+.oba-rich-body h4,
+.oba-rich-body h5,
+.oba-rich-body h6 {
+  font-family: var(--ob-font-heading);
+  line-height: var(--ob-heading-leading);
+}
+
+.oba-rich-body pre {
+  padding: 1rem;
+  overflow: auto;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-code-bg);
+  color: var(--ob-color-code-text);
+  font-family: var(--ob-font-mono);
+  white-space: pre-wrap;
+}
+
+.oba-rich-body blockquote {
+  margin-inline: 0;
+  padding-inline-start: 1rem;
+  border-inline-start: 0.25rem solid var(--ob-color-accent-border);
+  color: var(--ob-color-muted);
+}
+
+.oba-rich-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-block: 1rem;
+  border-radius: var(--ob-radius);
+}
+
+.oba-protected-block {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-block: 1rem;
+  padding: 0.85rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-protected-block > div:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.oba-protected-block span {
+  color: var(--ob-color-muted);
+  font-size: 0.82rem;
+}
+
+.oba-protected-actions,
+.oba-mode-switch {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.oba-protected-actions button,
+.oba-mode-button {
+  padding: 0.35rem 0.55rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.oba-mode-button[aria-pressed="true"] {
+  border-color: var(--ob-color-accent);
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+}
+
+.oba-editor-mode {
+  display: flex;
+  align-items: center;
+}
+
 .oba-format-toolbar {
   display: flex;
   gap: 0.25rem;
@@ -1174,6 +1290,16 @@ kbd {
   overflow-x: auto;
   border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
   background: var(--ob-color-surface-raised);
+}
+
+.oba-block-style {
+  min-width: 7.5rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.82rem;
 }
 
 .oba-format-button {

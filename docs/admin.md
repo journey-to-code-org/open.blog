@@ -27,7 +27,7 @@ immediately.
 | **Accessibility Studio** | Production-backed source findings grouped as detected, potential, or needs review, with exact locations and repair guidance. It also keeps rendered-site checks visible without claiming WCAG conformance. |
 | **Evidence Studio** | Research-profile structure and metadata findings from the publishing engine, plus authored DOI (normalized to a resolver URL when valid), valid absolute license URL, and linked-reference inspection without truth or authority scoring. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
-| **Formatting** | Apply H2, bold, italic, link, quote, list, and inline/fenced-code Markdown without converting or hiding the source. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in the editor. |
+| **Formatting** | Write in a word-processor-style Visual mode or switch to Markdown. Choose Paragraph or Heading 2–6, then apply bold, italic, links, quotes, numbered or bulleted lists, images, and code. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in either mode. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
 | **Video release kit** | Validate authored YouTube chapters and copy a description assembled from the current summary, chapters, and AI-assistance disclosure. |
 | **Field Review** | Analyze GPX locally, derive route facts, and choose hidden, trimmed, approximate, or exact location publication. |
@@ -56,6 +56,19 @@ counts. Press `Alt+1` through `Alt+9` to focus Write, Site preview, Social, Rele
 Field Review, Optimize, Settings, Accessibility, or Evidence. The preview
 toolbar can constrain the canvas to wide, tablet, or mobile width; this preference is stored
 in the browser and does not change the published theme.
+
+### Write visually or in Markdown
+
+The Write view defaults to **Visual**, which behaves like a word processor while keeping
+Markdown as the saved file format. Switch to **Markdown** whenever you want to inspect or
+edit the underlying text. The browser remembers the last mode selected on that device.
+
+Visual mode directly edits paragraphs, Heading 2–6, emphasis, links, quotes, simple lists,
+images, and code. Advanced constructs such as callouts, knowledge checks, embeds, task or
+nested lists, tables, footnotes, and raw HTML appear as protected blocks. Move or remove a
+protected block visually, or choose **Edit in Markdown** to change its exact source. This
+boundary prevents an ordinary visual edit from flattening syntax the visual editor cannot
+represent safely.
 
 ### Test a theme before publishing
 
@@ -108,11 +121,10 @@ The **Overview** is the admin home. It summarizes the publishing pipeline, links
 creation flows, shows the size of the content library and recent posts, and surfaces the
 next scheduled post or last build error without requiring a trip through each content list.
 
-Markdown remains the source of truth. The source-preserving formatting toolbar provides
-rich-writing ergonomics without an HTML-to-Markdown round trip, so existing custom blocks,
-embeds, quizzes, and front matter cannot be lost by switching editor modes. Saving,
-conflict detection, preview sandboxing, and publishing use the same file-based workflow
-and security checks.
+Markdown remains the source of truth. Visual mode converts only the ordinary blocks it can
+represent and carries advanced blocks through unchanged. Front matter remains in Settings,
+outside both body editors. Saving, conflict detection, preview sandboxing, and publishing
+use the same file-based workflow and security checks.
 
 In a post's **Settings** view, **Content profile** defaults to Article. Recipe posts select
 Recipe and continue through the existing recipe renderer and structured-data path. Files

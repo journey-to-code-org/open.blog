@@ -7,6 +7,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ### Added
 
+- Added Visual and Markdown writing modes in Admin, with a remembered author preference,
+  Heading 2–6 selection, familiar rich-text controls, and protected advanced blocks that
+  retain source the visual editor cannot safely represent.
+
 - Added a Field journal content profile for hikes and other place-based notes, with field
   facts, route and elevation drawings, structured place metadata, and hidden-by-default
   location handling.

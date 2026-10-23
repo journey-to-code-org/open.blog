@@ -5,6 +5,7 @@
 
 const ADMIN_SCHEME_KEY = "ob-admin-scheme";
 const ADMIN_PREVIEW_WIDTH_KEY = "ob-admin-preview-width";
+const ADMIN_EDITOR_MODE_KEY = "ob-admin-editor-mode";
 
 function preferredAdminScheme() {
   try {
@@ -709,9 +710,11 @@ export function applyMarkdownCommand(value, start, end, command) {
   const nextBreak = value.indexOf("\n", effectiveEnd);
   const lineEnd = nextBreak < 0 ? value.length : nextBreak;
   const block = value.slice(lineStart, lineEnd);
-  const prefix = command === "quote" ? "> " : command === "list" ? "- " : null;
+  const prefix = command === "quote" ? "> " : command === "list" ? "- " : command === "ordered-list" ? "1. " : null;
   let replacement;
-  if (command === "heading") replacement = block.replace(/^(?:#{1,6}\s+)?/, "## ");
+  const headingLevel = command === "heading" ? 2 : /^heading-([2-6])$/.exec(command)?.[1];
+  if (headingLevel) replacement = block.replace(/^(?:#{1,6}\s+)?/, `${"#".repeat(Number(headingLevel))} `);
+  else if (command === "paragraph") replacement = block.replace(/^(?:#{1,6}\s+)?/, "");
   else if (prefix) replacement = block.split("\n").map((line) => (line ? prefix + line : line)).join("\n");
   else return { value, start, end };
   return {
@@ -719,6 +722,216 @@ export function applyMarkdownCommand(value, start, end, command) {
     start: lineStart,
     end: lineStart + replacement.length,
   };
+}
+
+const visualLineText = (line) => line.endsWith("\n") ? line.slice(0, -1) : line;
+const visualFence = (line) => /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(visualLineText(line));
+const visualHeading = (line) => /^(#{1,6})\s+(.+)$/.exec(visualLineText(line));
+const visualList = (line) => /^\s*(?:(- |\* |\+ )|(\d+)[.)]\s+)/.exec(visualLineText(line));
+const visualQuote = (line) => /^ {0,3}>/.test(visualLineText(line));
+const visualRawHtml = (line) => /^\s*<(?:!|\/?[a-z][\w:-]*(?:\s|>|\/))/i.test(visualLineText(line));
+const visualEmbed = (line) => /^\s*https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?|youtu\.be\/|codepen\.io\/[^/]+\/(?:pen|embed)\/)/i.test(visualLineText(line));
+const visualTableDivider = (line) => /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(visualLineText(line));
+const visualSetextDivider = (line) => /^ {0,3}(?:=+|-+)\s*$/.test(visualLineText(line));
+const visualThematicBreak = (line) => /^ {0,3}(?:(?:\*\s*){3,}|(?:_\s*){3,}|(?:-\s*){3,})$/.test(visualLineText(line));
+const visualIndentedCode = (line) => /^(?: {4}|\t)/.test(visualLineText(line));
+
+function visualProtectedLabel(lines, index) {
+  const text = visualLineText(lines[index]);
+  const fence = visualFence(lines[index]);
+  if (fence && fence[2].trim().toLowerCase() === "quiz") return "Knowledge check";
+  if (visualQuote(lines[index]) && /^ {0,3}>\s*\[![A-Z]+\]/.test(text)) return "Callout";
+  if (visualRawHtml(lines[index]) || /<\/?[a-z][^>]*>/i.test(text)) return "Raw HTML";
+  if (/~~|<(?:https?:|mailto:)[^>]+>|\[[^\]]+\]\[[^\]]*\]|^\s*\[[^\]]+\]:| {2,}$/.test(text)) return "Advanced formatting";
+  // The lightweight inline renderer does not implement balanced link destinations.
+  // Protect any destination containing an inner opening parenthesis instead of
+  // risking a partial parse and source rewrite.
+  if (/!?\[[^\]\n]*\]\([^\s)\n]*\(/.test(text)) return "Advanced link";
+  if (visualEmbed(lines[index])) return "Embedded media";
+  if (/^\s*\[\^[^\]]+\]:/.test(text) || /\[\^[^\]]+\]/.test(text)) return "Footnote";
+  if (index + 1 < lines.length && text.includes("|") && visualTableDivider(lines[index + 1])) return "Table";
+  if (index + 1 < lines.length && text.trim() && visualSetextDivider(lines[index + 1])) return "Setext heading";
+  if (visualThematicBreak(lines[index])) return "Thematic break";
+  if (visualIndentedCode(lines[index])) return "Indented code block";
+  if (visualList(lines[index])) {
+    let end = index;
+    while (end < lines.length && visualLineText(lines[end]).trim()) {
+      const line = visualLineText(lines[end]);
+      if (/^\s*(?:[-*+]\s+|\d+[.)]\s+)\[[ xX]\]\s+/.test(line)) return "Task list";
+      if (!visualList(lines[end]) || /^\s+/.test(line)) return "Complex list";
+      end += 1;
+    }
+  }
+  return "";
+}
+
+/** Split Markdown into visual-editor blocks while retaining every authored byte. */
+export function parseVisualMarkdown(markdown) {
+  const normalized = String(markdown).replace(/\r\n?/g, "\n");
+  const lines = (normalized.match(/[^\n]*(?:\n|$)/g) || []).filter(Boolean);
+  const blocks = [];
+  let index = 0;
+  const take = (end, type, extra = {}) => {
+    blocks.push({ type, source: lines.slice(index, end).join(""), ...extra });
+    index = end;
+  };
+  while (index < lines.length) {
+    if (!visualLineText(lines[index]).trim()) {
+      let end = index + 1;
+      while (end < lines.length && !visualLineText(lines[end]).trim()) end += 1;
+      take(end, "space");
+      continue;
+    }
+    const fence = visualFence(lines[index]);
+    if (fence) {
+      let end = index + 1;
+      let closed = false;
+      while (end < lines.length) {
+        const closing = visualLineText(lines[end]);
+        end += 1;
+        const closePattern = new RegExp(`^ {0,3}${fence[1][0]}{${fence[1].length},}[ \\t]*$`);
+        if (closePattern.test(closing)) {
+          closed = true;
+          break;
+        }
+      }
+      const label = visualProtectedLabel(lines, index);
+      const protectedLabel = label || (!closed ? "Unclosed code block" : "");
+      take(end, protectedLabel ? "protected" : "code", protectedLabel ? { label: protectedLabel } : { language: fence[2].trim() });
+      continue;
+    }
+    const label = visualProtectedLabel(lines, index);
+    if (label) {
+      let end = index + 1;
+      if (label === "Table") {
+        end = index + 2;
+        while (end < lines.length && visualLineText(lines[end]).trim() && visualLineText(lines[end]).includes("|")) end += 1;
+      } else if (label === "Callout") {
+        while (end < lines.length && visualQuote(lines[end])) end += 1;
+      } else if (label === "Raw HTML") {
+        while (end < lines.length && visualLineText(lines[end]).trim()) end += 1;
+      } else if (label === "Task list" || label === "Complex list") {
+        while (end < lines.length && visualLineText(lines[end]).trim()) end += 1;
+      } else if (label === "Advanced formatting" || label === "Footnote") {
+        while (end < lines.length && visualLineText(lines[end]).trim()) end += 1;
+      } else if (label === "Setext heading") {
+        end = Math.min(index + 2, lines.length);
+      } else if (label === "Indented code block") {
+        while (end < lines.length && (visualIndentedCode(lines[end]) || !visualLineText(lines[end]).trim())) end += 1;
+      }
+      take(end, "protected", { label });
+      continue;
+    }
+    const heading = visualHeading(lines[index]);
+    if (heading) {
+      take(index + 1, "heading", { level: heading[1].length, text: heading[2] });
+      continue;
+    }
+    const list = visualList(lines[index]);
+    if (list) {
+      let end = index + 1;
+      while (end < lines.length && visualLineText(lines[end]).trim() && (visualList(lines[end]) || /^\s{2,}\S/.test(visualLineText(lines[end])))) end += 1;
+      take(end, list[2] ? "ordered-list" : "unordered-list");
+      continue;
+    }
+    if (visualQuote(lines[index])) {
+      let end = index + 1;
+      while (end < lines.length && visualQuote(lines[end])) end += 1;
+      take(end, "quote");
+      continue;
+    }
+    let end = index + 1;
+    while (end < lines.length && visualLineText(lines[end]).trim()) {
+      if (visualFence(lines[end]) || visualHeading(lines[end]) || visualList(lines[end]) || visualQuote(lines[end]) || visualProtectedLabel(lines, end)) break;
+      end += 1;
+    }
+    const paragraphLabel = lines.slice(index, end).map((_, offset) => visualProtectedLabel(lines, index + offset)).find(Boolean);
+    take(end, paragraphLabel ? "protected" : "paragraph", paragraphLabel ? { label: paragraphLabel } : {});
+  }
+  return blocks;
+}
+
+export function visualBlocksToMarkdown(blocks) {
+  return blocks.map((block) => block.source || "").join("");
+}
+
+function safeVisualUrl(value) {
+  const url = String(value || "").trim();
+  if (/^(?:https?:|mailto:)/i.test(url) || /^(?:\/|#|\.\.?\/)/.test(url)) return url;
+  return "";
+}
+
+function appendVisualInline(parent, markdown) {
+  const pattern = /(!?\[[^\]\n]*\]\([^\s)]+(?:\s+"[^"]*")?\)|\*\*[^*\n]+\*\*|__[^_\n]+__|`+[^`\n]+`+|\*[^*\n]+\*|_[^_\n]+_)/g;
+  let offset = 0;
+  for (const match of markdown.matchAll(pattern)) {
+    if (match.index > offset) parent.append(document.createTextNode(markdown.slice(offset, match.index).replace(/\\([\\*_`\[\]])/g, "$1")));
+    const token = match[0];
+    const linked = /^(!?)\[([^\]]*)\]\(([^\s)]+)(?:\s+"([^"]*)")?\)$/.exec(token);
+    if (linked) {
+      const url = safeVisualUrl(linked[3]);
+      if (!url) parent.append(document.createTextNode(token));
+      else if (linked[1]) parent.append(h("img", { src: url, alt: linked[2], title: linked[4] || null, class: "oba-rich-image" }));
+      else {
+        const anchor = h("a", { href: url, title: linked[4] || null });
+        appendVisualInline(anchor, linked[2]);
+        parent.append(anchor);
+      }
+    } else if ((token.startsWith("**") && token.endsWith("**")) || (token.startsWith("__") && token.endsWith("__"))) {
+      const strong = h("strong");
+      appendVisualInline(strong, token.slice(2, -2));
+      parent.append(strong);
+    } else if ((token.startsWith("*") && token.endsWith("*")) || (token.startsWith("_") && token.endsWith("_"))) {
+      const emphasis = h("em");
+      appendVisualInline(emphasis, token.slice(1, -1));
+      parent.append(emphasis);
+    } else {
+      const ticks = /^`+/.exec(token)?.[0].length || 1;
+      parent.append(h("code", {}, token.slice(ticks, -ticks)));
+    }
+    offset = match.index + token.length;
+  }
+  if (offset < markdown.length) parent.append(document.createTextNode(markdown.slice(offset).replace(/\\([\\*_`\[\]])/g, "$1")));
+}
+
+function appendVisualLines(parent, markdown) {
+  const lines = markdown.split("\n");
+  lines.forEach((line, index) => {
+    if (index) parent.append(h("br"));
+    appendVisualInline(parent, line);
+  });
+}
+
+function markdownText(value) {
+  return String(value || "").replace(/([\\*_`\[\]])/g, "\\$1");
+}
+
+function visualInlineMarkdown(node) {
+  if (node.nodeType === Node.TEXT_NODE) return markdownText(node.nodeValue);
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  const tag = node.tagName.toLowerCase();
+  const content = [...node.childNodes].map(visualInlineMarkdown).join("");
+  if (tag === "strong" || tag === "b") return `**${content}**`;
+  if (tag === "em" || tag === "i") return `_${content}_`;
+  if (tag === "code") {
+    const text = node.textContent || "";
+    const longest = Math.max(0, ...(text.match(/`+/g) || []).map((run) => run.length));
+    const ticks = "`".repeat(longest + 1);
+    const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
+    return `${ticks}${pad}${text}${pad}${ticks}`;
+  }
+  if (tag === "a") {
+    const url = safeVisualUrl(node.getAttribute("href"));
+    const title = node.getAttribute("title");
+    return url ? `[${content}](${url}${title ? ` "${title.replace(/"/g, "&quot;")}"` : ""})` : content;
+  }
+  if (tag === "img") {
+    const url = safeVisualUrl(node.getAttribute("src"));
+    const title = node.getAttribute("title");
+    return url ? `![${markdownText(node.getAttribute("alt") || "")}](${url}${title ? ` "${title.replace(/"/g, "&quot;")}"` : ""})` : "";
+  }
+  if (tag === "br") return "\n";
+  return content;
 }
 
 export function researchSectionIsPresent(findings, research, section) {
@@ -1870,6 +2083,36 @@ class Editor {
 
     ui.title = h("input", { class: "oba-title-input", id: "oba-title", type: "text", placeholder: kind === "series" ? "Series name" : "Title", value: f[titleKey] || "", "aria-label": "Title" });
     ui.body = h("textarea", { class: "oba-body", id: "oba-body", spellcheck: "true", "aria-label": "Markdown", value: this.doc.body || "" });
+    ui.richBody = h("div", {
+      class: "oba-rich-body",
+      contenteditable: "true",
+      role: "textbox",
+      "aria-multiline": "true",
+      "aria-label": "Visual editor",
+      spellcheck: "true",
+    });
+    let savedEditorMode = "visual";
+    try {
+      const stored = localStorage.getItem(ADMIN_EDITOR_MODE_KEY);
+      if (["visual", "markdown"].includes(stored)) savedEditorMode = stored;
+    } catch {
+      // Visual mode remains the friendly default when storage is blocked.
+    }
+    this.editorMode = savedEditorMode;
+    ui.editorModeButtons = ["visual", "markdown"].map((mode) =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: "oba-mode-button",
+          "aria-pressed": String(mode === savedEditorMode),
+          onClick: () => this.setEditorMode(mode),
+        },
+        mode === "visual" ? "Visual" : "Markdown",
+      ),
+    );
+    ui.editorModeSwitch = h("div", { class: "oba-mode-switch", role: "group", "aria-label": "Writing mode" }, ui.editorModeButtons);
+    ui.editorModeStatus = h("span", { class: "oba-small" });
     ui.preview = h("iframe", { class: "oba-preview", title: "Preview", sandbox: "allow-scripts" });
     ui.previewTheme = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Rendering site…");
     ui.previewWarnings = h("div", { class: "oba-notice", role: "status", "aria-live": "polite", hidden: true });
@@ -2077,20 +2320,37 @@ class Editor {
         h("div", {}, h("span", { class: "oba-pane-eyebrow" }, eyebrow), h("h2", {}, title)),
         trailing,
       );
+    ui.blockStyle = h(
+      "select",
+      { class: "oba-block-style", "aria-label": "Text style" },
+      [
+        ["paragraph", "Paragraph"],
+        ["heading-2", "Heading 2"],
+        ["heading-3", "Heading 3"],
+        ["heading-4", "Heading 4"],
+        ["heading-5", "Heading 5"],
+        ["heading-6", "Heading 6"],
+      ].map(([value, label]) => h("option", { value }, label)),
+    );
+    ui.blockStyle.addEventListener("change", () => {
+      this.formatWriting(ui.blockStyle.value);
+      ui.blockStyle.value = "paragraph";
+    });
     const formatButtons = [
-      ["heading", "H2", "Heading 2"],
       ["bold", "B", "Bold (Ctrl+B)"],
       ["italic", "I", "Italic (Ctrl+I)"],
       ["link", "Link", "Link"],
       ["quote", "Quote", "Block quote"],
-      ["list", "List", "Bulleted list"],
+      ["list", "Bullets", "Bulleted list"],
+      ["ordered-list", "Numbers", "Numbered list"],
       ["code", "Code", "Inline or fenced code"],
     ];
     ui.formatToolbar = h(
       "div",
-      { class: "oba-format-toolbar", role: "group", "aria-label": "Markdown formatting" },
+      { class: "oba-format-toolbar", role: "group", "aria-label": "Writing formatting" },
+      ui.blockStyle,
       formatButtons.map(([command, label, title]) =>
-        h("button", { type: "button", class: `oba-format-button${command === "italic" ? " is-italic" : ""}`, title, "aria-label": title, onClick: () => this.formatMarkdown(command) }, label),
+        h("button", { type: "button", class: `oba-format-button${command === "italic" ? " is-italic" : ""}`, title, "aria-label": title, onClick: () => this.formatWriting(command) }, label),
       ),
       kind === "posts"
         ? [
@@ -2099,6 +2359,7 @@ class Editor {
           ]
         : null,
     );
+    ui.formatToolbar.addEventListener("mousedown", () => this.captureVisualSelection());
     let paneButtons = [];
     const activatePane = (pane, focus = false) => {
       applyPaneSelection(this.root, paneButtons, pane);
@@ -2111,7 +2372,7 @@ class Editor {
       }
       if (focus) {
         const container = this.root.querySelector(`[data-pane="${pane}"]`);
-        const target = pane === "write" ? this.ui.body : pane === "preview" ? this.ui.preview : container?.querySelector("input,select,textarea,button,[tabindex]");
+        const target = pane === "write" ? this.writingSurface() : pane === "preview" ? this.ui.preview : container?.querySelector("input,select,textarea,button,[tabindex]");
         requestAnimationFrame(() => target?.focus());
       }
     };
@@ -2200,7 +2461,14 @@ class Editor {
         h(
           "div",
           { class: "oba-panes" },
-          h("section", { class: "oba-pane oba-markdown-pane", "data-pane": "write", "aria-label": "Markdown editor" }, paneHeader("Write", "Markdown", h("span", { class: "oba-small" }, "Plain text · portable")), ui.formatToolbar, ui.body),
+          h(
+            "section",
+            { class: "oba-pane oba-markdown-pane", "data-pane": "write", "aria-label": "Writing editor" },
+            paneHeader("Write", "Editor", h("div", { class: "oba-editor-mode" }, ui.editorModeSwitch)),
+            ui.formatToolbar,
+            ui.richBody,
+            ui.body,
+          ),
           h(
             "section",
             { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" },
@@ -2323,7 +2591,7 @@ class Editor {
             ),
           ),
         ),
-        h("footer", { class: "oba-editor-status" }, ui.saveState, h("span", { class: "oba-spacer" }), ui.documentStats, h("span", { class: "oba-small" }, "Markdown · UTF-8")),
+        h("footer", { class: "oba-editor-status" }, ui.saveState, h("span", { class: "oba-spacer" }), ui.documentStats, ui.editorModeStatus),
       ),
     );
     return this.root;
@@ -2334,19 +2602,232 @@ class Editor {
     return name.replace(/^\d{4}-\d{2}-\d{2}-/, "");
   }
 
+  writingSurface() {
+    return this.editorMode === "visual" ? this.ui.richBody : this.ui.body;
+  }
+
+  setEditorMode(mode, persist = true) {
+    if (!["visual", "markdown"].includes(mode)) return;
+    if (this.editorMode === "visual" && mode === "markdown") this.syncRichToMarkdown();
+    this.editorMode = mode;
+    if (mode === "visual") this.renderRichEditor();
+    this.ui.richBody.hidden = mode !== "visual";
+    this.ui.body.hidden = mode !== "markdown";
+    this.root.dataset.writingMode = mode;
+    this.ui.editorModeButtons.forEach((button, index) => button.setAttribute("aria-pressed", String(["visual", "markdown"][index] === mode)));
+    this.ui.editorModeStatus.textContent = `${mode === "visual" ? "Visual" : "Markdown"} · Markdown saved · UTF-8`;
+    if (persist) {
+      try {
+        localStorage.setItem(ADMIN_EDITOR_MODE_KEY, mode);
+      } catch {
+        // The selected mode still works for this editor session.
+      }
+      this.writingSurface().focus();
+    }
+  }
+
+  renderRichEditor() {
+    const editor = this.ui.richBody;
+    editor.replaceChildren();
+    this.visualDirty = false;
+    for (const block of parseVisualMarkdown(this.ui.body.value)) {
+      if (block.type === "space") continue;
+      if (block.type === "protected") {
+        const card = h(
+          "section",
+          {
+            class: "oba-protected-block",
+            contenteditable: "false",
+            "data-markdown": block.source,
+            "aria-label": `${block.label} block`,
+          },
+          h("div", {}, h("strong", {}, block.label), h("span", {}, "Preserved exactly in Markdown")),
+          h(
+            "div",
+            { class: "oba-protected-actions" },
+            h("button", { type: "button", onClick: () => this.editProtectedBlock(card) }, "Edit in Markdown"),
+            h("button", { type: "button", "aria-label": `Move ${block.label} up`, onClick: () => this.moveProtectedBlock(card, -1) }, "↑"),
+            h("button", { type: "button", "aria-label": `Move ${block.label} down`, onClick: () => this.moveProtectedBlock(card, 1) }, "↓"),
+            h("button", { type: "button", "aria-label": `Remove ${block.label}`, onClick: () => this.removeProtectedBlock(card) }, "Remove"),
+          ),
+        );
+        editor.append(card);
+        continue;
+      }
+      const source = block.source.replace(/\n+$/, "");
+      if (block.type === "heading") {
+        const heading = h(`h${block.level}`, { "data-visual-block": "heading" });
+        appendVisualInline(heading, block.text);
+        editor.append(heading);
+      } else if (block.type === "code") {
+        const lines = source.split("\n");
+        const pre = h("pre", { "data-visual-block": "code", "data-language": block.language || "" }, h("code", {}, lines.slice(1, -1).join("\n")));
+        editor.append(pre);
+      } else if (block.type === "unordered-list" || block.type === "ordered-list") {
+        const firstNumber = block.type === "ordered-list" ? /^\s*(\d+)[.)]\s+/.exec(source)?.[1] : null;
+        const listAttrs = { "data-visual-block": block.type };
+        if (firstNumber && firstNumber !== "1") listAttrs.start = firstNumber;
+        const list = h(block.type === "ordered-list" ? "ol" : "ul", listAttrs);
+        for (const line of source.split("\n")) {
+          const match = /^\s*(?:[-*+]\s+|\d+[.)]\s+)(.*)$/.exec(line);
+          if (!match) continue;
+          const item = h("li");
+          appendVisualInline(item, match[1]);
+          list.append(item);
+        }
+        editor.append(list);
+      } else if (block.type === "quote") {
+        const quote = h("blockquote", { "data-visual-block": "quote" });
+        appendVisualLines(quote, source.split("\n").map((line) => line.replace(/^ {0,3}>\s?/, "")).join("\n"));
+        editor.append(quote);
+      } else {
+        const paragraph = h("p", { "data-visual-block": "paragraph" });
+        appendVisualLines(paragraph, source);
+        editor.append(paragraph);
+      }
+    }
+    if (!editor.children.length) editor.append(h("p", { "data-visual-block": "paragraph" }, h("br")));
+  }
+
+  richEditorMarkdown() {
+    const blocks = [];
+    for (const element of this.ui.richBody.children) {
+      if (element.classList.contains("oba-protected-block")) {
+        blocks.push((element.dataset.markdown || "").replace(/\n+$/, ""));
+        continue;
+      }
+      const tag = element.tagName.toLowerCase();
+      const inline = () => [...element.childNodes].map(visualInlineMarkdown).join("").trim();
+      if (/^h[1-6]$/.test(tag)) blocks.push(`${"#".repeat(Number(tag[1]))} ${inline()}`);
+      else if (tag === "ul" || tag === "ol") {
+        const listStart = tag === "ol" ? Number(element.getAttribute("start") || 1) : 1;
+        blocks.push(
+          [...element.children]
+            .filter((item) => item.tagName.toLowerCase() === "li")
+            .map((item, index) => `${tag === "ol" ? `${listStart + index}.` : "-"} ${[...item.childNodes].map(visualInlineMarkdown).join("").trim()}`)
+            .join("\n"),
+        );
+      } else if (tag === "blockquote") {
+        blocks.push(inline().split("\n").map((line) => `> ${line}`).join("\n"));
+      } else if (tag === "pre") {
+        const text = element.textContent || "";
+        const longest = Math.max(0, ...(text.match(/`+/g) || []).map((run) => run.length));
+        const fence = "`".repeat(Math.max(3, longest + 1));
+        blocks.push(`${fence}${element.dataset.language || ""}\n${text}\n${fence}`);
+      } else if (tag === "img") blocks.push(visualInlineMarkdown(element));
+      else blocks.push(inline().replace(/^(#{1,6}|>|[-+*]|\d+[.)])\s/, "\\$&"));
+    }
+    return blocks.filter((block) => block.length).join("\n\n") + (blocks.length ? "\n" : "");
+  }
+
+  syncRichToMarkdown() {
+    if (this.editorMode !== "visual" || !this.visualDirty) return;
+    this.ui.body.value = this.richEditorMarkdown();
+  }
+
+  visualChanged() {
+    this.visualDirty = true;
+    this.syncRichToMarkdown();
+    this.ui.body.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  editProtectedBlock(card) {
+    const source = card.dataset.markdown || "";
+    this.syncRichToMarkdown();
+    this.setEditorMode("markdown");
+    const start = this.ui.body.value.indexOf(source.replace(/\n+$/, ""));
+    if (start >= 0) this.ui.body.setSelectionRange(start, start + source.replace(/\n+$/, "").length);
+    this.ui.body.focus();
+  }
+
+  moveProtectedBlock(card, direction) {
+    const sibling = direction < 0 ? card.previousElementSibling : card.nextElementSibling;
+    if (!sibling) return;
+    if (direction < 0) card.parentElement.insertBefore(card, sibling);
+    else card.parentElement.insertBefore(sibling, card);
+    this.visualChanged();
+    card.querySelector("button")?.focus();
+  }
+
+  removeProtectedBlock(card) {
+    card.remove();
+    this.visualChanged();
+    this.ui.richBody.focus();
+  }
+
+  captureVisualSelection() {
+    if (this.editorMode !== "visual") return;
+    const selection = getSelection();
+    if (selection?.rangeCount) {
+      const range = selection.getRangeAt(0);
+      if (this.ui.richBody.contains(range.commonAncestorContainer)) this.visualSelection = range.cloneRange();
+    }
+  }
+
+  restoreVisualSelection() {
+    if (!this.visualSelection) return;
+    const selection = getSelection();
+    selection.removeAllRanges();
+    selection.addRange(this.visualSelection);
+  }
+
+  formatWriting(command) {
+    if (this.editorMode === "markdown") {
+      this.formatMarkdown(command);
+      return;
+    }
+    const editor = this.ui.richBody;
+    editor.focus();
+    this.restoreVisualSelection();
+    const heading = /^heading-([2-6])$/.exec(command);
+    if (heading) document.execCommand("formatBlock", false, `h${heading[1]}`);
+    else if (command === "paragraph") document.execCommand("formatBlock", false, "p");
+    else if (command === "bold" || command === "italic") document.execCommand(command, false);
+    else if (command === "quote") document.execCommand("formatBlock", false, "blockquote");
+    else if (command === "list") document.execCommand("insertUnorderedList", false);
+    else if (command === "ordered-list") document.execCommand("insertOrderedList", false);
+    else if (command === "link") {
+      const url = prompt("Link address (https://… or a site path)");
+      if (!url) return;
+      const safe = safeVisualUrl(url);
+      if (!safe) {
+        this.flash("error", "Use an HTTP(S), email, anchor, or site-relative link.");
+        return;
+      }
+      document.execCommand("createLink", false, safe);
+    } else if (command === "code") {
+      const selection = getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      if (!range || !editor.contains(range.commonAncestorContainer)) return;
+      const code = h("code", {}, range.collapsed ? "code" : range.extractContents());
+      range.insertNode(code);
+      range.selectNodeContents(code);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    this.visualChanged();
+  }
+
   afterMount() {
     const ui = this.ui;
+    this.setEditorMode(this.editorMode, false);
     ui.title.addEventListener("input", () => {
       if (!this.slugTouched) ui.slug.value = slugify(ui.title.value);
     });
     ui.slug.addEventListener("input", () => (this.slugTouched = true));
     ui.body.addEventListener("input", () => this.updateDocumentStats());
-    ui.body.addEventListener("keydown", (event) => {
+    const writingShortcut = (event) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const command = event.key.toLowerCase() === "b" ? "bold" : event.key.toLowerCase() === "i" ? "italic" : null;
       if (!command) return;
       event.preventDefault();
-      this.formatMarkdown(command);
+      this.formatWriting(command);
+    };
+    ui.body.addEventListener("keydown", writingShortcut);
+    ui.richBody.addEventListener("keydown", writingShortcut);
+    ui.richBody.addEventListener("input", (event) => {
+      event.stopPropagation();
+      this.visualChanged();
     });
     ui.previewWidth.addEventListener("input", (e) => e.stopPropagation());
     ui.previewWidth.addEventListener("change", () => {
@@ -2367,34 +2848,43 @@ class Editor {
     for (const control of [ui.theme, ui.profile, ui.series, ui.order, ui.date, ui.nav].filter(Boolean)) control.addEventListener("change", () => this.schedulePreview());
     for (const radio of ui.statusRadios || []) radio.querySelector("input").addEventListener("change", () => this.schedulePreview());
 
-    // Drag and drop or paste an image into the Markdown.
-    ui.body.addEventListener("dragover", (e) => {
+    // Drag and drop or paste an image into either writing mode.
+    const imageDragOver = (e) => {
       if ([...(e.dataTransfer?.types || [])].includes("Files")) {
         e.preventDefault();
-        ui.body.classList.add("oba-dropping");
+        this.writingSurface().classList.add("oba-dropping");
       }
-    });
-    ui.body.addEventListener("dragleave", () => ui.body.classList.remove("oba-dropping"));
-    ui.body.addEventListener("drop", async (e) => {
-      ui.body.classList.remove("oba-dropping");
+    };
+    const imageDragLeave = () => this.writingSurface().classList.remove("oba-dropping");
+    const imageDrop = async (e) => {
+      this.writingSurface().classList.remove("oba-dropping");
       const file = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith("image/"));
       if (file) {
         e.preventDefault();
         await this.insertImage(file);
       }
-    });
-    ui.body.addEventListener("paste", async (e) => {
+    };
+    const imagePaste = async (e) => {
       const file = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith("image/"));
       if (file) {
         e.preventDefault();
         await this.insertImage(file);
+      } else if (e.currentTarget === ui.richBody) {
+        e.preventDefault();
+        document.execCommand("insertText", false, e.clipboardData?.getData("text/plain") || "");
       }
-    });
+    };
+    for (const surface of [ui.body, ui.richBody]) {
+      surface.addEventListener("dragover", imageDragOver);
+      surface.addEventListener("dragleave", imageDragLeave);
+      surface.addEventListener("drop", imageDrop);
+      surface.addEventListener("paste", imagePaste);
+    }
 
     this.syncDateField();
     this.updateSeoAudit();
     this.updateDocumentStats();
-    (this.isNew ? ui.title : ui.body).focus();
+    (this.isNew ? ui.title : this.writingSurface()).focus();
   }
 
   syncDateField() {
@@ -2479,12 +2969,15 @@ class Editor {
       }
       const edit = insertResearchSection(source, section, present);
       if (!edit.inserted) {
-        body.focus();
+        this.writingSurface().focus();
         return;
       }
       body.value = edit.value;
-      body.focus();
-      body.setSelectionRange(edit.start, edit.end);
+      if (this.editorMode === "visual") this.renderRichEditor();
+      else {
+        body.focus();
+        body.setSelectionRange(edit.start, edit.end);
+      }
       body.dispatchEvent(new Event("input", { bubbles: true }));
     } catch (error) {
       this.flash("error", `Could not inspect the current research structure: ${error.message}`);
@@ -2818,6 +3311,24 @@ class Editor {
     const url = await this.upload(file);
     if (!url) return;
     const alt = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+    if (this.editorMode === "visual") {
+      const image = h("img", { src: url, alt, class: "oba-rich-image" });
+      const selection = getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      if (range && this.ui.richBody.contains(range.commonAncestorContainer)) {
+        range.deleteContents();
+        range.insertNode(image);
+        range.setStartAfter(image);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      } else {
+        this.ui.richBody.append(h("p", { "data-visual-block": "paragraph" }, image));
+      }
+      this.visualChanged();
+      image.scrollIntoView({ block: "nearest" });
+      return;
+    }
     const ta = this.ui.body;
     const snippet = `![${alt}](${url})`;
     const start = ta.selectionStart ?? ta.value.length;
@@ -3058,6 +3569,7 @@ class Editor {
 
   async save() {
     if (this.saving) return;
+    this.syncRichToMarkdown();
     const fields = this.collect();
     const problem = this.validateClient(fields);
     if (problem) {

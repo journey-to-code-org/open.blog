@@ -61,13 +61,27 @@ test("optimizer separates search, answer, and trust guidance", () => {
 });
 
 test("writer exposes source-preserving formatting controls", () => {
-  assert.match(admin, /"aria-label": "Markdown formatting"/);
+  assert.match(admin, /"aria-label": "Writing formatting"/);
   assert.match(admin, /this\.formatMarkdown\(command\)/);
   assert.match(admin, /document\.execCommand\("insertText", false, replacement\)/);
   assert.match(admin, /body\.setRangeText\(replacement/);
   assert.match(admin, /if \(!inputFired\) body\.dispatchEvent\(new Event\("input", \{ bubbles: true \}\)\)/);
   assert.match(admin, /event\.key\.toLowerCase\(\) === "b"/);
   assert.match(styles, /\.oba-format-toolbar/);
+});
+
+test("writer offers a remembered visual mode without replacing Markdown storage", () => {
+  assert.match(admin, /ADMIN_EDITOR_MODE_KEY/);
+  assert.match(admin, /\["visual", "markdown"\]/);
+  assert.match(admin, /contenteditable: "true"/);
+  assert.match(admin, /Visual/);
+  assert.match(admin, /Markdown/);
+  assert.match(admin, /Paragraph/);
+  assert.match(admin, /Heading 6/);
+  assert.match(admin, /Edit in Markdown/);
+  assert.match(admin, /ui\.body\.value = this\.richEditorMarkdown\(\)/);
+  assert.match(styles, /\.oba-rich-body/);
+  assert.match(styles, /\.oba-protected-block/);
 });
 
 test("social preview displays publishing-engine OpenGraph metadata", () => {
