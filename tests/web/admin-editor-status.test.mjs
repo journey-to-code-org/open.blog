@@ -23,10 +23,20 @@ test("editor reports document size and save state", () => {
 });
 
 test("editor panes can be focused from Alt number shortcuts", () => {
-  assert.match(admin, /e\.altKey && \["1", "2", "3", "4", "5", "6"\]\.includes\(e\.key\)/);
-  assert.match(admin, /\["write", "preview", "social", "optimize", "settings", "accessibility"\]/);
+  assert.match(admin, /e\.altKey && \["1", "2", "3", "4", "5", "6", "7"\]\.includes\(e\.key\)/);
+  assert.match(admin, /\["write", "preview", "social", "optimize", "settings", "accessibility", "evidence"\]/);
   assert.match(admin, /this\.editor\.activatePane\(pane, true\)/);
   assert.match(admin, /target\?\.focus\(\)/);
+});
+
+test("Evidence Studio reports shared research findings without authority scoring", () => {
+  assert.match(admin, /"data-pane": "evidence"/);
+  assert.match(admin, /Evidence Studio/);
+  assert.match(admin, /preview\.evidence/);
+  assert.match(admin, /evidenceReview/);
+  assert.match(admin, /does not score truth, authority, peer review, or claim support/);
+  assert.match(admin, /insertResearchSection/);
+  assert.doesNotMatch(admin, /evidenceScore/);
 });
 
 test("Accessibility Studio reports source findings without claiming conformance", () => {

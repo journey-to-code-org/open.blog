@@ -1521,6 +1521,19 @@ fn preview(state: &AppState, req: &Request) -> Response {
     let Some((url, theme)) = target else {
         return Response::error(422, "Preview document was not found in the site model");
     };
+    let research = preview_site
+        .posts
+        .iter()
+        .find(|post| post.source == rel)
+        .and_then(|post| post.research.as_ref())
+        .map(|research| {
+            json!({
+                "doi": research.doi,
+                "doiUrl": research.doi_url,
+                "licenseUrl": research.license_url,
+                "referenceCount": research.references.len(),
+            })
+        });
     let social = match social_metadata(&preview_site, &rel) {
         Ok(meta) => json!({
             "siteName": meta.site_name,
@@ -1567,6 +1580,12 @@ fn preview(state: &AppState, req: &Request) -> Response {
         .filter(|finding| finding.source.path == rel || finding.scope == AuditScope::Site)
         .cloned()
         .collect();
+    let evidence: Vec<_> = preview_site
+        .evidence
+        .iter()
+        .filter(|finding| finding.source.path == rel)
+        .cloned()
+        .collect();
     Response::json(
         200,
         &json!({
@@ -1574,8 +1593,10 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "url": url,
             "theme": theme,
             "social": social,
+            "research": research,
             "warnings": preview_site.warnings,
-            "accessibility": accessibility
+            "accessibility": accessibility,
+            "evidence": evidence
         }),
     )
 }
@@ -2140,6 +2161,9 @@ mod tests {
         assert_eq!(profiles[1]["id"], "recipe");
         assert_eq!(profiles[1]["fields"][0]["key"], "servings");
         assert_eq!(profiles[1]["fields"][2]["kind"], "duration");
+        assert_eq!(profiles[2]["id"], "research");
+        assert_eq!(profiles[2]["fields"][0]["key"], "doi");
+        assert_eq!(profiles[2]["fields"][1]["key"], "license");
     }
 
     #[test]
@@ -2253,6 +2277,65 @@ mod tests {
         assert!(findings.iter().any(|finding| {
             finding["code"] == "link-name-empty" && finding["source"]["path"] == "posts/current.md"
         }));
+        assert!(!findings
+            .iter()
+            .any(|finding| finding["source"]["path"] == "posts/unrelated.md"));
+    }
+
+    #[test]
+    fn preview_evidence_is_scoped_to_the_current_research_document() {
+        let f = fixture("preview-evidence");
+        fs::write(
+            f.dir.join("content/posts/unrelated.md"),
+            "---\ntitle: Unrelated\ndate: 2026-10-22\nprofile: research\n---\nBody.\n",
+        )
+        .unwrap();
+        let session = login_ok(&f);
+
+        let preview = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({
+                        "kind": "posts",
+                        "path": "posts/current.md",
+                        "fields": {
+                            "title": "Current",
+                            "date": "2026-10-23",
+                            "profile": "research",
+                            "doi": "invalid"
+                        },
+                        "body": "<!--\n## Abstract\n## References\n-->\n\nA claim.[^missing]"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            preview.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&preview.body)
+        );
+        let findings = body_json(&preview)["evidence"].as_array().unwrap().clone();
+
+        assert!(findings.iter().any(|finding| {
+            finding["code"] == "doi-invalid" && finding["source"]["path"] == "posts/current.md"
+        }));
+        assert!(findings
+            .iter()
+            .any(|finding| finding["code"] == "footnote-unresolved"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding["code"] == "abstract-missing"));
+        assert!(findings
+            .iter()
+            .any(|finding| finding["code"] == "references-missing"));
+        assert_eq!(body_json(&preview)["research"]["doi"], "invalid");
+        assert_eq!(body_json(&preview)["research"]["referenceCount"], 0);
         assert!(!findings
             .iter()
             .any(|finding| finding["source"]["path"] == "posts/unrelated.md"));

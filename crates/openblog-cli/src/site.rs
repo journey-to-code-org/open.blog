@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use openblog_core::accessibility::AccessibilityFinding;
+use openblog_core::research::EvidenceFinding;
 use openblog_core::theme::{ThemeFile, ThemeSet};
 use openblog_core::{generate, DateTime, LoadOptions, Site, SiteConfig, SourceFile, Sources};
 
@@ -165,6 +166,7 @@ pub struct BuildReport {
     pub out_dir: PathBuf,
     pub warnings: Vec<String>,
     pub accessibility: Vec<AccessibilityFinding>,
+    pub evidence: Vec<EvidenceFinding>,
 }
 
 pub fn load_config(root: &Path) -> Result<SiteConfig, String> {
@@ -472,6 +474,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         out_dir,
         warnings: site.warnings.clone(),
         accessibility: site.accessibility.clone(),
+        evidence: site.evidence.clone(),
     })
 }
 

@@ -975,7 +975,8 @@ kbd {
 .oba-editor[data-editor-view="social"] .oba-social-pane,
 .oba-editor[data-editor-view="optimize"] .oba-optimize-pane,
 .oba-editor[data-editor-view="settings"] .oba-settings-pane,
-.oba-editor[data-editor-view="accessibility"] .oba-accessibility-pane {
+.oba-editor[data-editor-view="accessibility"] .oba-accessibility-pane,
+.oba-editor[data-editor-view="evidence"] .oba-evidence-pane {
   display: block;
 }
 

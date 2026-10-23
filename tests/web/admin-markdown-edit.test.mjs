@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyMarkdownCommand } from "../../web/admin/admin.js";
+import { applyMarkdownCommand, insertResearchSection } from "../../web/admin/admin.js";
 
 test("inline formatting wraps selections and selects placeholders", () => {
   assert.deepEqual(applyMarkdownCommand("make this clear", 5, 9, "bold"), {
@@ -55,4 +55,19 @@ test("multiline code fences stay on their own lines beside prose", () => {
   assert.equal(edit.value, "prefix \n```\none\ntwo\n```\n suffix");
   assert.deepEqual([edit.start, edit.end], [12, 19]);
   assert.equal(applyMarkdownCommand("one\ntwo\n", 0, 8, "code").value, "```\none\ntwo\n```");
+});
+
+test("research section helpers preserve source and avoid duplicate headings", () => {
+  assert.deepEqual(insertResearchSection("Opening.", "abstract"), {
+    value: "Opening.\n\n## Abstract\n\n",
+    start: 23,
+    end: 23,
+    inserted: true,
+  });
+  assert.equal(insertResearchSection("## **Abstract**\nWritten summary.", "abstract", true).inserted, false);
+  assert.equal(insertResearchSection("<!--\n## Abstract\n-->", "abstract", false).inserted, true);
+  assert.equal(
+    insertResearchSection("## Abstract\nSummary.\n", "references").value,
+    "## Abstract\nSummary.\n\n## References\n\n",
+  );
 });

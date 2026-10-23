@@ -147,6 +147,22 @@ export function resolveProfileSelection(fields, profiles = [], resolvedValue = "
   return { value, unknown: !match(value) };
 }
 
+export function preserveProfileFieldDrafts(drafts, controls) {
+  const next = new Map(drafts);
+  for (const [key, control] of controls) next.set(key, control.value);
+  return next;
+}
+
+export function applyProfileFieldDrafts(fields, drafts) {
+  const next = { ...fields };
+  for (const [key, rawValue] of drafts) {
+    const value = String(rawValue ?? "").trim();
+    if (value) next[key] = value;
+    else delete next[key];
+  }
+  return next;
+}
+
 export function previewWarningsForDisplay(warnings) {
   return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
 }
@@ -191,6 +207,26 @@ export function accessibilityReview(findings) {
     findings: normalized.filter((finding) => finding.outcome === outcome),
   })).filter((group) => group.findings.length > 0);
   return { total: normalized.length, counts, groups };
+}
+
+export function evidenceReview(findings) {
+  return accessibilityReview(findings);
+}
+
+export function evidenceStudioState(findings, research) {
+  if (!research) {
+    return {
+      active: false,
+      status: "Evidence checks are not active for this content profile.",
+      review: null,
+    };
+  }
+  const review = evidenceReview(findings);
+  return {
+    active: true,
+    status: `${review.total} evidence finding${review.total === 1 ? "" : "s"}`,
+    review,
+  };
 }
 
 export function applyPaneSelection(root, buttons, pane) {
@@ -364,6 +400,31 @@ export function applyMarkdownCommand(value, start, end, command) {
   };
 }
 
+export function researchSectionIsPresent(findings, research, section) {
+  if (!research) return null;
+  const missingCode = section === "abstract" ? "abstract-missing" : section === "references" ? "references-missing" : null;
+  if (!missingCode) return null;
+  return !(Array.isArray(findings) ? findings : []).some((finding) => finding?.code === missingCode);
+}
+
+export function researchActionIsCurrent(request, current) {
+  return (
+    request.version === current.version &&
+    request.path === current.path &&
+    request.profile === current.profile &&
+    request.body === current.body
+  );
+}
+
+export function insertResearchSection(value, section, alreadyPresent = false) {
+  const title = section === "abstract" ? "Abstract" : section === "references" ? "References" : "";
+  if (!title) return { value, start: value.length, end: value.length, inserted: false };
+  if (alreadyPresent) return { value, start: value.length, end: value.length, inserted: false };
+  const separator = value.length === 0 ? "" : value.endsWith("\n\n") ? "" : value.endsWith("\n") ? "\n" : "\n\n";
+  const next = `${value}${separator}## ${title}\n\n`;
+  return { value: next, start: next.length, end: next.length, inserted: true };
+}
+
 const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
 class ApiError extends Error {
@@ -444,9 +505,9 @@ export class ObAdmin extends AdminElement {
         this.editor.save();
         return;
       }
-      if (this.editor && e.altKey && ["1", "2", "3", "4", "5", "6"].includes(e.key)) {
+      if (this.editor && e.altKey && ["1", "2", "3", "4", "5", "6", "7"].includes(e.key)) {
         e.preventDefault();
-        const pane = ["write", "preview", "social", "optimize", "settings", "accessibility"][Number(e.key) - 1];
+        const pane = ["write", "preview", "social", "optimize", "settings", "accessibility", "evidence"][Number(e.key) - 1];
         this.editor.activatePane(pane, true);
       }
     });
@@ -1124,6 +1185,10 @@ class Editor {
     ui.accessibilityStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Open this view to check the current source.");
     ui.accessibilityCounts = h("dl", { class: "oba-accessibility-counts", "aria-label": "Accessibility finding counts" });
     ui.accessibilityFindings = h("div", { class: "oba-accessibility-findings" });
+    ui.evidenceStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Open this view to inspect research evidence structure.");
+    ui.evidenceCounts = h("dl", { class: "oba-accessibility-counts", "aria-label": "Evidence finding counts" });
+    ui.evidenceFindings = h("div", { class: "oba-accessibility-findings" });
+    ui.evidenceMetadata = h("dl", { class: "oba-social-meta", "aria-label": "Resolved research metadata" });
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
     ui.saveState = h("span", { class: "oba-save-state", role: "status", "aria-live": "polite" }, this.isNew ? "Not saved yet" : "Saved");
@@ -1148,6 +1213,15 @@ class Editor {
 
     if (kind === "posts") {
       const profiles = this.meta.profiles || [];
+      this.profileFieldDrafts ||= new Map();
+      for (const profile of profiles) {
+        for (const field of profile.fields || []) {
+          if (!this.profileFieldDrafts.has(field.key)) {
+            const value = Object.prototype.hasOwnProperty.call(this.f, field.key) ? this.f[field.key] : "";
+            this.profileFieldDrafts.set(field.key, value == null ? "" : String(value));
+          }
+        }
+      }
       this.profileSelection = resolveProfileSelection(f, profiles, this.doc.resolvedProfile);
       this.profileTouched = false;
       ui.profile = h(
@@ -1161,6 +1235,30 @@ class Editor {
         ui.profile.append(h("option", { value: this.profileSelection.value, selected: true }, `Unknown profile: ${this.profileSelection.value}`));
       }
       ui.profileHelp = h("p", { class: "oba-help", role: "status" });
+      ui.profileFields = h("div", { class: "oba-profile-fields" });
+      ui.profileFieldControls = new Map();
+      const syncProfileFields = () => {
+        this.profileFieldDrafts = preserveProfileFieldDrafts(this.profileFieldDrafts, ui.profileFieldControls);
+        const selected = profiles.find((profile) => profile.id === ui.profile.value);
+        ui.profileFieldControls = new Map();
+        ui.profileFields.replaceChildren(
+          ...(selected?.fields || []).map((field) => {
+            const control = h("input", {
+              id: `oba-profile-${field.key}`,
+              type: field.kind === "number" ? "number" : "text",
+              value: this.profileFieldDrafts.has(field.key) ? this.profileFieldDrafts.get(field.key) : "",
+              inputmode: field.kind === "number" ? "numeric" : null,
+            });
+            control.addEventListener("input", () => {
+              this.profileFieldDrafts.set(field.key, control.value);
+              this.updateSeoAudit();
+              this.schedulePreview();
+            });
+            ui.profileFieldControls.set(field.key, control);
+            return this.field(`oba-profile-${field.key}`, field.label, control, field.help);
+          }),
+        );
+      };
       const syncProfileHelp = () => {
         const selected = profiles.find((profile) => profile.id === ui.profile.value);
         ui.profileHelp.textContent = selected
@@ -1170,9 +1268,11 @@ class Editor {
       ui.profile.addEventListener("change", () => {
         this.profileTouched = true;
         syncProfileHelp();
+        syncProfileFields();
       });
       syncProfileHelp();
-      side.push(h("div", { class: "oba-field" }, h("label", { for: "oba-profile" }, "Content profile"), ui.profile, ui.profileHelp));
+      syncProfileFields();
+      side.push(h("div", { class: "oba-field" }, h("label", { for: "oba-profile" }, "Content profile"), ui.profile, ui.profileHelp), ui.profileFields);
       ui.description = h("textarea", { id: "oba-desc", rows: 3, value: f.description || "" });
       side.push(this.field("oba-desc", "Description", ui.description, "Shown in search results and feeds. Leave empty to use an excerpt."));
       ui.tags = h("input", { id: "oba-tags", type: "text", list: "oba-taglist", value: (Array.isArray(f.tags) ? f.tags : f.tags ? [f.tags] : []).join(", ") });
@@ -1283,11 +1383,17 @@ class Editor {
       formatButtons.map(([command, label, title]) =>
         h("button", { type: "button", class: `oba-format-button${command === "italic" ? " is-italic" : ""}`, title, "aria-label": title, onClick: () => this.formatMarkdown(command) }, label),
       ),
+      kind === "posts"
+        ? [
+            h("button", { type: "button", class: "oba-format-button", title: "Insert Abstract section", onClick: () => this.addResearchSection("abstract") }, "Abstract"),
+            h("button", { type: "button", class: "oba-format-button", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
+          ]
+        : null,
     );
     let paneButtons = [];
     const activatePane = (pane, focus = false) => {
       applyPaneSelection(this.root, paneButtons, pane);
-      if (["preview", "social", "accessibility"].includes(pane)) this.renderPreview();
+      if (["preview", "social", "accessibility", "evidence"].includes(pane)) this.renderPreview();
       else {
         clearTimeout(this.previewTimer);
         this.previewRequest += 1;
@@ -1299,8 +1405,8 @@ class Editor {
       }
     };
     this.activatePane = activatePane;
-    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", optimize: "Optimize", settings: "Settings", accessibility: "Accessibility" };
-    paneButtons = ["write", "preview", "social", "optimize", "settings", "accessibility"].map((pane) =>
+    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", optimize: "Optimize", settings: "Settings", accessibility: "Accessibility", evidence: "Evidence" };
+    paneButtons = ["write", "preview", "social", "optimize", "settings", "accessibility", "evidence"].map((pane) =>
       h(
         "button",
         {
@@ -1396,6 +1502,34 @@ class Editor {
                 ),
               ),
               ui.accessibilityFindings,
+            ),
+          ),
+          h(
+            "section",
+            { class: "oba-pane oba-evidence-pane", "data-pane": "evidence", "aria-label": "Evidence Studio" },
+            paneHeader("Review", "Evidence Studio", ui.evidenceStatus),
+            h(
+              "div",
+              { class: "oba-accessibility-workspace" },
+              h(
+                "aside",
+                { class: "oba-accessibility-guide", tabindex: "-1" },
+                h("h3", {}, "What this checks"),
+                h(
+                  "p",
+                  {},
+                  "Evidence Studio checks portable research structure and metadata. It does not score truth, authority, peer review, or claim support.",
+                ),
+                ui.evidenceCounts,
+                ui.evidenceMetadata,
+                h("h3", {}, "Author-controlled signals"),
+                h(
+                  "ul",
+                  { class: "oba-accessibility-manual" },
+                  ["Visible Abstract and References sections", "DOI and license syntax", "Resolvable reference links", "Defined Markdown footnotes"].map((item) => h("li", {}, item)),
+                ),
+              ),
+              ui.evidenceFindings,
             ),
           ),
         ),
@@ -1518,6 +1652,54 @@ class Editor {
     if (!inputFired) body.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
+  async addResearchSection(section) {
+    const body = this.ui.body;
+    const source = body.value;
+    const fields = this.collect();
+    const action = {
+      version: this.app.editVersion,
+      path: this.doc.path,
+      profile: this.ui.profile?.value || "",
+      body: source,
+    };
+    try {
+      const preview = await this.app.api.call("POST", "preview", {
+        json: {
+          kind: this.kind,
+          path: action.path,
+          fields,
+          body: source,
+        },
+      });
+      const current = {
+        version: this.app.editVersion,
+        path: this.doc.path,
+        profile: this.ui.profile?.value || "",
+        body: body.value,
+      };
+      if (!researchActionIsCurrent(action, current)) {
+        this.flash("error", "The document changed while its research structure was checked. Try the section action again.");
+        return;
+      }
+      const present = researchSectionIsPresent(preview.evidence, preview.research, section);
+      if (present === null) {
+        this.flash("error", "Choose the Research content profile before adding research sections.");
+        return;
+      }
+      const edit = insertResearchSection(source, section, present);
+      if (!edit.inserted) {
+        body.focus();
+        return;
+      }
+      body.value = edit.value;
+      body.focus();
+      body.setSelectionRange(edit.start, edit.end);
+      body.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch (error) {
+      this.flash("error", `Could not inspect the current research structure: ${error.message}`);
+    }
+  }
+
   updateSeoAudit() {
     const ui = this.ui;
     const body = ui.body.value.trim();
@@ -1563,7 +1745,7 @@ class Editor {
 
   schedulePreview() {
     clearTimeout(this.previewTimer);
-    if (!["preview", "social", "accessibility"].includes(this.root?.dataset.editorView)) {
+    if (!["preview", "social", "accessibility", "evidence"].includes(this.root?.dataset.editorView)) {
       this.previewRequest += 1;
       return;
     }
@@ -1575,6 +1757,7 @@ class Editor {
     this.ui.previewTheme.textContent = "Rendering site…";
     this.ui.socialStatus.textContent = "Rendering current social metadata…";
     this.ui.accessibilityStatus.textContent = "Checking current source…";
+    this.ui.evidenceStatus.textContent = "Checking research structure…";
     this.ui.socialCardPreview.setAttribute("aria-busy", "true");
     try {
       const preview = await this.app.api.call("POST", "preview", {
@@ -1598,6 +1781,7 @@ class Editor {
       this.ui.previewWarnings.hidden = warnings.length === 0;
       this.updateSocialPreview(preview.social);
       this.updateAccessibility(preview.accessibility);
+      this.updateEvidence(preview.evidence, preview.research);
     } catch (error) {
       if (request !== this.previewRequest) return;
       this.ui.preview.srcdoc = "<!doctype html><html><body><p>Preview unavailable. Check the editor for validation problems.</p></body></html>";
@@ -1609,6 +1793,10 @@ class Editor {
       this.ui.accessibilityStatus.textContent = "Accessibility checks unavailable";
       this.ui.accessibilityCounts.replaceChildren();
       this.ui.accessibilityFindings.replaceChildren(h("p", { class: "oba-notice" }, "Fix the document validation problems, then run the checks again."));
+      this.ui.evidenceStatus.textContent = "Evidence checks unavailable";
+      this.ui.evidenceCounts.replaceChildren();
+      this.ui.evidenceMetadata.replaceChildren();
+      this.ui.evidenceFindings.replaceChildren(h("p", { class: "oba-notice" }, "Fix the document validation problems, then run the checks again."));
     }
   }
 
@@ -1641,6 +1829,53 @@ class Editor {
           )),
     );
     this.ui.accessibilityStatus.textContent = `${review.total} source finding${review.total === 1 ? "" : "s"}`;
+  }
+
+  updateEvidence(findings, research) {
+    const state = evidenceStudioState(findings, research);
+    if (!state.active) {
+      this.ui.evidenceCounts.replaceChildren();
+      this.ui.evidenceFindings.replaceChildren(
+        h("p", { class: "oba-notice" }, "Evidence checks run only for posts using the Research content profile."),
+      );
+      this.ui.evidenceMetadata.replaceChildren(
+        h("div", {}, h("dt", {}, "Profile"), h("dd", {}, "Research metadata is available for Research posts.")),
+      );
+      this.ui.evidenceStatus.textContent = state.status;
+      return;
+    }
+    const review = state.review;
+    this.ui.evidenceCounts.replaceChildren(
+      ...ACCESSIBILITY_OUTCOMES.map(({ outcome, label }) =>
+        h("div", { class: `is-${outcome}` }, h("dt", {}, label), h("dd", {}, review.counts[outcome])),
+      ),
+    );
+    this.ui.evidenceFindings.replaceChildren(
+      ...(review.total === 0
+        ? [h("p", { class: "oba-notice" }, "No research evidence issues detected for this source.")]
+        : review.groups.map((group) =>
+            h(
+              "section",
+              { class: `oba-accessibility-group is-${group.outcome}` },
+              h("h3", {}, `${group.label} (${group.findings.length})`),
+              group.findings.map((finding) =>
+                h(
+                  "article",
+                  { class: "oba-accessibility-finding" },
+                  h("div", { class: "oba-accessibility-meta" }, h("code", {}, finding.code), h("span", {}, finding.sourceLabel)),
+                  h("p", {}, finding.message),
+                  h("p", { class: "oba-accessibility-repair" }, h("strong", {}, "Next: "), finding.repair),
+                ),
+              ),
+            ),
+          )),
+    );
+    this.ui.evidenceMetadata.replaceChildren(
+      h("div", {}, h("dt", {}, "DOI"), h("dd", {}, research.doiUrl || research.doi || "Not supplied")),
+      h("div", {}, h("dt", {}, "License"), h("dd", {}, research.licenseUrl || "Not supplied")),
+      h("div", {}, h("dt", {}, "Linked references"), h("dd", {}, String(research.referenceCount || 0))),
+    );
+    this.ui.evidenceStatus.textContent = state.status;
   }
 
   updateSocialPreview(social) {
@@ -1851,7 +2086,10 @@ class Editor {
   /** Build the front matter object from the form, keeping fields the form doesn't know about. */
   collect() {
     const ui = this.ui;
-    const fields = { ...this.f };
+    if (this.kind === "posts") {
+      this.profileFieldDrafts = preserveProfileFieldDrafts(this.profileFieldDrafts, ui.profileFieldControls);
+    }
+    let fields = this.kind === "posts" ? applyProfileFieldDrafts(this.f, this.profileFieldDrafts) : { ...this.f };
     const set = (key, value) => {
       const empty = value === "" || value === null || value === undefined || (Array.isArray(value) && !value.length);
       if (empty) delete fields[key];

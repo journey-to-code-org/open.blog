@@ -4,13 +4,44 @@ import test from "node:test";
 import {
   ObAdmin,
   accessibilityReview,
+  evidenceReview,
+  evidenceStudioState,
   applyPaneSelection,
+  applyProfileFieldDrafts,
   normalizeStatusFilter,
   parseAdminHash,
+  preserveProfileFieldDrafts,
   previewWarningsForDisplay,
   resolveProfileSelection,
+  researchSectionIsPresent,
+  researchActionIsCurrent,
   saveStateForVersions,
 } from "../../web/admin/admin.js";
+
+test("profile metadata drafts survive profile switches including explicit clears", () => {
+  const saved = new Map([
+    ["doi", "10.1000/original"],
+    ["license", "https://creativecommons.org/licenses/by/4.0/"],
+  ]);
+  const switched = preserveProfileFieldDrafts(
+    saved,
+    new Map([
+      ["doi", { value: "10.1000/revised" }],
+      ["license", { value: "" }],
+    ]),
+  );
+
+  assert.equal(switched.get("doi"), "10.1000/revised");
+  assert.equal(switched.get("license"), "");
+  assert.equal(saved.get("doi"), "10.1000/original");
+  assert.deepEqual(
+    applyProfileFieldDrafts(
+      { title: "Study", doi: "10.1000/original", license: "https://example.test/old" },
+      switched,
+    ),
+    { title: "Study", doi: "10.1000/revised" },
+  );
+});
 
 test("toggling an open command palette closes it and restores its opener", () => {
   let closed = false;
@@ -161,6 +192,58 @@ test("accessibility findings are grouped by outcome with precise source labels",
       ],
     },
   );
+});
+
+test("evidence findings are grouped without inventing quality scores", () => {
+  const review = evidenceReview([
+    {
+      code: "doi-invalid",
+      outcome: "detected",
+      source: { path: "posts/study.md", line: null, column: null, field: "doi" },
+      message: "The DOI is malformed.",
+      repair: "Use a DOI name or resolver URL.",
+    },
+    {
+      code: "reference-link-review",
+      outcome: "needs-review",
+      source: { path: "posts/study.md", line: 14, column: 1, field: null },
+      message: "This reference has no resolvable link.",
+      repair: "Add a stable URL when one exists.",
+    },
+  ]);
+
+  assert.equal(review.total, 2);
+  assert.deepEqual(review.counts, { detected: 1, potential: 0, "needs-review": 1 });
+  assert.equal(review.groups[0].findings[0].sourceLabel, "posts/study.md · doi");
+  assert.equal(review.groups[1].findings[0].sourceLabel, "posts/study.md:14:1");
+});
+
+test("evidence studio distinguishes an inactive profile from a clean research audit", () => {
+  assert.deepEqual(evidenceStudioState([], null), {
+    active: false,
+    status: "Evidence checks are not active for this content profile.",
+    review: null,
+  });
+  assert.deepEqual(evidenceStudioState([], { referenceCount: 0 }), {
+    active: true,
+    status: "0 evidence findings",
+    review: { total: 0, counts: { detected: 0, potential: 0, "needs-review": 0 }, groups: [] },
+  });
+});
+
+test("research section presence comes from the publishing-engine evidence result", () => {
+  const research = { referenceCount: 0 };
+  assert.equal(researchSectionIsPresent([], research, "abstract"), true);
+  assert.equal(researchSectionIsPresent([{ code: "abstract-missing" }], research, "abstract"), false);
+  assert.equal(researchSectionIsPresent([{ code: "references-missing" }], research, "references"), false);
+  assert.equal(researchSectionIsPresent([], null, "abstract"), null);
+});
+
+test("a delayed research action rejects a profile switch before its response", () => {
+  const request = { version: 7, path: "posts/study.md", profile: "research", body: "Draft" };
+  assert.equal(researchActionIsCurrent(request, { ...request }), true);
+  assert.equal(researchActionIsCurrent(request, { ...request, version: 8, profile: "article" }), false);
+  assert.equal(researchActionIsCurrent(request, { ...request, path: "posts/renamed.md" }), false);
 });
 
 test("overview drill-down routes retain validated status filters and issue focus", () => {

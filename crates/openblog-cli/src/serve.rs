@@ -16,6 +16,7 @@ use crate::fsutil;
 use crate::http::{self, Conn, Request, Response};
 use crate::site;
 use openblog_core::accessibility::{AccessibilityFinding, FindingLocation};
+use openblog_core::research::EvidenceFinding;
 
 /// Concurrent connections served at once; extras are dropped, so a flood of
 /// slow clients cannot exhaust threads.
@@ -224,6 +225,31 @@ pub fn print_report(report: &site::BuildReport) {
         eprintln!("warning: {w}");
     }
     print_accessibility_findings(&report.accessibility);
+    print_evidence_findings(&report.evidence);
+}
+
+pub fn print_evidence_findings(findings: &[EvidenceFinding]) {
+    for finding in findings {
+        eprintln!("{}", evidence_line(finding));
+    }
+}
+
+fn evidence_line(finding: &EvidenceFinding) -> String {
+    let location = if let Some(line) = finding.source.line {
+        format!(
+            "{}:{line}:{}",
+            finding.source.path,
+            finding.source.column.unwrap_or(1)
+        )
+    } else if let Some(field) = &finding.source.field {
+        format!("{} ({field})", finding.source.path)
+    } else {
+        finding.source.path.clone()
+    };
+    format!(
+        "evidence {}: {location}: {} Repair: {} [{}]",
+        finding.outcome, finding.message, finding.repair, finding.code
+    )
 }
 
 pub fn print_accessibility_findings(findings: &[AccessibilityFinding]) {
@@ -426,6 +452,7 @@ fn mime(path: &Path) -> &'static str {
 mod tests {
     use super::*;
     use openblog_core::accessibility::{audit_document, audit_site_language, DocumentAuditInput};
+    use openblog_core::{frontmatter, research};
 
     #[test]
     fn accessibility_output_names_outcome_location_code_and_repair() {
@@ -451,6 +478,30 @@ mod tests {
         assert_eq!(
             accessibility_line(&finding),
             "accessibility detected: openblog.json (language): Generated pages have no configured default language. Repair: Set `language` in openblog.json to the site's BCP 47 language tag. [document-language-missing]"
+        );
+    }
+
+    #[test]
+    fn evidence_output_names_outcome_location_code_and_repair() {
+        let document = frontmatter::parse(
+            "---\ntitle: Study\nprofile: research\ndoi:\n---\nA note.[^missing]",
+        )
+        .unwrap();
+        let findings = research::audit_document(
+            "posts/study.md",
+            &document.front_matter,
+            &document.body,
+            document.body_line,
+        );
+
+        assert_eq!(
+            evidence_line(&findings[0]),
+            "evidence detected: posts/study.md (doi): The DOI does not have a valid prefix, separator, and suffix. Repair: Use a DOI name such as `10.1234/example` or its `https://doi.org/` URL. [doi-invalid]"
+        );
+        let unresolved = evidence_line(findings.last().unwrap());
+        assert!(
+            unresolved.starts_with("evidence detected: posts/study.md:6:8:"),
+            "{unresolved}"
         );
     }
 

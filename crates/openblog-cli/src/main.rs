@@ -260,6 +260,7 @@ fn run(raw: &[String]) -> Result<(), String> {
                 eprintln!("warning: {w}");
             }
             serve::print_accessibility_findings(&site.accessibility);
+            serve::print_evidence_findings(&site.evidence);
             Ok(())
         }
         "themes" => {
