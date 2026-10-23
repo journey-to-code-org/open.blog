@@ -382,6 +382,15 @@ impl Theme {
             push_colors(&mut css, colors, "  ");
             css.push_str("}\n");
         }
+        // Paper is white: print with the light palette whatever the screen uses.
+        // This comes last, so it wins over the dark rules of equal specificity.
+        if let Some(colors) = self.colors.get("light") {
+            css.push_str(
+                "@media print {\n  :root,\n  :root[data-theme] {\n    color-scheme: light;\n",
+            );
+            push_colors(&mut css, colors, "    ");
+            css.push_str("  }\n}\n");
+        }
         css
     }
 
