@@ -198,10 +198,24 @@ pub fn load_config(root: &Path) -> Result<SiteConfig, String> {
 }
 
 pub fn read_sources(root: &Path, config: &SiteConfig) -> Result<Sources, String> {
+    read_sources_excluding(root, config, None)
+}
+
+/// Read content while optionally replacing one source in memory. Admin uses
+/// this to validate a repair for a malformed credit sidecar without first
+/// having to parse the broken file from disk.
+pub fn read_sources_excluding(
+    root: &Path,
+    config: &SiteConfig,
+    excluded: Option<&str>,
+) -> Result<Sources, String> {
     let content_dir = root.join(&config.paths.content);
     let mut sources = Sources::default();
-    for path in fsutil::walk(&content_dir) {
+    for path in content_files(&content_dir)? {
         let rel = fsutil::relative(&content_dir, &path);
+        if excluded.is_some_and(|excluded| excluded == rel) {
+            continue;
+        }
         let lower = rel.to_ascii_lowercase();
         // A README anywhere, and any file or folder whose name starts with `_`, is not content.
         if lower == "readme.md"
@@ -210,17 +224,91 @@ pub fn read_sources(root: &Path, config: &SiteConfig) -> Result<Sources, String>
         {
             continue;
         }
-        if openblog_core::classify_source(&rel).is_none() {
+        let Some(source_kind) = openblog_core::classify_source(&rel) else {
             continue;
-        }
+        };
         let bytes = fs::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        let contents = String::from_utf8(bytes).map_err(|_| format!("{rel} is not valid UTF-8"))?;
+        let contents = match String::from_utf8(bytes) {
+            Ok(contents) => contents,
+            Err(_) if source_kind == openblog_core::SourceKind::PostCredits => {
+                // Preserve the sidecar in the source index so callers can
+                // report a document-scoped credit error instead of losing the
+                // entire listing. The Admin GET path reads the original bytes
+                // separately and reports the precise UTF-8 failure.
+                "<invalid UTF-8 credit sidecar>".into()
+            }
+            Err(_) => return Err(format!("{rel} is not valid UTF-8")),
+        };
         sources.add(SourceFile {
             path: rel,
             contents,
         });
     }
     Ok(sources)
+}
+
+/// Walk content deterministically without descending through an unchecked
+/// directory symlink. Canonical directories are remembered so symlink cycles
+/// fail instead of recursing forever.
+fn content_files(content_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let canonical_content = match fs::canonicalize(content_dir) {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(format!("cannot resolve {}: {error}", content_dir.display()));
+        }
+    };
+    let mut files = Vec::new();
+    let mut visited = HashSet::new();
+    visit_content_dir(content_dir, &canonical_content, &mut visited, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn visit_content_dir(
+    directory: &Path,
+    canonical_content: &Path,
+    visited: &mut HashSet<PathBuf>,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    let canonical_directory = fs::canonicalize(directory)
+        .map_err(|error| format!("cannot resolve {}: {error}", directory.display()))?;
+    if !canonical_directory.starts_with(canonical_content) {
+        return Err(format!(
+            "{} resolves outside the content directory",
+            directory.display()
+        ));
+    }
+    if !visited.insert(canonical_directory) {
+        return Err(format!(
+            "{} creates a directory symlink cycle",
+            directory.display()
+        ));
+    }
+    let mut entries = fs::read_dir(directory)
+        .map_err(|error| format!("cannot read {}: {error}", directory.display()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("cannot read {}: {error}", directory.display()))?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let path = entry.path();
+        let canonical = fs::canonicalize(&path)
+            .map_err(|error| format!("cannot resolve {}: {error}", path.display()))?;
+        if !canonical.starts_with(canonical_content) {
+            return Err(format!(
+                "{} resolves outside the content directory",
+                path.display()
+            ));
+        }
+        let metadata = fs::metadata(&path)
+            .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
+        if metadata.is_dir() {
+            visit_content_dir(&path, canonical_content, visited, files)?;
+        } else if metadata.is_file() {
+            files.push(path);
+        }
+    }
+    Ok(())
 }
 
 pub fn load_themes(root: &Path, config: &SiteConfig) -> Result<ThemeSet, String> {
@@ -494,4 +582,65 @@ pub fn watched_paths(root: &Path, config: &SiteConfig) -> Vec<PathBuf> {
         root.join(&config.paths.themes),
         root.join(&config.paths.web),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_root(tag: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "openblog-site-{tag}-{}-{unique}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn missing_content_directory_is_an_empty_source_set() {
+        let root = temp_root("missing-content");
+        fs::create_dir_all(&root).unwrap();
+        let sources = read_sources(&root, &SiteConfig::default()).unwrap();
+        assert!(sources.posts.is_empty());
+        assert!(sources.credits.is_empty());
+        assert!(sources.series.is_empty());
+        assert!(sources.pages.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_walk_rejects_external_directory_symlinks_before_descent() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_root("external-link");
+        let content = root.join("content");
+        let outside = root.join("outside");
+        fs::create_dir_all(content.join("posts")).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("external.md"), "external").unwrap();
+        symlink(&outside, content.join("posts/external")).unwrap();
+
+        let error = read_sources(&root, &SiteConfig::default()).unwrap_err();
+        assert!(error.contains("outside the content directory"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_walk_rejects_directory_symlink_cycles() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_root("link-cycle");
+        let content = root.join("content");
+        fs::create_dir_all(content.join("posts")).unwrap();
+        symlink(&content, content.join("posts/cycle")).unwrap();
+
+        let error = read_sources(&root, &SiteConfig::default()).unwrap_err();
+        assert!(error.contains("symlink cycle"));
+        fs::remove_dir_all(root).unwrap();
+    }
 }

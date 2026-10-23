@@ -125,6 +125,17 @@ unknown themes, bad dates), then the site is rebuilt. A save that would break th
 refused with the reason. If the file changed on disk since you opened it (for example you
 edited it in your text editor), the save is refused instead of overwriting your changes.
 
+Posts with an adjacent `<stem>.credits.json` file keep that contributor data throughout the
+Admin lifecycle. The server validates the Markdown and credits together, preserves the
+sidecar when an older editor does not send credit fields, checks it independently for
+concurrent edits, and moves it to `.openblog/trash/` with the post. Preview requests can
+include unsaved credits and are rendered through the same contributor rules as a build.
+An explicit empty credits list remains distinct from having no sidecar and inheriting the
+site author. A malformed sidecar does not hide the Markdown document: Admin reports the
+credit error and keeps a separate revision token so a credits-aware client can safely repair
+or remove it. The contributor and role controls that use this server support are being
+added incrementally; editing the JSON files by hand remains supported in the meantime.
+
 ## Scheduling
 
 A post's status is one of:

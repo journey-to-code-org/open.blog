@@ -110,6 +110,21 @@ impl CreditRole {
     }
 }
 
+/// Controlled role values in stable UI order.
+pub fn role_catalog() -> Vec<CreditRole> {
+    CROSSREF_ROLES
+        .iter()
+        .map(|role| CreditRole {
+            vocabulary: RoleVocabulary::Crossref,
+            role: (*role).to_string(),
+        })
+        .chain(CREDIT_ROLES.iter().map(|role| CreditRole {
+            vocabulary: RoleVocabulary::Credit,
+            role: (*role).to_string(),
+        }))
+        .collect()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedCredit {
     pub contributor_id: String,
@@ -362,6 +377,24 @@ fn normalize_orcid(value: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn role_catalog_has_stable_vocabulary_order_and_labels() {
+        let catalog = role_catalog();
+        assert_eq!(catalog.len(), CROSSREF_ROLES.len() + CREDIT_ROLES.len());
+        assert_eq!(catalog[0].vocabulary, RoleVocabulary::Crossref);
+        assert_eq!(catalog[0].role, "author");
+        assert_eq!(catalog[0].label(), "Author");
+        assert_eq!(
+            catalog[CROSSREF_ROLES.len()].vocabulary,
+            RoleVocabulary::Credit
+        );
+        assert_eq!(catalog[CROSSREF_ROLES.len()].role, "conceptualization");
+        assert_eq!(
+            catalog.last().unwrap().label(),
+            "Writing – review & editing"
+        );
+    }
 
     #[test]
     fn sidecars_follow_both_markdown_extensions() {

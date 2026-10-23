@@ -59,6 +59,8 @@ pub struct AppState {
     /// Build drafts and scheduled posts into the public site (`serve --drafts`).
     pub include_drafts: bool,
     pub admin: bool,
+    /// Build state and the content transaction lock. Every content reader and
+    /// writer holds this while taking its filesystem snapshot.
     pub build: Mutex<BuildStatus>,
     pub sessions: Mutex<Sessions>,
     pub throttle: Mutex<Throttle>,
@@ -179,7 +181,8 @@ impl AppState {
         }
         let state = Arc::clone(self);
         std::thread::spawn(move || {
-            let _guard = lock(&state.publish_lock);
+            let _publish = lock(&state.publish_lock);
+            let _content_transaction = lock(&state.build);
             match crate::publish::publish(&state.root, &config, Some(&summary)) {
                 Ok(outcome) => eprintln!("publish: {}", outcome.message),
                 Err(e) => eprintln!("publish failed: {e}"),
@@ -436,7 +439,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
                 .as_str()
                 .map(|s| s.chars().take(120).collect::<String>());
             let config = site::load_config(&state.root).unwrap_or_default();
-            let _guard = lock(&state.publish_lock);
+            let _publish = lock(&state.publish_lock);
+            let _content_transaction = lock(&state.build);
             match crate::publish::publish(&state.root, &config, summary.as_deref()) {
                 Ok(o) => Response::json(
                     200,
@@ -716,10 +720,43 @@ fn resolve_content_path(root: &Path, config: &SiteConfig, rel: &str) -> Result<P
     Ok(full)
 }
 
+/// Resolve the sidecar derived from an already validated post path with the
+/// same containment guarantee as the Markdown file. Direct sidecar symlinks
+/// are rejected even when they point back inside content: Admin mutations must
+/// always address the regular file beside the post.
+fn resolve_credit_path(root: &Path, config: &SiteConfig, rel: &str) -> Result<PathBuf, String> {
+    check_rel_path(rel)?;
+    let sidecar_rel = openblog_core::contributor::sidecar_path(rel)
+        .ok_or_else(|| "cannot derive the post credit sidecar path".to_string())?;
+    let content_dir = root.join(&config.paths.content);
+    let canonical_content = fs::canonicalize(&content_dir)
+        .map_err(|_| "the content directory does not exist".to_string())?;
+    let full = content_dir.join(&sidecar_rel);
+    if fs::symlink_metadata(&full).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Err("credit sidecar symlinks are not allowed".into());
+    }
+    let mut probe = full.as_path();
+    loop {
+        if probe.exists() {
+            let canonical = fs::canonicalize(probe).map_err(|error| error.to_string())?;
+            if !canonical.starts_with(&canonical_content) {
+                return Err("credit sidecar resolves outside the content directory".into());
+            }
+            break;
+        }
+        probe = probe.parent().ok_or("invalid credit sidecar path")?;
+    }
+    Ok(full)
+}
+
 fn etag(text: &str) -> String {
+    etag_bytes(text.as_bytes())
+}
+
+fn etag_bytes(bytes: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in text.bytes() {
-        h ^= u64::from(b);
+    for byte in bytes {
+        h ^= u64::from(*byte);
         h = h.wrapping_mul(0x0100_0000_01b3);
     }
     format!("{h:016x}")
@@ -804,6 +841,7 @@ fn fields_from_json(value: &Json) -> Result<BTreeMap<String, Value>, String> {
 }
 
 fn meta(state: &AppState) -> Response {
+    let _content_transaction = lock(&state.build);
     let config = match site::load_config(&state.root) {
         Ok(c) => c,
         Err(e) => return Response::error(500, &e),
@@ -870,6 +908,16 @@ fn meta(state: &AppState) -> Response {
             })
         })
         .collect();
+    let credit_roles = openblog_core::contributor::role_catalog()
+        .into_iter()
+        .map(|role| {
+            json!({
+                "vocabulary": role.vocabulary.as_str(),
+                "role": role.role,
+                "label": role.label(),
+            })
+        })
+        .collect::<Vec<_>>();
     Response::json(
         200,
         &json!({
@@ -881,6 +929,8 @@ fn meta(state: &AppState) -> Response {
             "defaultTheme": config.theme,
             "themes": theme_list,
             "profiles": profiles,
+            "contributors": config.contributors,
+            "creditRoles": credit_roles,
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
@@ -1047,6 +1097,7 @@ fn status(state: &AppState) -> Response {
 }
 
 fn list_documents(state: &AppState, req: &Request) -> Response {
+    let _content_transaction = lock(&state.build);
     let kind = req.query.get("kind").map(String::as_str).unwrap_or("posts");
     if !matches!(kind, "posts" | "series" | "pages") {
         return Response::error(400, "kind must be posts, series, or pages");
@@ -1068,13 +1119,25 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
     let now = clock::now();
     let mut items: Vec<(i64, Json)> = Vec::new();
     for file in files {
+        let normalized_path = file.path.replace('\\', "/");
+        let explicit_credits = openblog_core::contributor::sidecar_path(&normalized_path)
+            .is_some_and(|sidecar_path| {
+                sources
+                    .credits
+                    .iter()
+                    .any(|sidecar| sidecar.path.replace('\\', "/") == sidecar_path)
+            });
+        let credit_mode = if explicit_credits {
+            "explicit"
+        } else {
+            "inherited"
+        };
         let item = match kind {
             "posts" => {
-                let normalized_path = file.path.replace('\\', "/");
                 if let Some(error) = credit_sidecars.post_errors.get(&normalized_path) {
                     (
                         i64::MIN,
-                        json!({ "path": file.path, "title": file.path, "status": "error", "error": error }),
+                        json!({ "path": file.path, "title": file.path, "status": "error", "error": error, "creditMode": credit_mode }),
                     )
                 } else {
                     let sidecar = credit_sidecars.by_post.get(&normalized_path).copied();
@@ -1098,12 +1161,13 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
                                     "path": file.path, "title": p.title, "slug": p.slug, "date": p.date.rfc3339(),
                                     "status": status, "series": p.series, "tags": p.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
                                     "url": p.url, "words": p.word_count,
+                                    "creditMode": credit_mode,
                                 }),
                             )
                         }
                         Err(e) => (
                             i64::MIN,
-                            json!({ "path": file.path, "title": file.path, "status": "error", "error": e }),
+                            json!({ "path": file.path, "title": file.path, "status": "error", "error": e, "creditMode": credit_mode }),
                         ),
                     }
                 }
@@ -1143,6 +1207,7 @@ fn list_documents(state: &AppState, req: &Request) -> Response {
 }
 
 fn get_document(state: &AppState, req: &Request) -> Response {
+    let _content_transaction = lock(&state.build);
     let Some(rel) = req.query.get("path") else {
         return Response::error(400, "Missing ?path=");
     };
@@ -1159,6 +1224,15 @@ fn get_document(state: &AppState, req: &Request) -> Response {
         Err(_) => return Response::error(404, "No such document"),
     };
     let kind = check_rel_path(rel).unwrap_or("posts");
+    let (credits, credit_etag, credit_error) = if kind == "posts" {
+        let sidecar = match resolve_credit_path(&state.root, &config, rel) {
+            Ok(path) => path,
+            Err(error) => return Response::error(400, &error),
+        };
+        document_credits(&sidecar)
+    } else {
+        (Json::Null, Json::Null, Json::Null)
+    };
     match frontmatter::parse(&text) {
         Ok(doc) => {
             let resolved_profile = if kind == "posts" {
@@ -1168,19 +1242,129 @@ fn get_document(state: &AppState, req: &Request) -> Response {
             };
             Response::json(
                 200,
-                &json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body, "resolvedProfile": resolved_profile }),
+                &json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body, "resolvedProfile": resolved_profile, "credits": credits, "creditEtag": credit_etag, "creditError": credit_error }),
             )
         }
         Err(e) => Response::json(
             200,
-            &json!({ "path": rel, "kind": kind, "etag": etag(&text), "raw": text, "error": e }),
+            &json!({ "path": rel, "kind": kind, "etag": etag(&text), "raw": text, "error": e, "credits": credits, "creditEtag": credit_etag, "creditError": credit_error }),
         ),
     }
+}
+
+fn document_credits(sidecar: &Path) -> (Json, Json, Json) {
+    let bytes = match fs::read(sidecar) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return (Json::Null, Json::Null, Json::Null);
+        }
+        Err(error) => {
+            return (
+                Json::Null,
+                Json::Null,
+                Json::String(format!("cannot read {}: {error}", sidecar.display())),
+            );
+        }
+    };
+    let credit_etag = Json::String(etag_bytes(&bytes));
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(text) => text,
+        Err(error) => {
+            return (
+                Json::Null,
+                credit_etag,
+                Json::String(format!("{} is not UTF-8: {error}", sidecar.display())),
+            );
+        }
+    };
+    let value: Json = match serde_json::from_str(text) {
+        Ok(value) => value,
+        Err(error) => {
+            return (
+                Json::Null,
+                credit_etag,
+                Json::String(format!("cannot parse {}: {error}", sidecar.display())),
+            );
+        }
+    };
+    if value.get("version").and_then(Json::as_u64) != Some(1) {
+        return (
+            Json::Null,
+            credit_etag,
+            Json::String(format!(
+                "{} must use credit file version 1",
+                sidecar.display()
+            )),
+        );
+    }
+    let Some(credits) = value.get("credits").and_then(Json::as_array) else {
+        return (
+            Json::Null,
+            credit_etag,
+            Json::String(format!("{} has no credits array", sidecar.display())),
+        );
+    };
+    (Json::Array(credits.clone()), credit_etag, Json::Null)
 }
 
 // ---------------------------------------------------------------------------
 // Writing
 // ---------------------------------------------------------------------------
+
+enum CreditEdit {
+    Unchanged,
+    Remove,
+    Set(String),
+}
+
+fn credit_sidecar_contents(value: &Json) -> Result<Option<String>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let credits = value.as_array().ok_or("credits must be an array or null")?;
+    if credits.len() > 100 {
+        return Err("credits has too many contributors".into());
+    }
+    serde_json::to_string_pretty(&json!({ "version": 1, "credits": credits }))
+        .map(Some)
+        .map_err(|error| format!("cannot serialize credits: {error}"))
+}
+
+fn requested_credit_edit(body: &Json, kind: &str) -> Result<CreditEdit, String> {
+    let Some(object) = body.as_object() else {
+        return Err("request body must be an object".into());
+    };
+    let Some(credits) = object.get("credits") else {
+        return Ok(CreditEdit::Unchanged);
+    };
+    if kind != "posts" {
+        return Err("credits are only available for posts".into());
+    }
+    match credit_sidecar_contents(credits)? {
+        Some(contents) => Ok(CreditEdit::Set(contents)),
+        None => Ok(CreditEdit::Remove),
+    }
+}
+
+fn apply_credit_edit_to_sources(
+    sources: &mut openblog_core::Sources,
+    rel: &str,
+    edit: &CreditEdit,
+) {
+    let Some(sidecar_path) = openblog_core::contributor::sidecar_path(rel) else {
+        return;
+    };
+    if matches!(edit, CreditEdit::Unchanged) {
+        return;
+    }
+    sources.credits.retain(|file| file.path != sidecar_path);
+    if let CreditEdit::Set(contents) = edit {
+        sources.credits.push(SourceFile {
+            path: sidecar_path,
+            contents: contents.clone(),
+        });
+    }
+}
 
 /// Check that the site still loads and renders with `rel` set to `source`.
 /// Only problems that involve the edited file are reported; unrelated broken
@@ -1190,8 +1374,13 @@ fn validate_candidate(
     config: &SiteConfig,
     rel: &str,
     source: &str,
+    credit_edit: &CreditEdit,
 ) -> Result<(), Vec<String>> {
-    let mut sources = site::read_sources(root, config).map_err(|e| vec![e])?;
+    let excluded_sidecar = (!matches!(credit_edit, CreditEdit::Unchanged))
+        .then(|| openblog_core::contributor::sidecar_path(rel))
+        .flatten();
+    let mut sources = site::read_sources_excluding(root, config, excluded_sidecar.as_deref())
+        .map_err(|e| vec![e])?;
     for bucket in [&mut sources.posts, &mut sources.series, &mut sources.pages] {
         bucket.retain(|f| f.path != rel);
     }
@@ -1199,6 +1388,7 @@ fn validate_candidate(
         path: rel.to_string(),
         contents: source.to_string(),
     });
+    apply_credit_edit_to_sources(&mut sources, rel, credit_edit);
     let themes = site::load_themes(root, config).map_err(|e| vec![e])?;
     match Site::load(
         config.clone(),
@@ -1228,7 +1418,7 @@ fn validate_candidate(
     }
 }
 
-fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+fn write_atomic_bytes(path: &Path, contents: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
@@ -1239,6 +1429,74 @@ fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
         let _ = fs::remove_file(&tmp);
         format!("cannot replace {}: {e}", path.display())
     })
+}
+
+fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+    write_atomic_bytes(path, contents.as_bytes())
+}
+
+fn restore_file(path: &Path, previous: Option<&[u8]>) -> Result<(), String> {
+    match previous {
+        Some(contents) => write_atomic_bytes(path, contents),
+        None if path.exists() => fs::remove_file(path)
+            .map_err(|error| format!("cannot remove {} during rollback: {error}", path.display())),
+        None => Ok(()),
+    }
+}
+
+fn read_optional_bytes(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    match fs::read(path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("cannot read {}: {error}", path.display())),
+    }
+}
+
+fn write_document_with_credits(
+    path: &Path,
+    sidecar: &Path,
+    source: &str,
+    credit_edit: &CreditEdit,
+) -> Result<(), String> {
+    write_document_with_credits_using(path, sidecar, source, credit_edit, mutate_credit_sidecar)
+}
+
+fn mutate_credit_sidecar(sidecar: &Path, credit_edit: &CreditEdit) -> Result<(), String> {
+    match credit_edit {
+        CreditEdit::Set(contents) => write_atomic(sidecar, contents),
+        CreditEdit::Remove if sidecar.exists() => fs::remove_file(sidecar)
+            .map_err(|error| format!("cannot remove {}: {error}", sidecar.display())),
+        CreditEdit::Remove | CreditEdit::Unchanged => Ok(()),
+    }
+}
+
+fn write_document_with_credits_using(
+    path: &Path,
+    sidecar: &Path,
+    source: &str,
+    credit_edit: &CreditEdit,
+    mutate_sidecar: impl FnOnce(&Path, &CreditEdit) -> Result<(), String>,
+) -> Result<(), String> {
+    if matches!(credit_edit, CreditEdit::Unchanged) {
+        return write_atomic(path, source);
+    }
+    let previous_document = read_optional_bytes(path)?;
+    let previous_sidecar = read_optional_bytes(sidecar)?;
+    write_atomic(path, source)?;
+    let credit_result = mutate_sidecar(sidecar, credit_edit);
+    if let Err(error) = credit_result {
+        let document_rollback = restore_file(path, previous_document.as_deref());
+        let credit_rollback = restore_file(sidecar, previous_sidecar.as_deref());
+        return Err(match (document_rollback, credit_rollback) {
+            (Ok(()), Ok(())) => error,
+            (document, credits) => format!(
+                "{error}; rollback failed (document: {}; credits: {})",
+                document.err().unwrap_or_else(|| "ok".into()),
+                credits.err().unwrap_or_else(|| "ok".into())
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// New file path for a created document, derived from its fields.
@@ -1306,12 +1564,33 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         Ok(p) => p,
         Err(e) => return Response::error(400, &e),
     };
+    let kind = check_rel_path(&rel).unwrap_or("posts");
+    let credit_path = if kind == "posts" {
+        match resolve_credit_path(&state.root, &config, &rel) {
+            Ok(path) => Some(path),
+            Err(error) => return Response::error(400, &error),
+        }
+    } else {
+        None
+    };
+    let credit_edit = match requested_credit_edit(&body, kind) {
+        Ok(edit) => edit,
+        Err(error) => return Response::error(422, &error),
+    };
 
     if created {
         if path.exists() {
             return Response::error(
                 409,
                 "A file with that name already exists. Change the title, slug, or date.",
+            );
+        }
+        if matches!(credit_edit, CreditEdit::Unchanged)
+            && credit_path.as_ref().is_some_and(|path| path.exists())
+        {
+            return Response::error(
+                409,
+                "A credit sidecar with that name already exists. Reload with a credits-aware Admin client or move the orphaned sidecar.",
             );
         }
     } else {
@@ -1330,13 +1609,36 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         }
     }
 
-    if let Err(problems) = validate_candidate(&state.root, &config, &rel, &source) {
+    if !matches!(credit_edit, CreditEdit::Unchanged) {
+        let sidecar = credit_path.as_ref().expect("post credit path");
+        let current = match read_optional_bytes(sidecar) {
+            Ok(current) => current,
+            Err(error) => return Response::error(500, &error),
+        };
+        let expected = body.get("creditEtag").and_then(Json::as_str);
+        let matches = match current.as_deref() {
+            Some(contents) => {
+                let current_etag = etag_bytes(contents);
+                expected == Some(current_etag.as_str())
+            }
+            None => body.get("creditEtag").is_none_or(Json::is_null),
+        };
+        if !matches {
+            return Response::error(
+                409,
+                "The post credits changed on disk since you opened them. Reload before saving.",
+            );
+        }
+    }
+
+    if let Err(problems) = validate_candidate(&state.root, &config, &rel, &source, &credit_edit) {
         return Response::json(
             422,
             &json!({ "error": "This can't be saved yet.", "problems": problems }),
         );
     }
-    if let Err(e) = write_atomic(&path, &source) {
+    let sidecar = credit_path.as_deref().unwrap_or(&path);
+    if let Err(e) = write_document_with_credits(&path, sidecar, &source, &credit_edit) {
         return Response::error(500, &e);
     }
 
@@ -1359,9 +1661,16 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         })
         .unwrap_or_else(|| rel.clone());
     state_arc(state).auto_publish(title);
+    let credit_etag = match credit_path.as_deref() {
+        Some(sidecar) => match read_optional_bytes(sidecar) {
+            Ok(contents) => contents.map(|contents| etag_bytes(&contents)),
+            Err(error) => return Response::error(500, &error),
+        },
+        None => None,
+    };
     Response::json(
         if created { 201 } else { 200 },
-        &json!({ "path": rel, "etag": etag(&source), "status": post_status, "url": url, "build": build_json }),
+        &json!({ "path": rel, "etag": etag(&source), "creditEtag": credit_etag, "status": post_status, "url": url, "build": build_json }),
     )
 }
 
@@ -1387,6 +1696,16 @@ fn describe(
     }
 }
 
+fn unique_trash_target(trash: &Path, stamp: &str, name: &str) -> PathBuf {
+    let mut target = trash.join(format!("{stamp}-{name}"));
+    let mut number = 1;
+    while target.exists() {
+        target = trash.join(format!("{stamp}-{number}-{name}"));
+        number += 1;
+    }
+    target
+}
+
 fn delete_document(state: &AppState, req: &Request) -> Response {
     let Some(rel) = req.query.get("path") else {
         return Response::error(400, "Missing ?path=");
@@ -1410,14 +1729,39 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
     }
     let stamp = clock::now().rfc3339().replace(':', "");
     let name = rel.replace('/', "_");
-    let mut target = trash.join(format!("{stamp}-{name}"));
-    let mut n = 1;
-    while target.exists() {
-        target = trash.join(format!("{stamp}-{n}-{name}"));
-        n += 1;
-    }
+    let target = unique_trash_target(&trash, &stamp, &name);
+    let sidecar = if check_rel_path(rel).ok() == Some("posts") {
+        match resolve_credit_path(&state.root, &config, rel) {
+            Ok(path) => Some(path),
+            Err(error) => return Response::error(400, &error),
+        }
+    } else {
+        None
+    };
+    let sidecar_target = sidecar.as_ref().filter(|path| path.is_file()).map(|_| {
+        let sidecar_name = openblog_core::contributor::sidecar_path(rel)
+            .unwrap_or_else(|| format!("{rel}.credits.json"))
+            .replace('/', "_");
+        unique_trash_target(&trash, &stamp, &sidecar_name)
+    });
     if let Err(e) = fs::rename(&path, &target) {
         return Response::error(500, &format!("cannot move the file to the trash: {e}"));
+    }
+    if let Some(sidecar_target) = &sidecar_target {
+        if let Err(error) = fs::rename(sidecar.as_ref().expect("existing sidecar"), sidecar_target)
+        {
+            let rollback = fs::rename(&target, &path);
+            return Response::error(
+                500,
+                &format!(
+                    "cannot move the credit sidecar to the trash: {error}; document rollback: {}",
+                    rollback
+                        .err()
+                        .map(|error| error.to_string())
+                        .unwrap_or_else(|| "ok".into())
+                ),
+            );
+        }
     }
     eprintln!("admin: deleted {rel} (kept in .openblog/trash)");
     let build = state.rebuild_locked(&mut status);
@@ -1427,7 +1771,12 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
     };
     Response::json(
         200,
-        &json!({ "ok": true, "trashedTo": target.file_name().map(|n| n.to_string_lossy().into_owned()), "build": build_json }),
+        &json!({
+            "ok": true,
+            "trashedTo": target.file_name().map(|n| n.to_string_lossy().into_owned()),
+            "trashedCreditsTo": sidecar_target.and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned())),
+            "build": build_json
+        }),
     )
 }
 
@@ -1473,14 +1822,28 @@ fn preview(state: &AppState, req: &Request) -> Response {
         },
     };
     let source = frontmatter::compose(&fields, text_body);
+    let credit_edit = match requested_credit_edit(&body, kind) {
+        Ok(edit) => edit,
+        Err(error) => return Response::error(422, &error),
+    };
+    let _content_transaction = lock(&state.build);
     let mut config = match site::load_config(&state.root) {
         Ok(config) => config,
         Err(e) => return Response::error(500, &e),
     };
-    let mut sources = match site::read_sources(&state.root, &config) {
-        Ok(sources) => sources,
-        Err(e) => return Response::error(500, &e),
-    };
+    if kind == "posts" {
+        if let Err(error) = resolve_credit_path(&state.root, &config, &rel) {
+            return Response::error(400, &error);
+        }
+    }
+    let excluded_sidecar = (!matches!(credit_edit, CreditEdit::Unchanged))
+        .then(|| openblog_core::contributor::sidecar_path(&rel))
+        .flatten();
+    let mut sources =
+        match site::read_sources_excluding(&state.root, &config, excluded_sidecar.as_deref()) {
+            Ok(sources) => sources,
+            Err(e) => return Response::error(500, &e),
+        };
     for bucket in [&mut sources.posts, &mut sources.series, &mut sources.pages] {
         bucket.retain(|file| file.path != rel);
     }
@@ -1488,6 +1851,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         path: rel.clone(),
         contents: source,
     });
+    apply_credit_edit_to_sources(&mut sources, &rel, &credit_edit);
     // Owner-supplied analytics/comments snippets are intentionally disabled in
     // an unpublished preview. Theme assets and built-in components still run.
     config.snippets = Default::default();
@@ -1788,7 +2152,7 @@ mod tests {
     }
 
     struct Fixture {
-        state: AppState,
+        state: Arc<AppState>,
         dir: PathBuf,
     }
 
@@ -1805,7 +2169,7 @@ mod tests {
         let mut users = Users::default();
         users.set("mikey", "correct horse battery").unwrap();
         users.save(&dir.join(".openblog/users.json")).unwrap();
-        let state = AppState::new(dir.clone(), None, false, true);
+        let state = Arc::new(AppState::new(dir.clone(), None, false, true));
         state.rebuild().unwrap();
         Fixture { state, dir }
     }
@@ -2598,6 +2962,296 @@ mod tests {
     }
 
     #[test]
+    fn credit_sidecars_round_trip_preview_and_follow_post_lifecycle() {
+        let f = fixture("credit-lifecycle");
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["contributors"] = json!({
+            "ada": { "name": "Ada", "url": "/people/ada/", "orcid": "0000-0002-1825-0097" },
+            "grace": { "name": "Grace" }
+        });
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let session = login_ok(&f);
+
+        let orphan = f
+            .dir
+            .join("content/posts/2026-01-01-orphan-collision.credits.json");
+        fs::write(&orphan, r#"{"version":1,"credits":[]}"#).unwrap();
+        let orphan_collision = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({
+                        "kind":"posts",
+                        "fields":{"title":"Orphan Collision","date":"2026-01-01"},
+                        "body":"Body"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(orphan_collision.status, 409);
+        assert!(orphan.is_file());
+        assert!(!f
+            .dir
+            .join("content/posts/2026-01-01-orphan-collision.md")
+            .exists());
+        fs::remove_file(orphan).unwrap();
+
+        let meta = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/meta"), &session, false),
+        ));
+        assert_eq!(meta["contributors"]["ada"]["name"], "Ada");
+        assert!(meta["creditRoles"].as_array().unwrap().iter().any(|role| {
+            role["vocabulary"] == "crossref"
+                && role["role"] == "author"
+                && role["label"] == "Author"
+        }));
+
+        let credits = json!([
+            {"contributor":"ada","roles":[
+                {"vocabulary":"crossref","role":"author"},
+                {"vocabulary":"credit","role":"software"}
+            ]},
+            {"contributor":"grace","roles":[
+                {"vocabulary":"crossref","role":"editor"}
+            ]}
+        ]);
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({
+                        "kind":"posts",
+                        "fields":{"title":"Credited","date":"2026-01-01"},
+                        "body":"Body",
+                        "credits": credits
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created = body_json(&created);
+        let rel = created["path"].as_str().unwrap();
+        let sidecar = f.dir.join("content/posts/2026-01-01-credited.credits.json");
+        assert!(sidecar.is_file());
+        assert!(created["creditEtag"].as_str().is_some());
+        assert!(
+            fs::read_to_string(f.dir.join("dist/posts/credited/index.html"))
+                .unwrap()
+                .contains("ob-contributions")
+        );
+        let listed = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/documents?kind=posts"),
+                &session,
+                false,
+            ),
+        ));
+        let listed_post = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == rel)
+            .unwrap();
+        assert_eq!(listed_post["creditMode"], "explicit");
+
+        let fetched = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/document?path={rel}")),
+                &session,
+                false,
+            ),
+        ));
+        assert_eq!(fetched["credits"], credits);
+        let markdown_etag = fetched["etag"].as_str().unwrap();
+        let credit_etag = fetched["creditEtag"].as_str().unwrap();
+
+        // Omitting `credits` preserves the sidecar for older Admin clients.
+        let preserved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    &format!("/admin/api/document?path={rel}"),
+                    json!({"fields":fetched["fields"],"body":"Edited","etag":markdown_etag}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(preserved.status, 200);
+        assert!(sidecar.is_file());
+
+        let refreshed = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/document?path={rel}")),
+                &session,
+                false,
+            ),
+        ));
+        let before_markdown = fs::read_to_string(f.dir.join("content").join(rel)).unwrap();
+        let before_sidecar = fs::read_to_string(&sidecar).unwrap();
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    &format!("/admin/api/document?path={rel}"),
+                    json!({
+                        "fields":refreshed["fields"],"body":"Should not save",
+                        "etag":refreshed["etag"],"credits":null,"creditEtag":"stale"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+        assert_eq!(
+            fs::read_to_string(f.dir.join("content").join(rel)).unwrap(),
+            before_markdown
+        );
+        assert_eq!(fs::read_to_string(&sidecar).unwrap(), before_sidecar);
+
+        let invalid = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    &format!("/admin/api/document?path={rel}"),
+                    json!({
+                        "fields":refreshed["fields"],"body":"Should not save",
+                        "etag":refreshed["etag"],
+                        "credits":[{"contributor":"missing","roles":[{"vocabulary":"crossref","role":"author"}]}],
+                        "creditEtag":credit_etag
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(invalid.status, 422);
+        assert_eq!(
+            fs::read_to_string(f.dir.join("content").join(rel)).unwrap(),
+            before_markdown
+        );
+        assert_eq!(fs::read_to_string(&sidecar).unwrap(), before_sidecar);
+
+        let preview = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({
+                        "kind":"posts","path":rel,"fields":refreshed["fields"],
+                        "body":"Preview","credits":[{"contributor":"grace","roles":[{"vocabulary":"crossref","role":"author"}]}]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            preview.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&preview.body)
+        );
+        let preview_url = body_json(&preview)["previewUrl"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let preview_doc = handle(&f.state, &authed(req("GET", &preview_url), &session, false));
+        assert!(String::from_utf8_lossy(&preview_doc.body)
+            .contains("By <span class=\"p-author h-card\">Grace</span>"));
+
+        let removed = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    &format!("/admin/api/document?path={rel}"),
+                    json!({
+                        "fields":refreshed["fields"],"body":"Inherited",
+                        "etag":refreshed["etag"],"credits":null,"creditEtag":credit_etag
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            removed.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&removed.body)
+        );
+        assert!(!sidecar.exists());
+
+        let after_remove = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/document?path={rel}")),
+                &session,
+                false,
+            ),
+        ));
+        assert!(after_remove["credits"].is_null());
+        let explicit_empty = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    &format!("/admin/api/document?path={rel}"),
+                    json!({
+                        "fields":after_remove["fields"],"body":"Anonymous",
+                        "etag":after_remove["etag"],"credits":[],"creditEtag":null
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(explicit_empty.status, 200);
+        assert!(sidecar.is_file());
+
+        let deleted = handle(
+            &f.state,
+            &authed(
+                req("DELETE", &format!("/admin/api/document?path={rel}")),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 200);
+        assert!(!sidecar.exists());
+        assert!(body_json(&deleted)["trashedCreditsTo"].as_str().is_some());
+        assert_eq!(
+            fs::read_dir(f.dir.join(".openblog/trash")).unwrap().count(),
+            2
+        );
+    }
+
+    #[test]
     fn invalid_saves_are_rejected_without_touching_disk() {
         let f = fixture("invalid");
         let session = login_ok(&f);
@@ -2667,7 +3321,8 @@ mod tests {
 
         let config = site::load_config(&f.dir).unwrap();
         let source = fs::read_to_string(&markdown).unwrap();
-        let problems = validate_candidate(&f.dir, &config, &rel, &source).unwrap_err();
+        let problems =
+            validate_candidate(&f.dir, &config, &rel, &source, &CreditEdit::Unchanged).unwrap_err();
         assert!(problems.iter().any(|problem| {
             problem.contains(".credits.json") && problem.contains("unknown contributor `missing`")
         }));
@@ -2690,10 +3345,34 @@ mod tests {
             .find(|item| item["path"] == rel)
             .unwrap();
         assert_eq!(item["status"], "error");
+        assert_eq!(item["creditMode"], "explicit");
         assert!(item["error"]
             .as_str()
             .unwrap()
             .contains("unknown contributor `missing`"));
+
+        fs::write(
+            posts_dir.join("inherited-error.md"),
+            "---\ndate: 2026-01-01\n---\nBody",
+        )
+        .unwrap();
+        let response = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/documents?kind=posts"),
+                &session,
+                false,
+            ),
+        );
+        let list = body_json(&response);
+        let inherited = list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == "posts/inherited-error.md")
+            .unwrap();
+        assert_eq!(inherited["status"], "error");
+        assert_eq!(inherited["creditMode"], "inherited");
     }
 
     #[test]
@@ -2735,11 +3414,184 @@ mod tests {
                 .find(|item| item["path"] == path)
                 .unwrap();
             assert_eq!(item["status"], "error");
+            assert_eq!(item["creditMode"], "explicit");
             assert!(item["error"]
                 .as_str()
                 .unwrap()
                 .contains("ambiguous credit sidecar target"));
         }
+    }
+
+    #[test]
+    fn malformed_credit_sidecars_can_be_opened_and_removed_safely() {
+        let f = fixture("malformed-credit-repair");
+        let posts_dir = f.dir.join("content/posts");
+        let markdown = fs::read_dir(&posts_dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| path.extension().is_some_and(|extension| extension == "md"))
+            .unwrap();
+        let rel = format!("posts/{}", markdown.file_name().unwrap().to_string_lossy());
+        let sidecar = markdown.with_extension("credits.json");
+        let session = login_ok(&f);
+        let mut last = Json::Null;
+        for malformed in [
+            b"{".to_vec(),
+            br#"{"version":2,"credits":[]}"#.to_vec(),
+            br#"{"version":1,"credits":{}}"#.to_vec(),
+            vec![0xff, 0xfe],
+        ] {
+            fs::write(&sidecar, malformed).unwrap();
+            let response = handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/document?path={rel}")),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(response.status, 200);
+            last = body_json(&response);
+            assert!(last["credits"].is_null());
+            assert!(last["creditEtag"].as_str().is_some());
+            assert!(last["creditError"].as_str().is_some());
+        }
+
+        let listing = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/documents?kind=posts"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(listing.status, 200);
+        let listing = body_json(&listing);
+        let item = listing["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == rel)
+            .unwrap();
+        assert_eq!(item["status"], "error");
+        assert_eq!(item["creditMode"], "explicit");
+
+        let repaired = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    &format!("/admin/api/document?path={rel}"),
+                    json!({
+                        "fields":last["fields"], "body":last["body"], "etag":last["etag"],
+                        "credits":null, "creditEtag":last["creditEtag"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            repaired.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&repaired.body)
+        );
+        assert!(!sidecar.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn document_get_rejects_credit_sidecar_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let f = fixture("credit-sidecar-symlink");
+        let markdown = fs::read_dir(f.dir.join("content/posts"))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .find(|path| path.extension().is_some_and(|extension| extension == "md"))
+            .unwrap();
+        let rel = format!("posts/{}", markdown.file_name().unwrap().to_string_lossy());
+        let outside = f.dir.join("outside-credits.json");
+        fs::write(&outside, r#"{"version":1,"credits":[]}"#).unwrap();
+        symlink(&outside, markdown.with_extension("credits.json")).unwrap();
+        let session = login_ok(&f);
+
+        let response = handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/document?path={rel}")),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(response.status, 400);
+        assert!(String::from_utf8_lossy(&response.body).contains("symlinks are not allowed"));
+    }
+
+    #[test]
+    fn paired_credit_write_rolls_back_when_the_second_mutation_fails() {
+        let f = fixture("credit-write-rollback");
+        let markdown = f.dir.join("content/posts/rollback.md");
+        let sidecar = f.dir.join("content/posts/rollback.credits.json");
+        fs::write(&markdown, "original document").unwrap();
+        fs::write(&sidecar, [0xff, 0xfe]).unwrap();
+        let edit = CreditEdit::Set(r#"{"version":1,"credits":[]}"#.into());
+
+        let error = write_document_with_credits_using(
+            &markdown,
+            &sidecar,
+            "replacement document",
+            &edit,
+            |_, _| Err("injected sidecar failure".into()),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("injected sidecar failure"));
+        assert_eq!(fs::read(&markdown).unwrap(), b"original document");
+        assert_eq!(fs::read(&sidecar).unwrap(), [0xff, 0xfe]);
+    }
+
+    #[test]
+    fn document_reads_wait_for_the_content_transaction() {
+        let f = fixture("credit-read-transaction");
+        let session = login_ok(&f);
+        let rel = fs::read_dir(f.dir.join("content/posts"))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .find(|name| name.ends_with(".md"))
+            .map(|name| format!("posts/{name}"))
+            .unwrap();
+        let request = authed(
+            req("GET", &format!("/admin/api/document?path={rel}")),
+            &session,
+            false,
+        );
+        let transaction = lock(&f.state.build);
+        let state = Arc::clone(&f.state);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            sender.send(handle(&state, &request).status).unwrap();
+        });
+        assert!(receiver.recv_timeout(Duration::from_millis(50)).is_err());
+        drop(transaction);
+        assert_eq!(receiver.recv_timeout(Duration::from_secs(2)).unwrap(), 200);
+        reader.join().unwrap();
+
+        let transaction = lock(&f.state.build);
+        let state = Arc::clone(&f.state);
+        let request = authed(req("GET", "/admin/api/meta"), &session, false);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || {
+            sender.send(handle(&state, &request).status).unwrap();
+        });
+        assert!(receiver.recv_timeout(Duration::from_millis(50)).is_err());
+        drop(transaction);
+        assert_eq!(receiver.recv_timeout(Duration::from_secs(2)).unwrap(), 200);
+        reader.join().unwrap();
     }
 
     #[test]
