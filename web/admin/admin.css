@@ -318,6 +318,40 @@ ob-admin {
   font-size: 0.8rem;
 }
 
+.oba-seo-checks {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-seo-checks li {
+  display: grid;
+  gap: 0.1rem;
+  padding-left: 1rem;
+  position: relative;
+  font-size: 0.82rem;
+}
+
+.oba-seo-checks li::before {
+  position: absolute;
+  left: 0;
+  content: "•";
+}
+
+.oba-seo-checks .is-ready::before {
+  color: var(--ob-color-success, #27864a);
+}
+
+.oba-seo-checks .needs-work::before {
+  color: var(--ob-color-accent);
+}
+
+.oba-seo-checks span {
+  color: var(--ob-color-subtle);
+}
+
 .oba-notice,
 .oba-error,
 .oba-ok {

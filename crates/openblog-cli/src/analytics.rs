@@ -1,8 +1,9 @@
 //! A cookie-free page view counter.
 //!
 //! What is stored, in `.openblog/analytics.json`: per day, views and unique
-//! visitors per page and a count per referring host; plus an all-time total
-//! per page. What is never stored: addresses, user agents, or anything that
+//! visitors per page, a count per referring host, and aggregate requests from
+//! explicitly identified AI agents; plus an all-time total per page. What is
+//! never stored: addresses, raw user agents, or anything that
 //! identifies a visitor. Uniques are counted with a hash of (daily random
 //! salt, address, user agent) that lives in memory only and is thrown away at
 //! midnight, so two visits on one day collapse into one visitor and nothing
@@ -26,7 +27,83 @@ pub struct DayStats {
     uniques: BTreeMap<String, u64>,
     #[serde(default)]
     referrers: BTreeMap<String, u64>,
+    /// Stable agent label -> requested public path -> count. Labels come from
+    /// a bounded classifier; raw user-agent strings are never persisted.
+    #[serde(default)]
+    agents: BTreeMap<String, BTreeMap<String, u64>>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Agent {
+    pub name: &'static str,
+    pub category: &'static str,
+}
+
+const AGENT_REGISTRY: &[(&str, Agent)] = &[
+    (
+        "oai-searchbot",
+        Agent {
+            name: "OAI-SearchBot",
+            category: "search",
+        },
+    ),
+    (
+        "gptbot",
+        Agent {
+            name: "GPTBot",
+            category: "training",
+        },
+    ),
+    (
+        "chatgpt-user",
+        Agent {
+            name: "ChatGPT-User",
+            category: "user",
+        },
+    ),
+    (
+        "oai-adsbot",
+        Agent {
+            name: "OAI-AdsBot",
+            category: "other",
+        },
+    ),
+    (
+        "claude-searchbot",
+        Agent {
+            name: "Claude-SearchBot",
+            category: "search",
+        },
+    ),
+    (
+        "claude-user",
+        Agent {
+            name: "Claude-User",
+            category: "user",
+        },
+    ),
+    (
+        "claudebot",
+        Agent {
+            name: "ClaudeBot",
+            category: "training",
+        },
+    ),
+    (
+        "perplexity-user",
+        Agent {
+            name: "Perplexity-User",
+            category: "user",
+        },
+    ),
+    (
+        "perplexitybot",
+        Agent {
+            name: "PerplexityBot",
+            category: "search",
+        },
+    ),
+];
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 struct Data {
@@ -111,7 +188,7 @@ impl Store {
             return Ok(None);
         }
         self.prune();
-        self.data.version = 1;
+        self.data.version = 2;
         let text = serde_json::to_string(&self.data).map_err(|e| e.to_string())?;
         self.dirty = false;
         Ok(Some(text))
@@ -195,6 +272,19 @@ impl Store {
         Ok(*total)
     }
 
+    /// Record a successful public request from a classified AI user agent.
+    /// This is deliberately separate from human views and uniques.
+    pub fn record_agent(&mut self, now: DateTime, path: &str, agent: Agent) -> Result<(), String> {
+        self.roll_day(now)?;
+        let day = self.data.days.entry(self.day.clone()).or_default();
+        let paths = day.agents.entry(agent.name.to_string()).or_default();
+        if paths.len() < MAX_TRACKED_PATHS || paths.contains_key(path) {
+            *paths.entry(path.to_string()).or_insert(0) += 1;
+            self.dirty = true;
+        }
+        Ok(())
+    }
+
     pub fn views(&self, path: &str) -> u64 {
         self.data.totals.get(path).copied().unwrap_or(0)
             + self
@@ -231,6 +321,12 @@ impl Store {
                 for (k, v) in &stats.referrers {
                     *entry.referrers.entry(k.clone()).or_insert(0) += v;
                 }
+                for (agent, paths) in &stats.agents {
+                    let target = entry.agents.entry(agent.clone()).or_default();
+                    for (path, count) in paths {
+                        *target.entry(path.clone()).or_insert(0) += count;
+                    }
+                }
             }
         }
         out
@@ -266,6 +362,13 @@ impl Store {
             for (k, v) in stats.referrers {
                 let e = entry.referrers.entry(k).or_insert(0);
                 *e = (*e).max(v);
+            }
+            for (agent, paths) in stats.agents {
+                let target = entry.agents.entry(agent).or_default();
+                for (path, count) in paths {
+                    let e = target.entry(path).or_insert(0);
+                    *e = (*e).max(count);
+                }
             }
         }
         for (k, v) in other.totals {
@@ -307,6 +410,8 @@ impl Store {
         let mut uniques_total = 0u64;
         let mut per_path: BTreeMap<&str, (u64, u64)> = BTreeMap::new();
         let mut referrers: BTreeMap<&str, u64> = BTreeMap::new();
+        let mut agents: BTreeMap<&str, u64> = BTreeMap::new();
+        let mut agent_paths: BTreeMap<&str, (u64, HashSet<&str>)> = BTreeMap::new();
         for offset in 0..days {
             let day = DateTime::from_unix(now.unix() - i64::from(days - 1 - offset) * 86_400).ymd();
             let (v, u) = match merged.get(&day) {
@@ -330,11 +435,25 @@ impl Store {
             for (host, n) in &stats.referrers {
                 *referrers.entry(host.as_str()).or_insert(0) += n;
             }
+            for (agent, paths) in &stats.agents {
+                for (path, count) in paths {
+                    *agents.entry(agent.as_str()).or_insert(0) += count;
+                    let entry = agent_paths.entry(path.as_str()).or_default();
+                    entry.0 += count;
+                    entry.1.insert(agent.as_str());
+                }
+            }
         }
         let mut top: Vec<(&str, (u64, u64))> = per_path.into_iter().collect();
         top.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then_with(|| a.0.cmp(b.0)));
         let mut refs: Vec<(&str, u64)> = referrers.into_iter().collect();
         refs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        let mut agent_list: Vec<(&str, u64)> = agents.into_iter().collect();
+        agent_list.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        let mut agent_page_list: Vec<(&str, (u64, HashSet<&str>))> =
+            agent_paths.into_iter().collect();
+        agent_page_list.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then_with(|| a.0.cmp(b.0)));
+        let agent_requests: u64 = agent_list.iter().map(|(_, count)| count).sum();
         let all_time: u64 = totals.values().sum();
         json!({
             "days": days,
@@ -347,8 +466,49 @@ impl Store {
             "series": series,
             "topPosts": top.iter().take(25).map(|(p, (v, u))| json!({ "path": p, "views": v, "uniques": u, "allTime": totals.get(*p).copied().unwrap_or(0) })).collect::<Vec<_>>(),
             "referrers": refs.iter().take(25).map(|(h, n)| json!({ "host": h, "views": n })).collect::<Vec<_>>(),
+            "agentRequests": agent_requests,
+            "agents": agent_list.iter().map(|(name, requests)| json!({
+                "name": name,
+                "category": agent_category(name),
+                "requests": requests,
+            })).collect::<Vec<_>>(),
+            "agentPages": agent_page_list.iter().take(25).map(|(path, (requests, names))| {
+                let mut names = names.iter().copied().collect::<Vec<_>>();
+                names.sort_unstable();
+                json!({
+                    "path": path,
+                    "requests": requests,
+                    "agents": names,
+                })
+            }).collect::<Vec<_>>(),
         })
     }
+}
+
+/// Classify only provider-documented AI user-agent tokens. This reports what
+/// the request claims to be; callers must verify provider IP ranges separately
+/// when authenticated bot identity matters.
+pub fn classify_agent(user_agent: &str) -> Option<Agent> {
+    let ua = user_agent.to_ascii_lowercase();
+    AGENT_REGISTRY
+        .iter()
+        .find_map(|(token, agent)| ua.contains(token).then_some(*agent))
+}
+
+pub fn record_agent_request(state: &crate::admin::AppState, req: &Request, public_path: &str) {
+    let Some(agent) = req.header("user-agent").and_then(classify_agent) else {
+        return;
+    };
+    let mut store = state.analytics.lock().unwrap_or_else(|e| e.into_inner());
+    // Analytics must never turn a successful public response into an error.
+    let _ = store.record_agent(crate::clock::now(), public_path, agent);
+}
+
+fn agent_category(name: &str) -> &'static str {
+    AGENT_REGISTRY
+        .iter()
+        .find_map(|(_, agent)| (agent.name == name).then_some(agent.category))
+        .unwrap_or("other")
 }
 
 fn fnv64(seed: u64, bytes: &[u8]) -> u64 {
@@ -537,6 +697,49 @@ mod tests {
         assert_eq!(sum["series"][1]["uniques"], 1);
         assert_eq!(s.views("/a/"), 4);
         assert_eq!(s.summary(d2, 1)["views"], 1);
+    }
+
+    #[test]
+    fn classifies_and_aggregates_documented_ai_agents_without_human_views() {
+        assert_eq!(
+            classify_agent("Mozilla/5.0; compatible; OAI-SearchBot/1.4"),
+            Some(Agent {
+                name: "OAI-SearchBot",
+                category: "search"
+            })
+        );
+        assert_eq!(
+            classify_agent("Mozilla/5.0; compatible; Perplexity-User/1.0")
+                .unwrap()
+                .category,
+            "user"
+        );
+        assert_eq!(classify_agent("Googlebot/2.1"), None);
+
+        let now = at("2026-10-22T10:00:00Z");
+        let mut store = Store::load(Path::new("/nonexistent"), 400);
+        store
+            .record_agent(
+                now,
+                "/posts/a/",
+                classify_agent("OAI-SearchBot/1.4").unwrap(),
+            )
+            .unwrap();
+        store
+            .record_agent(
+                now,
+                "/posts/a/",
+                classify_agent("ChatGPT-User/1.0").unwrap(),
+            )
+            .unwrap();
+        let summary = store.summary(now, 1);
+        assert_eq!(summary["views"], 0);
+        assert_eq!(summary["agentRequests"], 2);
+        assert_eq!(summary["agentPages"][0]["path"], "/posts/a/");
+        assert_eq!(
+            summary["agentPages"][0]["agents"].as_array().unwrap().len(),
+            2
+        );
     }
 
     #[test]

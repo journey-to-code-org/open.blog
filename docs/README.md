@@ -17,8 +17,10 @@ If you are new, read these in order; each one stands alone otherwise.
    on the internet.
 8. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
    syntax highlighting, related posts, a CDN, and slots for comments or newsletters.
-9. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-10. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+9. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
+   and machine-access analytics.
+10. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+11. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
 
 ## Command reference
 

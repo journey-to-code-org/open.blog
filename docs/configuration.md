@@ -10,7 +10,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "description": "A blog built with open.blog",   // meta description and feed subtitle
   "url": "https://example.com",                  // the address the site is published at
   "language": "en",
-  "author": { "name": "", "url": "", "email": "" },
+  "author": { "name": "", "url": "", "email": "", "sameAs": [] },
   "logo": "",                                    // image beside the title, e.g. /images/logo.png
   "favicon": "",
   "ogImage": "",                                 // social card image for pages without a cover
@@ -32,7 +32,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "snippets": { "head": "", "postFooter": "", "bodyEnd": "" },
   "relatedPosts": 3,
   "cdn": { "url": "", "paths": ["/assets/", "/themes/", "/images/"], "version": "", "maxAge": 86400 },
-  "feeds": { "rss": true, "json": true, "sitemap": true, "portfolioSnapshot": true, "limit": 20, "fullContent": true },
+  "feeds": { "rss": true, "json": true, "sitemap": true, "llms": true, "portfolioSnapshot": true, "limit": 20, "fullContent": true },
+  "seo": { "aiSearch": true, "aiTraining": true },
   "markdown": { "smartPunctuation": false, "headingAnchors": true, "tocDepth": 3, "tocMinHeadings": 3 },
   "code": { "highlight": null, "lineNumbers": null, "copyButton": true },
   "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true },
@@ -56,6 +57,9 @@ default, so you can edit values in place and delete the ones you do not need.
   their front matter are appended after these.
 - **`footer`** replaces `{year}` with the year of the newest post and `{author}` with the
   author name.
+- **`author.sameAs`** lists only public profiles that identify the same person (for example,
+  a Mastodon, GitHub, or professional profile). It feeds structured author identity; use
+  `social` for generic footer links.
 - **`home.intro`** is Markdown shown above the post list on the first page.
 
 ## Share, analytics, related posts, snippets, CDN
@@ -78,10 +82,25 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
 
 - `rss` writes `/rss.xml`, `json` writes `/feed.json` (JSON Feed 1.1), `sitemap` writes
   `/sitemap.xml` and `/robots.txt`.
+- `llms` writes `/llms.txt`, a compact text index, and `/llms-full.txt`, the public article
+  text in one retrieval-friendly document. This is an emerging answer-engine convention,
+  not a ranking requirement; HTML, feeds, and the sitemap remain authoritative.
 - `portfolioSnapshot` writes `/api/blog.json`, a small list of the newest four posts for
   embedding on another site. See [Showing your posts on another site](integrations.md).
 - `limit` is the number of posts in the RSS and JSON feeds; `fullContent` includes each
   post's HTML in them (good for readers and cross-posting; set `false` for summaries only).
+
+## SEO and AI crawler policy
+
+- `aiSearch` controls the explicit `robots.txt` groups for OAI-SearchBot,
+  Claude-SearchBot, and PerplexityBot. Leave it on if you want those answer products to
+  discover and cite the blog.
+- `aiTraining` independently controls GPTBot, ClaudeBot, and Google-Extended. Turn it off
+  to signal that those providers should not use future crawls for their documented training
+  purposes without removing the blog from ordinary search.
+
+These are crawler instructions, not access control. See [SEO and answer discovery](seo.md)
+for the publishing checklist and analytics limitations.
 
 ## Markdown
 

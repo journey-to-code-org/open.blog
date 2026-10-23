@@ -504,14 +504,21 @@ class ObAdmin extends HTMLElement {
       h("tr", {}, h("td", {}, h("a", { href: p.path, target: "_blank", rel: "noopener" }, p.path)), h("td", {}, n(p.views)), h("td", {}, n(p.uniques)), h("td", {}, n(p.allTime))),
     );
     const refs = data.referrers.map((r) => h("tr", {}, h("td", {}, r.host), h("td", {}, n(r.views))));
+    const agents = data.agents.map((agent) =>
+      h("tr", {}, h("td", {}, agent.name), h("td", {}, agent.category), h("td", {}, n(agent.requests))),
+    );
+    const agentPages = data.agentPages.map((page) =>
+      h("tr", {}, h("td", {}, h("a", { href: page.path, target: "_blank", rel: "noopener" }, page.path)), h("td", {}, n(page.requests)), h("td", {}, page.agents.join(", "))),
+    );
     this.mount(
       this.shell(
         "analytics",
         ranges,
-        h("div", { class: "oba-tiles" }, tile("Views", n(data.views), `${data.from} to ${data.to}`), tile("Unique visitors", n(data.uniques), "per page, per day"), tile("All-time views", n(data.allTimeViews), data.firstDay ? `since ${data.firstDay}` : "")),
+        h("div", { class: "oba-tiles" }, tile("Views", n(data.views), `${data.from} to ${data.to}`), tile("Unique visitors", n(data.uniques), "per page, per day"), tile("All-time views", n(data.allTimeViews), data.firstDay ? `since ${data.firstDay}` : ""), tile("AI agent requests", n(data.agentRequests), "server-observed user-agent claims")),
         bars,
         h("div", { class: "oba-columns" }, table("Top pages", posts, ["Page", "Views", "Visitors", "All time"]), table("Referrers", refs, ["Site", "Views"])),
-        h("p", { class: "oba-small" }, "No cookies and no addresses are stored. Readers with Do Not Track or Global Privacy Control are not counted."),
+        h("div", { class: "oba-columns" }, table("AI agents", agents, ["Agent", "Kind", "Requests"]), table("Pages requested by AI agents", agentPages, ["Page", "Requests", "Named agents"])),
+        h("p", { class: "oba-small" }, "No cookies, addresses, or raw user-agent strings are stored. AI labels are aggregate user-agent claims and may be spoofed. Readers with Do Not Track or Global Privacy Control are not counted."),
       ),
     );
   }
@@ -644,6 +651,7 @@ class Editor {
           if (url) {
             ui.cover.value = url;
             this.app.dirty = true;
+            this.updateSeoAudit();
           }
         }
         ui.coverFile.value = "";
@@ -654,6 +662,10 @@ class Editor {
     if (kind === "posts") {
       ui.canonical = h("input", { id: "oba-canonical", type: "text", value: f.canonical || "", placeholder: "https://…" });
       side.push(this.field("oba-canonical", "Canonical URL", ui.canonical, "Only for posts first published elsewhere."));
+      ui.coverAlt = h("input", { id: "oba-cover-alt", type: "text", value: f.coverAlt || "", placeholder: "Describe the meaningful image content" });
+      side.push(this.field("oba-cover-alt", "Cover alternative text", ui.coverAlt, "Required when the cover conveys information; also helps image discovery."));
+      ui.seoAudit = h("ul", { class: "oba-seo-checks", "aria-live": "polite" });
+      side.push(h("fieldset", { class: "oba-fieldset" }, h("legend", { class: "oba-legend" }, "Search & answer readiness"), ui.seoAudit));
     }
 
     ui.saveBtn = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.save() }, this.isNew ? "Create" : "Save");
@@ -694,6 +706,9 @@ class Editor {
     ui.body.addEventListener("input", () => this.schedulePreview());
     ui.theme.addEventListener("change", () => this.schedulePreview());
     for (const r of ui.statusRadios || []) r.querySelector("input").addEventListener("change", () => this.syncDateField());
+    for (const control of [ui.title, ui.description, ui.tags, ui.cover, ui.coverAlt, ui.body].filter(Boolean)) {
+      control.addEventListener("input", () => this.updateSeoAudit());
+    }
 
     // Drag and drop or paste an image into the Markdown.
     ui.body.addEventListener("dragover", (e) => {
@@ -720,6 +735,7 @@ class Editor {
     });
 
     this.syncDateField();
+    this.updateSeoAudit();
     this.renderPreview();
     (this.isNew ? ui.title : ui.body).focus();
   }
@@ -732,6 +748,27 @@ class Editor {
   currentStatus() {
     if (this.kind !== "posts") return "published";
     return this.ui.statusRadios.map((l) => l.querySelector("input")).find((i) => i.checked)?.value || "draft";
+  }
+
+  updateSeoAudit() {
+    const ui = this.ui;
+    if (!ui.seoAudit) return;
+    const titleLength = ui.title.value.trim().length;
+    const descriptionLength = ui.description.value.trim().length;
+    const body = ui.body.value.trim();
+    const checks = [
+      [titleLength > 0 && titleLength <= 70, "Concise title", titleLength ? `${titleLength} characters` : "Add a descriptive title"],
+      [descriptionLength >= 50 && descriptionLength <= 180, "Useful description", descriptionLength ? `${descriptionLength} characters; aim for 50–180` : "Summarize the answer and its value"],
+      [ui.tags.value.split(",").some((tag) => tag.trim()), "Topic signals", "Add at least one specific tag"],
+      [!ui.cover.value.trim() || ui.coverAlt.value.trim().length > 0, "Accessible cover", "Describe a cover image when it conveys information"],
+      [/^#{2,3}\s+\S/m.test(body), "Scannable sections", "Use descriptive H2/H3 headings for readers and answer engines"],
+      [this.meta.authorReady, "Author identity", "Set author.name and author.url in openblog.json"],
+    ];
+    ui.seoAudit.replaceChildren(
+      ...checks.map(([ok, label, detail]) =>
+        h("li", { class: ok ? "is-ready" : "needs-work" }, h("strong", {}, `${ok ? "Ready" : "Improve"}: ${label}`), h("span", {}, detail)),
+      ),
+    );
   }
 
   schedulePreview() {
@@ -790,6 +827,7 @@ class Editor {
     ta.selectionStart = ta.selectionEnd = start + snippet.length;
     this.app.dirty = true;
     this.schedulePreview();
+    this.updateSeoAudit();
     ta.focus();
   }
 
@@ -966,6 +1004,7 @@ class Editor {
       set("series", ui.series.value);
       set("seriesOrder", ui.order.value);
       set("canonical", ui.canonical.value.trim());
+      set("coverAlt", ui.coverAlt.value.trim());
       const status = this.currentStatus();
       const picked = fromLocalInput(ui.date.value);
       if (status === "draft") {

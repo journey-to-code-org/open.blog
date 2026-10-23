@@ -1,5 +1,6 @@
-//! RSS 2.0, JSON Feed 1.1, sitemap, robots.txt, the latest-posts snapshot, and
-//! the search index. All are plain string builders over the site model.
+//! RSS 2.0, JSON Feed 1.1, sitemap, robots.txt, text-first discovery feeds, the
+//! latest-posts snapshot, and the search index. All are plain string builders
+//! over the site model.
 
 use crate::escape;
 use crate::model::Site;
@@ -185,10 +186,120 @@ pub fn sitemap(site: &Site, extra_paths: &[String]) -> String {
 }
 
 pub fn robots(site: &Site) -> String {
-    format!(
-        "User-agent: *\nAllow: /\n\nSitemap: {}\n",
+    let directive = |allowed| if allowed { "Allow: /" } else { "Disallow: /" };
+    let mut out = String::new();
+    for agent in ["OAI-SearchBot", "Claude-SearchBot", "PerplexityBot"] {
+        out.push_str(&format!(
+            "User-agent: {agent}\n{}\n\n",
+            directive(site.config.seo.ai_search)
+        ));
+    }
+    for agent in ["GPTBot", "ClaudeBot", "Google-Extended"] {
+        out.push_str(&format!(
+            "User-agent: {agent}\n{}\n\n",
+            directive(site.config.seo.ai_training)
+        ));
+    }
+    out.push_str("User-agent: *\nAllow: /\n\n");
+    out.push_str(&format!(
+        "Sitemap: {}\n",
         site.config.absolute("/sitemap.xml")
-    )
+    ));
+    out
+}
+
+/// A concise, Markdown-shaped index for automated readers. `llms.txt` is an
+/// emerging convention rather than a search standard, so the ordinary HTML,
+/// feeds, and sitemap remain the authoritative discovery surfaces.
+pub fn llms_index(site: &Site) -> String {
+    let c = &site.config;
+    let mut out = format!(
+        "# {}\n\n> {}\n\n",
+        markdown_text(&c.title),
+        markdown_text(&c.description)
+    );
+    out.push_str("## Posts\n\n");
+    for post in &site.posts {
+        out.push_str(&format!(
+            "- [{}]({}): {}\n",
+            markdown_text(&post.title),
+            c.absolute(&post.url),
+            markdown_text(&post.description)
+        ));
+    }
+    if !site.pages.is_empty() {
+        out.push_str("\n## Pages\n\n");
+        for page in &site.pages {
+            out.push_str(&format!(
+                "- [{}]({}): {}\n",
+                markdown_text(&page.title),
+                c.absolute(&page.url),
+                markdown_text(&page.description)
+            ));
+        }
+    }
+    let mut feed_links = Vec::new();
+    if c.feeds.rss {
+        feed_links.push(("RSS", "/rss.xml"));
+    }
+    if c.feeds.json {
+        feed_links.push(("JSON Feed", "/feed.json"));
+    }
+    if c.feeds.sitemap {
+        feed_links.push(("Sitemap", "/sitemap.xml"));
+    }
+    if !feed_links.is_empty() {
+        out.push_str("\n## Feeds\n\n");
+        for (label, path) in feed_links {
+            out.push_str(&format!("- [{label}]({})\n", c.absolute(path)));
+        }
+    }
+    out
+}
+
+/// Public article text in one retrieval-friendly document. This intentionally
+/// contains only content already visible in the generated site.
+pub fn llms_full(site: &Site) -> String {
+    let c = &site.config;
+    let mut out = format!(
+        "# {}\n\n> {}\n",
+        markdown_text(&c.title),
+        markdown_text(&c.description)
+    );
+    for post in &site.posts {
+        out.push_str(&format!(
+            "\n---\n\n## {}\n\n- URL: {}\n- Published: {}\n",
+            markdown_text(&post.title),
+            c.absolute(&post.url),
+            post.date.ymd()
+        ));
+        if let Some(updated) = post.updated {
+            out.push_str(&format!("- Updated: {}\n", updated.ymd()));
+        }
+        if !post.tags.is_empty() {
+            out.push_str(&format!(
+                "- Topics: {}\n",
+                post.tags
+                    .iter()
+                    .map(|tag| markdown_text(&tag.name))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        out.push_str(&format!("\n{}\n", post.text.trim()));
+    }
+    out
+}
+
+fn plain_line(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn markdown_text(value: &str) -> String {
+    plain_line(value)
+        .replace('\\', "\\\\")
+        .replace('[', "\\[")
+        .replace(']', "\\]")
 }
 
 /// The client-side search index. Body text is lower-cased and truncated to keep
@@ -291,5 +402,33 @@ mod tests {
         let feed: serde_json::Value = serde_json::from_str(&json_feed(&site())).unwrap();
         assert_eq!(feed["items"][1]["title"], "B");
         assert!(search_index(&site()).contains("\"version\":1"));
+        let index = llms_index(&site());
+        assert!(index.contains("[A & B](https://j.io/a/): Hello x"));
+        assert!(index.contains("[Sitemap](https://j.io/sitemap.xml)"));
+        let full = llms_full(&site());
+        assert!(full.contains("## A & B"));
+        assert!(full.contains("- Published: 2026-10-21"));
+        assert!(full.contains("Hello x"));
+    }
+
+    #[test]
+    fn robots_separates_ai_search_from_training_policy() {
+        let mut site = site();
+        site.config.seo.ai_search = true;
+        site.config.seo.ai_training = false;
+        let text = robots(&site);
+        assert!(text.contains("User-agent: OAI-SearchBot\nAllow: /"));
+        assert!(text.contains("User-agent: PerplexityBot\nAllow: /"));
+        assert!(text.contains("User-agent: GPTBot\nDisallow: /"));
+        assert!(text.contains("User-agent: Google-Extended\nDisallow: /"));
+        assert!(text.contains("User-agent: *\nAllow: /"));
+    }
+
+    #[test]
+    fn llms_index_escapes_markdown_control_characters_in_labels() {
+        let mut site = site();
+        site.posts[0].title = "A ](https://wrong.example)[ title".into();
+        let text = llms_index(&site);
+        assert!(text.contains("[A \\](https://wrong.example)\\[ title](https://j.io/a/)"));
     }
 }

@@ -116,6 +116,7 @@ Start with [the docs index](docs/README.md). The main guides:
   [adding web components to a theme](docs/theme-components.md)
 - [The admin editor](docs/admin.md): login, editing, scheduling, running it safely
 - [Sharing, views, analytics, and embeds](docs/features.md)
+- [SEO and answer discovery](docs/seo.md)
 - [Deploying](docs/deploy.md): GitHub Pages, other hosts, self-hosting, moving URLs
 - [Publishing from home, backups, and view counts without a server](docs/publishing.md)
 - [Showing your posts on another site](docs/integrations.md)

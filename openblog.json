@@ -6,7 +6,8 @@
   "author": {
     "name": "open.blog",
     "url": "https://github.com/journey-to-code-org/open.blog",
-    "email": ""
+    "email": "",
+    "sameAs": []
   },
   "logo": "",
   "favicon": "",
@@ -53,9 +54,14 @@
     "rss": true,
     "json": true,
     "sitemap": true,
+    "llms": true,
     "portfolioSnapshot": true,
     "limit": 20,
     "fullContent": true
+  },
+  "seo": {
+    "aiSearch": true,
+    "aiTraining": true
   },
   "markdown": {
     "smartPunctuation": false,

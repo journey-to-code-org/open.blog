@@ -223,6 +223,9 @@ impl Site {
                         });
                         continue;
                     }
+                    if !post.draft {
+                        warnings.extend(seo_warnings(&post));
+                    }
                     posts.push(post);
                 }
                 Err(e) => errors.push(format!("{}: {e}", file.path)),
@@ -317,6 +320,21 @@ impl Site {
                 .cmp(&a.posts.len())
                 .then_with(|| a.name.cmp(&b.name))
         });
+
+        if !posts.is_empty() {
+            if config.author.name.trim().is_empty() {
+                warnings.push(
+                    "openblog.json: author.name is empty; add the public author name used in bylines and structured data"
+                        .into(),
+                );
+            }
+            if config.author.url.trim().is_empty() {
+                warnings.push(
+                    "openblog.json: author.url is empty; link the byline to an author or About page to establish authorship"
+                        .into(),
+                );
+            }
+        }
 
         scheduled.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.slug.cmp(&b.slug)));
         Ok(Site {
@@ -435,6 +453,53 @@ impl Site {
     pub fn latest_update(&self) -> Option<DateTime> {
         self.posts.iter().map(|p| p.updated.unwrap_or(p.date)).max()
     }
+}
+
+fn seo_warnings(post: &Post) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let title_len = post.title.chars().count();
+    let description_len = post.description.chars().count();
+    if title_len > 70 {
+        warnings.push(format!(
+            "{}: title is {title_len} characters; consider a more concise, descriptive search title",
+            post.source
+        ));
+    }
+    if description_len < 50 {
+        warnings.push(format!(
+            "{}: description is only {description_len} characters; summarize the answer and why it is useful",
+            post.source
+        ));
+    } else if description_len > 180 {
+        warnings.push(format!(
+            "{}: description is {description_len} characters; search and social previews may truncate it",
+            post.source
+        ));
+    }
+    if post.cover.is_some() && post.cover_alt.trim().is_empty() {
+        warnings.push(format!(
+            "{}: cover image has no `coverAlt`; describe the meaningful image content",
+            post.source
+        ));
+    }
+    if post.tags.is_empty() {
+        warnings.push(format!(
+            "{}: post has no tags; add at least one specific topic",
+            post.source
+        ));
+    }
+    if !post.text.trim().is_empty()
+        && !post
+            .headings
+            .iter()
+            .any(|heading| matches!(heading.level, 2 | 3))
+    {
+        warnings.push(format!(
+            "{}: post has no H2 or H3 sections; use descriptive headings when the article covers multiple ideas",
+            post.source
+        ));
+    }
+    warnings
 }
 
 fn first<'a>(fm: &'a FrontMatter, keys: &[&str]) -> Option<&'a str> {
@@ -938,7 +1003,10 @@ mod tests {
         });
         assert_eq!(s.series[0].slug, "mystery-series");
         assert_eq!(s.series[0].name, "Mystery Series");
-        assert_eq!(s.warnings.len(), 1);
+        assert!(s
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("has no content/series")));
 
         let config = SiteConfig::default();
         let err = Site::load(
@@ -954,5 +1022,31 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err.len(), 2);
+    }
+
+    #[test]
+    fn published_posts_get_actionable_seo_warnings() {
+        let config =
+            SiteConfig::from_json(r#"{"author":{"name":"Alex","url":"/about/"}}"#).unwrap();
+        let s = Site::load(
+            config,
+            Sources {
+                posts: vec![post(
+                    "posts/short.md",
+                    "---\ntitle: Short\ndate: 2026-01-01\ncover: /cover.jpg\n---\nTiny.",
+                )],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        assert!(s
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("description is only")));
+        assert!(s
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("coverAlt")));
     }
 }

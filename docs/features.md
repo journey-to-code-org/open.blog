@@ -71,7 +71,8 @@ Available networks: `x`, `bluesky`, `mastodon`, `linkedin`, `facebook`, `reddit`
   it shows the count as of the last build (see below), and updates live when a counter is
   reachable.
 - **In the admin:** the Analytics tab shows views and unique visitors for the last 7, 30, 90,
-  or 365 days, a bar per day, top pages, and referring sites.
+  or 365 days, a bar per day, top pages, referring sites, and aggregate requests from
+  documented AI crawler and user-agent tokens.
 
 ```jsonc
 "analytics": {
@@ -92,13 +93,20 @@ server. All of that is in [Publishing from home](publishing.md).
 
 ### What it records, and what it never records
 
-Per day and page: views, unique visitors, and a count per referring site. Nothing else.
+Per day and page: views, unique visitors, a count per referring site, and aggregate AI
+agent labels. Nothing else.
 There are no cookies, and no addresses or browser strings are written to disk. Unique
 visitors are counted with a hash of a random daily salt, the address, and the browser string
 that lives in memory only and is discarded at midnight, so visits cannot be linked across
 days or to a person. A visit counts once per page per browser session. Readers who send
 Do Not Track or Global Privacy Control are not counted at all, and neither are automated
 browsers. One address can record at most 30 views a minute.
+
+AI-agent requests are counted separately when `openblog serve` returns a public file to a
+documented OpenAI, Anthropic, or Perplexity user-agent token. The file stores only a stable
+label and requested path—not the raw header or address. A user-agent can be spoofed, so the
+dashboard describes claims, not verified identities. Static hosts do not send their request
+logs to open.blog, so use the host or CDN's logs there.
 
 Behind a reverse proxy, set `admin.trustedProxies` so the real client address is used for
 unique visitors and rate limits.

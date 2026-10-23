@@ -53,6 +53,11 @@ a `#` heading, which is then used. Everything else is optional:
 
 Unknown fields are kept and ignored, so you can store your own notes in the front matter.
 
+The admin editor's **Search & answer readiness** checklist updates while you write. The
+same conservative checks run during a build and warn about weak descriptions, unusually
+long titles or descriptions, and covers without alternative text. They are editorial
+prompts, not a made-up SEO score and not a guarantee of placement.
+
 ### File names and addresses
 
 A file named `2026-01-12-writing-a-post.md` gets the slug `writing-a-post` and, with the

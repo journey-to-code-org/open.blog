@@ -44,6 +44,8 @@ pub struct SiteConfig {
     /// Optional CDN for static assets.
     pub cdn: CdnConfig,
     pub feeds: FeedsConfig,
+    /// Discoverability and crawler controls.
+    pub seo: SeoConfig,
     pub markdown: MarkdownConfig,
     /// Code blocks: colours, line numbers, copy buttons.
     pub code: CodeConfig,
@@ -62,6 +64,8 @@ pub struct Author {
     pub name: String,
     pub url: String,
     pub email: String,
+    /// Public profile URLs that identify the same author for structured data.
+    pub same_as: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -91,6 +95,9 @@ pub struct FeedsConfig {
     pub json: bool,
     /// Write `/sitemap.xml` and `/robots.txt`.
     pub sitemap: bool,
+    /// Write `/llms.txt` and `/llms-full.txt`, text-first discovery files for
+    /// answer engines and other automated readers.
+    pub llms: bool,
     /// Write `/api/blog.json`: the four newest posts as `{ schemaVersion, posts: [{ title, date, link }] }`,
     /// for embedding a "latest posts" list on another site.
     pub portfolio_snapshot: bool,
@@ -229,6 +236,7 @@ impl Default for SiteConfig {
             related_posts: 3,
             cdn: CdnConfig::default(),
             feeds: FeedsConfig::default(),
+            seo: SeoConfig::default(),
             markdown: MarkdownConfig::default(),
             code: CodeConfig::default(),
             recipes: RecipesConfig::default(),
@@ -236,6 +244,24 @@ impl Default for SiteConfig {
             paths: PathsConfig::default(),
             admin: AdminConfig::default(),
             publish: PublishConfig::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SeoConfig {
+    /// Permit provider search/index crawlers used by AI answer products.
+    pub ai_search: bool,
+    /// Permit crawlers whose documented purpose includes foundation-model training.
+    pub ai_training: bool,
+}
+
+impl Default for SeoConfig {
+    fn default() -> Self {
+        Self {
+            ai_search: true,
+            ai_training: true,
         }
     }
 }
@@ -509,6 +535,7 @@ impl Default for FeedsConfig {
             rss: true,
             json: true,
             sitemap: true,
+            llms: true,
             portfolio_snapshot: true,
             limit: 20,
             full_content: true,

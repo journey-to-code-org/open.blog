@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::config::SiteConfig;
 use crate::escape::{attr, cdata, text};
 use crate::feeds;
 use crate::markdown::{self, RenderOptions};
@@ -33,6 +34,7 @@ struct Meta<'a> {
     canonical: Option<String>,
     kind: &'static str,
     image: Option<String>,
+    image_alt: Option<String>,
     json_ld: Option<String>,
     theme: &'a Theme,
     published: Option<String>,
@@ -201,6 +203,10 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         )?;
         out.add("robots.txt".into(), feeds::robots(site))?;
     }
+    if c.feeds.llms {
+        out.add("llms.txt".into(), feeds::llms_index(site))?;
+        out.add("llms-full.txt".into(), feeds::llms_full(site))?;
+    }
     if c.feeds.portfolio_snapshot {
         out.add("api/blog.json".into(), feeds::portfolio_snapshot(site, 4))?;
     }
@@ -295,9 +301,17 @@ impl<'a> Renderer<'a> {
             "<meta property=\"og:title\" content=\"{}\">\n",
             attr(&meta.title.clone().if_empty(&c.title))
         ));
+        h.push_str(&format!(
+            "<meta name=\"twitter:title\" content=\"{}\">\n",
+            attr(&meta.title.clone().if_empty(&c.title))
+        ));
         if !meta.description.is_empty() {
             h.push_str(&format!(
                 "<meta property=\"og:description\" content=\"{}\">\n",
+                attr(&meta.description)
+            ));
+            h.push_str(&format!(
+                "<meta name=\"twitter:description\" content=\"{}\">\n",
                 attr(&meta.description)
             ));
         }
@@ -310,6 +324,17 @@ impl<'a> Renderer<'a> {
                 "<meta property=\"og:image\" content=\"{}\">\n",
                 attr(image)
             ));
+            h.push_str(&format!(
+                "<meta name=\"twitter:image\" content=\"{}\">\n",
+                attr(image)
+            ));
+            if let Some(alt_text) = meta.image_alt.as_deref().filter(|alt| !alt.is_empty()) {
+                h.push_str(&format!(
+                    "<meta property=\"og:image:alt\" content=\"{}\">\n<meta name=\"twitter:image:alt\" content=\"{}\">\n",
+                    attr(alt_text),
+                    attr(alt_text)
+                ));
+            }
             h.push_str("<meta name=\"twitter:card\" content=\"summary_large_image\">\n");
         } else {
             h.push_str("<meta name=\"twitter:card\" content=\"summary\">\n");
@@ -338,6 +363,9 @@ impl<'a> Renderer<'a> {
         }
         if c.feeds.json {
             h.push_str(&format!("<link rel=\"alternate\" type=\"application/feed+json\" title=\"{}\" href=\"/feed.json\">\n", attr(&c.title)));
+        }
+        if c.feeds.llms {
+            h.push_str("<link rel=\"alternate\" type=\"text/plain\" title=\"Content index for automated readers\" href=\"/llms.txt\">\n");
         }
         if !c.favicon.is_empty() {
             h.push_str(&format!(
@@ -701,17 +729,22 @@ impl<'a> Renderer<'a> {
             canonical: None,
             kind: "website",
             image: None,
-            json_ld: Some(
-                serde_json::json!({
+            image_alt: None,
+            json_ld: Some({
+                let mut blog = serde_json::json!({
                     "@context": "https://schema.org",
                     "@type": "Blog",
                     "name": c.title,
                     "description": c.description,
                     "url": c.absolute("/"),
                     "inLanguage": c.language,
-                })
-                .to_string(),
-            ),
+                });
+                if let Some(author) = author_json_ld(c) {
+                    blog["author"] = author.clone();
+                    blog["publisher"] = author;
+                }
+                blog.to_string()
+            }),
             theme,
             published: None,
             modified: None,
@@ -749,6 +782,20 @@ impl<'a> Renderer<'a> {
             post.date.rfc3339(),
             text(&post.date.long())
         ));
+        if !c.author.name.trim().is_empty() {
+            if c.author.url.trim().is_empty() {
+                body.push_str(&format!(
+                    " · By <span class=\"p-author h-card\">{}</span>",
+                    text(&c.author.name)
+                ));
+            } else {
+                body.push_str(&format!(
+                    " · By <a class=\"p-author h-card\" rel=\"author\" href=\"{}\">{}</a>",
+                    attr(&c.author.url),
+                    text(&c.author.name)
+                ));
+            }
+        }
         if let Some(updated) = post.updated {
             if updated.ymd() != post.date.ymd() {
                 body.push_str(&format!(
@@ -857,8 +904,9 @@ impl<'a> Renderer<'a> {
             canonical,
             kind: "article",
             image: post.cover.clone(),
+            image_alt: (!post.cover_alt.is_empty()).then(|| post.cover_alt.clone()),
             json_ld: Some({
-                let posting = serde_json::json!({
+                let mut posting = serde_json::json!({
                     "@context": "https://schema.org",
                     "@type": "BlogPosting",
                     "headline": post.title,
@@ -870,9 +918,12 @@ impl<'a> Renderer<'a> {
                     "image": post.cover.as_ref().map(|i| c.absolute(i)),
                     "keywords": post.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>().join(", "),
                     "wordCount": post.word_count,
-                    "author": { "@type": "Person", "name": c.author.name, "url": c.author.url },
                     "isPartOf": series.map(|s| serde_json::json!({ "@type": "CreativeWorkSeries", "name": s.name, "url": c.absolute(&s.url) })),
                 });
+                if let Some(author) = author_json_ld(c) {
+                    posting["author"] = author.clone();
+                    posting["publisher"] = author;
+                }
                 match &post.recipe {
                     // A recipe page describes both the article and the recipe.
                     Some(recipe) => {
@@ -1112,7 +1163,6 @@ impl<'a> Renderer<'a> {
             "datePublished": post.date.rfc3339(),
             "url": c.absolute(&post.url),
             "mainEntityOfPage": c.absolute(&post.url),
-            "author": { "@type": "Person", "name": c.author.name, "url": c.author.url },
             "recipeIngredient": recipe.ingredients,
             "recipeInstructions": recipe.steps.iter().enumerate().map(|(i, s)| serde_json::json!({
                 "@type": "HowToStep",
@@ -1122,6 +1172,9 @@ impl<'a> Renderer<'a> {
             "keywords": post.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>().join(", "),
         });
         let obj = r.as_object_mut().expect("json object");
+        if let Some(author) = author_json_ld(c) {
+            obj.insert("author".into(), author);
+        }
         if let Some(image) = &post.cover {
             obj.insert("image".into(), serde_json::json!([c.absolute(image)]));
         }
@@ -1428,6 +1481,7 @@ impl<'a> Renderer<'a> {
             canonical: None,
             kind: "website",
             image: None,
+            image_alt: None,
             json_ld: None,
             theme,
             published: None,
@@ -1479,6 +1533,41 @@ impl IfEmpty for String {
 #[allow(dead_code)]
 fn _keep_cdata(s: &str) -> String {
     cdata(s)
+}
+
+fn author_json_ld(config: &SiteConfig) -> Option<serde_json::Value> {
+    let name = config.author.name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let (url, id) = if config.author.url.trim().is_empty() {
+        (config.absolute("/"), config.absolute("/#author"))
+    } else {
+        let url = config.absolute(config.author.url.trim());
+        let id = if url.contains('#') {
+            url.clone()
+        } else {
+            format!("{}#person", url.trim_end_matches('/'))
+        };
+        (url, id)
+    };
+    let mut author = serde_json::json!({
+        "@type": "Person",
+        "@id": id,
+        "name": name,
+        "url": url,
+    });
+    let same_as: Vec<&str> = config
+        .author
+        .same_as
+        .iter()
+        .map(|url| url.trim())
+        .filter(|href| href.starts_with("https://") || href.starts_with("http://"))
+        .collect();
+    if !same_as.is_empty() {
+        author["sameAs"] = serde_json::json!(same_as);
+    }
+    Some(author)
 }
 
 #[cfg(test)]
@@ -1550,6 +1639,8 @@ mod tests {
             "feed.json",
             "sitemap.xml",
             "robots.txt",
+            "llms.txt",
+            "llms-full.txt",
             "api/blog.json",
             "search.json",
             "themes/base/tokens.css",
@@ -1721,8 +1812,15 @@ mod tests {
             ..Sources::default()
         };
         let site = Site::load(config, sources, LoadOptions::default()).unwrap();
-        assert_eq!(site.warnings.len(), 2, "{:?}", site.warnings);
-        assert!(site.warnings[0].contains("## Ingredients"));
+        let recipe_warnings: Vec<&String> = site
+            .warnings
+            .iter()
+            .filter(|warning| warning.contains("recipe has no"))
+            .collect();
+        assert_eq!(recipe_warnings.len(), 2, "{:?}", site.warnings);
+        assert!(recipe_warnings
+            .iter()
+            .any(|warning| warning.contains("## Ingredients")));
     }
 
     #[test]
@@ -1780,6 +1878,37 @@ mod tests {
         let files = generate(&site, &ThemeSet::new()).unwrap();
         assert!(!file(&files, "index.html").contains("Powered by"));
         assert!(file(&files, "api/blog.json").contains("\"schemaVersion\": 1"));
+    }
+
+    #[test]
+    fn posts_expose_visible_and_structured_author_identity() {
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"Alex","url":"https://alex.example","sameAs":["https://social.example/@alex"]}}"#,
+            true,
+        );
+        let post = file(&files, "one/index.html");
+        assert!(post.contains(
+            "By <a class=\"p-author h-card\" rel=\"author\" href=\"https://alex.example\">Alex</a>"
+        ));
+        assert!(post.contains("\"publisher\":{\"@id\":\"https://alex.example#person\""));
+        assert!(post.contains("\"sameAs\":[\"https://social.example/@alex\"]"));
+        assert!(file(&files, "index.html").contains("\"publisher\""));
+
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev/blog","author":{"name":"Alex","url":"/about/"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            author_json_ld(&config).unwrap()["url"],
+            "https://t.dev/blog/about/"
+        );
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://t.dev","author":{"name":"Alex"}}"#,
+        )
+        .unwrap();
+        let author = author_json_ld(&config).unwrap();
+        assert_eq!(author["url"], "https://t.dev/");
+        assert_eq!(author["@id"], "https://t.dev/#author");
     }
 
     #[test]

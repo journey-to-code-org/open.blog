@@ -290,6 +290,22 @@ pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response
     match resolve(out_dir, path) {
         Some(file) => match fs::read(&file) {
             Ok(bytes) => {
+                let is_page = file.file_name().is_some_and(|name| name == "index.html");
+                let is_discovery_file = file.extension().is_some_and(|extension| {
+                    matches!(extension.to_str(), Some("txt" | "xml" | "json" | "html"))
+                });
+                if state.analytics_enabled && (is_page || is_discovery_file) {
+                    let public_path = if is_page {
+                        if path == "/" {
+                            "/".to_string()
+                        } else {
+                            format!("{}/", path.trim_end_matches('/'))
+                        }
+                    } else {
+                        path.to_string()
+                    };
+                    crate::analytics::record_agent_request(state, req, &public_path);
+                }
                 // Assets may be cached by browsers and CDNs; pages always revalidate.
                 // Only versioned asset URLs (`?v=`) may be cached long: an
                 // unversioned one (such as a module imported by another script)

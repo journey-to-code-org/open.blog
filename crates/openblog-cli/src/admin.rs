@@ -829,6 +829,8 @@ fn meta(state: &AppState) -> Response {
         &json!({
             "siteTitle": config.title,
             "siteUrl": config.url,
+            "authorReady": !config.author.name.trim().is_empty()
+                && !config.author.url.trim().is_empty(),
             "postPath": config.post_path,
             "defaultTheme": config.theme,
             "themes": theme_list,
@@ -2484,6 +2486,21 @@ mod tests {
             "opted-out and refused requests were not counted"
         );
 
+        let mut crawler = req("GET", "/posts/hello-world");
+        crawler.headers.insert(
+            "user-agent".into(),
+            "Mozilla/5.0; compatible; OAI-SearchBot/1.4".into(),
+        );
+        assert_eq!(crate::serve::route(&f.state, &crawler, &dist).status, 200);
+        let mut user_agent = req("GET", "/llms.txt");
+        user_agent
+            .headers
+            .insert("user-agent".into(), "ChatGPT-User/1.0".into());
+        assert_eq!(
+            crate::serve::route(&f.state, &user_agent, &dist).status,
+            200
+        );
+
         assert_eq!(
             crate::serve::route(&f.state, &req("GET", "/api/views?path=/secret/"), &dist).status,
             404
@@ -2513,6 +2530,13 @@ mod tests {
         assert_eq!(dash["topPosts"][0]["path"], "/posts/hello-world/");
         assert_eq!(dash["referrers"][0]["host"], "news.ycombinator.com");
         assert_eq!(dash["series"].as_array().unwrap().len(), 7);
+        assert_eq!(dash["agentRequests"], 2);
+        assert_eq!(dash["agents"][0]["requests"], 1);
+        assert!(dash["agentPages"].as_array().unwrap().iter().any(|page| {
+            page["path"] == "/posts/hello-world/"
+                && page["requests"] == 1
+                && page["agents"][0] == "OAI-SearchBot"
+        }));
 
         // Flushing writes a file that holds counts but no visitor data.
         f.state.flush_analytics().unwrap();
@@ -2520,6 +2544,7 @@ mod tests {
         assert!(
             text.contains("/posts/hello-world/")
                 && !text.contains("Mozilla")
+                && !text.contains("OAI-SearchBot/1.4")
                 && !text.contains("10.0.0.1")
         );
 

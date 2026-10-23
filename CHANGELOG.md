@@ -5,6 +5,28 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-22
+
+### Added
+
+- Live search and answer-readiness guidance in the author editor, with the
+  same checks available during site builds.
+- `llms.txt` and `llms-full.txt` discovery files for AI assistants and answer
+  engines.
+- Structured author identity, author profile links, richer Open Graph data,
+  and Twitter card metadata.
+- Privacy-preserving analytics for AI crawler and agent traffic, including
+  aggregate provider totals and requested-page breakdowns.
+- Independent controls for AI search discovery and AI model-training crawlers.
+- An SEO and answer-engine optimization guide for blog authors and operators.
+
+### Changed
+
+- Expanded generated metadata and feeds so posts are easier for search
+  engines, answer engines, and social platforms to understand and attribute.
+- Updated the starter configuration and documentation for the new SEO,
+  author-identity, crawler-policy, and analytics capabilities.
+
 ## [0.2.0] - 2026-10-22
 
 ### Added
@@ -25,5 +47,6 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/journey-to-code-org/open.blog/releases/tag/v0.2.0
