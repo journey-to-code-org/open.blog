@@ -64,7 +64,7 @@ test("an edit made during save remains dirty after the earlier response", () => 
 test("editor view selection updates the container and every toggle", () => {
   const root = { dataset: { editorView: "write" } };
   const pressed = new Map();
-  const buttons = ["write", "preview", "social", "settings"].map((paneTarget) => ({
+  const buttons = ["write", "preview", "social", "optimize", "settings"].map((paneTarget) => ({
     dataset: { paneTarget },
     setAttribute: (name, value) => pressed.set(paneTarget, [name, value]),
   }));
@@ -74,6 +74,7 @@ test("editor view selection updates the container and every toggle", () => {
     write: ["aria-pressed", "false"],
     preview: ["aria-pressed", "true"],
     social: ["aria-pressed", "false"],
+    optimize: ["aria-pressed", "false"],
     settings: ["aria-pressed", "false"],
   });
 });

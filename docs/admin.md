@@ -23,6 +23,7 @@ immediately.
 | **Create** | New posts, pages, and series. The file is named from the date and slug. |
 | **Preview** | A full-page preview produced by the same site model, document renderer, theme inheritance, metadata, and components as a real build. Front matter stays in the settings form and is never printed into the preview. |
 | **Social preview** | A card built from the generated OpenGraph title, description, canonical URL, type, image, and X card mode—not a separate browser-side approximation. |
+| **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
@@ -44,7 +45,7 @@ saves the current document, changes the color scheme, and reaches account action
 the arrow keys and Enter to choose a result, or Escape to close it.
 
 The editor footer shows whether the document is saved plus its line, word, and character
-counts. Press `Alt+1` through `Alt+4` to focus Write, Site preview, Social, or Settings. The
+counts. Press `Alt+1` through `Alt+5` to focus Write, Site preview, Social, Optimize, or Settings. The
 preview toolbar can constrain the canvas to wide, tablet, or mobile width; this preference
 is stored in the browser and does not change the published theme.
 

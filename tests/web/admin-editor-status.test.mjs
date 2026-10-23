@@ -23,10 +23,18 @@ test("editor reports document size and save state", () => {
 });
 
 test("editor panes can be focused from Alt number shortcuts", () => {
-  assert.match(admin, /e\.altKey && \["1", "2", "3", "4"\]\.includes\(e\.key\)/);
-  assert.match(admin, /\["write", "preview", "social", "settings"\]/);
+  assert.match(admin, /e\.altKey && \["1", "2", "3", "4", "5"\]\.includes\(e\.key\)/);
+  assert.match(admin, /\["write", "preview", "social", "optimize", "settings"\]/);
   assert.match(admin, /this\.editor\.activatePane\(pane, true\)/);
   assert.match(admin, /target\?\.focus\(\)/);
+});
+
+test("optimizer separates search, answer, and trust guidance", () => {
+  assert.match(admin, /"data-pane": "optimize"/);
+  assert.match(admin, /SEO & answer readiness/);
+  assert.match(admin, /Heuristic guidance, not a ranking guarantee/);
+  assert.match(admin, /analyzeReadiness/);
+  assert.match(styles, /\.oba-optimize-workspace/);
 });
 
 test("social preview displays publishing-engine OpenGraph metadata", () => {

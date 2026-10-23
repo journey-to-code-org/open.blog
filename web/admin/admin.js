@@ -141,6 +141,123 @@ export function applyPaneSelection(root, buttons, pane) {
   for (const button of buttons) button.setAttribute("aria-pressed", String(button.dataset.paneTarget === pane));
 }
 
+function markdownOutsideCode(source) {
+  const kept = [];
+  let fence = null;
+  for (const line of source.split("\n")) {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})/u)?.[1];
+    if (fence) {
+      if (marker && marker[0] === fence.character && marker.length >= fence.length && line.slice(line.indexOf(marker) + marker.length).trim() === "") fence = null;
+      continue;
+    }
+    if (marker) {
+      fence = { character: marker[0], length: marker.length };
+      continue;
+    }
+    if (/^(?: {4}|\t)/.test(line)) continue;
+    kept.push(line);
+  }
+  const text = kept.join("\n");
+  const escaped = (index) => {
+    let slashes = 0;
+    for (let at = index - 1; at >= 0 && text[at] === "\\"; at -= 1) slashes += 1;
+    return slashes % 2 === 1;
+  };
+  const nextDelimiter = (start) => {
+    let index = text.indexOf("`", start);
+    while (index >= 0 && escaped(index)) index = text.indexOf("`", index + 1);
+    return index;
+  };
+  let output = "";
+  let cursor = 0;
+  while (cursor < text.length) {
+    const opening = nextDelimiter(cursor);
+    if (opening < 0) {
+      output += text.slice(cursor);
+      break;
+    }
+    output += text.slice(cursor, opening);
+    let openingEnd = opening;
+    while (text[openingEnd] === "`") openingEnd += 1;
+    const length = openingEnd - opening;
+    let search = openingEnd;
+    let closing = -1;
+    let closingEnd = -1;
+    while (search < text.length) {
+      const candidate = nextDelimiter(search);
+      if (candidate < 0) break;
+      let candidateEnd = candidate;
+      while (text[candidateEnd] === "`") candidateEnd += 1;
+      if (candidateEnd - candidate === length) {
+        closing = candidate;
+        closingEnd = candidateEnd;
+        break;
+      }
+      search = candidateEnd;
+    }
+    if (closing < 0) {
+      output += text.slice(opening, openingEnd);
+      cursor = openingEnd;
+      continue;
+    }
+    output += text.slice(opening, closingEnd).replace(/[^\n]/g, " ");
+    cursor = closingEnd;
+  }
+  return output;
+}
+
+export function analyzeReadiness({ kind, title, description, slug, canonical, tags = [], cover, coverAlt, body, authorReady }) {
+  const analysisBody = markdownOutsideCode(body).replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
+  const wordCount = (analysisBody.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
+  const opening = analysisBody
+    .split(/\n\s*\n/)
+    .map((part) => part.trim())
+    .find((part) => part && !/^(?:#{1,6}\s|[-*+]\s|\d+\.\s|>|```|!\[)/.test(part));
+  const openingLength = (opening || "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[*_~`]/g, "").length;
+  let canonicalValid = true;
+  if (canonical) {
+    try {
+      canonicalValid = ["http:", "https:"].includes(new URL(canonical).protocol);
+    } catch {
+      canonicalValid = false;
+    }
+  }
+  const search = [
+    { ready: title.length >= 10 && title.length <= 65, label: "Search title", detail: title ? `${title.length} characters; aim for 10–65` : "Add a specific title" },
+    { ready: description.length >= 50 && description.length <= 180, label: "Search description", detail: description ? `${description.length} characters; aim for 50–180` : "Summarize the answer and why it matters" },
+    { ready: slug.length > 0 && slug.length <= 80, label: "Readable URL", detail: slug ? `${slug.length} characters` : "Add a short descriptive slug" },
+  ];
+  if (kind === "posts") {
+    const tagCount = tags.filter((tag) => tag.trim()).length;
+    search.push({ ready: canonicalValid, label: "Canonical URL", detail: canonical ? (canonicalValid ? "Valid absolute HTTP(S) URL" : "Use a complete HTTP(S) URL") : "Uses this post’s generated URL" });
+    search.push({ ready: tagCount > 0, label: "Topic signals", detail: tagCount ? `${tagCount} specific tag${tagCount === 1 ? "" : "s"}` : "Add at least one specific tag" });
+  }
+  const hasExternalSource = /\[[^\]]+\]\(https?:\/\//i.test(analysisBody) || /^\[\^[^\]]+\]:\s*https?:\/\//im.test(analysisBody);
+  const answer = [
+    { ready: openingLength >= 40 && openingLength <= 350, label: "Direct opening", detail: openingLength ? `${openingLength} characters before the first section; answer the core question early` : "Start with a concise answer paragraph" },
+    { ready: /^#{2,3}\s+\S/m.test(analysisBody), label: "Scannable sections", detail: "Use descriptive H2/H3 headings" },
+    { ready: wordCount >= 150, label: "Answer depth", detail: `${wordCount.toLocaleString()} words; use 150+ when the topic needs explanation` },
+    {
+      ready: hasExternalSource,
+      label: "External source link",
+      detail: hasExternalSource ? "An external link is present; verify that the source is relevant and authoritative" : "Add a relevant primary or authoritative source when the claim needs support",
+    },
+  ];
+  const trust = [{ ready: !/\[(?:click here|here|read more|link)\]\(/i.test(analysisBody), label: "Descriptive links", detail: "Link text should explain its destination" }];
+  if (kind === "posts") {
+    trust.push({ ready: !cover || Boolean(coverAlt.trim()), label: "Accessible social image", detail: cover ? (coverAlt.trim() ? "Alternative text is present" : "Describe meaningful cover content") : "No cover image is configured" });
+    trust.push({ ready: Boolean(authorReady), label: "Author identity", detail: authorReady ? "Named author and profile URL are configured" : "Set author.name and author.url in openblog.json" });
+  }
+  const groups = [
+    { name: "Search", description: "Metadata and crawlable page signals", checks: search },
+    { name: "Answer readiness", description: "Structure that helps people and answer engines extract useful context", checks: answer },
+    { name: "Trust & access", description: "Authorship, link clarity, and inclusive media", checks: trust },
+  ];
+  const checks = groups.flatMap((group) => group.checks);
+  const ready = checks.filter((check) => check.ready).length;
+  return { score: Math.round((ready / checks.length) * 100), ready, total: checks.length, groups };
+}
+
 const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
 class ApiError extends Error {
@@ -221,9 +338,9 @@ export class ObAdmin extends AdminElement {
         this.editor.save();
         return;
       }
-      if (this.editor && e.altKey && ["1", "2", "3", "4"].includes(e.key)) {
+      if (this.editor && e.altKey && ["1", "2", "3", "4", "5"].includes(e.key)) {
         e.preventDefault();
-        const pane = ["write", "preview", "social", "settings"][Number(e.key) - 1];
+        const pane = ["write", "preview", "social", "optimize", "settings"][Number(e.key) - 1];
         this.editor.activatePane(pane, true);
       }
     });
@@ -402,7 +519,7 @@ export class ObAdmin extends AdminElement {
     ];
     if (this.editor) {
       commands.unshift({ label: "Save document", category: "Editor", keywords: "publish ctrl s", run: () => this.editor.save() });
-      for (const pane of ["write", "preview", "social", "settings"]) {
+      for (const pane of ["write", "preview", "social", "optimize", "settings"]) {
         commands.unshift({ label: `Show ${pane}`, category: "Editor", keywords: "view pane", run: () => this.editor.activatePane(pane) });
       }
     }
@@ -894,6 +1011,9 @@ class Editor {
     ui.socialType = h("dd", {}, "—");
     ui.socialCardType = h("dd", {}, "—");
     ui.socialImageUrl = h("dd", {}, "—");
+    ui.optimizeScore = h("strong", { class: "oba-optimize-score" }, "0");
+    ui.optimizeSummary = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    ui.optimizeGroups = h("div", { class: "oba-optimize-groups" });
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
     ui.saveState = h("span", { class: "oba-save-state", role: "status", "aria-live": "polite" }, this.isNew ? "Not saved yet" : "Saved");
@@ -975,8 +1095,6 @@ class Editor {
       side.push(this.field("oba-canonical", "Canonical URL", ui.canonical, "Only for posts first published elsewhere."));
       ui.coverAlt = h("input", { id: "oba-cover-alt", type: "text", value: f.coverAlt || "", placeholder: "Describe the meaningful image content" });
       side.push(this.field("oba-cover-alt", "Cover alternative text", ui.coverAlt, "Required when the cover conveys information; also helps image discovery."));
-      ui.seoAudit = h("ul", { class: "oba-seo-checks", "aria-live": "polite" });
-      side.push(h("fieldset", { class: "oba-fieldset" }, h("legend", { class: "oba-legend" }, "Search & answer readiness"), ui.seoAudit));
     }
 
     ui.saveBtn = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.save() }, this.isNew ? "Create" : "Save");
@@ -1029,8 +1147,8 @@ class Editor {
       }
     };
     this.activatePane = activatePane;
-    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", settings: "Settings" };
-    paneButtons = ["write", "preview", "social", "settings"].map((pane) =>
+    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", optimize: "Optimize", settings: "Settings" };
+    paneButtons = ["write", "preview", "social", "optimize", "settings"].map((pane) =>
       h(
         "button",
         {
@@ -1086,6 +1204,17 @@ class Editor {
                 h("div", {}, h("dt", {}, "X card"), ui.socialCardType),
                 h("div", {}, h("dt", {}, "Resolved image"), ui.socialImageUrl),
               ),
+            ),
+          ),
+          h(
+            "section",
+            { class: "oba-pane oba-optimize-pane", "data-pane": "optimize", "aria-label": "SEO and answer readiness analysis" },
+            paneHeader("Improve", "SEO & answer readiness", h("span", { class: "oba-small" }, "Heuristic guidance, not a ranking guarantee")),
+            h(
+              "div",
+              { class: "oba-optimize-workspace" },
+              h("aside", { class: "oba-optimize-overview" }, h("span", { class: "oba-pane-eyebrow" }, "Readiness"), h("div", {}, ui.optimizeScore, h("span", {}, "%")), ui.optimizeSummary),
+              ui.optimizeGroups,
             ),
           ),
           h("section", { class: "oba-pane oba-settings-pane", "data-pane": "settings", "aria-label": "Document settings" }, paneHeader("Document", "Settings"), h("div", { class: "oba-side-fields" }, side)),
@@ -1185,21 +1314,43 @@ class Editor {
 
   updateSeoAudit() {
     const ui = this.ui;
-    if (!ui.seoAudit) return;
-    const titleLength = ui.title.value.trim().length;
-    const descriptionLength = ui.description.value.trim().length;
     const body = ui.body.value.trim();
-    const checks = [
-      [titleLength > 0 && titleLength <= 70, "Concise title", titleLength ? `${titleLength} characters` : "Add a descriptive title"],
-      [descriptionLength >= 50 && descriptionLength <= 180, "Useful description", descriptionLength ? `${descriptionLength} characters; aim for 50–180` : "Summarize the answer and its value"],
-      [ui.tags.value.split(",").some((tag) => tag.trim()), "Topic signals", "Add at least one specific tag"],
-      [!ui.cover.value.trim() || ui.coverAlt.value.trim().length > 0, "Accessible cover", "Describe a cover image when it conveys information"],
-      [/^#{2,3}\s+\S/m.test(body), "Scannable sections", "Use descriptive H2/H3 headings for readers and answer engines"],
-      [this.meta.authorReady, "Author identity", "Set author.name and author.url in openblog.json"],
-    ];
-    ui.seoAudit.replaceChildren(
-      ...checks.map(([ok, label, detail]) =>
-        h("li", { class: ok ? "is-ready" : "needs-work" }, h("strong", {}, `${ok ? "Ready" : "Improve"}: ${label}`), h("span", {}, detail)),
+    const bodyExcerpt = markdownOutsideCode(body)
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/^#{1,6}\s+/gm, "")
+      .replace(/[*_~`>|-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 180);
+    const result = analyzeReadiness({
+      kind: this.kind,
+      title: ui.title.value.trim(),
+      description: ui.description?.value.trim() || bodyExcerpt,
+      slug: ui.slug.value.trim(),
+      canonical: ui.canonical?.value.trim() || "",
+      tags: ui.tags?.value.split(",") || [],
+      cover: ui.cover?.value.trim() || "",
+      coverAlt: ui.coverAlt?.value.trim() || "",
+      body,
+      authorReady: this.meta.authorReady,
+    });
+    ui.optimizeScore.textContent = String(result.score);
+    ui.optimizeSummary.textContent = `${result.ready} of ${result.total} checks ready. Review the specific guidance before publishing.`;
+    ui.optimizeGroups.replaceChildren(
+      ...result.groups.map((group) =>
+        h(
+          "section",
+          { class: "oba-optimize-group" },
+          h("header", {}, h("h3", {}, group.name), h("p", {}, group.description)),
+          h(
+            "ul",
+            { class: "oba-seo-checks" },
+            group.checks.map((check) =>
+              h("li", { class: check.ready ? "is-ready" : "needs-work" }, h("strong", {}, `${check.ready ? "Ready" : "Improve"}: ${check.label}`), h("span", {}, check.detail)),
+            ),
+          ),
+        ),
       ),
     );
   }

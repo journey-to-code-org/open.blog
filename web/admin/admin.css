@@ -973,6 +973,7 @@ kbd {
 .oba-editor[data-editor-view="write"] .oba-markdown-pane,
 .oba-editor[data-editor-view="preview"] .oba-preview-pane,
 .oba-editor[data-editor-view="social"] .oba-social-pane,
+.oba-editor[data-editor-view="optimize"] .oba-optimize-pane,
 .oba-editor[data-editor-view="settings"] .oba-settings-pane {
   display: block;
 }
@@ -1098,6 +1099,66 @@ kbd {
   font-size: 0.82rem;
 }
 
+.oba-optimize-workspace {
+  display: grid;
+  grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+  gap: clamp(1rem, 3vw, 2.5rem);
+  align-items: start;
+  padding: clamp(1rem, 3vw, 2.5rem);
+}
+
+.oba-optimize-overview {
+  position: sticky;
+  top: 1rem;
+  padding: 1.2rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-optimize-overview > div {
+  display: flex;
+  align-items: baseline;
+  margin-block: 0.25rem;
+  color: var(--ob-color-accent);
+}
+
+.oba-optimize-score {
+  font-family: var(--ob-font-heading);
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  line-height: 1;
+}
+
+.oba-optimize-groups {
+  display: grid;
+  gap: 1rem;
+}
+
+.oba-optimize-group {
+  padding: 1rem 1.1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-optimize-group header {
+  margin-bottom: 0.8rem;
+}
+
+.oba-optimize-group h3,
+.oba-optimize-group p {
+  margin: 0;
+}
+
+.oba-optimize-group h3 {
+  font-size: 1rem;
+}
+
+.oba-optimize-group p {
+  color: var(--ob-color-subtle);
+  font-size: 0.8rem;
+}
+
 .oba-editor[data-preview-width="tablet"] .oba-preview {
   max-width: 48rem;
 }
@@ -1188,6 +1249,14 @@ kbd {
 
   .oba-social-workspace {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-optimize-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-optimize-overview {
+    position: static;
   }
 }
 
