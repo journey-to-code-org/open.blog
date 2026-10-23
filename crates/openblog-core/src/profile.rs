@@ -5,6 +5,7 @@ use crate::frontmatter::FrontMatter;
 
 pub const ARTICLE_ID: &str = "article";
 pub const RECIPE_ID: &str = "recipe";
+pub const RESEARCH_ID: &str = "research";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileFieldKind {
@@ -90,6 +91,21 @@ const RECIPE_FIELDS: &[ProfileField] = &[
     },
 ];
 
+const RESEARCH_FIELDS: &[ProfileField] = &[
+    ProfileField {
+        key: "doi",
+        label: "DOI",
+        kind: ProfileFieldKind::Text,
+        help: "DOI assigned to this work, as a DOI name or https://doi.org URL.",
+    },
+    ProfileField {
+        key: "license",
+        label: "License",
+        kind: ProfileFieldKind::Text,
+        help: "Absolute URL of the license that applies to this work.",
+    },
+];
+
 const PROFILES: &[ContentProfile] = &[
     ContentProfile {
         id: ARTICLE_ID,
@@ -103,6 +119,12 @@ const PROFILES: &[ContentProfile] = &[
         description: "A recipe with ingredients, steps, timing, servings, and structured data.",
         fields: RECIPE_FIELDS,
     },
+    ContentProfile {
+        id: RESEARCH_ID,
+        label: "Research",
+        description: "A research article with portable references and scholarly metadata.",
+        fields: RESEARCH_FIELDS,
+    },
 ];
 
 pub fn catalog() -> &'static [ContentProfile] {
@@ -113,6 +135,7 @@ pub fn catalog() -> &'static [ContentProfile] {
 pub enum ProfileBehavior {
     Article,
     Recipe,
+    Research,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -133,10 +156,10 @@ pub fn resolve(front_matter: &FrontMatter) -> ProfileResolution {
         } else {
             authored_id
         };
-        let behavior = if normalized_id == RECIPE_ID {
-            ProfileBehavior::Recipe
-        } else {
-            ProfileBehavior::Article
+        let behavior = match normalized_id.as_str() {
+            RECIPE_ID => ProfileBehavior::Recipe,
+            RESEARCH_ID => ProfileBehavior::Research,
+            _ => ProfileBehavior::Article,
         };
         let mut warnings = Vec::new();
         if !known {

@@ -11,6 +11,7 @@ use crate::frontmatter::{self, FrontMatter};
 use crate::markdown::{self, Heading, RenderOptions};
 use crate::profile::{self, ProfileBehavior};
 use crate::recipe::Recipe;
+use crate::research::{self, EvidenceFinding, ResearchMetadata};
 use crate::slug::{from_file_stem, slugify};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,8 +91,11 @@ pub struct Post {
     pub profile: String,
     pub(crate) profile_warnings: Vec<String>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
+    pub(crate) evidence: Vec<EvidenceFinding>,
     /// Set for posts using the recipe profile: times, servings, ingredients, steps.
     pub recipe: Option<Recipe>,
+    /// Set for posts using the research profile: identifiers and evidence metadata.
+    pub research: Option<ResearchMetadata>,
     /// Per-post code-block overrides from front matter (`highlight`, `lineNumbers`).
     pub code_highlight: Option<bool>,
     pub code_line_numbers: Option<bool>,
@@ -155,6 +159,8 @@ pub struct Site {
     pub warnings: Vec<String>,
     /// Structured source findings for Accessibility Studio and CLI reporting.
     pub accessibility: Vec<AccessibilityFinding>,
+    /// Structured research/evidence guidance for the CLI and Admin Studio.
+    pub evidence: Vec<EvidenceFinding>,
     /// Known view totals per page path, supplied by the caller (for example from
     /// the analytics backup) so static builds can show counts.
     pub view_counts: BTreeMap<String, u64>,
@@ -172,6 +178,7 @@ impl Site {
         let mut warnings = Vec::new();
         let mut accessibility =
             accessibility::audit_site_language("openblog.json", &config.language);
+        let mut evidence = Vec::new();
         let render_options = RenderOptions {
             smart_punctuation: config.markdown.smart_punctuation,
             lazy_images: true,
@@ -254,6 +261,7 @@ impl Site {
                         warnings.extend(seo_warnings(&post));
                     }
                     accessibility.extend(post.accessibility.iter().cloned());
+                    evidence.extend(post.evidence.iter().cloned());
                     posts.push(post);
                 }
                 Err(e) => errors.push(format!("{}: {e}", file.path)),
@@ -376,6 +384,7 @@ impl Site {
             scheduled,
             warnings,
             accessibility,
+            evidence,
             view_counts: BTreeMap::new(),
         })
     }
@@ -580,6 +589,8 @@ pub fn load_post(
     } else {
         None
     };
+    let research = (profile.behavior == ProfileBehavior::Research)
+        .then(|| ResearchMetadata::from_source(fm, &doc.body, doc.body_line));
 
     let title = match first(fm, &["title"]) {
         Some(t) => t.to_string(),
@@ -653,6 +664,11 @@ pub fn load_post(
         embeds_enabled: options.embeds,
         cover_alt: authored_cover.as_ref().map(|_| cover_alt.as_str()),
     });
+    let evidence = if profile.behavior == ProfileBehavior::Research {
+        research::audit_document(&file.path, fm, &doc.body, doc.body_line)
+    } else {
+        Vec::new()
+    };
 
     Ok(Post {
         url: config.post_url(&slug),
@@ -683,7 +699,9 @@ pub fn load_post(
         profile: profile.id,
         profile_warnings: profile.warnings,
         accessibility,
+        evidence,
         recipe,
+        research,
         code_highlight: fm
             .get_bool("highlight")
             .or_else(|| fm.get_bool("codeHighlighting")),

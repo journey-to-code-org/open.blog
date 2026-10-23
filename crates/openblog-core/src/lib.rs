@@ -24,6 +24,7 @@ pub mod model;
 pub mod profile;
 pub mod recipe;
 pub mod render;
+pub mod research;
 pub mod search;
 pub mod slug;
 pub mod theme;

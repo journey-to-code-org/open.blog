@@ -275,6 +275,7 @@ dependencies = [
 name = "openblog-core"
 version = "0.8.0"
 dependencies = [
+ "http",
  "pulldown-cmark",
  "serde",
  "serde_json",

@@ -49,7 +49,7 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
     let profiles = profile::catalog();
     assert_eq!(
         profiles.iter().map(|item| item.id).collect::<Vec<_>>(),
-        vec!["article", "recipe"]
+        vec!["article", "recipe", "research"]
     );
     assert_eq!(profiles[0].label, "Article");
     assert!(profiles[0].fields.is_empty());
@@ -70,6 +70,26 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
             "calories"
         ]
     );
+    assert_eq!(profiles[2].label, "Research");
+    assert_eq!(
+        profiles[2]
+            .fields
+            .iter()
+            .map(|field| field.key)
+            .collect::<Vec<_>>(),
+        vec!["doi", "license"]
+    );
+}
+
+#[test]
+fn resolves_the_research_profile_without_changing_article_or_recipe_behavior() {
+    let resolved = profile::resolve(&fields(
+        "---\nprofile: research\ndoi: 10.1234/example\n---\nBody",
+    ));
+
+    assert_eq!(resolved.id, "research");
+    assert_eq!(resolved.behavior, profile::ProfileBehavior::Research);
+    assert!(resolved.warnings.is_empty());
 }
 
 #[test]
