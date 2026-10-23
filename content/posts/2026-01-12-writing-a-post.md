@@ -49,18 +49,32 @@ Callouts draw attention to a note, a tip, or a warning:
 > Write `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, or `> [!CAUTION]`
 > on the first line of a quote.
 
-Code blocks are coloured, numbered, and get a copy button. After the language you can
-add a title, lines to highlight, and where numbering starts:
+Regular code blocks are read-only: they keep the original syntax colouring, line numbers,
+highlighted lines, and copy button. This one demonstrates that decorative presentation:
 
-```rust title="src/main.rs" {2}
-fn main() {
-    println!("Hello from a code block");
+```rust title="Read-only example · src/lib.rs" {2}
+pub fn greeting(name: &str) -> String {
+    format!("Hello, {name}!")
 }
 ```
 
-The fence for that block is ```` ```rust title="src/main.rs" {2} ````. Add
-`showLineNumbers=10` to count from 10, or `showLineNumbers=false` to drop the numbers.
-To change this for the whole blog, see `code` in `openblog.json`.
+Add `runnable` only when readers should be able to edit and execute a self-contained Rust
+example. A runnable block deliberately becomes an editor with controls and inline output:
+
+```rust runnable playgroundLink=false title="Live example · try changing the name" {2} showLineNumbers
+fn main() {
+    let name = "reader";
+    println!("Hello, {name}!");
+}
+```
+
+The two fences begin with ```` ```rust title="..." ```` and
+```` ```rust runnable playgroundLink=false title="..." ```` respectively. Leave out
+`playgroundLink=false` when you want the external Playground fallback. Add
+`showLineNumbers=10` to a read-only block to count from 10, or `showLineNumbers=false` to
+drop the numbers. Running the live example sends its edited source to the official Rust
+Playground. To change highlighting and numbering for the whole blog, see `code` in
+`openblog.json`.
 
 ## Check your understanding
 

@@ -10,6 +10,12 @@ contents of `<script>` and `<style>` are coloured as JavaScript and CSS, and tem
 literals colour the code inside `${…}`. Unknown languages stay plain, and a tokenizer
 error can never blank out the code.
 
+Rust fences marked `runnable` are progressively enhanced into a syntax-coloured editor
+with optional line numbers and highlighted lines, Reset, Copy, Run, compiler output, and
+an optional fallback link to the official Rust Playground.
+The original block remains visible without JavaScript. Source is sent directly to the
+Playground without cookies or referrer information and is never stored by open.blog.
+
 A fence without a language, which is common in posts imported from other platforms, is
 guessed from its content: HTML, CSS, JavaScript, TypeScript, shell commands, Rust,
 Python, Go, SQL, JSON, YAML, TOML, or the C family. When the guess is unsure the block

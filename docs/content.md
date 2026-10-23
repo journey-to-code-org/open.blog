@@ -130,11 +130,45 @@ fn main() {}
 | `showLineNumbers` | Number this block even when numbering is off, or when it has one line. |
 | `showLineNumbers=10` | Number this block starting at 10. |
 | `showLineNumbers=false` | No numbers on this block. |
+| `runnable` | For Rust blocks, give readers an editor and a Run button backed by the official Rust Playground. |
+| `playgroundLink=false` | On a runnable Rust block, hide the separate **Open in Rust Playground** link. |
 
 Colours can be turned off for a post (`highlight: false`) or the whole blog, but not for
 one block; mark a block `text` to leave it plain. Copying a block, with the button or by
 selecting it, never includes the line numbers.
 For the whole blog, see `code` in [Configuration](configuration.md#code-blocks).
+
+#### Runnable Rust examples
+
+Add `runnable` after `rust` when a self-contained example should be editable and
+runnable directly in the lesson:
+
+````markdown
+```rust runnable title="Try changing the greeting"
+fn main() {
+    println!("Hello, adventurer!");
+}
+```
+````
+
+Keep ordinary examples as `rust` without `runnable` when they are meant for reading and
+copying. Those blocks retain syntax colouring, line numbers, highlighted lines, and other
+decorative code-block options. Runnable blocks become code-editor surfaces, but still
+honour the configured syntax colouring, `showLineNumbers`, starting line number, and
+highlighted-line ranges. In a tutorial that uses both, label them clearly—for example,
+`title="Read-only example"` and `title="Live example · try it"`.
+
+Readers can edit, reset, copy, or run the example and see compiler messages and
+program output below it. Running sends the edited source to the
+[official Rust Playground](https://play.rust-lang.org/); open.blog does not store
+the source. A separate link opens the same code on the Playground if inline execution
+is unavailable; add `playgroundLink=false` to that fence to omit the link. Without
+JavaScript, the original code block remains readable.
+
+Runnable blocks are intentionally limited to Rust and 20,000 bytes, and displayed output
+is capped at 64,000 bytes. They use stable Rust 2021 in debug mode and are best for
+self-contained lessons. The Playground offers popular preinstalled crates, but an
+arbitrary local Cargo project, custom manifest, stdin, and local files are not available.
 
 ### Images
 
