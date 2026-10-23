@@ -258,6 +258,55 @@ export function analyzeReadiness({ kind, title, description, slug, canonical, ta
   return { score: Math.round((ready / checks.length) * 100), ready, total: checks.length, groups };
 }
 
+export function applyMarkdownCommand(value, start, end, command) {
+  const selected = value.slice(start, end);
+  const wrap = (before, after, placeholder) => {
+    const content = selected || placeholder;
+    const replacement = `${before}${content}${after}`;
+    return {
+      value: value.slice(0, start) + replacement + value.slice(end),
+      start: start + before.length,
+      end: start + before.length + content.length,
+    };
+  };
+  if (command === "bold") return wrap("**", "**", "bold text");
+  if (command === "italic") return wrap("_", "_", "italic text");
+  if (command === "link") {
+    if (!selected) return wrap("[", "](https://)", "link text");
+    const replacement = `[${selected}](https://)`;
+    const urlStart = start + selected.length + 3;
+    return { value: value.slice(0, start) + replacement + value.slice(end), start: urlStart, end: urlStart + 8 };
+  }
+  if (command === "code") {
+    const longestRun = Math.max(0, ...(selected.match(/`+/g) || []).map((run) => run.length));
+    const delimiter = "`".repeat(Math.max(selected.includes("\n") ? 3 : 1, longestRun + 1));
+    if (selected.includes("\n")) {
+      const before = `${start > 0 && value[start - 1] !== "\n" ? "\n" : ""}${delimiter}${selected.startsWith("\n") ? "" : "\n"}`;
+      const after = `${selected.endsWith("\n") ? "" : "\n"}${delimiter}${end < value.length && value[end] !== "\n" ? "\n" : ""}`;
+      return wrap(before, after, "code");
+    }
+    const normalizedSpaces = /^\s/.test(selected) && /\s$/.test(selected) && /\S/.test(selected);
+    const pad = selected.startsWith("`") || selected.endsWith("`") || normalizedSpaces ? " " : "";
+    return wrap(delimiter + pad, pad + delimiter, "code");
+  }
+
+  const lineStart = start === 0 ? 0 : value.lastIndexOf("\n", start - 1) + 1;
+  const effectiveEnd = end > start && value[end - 1] === "\n" ? end - 1 : end;
+  const nextBreak = value.indexOf("\n", effectiveEnd);
+  const lineEnd = nextBreak < 0 ? value.length : nextBreak;
+  const block = value.slice(lineStart, lineEnd);
+  const prefix = command === "quote" ? "> " : command === "list" ? "- " : null;
+  let replacement;
+  if (command === "heading") replacement = block.replace(/^(?:#{1,6}\s+)?/, "## ");
+  else if (prefix) replacement = block.split("\n").map((line) => (line ? prefix + line : line)).join("\n");
+  else return { value, start, end };
+  return {
+    value: value.slice(0, lineStart) + replacement + value.slice(lineEnd),
+    start: lineStart,
+    end: lineStart + replacement.length,
+  };
+}
+
 const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
 class ApiError extends Error {
@@ -1132,6 +1181,22 @@ class Editor {
         h("div", {}, h("span", { class: "oba-pane-eyebrow" }, eyebrow), h("h2", {}, title)),
         trailing,
       );
+    const formatButtons = [
+      ["heading", "H2", "Heading 2"],
+      ["bold", "B", "Bold (Ctrl+B)"],
+      ["italic", "I", "Italic (Ctrl+I)"],
+      ["link", "Link", "Link"],
+      ["quote", "Quote", "Block quote"],
+      ["list", "List", "Bulleted list"],
+      ["code", "Code", "Inline or fenced code"],
+    ];
+    ui.formatToolbar = h(
+      "div",
+      { class: "oba-format-toolbar", role: "group", "aria-label": "Markdown formatting" },
+      formatButtons.map(([command, label, title]) =>
+        h("button", { type: "button", class: `oba-format-button${command === "italic" ? " is-italic" : ""}`, title, "aria-label": title, onClick: () => this.formatMarkdown(command) }, label),
+      ),
+    );
     let paneButtons = [];
     const activatePane = (pane, focus = false) => {
       applyPaneSelection(this.root, paneButtons, pane);
@@ -1182,7 +1247,7 @@ class Editor {
         h(
           "div",
           { class: "oba-panes" },
-          h("section", { class: "oba-pane oba-markdown-pane", "data-pane": "write", "aria-label": "Markdown editor" }, paneHeader("Write", "Markdown", h("span", { class: "oba-small" }, "Plain text · portable")), ui.body),
+          h("section", { class: "oba-pane oba-markdown-pane", "data-pane": "write", "aria-label": "Markdown editor" }, paneHeader("Write", "Markdown", h("span", { class: "oba-small" }, "Plain text · portable")), ui.formatToolbar, ui.body),
           h(
             "section",
             { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" },
@@ -1237,6 +1302,13 @@ class Editor {
     });
     ui.slug.addEventListener("input", () => (this.slugTouched = true));
     ui.body.addEventListener("input", () => this.updateDocumentStats());
+    ui.body.addEventListener("keydown", (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const command = event.key.toLowerCase() === "b" ? "bold" : event.key.toLowerCase() === "i" ? "italic" : null;
+      if (!command) return;
+      event.preventDefault();
+      this.formatMarkdown(command);
+    });
     ui.previewWidth.addEventListener("input", (e) => e.stopPropagation());
     ui.previewWidth.addEventListener("change", () => {
       this.root.dataset.previewWidth = ui.previewWidth.value;
@@ -1310,6 +1382,25 @@ class Editor {
     const words = text.trim() ? text.trim().split(/\s+/).length : 0;
     const characters = text.length;
     this.ui.documentStats.textContent = `${lines} line${lines === 1 ? "" : "s"} · ${words.toLocaleString()} word${words === 1 ? "" : "s"} · ${characters.toLocaleString()} character${characters === 1 ? "" : "s"}`;
+  }
+
+  formatMarkdown(command) {
+    const body = this.ui.body;
+    const previous = body.value;
+    const edit = applyMarkdownCommand(previous, body.selectionStart ?? previous.length, body.selectionEnd ?? previous.length, command);
+    let prefix = 0;
+    while (prefix < previous.length && prefix < edit.value.length && previous[prefix] === edit.value[prefix]) prefix += 1;
+    let suffix = 0;
+    while (suffix < previous.length - prefix && suffix < edit.value.length - prefix && previous[previous.length - suffix - 1] === edit.value[edit.value.length - suffix - 1]) suffix += 1;
+    const replacement = edit.value.slice(prefix, edit.value.length - suffix);
+    body.focus();
+    body.setSelectionRange(prefix, previous.length - suffix);
+    let inputFired = false;
+    body.addEventListener("input", () => (inputFired = true), { once: true });
+    const inserted = typeof document.execCommand === "function" && document.execCommand("insertText", false, replacement);
+    if (!inserted) body.setRangeText(replacement, prefix, previous.length - suffix, "end");
+    body.setSelectionRange(edit.start, edit.end);
+    if (!inputFired) body.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
   updateSeoAudit() {

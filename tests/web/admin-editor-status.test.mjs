@@ -37,6 +37,16 @@ test("optimizer separates search, answer, and trust guidance", () => {
   assert.match(styles, /\.oba-optimize-workspace/);
 });
 
+test("writer exposes source-preserving formatting controls", () => {
+  assert.match(admin, /"aria-label": "Markdown formatting"/);
+  assert.match(admin, /this\.formatMarkdown\(command\)/);
+  assert.match(admin, /document\.execCommand\("insertText", false, replacement\)/);
+  assert.match(admin, /body\.setRangeText\(replacement/);
+  assert.match(admin, /if \(!inputFired\) body\.dispatchEvent\(new Event\("input", \{ bubbles: true \}\)\)/);
+  assert.match(admin, /event\.key\.toLowerCase\(\) === "b"/);
+  assert.match(styles, /\.oba-format-toolbar/);
+});
+
 test("social preview displays publishing-engine OpenGraph metadata", () => {
   assert.match(admin, /"data-pane": "social"/);
   assert.match(admin, /preview\.social/);

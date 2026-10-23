@@ -998,6 +998,38 @@ kbd {
   tab-size: 4;
 }
 
+.oba-format-toolbar {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.45rem 0.55rem;
+  overflow-x: auto;
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-format-button {
+  min-width: 2.25rem;
+  padding: 0.35rem 0.55rem;
+  border: var(--ob-border-width) solid transparent;
+  border-radius: var(--ob-radius-sm);
+  background: transparent;
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.oba-format-button:hover,
+.oba-format-button:focus-visible {
+  border-color: var(--ob-color-border);
+  background: var(--ob-color-page);
+}
+
+.oba-format-button.is-italic {
+  font-style: italic;
+}
+
 .oba-preview {
   background: #fff;
 }

@@ -25,6 +25,7 @@ immediately.
 | **Social preview** | A card built from the generated OpenGraph title, description, canonical URL, type, image, and X card mode—not a separate browser-side approximation. |
 | **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
+| **Formatting** | Apply H2, bold, italic, link, quote, list, and inline/fenced-code Markdown without converting or hiding the source. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in the editor. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
@@ -53,9 +54,11 @@ The **Overview** is the admin home. It summarizes the publishing pipeline, links
 creation flows, shows the size of the content library and recent posts, and surfaces the
 next scheduled post or last build error without requiring a trip through each content list.
 
-The Markdown remains the source of truth. The visual structure only changes how the
-tools are arranged; saving, conflict detection, preview sandboxing, and publishing use
-the same file-based workflow and security checks.
+Markdown remains the source of truth. The source-preserving formatting toolbar provides
+rich-writing ergonomics without an HTML-to-Markdown round trip, so existing custom blocks,
+embeds, quizzes, and front matter cannot be lost by switching editor modes. Saving,
+conflict detection, preview sandboxing, and publishing use the same file-based workflow
+and security checks.
 
 Every save is checked against the whole site before anything is written (duplicate slugs,
 unknown themes, bad dates), then the site is rebuilt. A save that would break the build is
