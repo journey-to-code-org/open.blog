@@ -5,6 +5,17 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-23
+
+### Changed
+
+- Updated the project overview and documentation index to describe the focused writing
+  workspace, publishing-faithful theme preview, social cards, readiness guidance, and
+  source-preserving editing added in 0.6.0.
+- Documented post, series, and site theme precedence with a practical pre-publish testing
+  workflow, plus troubleshooting for base-path stylesheet MIME errors and the expected
+  signed-out session probe.
+
 ## [0.6.1] - 2026-10-23
 
 ### Fixed

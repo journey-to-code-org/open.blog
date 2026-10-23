@@ -18,8 +18,11 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
   turned off for the whole blog or one post, and numbers for a single block.
 - **Feeds and metadata built in.** RSS, JSON Feed, sitemap, Open Graph, JSON-LD, canonical
   links, and a small JSON of your latest posts for embedding on another site.
-- **Browser editor.** `openblog serve --admin` adds a login-protected editor with live
-  preview, image uploads, drafts, and scheduled posts. It edits the same Markdown files.
+- **Publishing studio.** `openblog serve --admin` adds a login-protected, writing-first
+  editor with publishing-faithful themed previews, Open Graph cards, transparent SEO and
+  answer-readiness guidance, source-preserving formatting, uploads, drafts, and scheduling.
+  It edits the same Markdown files; front matter stays in Settings and is never rendered
+  in the preview.
 - **Publish from home.** A Publish button commits and pushes with git, a GitHub Pages
   workflow deploys, and the repository is the backup. Drafts stay out of commits.
 - **Privacy-respecting analytics.** A cookie-free view counter with a dashboard, counts

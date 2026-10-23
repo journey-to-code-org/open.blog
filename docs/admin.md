@@ -50,6 +50,22 @@ counts. Press `Alt+1` through `Alt+5` to focus Write, Site preview, Social, Opti
 preview toolbar can constrain the canvas to wide, tablet, or mobile width; this preference
 is stored in the browser and does not change the published theme.
 
+### Test a theme before publishing
+
+The Site preview reports the theme it resolved and renders through the same site model,
+theme compiler, document renderer, and components as a public build. Theme precedence is
+the same in both places:
+
+1. A post or page theme selected in **Settings** is an explicit override.
+2. A post without an override inherits the theme selected by its series.
+3. Content without either override uses the site theme from `openblog.json`.
+
+To test a series design, set the theme on the series document, leave the post's theme
+unset, and open **Site preview** on a post in that series. To compare a one-off design,
+select a theme on the post instead. The preview includes unsaved changes to the document
+you are editing but does not expose unrelated drafts or scheduled posts. Front matter
+remains in **Settings** and is never printed into the preview.
+
 The **Overview** is the admin home. It summarizes the publishing pipeline, links to quick
 creation flows, shows the size of the content library and recent posts, and surfaces the
 next scheduled post or last build error without requiring a trip through each content list.
@@ -133,6 +149,21 @@ trash) out of version control; `openblog init` adds it to `.gitignore`.
 The public site and the admin share one process, so the blog is served by this server too.
 If you would rather host the static output elsewhere, run the admin where the content lives
 and publish `dist/` onward (for example with a git push or rsync after each build).
+
+### Troubleshooting local styles and sessions
+
+If the browser refuses `/assets/base.css` or `/themes/.../tokens.css` because the response
+has the `text/html` MIME type, first restart `openblog serve --admin` after upgrading. Sites
+whose configured URL includes a base path, such as `https://example.github.io/project/`,
+still open the private editor at `/admin`; in admin mode the server maps its root-relative
+asset requests to the same built styles used by the public site. A stale pre-0.6.1 server
+does not provide that mapping. If restarting does not help, run `openblog build` and confirm
+the corresponding files exist under `dist/assets/` and `dist/themes/`.
+
+An initial `GET /admin/api/session` response of `401 Unauthorized` is expected when no valid
+admin cookie exists: it is how the editor decides to show the sign-in form. A `401` after
+you have signed in means the session expired, the user was removed, or the password changed;
+sign in again. It is unrelated to stylesheet MIME errors.
 
 ## Optional question generation
 

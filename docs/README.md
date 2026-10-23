@@ -15,8 +15,8 @@ If you are new, read these in order; each one stands alone otherwise.
    light and dark, per-series themes, and making your own.
 7. [Adding web components to a theme](theme-components.md): scripts, heading effects,
    and the demo theme to copy from.
-8. [The admin editor](admin.md): logging in, editing, scheduling, and running it safely
-   on the internet.
+8. [The admin editor](admin.md): the writing workspace, production-faithful theme and
+   social previews, search and answer-readiness guidance, scheduling, and safe operation.
 9. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
    syntax highlighting, related posts, a CDN, and slots for comments or newsletters.
 10. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
