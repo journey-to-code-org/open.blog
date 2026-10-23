@@ -27,6 +27,9 @@ If you are new, read these in order; each one stands alone otherwise.
 12. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
 13. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
 
+Architecture decisions and their supporting primary-source research live under
+[`docs/adr`](adr/) and [`docs/research`](research/).
+
 ## Command reference
 
 ```
