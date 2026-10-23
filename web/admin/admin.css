@@ -974,7 +974,8 @@ kbd {
 .oba-editor[data-editor-view="preview"] .oba-preview-pane,
 .oba-editor[data-editor-view="social"] .oba-social-pane,
 .oba-editor[data-editor-view="optimize"] .oba-optimize-pane,
-.oba-editor[data-editor-view="settings"] .oba-settings-pane {
+.oba-editor[data-editor-view="settings"] .oba-settings-pane,
+.oba-editor[data-editor-view="accessibility"] .oba-accessibility-pane {
   display: block;
 }
 
@@ -1191,6 +1192,136 @@ kbd {
   font-size: 0.8rem;
 }
 
+.oba-accessibility-workspace {
+  display: grid;
+  grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr);
+  gap: clamp(1rem, 3vw, 2.5rem);
+  align-items: start;
+  padding: clamp(1rem, 3vw, 2.5rem);
+}
+
+.oba-accessibility-guide {
+  position: sticky;
+  top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-accessibility-guide h3,
+.oba-accessibility-guide p,
+.oba-accessibility-manual {
+  margin: 0;
+}
+
+.oba-accessibility-guide h3 {
+  font-size: 0.9rem;
+}
+
+.oba-accessibility-guide p,
+.oba-accessibility-manual {
+  color: var(--ob-color-muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.oba-accessibility-manual {
+  display: grid;
+  gap: 0.3rem;
+  padding-left: 1.1rem;
+}
+
+.oba-accessibility-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0.25rem 0;
+}
+
+.oba-accessibility-counts > div {
+  min-width: 0;
+  padding: 0.6rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+}
+
+.oba-accessibility-counts dt {
+  overflow: hidden;
+  color: var(--ob-color-subtle);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.oba-accessibility-counts dd {
+  margin: 0.15rem 0 0;
+  font-family: var(--ob-font-heading);
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.oba-accessibility-findings {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.oba-accessibility-group {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.oba-accessibility-group > h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.oba-accessibility-finding {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem 1.1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-left: 0.25rem solid var(--ob-color-accent);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-accessibility-group.is-detected .oba-accessibility-finding {
+  border-left-color: var(--oba-danger);
+}
+
+.oba-accessibility-group.is-potential .oba-accessibility-finding {
+  border-left-color: #b9770e;
+}
+
+.oba-accessibility-finding p {
+  margin: 0;
+}
+
+.oba-accessibility-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+  color: var(--ob-color-subtle);
+  font-size: 0.75rem;
+}
+
+.oba-accessibility-meta code {
+  color: var(--ob-color-text);
+  font-weight: 700;
+}
+
+.oba-accessibility-repair {
+  color: var(--ob-color-muted);
+}
+
 .oba-editor[data-preview-width="tablet"] .oba-preview {
   max-width: 48rem;
 }
@@ -1287,8 +1418,13 @@ kbd {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .oba-optimize-overview {
+  .oba-optimize-overview,
+  .oba-accessibility-guide {
     position: static;
+  }
+
+  .oba-accessibility-workspace {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

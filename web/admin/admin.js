@@ -1,5 +1,5 @@
 // open.blog admin editor: <ob-admin>. A single autonomous custom element that
-// renders three views (sign in, content list, editor) with plain DOM calls.
+// renders the sign-in, publishing workspace, and editor with plain DOM calls.
 // Nothing user-controlled is ever assigned through innerHTML. Publishing-engine
 // previews are served from an authenticated URL into an opaque-origin sandbox.
 
@@ -149,6 +149,48 @@ export function resolveProfileSelection(fields, profiles = [], resolvedValue = "
 
 export function previewWarningsForDisplay(warnings) {
   return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
+}
+
+const ACCESSIBILITY_OUTCOMES = [
+  { outcome: "detected", label: "Detected" },
+  { outcome: "potential", label: "Potential" },
+  { outcome: "needs-review", label: "Needs review" },
+];
+
+export function accessibilityReview(findings) {
+  const supported = new Set(ACCESSIBILITY_OUTCOMES.map(({ outcome }) => outcome));
+  const normalized = (Array.isArray(findings) ? findings : []).flatMap((finding) => {
+    if (!finding || typeof finding !== "object" || !supported.has(finding.outcome)) return [];
+    if (typeof finding.message !== "string" || typeof finding.repair !== "string") return [];
+    const source = finding.source && typeof finding.source === "object" ? finding.source : {};
+    const path = typeof source.path === "string" && source.path ? source.path : "Current document";
+    let sourceLabel = path;
+    if (Number.isInteger(source.line) && source.line > 0) {
+      sourceLabel += `:${source.line}`;
+      if (Number.isInteger(source.column) && source.column > 0) sourceLabel += `:${source.column}`;
+    } else if (typeof source.field === "string" && source.field) {
+      sourceLabel += ` · ${source.field}`;
+    }
+    return [
+      {
+        code: typeof finding.code === "string" ? finding.code : "unclassified",
+        outcome: finding.outcome,
+        scope: typeof finding.scope === "string" ? finding.scope : "content",
+        sourceLabel,
+        message: finding.message,
+        repair: finding.repair,
+        references: Array.isArray(finding.references) ? finding.references.filter((reference) => typeof reference === "string") : [],
+      },
+    ];
+  });
+  const counts = { detected: 0, potential: 0, "needs-review": 0 };
+  for (const finding of normalized) counts[finding.outcome] += 1;
+  const groups = ACCESSIBILITY_OUTCOMES.map(({ outcome, label }) => ({
+    outcome,
+    label,
+    findings: normalized.filter((finding) => finding.outcome === outcome),
+  })).filter((group) => group.findings.length > 0);
+  return { total: normalized.length, counts, groups };
 }
 
 export function applyPaneSelection(root, buttons, pane) {
@@ -402,9 +444,9 @@ export class ObAdmin extends AdminElement {
         this.editor.save();
         return;
       }
-      if (this.editor && e.altKey && ["1", "2", "3", "4", "5"].includes(e.key)) {
+      if (this.editor && e.altKey && ["1", "2", "3", "4", "5", "6"].includes(e.key)) {
         e.preventDefault();
-        const pane = ["write", "preview", "social", "optimize", "settings"][Number(e.key) - 1];
+        const pane = ["write", "preview", "social", "optimize", "settings", "accessibility"][Number(e.key) - 1];
         this.editor.activatePane(pane, true);
       }
     });
@@ -583,7 +625,7 @@ export class ObAdmin extends AdminElement {
     ];
     if (this.editor) {
       commands.unshift({ label: "Save document", category: "Editor", keywords: "publish ctrl s", run: () => this.editor.save() });
-      for (const pane of ["write", "preview", "social", "optimize", "settings"]) {
+      for (const pane of ["write", "preview", "social", "optimize", "settings", "accessibility"]) {
         commands.unshift({ label: `Show ${pane}`, category: "Editor", keywords: "view pane", run: () => this.editor.activatePane(pane) });
       }
     }
@@ -1079,6 +1121,9 @@ class Editor {
     ui.optimizeScore = h("strong", { class: "oba-optimize-score" }, "0");
     ui.optimizeSummary = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     ui.optimizeGroups = h("div", { class: "oba-optimize-groups" });
+    ui.accessibilityStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Open this view to check the current source.");
+    ui.accessibilityCounts = h("dl", { class: "oba-accessibility-counts", "aria-label": "Accessibility finding counts" });
+    ui.accessibilityFindings = h("div", { class: "oba-accessibility-findings" });
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
     ui.saveState = h("span", { class: "oba-save-state", role: "status", "aria-live": "polite" }, this.isNew ? "Not saved yet" : "Saved");
@@ -1242,7 +1287,7 @@ class Editor {
     let paneButtons = [];
     const activatePane = (pane, focus = false) => {
       applyPaneSelection(this.root, paneButtons, pane);
-      if (["preview", "social"].includes(pane)) this.renderPreview();
+      if (["preview", "social", "accessibility"].includes(pane)) this.renderPreview();
       else {
         clearTimeout(this.previewTimer);
         this.previewRequest += 1;
@@ -1254,8 +1299,8 @@ class Editor {
       }
     };
     this.activatePane = activatePane;
-    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", optimize: "Optimize", settings: "Settings" };
-    paneButtons = ["write", "preview", "social", "optimize", "settings"].map((pane) =>
+    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", optimize: "Optimize", settings: "Settings", accessibility: "Accessibility" };
+    paneButtons = ["write", "preview", "social", "optimize", "settings", "accessibility"].map((pane) =>
       h(
         "button",
         {
@@ -1326,6 +1371,33 @@ class Editor {
             ),
           ),
           h("section", { class: "oba-pane oba-settings-pane", "data-pane": "settings", "aria-label": "Document settings" }, paneHeader("Document", "Settings"), h("div", { class: "oba-side-fields" }, side)),
+          h(
+            "section",
+            { class: "oba-pane oba-accessibility-pane", "data-pane": "accessibility", "aria-label": "Accessibility Studio" },
+            paneHeader("Review", "Accessibility Studio", ui.accessibilityStatus),
+            h(
+              "div",
+              { class: "oba-accessibility-workspace" },
+              h(
+                "aside",
+                { class: "oba-accessibility-guide", tabindex: "-1" },
+                h("h3", {}, "What this checks"),
+                h(
+                  "p",
+                  {},
+                  "Accessibility Studio finds selected source issues and guides manual review. It does not test every accessibility requirement or certify WCAG conformance. Verify the rendered site with keyboard and assistive-technology testing and, when conformance matters, a qualified accessibility review.",
+                ),
+                ui.accessibilityCounts,
+                h("h3", {}, "Review the rendered page"),
+                h(
+                  "ul",
+                  { class: "oba-accessibility-manual" },
+                  ["Color contrast", "Visible focus", "Keyboard order and operation", "Zoom and reflow", "Reduced motion", "Target size", "Responsive layouts", "Third-party embeds"].map((item) => h("li", {}, item)),
+                ),
+              ),
+              ui.accessibilityFindings,
+            ),
+          ),
         ),
         h("footer", { class: "oba-editor-status" }, ui.saveState, h("span", { class: "oba-spacer" }), ui.documentStats, h("span", { class: "oba-small" }, "Markdown · UTF-8")),
       ),
@@ -1491,7 +1563,7 @@ class Editor {
 
   schedulePreview() {
     clearTimeout(this.previewTimer);
-    if (!["preview", "social"].includes(this.root?.dataset.editorView)) {
+    if (!["preview", "social", "accessibility"].includes(this.root?.dataset.editorView)) {
       this.previewRequest += 1;
       return;
     }
@@ -1502,6 +1574,7 @@ class Editor {
     const request = ++this.previewRequest;
     this.ui.previewTheme.textContent = "Rendering site…";
     this.ui.socialStatus.textContent = "Rendering current social metadata…";
+    this.ui.accessibilityStatus.textContent = "Checking current source…";
     this.ui.socialCardPreview.setAttribute("aria-busy", "true");
     try {
       const preview = await this.app.api.call("POST", "preview", {
@@ -1524,6 +1597,7 @@ class Editor {
       );
       this.ui.previewWarnings.hidden = warnings.length === 0;
       this.updateSocialPreview(preview.social);
+      this.updateAccessibility(preview.accessibility);
     } catch (error) {
       if (request !== this.previewRequest) return;
       this.ui.preview.srcdoc = "<!doctype html><html><body><p>Preview unavailable. Check the editor for validation problems.</p></body></html>";
@@ -1532,7 +1606,41 @@ class Editor {
       this.ui.previewWarnings.hidden = true;
       this.updateSocialPreview({ siteName: this.meta.siteTitle, title: "Preview unavailable", description: "Fix the document validation problems, then try again.", url: "", image: null, imageAlt: "", type: "—", card: "—" });
       this.ui.socialStatus.textContent = "Social metadata unavailable";
+      this.ui.accessibilityStatus.textContent = "Accessibility checks unavailable";
+      this.ui.accessibilityCounts.replaceChildren();
+      this.ui.accessibilityFindings.replaceChildren(h("p", { class: "oba-notice" }, "Fix the document validation problems, then run the checks again."));
     }
+  }
+
+  updateAccessibility(findings) {
+    const review = accessibilityReview(findings);
+    this.ui.accessibilityCounts.replaceChildren(
+      ...ACCESSIBILITY_OUTCOMES.map(({ outcome, label }) =>
+        h("div", { class: `is-${outcome}` }, h("dt", {}, label), h("dd", {}, review.counts[outcome])),
+      ),
+    );
+    this.ui.accessibilityFindings.replaceChildren(
+      ...(review.total === 0
+        ? [h("p", { class: "oba-notice" }, "No issues detected by the checks that ran.")]
+        : review.groups.map((group) =>
+            h(
+              "section",
+              { class: `oba-accessibility-group is-${group.outcome}` },
+              h("h3", {}, `${group.label} (${group.findings.length})`),
+              group.findings.map((finding) =>
+                h(
+                  "article",
+                  { class: "oba-accessibility-finding" },
+                  h("div", { class: "oba-accessibility-meta" }, h("code", {}, finding.code), h("span", {}, finding.sourceLabel)),
+                  h("p", {}, finding.message),
+                  h("p", { class: "oba-accessibility-repair" }, h("strong", {}, "Next: "), finding.repair),
+                  finding.references.length ? h("p", { class: "oba-small" }, `References: ${finding.references.join(", ")}`) : null,
+                ),
+              ),
+            ),
+          )),
+    );
+    this.ui.accessibilityStatus.textContent = `${review.total} source finding${review.total === 1 ? "" : "s"}`;
   }
 
   updateSocialPreview(social) {

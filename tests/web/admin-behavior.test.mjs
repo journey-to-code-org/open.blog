@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   ObAdmin,
+  accessibilityReview,
   applyPaneSelection,
   normalizeStatusFilter,
   parseAdminHash,
@@ -66,7 +67,7 @@ test("an edit made during save remains dirty after the earlier response", () => 
 test("editor view selection updates the container and every toggle", () => {
   const root = { dataset: { editorView: "write" } };
   const pressed = new Map();
-  const buttons = ["write", "preview", "social", "optimize", "settings"].map((paneTarget) => ({
+  const buttons = ["write", "preview", "social", "optimize", "settings", "accessibility"].map((paneTarget) => ({
     dataset: { paneTarget },
     setAttribute: (name, value) => pressed.set(paneTarget, [name, value]),
   }));
@@ -78,7 +79,88 @@ test("editor view selection updates the container and every toggle", () => {
     social: ["aria-pressed", "false"],
     optimize: ["aria-pressed", "false"],
     settings: ["aria-pressed", "false"],
+    accessibility: ["aria-pressed", "false"],
   });
+});
+
+test("accessibility findings are grouped by outcome with precise source labels", () => {
+  assert.deepEqual(
+    accessibilityReview([
+      {
+        code: "link-name-empty",
+        outcome: "detected",
+        scope: "content",
+        source: { path: "posts/example.md", line: 7, column: 1, field: null },
+        message: "This link has no accessible name.",
+        repair: "Add descriptive link text.",
+        references: ["WCAG-2.2-2.4.4"],
+      },
+      {
+        code: "document-language-missing",
+        outcome: "detected",
+        scope: "site",
+        source: { path: "openblog.json", line: null, column: null, field: "language" },
+        message: "Generated pages have no configured default language.",
+        repair: "Set the site language.",
+        references: ["WCAG-2.2-3.1.1"],
+      },
+      {
+        code: "image-alt-review",
+        outcome: "needs-review",
+        scope: "content",
+        source: { path: "posts/example.md", line: 10, column: 1, field: null },
+        message: "Review this image.",
+        repair: "Decide whether it needs alternative text.",
+        references: [],
+      },
+      { outcome: "unknown", message: "Ignore unsupported payloads" },
+    ]),
+    {
+      total: 3,
+      counts: { detected: 2, potential: 0, "needs-review": 1 },
+      groups: [
+        {
+          outcome: "detected",
+          label: "Detected",
+          findings: [
+            {
+              code: "link-name-empty",
+              outcome: "detected",
+              scope: "content",
+              sourceLabel: "posts/example.md:7:1",
+              message: "This link has no accessible name.",
+              repair: "Add descriptive link text.",
+              references: ["WCAG-2.2-2.4.4"],
+            },
+            {
+              code: "document-language-missing",
+              outcome: "detected",
+              scope: "site",
+              sourceLabel: "openblog.json · language",
+              message: "Generated pages have no configured default language.",
+              repair: "Set the site language.",
+              references: ["WCAG-2.2-3.1.1"],
+            },
+          ],
+        },
+        {
+          outcome: "needs-review",
+          label: "Needs review",
+          findings: [
+            {
+              code: "image-alt-review",
+              outcome: "needs-review",
+              scope: "content",
+              sourceLabel: "posts/example.md:10:1",
+              message: "Review this image.",
+              repair: "Decide whether it needs alternative text.",
+              references: [],
+            },
+          ],
+        },
+      ],
+    },
+  );
 });
 
 test("overview drill-down routes retain validated status filters and issue focus", () => {

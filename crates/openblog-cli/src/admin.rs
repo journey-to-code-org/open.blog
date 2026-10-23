@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use openblog_core::accessibility::AuditScope;
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::markdown::RenderOptions;
 use openblog_core::slug::slugify;
@@ -1560,6 +1561,12 @@ fn preview(state: &AppState, req: &Request) -> Response {
     if previews.len() > 16 {
         previews.remove(0);
     }
+    let accessibility: Vec<_> = preview_site
+        .accessibility
+        .iter()
+        .filter(|finding| finding.source.path == rel || finding.scope == AuditScope::Site)
+        .cloned()
+        .collect();
     Response::json(
         200,
         &json!({
@@ -1567,7 +1574,8 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "url": url,
             "theme": theme,
             "social": social,
-            "warnings": preview_site.warnings
+            "warnings": preview_site.warnings,
+            "accessibility": accessibility
         }),
     )
 }
@@ -2191,6 +2199,63 @@ mod tests {
         assert!(warnings.iter().any(|warning| warning
             .as_str()
             .is_some_and(|text| text.contains("unknown content profile `field-notes`"))));
+    }
+
+    #[test]
+    fn preview_accessibility_is_scoped_to_the_document_and_site() {
+        let f = fixture("preview-accessibility");
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["language"] = json!("");
+        fs::write(&config_path, config.to_string()).unwrap();
+        fs::write(
+            f.dir.join("content/posts/unrelated.md"),
+            "---\ntitle: Unrelated\ndate: 2026-10-22\n---\n[](/unrelated)\n",
+        )
+        .unwrap();
+        let session = login_ok(&f);
+
+        let preview = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({
+                        "kind": "posts",
+                        "path": "posts/current.md",
+                        "fields": { "title": "Current", "date": "2026-10-23" },
+                        "body": "[](/current)"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            preview.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&preview.body)
+        );
+        let findings = body_json(&preview)["accessibility"]
+            .as_array()
+            .unwrap()
+            .clone();
+
+        assert_eq!(findings.len(), 2);
+        assert!(findings.iter().any(|finding| {
+            finding["code"] == "document-language-missing"
+                && finding["scope"] == "site"
+                && finding["source"]["path"] == "openblog.json"
+        }));
+        assert!(findings.iter().any(|finding| {
+            finding["code"] == "link-name-empty" && finding["source"]["path"] == "posts/current.md"
+        }));
+        assert!(!findings
+            .iter()
+            .any(|finding| finding["source"]["path"] == "posts/unrelated.md"));
     }
 
     #[test]

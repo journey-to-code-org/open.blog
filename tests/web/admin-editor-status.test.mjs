@@ -23,10 +23,23 @@ test("editor reports document size and save state", () => {
 });
 
 test("editor panes can be focused from Alt number shortcuts", () => {
-  assert.match(admin, /e\.altKey && \["1", "2", "3", "4", "5"\]\.includes\(e\.key\)/);
-  assert.match(admin, /\["write", "preview", "social", "optimize", "settings"\]/);
+  assert.match(admin, /e\.altKey && \["1", "2", "3", "4", "5", "6"\]\.includes\(e\.key\)/);
+  assert.match(admin, /\["write", "preview", "social", "optimize", "settings", "accessibility"\]/);
   assert.match(admin, /this\.editor\.activatePane\(pane, true\)/);
   assert.match(admin, /target\?\.focus\(\)/);
+});
+
+test("Accessibility Studio reports source findings without claiming conformance", () => {
+  assert.match(admin, /"data-pane": "accessibility"/);
+  assert.match(admin, /Accessibility Studio/);
+  assert.match(admin, /No issues detected by the checks that ran\./);
+  assert.match(admin, /does not test every accessibility requirement or certify WCAG conformance/);
+  assert.match(admin, /preview\.accessibility/);
+  assert.match(admin, /accessibilityReview/);
+  assert.match(admin, /ui\.accessibilityFindings = h\("div", \{ class: "oba-accessibility-findings" \}\)/);
+  assert.doesNotMatch(admin, /accessibilityScore/);
+  assert.match(styles, /\.oba-accessibility-workspace/);
+  assert.match(styles, /\.oba-accessibility-finding/);
 });
 
 test("optimizer separates search, answer, and trust guidance", () => {
