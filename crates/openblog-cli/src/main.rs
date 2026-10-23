@@ -2,6 +2,7 @@
 
 mod admin;
 mod analytics;
+mod assistant;
 mod auth;
 mod clock;
 mod contributor_migration;

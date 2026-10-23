@@ -27,6 +27,10 @@ use openblog_core::{
 };
 use serde_json::{json, Map, Value as Json};
 
+use crate::assistant::{
+    AssistantErrorKind, AssistantProvider, AssistantRequest, AssistantResult, AssistantSource,
+    AssistantTask, KnowledgeCheckCount, LegacyQuizEndpoint, ASSISTANT_SCHEMA_VERSION,
+};
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
 use crate::fsutil;
@@ -974,57 +978,6 @@ fn meta(state: &AppState) -> Response {
     )
 }
 
-fn validated_questions(value: &Json) -> Result<Json, String> {
-    let questions = value["questions"]
-        .as_array()
-        .ok_or("generation response needs a `questions` array")?;
-    if !(1..=3).contains(&questions.len()) {
-        return Err("generation response needs between one and three questions".into());
-    }
-    let mut clean = Vec::with_capacity(questions.len());
-    for (number, question) in questions.iter().enumerate() {
-        let prompt = question["prompt"].as_str().unwrap_or("").trim();
-        let choices = question["choices"]
-            .as_array()
-            .ok_or_else(|| format!("question {} needs a choices array", number + 1))?;
-        let correct = question["correctIndex"]
-            .as_u64()
-            .ok_or_else(|| format!("question {} needs a correctIndex", number + 1))?
-            as usize;
-        let explanation = question["explanation"].as_str().unwrap_or("").trim();
-        if prompt.is_empty() || prompt.chars().count() > 500 {
-            return Err(format!("question {} has an invalid prompt", number + 1));
-        }
-        if !(2..=4).contains(&choices.len()) || correct >= choices.len() {
-            return Err(format!(
-                "question {} needs two to four choices and a valid correctIndex",
-                number + 1
-            ));
-        }
-        let mut clean_choices = Vec::with_capacity(choices.len());
-        for choice in choices {
-            let text = choice.as_str().unwrap_or("").trim();
-            if text.is_empty() || text.chars().count() > 300 {
-                return Err(format!("question {} has an invalid choice", number + 1));
-            }
-            clean_choices.push(text);
-        }
-        if explanation.chars().count() > 1000 {
-            return Err(format!(
-                "question {} has an explanation that is too long",
-                number + 1
-            ));
-        }
-        clean.push(json!({
-            "prompt": prompt,
-            "choices": clean_choices,
-            "correctIndex": correct,
-            "explanation": explanation,
-        }));
-    }
-    Ok(json!({ "questions": clean }))
-}
-
 fn generate_quiz(state: &AppState, req: &Request) -> Response {
     if let Err(response) = require_json(req) {
         return response;
@@ -1046,72 +999,41 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     }
 
     let config = site::load_config(&state.root).unwrap_or_default();
-    let endpoint = config.knowledge_checks.generation_endpoint.trim();
-    if endpoint.is_empty() {
-        return Response::error(404, "Quiz generation is not configured");
-    }
-    let test_loopback = cfg!(test) && endpoint.starts_with("http://127.0.0.1:");
-    if !endpoint.starts_with("https://") && !test_loopback {
-        return Response::error(400, "Quiz generation endpoint must use HTTPS");
-    }
-    let key = match std::env::var("OPENBLOG_LESSONS_API_KEY") {
-        Ok(key) if !key.trim().is_empty() => key,
-        _ => return Response::error(503, "OPENBLOG_LESSONS_API_KEY is not set"),
-    };
-    let payload = json!({
-        "model": config.knowledge_checks.model,
-        "context": context,
-        "count": count,
-        "task": "Draft short multiple-choice knowledge checks grounded only in the supplied article context. Return JSON only.",
-        "responseSchema": {
-            "questions": [{
-                "prompt": "string",
-                "choices": ["string", "string"],
-                "correctIndex": 0,
-                "explanation": "string"
-            }]
-        }
-    });
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(if cfg!(test) {
+    let provider = match LegacyQuizEndpoint::new(
+        &config.knowledge_checks.generation_endpoint,
+        std::env::var("OPENBLOG_LESSONS_API_KEY").ok(),
+        if cfg!(test) {
             Duration::from_millis(300)
         } else {
             Duration::from_secs(30)
-        }))
-        .user_agent(concat!(
-            "open.blog-admin/",
-            env!("CARGO_PKG_VERSION"),
-            " (+https://github.com/journey-to-code-org/open.blog)"
-        ))
-        .build()
-        .into();
-    let mut response = match agent
-        .post(endpoint)
-        .header("Content-Type", "application/json")
-        .header("Authorization", &format!("Bearer {}", key.trim()))
-        .send(payload.to_string())
-    {
-        Ok(response) => response,
-        Err(error) => return Response::error(502, &format!("Quiz generation failed: {error}")),
-    };
-    let bytes = match response
-        .body_mut()
-        .with_config()
-        .limit(128 * 1024)
-        .read_to_vec()
-    {
-        Ok(bytes) => bytes,
+        },
+        cfg!(test),
+    ) {
+        Ok(provider) => provider,
         Err(error) => {
-            return Response::error(502, &format!("Cannot read generation response: {error}"))
+            let status = match error.kind {
+                AssistantErrorKind::NotConfigured => 404,
+                AssistantErrorKind::InvalidConfiguration => 400,
+                AssistantErrorKind::MissingCredential => 503,
+                _ => 500,
+            };
+            return Response::error(status, error.public_message());
         }
     };
-    let value: Json = match serde_json::from_slice(&bytes) {
-        Ok(value) => value,
-        Err(_) => return Response::error(502, "Generation endpoint returned invalid JSON"),
+    let request = AssistantRequest {
+        schema_version: ASSISTANT_SCHEMA_VERSION,
+        task: AssistantTask::KnowledgeChecks {
+            count: KnowledgeCheckCount::new(count as u8)
+                .expect("the request count was validated above"),
+        },
+        model: config.knowledge_checks.model,
+        source: AssistantSource {
+            content: context.to_string(),
+        },
     };
-    match validated_questions(&value) {
-        Ok(clean) => Response::json(200, &clean),
-        Err(error) => Response::error(502, &error),
+    match provider.generate(&request) {
+        Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
+        Err(error) => Response::error(502, error.public_message()),
     }
 }
 
@@ -3179,28 +3101,6 @@ mod tests {
     }
 
     #[test]
-    fn quiz_generation_responses_are_strictly_validated() {
-        let good = validated_questions(&json!({
-            "questions": [{
-                "prompt": "What stays local?",
-                "choices": ["Reader attempts", "Published posts"],
-                "correctIndex": 0,
-                "explanation": "Attempts are stored in the reader's browser."
-            }]
-        }))
-        .unwrap();
-        assert_eq!(good["questions"][0]["correctIndex"], 0);
-        for bad in [
-            json!({ "questions": [] }),
-            json!({ "questions": [{ "prompt": "Q", "choices": ["A"], "correctIndex": 0 }] }),
-            json!({ "questions": [{ "prompt": "Q", "choices": ["A", "B"], "correctIndex": 2 }] }),
-            json!({ "questions": [{ "prompt": "", "choices": ["A", "B"], "correctIndex": 0 }] }),
-        ] {
-            assert!(validated_questions(&bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
     fn admin_meta_describes_available_content_profiles() {
         let f = fixture("profile-meta");
         let response = meta(&f.state);
@@ -3440,27 +3340,51 @@ mod tests {
         std::env::set_var("OPENBLOG_LESSONS_API_KEY", "test-secret");
 
         let cases = [
-            (500, "{}".to_string(), Duration::ZERO, "provider status"),
-            (200, "not json".to_string(), Duration::ZERO, "invalid JSON"),
+            (
+                500,
+                "{}".to_string(),
+                Duration::ZERO,
+                "provider status",
+                "HTTP 500",
+            ),
+            (
+                200,
+                "not json".to_string(),
+                Duration::ZERO,
+                "invalid JSON",
+                "invalid JSON",
+            ),
             (
                 200,
                 json!({ "questions": [{ "prompt": "Q", "choices": ["A"], "correctIndex": 0 }] })
                     .to_string(),
                 Duration::ZERO,
                 "invalid schema",
+                "two to four choices",
             ),
             (
                 200,
                 "x".repeat(129 * 1024),
                 Duration::ZERO,
                 "oversized response",
+                "Cannot read",
             ),
-            (200, "{}".to_string(), Duration::from_millis(600), "timeout"),
+            (
+                200,
+                "{}".to_string(),
+                Duration::from_millis(600),
+                "timeout",
+                "timed out",
+            ),
         ];
-        for (status, body, delay, label) in cases {
+        for (status, body, delay, label, expected) in cases {
             let (endpoint, server) = quiz_provider(status, body, delay);
             set_quiz_endpoint(&f, &endpoint);
-            assert_eq!(handle(&f.state, &request()).status, 502, "{label}");
+            let response = handle(&f.state, &request());
+            assert_eq!(response.status, 502, "{label}");
+            let response_body = String::from_utf8_lossy(&response.body);
+            assert!(response_body.contains(expected), "{label}: {response_body}");
+            assert!(!response_body.contains("test-secret"), "{label}");
             server.join().unwrap();
         }
 
