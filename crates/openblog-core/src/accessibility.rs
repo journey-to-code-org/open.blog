@@ -1,7 +1,7 @@
 //! Structured accessibility guidance derived from canonical blog source.
 
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
-use serde::Serialize;
+use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
+use serde::{ser::SerializeStruct, Serialize, Serializer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -20,19 +20,75 @@ pub enum AuditScope {
     Embed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum FindingCode {
+    LinkNameEmpty,
+    DocumentLanguageMissing,
+    ImageAltReview,
+    ImageAltPlaceholder,
+    HeadingLevelSkip,
+    LinkPurposeReview,
+    TableStructureReview,
+    MediaAlternativesReview,
+    EmbedAccessibilityReview,
+    RawHtmlReview,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FindingLocation {
+    Markdown { line: usize, column: usize },
+    Field { field: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FindingSource {
     pub path: String,
-    pub line: Option<usize>,
-    pub column: Option<usize>,
-    pub field: Option<String>,
+    pub location: FindingLocation,
+}
+
+impl FindingSource {
+    pub fn line(&self) -> Option<usize> {
+        match self.location {
+            FindingLocation::Markdown { line, .. } => Some(line),
+            FindingLocation::Field { .. } => None,
+        }
+    }
+
+    pub fn column(&self) -> Option<usize> {
+        match self.location {
+            FindingLocation::Markdown { column, .. } => Some(column),
+            FindingLocation::Field { .. } => None,
+        }
+    }
+
+    pub fn field(&self) -> Option<&str> {
+        match &self.location {
+            FindingLocation::Field { field } => Some(field),
+            FindingLocation::Markdown { .. } => None,
+        }
+    }
+}
+
+impl Serialize for FindingSource {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut source = serializer.serialize_struct("FindingSource", 4)?;
+        source.serialize_field("path", &self.path)?;
+        source.serialize_field("line", &self.line())?;
+        source.serialize_field("column", &self.column())?;
+        source.serialize_field("field", &self.field())?;
+        source.end()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccessibilityFinding {
-    pub code: String,
+    pub code: FindingCode,
     pub outcome: AuditOutcome,
     pub scope: AuditScope,
     pub source: FindingSource,
@@ -45,6 +101,8 @@ pub struct AccessibilityFinding {
 pub struct DocumentAuditInput<'a> {
     pub path: &'a str,
     pub markdown: &'a str,
+    /// One-based line where `markdown` begins in the canonical source file.
+    pub body_line: usize,
     /// `Some(alt)` means the document has a cover image; `None` means it does not.
     pub cover_alt: Option<&'a str>,
 }
@@ -58,7 +116,7 @@ pub fn audit_site_language(path: &str, language: &str) -> Vec<AccessibilityFindi
         path,
         "language",
         FindingDetails::new(
-            "document-language-missing",
+            FindingCode::DocumentLanguageMissing,
             AuditOutcome::Detected,
             AuditScope::Site,
             "Generated pages have no configured default language.",
@@ -84,7 +142,7 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                 input.path,
                 "coverAlt",
                 FindingDetails::new(
-                    "image-alt-review",
+                    FindingCode::ImageAltReview,
                     AuditOutcome::NeedsReview,
                     AuditScope::Content,
                     "Decide whether the cover image is decorative or needs alternative text.",
@@ -97,7 +155,7 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                 input.path,
                 "coverAlt",
                 FindingDetails::new(
-                    "image-alt-placeholder",
+                    FindingCode::ImageAltPlaceholder,
                     AuditOutcome::Potential,
                     AuditScope::Content,
                     "The cover image alternative looks like a filename or placeholder.",
@@ -114,9 +172,12 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
     let mut saw_table = false;
     let mut saw_raw_html = false;
     let mut saw_media = false;
-    let options = parser_options();
+    let options = crate::markdown::parser_options(false);
+    let events: Vec<_> = Parser::new_ext(input.markdown, options)
+        .into_offset_iter()
+        .collect();
 
-    for (event, range) in Parser::new_ext(input.markdown, options).into_offset_iter() {
+    for (event, range) in events.iter().cloned() {
         match event {
             Event::Start(Tag::Link { dest_url, .. }) => {
                 link = Some(LinkState {
@@ -138,11 +199,10 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                 let level = heading_level(level);
                 if level > previous_heading + 1 {
                     findings.push(finding(
-                        input.path,
-                        input.markdown,
+                        input,
                         range.start,
                         FindingDetails::new(
-                            "heading-level-skip",
+                            FindingCode::HeadingLevelSkip,
                             AuditOutcome::Potential,
                             AuditScope::Content,
                             format!(
@@ -158,11 +218,10 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
             Event::Start(Tag::Table(_)) if !saw_table => {
                 saw_table = true;
                 findings.push(finding(
-                    input.path,
-                    input.markdown,
+                    input,
                     range.start,
                     FindingDetails::new(
-                        "table-structure-review",
+                        FindingCode::TableStructureReview,
                         AuditOutcome::NeedsReview,
                         AuditScope::Content,
                         "Review whether this table's structure communicates its relationships.",
@@ -178,11 +237,10 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                 if !saw_raw_html {
                     saw_raw_html = true;
                     findings.push(finding(
-                        input.path,
-                        input.markdown,
+                        input,
                         range.start,
                         FindingDetails::new(
-                            "raw-html-review",
+                            FindingCode::RawHtmlReview,
                             AuditOutcome::NeedsReview,
                             AuditScope::Content,
                             "Raw HTML can introduce semantics and interactions that source checks cannot verify.",
@@ -204,11 +262,10 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                 if let Some(image) = image.take() {
                     if image.name.trim().is_empty() {
                         findings.push(finding(
-                            input.path,
-                            input.markdown,
+                            input,
                             image.offset,
                             FindingDetails::new(
-                                "image-alt-review",
+                                FindingCode::ImageAltReview,
                                 AuditOutcome::NeedsReview,
                                 AuditScope::Content,
                                 "Decide whether this image is decorative or needs alternative text.",
@@ -218,11 +275,10 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                         ));
                     } else if placeholder_alt(&image.name) {
                         findings.push(finding(
-                            input.path,
-                            input.markdown,
+                            input,
                             image.offset,
                             FindingDetails::new(
-                                "image-alt-placeholder",
+                                FindingCode::ImageAltPlaceholder,
                                 AuditOutcome::Potential,
                                 AuditScope::Content,
                                 "This image alternative looks like a filename or placeholder.",
@@ -237,11 +293,10 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                 if let Some(link) = link.take() {
                     if link.name.trim().is_empty() && !link.indeterminate_name {
                         findings.push(finding(
-                            input.path,
-                            input.markdown,
+                            input,
                             link.offset,
                             FindingDetails::new(
-                                "link-name-empty",
+                                FindingCode::LinkNameEmpty,
                                 AuditOutcome::Detected,
                                 AuditScope::Content,
                                 "This link has no accessible name.",
@@ -251,11 +306,10 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                         ));
                     } else if generic_link_text(&link.name) {
                         findings.push(finding(
-                            input.path,
-                            input.markdown,
+                            input,
                             link.offset,
                             FindingDetails::new(
-                                "link-purpose-review",
+                                FindingCode::LinkPurposeReview,
                                 AuditOutcome::Potential,
                                 AuditScope::Content,
                                 format!(
@@ -275,11 +329,10 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                     {
                         saw_media = true;
                         findings.push(finding(
-                            input.path,
-                            input.markdown,
+                            input,
                             link.offset,
                             FindingDetails::new(
-                                "media-alternatives-review",
+                                FindingCode::MediaAlternativesReview,
                                 AuditOutcome::NeedsReview,
                                 AuditScope::Content,
                                 "Linked audio or video needs an alternatives review.",
@@ -294,16 +347,26 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
         }
     }
 
-    let mut offset = 0;
-    for line in input.markdown.split_inclusive('\n') {
-        let source = line.trim();
-        if standalone_embed(source) {
+    for (index, (event, range)) in events.iter().enumerate() {
+        if matches!(event, Event::Start(Tag::Paragraph)) {
+            let Some(length) = events[index + 1..]
+                .iter()
+                .position(|(event, _)| matches!(event, Event::End(TagEnd::Paragraph)))
+            else {
+                continue;
+            };
+            let inner: Vec<_> = events[index + 1..index + 1 + length]
+                .iter()
+                .map(|(event, _)| event.clone())
+                .collect();
+            if crate::markdown::standalone_embed(&inner).is_none() {
+                continue;
+            }
             findings.push(finding(
-                input.path,
-                input.markdown,
-                offset + line.find(source).unwrap_or(0),
+                input,
+                range.start,
                 FindingDetails::new(
-                    "embed-accessibility-review",
+                    FindingCode::EmbedAccessibilityReview,
                     AuditOutcome::NeedsReview,
                     AuditScope::Embed,
                     "This link becomes an embedded third-party experience when published.",
@@ -313,39 +376,9 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
             ));
             break;
         }
-        offset += line.len();
     }
 
     findings
-}
-
-fn parser_options() -> Options {
-    Options::ENABLE_TABLES
-        | Options::ENABLE_FOOTNOTES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_HEADING_ATTRIBUTES
-        | Options::ENABLE_GFM
-}
-
-fn standalone_embed(source: &str) -> bool {
-    if source.is_empty() {
-        return false;
-    }
-    if crate::embed::detect(source).is_some() {
-        return true;
-    }
-    let events: Vec<_> = Parser::new_ext(source, parser_options()).collect();
-    match events.as_slice() {
-        [Event::Start(Tag::Paragraph), Event::Start(Tag::Link { dest_url, .. }), middle @ .., Event::End(TagEnd::Link), Event::End(TagEnd::Paragraph)]
-            if middle
-                .iter()
-                .all(|event| matches!(event, Event::Text(_) | Event::Code(_))) =>
-        {
-            crate::embed::detect(dest_url).is_some()
-        }
-        _ => false,
-    }
 }
 
 fn heading_level(level: HeadingLevel) -> u8 {
@@ -390,7 +423,7 @@ fn is_media_destination(destination: &str) -> bool {
 }
 
 struct FindingDetails {
-    code: String,
+    code: FindingCode,
     outcome: AuditOutcome,
     scope: AuditScope,
     message: String,
@@ -400,7 +433,7 @@ struct FindingDetails {
 
 impl FindingDetails {
     fn new(
-        code: &str,
+        code: FindingCode,
         outcome: AuditOutcome,
         scope: AuditScope,
         message: impl Into<String>,
@@ -408,7 +441,7 @@ impl FindingDetails {
         references: &[&str],
     ) -> Self {
         Self {
-            code: code.to_string(),
+            code,
             outcome,
             scope,
             message: message.into(),
@@ -428,9 +461,9 @@ fn field_finding(path: &str, field: &str, details: FindingDetails) -> Accessibil
         scope: details.scope,
         source: FindingSource {
             path: path.to_string(),
-            line: None,
-            column: None,
-            field: Some(field.to_string()),
+            location: FindingLocation::Field {
+                field: field.to_string(),
+            },
         },
         message: details.message,
         repair: details.repair,
@@ -439,12 +472,11 @@ fn field_finding(path: &str, field: &str, details: FindingDetails) -> Accessibil
 }
 
 fn finding(
-    path: &str,
-    markdown: &str,
+    input: DocumentAuditInput<'_>,
     offset: usize,
     details: FindingDetails,
 ) -> AccessibilityFinding {
-    let line_start = markdown[..offset]
+    let line_start = input.markdown[..offset]
         .rfind('\n')
         .map_or(0, |newline| newline + 1);
     AccessibilityFinding {
@@ -452,16 +484,16 @@ fn finding(
         outcome: details.outcome,
         scope: details.scope,
         source: FindingSource {
-            path: path.to_string(),
-            line: Some(
-                markdown[..offset]
-                    .bytes()
-                    .filter(|byte| *byte == b'\n')
-                    .count()
+            path: input.path.to_string(),
+            location: FindingLocation::Markdown {
+                line: input.body_line.max(1) - 1
+                    + input.markdown[..offset]
+                        .bytes()
+                        .filter(|byte| *byte == b'\n')
+                        .count()
                     + 1,
-            ),
-            column: Some(markdown[line_start..offset].chars().count() + 1),
-            field: None,
+                column: input.markdown[line_start..offset].chars().count() + 1,
+            },
         },
         message: details.message,
         repair: details.repair,

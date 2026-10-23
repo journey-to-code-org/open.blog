@@ -681,6 +681,11 @@ fn standalone_url(inner: &[Event]) -> Option<String> {
     }
 }
 
+/// The production embed represented by one paragraph's inner events, if any.
+pub(crate) fn standalone_embed(inner: &[Event<'_>]) -> Option<crate::embed::Embed> {
+    standalone_url(inner).and_then(|url| crate::embed::detect(&url))
+}
+
 /// Replace standalone embeddable links with their embed HTML.
 fn apply_embeds(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
     let mut out = Vec::with_capacity(events.len());
@@ -692,7 +697,7 @@ fn apply_embeds(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
                 .position(|e| matches!(e, Event::End(TagEnd::Paragraph)))
             {
                 let inner = &events[i + 1..i + 1 + len];
-                if let Some(embed) = standalone_url(inner).and_then(|u| crate::embed::detect(&u)) {
+                if let Some(embed) = standalone_embed(inner) {
                     out.push(Event::Html(CowStr::from(crate::embed::html(&embed))));
                     i += len + 2;
                     continue;
@@ -705,17 +710,21 @@ fn apply_embeds(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
     out
 }
 
-pub fn render(markdown: &str, options: RenderOptions) -> Rendered {
-    let mut parser_options = Options::ENABLE_TABLES
+pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
+    let mut options = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_HEADING_ATTRIBUTES
         | Options::ENABLE_GFM; // > [!NOTE] callouts
-    if options.smart_punctuation {
-        parser_options |= Options::ENABLE_SMART_PUNCTUATION;
+    if smart_punctuation {
+        options |= Options::ENABLE_SMART_PUNCTUATION;
     }
-    let parser = Parser::new_ext(markdown, parser_options);
+    options
+}
+
+pub fn render(markdown: &str, options: RenderOptions) -> Rendered {
+    let parser = Parser::new_ext(markdown, parser_options(options.smart_punctuation));
 
     let mut events: Vec<Event> = Vec::new();
     let mut headings = Vec::new();
