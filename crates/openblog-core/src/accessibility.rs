@@ -103,6 +103,8 @@ pub struct DocumentAuditInput<'a> {
     pub markdown: &'a str,
     /// One-based line where `markdown` begins in the canonical source file.
     pub body_line: usize,
+    /// Whether the production Markdown renderer turns supported standalone links into embeds.
+    pub embeds_enabled: bool,
     /// `Some(alt)` means the document has a cover image; `None` means it does not.
     pub cover_alt: Option<&'a str>,
 }
@@ -347,8 +349,11 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
         }
     }
 
-    for (index, (event, range)) in events.iter().enumerate() {
-        if matches!(event, Event::Start(Tag::Paragraph)) {
+    if input.embeds_enabled {
+        for (index, (event, range)) in events.iter().enumerate() {
+            if !matches!(event, Event::Start(Tag::Paragraph)) {
+                continue;
+            }
             let Some(length) = events[index + 1..]
                 .iter()
                 .position(|(event, _)| matches!(event, Event::End(TagEnd::Paragraph)))

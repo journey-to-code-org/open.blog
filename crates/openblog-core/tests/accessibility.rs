@@ -8,6 +8,7 @@ fn empty_text_link_is_a_located_detected_issue() {
         path: "posts/example.md",
         markdown: "Intro.\n\nA [](/destination) link.\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -27,6 +28,7 @@ fn empty_markdown_image_alt_is_a_review_task_not_a_failure() {
         path: "posts/chart.md",
         markdown: "Context.\n\n![](/images/chart.png)\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -43,6 +45,7 @@ fn filename_like_image_alt_is_only_a_potential_issue() {
         path: "posts/chart.md",
         markdown: "![quarterly-results.png](/images/chart.png)\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -58,6 +61,7 @@ fn common_placeholder_image_alt_is_a_potential_issue() {
         path: "posts/photo.md",
         markdown: "![image](/images/sunset.webp)\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -72,6 +76,7 @@ fn empty_cover_alt_is_located_in_front_matter_for_review() {
         path: "posts/cover.md",
         markdown: "Body.\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: Some(""),
     });
 
@@ -88,6 +93,7 @@ fn placeholder_cover_alt_is_a_front_matter_potential_issue() {
         path: "posts/cover.md",
         markdown: "Body.\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: Some("cover-photo.jpg"),
     });
 
@@ -103,6 +109,7 @@ fn skipped_heading_level_is_a_located_potential_issue() {
         path: "posts/outline.md",
         markdown: "## Context\n\n#### Detail\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -119,6 +126,7 @@ fn first_body_heading_is_checked_after_the_generated_page_title() {
         path: "pages/about.md",
         markdown: "### Background\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -133,6 +141,7 @@ fn generic_link_phrase_is_a_potential_issue_not_a_certain_failure() {
         path: "posts/links.md",
         markdown: "For the full report, [read more](/report).\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -148,6 +157,7 @@ fn tables_create_one_structure_review_task_per_document() {
         path: "posts/data.md",
         markdown: "| A | B |\n| - | - |\n| 1 | 2 |\n\n| C | D |\n| - | - |\n| 3 | 4 |\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -164,6 +174,7 @@ fn raw_html_creates_one_bounded_review_task() {
         path: "posts/custom.md",
         markdown: "<aside>Custom</aside>\n\nText with <span>inline HTML</span>.\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -179,6 +190,7 @@ fn raw_html_inside_a_link_defers_its_name_to_review() {
         path: "posts/custom-link.md",
         markdown: "[<span aria-label=\"Open demo\"></span>](/demo)\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -195,6 +207,7 @@ fn earlier_raw_html_does_not_make_a_later_custom_link_name_certain() {
         path: "posts/custom-link.md",
         markdown: "<aside>Note</aside>\n\n[<span aria-label=\"Open demo\"></span>](/demo)\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -208,6 +221,7 @@ fn locations_include_the_canonical_front_matter_line_offset() {
         path: "posts/offset.md",
         markdown: "Intro.\n\n#### Detail\n",
         body_line: 7,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -222,6 +236,7 @@ fn codepen_url_in_a_code_fence_is_not_a_rendered_embed() {
         path: "posts/code.md",
         markdown: "```text\nhttps://codepen.io/example/pen/abc123\n```\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -234,6 +249,7 @@ fn blockquoted_standalone_link_follows_production_embed_semantics() {
         path: "posts/demo.md",
         markdown: "> [Open the demo](https://codepen.io/example/pen/abc123)\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -247,6 +263,7 @@ fn multiline_link_is_not_reported_when_production_does_not_embed_it() {
         path: "posts/demo.md",
         markdown: "[Open the demo\n](https://codepen.io/example/pen/abc123)\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -259,6 +276,20 @@ fn inline_codepen_link_is_not_reported_as_a_rendered_embed() {
         path: "posts/demo.md",
         markdown: "Compare the [demo](https://codepen.io/example/pen/abc123) with production.\n",
         body_line: 1,
+        embeds_enabled: true,
+        cover_alt: None,
+    });
+
+    assert!(findings.is_empty());
+}
+
+#[test]
+fn standalone_codepen_link_is_not_an_embed_when_embeds_are_disabled() {
+    let findings = audit_document(DocumentAuditInput {
+        path: "posts/demo.md",
+        markdown: "[Open the demo](https://codepen.io/example/pen/abc123)\n",
+        body_line: 1,
+        embeds_enabled: false,
         cover_alt: None,
     });
 
@@ -272,6 +303,7 @@ fn linked_audio_or_video_creates_one_alternatives_review_task() {
         markdown:
             "[Watch the recorded talk](/media/talk.mp4) and [download audio](/media/talk.mp3).\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -288,6 +320,7 @@ fn rendered_embed_creates_an_embed_review_task() {
         path: "posts/demo.md",
         markdown: "[Open the demo](https://codepen.io/example/pen/abc123)\n",
         body_line: 1,
+        embeds_enabled: true,
         cover_alt: None,
     });
 
@@ -316,6 +349,7 @@ fn finding_json_keeps_stable_codes_and_flat_optional_locations() {
         path: "posts/example.md",
         markdown: "[](/destination)\n",
         body_line: 4,
+        embeds_enabled: true,
         cover_alt: None,
     })
     .remove(0);
