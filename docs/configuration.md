@@ -11,6 +11,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "url": "https://example.com",                  // the address the site is published at
   "language": "en",
   "author": { "name": "", "url": "", "email": "", "sameAs": [] },
+  "contributors": {},                           // reusable people for per-post credits
   "logo": "",                                    // image beside the title, e.g. /images/logo.png
   "favicon": "",
   "ogImage": "",                                 // social card image for pages without a cover
@@ -60,6 +61,9 @@ default, so you can edit values in place and delete the ones you do not need.
 - **`author.sameAs`** lists only public profiles that identify the same person (for example,
   a Mastodon, GitHub, or professional profile). It feeds structured author identity; use
   `social` for generic footer links.
+- **`contributors`** is a reusable registry for posts with multiple authors or other
+  credited people. Keys are lowercase slugs. Each person supports `name`, `url`, `sameAs`,
+  and an optional ORCID iD. See [Work-specific credits](content.md#work-specific-credits).
 - **`home.intro`** is Markdown shown above the post list on the first page.
 
 ## Share, analytics, related posts, snippets, CDN

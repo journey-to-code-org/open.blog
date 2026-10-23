@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use http::Uri;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Author;
@@ -75,6 +76,38 @@ impl CreditRole {
     pub fn is_author(&self) -> bool {
         self.vocabulary == RoleVocabulary::Crossref && self.role == "author"
     }
+
+    /// Stable, human-readable label for the controlled role value.
+    pub fn label(&self) -> &'static str {
+        match (self.vocabulary, self.role.as_str()) {
+            (RoleVocabulary::Crossref, "author") => "Author",
+            (RoleVocabulary::Crossref, "corresponding-author") => "Corresponding author",
+            (RoleVocabulary::Crossref, "editor") => "Editor",
+            (RoleVocabulary::Crossref, "chair") => "Chair",
+            (RoleVocabulary::Crossref, "other") => "Other",
+            (RoleVocabulary::Crossref, "reviewer") => "Reviewer",
+            (RoleVocabulary::Crossref, "review-assistant") => "Review assistant",
+            (RoleVocabulary::Crossref, "reviewer-external") => "External reviewer",
+            (RoleVocabulary::Crossref, "stats-reviewer") => "Statistical reviewer",
+            (RoleVocabulary::Crossref, "reader") => "Reader",
+            (RoleVocabulary::Crossref, "translator") => "Translator",
+            (RoleVocabulary::Credit, "conceptualization") => "Conceptualization",
+            (RoleVocabulary::Credit, "data-curation") => "Data curation",
+            (RoleVocabulary::Credit, "formal-analysis") => "Formal analysis",
+            (RoleVocabulary::Credit, "funding-acquisition") => "Funding acquisition",
+            (RoleVocabulary::Credit, "investigation") => "Investigation",
+            (RoleVocabulary::Credit, "methodology") => "Methodology",
+            (RoleVocabulary::Credit, "project-administration") => "Project administration",
+            (RoleVocabulary::Credit, "resources") => "Resources",
+            (RoleVocabulary::Credit, "software") => "Software",
+            (RoleVocabulary::Credit, "supervision") => "Supervision",
+            (RoleVocabulary::Credit, "validation") => "Validation",
+            (RoleVocabulary::Credit, "visualization") => "Visualization",
+            (RoleVocabulary::Credit, "writing-original-draft") => "Writing – original draft",
+            (RoleVocabulary::Credit, "writing-review-editing") => "Writing – review & editing",
+            _ => "Contributor",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,6 +149,11 @@ pub fn normalize_registry(contributors: &mut BTreeMap<String, Contributor>) -> R
         }
         contributor.name = contributor.name.trim().to_string();
         contributor.url = contributor.url.trim().to_string();
+        if !contributor.url.is_empty() && !safe_profile_url(&contributor.url) {
+            return Err(format!(
+                "contributors.{id}.url must be an absolute HTTP(S) URL or a site-root path"
+            ));
+        }
         contributor.same_as = contributor
             .same_as
             .iter()
@@ -233,6 +271,46 @@ fn valid_registry_key(value: &str) -> bool {
         && !value.contains("--")
 }
 
+fn safe_profile_url(value: &str) -> bool {
+    if value
+        .chars()
+        .any(|character| character.is_control() || character.is_whitespace())
+    {
+        return false;
+    }
+    if value.starts_with('/') {
+        return !value.starts_with("//") && !value.contains('\\');
+    }
+    let Ok(uri) = value.parse::<Uri>() else {
+        return false;
+    };
+    if !matches!(uri.scheme_str(), Some("http" | "https")) {
+        return false;
+    }
+    let Some(authority) = uri.authority() else {
+        return false;
+    };
+    let authority_text = authority.as_str();
+    if authority_text.contains('@') {
+        return false;
+    }
+    let host = authority.host();
+    let suffix = authority_text.strip_prefix(host).unwrap_or_default();
+    if !suffix.is_empty()
+        && (!suffix.starts_with(':')
+            || suffix.len() == 1
+            || !suffix[1..].bytes().all(|byte| byte.is_ascii_digit())
+            || authority.port_u16().is_none())
+    {
+        return false;
+    }
+    !host.is_empty()
+        && host != "."
+        && !host.starts_with('.')
+        && !host.ends_with('.')
+        && !host.split('.').any(str::is_empty)
+}
+
 fn normalize_orcid(value: &str) -> Result<String, String> {
     let value = value.trim();
     if value.is_empty() {
@@ -307,5 +385,29 @@ mod tests {
         assert!(normalize_orcid("0000-0002-1825-0098")
             .unwrap_err()
             .contains("checksum"));
+    }
+
+    #[test]
+    fn contributor_profile_urls_are_safe_links_or_site_paths() {
+        for accepted in [
+            "https://example.com/ada",
+            "http://localhost:8080/ada",
+            "/people/ada/",
+        ] {
+            assert!(safe_profile_url(accepted), "expected {accepted} to be safe");
+        }
+        for rejected in [
+            "javascript:alert(1)",
+            "data:text/html,boom",
+            "//evil.example/ada",
+            r"/\evil.example/ada",
+            "https://user@example.com/ada",
+            "https://bad host.example/ada",
+        ] {
+            assert!(
+                !safe_profile_url(rejected),
+                "expected {rejected} to be rejected"
+            );
+        }
     }
 }

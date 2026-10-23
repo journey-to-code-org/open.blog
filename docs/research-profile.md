@@ -48,7 +48,8 @@ A research post keeps the ordinary article page and adds:
 - `ScholarlyArticle` JSON-LD with explicit DOI identifier, valid license URL, and bounded
   citation URLs when present;
 - `citation_title`, `citation_author`, and `citation_publication_date` Highwire metadata when
-  the site has an actual author name.
+  the post resolves at least one actual author. A work-credit sidecar emits one
+  `citation_author` tag per `crossref:author`, in authored order.
 
 The engine deliberately does not invent journal, conference, volume, issue, pages,
 publisher, funding, contributor roles, or peer-review status. It does not emit partial

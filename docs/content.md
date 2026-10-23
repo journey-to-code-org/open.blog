@@ -86,6 +86,62 @@ same conservative checks run during a build and warn about weak descriptions, un
 long titles or descriptions, and covers without alternative text. They are editorial
 prompts, not a made-up SEO score and not a guarantee of placement.
 
+### Work-specific credits
+
+Posts inherit the site-level `author` by default. To publish multiple authors, editors,
+translators, or CRediT contributions, first register each person in `openblog.json`:
+
+```json
+{
+  "contributors": {
+    "ada-lovelace": {
+      "name": "Ada Lovelace",
+      "url": "https://example.com/ada",
+      "sameAs": ["https://social.example/@ada"],
+      "orcid": "0000-0002-1825-0097"
+    }
+  }
+}
+```
+
+Then add a versioned JSON file beside the post. For `content/posts/analysis.md`, use
+`content/posts/analysis.credits.json`:
+
+```json
+{
+  "version": 1,
+  "credits": [
+    {
+      "contributor": "ada-lovelace",
+      "roles": [
+        { "vocabulary": "crossref", "role": "author" },
+        { "vocabulary": "credit", "role": "software" }
+      ]
+    }
+  ]
+}
+```
+
+Credit order and role order are preserved. Only `crossref:author` appears in the byline,
+research `citation_author` metadata, and per-item feed authors; every credited person and
+role appears in the visible Contributions panel. JSON-LD separates ordered authors from
+other contributors. An explicit empty `credits` array suppresses inherited authorship.
+Contributor profile `url` values must be complete HTTP(S) URLs or site-root paths beginning
+with `/`; executable and protocol-relative schemes are rejected during configuration load.
+
+Accepted Crossref roles are `author`, `corresponding-author`, `editor`, `chair`, `other`,
+`reviewer`, `review-assistant`, `reviewer-external`, `stats-reviewer`, `reader`, and
+`translator`. Accepted CRediT roles are `conceptualization`, `data-curation`,
+`formal-analysis`, `funding-acquisition`, `investigation`, `methodology`,
+`project-administration`, `resources`, `software`, `supervision`, `validation`,
+`visualization`, `writing-original-draft`, and `writing-review-editing`.
+
+An ORCID iD entered in configuration is checksum-validated and normalized to its full HTTPS
+URL, but remains manual and unauthenticated. Public pages label it `(unauthenticated)`; the
+configuration format cannot claim OAuth provenance. See the
+[contributor identity decision](adr/0003-contributor-identity-and-orcid-provenance.md) for
+the model and trust boundary.
+
 ### File names and addresses
 
 A file named `2026-01-12-writing-a-post.md` gets the slug `writing-a-post` and, with the

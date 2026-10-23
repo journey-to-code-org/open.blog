@@ -174,6 +174,21 @@ fn invalid_manual_orcid_cannot_enter_the_config_model() {
 }
 
 #[test]
+fn executable_contributor_profile_urls_cannot_enter_the_config_model() {
+    let error = SiteConfig::from_json(
+        r#"{"contributors":{"ada":{"name":"Ada","url":"javascript:alert(1)"}}}"#,
+    )
+    .unwrap_err();
+    assert!(error.contains("contributors.ada.url"));
+    assert!(error.contains("HTTP(S) URL or a site-root path"));
+
+    let config =
+        SiteConfig::from_json(r#"{"contributors":{"ada":{"name":"Ada","url":"/people/ada/"}}}"#)
+            .unwrap();
+    assert_eq!(config.contributors["ada"].url, "/people/ada/");
+}
+
+#[test]
 fn editable_config_cannot_claim_authenticated_orcid_provenance() {
     let error = SiteConfig::from_json(
         r#"{

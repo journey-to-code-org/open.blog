@@ -5,7 +5,9 @@ URL, description, Open Graph metadata, visible author byline, `BlogPosting` JSON
 and update dates, topic tags, RSS and JSON feeds, and a sitemap. Recipe posts add matching
 `Recipe` data. Research posts use `ScholarlyArticle`, can expose DOI, license, and bounded
 reference links, and emit the minimum Google-documented Highwire title, author, and date
-tags when an actual author is configured. These foundations matter to both conventional
+tags when an actual author resolves. Optional work-credit sidecars publish ordered authors
+and secondary contributors consistently across visible HTML, structured data, and feeds.
+These foundations matter to both conventional
 search and AI-assisted search; no markup guarantees indexing or an AI citation.
 
 Research output does not infer a journal, publisher, peer-review status, authority, or claim
@@ -16,7 +18,9 @@ support. The profile and its Evidence Studio are structural publishing tools; se
 
 1. Set the real public `url`, a specific site `title` and `description`, and the author's
    public `name` and `url` in `openblog.json`. Add verified profile URLs to
-   `author.sameAs`; they are included in the author's structured identity.
+   `author.sameAs`; they are included in the author's structured identity. For shared work,
+   add a contributor registry and adjacent credit sidecar as described in
+   [Writing content](content.md#work-specific-credits).
 2. Write a descriptive post title and a 50–180 character description that states the answer
    or benefit plainly. The editor and build warn when metadata deserves another look.
 3. Add specific tags, descriptive H2/H3 section headings, and meaningful alternative text

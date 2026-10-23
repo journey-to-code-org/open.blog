@@ -83,6 +83,13 @@ pub const EMBEDDED_BASE_THEME: &str = include_str!("../../../themes/base/theme.j
 /// Rebuild with `openblog build-wasm` in the engine repository after changing
 /// openblog-core, and commit the result.
 pub const EMBEDDED_WEB_BINARY: &[(&str, &[u8])] = &[
+    // Official, unmodified ORCID unauthenticated icon colorways. The public
+    // component crops the green first panel at display time.
+    // Source: https://info.orcid.org/wp-content/uploads/2024/11/orcid-unauthenticated-id-icon.png
+    (
+        "orcid-unauthenticated-id-icons.png",
+        include_bytes!("../../../web/orcid-unauthenticated-id-icons.png"),
+    ),
     (
         "wasm/openblog_wasm.js",
         include_bytes!("../../../web/wasm/openblog_wasm.js"),

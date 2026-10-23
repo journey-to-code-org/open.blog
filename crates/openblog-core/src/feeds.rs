@@ -2,6 +2,7 @@
 //! latest-posts snapshot, and the search index. All are plain string builders
 //! over the site model.
 
+use crate::contributor::CreditProvenance;
 use crate::escape;
 use crate::model::Site;
 use crate::search::{Index, IndexEntry, INDEX_VERSION};
@@ -45,11 +46,22 @@ pub fn rss(site: &Site) -> String {
             escape::xml(&link)
         ));
         out.push_str(&format!("<pubDate>{}</pubDate>\n", post.date.rfc2822()));
-        if !c.author.name.is_empty() {
-            out.push_str(&format!(
-                "<dc:creator>{}</dc:creator>\n",
-                escape::xml(&c.author.name)
-            ));
+        match post.credit_provenance {
+            CreditProvenance::LegacySiteAuthor if !c.author.name.is_empty() => {
+                out.push_str(&format!(
+                    "<dc:creator>{}</dc:creator>\n",
+                    escape::xml(&c.author.name)
+                ));
+            }
+            CreditProvenance::ExplicitSidecar => {
+                for author in post.authors() {
+                    out.push_str(&format!(
+                        "<dc:creator>{}</dc:creator>\n",
+                        escape::xml(&author.contributor.name)
+                    ));
+                }
+            }
+            CreditProvenance::LegacySiteAuthor => {}
         }
         for tag in &post.tags {
             out.push_str(&format!(
@@ -109,6 +121,25 @@ pub fn json_feed(site: &Site) -> String {
             }
             if let Some(canonical) = &post.canonical {
                 item["external_url"] = serde_json::Value::String(canonical.clone());
+            }
+            if post.credit_provenance == CreditProvenance::ExplicitSidecar {
+                let authors = post
+                    .authors()
+                    .map(|credit| {
+                        let mut author = serde_json::json!({
+                            "name": credit.contributor.name,
+                        });
+                        if !credit.contributor.url.trim().is_empty() {
+                            author["url"] = serde_json::Value::String(
+                                c.absolute(credit.contributor.url.trim()),
+                            );
+                        }
+                        author
+                    })
+                    .collect::<Vec<_>>();
+                if !authors.is_empty() {
+                    item["authors"] = serde_json::Value::Array(authors);
+                }
             }
             item
         })
@@ -377,6 +408,42 @@ mod tests {
         .unwrap()
     }
 
+    fn credited_site() -> Site {
+        let config = SiteConfig::from_json(
+            r#"{
+              "title":"Journey","url":"https://j.io","postPath":"/{slug}/",
+              "author":{"name":"Legacy"},
+              "contributors":{
+                "editor":{"name":"Editor"},
+                "ada":{"name":"Ada & Co.","url":"https://ada.example"},
+                "grace":{"name":"Grace"}
+              }
+            }"#,
+        )
+        .unwrap();
+        Site::load(
+            config,
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/work.md".into(),
+                    contents: "---\ntitle: Work\ndate: 2026-10-23\n---\nBody".into(),
+                }],
+                credits: vec![SourceFile {
+                    path: "posts/work.credits.json".into(),
+                    contents: r#"{"version":1,"credits":[
+                      {"contributor":"editor","roles":[{"vocabulary":"crossref","role":"editor"}]},
+                      {"contributor":"ada","roles":[{"vocabulary":"crossref","role":"author"}]},
+                      {"contributor":"grace","roles":[{"vocabulary":"crossref","role":"author"}]}
+                    ]}"#
+                    .into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn rss_has_what_feed_readers_and_widgets_need() {
         let xml = rss(&site());
@@ -387,6 +454,24 @@ mod tests {
         assert!(xml.contains("<enclosure url=\"https://j.io/img/a.png\""));
         assert!(xml.contains("src=\"https://j.io/img/x.png\""));
         assert!(!xml.contains("<!DOCTYPE"));
+    }
+
+    #[test]
+    fn explicit_post_authors_are_ordered_in_rss_and_json_feed_items() {
+        let site = credited_site();
+        let xml = rss(&site);
+        let ada = xml.find("<dc:creator>Ada &amp; Co.</dc:creator>").unwrap();
+        let grace = xml.find("<dc:creator>Grace</dc:creator>").unwrap();
+        assert!(ada < grace);
+        assert!(!xml.contains("<dc:creator>Editor</dc:creator>"));
+        assert!(!xml.contains("<dc:creator>Legacy</dc:creator>"));
+
+        let feed: serde_json::Value = serde_json::from_str(&json_feed(&site)).unwrap();
+        assert_eq!(feed["authors"][0]["name"], "Legacy");
+        assert_eq!(feed["items"][0]["authors"][0]["name"], "Ada & Co.");
+        assert_eq!(feed["items"][0]["authors"][0]["url"], "https://ada.example");
+        assert_eq!(feed["items"][0]["authors"][1]["name"], "Grace");
+        assert_eq!(feed["items"][0]["authors"].as_array().unwrap().len(), 2);
     }
 
     #[test]
@@ -401,6 +486,7 @@ mod tests {
         assert!(map.contains("<loc>https://j.io/search/</loc>"));
         let feed: serde_json::Value = serde_json::from_str(&json_feed(&site())).unwrap();
         assert_eq!(feed["items"][1]["title"], "B");
+        assert!(feed["items"][0].get("authors").is_none());
         assert!(search_index(&site()).contains("\"version\":1"));
         let index = llms_index(&site());
         assert!(index.contains("[A & B](https://j.io/a/): Hello x"));

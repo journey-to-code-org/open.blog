@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::config::SiteConfig;
+use crate::contributor::{CreditProvenance, ResolvedCredit};
 use crate::escape::{attr, cdata, text};
 use crate::feeds;
 use crate::markdown::{self, RenderOptions};
@@ -967,19 +968,29 @@ impl<'a> Renderer<'a> {
             post.date.rfc3339(),
             text(&post.date.long())
         ));
-        if !c.author.name.trim().is_empty() {
-            if c.author.url.trim().is_empty() {
-                body.push_str(&format!(
-                    " · By <span class=\"p-author h-card\">{}</span>",
-                    text(&c.author.name)
-                ));
-            } else {
-                body.push_str(&format!(
-                    " · By <a class=\"p-author h-card\" rel=\"author\" href=\"{}\">{}</a>",
-                    attr(&c.author.url),
-                    text(&c.author.name)
-                ));
+        match post.credit_provenance {
+            CreditProvenance::LegacySiteAuthor if !c.author.name.trim().is_empty() => {
+                if c.author.url.trim().is_empty() {
+                    body.push_str(&format!(
+                        " · By <span class=\"p-author h-card\">{}</span>",
+                        text(&c.author.name)
+                    ));
+                } else {
+                    body.push_str(&format!(
+                        " · By <a class=\"p-author h-card\" rel=\"author\" href=\"{}\">{}</a>",
+                        attr(&c.author.url),
+                        text(&c.author.name)
+                    ));
+                }
             }
+            CreditProvenance::ExplicitSidecar => {
+                let authors = post.authors().map(author_html).collect::<Vec<_>>();
+                if !authors.is_empty() {
+                    body.push_str(" · By ");
+                    body.push_str(&human_list(&authors));
+                }
+            }
+            CreditProvenance::LegacySiteAuthor => {}
         }
         if let Some(updated) = post.updated {
             if updated.ymd() != post.date.ymd() {
@@ -1014,6 +1025,9 @@ impl<'a> Renderer<'a> {
             body.push_str("</ul>\n");
         }
         body.push_str("</header>\n");
+        if post.credit_provenance == CreditProvenance::ExplicitSidecar && !post.credits.is_empty() {
+            body.push_str(&contributions_html(post));
+        }
         if let Some(research) = &post.research {
             body.push_str(&self.research_work_meta(research));
         }
@@ -1107,9 +1121,34 @@ impl<'a> Renderer<'a> {
                     "wordCount": post.word_count,
                     "isPartOf": series.map(|s| serde_json::json!({ "@type": "CreativeWorkSeries", "name": s.name, "url": c.absolute(&s.url) })),
                 });
-                if let Some(author) = author_json_ld(c) {
-                    posting["author"] = author.clone();
-                    posting["publisher"] = author;
+                match post.credit_provenance {
+                    CreditProvenance::LegacySiteAuthor => {
+                        if let Some(author) = author_json_ld(c) {
+                            posting["author"] = author.clone();
+                            posting["publisher"] = author;
+                        }
+                    }
+                    CreditProvenance::ExplicitSidecar => {
+                        let authors = post
+                            .authors()
+                            .map(|credit| contributor_json_ld(c, credit, &entity_url))
+                            .collect::<Vec<_>>();
+                        if !authors.is_empty() {
+                            posting["author"] = serde_json::Value::Array(authors);
+                        }
+                        let contributors = post
+                            .credits
+                            .iter()
+                            .filter(|credit| !credit.roles.iter().any(|role| role.is_author()))
+                            .map(|credit| contributor_json_ld(c, credit, &entity_url))
+                            .collect::<Vec<_>>();
+                        if !contributors.is_empty() {
+                            posting["contributor"] = serde_json::Value::Array(contributors);
+                        }
+                        if let Some(publisher) = author_json_ld(c) {
+                            posting["publisher"] = publisher;
+                        }
+                    }
                 }
                 if let Some(research) = &post.research {
                     posting["@type"] = serde_json::json!("ScholarlyArticle");
@@ -1150,16 +1189,28 @@ impl<'a> Renderer<'a> {
             published: Some(post.date.rfc3339()),
             modified: post.updated.map(|u| u.rfc3339()),
             tags: post.tags.iter().map(|t| t.name.clone()).collect(),
-            highwire: if post.research.is_some() && !c.author.name.trim().is_empty() {
+            highwire: if post.research.is_some()
+                && post
+                    .authors()
+                    .any(|credit| !credit.contributor.name.trim().is_empty())
+            {
                 let date = post.date.civil();
-                vec![
-                    ("citation_title", post.title.clone()),
-                    ("citation_author", c.author.name.trim().to_string()),
-                    (
-                        "citation_publication_date",
-                        format!("{}/{}/{}", date.year, date.month, date.day),
-                    ),
-                ]
+                let mut highwire = vec![("citation_title", post.title.clone())];
+                highwire.extend(
+                    post.authors()
+                        .filter(|credit| !credit.contributor.name.trim().is_empty())
+                        .map(|credit| {
+                            (
+                                "citation_author",
+                                credit.contributor.name.trim().to_string(),
+                            )
+                        }),
+                );
+                highwire.push((
+                    "citation_publication_date",
+                    format!("{}/{}/{}", date.year, date.month, date.day),
+                ));
+                highwire
             } else {
                 Vec::new()
             },
@@ -1799,6 +1850,117 @@ fn author_json_ld(config: &SiteConfig) -> Option<serde_json::Value> {
     Some(author)
 }
 
+fn author_html(credit: &ResolvedCredit) -> String {
+    let contributor = &credit.contributor;
+    if contributor.url.trim().is_empty() {
+        format!(
+            "<span class=\"p-author h-card\">{}</span>",
+            text(&contributor.name)
+        )
+    } else {
+        format!(
+            "<a class=\"p-author h-card\" rel=\"author\" href=\"{}\">{}</a>",
+            attr(contributor.url.trim()),
+            text(&contributor.name)
+        )
+    }
+}
+
+fn human_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [only] => only.clone(),
+        [first, second] => format!("{first} and {second}"),
+        _ => {
+            let (last, leading) = items.split_last().expect("non-empty list");
+            format!("{}, and {last}", leading.join(", "))
+        }
+    }
+}
+
+fn contributions_html(post: &Post) -> String {
+    let mut html = String::from(
+        "<aside class=\"ob-contributions\" aria-labelledby=\"ob-contributions-title\">\n<h2 id=\"ob-contributions-title\" class=\"ob-contributions-title\">Contributions</h2>\n<ul>\n",
+    );
+    for credit in &post.credits {
+        html.push_str("<li><div><span class=\"ob-contributor-name\">");
+        if credit.contributor.url.trim().is_empty() {
+            html.push_str(&text(&credit.contributor.name));
+        } else {
+            html.push_str(&format!(
+                "<a href=\"{}\">{}</a>",
+                attr(credit.contributor.url.trim()),
+                text(&credit.contributor.name)
+            ));
+        }
+        html.push_str("</span><span class=\"ob-contributor-roles\">");
+        html.push_str(&text(
+            &credit
+                .roles
+                .iter()
+                .map(|role| role.label())
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
+        html.push_str("</span></div>");
+        if !credit.contributor.orcid.is_empty() {
+            let id = credit
+                .contributor
+                .orcid
+                .trim_start_matches("https://orcid.org/");
+            html.push_str(&format!(
+                "<p class=\"ob-orcid\"><a href=\"{}\" aria-label=\"View unauthenticated ORCID record – {}\"><span class=\"ob-orcid-icon\" aria-hidden=\"true\"><img src=\"/assets/orcid-unauthenticated-id-icons.png\" alt=\"\" loading=\"lazy\" decoding=\"async\"></span>{}</a> (unauthenticated)</p>",
+                attr(&credit.contributor.orcid),
+                attr(id),
+                text(&credit.contributor.orcid)
+            ));
+        }
+        html.push_str("</li>\n");
+    }
+    html.push_str("</ul>\n</aside>\n");
+    html
+}
+
+fn contributor_json_ld(
+    config: &SiteConfig,
+    credit: &ResolvedCredit,
+    entity_url: &str,
+) -> serde_json::Value {
+    let contributor = &credit.contributor;
+    let explicit_url = contributor.url.trim();
+    let id = if explicit_url.is_empty() {
+        format!("{entity_url}#contributor-{}", credit.contributor_id)
+    } else {
+        let url = config.absolute(explicit_url);
+        if url.contains('#') {
+            url
+        } else {
+            format!("{}#person", url.trim_end_matches('/'))
+        }
+    };
+    let mut person = serde_json::json!({
+        "@type": "Person",
+        "@id": id,
+        "name": contributor.name,
+    });
+    if !explicit_url.is_empty() {
+        person["url"] = serde_json::json!(config.absolute(explicit_url));
+    }
+    let same_as = contributor
+        .same_as
+        .iter()
+        .map(|url| url.trim())
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+        .collect::<Vec<_>>();
+    if !same_as.is_empty() {
+        person["sameAs"] = serde_json::json!(same_as);
+    }
+    if !contributor.orcid.is_empty() {
+        person["identifier"] = serde_json::json!(contributor.orcid);
+    }
+    person
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1997,6 +2159,31 @@ mod tests {
         generate(&site, &ThemeSet::new()).unwrap()
     }
 
+    fn build_post_with_credits(
+        config_json: &str,
+        post_contents: &str,
+        credits: &str,
+    ) -> Vec<OutputFile> {
+        let config = SiteConfig::from_json(config_json).unwrap();
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/credited.md".into(),
+                    contents: post_contents.into(),
+                }],
+                credits: vec![SourceFile {
+                    path: "posts/credited.credits.json".into(),
+                    contents: credits.into(),
+                }],
+                ..Sources::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        generate(&site, &ThemeSet::new()).unwrap()
+    }
+
     const RECIPE: &str = "---\ntitle: Lemon Pasta\ndate: 2026-03-02\nrecipe: true\nservings: 4\nprep: 10 min\ncook: 1 hr 5 min\ncuisine: Italian\ncourse: Dinner\ncover: /images/pasta.jpg\ntags: [pasta]\n---\nA story first.\n\n## Ingredients\n\n- 400 g spaghetti\n- 1/2 cup parmesan\n\n## Method\n\n1. Boil for 10 minutes.\n2. Toss with the cheese.\n";
 
     #[test]
@@ -2118,6 +2305,162 @@ mod tests {
             ld["citation"],
             serde_json::json!(["https://doi.org/10.1000/prior", "https://data.example/set"])
         );
+    }
+
+    #[test]
+    fn explicit_credits_publish_ordered_byline_roles_orcid_and_json_ld() {
+        let files = build_post_with_credits(
+            r#"{
+              "title":"T",
+              "url":"https://t.dev",
+              "postPath":"/{slug}/",
+              "author":{"name":"Site Owner","url":"/about/"},
+              "contributors":{
+                "grace":{"name":"Grace <Hopper>","url":"https://grace.example"},
+                "ada":{"name":"Ada & Co.","orcid":"0000-0002-1825-0097"},
+                "linus":{"name":"Linus","sameAs":["https://social.example/linus"]}
+              }
+            }"#,
+            "---\ntitle: Credited\ndate: 2026-10-23\n---\n## Contributions\n\nAuthored section.",
+            r#"{
+              "version":1,
+              "credits":[
+                {"contributor":"grace","roles":[
+                  {"vocabulary":"crossref","role":"author"},
+                  {"vocabulary":"credit","role":"software"}
+                ]},
+                {"contributor":"ada","roles":[
+                  {"vocabulary":"crossref","role":"author"},
+                  {"vocabulary":"credit","role":"conceptualization"}
+                ]},
+                {"contributor":"linus","roles":[
+                  {"vocabulary":"crossref","role":"editor"}
+                ]}
+              ]
+            }"#,
+        );
+        let page = file(&files, "credited/index.html");
+
+        assert!(page.contains(
+            "By <a class=\"p-author h-card\" rel=\"author\" href=\"https://grace.example\">Grace &lt;Hopper&gt;</a> and <span class=\"p-author h-card\">Ada &amp; Co.</span>"
+        ));
+        assert!(page.contains(
+            "<aside class=\"ob-contributions\" aria-labelledby=\"ob-contributions-title\">"
+        ));
+        assert_eq!(page.matches("id=\"contributions\"").count(), 1);
+        assert_eq!(page.matches("id=\"ob-contributions-title\"").count(), 1);
+        let grace = page.find("Grace &lt;Hopper&gt;").unwrap();
+        let ada = page.find("Ada &amp; Co.").unwrap();
+        let linus = page.find(">Linus<").unwrap();
+        assert!(grace < ada && ada < linus, "{page}");
+        assert!(page.contains("Author, Software"));
+        assert!(page.contains("Author, Conceptualization"));
+        assert!(page.contains("Editor"));
+        assert!(page.contains("src=\"/assets/orcid-unauthenticated-id-icons.png\""));
+        assert!(page.contains(">https://orcid.org/0000-0002-1825-0097</a> (unauthenticated)"));
+
+        let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
+        let end = start + page[start..].find("</script>").unwrap();
+        let ld: serde_json::Value = serde_json::from_str(&page[start..end]).unwrap();
+        assert_eq!(ld["author"][0]["name"], "Grace <Hopper>");
+        assert_eq!(ld["author"][1]["name"], "Ada & Co.");
+        assert_eq!(
+            ld["author"][1]["identifier"],
+            "https://orcid.org/0000-0002-1825-0097"
+        );
+        assert_eq!(ld["contributor"][0]["name"], "Linus");
+        assert_eq!(
+            ld["contributor"][0]["sameAs"],
+            serde_json::json!(["https://social.example/linus"])
+        );
+        assert_eq!(ld["publisher"]["name"], "Site Owner");
+    }
+
+    #[test]
+    fn explicit_research_credits_repeat_only_actual_authors_in_highwire_order() {
+        let files = build_post_with_credits(
+            r#"{
+              "title":"T","url":"https://t.dev","postPath":"/{slug}/",
+              "author":{"name":"Legacy"},
+              "contributors":{
+                "editor":{"name":"Editor"},
+                "one":{"name":"First & Author"},
+                "two":{"name":"Second Author"}
+              }
+            }"#,
+            "---\ntitle: Study\ndate: 2026-10-23\nprofile: research\n---\n## Abstract\nSummary.\n\n## References\n1. [Source](https://example.com)",
+            r#"{"version":1,"credits":[
+              {"contributor":"editor","roles":[{"vocabulary":"crossref","role":"editor"}]},
+              {"contributor":"one","roles":[{"vocabulary":"crossref","role":"author"}]},
+              {"contributor":"two","roles":[{"vocabulary":"crossref","role":"author"}]}
+            ]}"#,
+        );
+        let page = file(&files, "credited/index.html");
+        let first = page
+            .find("<meta name=\"citation_author\" content=\"First &amp; Author\">")
+            .unwrap();
+        let second = page
+            .find("<meta name=\"citation_author\" content=\"Second Author\">")
+            .unwrap();
+        assert!(first < second);
+        assert!(!page.contains("<meta name=\"citation_author\" content=\"Editor\">"));
+        assert!(!page.contains("<meta name=\"citation_author\" content=\"Legacy\">"));
+    }
+
+    #[test]
+    fn explicit_empty_credits_suppress_legacy_author_output() {
+        let files = build_post_with_credits(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"Legacy"}}"#,
+            "---\ntitle: Credited\ndate: 2026-10-23\n---\nBody",
+            r#"{"version":1,"credits":[]}"#,
+        );
+        let page = file(&files, "credited/index.html");
+        assert!(!page.contains(" · By "));
+        assert!(!page.contains("class=\"ob-contributions\""));
+        let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
+        let end = start + page[start..].find("</script>").unwrap();
+        let ld: serde_json::Value = serde_json::from_str(&page[start..end]).unwrap();
+        assert!(ld.get("author").is_none());
+        assert_eq!(ld["publisher"]["name"], "Legacy");
+    }
+
+    #[test]
+    fn internal_contributor_links_and_bundled_orcid_assets_follow_the_site_base_path() {
+        let files = build_post_with_credits(
+            r#"{
+              "title":"T","url":"https://t.dev/blog","postPath":"/{slug}/",
+              "contributors":{"ada":{
+                "name":"Ada","url":"/people/ada/","orcid":"0000-0002-1825-0097"
+              }}
+            }"#,
+            "---\ntitle: Credited\ndate: 2026-10-23\n---\nBody",
+            r#"{"version":1,"credits":[
+              {"contributor":"ada","roles":[{"vocabulary":"crossref","role":"author"}]}
+            ]}"#,
+        );
+        let page = file(&files, "credited/index.html");
+        assert!(page.contains("href=\"/blog/people/ada/\""));
+        assert!(page.contains("src=\"/blog/assets/orcid-unauthenticated-id-icons.png\""));
+    }
+
+    #[test]
+    fn explicit_recipe_authors_are_attached_to_the_article_in_the_schema_graph() {
+        let files = build_post_with_credits(
+            r#"{
+              "title":"T","url":"https://t.dev","postPath":"/{slug}/",
+              "contributors":{"cook":{"name":"The Cook"}}
+            }"#,
+            RECIPE,
+            r#"{"version":1,"credits":[
+              {"contributor":"cook","roles":[{"vocabulary":"crossref","role":"author"}]}
+            ]}"#,
+        );
+        let page = file(&files, "credited/index.html");
+        let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
+        let end = start + page[start..].find("</script>").unwrap();
+        let ld: serde_json::Value = serde_json::from_str(&page[start..end]).unwrap();
+        assert_eq!(ld["@graph"][0]["author"][0]["name"], "The Cook");
+        assert_eq!(ld["@graph"][1]["@type"], "Recipe");
     }
 
     #[test]

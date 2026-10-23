@@ -218,6 +218,9 @@ mod tests {
         assert!(dir.join("dist/index.html").exists());
         assert!(dir.join("dist/rss.xml").exists());
         assert!(dir.join("dist/assets/base.css").exists());
+        assert!(dir
+            .join("dist/assets/orcid-unauthenticated-id-icons.png")
+            .exists());
         assert!(dir.join("dist/assets/components/ob-quiz.js").exists());
         assert!(
             dir.join("dist/assets/components/ob-rust-playground.js")

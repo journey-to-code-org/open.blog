@@ -45,6 +45,8 @@ Turn the file off with `"feeds": { "portfolioSnapshot": false }`.
 titles, dates, links, tags, covers, and, by default, the full HTML of each post. Feed
 readers, newsletter tools, and most "latest posts" widgets accept either. The number of
 posts and whether full content is included are set under `feeds` in `openblog.json`.
+Posts with explicit work credits repeat their actual authors in RSS and expose an ordered
+JSON Feed item `authors` array. The feed-level author remains the site owner.
 
 The RSS items use the post address as the `guid`, so a reader never shows a post twice
 when its title changes.
