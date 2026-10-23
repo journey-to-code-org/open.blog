@@ -24,8 +24,10 @@ If you are new, read these in order; each one stands alone otherwise.
    and machine-access analytics.
 11. [Accessibility checks and manual review](accessibility.md): source findings, outcome
    meanings, known limits, and a rendered-site review workflow.
-12. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-13. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+12. [Research posts and Evidence Studio](research-profile.md): DOI and license fields,
+   visible references, scholarly metadata, deterministic evidence checks, and their limits.
+13. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+14. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

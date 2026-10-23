@@ -25,6 +25,7 @@ immediately.
 | **Social preview** | A card built from the generated OpenGraph title, description, canonical URL, type, image, and X card mode—not a separate browser-side approximation. |
 | **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
 | **Accessibility Studio** | Production-backed source findings grouped as detected, potential, or needs review, with exact locations and repair guidance. It also keeps rendered-site checks visible without claiming WCAG conformance. |
+| **Evidence Studio** | Research-profile structure and metadata findings from the publishing engine, plus authored DOI (normalized to a resolver URL when valid), valid absolute license URL, and linked-reference inspection without truth or authority scoring. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
 | **Formatting** | Apply H2, bold, italic, link, quote, list, and inline/fenced-code Markdown without converting or hiding the source. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in the editor. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
@@ -39,8 +40,8 @@ immediately.
 The admin is organized like a writing studio. The tool groups at the top move between
 content, analytics, and the public site; the status bar keeps unpublished changes and
 the publish action visible. Inside the editor, **Write**, **Site preview**, **Social**,
-**Optimize**, **Settings**, and **Accessibility** are separate full-width views, so writing
-is not squeezed beside a permanent preview.
+**Optimize**, **Settings**, **Accessibility**, and **Evidence** are separate full-width
+views, so writing is not squeezed beside a permanent preview.
 Switching views never loses edits, and opening Site preview refreshes it from the current draft.
 
 Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace
@@ -50,9 +51,9 @@ the arrow keys and Enter to choose a result, or Escape to close it.
 
 The editor footer shows whether the document is saved plus its line, word, and character
 counts. Press `Alt+1` through `Alt+5` to focus Write, Site preview, Social, Optimize, or
-Settings; `Alt+6` opens Accessibility Studio. The preview toolbar can constrain the canvas
-to wide, tablet, or mobile width; this preference is stored in the browser and does not
-change the published theme.
+Settings; `Alt+6` opens Accessibility Studio and `Alt+7` opens Evidence Studio. The preview
+toolbar can constrain the canvas to wide, tablet, or mobile width; this preference is stored
+in the browser and does not change the published theme.
 
 ### Test a theme before publishing
 
@@ -83,6 +84,24 @@ the engine can establish, **Potential** is a useful heuristic that still needs c
 into a score or conformance claim. See [Accessibility checks and manual review](accessibility.md)
 for every check, the CLI workflow, and the rendered-page checklist.
 
+### Review research evidence while writing
+
+Choose the Research content profile, then open **Evidence**. The preview API runs the same
+core audit used by `openblog check` and builds, scoped to the current unsaved document. It
+shows the authored DOI (normalized to a resolver URL when valid), valid absolute license
+URL, number of linked references, and findings for missing
+visible Abstract or References/Bibliography sections, malformed work metadata, unresolved
+footnotes, references without resolvable links, and non-preferred DOI links.
+
+The **Abstract** and **References** toolbar actions ask the publishing engine whether the
+section already exists before changing Markdown. This keeps formatted headings, code
+examples, containers, and HTML blocks consistent with the actual build parser. Profile
+metadata drafts survive profile switches and are included when the document is saved.
+
+Evidence Studio does not score truth, source authority, peer review, methodology, or
+whether a citation supports a claim. Outside the Research profile it explicitly reports
+that the checks are inactive. See [Research posts and Evidence Studio](research-profile.md).
+
 The **Overview** is the admin home. It summarizes the publishing pipeline, links to quick
 creation flows, shows the size of the content library and recent posts, and surfaces the
 next scheduled post or last build error without requiring a trip through each content list.
@@ -98,6 +117,8 @@ Recipe and continue through the existing recipe renderer and structured-data pat
 using `recipe: true` or another legacy recipe alias appear as Recipe but keep that original
 field unless you explicitly change the selector. An unknown `profile` value appears as its
 own option with a warning; saving without changing it preserves the value.
+Research posts select Research and expose DOI and license fields. Values entered there are
+preserved when switching profiles and saved without discarding explicit clears.
 
 Every save is checked against the whole site before anything is written (duplicate slugs,
 unknown themes, bad dates), then the site is rebuilt. A save that would break the build is

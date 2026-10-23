@@ -3,8 +3,14 @@
 open.blog produces crawlable semantic HTML first. Every public post also gets a canonical
 URL, description, Open Graph metadata, visible author byline, `BlogPosting` JSON-LD, publish
 and update dates, topic tags, RSS and JSON feeds, and a sitemap. Recipe posts add matching
-`Recipe` data. These foundations matter to both conventional search and AI-assisted search;
-there is no special markup that guarantees an AI citation.
+`Recipe` data. Research posts use `ScholarlyArticle`, can expose DOI, license, and bounded
+reference links, and emit the minimum Google-documented Highwire title, author, and date
+tags when an actual author is configured. These foundations matter to both conventional
+search and AI-assisted search; no markup guarantees indexing or an AI citation.
+
+Research output does not infer a journal, publisher, peer-review status, authority, or claim
+support. The profile and its Evidence Studio are structural publishing tools; see
+[Research posts and Evidence Studio](research-profile.md).
 
 ## Before publishing
 

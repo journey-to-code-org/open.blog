@@ -12,7 +12,8 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
   a light/dark toggle, copy buttons, syntax highlighting, sharing, and view counts on top.
 - **Not only for developers.** Mark a post `profile: recipe` and readers get a recipe card,
   servings scaling, checklists, step timers, a cook mode, a print view, and recipe data
-  for search engines. Callouts (`> [!TIP]`) work in any post.
+  for search engines. Research posts get DOI and license display, bounded reference metadata,
+  scholarly structured data, and evidence guidance. Callouts (`> [!TIP]`) work in any post.
 - **Code that reads well.** Colours for common languages (with the language guessed when a
   block has none), line numbers, titles, and highlighted lines. Colours and numbers can be
   turned off for the whole blog or one post, and numbers for a single block.
@@ -20,9 +21,9 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
   links, and a small JSON of your latest posts for embedding on another site.
 - **Publishing studio.** `openblog serve --admin` adds a login-protected, writing-first
   editor with publishing-faithful themed previews, Open Graph cards, transparent SEO and
-  answer-readiness guidance, structured accessibility review, source-preserving formatting,
-  uploads, drafts, and scheduling. It edits the same Markdown files; front matter stays in
-  Settings and is never rendered in the preview.
+  answer-readiness guidance, structured accessibility and research-evidence review,
+  source-preserving formatting, uploads, drafts, and scheduling. It edits the same Markdown
+  files; front matter stays in Settings and is never rendered in the preview.
 - **Publish from home.** A Publish button commits and pushes with git, a GitHub Pages
   workflow deploys, and the repository is the backup. Drafts stay out of commits.
 - **Privacy-respecting analytics.** A cookie-free view counter with a dashboard, counts
@@ -121,6 +122,7 @@ Start with [the docs index](docs/README.md). The main guides:
 - [Sharing, views, analytics, and embeds](docs/features.md)
 - [SEO and answer discovery](docs/seo.md)
 - [Accessibility checks and manual review](docs/accessibility.md)
+- [Research posts and Evidence Studio](docs/research-profile.md)
 - [Deploying](docs/deploy.md): GitHub Pages, other hosts, self-hosting, moving URLs
 - [Publishing from home, backups, and view counts without a server](docs/publishing.md)
 - [Cross-posting to Hashnode, DEV, Medium, Ghost, and WordPress](docs/cross-posting.md)

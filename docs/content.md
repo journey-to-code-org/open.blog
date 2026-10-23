@@ -49,8 +49,10 @@ a `#` heading, which is then used. Everything else is optional:
 | `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`. Also accepted as `redirectFrom`. |
 | `highlight` | `false` turns off code colouring for this post; `true` turns it on. Overrides the site and theme. |
 | `lineNumbers` | `false` or `true`: line numbers on this post's code blocks. Overrides the site and theme. |
-| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; use `recipe` for recipe cards and structured data. |
+| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; use `recipe` for recipe cards or `research` for scholarly work metadata and evidence guidance. |
 | `recipe` | Legacy recipe marker. `true` remains supported; new posts should use `profile: recipe`. |
+| `doi` | Research profile only. A DOI name or `https://doi.org/` URL for this work. |
+| `license` | Research profile only. An absolute HTTP or HTTPS URL for the work's license. |
 
 Unknown fields are kept and ignored, so you can store your own notes in the front matter.
 
@@ -64,7 +66,7 @@ profile in the admin's **Settings** view or write it directly:
 profile: recipe
 ```
 
-The first built-in profiles are `article` and `recipe`. Existing `recipe: true`,
+The built-in profiles are `article`, `recipe`, and `research`. Existing `recipe: true`,
 `type: recipe`, `layout: recipe`, and `kind: recipe` files continue to work. When both a
 canonical `profile` and a legacy recipe marker exist, `profile` wins and the build warns
 if they disagree.
@@ -72,6 +74,12 @@ if they disagree.
 An unrecognized profile id is preserved rather than deleted or rewritten. The post renders
 with ordinary article behavior, and `openblog check`, builds, and admin previews report a
 warning so the missing profile can be installed or corrected later.
+
+The `research` profile adds visible DOI and license details, `ScholarlyArticle` structured
+data, conservative scholarly HTML metadata, and deterministic evidence checks. Citations
+remain ordinary Markdown links and footnotes under a visible `References` or `Bibliography`
+section. See [Research posts and Evidence Studio](research-profile.md) for the complete
+authoring contract and limits.
 
 The admin editor's **Search & answer readiness** checklist updates while you write. The
 same conservative checks run during a build and warn about weak descriptions, unusually
@@ -374,3 +382,5 @@ same slug, a theme that does not exist, or an alias that collides with a real pa
 Accessibility findings appear separately with an outcome, source location, and repair
 instruction. They are authoring guidance rather than a WCAG pass/fail result; see
 [Accessibility checks and manual review](accessibility.md).
+Research-profile evidence findings are reported separately with stable codes, locations,
+and repair guidance; see [Research posts and Evidence Studio](research-profile.md).

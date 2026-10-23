@@ -5,6 +5,28 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-23
+
+### Added
+
+- Added the opt-in `research` content profile with DOI and license authoring fields, visible
+  work metadata, ordinary-Markdown Abstract and References/Bibliography sections, and
+  bounded reference extraction.
+- Added deterministic evidence findings shared by `openblog check`, builds, and admin
+  previews for research structure, DOI and license syntax, footnotes, reference links, and
+  preferred DOI resolver links.
+- Added `ScholarlyArticle` JSON-LD and conservative Highwire title, author, and publication
+  date metadata, while omitting unsupported venue, publisher, review, and indexing claims.
+- Added Evidence Studio with current-document findings, normalized work-metadata inspection,
+  engine-backed Abstract/References insertion actions, dynamic profile fields, and `Alt+7`.
+
+### Changed
+
+- Build reports and `openblog check` now print evidence findings with stable codes, outcomes,
+  source locations, and repair guidance separately from accessibility and SEO guidance.
+- Profile-specific editor drafts now survive profile switches and save losslessly, including
+  explicit field clears.
+
 ## [0.8.0] - 2026-10-23
 
 ### Added
@@ -165,7 +187,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/journey-to-code-org/open.blog/compare/v0.6.1...v0.6.2
