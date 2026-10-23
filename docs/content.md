@@ -371,3 +371,6 @@ openblog build     # the same checks, then writes dist/
 
 Typical problems: a missing `date`, a date in an unrecognised format, two posts with the
 same slug, a theme that does not exist, or an alias that collides with a real page.
+Accessibility findings appear separately with an outcome, source location, and repair
+instruction. They are authoring guidance rather than a WCAG pass/fail result; see
+[Accessibility checks and manual review](accessibility.md).

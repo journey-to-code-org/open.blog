@@ -5,6 +5,28 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-23
+
+### Added
+
+- Added one structured accessibility audit shared by the core engine, `openblog check`,
+  builds, and the admin preview. Findings use stable codes, canonical source locations,
+  outcome labels, repair guidance, and informative standards references where applicable.
+- Added bounded source checks for empty link names, missing site language, image
+  alternatives, heading jumps, generic link text, tables, media, production embeds, and
+  raw HTML without presenting context-dependent concerns as certain failures.
+- Added a dedicated Accessibility Studio editor view with outcome counts, grouped findings,
+  exact source context, next actions, and rendered-site manual-review guidance. It is
+  available from normal editor navigation and `Alt+6`.
+
+### Changed
+
+- Build and check output now reports accessibility findings separately from publishing and
+  SEO warnings. The accessibility reporter adds no pass or WCAG-conformance statement when
+  its finding list is empty.
+- Admin previews return only site-wide findings and findings for the document being edited,
+  so another post's guidance cannot leak into the current workflow.
+
 ## [0.7.0] - 2026-10-23
 
 ### Added
@@ -143,7 +165,11 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.6.2...v0.7.0
+[0.6.2]: https://github.com/journey-to-code-org/open.blog/compare/v0.6.1...v0.6.2
+[0.6.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.4.0...v0.4.1

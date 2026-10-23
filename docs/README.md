@@ -16,13 +16,16 @@ If you are new, read these in order; each one stands alone otherwise.
 7. [Adding web components to a theme](theme-components.md): scripts, heading effects,
    and the demo theme to copy from.
 8. [The admin editor](admin.md): the writing workspace, production-faithful theme and
-   social previews, search and answer-readiness guidance, scheduling, and safe operation.
+   social previews, search, answer-readiness and accessibility guidance, scheduling, and
+   safe operation.
 9. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
    syntax highlighting, related posts, a CDN, and slots for comments or newsletters.
 10. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
    and machine-access analytics.
-11. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-12. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+11. [Accessibility checks and manual review](accessibility.md): source findings, outcome
+   meanings, known limits, and a rendered-site review workflow.
+12. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+13. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
 
 ## Command reference
 

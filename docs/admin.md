@@ -24,6 +24,7 @@ immediately.
 | **Preview** | A full-page preview produced by the same site model, document renderer, theme inheritance, metadata, and components as a real build. Front matter stays in the settings form and is never printed into the preview. |
 | **Social preview** | A card built from the generated OpenGraph title, description, canonical URL, type, image, and X card mode—not a separate browser-side approximation. |
 | **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
+| **Accessibility Studio** | Production-backed source findings grouped as detected, potential, or needs review, with exact locations and repair guidance. It also keeps rendered-site checks visible without claiming WCAG conformance. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
 | **Formatting** | Apply H2, bold, italic, link, quote, list, and inline/fenced-code Markdown without converting or hiding the source. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in the editor. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
@@ -38,7 +39,8 @@ immediately.
 The admin is organized like a writing studio. The tool groups at the top move between
 content, analytics, and the public site; the status bar keeps unpublished changes and
 the publish action visible. Inside the editor, **Write**, **Site preview**, **Social**,
-**Optimize**, and **Settings** are separate full-width views, so writing is not squeezed beside a permanent preview.
+**Optimize**, **Settings**, and **Accessibility** are separate full-width views, so writing
+is not squeezed beside a permanent preview.
 Switching views never loses edits, and opening Site preview refreshes it from the current draft.
 
 Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace
@@ -47,9 +49,10 @@ saves the current document, changes the color scheme, and reaches account action
 the arrow keys and Enter to choose a result, or Escape to close it.
 
 The editor footer shows whether the document is saved plus its line, word, and character
-counts. Press `Alt+1` through `Alt+5` to focus Write, Site preview, Social, Optimize, or Settings. The
-preview toolbar can constrain the canvas to wide, tablet, or mobile width; this preference
-is stored in the browser and does not change the published theme.
+counts. Press `Alt+1` through `Alt+5` to focus Write, Site preview, Social, Optimize, or
+Settings; `Alt+6` opens Accessibility Studio. The preview toolbar can constrain the canvas
+to wide, tablet, or mobile width; this preference is stored in the browser and does not
+change the published theme.
 
 ### Test a theme before publishing
 
@@ -66,6 +69,19 @@ unset, and open **Site preview** on a post in that series. To compare a one-off 
 select a theme on the post instead. The preview includes unsaved changes to the document
 you are editing but does not expose unrelated drafts or scheduled posts. Front matter
 remains in **Settings** and is never printed into the preview.
+
+### Review accessibility while writing
+
+Open **Accessibility** to run the publishing engine's source audit against the current
+unsaved document. The view includes site-wide configuration findings, such as a missing
+default language, but excludes findings that belong only to other documents. It reports
+what was located, the canonical file/line or field, and what to do next.
+
+The outcome labels have deliberately different meanings: **Detected** is a source condition
+the engine can establish, **Potential** is a useful heuristic that still needs context, and
+**Needs review** is a decision only an author can make. The pane never turns an empty result
+into a score or conformance claim. See [Accessibility checks and manual review](accessibility.md)
+for every check, the CLI workflow, and the rendered-page checklist.
 
 The **Overview** is the admin home. It summarizes the publishing pipeline, links to quick
 creation flows, shows the size of the content library and recent posts, and surfaces the
