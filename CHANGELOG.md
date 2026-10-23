@@ -13,6 +13,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - Added a `Ctrl/Cmd+K` workspace search for navigation, creation, account actions,
   and contextual editor commands, with keyboard result navigation and unsaved-change
   protection when moving between admin views.
+- Added editor save-state feedback, live line/word/character counts, `Alt+1/2/3`
+  pane focus shortcuts, and persistent wide/tablet/mobile preview widths.
 
 ## [0.4.1] - 2026-10-23
 

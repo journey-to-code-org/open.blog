@@ -5,6 +5,7 @@
 // iframe whose nonce policy runs only the built-in quiz enhancement.
 
 const ADMIN_SCHEME_KEY = "ob-admin-scheme";
+const ADMIN_PREVIEW_WIDTH_KEY = "ob-admin-preview-width";
 
 function preferredAdminScheme() {
   try {
@@ -172,12 +173,16 @@ class ObAdmin extends HTMLElement {
   meta = null;
   user = "";
   dirty = false;
+  editVersion = 0;
   skipRoute = false;
   currentHash = "";
 
   connectedCallback() {
     this.addEventListener("input", (e) => {
-      if (this.editor && this.editor.root.contains(e.target)) this.dirty = true;
+      if (this.editor && this.editor.root.contains(e.target)) {
+        this.dirty = true;
+        this.editor.markDirty();
+      }
     });
     addEventListener("hashchange", () => this.onHash());
     addEventListener("beforeunload", (e) => {
@@ -195,6 +200,12 @@ class ObAdmin extends HTMLElement {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && this.editor) {
         e.preventDefault();
         this.editor.save();
+        return;
+      }
+      if (this.editor && e.altKey && ["1", "2", "3"].includes(e.key)) {
+        e.preventDefault();
+        const pane = ["settings", "markdown", "preview"][Number(e.key) - 1];
+        this.editor.activatePane(pane, true);
       }
     });
     this.start();
@@ -739,6 +750,8 @@ class Editor {
     ui.body = h("textarea", { class: "oba-body", id: "oba-body", spellcheck: "true", "aria-label": "Markdown", value: this.doc.body || "" });
     ui.preview = h("iframe", { class: "oba-preview", title: "Preview", sandbox: "allow-scripts" });
     ui.status = h("div", { role: "status", "aria-live": "polite" });
+    ui.documentStats = h("span", { class: "oba-small" });
+    ui.saveState = h("span", { class: "oba-save-state", role: "status", "aria-live": "polite" }, this.isNew ? "Not saved yet" : "Saved");
 
     const side = [];
 
@@ -802,6 +815,7 @@ class Editor {
           if (url) {
             ui.cover.value = url;
             this.app.dirty = true;
+            this.markDirty();
             this.updateSeoAudit();
           }
         }
@@ -834,6 +848,19 @@ class Editor {
     const back = h("a", { class: "oba-btn", href: `#/${kind}` }, "← Back");
     const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, quizButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
 
+    let savedPreviewWidth = "wide";
+    try {
+      const stored = localStorage.getItem(ADMIN_PREVIEW_WIDTH_KEY);
+      if (["wide", "tablet", "mobile"].includes(stored)) savedPreviewWidth = stored;
+    } catch {
+      // Storage can be blocked; use the wide preview for this session.
+    }
+    ui.previewWidth = h(
+      "select",
+      { class: "oba-preview-width", "aria-label": "Preview width" },
+      ["wide", "tablet", "mobile"].map((width) => h("option", { value: width, selected: width === savedPreviewWidth }, width[0].toUpperCase() + width.slice(1))),
+    );
+
     const paneHeader = (eyebrow, title, trailing = null) =>
       h(
         "header",
@@ -842,11 +869,16 @@ class Editor {
         trailing,
       );
     let paneButtons = [];
-    const activatePane = (pane) => {
+    const activatePane = (pane, focus = false) => {
       this.root.dataset.mobilePane = pane;
       for (const button of paneButtons) {
         const selected = button.dataset.paneTarget === pane;
         button.setAttribute("aria-pressed", String(selected));
+      }
+      if (focus) {
+        const container = this.root.querySelector(`[data-pane="${pane}"]`);
+        const target = pane === "markdown" ? this.ui.body : pane === "preview" ? this.ui.preview : container?.querySelector("input,select,textarea,button");
+        requestAnimationFrame(() => target?.focus());
       }
     };
     this.activatePane = activatePane;
@@ -867,7 +899,7 @@ class Editor {
 
     this.root = h(
       "div",
-      { class: "oba-editor", "data-mobile-pane": "markdown" },
+      { class: "oba-editor", "data-mobile-pane": "markdown", "data-preview-width": savedPreviewWidth },
       mobileNav,
       h("aside", { class: "oba-side oba-pane", "data-pane": "settings", "aria-label": "Document settings" }, paneHeader("Document", "Settings"), h("div", { class: "oba-side-fields" }, side)),
       h(
@@ -880,8 +912,14 @@ class Editor {
           "div",
           { class: "oba-panes" },
           h("section", { class: "oba-pane oba-markdown-pane", "data-pane": "markdown", "aria-label": "Markdown editor" }, paneHeader("Write", "Markdown", h("span", { class: "oba-small" }, "Plain text · portable")), ui.body),
-          h("section", { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" }, paneHeader("Review", "Live preview", h("span", { class: "oba-live-dot" }, "Live")), ui.preview),
+          h(
+            "section",
+            { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" },
+            paneHeader("Review", "Live preview", h("div", { class: "oba-preview-tools" }, h("span", { class: "oba-live-dot" }, "Live"), ui.previewWidth)),
+            h("div", { class: "oba-preview-canvas" }, ui.preview),
+          ),
         ),
+        h("footer", { class: "oba-editor-status" }, ui.saveState, h("span", { class: "oba-spacer" }), ui.documentStats, h("span", { class: "oba-small" }, "Markdown · UTF-8")),
       ),
     );
     return this.root;
@@ -899,7 +937,17 @@ class Editor {
     });
     ui.slug.addEventListener("input", () => (this.slugTouched = true));
     ui.body.addEventListener("input", () => this.schedulePreview());
+    ui.body.addEventListener("input", () => this.updateDocumentStats());
     ui.theme.addEventListener("change", () => this.schedulePreview());
+    ui.previewWidth.addEventListener("input", (e) => e.stopPropagation());
+    ui.previewWidth.addEventListener("change", () => {
+      this.root.dataset.previewWidth = ui.previewWidth.value;
+      try {
+        localStorage.setItem(ADMIN_PREVIEW_WIDTH_KEY, ui.previewWidth.value);
+      } catch {
+        // The preview still changes when storage is blocked.
+      }
+    });
     for (const r of ui.statusRadios || []) r.querySelector("input").addEventListener("change", () => this.syncDateField());
     for (const control of [ui.title, ui.description, ui.tags, ui.cover, ui.coverAlt, ui.body].filter(Boolean)) {
       control.addEventListener("input", () => this.updateSeoAudit());
@@ -931,6 +979,7 @@ class Editor {
 
     this.syncDateField();
     this.updateSeoAudit();
+    this.updateDocumentStats();
     this.renderPreview();
     (this.isNew ? ui.title : ui.body).focus();
   }
@@ -943,6 +992,22 @@ class Editor {
   currentStatus() {
     if (this.kind !== "posts") return "published";
     return this.ui.statusRadios.map((l) => l.querySelector("input")).find((i) => i.checked)?.value || "draft";
+  }
+
+  markDirty() {
+    if (!this.ui?.saveState) return;
+    this.app.editVersion += 1;
+    if (this.ui.saveState.textContent === "Unsaved changes") return;
+    this.ui.saveState.textContent = "Unsaved changes";
+    this.ui.saveState.classList.add("is-dirty");
+  }
+
+  updateDocumentStats() {
+    const text = this.ui.body.value;
+    const lines = text ? text.split("\n").length : 1;
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+    const characters = text.length;
+    this.ui.documentStats.textContent = `${lines} line${lines === 1 ? "" : "s"} · ${words.toLocaleString()} word${words === 1 ? "" : "s"} · ${characters.toLocaleString()} character${characters === 1 ? "" : "s"}`;
   }
 
   updateSeoAudit() {
@@ -1021,8 +1086,10 @@ class Editor {
     ta.value = ta.value.slice(0, start) + snippet + ta.value.slice(end);
     ta.selectionStart = ta.selectionEnd = start + snippet.length;
     this.app.dirty = true;
+    this.markDirty();
     this.schedulePreview();
     this.updateSeoAudit();
+    this.updateDocumentStats();
     ta.focus();
   }
 
@@ -1151,7 +1218,9 @@ class Editor {
         ta.value = before + snippet + after;
         ta.selectionStart = ta.selectionEnd = (before + snippet).length;
         this.app.dirty = true;
+        this.markDirty();
         this.schedulePreview();
+        this.updateDocumentStats();
         close(true);
       },
     }, "Insert");
@@ -1234,6 +1303,7 @@ class Editor {
   }
 
   async save() {
+    if (this.saving) return;
     const fields = this.collect();
     const problem = this.validateClient(fields);
     if (problem) {
@@ -1241,7 +1311,10 @@ class Editor {
       return;
     }
     const ui = this.ui;
+    this.saving = true;
     ui.saveBtn.disabled = true;
+    ui.saveState.textContent = "Saving…";
+    const saveVersion = this.app.editVersion;
     const payload = { fields, body: ui.body.value, etag: this.doc.etag, kind: this.kind };
     try {
       const res = this.doc.path
@@ -1252,7 +1325,15 @@ class Editor {
       this.doc.etag = res.etag;
       this.isNew = false;
       this.slugTouched = true;
-      this.app.dirty = false;
+      if (this.app.editVersion === saveVersion) {
+        this.app.dirty = false;
+        ui.saveState.textContent = "Saved";
+        ui.saveState.classList.remove("is-dirty");
+      } else {
+        this.app.dirty = true;
+        ui.saveState.textContent = "Unsaved changes";
+        ui.saveState.classList.add("is-dirty");
+      }
       ui.saveBtn.textContent = "Save";
       // Update the address without re-rendering the editor. Only arm the skip flag
       // when the hash really changes; otherwise no event fires and the flag would
@@ -1262,7 +1343,7 @@ class Editor {
         this.app.skipRoute = true;
         location.hash = target;
       }
-      this.reportSaved(res);
+      this.reportSaved(res, this.app.editVersion === saveVersion);
     } catch (err) {
       if (err.status === 401) {
         this.app.showLogin("Your session ended. Sign in again; your edits are still in the form only until you reload.");
@@ -1271,17 +1352,21 @@ class Editor {
       } else {
         this.flash("error", err.message, err.data?.problems || []);
       }
+      ui.saveState.textContent = "Save failed";
+      ui.saveState.classList.add("is-dirty");
     } finally {
+      this.saving = false;
       ui.saveBtn.disabled = false;
     }
   }
 
-  reportSaved(res) {
+  reportSaved(res, current = true) {
     let message = "Saved.";
     const link = res.url ? h("a", { href: res.url, target: "_blank", rel: "noopener" }, "View on the site") : null;
     if (res.status === "scheduled") message = `Scheduled for ${formatWhen(this.f.date)}. It goes live automatically.`;
     else if (res.status === "published" && res.url) message = "Saved and live.";
     else if (res.status === "draft") message = "Draft saved. It is not public.";
+    if (!current) message = "Saved the earlier version. Your newer edits are still unsaved.";
     if (res.build && res.build.ok === false) {
       this.flash("error", `Saved, but the site build failed: ${res.build.error}`);
     } else {

@@ -42,6 +42,11 @@ commands. The palette opens content lists, creates documents, switches editor pa
 saves the current document, changes the color scheme, and reaches account actions. Use
 the arrow keys and Enter to choose a result, or Escape to close it.
 
+The editor footer shows whether the document is saved plus its line, word, and character
+counts. Press `Alt+1`, `Alt+2`, or `Alt+3` to focus Settings, Markdown, or Preview. The
+preview toolbar can constrain the canvas to wide, tablet, or mobile width; this preference
+is stored in the browser and does not change the published theme.
+
 The Markdown remains the source of truth. The visual structure only changes how the
 tools are arranged; saving, conflict detection, preview sandboxing, and publishing use
 the same file-based workflow and security checks.

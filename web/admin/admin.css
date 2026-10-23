@@ -701,6 +701,22 @@ kbd {
   background: currentColor;
 }
 
+.oba-preview-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.oba-preview-width {
+  padding: 0.25rem 1.6rem 0.25rem 0.45rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.72rem;
+}
+
 .oba-fieldset {
   margin: 0 0 1rem;
   padding: 0;
@@ -774,6 +790,55 @@ kbd {
 
 .oba-preview {
   background: #fff;
+}
+
+.oba-preview-canvas {
+  display: flex;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 0;
+  overflow: auto;
+  background: color-mix(in srgb, var(--ob-color-outer) 55%, var(--ob-color-page));
+}
+
+.oba-editor[data-preview-width="tablet"] .oba-preview {
+  max-width: 48rem;
+}
+
+.oba-editor[data-preview-width="mobile"] .oba-preview {
+  max-width: 24.375rem;
+}
+
+.oba-editor-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.4rem;
+  margin-top: 0.65rem;
+  padding: 0.35rem 0.65rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+}
+
+.oba-save-state {
+  color: var(--oba-success);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.oba-save-state::before {
+  content: "";
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.oba-save-state.is-dirty {
+  color: var(--ob-color-accent);
 }
 
 .oba-mobile-nav {
@@ -908,6 +973,14 @@ kbd {
   }
 
   .oba-editor-actions .oba-small {
+    display: none;
+  }
+
+  .oba-editor-status {
+    flex-wrap: wrap;
+  }
+
+  .oba-editor-status .oba-spacer {
     display: none;
   }
 
