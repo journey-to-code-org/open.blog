@@ -369,7 +369,11 @@ impl<'a> Renderer<'a> {
         if let Some(ld) = &meta.json_ld {
             h.push_str(&format!(
                 "<script type=\"application/ld+json\">{}</script>\n",
-                ld.replace("</", "<\\/")
+                // JSON allows these escapes, and without `<` no text from a post
+                // (`</script>`, `<!--<script>`) can end or confuse the element.
+                ld.replace('<', "\\u003c")
+                    .replace('>', "\\u003e")
+                    .replace('&', "\\u0026")
             ));
         }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
