@@ -27,7 +27,7 @@ function applyAdminScheme(scheme, persist = false) {
   }
 }
 
-applyAdminScheme(preferredAdminScheme());
+if (typeof document !== "undefined") applyAdminScheme(preferredAdminScheme());
 
 // ---------------------------------------------------------------- helpers
 
@@ -109,6 +109,39 @@ function searchCommands(commands, query) {
   });
 }
 
+export function closeCommandDialog(dialog) {
+  const returnFocus = dialog.returnFocus;
+  dialog.close();
+  dialog.remove();
+  if (returnFocus && typeof returnFocus.focus === "function") returnFocus.focus();
+}
+
+export function parseAdminHash(value) {
+  const hash = value.replace(/^#\/?/, "");
+  const [route, query = ""] = hash.split("?");
+  const [head, ...rest] = route.split("/");
+  return { head, tail: rest.join("/"), params: new URLSearchParams(query) };
+}
+
+export function shouldGuardNavigation(dirty, currentHash, nextHash) {
+  return Boolean(dirty && currentHash && nextHash !== currentHash);
+}
+
+export function normalizeStatusFilter(value) {
+  return ["published", "scheduled", "draft", "error"].includes(value) ? value : "all";
+}
+
+export function saveStateForVersions(saveVersion, editVersion) {
+  return saveVersion === editVersion
+    ? { dirty: false, label: "Saved", messageIsCurrent: true }
+    : { dirty: true, label: "Unsaved changes", messageIsCurrent: false };
+}
+
+export function applyPaneSelection(root, buttons, pane) {
+  root.dataset.mobilePane = pane;
+  for (const button of buttons) button.setAttribute("aria-pressed", String(button.dataset.paneTarget === pane));
+}
+
 const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
 class ApiError extends Error {
@@ -168,7 +201,9 @@ const KINDS = {
 
 // ---------------------------------------------------------------- component
 
-class ObAdmin extends HTMLElement {
+const AdminElement = globalThis.HTMLElement || class {};
+
+export class ObAdmin extends AdminElement {
   api = new Api();
   meta = null;
   user = "";
@@ -335,7 +370,7 @@ class ObAdmin extends HTMLElement {
         ),
         h("span", { class: "oba-spacer" }),
         commandTrigger,
-        h("span", { class: "oba-small" }, `Signed in as ${this.user}`),
+        h("span", { class: "oba-small oba-account-label" }, `Signed in as ${this.user}`),
         themeButton(),
         logout,
       ),
@@ -358,16 +393,15 @@ class ObAdmin extends HTMLElement {
   }
 
   openCommandPalette() {
+    const trigger = document.activeElement;
     const activeDialog = document.querySelector("dialog[open]");
     if (activeDialog?.classList.contains("oba-command-dialog")) {
-      activeDialog.close();
-      activeDialog.remove();
+      closeCommandDialog(activeDialog);
       return;
     }
     if (activeDialog) return;
     if (!this.meta) return;
 
-    const trigger = document.activeElement;
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
@@ -400,12 +434,11 @@ class ObAdmin extends HTMLElement {
       status,
       results,
     );
+    dialog.returnFocus = trigger;
     let found = [];
     let activeIndex = 0;
     const close = () => {
-      dialog.close();
-      dialog.remove();
-      if (trigger instanceof HTMLElement) trigger.focus();
+      closeCommandDialog(dialog);
     };
     const choose = (index) => {
       const command = found[index];
@@ -521,15 +554,11 @@ class ObAdmin extends HTMLElement {
       return;
     }
     const nextHash = location.hash || "#/overview";
-    if (this.dirty && this.currentHash && nextHash !== this.currentHash && !(await this.confirmLeave())) {
+    if (shouldGuardNavigation(this.dirty, this.currentHash, nextHash) && !(await this.confirmLeave())) {
       history.replaceState(null, "", this.currentHash);
       return;
     }
-    const hash = location.hash.replace(/^#\/?/, "");
-    const [route, query = ""] = hash.split("?");
-    const params = new URLSearchParams(query);
-    const [head, ...rest] = route.split("/");
-    const tail = rest.join("/");
+    const { head, tail, params } = parseAdminHash(location.hash);
     this.dirty = false;
     try {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
@@ -669,7 +698,7 @@ class ObAdmin extends HTMLElement {
       { class: "oba-search", "aria-label": "Status", style: null },
       ["all", "published", "scheduled", "draft", "error"].map((s) => h("option", { value: s }, s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1))),
     );
-    if (["published", "scheduled", "draft", "error"].includes(initialStatus)) stateSel.value = initialStatus;
+    stateSel.value = normalizeStatusFilter(initialStatus);
     const tbody = h("tbody");
     const render = () => {
       const q = filter.value.trim().toLowerCase();
@@ -991,11 +1020,7 @@ class Editor {
       );
     let paneButtons = [];
     const activatePane = (pane, focus = false) => {
-      this.root.dataset.mobilePane = pane;
-      for (const button of paneButtons) {
-        const selected = button.dataset.paneTarget === pane;
-        button.setAttribute("aria-pressed", String(selected));
-      }
+      applyPaneSelection(this.root, paneButtons, pane);
       if (focus) {
         const container = this.root.querySelector(`[data-pane="${pane}"]`);
         const target = pane === "markdown" ? this.ui.body : pane === "preview" ? this.ui.preview : container?.querySelector("input,select,textarea,button");
@@ -1446,13 +1471,12 @@ class Editor {
       this.doc.etag = res.etag;
       this.isNew = false;
       this.slugTouched = true;
-      if (this.app.editVersion === saveVersion) {
-        this.app.dirty = false;
-        ui.saveState.textContent = "Saved";
+      const savedState = saveStateForVersions(saveVersion, this.app.editVersion);
+      this.app.dirty = savedState.dirty;
+      ui.saveState.textContent = savedState.label;
+      if (savedState.messageIsCurrent) {
         ui.saveState.classList.remove("is-dirty");
       } else {
-        this.app.dirty = true;
-        ui.saveState.textContent = "Unsaved changes";
         ui.saveState.classList.add("is-dirty");
       }
       ui.saveBtn.textContent = "Save";
@@ -1464,7 +1488,7 @@ class Editor {
         this.app.skipRoute = true;
         location.hash = target;
       }
-      this.reportSaved(res, this.app.editVersion === saveVersion);
+      this.reportSaved(res, savedState.messageIsCurrent);
     } catch (err) {
       if (err.status === 401) {
         this.app.showLogin("Your session ended. Sign in again; your edits are still in the form only until you reload.");
@@ -1508,4 +1532,4 @@ class Editor {
   }
 }
 
-if (!customElements.get("ob-admin")) customElements.define("ob-admin", ObAdmin);
+if (globalThis.customElements && !customElements.get("ob-admin")) customElements.define("ob-admin", ObAdmin);

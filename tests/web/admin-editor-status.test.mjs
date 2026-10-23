@@ -13,8 +13,8 @@ test("editor reports document size and save state", () => {
   assert.match(admin, /Saving…/);
   assert.match(admin, /Saved/);
   assert.match(admin, /const saveVersion = this\.app\.editVersion/);
-  assert.match(admin, /this\.app\.editVersion === saveVersion/);
-  assert.match(admin, /this\.app\.dirty = true;\s+ui\.saveState\.textContent = "Unsaved changes"/);
+  assert.match(admin, /saveStateForVersions\(saveVersion, this\.app\.editVersion\)/);
+  assert.match(admin, /this\.app\.dirty = savedState\.dirty/);
   assert.match(admin, /if \(this\.saving\) return/);
   assert.match(admin, /Saved the earlier version\. Your newer edits are still unsaved\./);
   assert.match(admin, /if \(this\.ui\.saveState\.textContent === "Unsaved changes"\) return/);

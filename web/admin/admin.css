@@ -41,6 +41,7 @@ ob-admin {
   display: inline-flex;
   align-items: center;
   gap: 0.75rem;
+  min-width: 0;
   color: var(--ob-color-text);
   text-decoration: none;
 }
@@ -63,12 +64,16 @@ ob-admin {
 .oba-brand-copy {
   display: grid;
   gap: 0.05rem;
+  min-width: 0;
 }
 
 .oba-brand-copy strong {
+  overflow: hidden;
   font-family: var(--ob-font-heading);
   font-size: 1.05rem;
   letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .oba-brand-copy small {
@@ -1139,7 +1144,9 @@ kbd {
     min-height: 4rem;
   }
 
-  .oba-brand-copy small,
+  .oba-brand-copy,
+  .oba-account-label,
+  .oba-command-trigger > span,
   .oba-tool-label {
     display: none;
   }

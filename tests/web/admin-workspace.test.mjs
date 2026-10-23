@@ -21,7 +21,7 @@ test("editor has named settings, markdown, and preview panes", () => {
 });
 
 test("mobile editors expose one explicitly selected pane", () => {
-  assert.match(admin, /root\.dataset\.mobilePane = pane/);
+  assert.match(admin, /applyPaneSelection\(this\.root, paneButtons, pane\)/);
   assert.match(admin, /aria-pressed/);
   assert.match(styles, /\.oba-mobile-nav/);
   assert.match(styles, /\.oba-editor\[data-mobile-pane="settings"\]/);
