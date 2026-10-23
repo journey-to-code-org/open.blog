@@ -71,6 +71,10 @@ impl Default for RenderOptions {
 struct FenceInfo {
     lang: String,
     title: Option<String>,
+    /// `runnable`: let readers edit and run this Rust example.
+    runnable: bool,
+    /// `playgroundLink=false`: omit the external Playground fallback link.
+    playground_link: Option<bool>,
     /// `showLineNumbers` / `showLineNumbers=false`.
     line_numbers: Option<bool>,
     /// `showLineNumbers=10` starts counting at 10.
@@ -133,6 +137,14 @@ fn parse_fence_info(info: &str) -> FenceInfo {
                     }
                 }
             }
+        } else if word == "runnable" {
+            out.runnable = true;
+        } else if let Some(value) = word.strip_prefix("playgroundLink=") {
+            out.playground_link = match value {
+                "true" => Some(true),
+                "false" => Some(false),
+                _ => None,
+            };
         } else if first && !word.is_empty() {
             out.lang = word.to_string();
         }
@@ -366,6 +378,7 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
     let mut out = Vec::with_capacity(events.len());
     let mut data = BlockData::default();
     let mut titled_code = false;
+    let mut runnable_code = false;
     // Open containers (quotes, callouts, list items, tables, footnotes).
     let mut depth = 0usize;
     // An open recipe section: what it holds and the heading level that opened it.
@@ -439,12 +452,23 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
                     ));
                 }
                 titled_code = fence.title.is_some();
+                runnable_code = fence.runnable && fence.lang.eq_ignore_ascii_case("rust");
+                if runnable_code {
+                    html.push_str("<ob-rust-playground");
+                    if fence.playground_link == Some(false) {
+                        html.push_str(" data-playground-link=\"false\"");
+                    }
+                    html.push('>');
+                }
                 html.push_str("<pre><code");
                 if !fence.lang.is_empty() {
                     html.push_str(&format!(
                         " class=\"language-{}\"",
                         escape::attr(&fence.lang)
                     ));
+                }
+                if runnable_code {
+                    html.push_str(" data-runnable=\"rust\"");
                 }
                 if let Some(on) = fence.line_numbers {
                     html.push_str(&format!(" data-line-numbers=\"{on}\""));
@@ -458,9 +482,18 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
                 html.push('>');
                 Event::Html(CowStr::from(html))
             }
-            Event::End(TagEnd::CodeBlock) if titled_code => {
+            Event::End(TagEnd::CodeBlock) if titled_code || runnable_code => {
+                let mut html = String::from("</code></pre>");
+                if runnable_code {
+                    html.push_str("</ob-rust-playground>");
+                }
+                if titled_code {
+                    html.push_str("</figure>");
+                }
+                html.push('\n');
                 titled_code = false;
-                Event::Html(CowStr::from("</code></pre></figure>\n"))
+                runnable_code = false;
+                Event::Html(CowStr::from(html))
             }
             Event::Start(Tag::BlockQuote(Some(kind))) => {
                 let (class, label) = callout_label(*kind);
@@ -1058,16 +1091,27 @@ mod tests {
             "",
             "no language before the title"
         );
+        assert!(parse_fence_info("rust runnable").runnable);
+        assert_eq!(
+            parse_fence_info("rust runnable playgroundLink=false").playground_link,
+            Some(false)
+        );
 
         let r = render(
-            "```rust title=\"a <b>.rs\" {2} showLineNumbers\nfn a() {}\nlet x = 1;\n```\n\n```\nplain\n```\n",
+            "```rust runnable playgroundLink=false title=\"a <b>.rs\" {2} showLineNumbers\nfn a() {}\nlet x = 1;\n```\n\n```python runnable\nprint('ordinary block')\n```\n\n```\nplain\n```\n",
             RenderOptions::default(),
         );
         assert!(r.html.contains(
-            "<figure class=\"ob-code-block\"><figcaption class=\"ob-code-title\">a &lt;b&gt;.rs</figcaption><pre><code class=\"language-rust\" data-line-numbers=\"true\" data-highlight-lines=\"2\">fn a() {}\nlet x = 1;\n</code></pre></figure>"
+            "<figure class=\"ob-code-block\"><figcaption class=\"ob-code-title\">a &lt;b&gt;.rs</figcaption><ob-rust-playground data-playground-link=\"false\"><pre><code class=\"language-rust\" data-runnable=\"rust\" data-line-numbers=\"true\" data-highlight-lines=\"2\">fn a() {}\nlet x = 1;\n</code></pre></ob-rust-playground></figure>"
         ), "{}", r.html);
+        assert!(r
+            .html
+            .contains("<code class=\"language-python\">print('ordinary block')"));
         assert!(r.html.contains("<pre><code>plain\n</code></pre>"));
-        assert_eq!(r.code_languages, vec!["rust".to_string()]);
+        assert_eq!(
+            r.code_languages,
+            vec!["rust".to_string(), "python".to_string()]
+        );
     }
 
     #[test]

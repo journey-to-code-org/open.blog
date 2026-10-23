@@ -24,7 +24,7 @@ Drop any `.md` file into `content/posts/`. The front matter at the top sets the 
 
 Run `openblog build`, then upload the `dist/` folder to any static host. Your RSS feed is at `/rss.xml`.
 
-```rust
+```rust runnable
 fn main() {
     println!(\"Hello, open.blog!\");
 }
@@ -219,6 +219,13 @@ mod tests {
         assert!(dir.join("dist/rss.xml").exists());
         assert!(dir.join("dist/assets/base.css").exists());
         assert!(dir.join("dist/assets/components/ob-quiz.js").exists());
+        assert!(
+            dir.join("dist/assets/components/ob-rust-playground.js")
+                .exists()
+                && dir
+                    .join("dist/assets/components/ob-rust-runner.js")
+                    .exists()
+        );
         assert!(dir.join("dist/themes/base/tokens.css").exists());
         assert!(dir.join("dist/assets/wasm/openblog_wasm_bg.wasm").exists());
         fs::write(dir.join("content/posts/_notes.md"), "not a post").unwrap();

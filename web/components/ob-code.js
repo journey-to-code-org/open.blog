@@ -36,7 +36,7 @@ function append(parent, token) {
   }
 }
 
-function enhance(codeEl, { colour, numbers }) {
+export function enhanceCode(codeEl, { colour, numbers }) {
   if (codeEl.dataset.enhanced) return;
   const text = codeEl.textContent;
   const match = /(?:^|\s)language-([\w+#-]+)/.exec(codeEl.className || "");
@@ -95,7 +95,7 @@ class ObCode extends HTMLElement {
       const code = pre.querySelector("code");
       if (code) {
         try {
-          enhance(code, options);
+          enhanceCode(code, options);
         } catch {
           // A tokenizer bug must never blank out the code; the plain text stays.
         }
