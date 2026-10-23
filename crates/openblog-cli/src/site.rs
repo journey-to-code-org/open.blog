@@ -328,7 +328,16 @@ pub fn load_site(
 ) -> Result<(Site, ThemeSet), String> {
     let config = load_config(root)?;
     let sources = read_sources(root, &config)?;
-    load_site_from_sources(root, config, sources, include_drafts, now)
+    load_site_from_sources(
+        root,
+        config,
+        sources,
+        LoadOptions {
+            include_drafts,
+            now,
+            preview_source: None,
+        },
+    )
 }
 
 /// Load a production-faithful site after a caller has substituted in-memory
@@ -337,21 +346,12 @@ pub fn load_site_from_sources(
     root: &Path,
     config: SiteConfig,
     sources: Sources,
-    include_drafts: bool,
-    now: Option<DateTime>,
+    options: LoadOptions,
 ) -> Result<(Site, ThemeSet), String> {
     let config = with_asset_version(root, config);
     let counts = view_counts(root, &config);
     let themes = load_themes(root, &config)?;
-    let site = Site::load(
-        config,
-        sources,
-        LoadOptions {
-            include_drafts,
-            now,
-        },
-    )
-    .map_err(|errors| {
+    let site = Site::load(config, sources, options).map_err(|errors| {
         format!(
             "{} problem(s) in your content:\n  - {}",
             errors.len(),

@@ -5,6 +5,28 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-23
+
+### Added
+
+- Production-faithful draft previews that use the same site model, theme inheritance,
+  renderer, metadata, and components as a published build while keeping front matter hidden.
+- A dedicated social-card view backed by the exact resolved OpenGraph and X metadata emitted
+  by the renderer, including canonical and site-image fallbacks.
+- A transparent SEO and answer-readiness workspace with grouped search, answer-structure,
+  trust, accessibility, and source-link guidance.
+- Source-preserving Markdown controls for headings, emphasis, links, quotes, lists, and code,
+  including keyboard shortcuts and undo-aware editing.
+
+### Changed
+
+- Replaced the permanent side-by-side editor with focused full-width Write, Site preview,
+  Social, Optimize, and Settings views.
+- Deferred expensive publishing-engine previews until Site preview or Social is visible and
+  prevented stale asynchronous responses from replacing newer drafts.
+- Hardened unpublished previews with authenticated random URLs, a bounded in-memory cache,
+  opaque-origin sandboxing, restricted script origins, and disabled snippets and analytics.
+
 ## [0.5.0] - 2026-10-23
 
 ### Changed
@@ -84,7 +106,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.3.0...v0.4.0

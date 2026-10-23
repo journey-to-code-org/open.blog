@@ -25,10 +25,13 @@ pub struct Sources {
     pub pages: Vec<SourceFile>,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct LoadOptions {
     /// Include drafts and scheduled posts (for previews and the admin editor).
     pub include_drafts: bool,
+    /// Include only this source when it is a draft or scheduled post.
+    /// All other posts continue to follow production visibility rules.
+    pub preview_source: Option<String>,
     /// The current time. Posts dated after it are held back as scheduled.
     /// `None` disables scheduling, which keeps pure builds deterministic.
     pub now: Option<DateTime>,
@@ -211,10 +214,15 @@ impl Site {
                             }
                         }
                     }
-                    if post.draft && !options.include_drafts {
+                    let is_preview_target =
+                        options.preview_source.as_deref() == Some(post.source.as_str());
+                    if post.draft && !options.include_drafts && !is_preview_target {
                         continue;
                     }
-                    if !options.include_drafts && options.now.is_some_and(|now| post.date > now) {
+                    if !options.include_drafts
+                        && !is_preview_target
+                        && options.now.is_some_and(|now| post.date > now)
+                    {
                         scheduled.push(Scheduled {
                             title: post.title.clone(),
                             slug: post.slug.clone(),
@@ -923,6 +931,7 @@ mod tests {
             LoadOptions {
                 include_drafts: false,
                 now: Some(now),
+                preview_source: None,
             },
         )
         .unwrap();
@@ -944,6 +953,7 @@ mod tests {
             LoadOptions {
                 include_drafts: false,
                 now: Some(later),
+                preview_source: None,
             },
         )
         .unwrap();
@@ -956,6 +966,7 @@ mod tests {
             LoadOptions {
                 include_drafts: true,
                 now: Some(now),
+                preview_source: None,
             },
         )
         .unwrap();
@@ -986,6 +997,7 @@ mod tests {
             LoadOptions {
                 include_drafts: false,
                 now: Some(now),
+                preview_source: None,
             },
         )
         .unwrap_err();

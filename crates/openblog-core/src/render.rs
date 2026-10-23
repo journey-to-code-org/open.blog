@@ -66,34 +66,38 @@ struct Output {
     seen: HashSet<String>,
 }
 
-fn resolve_social_metadata(
-    config: &SiteConfig,
-    title: &str,
-    description: &str,
-    path: &str,
-    canonical: Option<&str>,
-    kind: &str,
-    image: Option<&str>,
-    image_alt: Option<&str>,
-) -> SocialMetadata {
-    let image = image
+struct SocialMetadataInput<'a> {
+    title: &'a str,
+    description: &'a str,
+    path: &'a str,
+    canonical: Option<&'a str>,
+    kind: &'a str,
+    image: Option<&'a str>,
+    image_alt: Option<&'a str>,
+}
+
+fn resolve_social_metadata(config: &SiteConfig, input: SocialMetadataInput<'_>) -> SocialMetadata {
+    let image = input
+        .image
         .or((!config.og_image.is_empty()).then_some(config.og_image.as_str()))
         .map(|value| config.absolute(value));
     SocialMetadata {
         site_name: config.title.clone(),
-        title: if title.is_empty() {
+        title: if input.title.is_empty() {
             config.title.clone()
         } else {
-            title.to_string()
+            input.title.to_string()
         },
-        description: description.to_string(),
-        url: canonical
+        description: input.description.to_string(),
+        url: input
+            .canonical
             .map(str::to_string)
-            .unwrap_or_else(|| config.absolute(path)),
-        image_alt: image_alt
+            .unwrap_or_else(|| config.absolute(input.path)),
+        image_alt: input
+            .image_alt
             .filter(|value| !value.is_empty())
             .map(str::to_string),
-        kind: kind.to_string(),
+        kind: input.kind.to_string(),
         card: if image.is_some() {
             "summary_large_image".to_string()
         } else {
@@ -108,13 +112,15 @@ pub fn social_metadata(site: &Site, source: &str) -> Result<SocialMetadata, Stri
     if let Some(post) = site.posts.iter().find(|post| post.source == source) {
         return Ok(resolve_social_metadata(
             &site.config,
-            &post.title,
-            &post.description,
-            &post.url,
-            post.canonical.as_deref(),
-            "article",
-            post.cover.as_deref(),
-            Some(&post.cover_alt),
+            SocialMetadataInput {
+                title: &post.title,
+                description: &post.description,
+                path: &post.url,
+                canonical: post.canonical.as_deref(),
+                kind: "article",
+                image: post.cover.as_deref(),
+                image_alt: Some(&post.cover_alt),
+            },
         ));
     }
     if let Some(page) = site.pages.iter().find(|page| page.source == source) {
@@ -125,13 +131,15 @@ pub fn social_metadata(site: &Site, source: &str) -> Result<SocialMetadata, Stri
         };
         return Ok(resolve_social_metadata(
             &site.config,
-            &page.title,
-            description,
-            &page.url,
-            None,
-            "website",
-            None,
-            None,
+            SocialMetadataInput {
+                title: &page.title,
+                description,
+                path: &page.url,
+                canonical: None,
+                kind: "website",
+                image: None,
+                image_alt: None,
+            },
         ));
     }
     if let Some(series) = site
@@ -146,13 +154,15 @@ pub fn social_metadata(site: &Site, source: &str) -> Result<SocialMetadata, Stri
         };
         return Ok(resolve_social_metadata(
             &site.config,
-            &series.name,
-            description,
-            &series.url,
-            None,
-            "website",
-            None,
-            None,
+            SocialMetadataInput {
+                title: &series.name,
+                description,
+                path: &series.url,
+                canonical: None,
+                kind: "website",
+                image: None,
+                image_alt: None,
+            },
         ));
     }
     Err(format!("no post, page, or series uses source `{source}`"))
@@ -399,13 +409,15 @@ impl<'a> Renderer<'a> {
         };
         let social = resolve_social_metadata(
             c,
-            &meta.title,
-            &meta.description,
-            &meta.path,
-            meta.canonical.as_deref(),
-            meta.kind,
-            meta.image.as_deref(),
-            meta.image_alt.as_deref(),
+            SocialMetadataInput {
+                title: &meta.title,
+                description: &meta.description,
+                path: &meta.path,
+                canonical: meta.canonical.as_deref(),
+                kind: meta.kind,
+                image: meta.image.as_deref(),
+                image_alt: meta.image_alt.as_deref(),
+            },
         );
 
         let mut h = String::with_capacity(body.len() + 4096);

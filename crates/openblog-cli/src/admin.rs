@@ -260,6 +260,7 @@ fn scheduled_list(root: &Path, now: DateTime) -> Vec<(String, String, String)> {
         LoadOptions {
             include_drafts: false,
             now: Some(now),
+            preview_source: None,
         },
     ) {
         Ok(site) => site
@@ -1165,6 +1166,7 @@ fn validate_candidate(
         LoadOptions {
             include_drafts: true,
             now: None,
+            preview_source: None,
         },
     ) {
         Ok(site) => generate(&site, &themes).map(|_| ()).map_err(|e| vec![e]),
@@ -1445,11 +1447,19 @@ fn preview(state: &AppState, req: &Request) -> Response {
     config.analytics.builtin = false;
     config.analytics.show_views = false;
     config.analytics.endpoint.clear();
-    let (preview_site, themes) =
-        match site::load_site_from_sources(&state.root, config, sources, true, None) {
-            Ok(loaded) => loaded,
-            Err(error) => return Response::error(422, &error),
-        };
+    let (preview_site, themes) = match site::load_site_from_sources(
+        &state.root,
+        config,
+        sources,
+        LoadOptions {
+            include_drafts: false,
+            now: Some(clock::now()),
+            preview_source: Some(rel.clone()),
+        },
+    ) {
+        Ok(loaded) => loaded,
+        Err(error) => return Response::error(422, &error),
+    };
     let target = match kind {
         "posts" => preview_site
             .posts
@@ -2491,6 +2501,16 @@ mod tests {
             "---\nname: Guides\nslug: guides\ntheme: paper\n---\nA guided path.",
         )
         .unwrap();
+        fs::write(
+            f.dir.join("content/posts/hidden-draft.md"),
+            "---\ntitle: Hidden sibling\ndate: 2026-01-01\ndraft: true\nseries: guides\n---\nPrivate.",
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join("content/posts/future-sibling.md"),
+            "---\ntitle: Future sibling\ndate: 2099-01-01\nseries: guides\n---\nNot yet.",
+        )
+        .unwrap();
         let prev = handle(
             &f.state,
             &authed(
@@ -2504,6 +2524,7 @@ mod tests {
                             "title": "Preview title",
                             "date": "2026-01-01",
                             "description": "A complete preview description for search and social cards.",
+                            "draft": "true",
                             "series": "guides",
                             "tags": ["preview"]
                         },
@@ -2555,6 +2576,7 @@ mod tests {
         assert!(html.contains("<article") && html.contains("Preview title"));
         assert!(html.contains("/themes/paper/tokens.css"));
         assert!(html.contains("property=\"og:title\"") && html.contains("<h2"));
+        assert!(!html.contains("Hidden sibling") && !html.contains("Future sibling"));
         assert!(
             !html.contains("series: guides"),
             "front matter is never rendered"

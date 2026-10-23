@@ -36,8 +36,8 @@ immediately.
 
 The admin is organized like a writing studio. The tool groups at the top move between
 content, analytics, and the public site; the status bar keeps unpublished changes and
-the publish action visible. Inside the editor, **Write**, **Site preview**, and **Settings**
-are separate full-width views, so writing is not squeezed beside a permanent preview.
+the publish action visible. Inside the editor, **Write**, **Site preview**, **Social**,
+**Optimize**, and **Settings** are separate full-width views, so writing is not squeezed beside a permanent preview.
 Switching views never loses edits, and opening Site preview refreshes it from the current draft.
 
 Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace
