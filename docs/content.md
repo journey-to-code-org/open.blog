@@ -49,9 +49,29 @@ a `#` heading, which is then used. Everything else is optional:
 | `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`. Also accepted as `redirectFrom`. |
 | `highlight` | `false` turns off code colouring for this post; `true` turns it on. Overrides the site and theme. |
 | `lineNumbers` | `false` or `true`: line numbers on this post's code blocks. Overrides the site and theme. |
-| `recipe` | `true` makes the post a recipe. See [Recipes](#recipes) for its own fields. |
+| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; use `recipe` for recipe cards and structured data. |
+| `recipe` | Legacy recipe marker. `true` remains supported; new posts should use `profile: recipe`. |
 
 Unknown fields are kept and ignored, so you can store your own notes in the front matter.
+
+### Content profiles
+
+Content profiles add field-specific authoring and rendering behavior to a post without
+changing its basic document type. A normal post uses `article` automatically. Select a
+profile in the admin's **Settings** view or write it directly:
+
+```yaml
+profile: recipe
+```
+
+The first built-in profiles are `article` and `recipe`. Existing `recipe: true`,
+`type: recipe`, `layout: recipe`, and `kind: recipe` files continue to work. When both a
+canonical `profile` and a legacy recipe marker exist, `profile` wins and the build warns
+if they disagree.
+
+An unrecognized profile id is preserved rather than deleted or rewritten. The post renders
+with ordinary article behavior, and `openblog check`, builds, and admin previews report a
+warning so the missing profile can be installed or corrected later.
 
 The admin editor's **Search & answer readiness** checklist updates while you write. The
 same conservative checks run during a build and warn about weak descriptions, unusually
@@ -200,7 +220,7 @@ lists them with a "scheduled" badge.
 
 ## Recipes
 
-open.blog is not only for code. Add `recipe: true` to a post's front matter, put the
+open.blog is not only for code. Add `profile: recipe` to a post's front matter, put the
 ingredients in a list under an `## Ingredients` heading and the steps in a list under a
 `## Steps` heading, and readers get:
 
@@ -211,7 +231,8 @@ ingredients in a list under an `## Ingredients` heading and the steps in a list 
 - a cook mode that keeps the screen awake, and a "Print recipe" button that prints just the recipe,
 - schema.org recipe data for search engines.
 
-`openblog new "Lemon garlic pasta" --recipe` creates a post with `recipe: true`,
+`openblog new "Lemon garlic pasta" --recipe` creates a recipe post (older generated files
+may contain the equivalent `recipe: true` marker),
 `servings: 4`, `prep: 15 min`, `cook: 25 min`, a tip callout, and a placeholder
 Ingredients list and Steps list, ready to fill in. A finished recipe looks like this:
 
@@ -219,7 +240,7 @@ Ingredients list and Steps list, ready to fill in. A finished recipe looks like 
 ---
 title: Lemon garlic pasta
 date: 2026-02-02
-recipe: true
+profile: recipe
 servings: 4
 prep: 10 min
 cook: 15 min
@@ -244,7 +265,7 @@ A few words about the dish.
 
 | Field | Meaning |
 | --- | --- |
-| `recipe` | `true` (or `type: recipe`) makes the post a recipe. |
+| `profile` | `recipe` enables recipe behavior. Legacy `recipe: true` and `type: recipe` markers also work. |
 | `servings` | How many it serves. A number (`4`) can be scaled; a range (`4-6`) scales from its first number. Also `serves`. Scaling needs a number here. |
 | `makes` | What it makes: `12 cookies`, `1 loaf`. Shown on the card only; to let readers scale a batch, also give `servings` (`servings: 24` and `makes: 24 cookies`). Also `yield`. |
 | `prep`, `cook`, `total` | One length of time: `15 min`, `1 hr 30 min`, `1.5 hours`, `1 1/2 hours`, `1h30m`, `1:30` (1 hour 30 minutes), or `PT1H30M`. Anything else, such as `overnight` or `10-15 min`, is shown on the card as written and left out of the search-engine data. `total` defaults to prep plus cook when both are given. Also `prepTime`, `cookTime`, `totalTime`. |

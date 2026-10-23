@@ -1,5 +1,13 @@
 # Sharing, views, analytics, and embeds
 
+## Content profiles
+
+Posts can opt into field-specific authoring and publishing behavior with `profile` in front
+matter. The shared catalog currently provides `article` and `recipe`; the admin reads the
+same definitions as the native and WebAssembly-capable core. Unknown ids are preserved and
+fall back to article output with a warning, so content remains portable while future
+research, journalism, education, media, and dataset profiles are added incrementally.
+
 ## Syntax highlighting
 
 Code blocks are coloured in the browser by `<ob-code highlight>`, a small tokenizer built

@@ -853,6 +853,22 @@ fn meta(state: &AppState) -> Response {
         }
     }
     tags.sort_by_key(|t| t.to_lowercase());
+    let profiles: Vec<Json> = openblog_core::profile::catalog()
+        .iter()
+        .map(|profile| {
+            json!({
+                "id": profile.id,
+                "label": profile.label,
+                "description": profile.description,
+                "fields": profile.fields.iter().map(|field| json!({
+                    "key": field.key,
+                    "label": field.label,
+                    "kind": field.kind.as_str(),
+                    "help": field.help,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
     Response::json(
         200,
         &json!({
@@ -863,6 +879,7 @@ fn meta(state: &AppState) -> Response {
             "postPath": config.post_path,
             "defaultTheme": config.theme,
             "themes": theme_list,
+            "profiles": profiles,
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
@@ -1127,10 +1144,17 @@ fn get_document(state: &AppState, req: &Request) -> Response {
     };
     let kind = check_rel_path(rel).unwrap_or("posts");
     match frontmatter::parse(&text) {
-        Ok(doc) => Response::json(
-            200,
-            &json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body }),
-        ),
+        Ok(doc) => {
+            let resolved_profile = if kind == "posts" {
+                json!(openblog_core::profile::resolve(&doc.front_matter).id)
+            } else {
+                Json::Null
+            };
+            Response::json(
+                200,
+                &json!({ "path": rel, "kind": kind, "etag": etag(&text), "fields": fields_to_json(&doc.front_matter.fields), "body": doc.body, "resolvedProfile": resolved_profile }),
+            )
+        }
         Err(e) => Response::json(
             200,
             &json!({ "path": rel, "kind": kind, "etag": etag(&text), "raw": text, "error": e }),
@@ -2094,6 +2118,79 @@ mod tests {
         ] {
             assert!(validated_questions(&bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn admin_meta_describes_available_content_profiles() {
+        let f = fixture("profile-meta");
+        let response = meta(&f.state);
+        assert_eq!(response.status, 200);
+        let profiles = body_json(&response)["profiles"].as_array().unwrap().clone();
+
+        assert_eq!(profiles[0]["id"], "article");
+        assert_eq!(profiles[0]["label"], "Article");
+        assert_eq!(profiles[1]["id"], "recipe");
+        assert_eq!(profiles[1]["fields"][0]["key"], "servings");
+        assert_eq!(profiles[1]["fields"][2]["kind"], "duration");
+    }
+
+    #[test]
+    fn unknown_content_profiles_round_trip_and_warn_in_preview() {
+        let f = fixture("profile-roundtrip");
+        let session = login_ok(&f);
+        let fields = json!({
+            "title": "Field log",
+            "date": "2026-10-23",
+            "profile": "field-notes"
+        });
+        let create = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({ "kind": "posts", "fields": fields, "body": "## Entry\nObserved." }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            create.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&create.body)
+        );
+        let path = body_json(&create)["path"].as_str().unwrap().to_string();
+
+        let document = handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/document?path={path}")),
+                &session,
+                false,
+            ),
+        );
+        let document = body_json(&document);
+        assert_eq!(document["fields"]["profile"], "field-notes");
+        assert_eq!(document["resolvedProfile"], "field-notes");
+
+        let preview = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({ "kind": "posts", "path": path, "fields": fields, "body": "## Entry\nObserved." }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        let warnings = body_json(&preview)["warnings"].as_array().unwrap().clone();
+        assert!(warnings.iter().any(|warning| warning
+            .as_str()
+            .is_some_and(|text| text.contains("unknown content profile `field-notes`"))));
     }
 
     #[test]

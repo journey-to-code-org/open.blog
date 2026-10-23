@@ -5,6 +5,24 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-23
+
+### Added
+
+- Added a content-profile catalog shared by the publishing engine and admin, beginning
+  with the general-purpose `article` profile and the structured `recipe` profile.
+- Added a Content profile selector to post settings, including visible fallback guidance
+  for unknown profile ids and structured authoring-field metadata for future profiles.
+
+### Changed
+
+- Made `profile: recipe` the canonical way to select recipe behavior while retaining
+  byte-for-byte generated-output compatibility with `recipe: true` and the existing
+  `type`, `layout`, and `kind` recipe aliases.
+- Unknown profile ids now round-trip without data loss, render safely as articles, and
+  produce source-scoped build and preview warnings. A canonical `profile` takes precedence
+  over contradictory legacy recipe markers and reports the conflict.
+
 ## [0.6.2] - 2026-10-23
 
 ### Changed

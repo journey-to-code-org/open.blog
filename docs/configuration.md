@@ -122,7 +122,8 @@ The order is: the fence, then the post, then this setting, then the theme.
 
 ## Recipes
 
-What readers get on posts with `recipe: true` (see [Writing content](content.md#recipes)).
+What readers get on posts using `profile: recipe` (legacy `recipe: true` also works; see
+[Writing content](content.md#recipes)).
 Every option is on by default; set one to `false` to leave that feature out.
 
 - `scaling`: buttons that scale the amount at the start of each ingredient to more or

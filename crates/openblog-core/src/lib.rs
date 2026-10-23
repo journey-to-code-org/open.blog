@@ -20,6 +20,7 @@ pub mod feeds;
 pub mod frontmatter;
 pub mod markdown;
 pub mod model;
+pub mod profile;
 pub mod recipe;
 pub mod render;
 pub mod search;

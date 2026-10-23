@@ -153,7 +153,7 @@ pub fn new_post(
     fields.push(("description", Value::Scalar(String::new())));
     if recipe {
         for (key, value) in [
-            ("recipe", "true"),
+            ("profile", "recipe"),
             ("servings", "4"),
             ("prep", "15 min"),
             ("cook", "25 min"),
@@ -246,6 +246,8 @@ mod tests {
         let recipe = new_post(&dir, "Lemon Pasta", None, &[], true, true).unwrap();
         let text = fs::read_to_string(dir.join(&recipe)).unwrap();
         let doc = openblog_core::frontmatter::parse(&text).unwrap();
+        assert_eq!(doc.front_matter.get("profile"), Some("recipe"));
+        assert_eq!(doc.front_matter.get("recipe"), None);
         assert!(openblog_core::recipe::is_recipe(&doc.front_matter));
         assert!(text.contains("## Ingredients") && text.contains("## Steps"));
         let drafts = site::build(

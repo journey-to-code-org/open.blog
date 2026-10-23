@@ -39,3 +39,12 @@ test("workspace layout keeps one focused editor view and responsive controls", (
   assert.match(styles, /@media \(max-width: 64rem\)/);
   assert.match(styles, /@media \(max-width: 44rem\)/);
 });
+
+test("post settings expose content profiles without silently migrating legacy fields", () => {
+  assert.match(admin, /id: "oba-profile"/);
+  assert.match(admin, /resolveProfileSelection\(f, profiles, this\.doc\.resolvedProfile\)/);
+  assert.match(admin, /if \(this\.profileTouched\) set\("profile", ui\.profile\.value\)/);
+  assert.match(admin, /Unknown profile:/);
+  assert.match(admin, /ui\.previewWarnings\.replaceChildren/);
+  assert.match(admin, /previewWarningsForDisplay\(preview\.warnings\)/);
+});

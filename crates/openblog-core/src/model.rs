@@ -8,7 +8,8 @@ use crate::config::SiteConfig;
 use crate::date::DateTime;
 use crate::frontmatter::{self, FrontMatter};
 use crate::markdown::{self, Heading, RenderOptions};
-use crate::recipe::{self, Recipe};
+use crate::profile::{self, ProfileBehavior};
+use crate::recipe::Recipe;
 use crate::slug::{from_file_stem, slugify};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,7 +84,11 @@ pub struct Post {
     pub word_count: usize,
     pub reading_minutes: u32,
     pub code_languages: Vec<String>,
-    /// Set for posts with `recipe: true`: times, servings, ingredients, steps.
+    /// Resolved content profile. Unknown authored ids are preserved here and
+    /// use article behavior until a matching profile is available.
+    pub profile: String,
+    pub(crate) profile_warnings: Vec<String>,
+    /// Set for posts using the recipe profile: times, servings, ingredients, steps.
     pub recipe: Option<Recipe>,
     /// Per-post code-block overrides from front matter (`highlight`, `lineNumbers`).
     pub code_highlight: Option<bool>,
@@ -199,6 +204,11 @@ impl Site {
                         continue;
                     }
                     slug_sources.insert(post.slug.clone(), file.path.clone());
+                    warnings.extend(
+                        post.profile_warnings
+                            .iter()
+                            .map(|warning| format!("{}: {warning}", file.path)),
+                    );
                     if let Some(r) = &post.recipe {
                         // The usual mistake: **Ingredients** in bold instead of a
                         // heading, or steps written as paragraphs instead of a list.
@@ -534,7 +544,8 @@ pub fn load_post(
 ) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
-    let is_recipe = recipe::is_recipe(fm);
+    let profile = profile::resolve(fm);
+    let is_recipe = profile.behavior == ProfileBehavior::Recipe;
     let rendered = markdown::render(
         &doc.body,
         RenderOptions {
@@ -649,6 +660,8 @@ pub fn load_post(
         word_count: rendered.word_count,
         reading_minutes: markdown::reading_minutes(rendered.word_count),
         code_languages: rendered.code_languages,
+        profile: profile.id,
+        profile_warnings: profile.warnings,
         recipe,
         code_highlight: fm
             .get_bool("highlight")

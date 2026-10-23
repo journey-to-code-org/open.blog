@@ -10,7 +10,7 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
   its own, and a theme can ship its own web components.
 - **Everything works without JavaScript.** A handful of small custom elements add search,
   a light/dark toggle, copy buttons, syntax highlighting, sharing, and view counts on top.
-- **Not only for developers.** Mark a post `recipe: true` and readers get a recipe card,
+- **Not only for developers.** Mark a post `profile: recipe` and readers get a recipe card,
   servings scaling, checklists, step timers, a cook mode, a print view, and recipe data
   for search engines. Callouts (`> [!TIP]`) work in any post.
 - **Code that reads well.** Colours for common languages (with the language guessed when a

@@ -6,6 +6,8 @@ import {
   applyPaneSelection,
   normalizeStatusFilter,
   parseAdminHash,
+  previewWarningsForDisplay,
+  resolveProfileSelection,
   saveStateForVersions,
 } from "../../web/admin/admin.js";
 
@@ -87,4 +89,38 @@ test("overview drill-down routes retain validated status filters and issue focus
   const issues = parseAdminHash("#/overview?focus=issues");
   assert.equal(issues.head, "overview");
   assert.equal(issues.params.get("focus"), "issues");
+});
+
+test("profile selection honors canonical values and legacy recipes without losing unknown ids", () => {
+  const profiles = [{ id: "article" }, { id: "recipe" }];
+  assert.deepEqual(resolveProfileSelection({}, profiles), {
+    value: "article",
+    unknown: false,
+  });
+  assert.deepEqual(resolveProfileSelection({ recipe: "true" }, profiles, "recipe"), {
+    value: "recipe",
+    unknown: false,
+  });
+  assert.deepEqual(resolveProfileSelection({ profile: "Recipe" }, profiles), {
+    value: "recipe",
+    unknown: false,
+  });
+  assert.deepEqual(resolveProfileSelection({ profile: "field-notes", recipe: "true" }, profiles), {
+    value: "field-notes",
+    unknown: true,
+  });
+});
+
+test("preview warnings preserve profile fallback and contradiction messages for display", () => {
+  assert.deepEqual(
+    previewWarningsForDisplay([
+      "posts/log.md: unknown content profile `field-notes`; rendering as an article",
+      "posts/log.md: profile `article` overrides the legacy recipe marker",
+      42,
+    ]),
+    [
+      "posts/log.md: unknown content profile `field-notes`; rendering as an article",
+      "posts/log.md: profile `article` overrides the legacy recipe marker",
+    ],
+  );
 });

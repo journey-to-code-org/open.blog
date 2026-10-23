@@ -136,6 +136,21 @@ export function saveStateForVersions(saveVersion, editVersion) {
     : { dirty: true, label: "Unsaved changes", messageIsCurrent: false };
 }
 
+export function resolveProfileSelection(fields, profiles = [], resolvedValue = "article") {
+  const canonicalValue = typeof fields.profile === "string" ? fields.profile.trim() : "";
+  const match = (value) => profiles.find((profile) => profile.id.toLowerCase() === value.toLowerCase());
+  if (canonicalValue) {
+    const knownProfile = match(canonicalValue);
+    return { value: knownProfile?.id || canonicalValue, unknown: !knownProfile };
+  }
+  const value = resolvedValue || "article";
+  return { value, unknown: !match(value) };
+}
+
+export function previewWarningsForDisplay(warnings) {
+  return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
+}
+
 export function applyPaneSelection(root, buttons, pane) {
   root.dataset.editorView = pane;
   for (const button of buttons) button.setAttribute("aria-pressed", String(button.dataset.paneTarget === pane));
@@ -1051,6 +1066,7 @@ class Editor {
     ui.body = h("textarea", { class: "oba-body", id: "oba-body", spellcheck: "true", "aria-label": "Markdown", value: this.doc.body || "" });
     ui.preview = h("iframe", { class: "oba-preview", title: "Preview", sandbox: "allow-scripts" });
     ui.previewTheme = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Rendering site…");
+    ui.previewWarnings = h("div", { class: "oba-notice", role: "status", "aria-live": "polite", hidden: true });
     ui.socialStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Open this view to render the current social metadata.");
     ui.socialImage = h("div", { class: "oba-social-image" }, h("span", {}, "No social image"));
     ui.socialSite = h("span", { class: "oba-social-site" }, this.meta.siteTitle);
@@ -1086,6 +1102,32 @@ class Editor {
     side.push(this.field("oba-slug", "Slug", ui.slug, this.isNew ? "Part of the web address." : "Changing the slug changes the post's address."));
 
     if (kind === "posts") {
+      const profiles = this.meta.profiles || [];
+      this.profileSelection = resolveProfileSelection(f, profiles, this.doc.resolvedProfile);
+      this.profileTouched = false;
+      ui.profile = h(
+        "select",
+        { id: "oba-profile" },
+        profiles.map((profile) =>
+          h("option", { value: profile.id, selected: profile.id === this.profileSelection.value }, profile.label || profile.id),
+        ),
+      );
+      if (this.profileSelection.unknown) {
+        ui.profile.append(h("option", { value: this.profileSelection.value, selected: true }, `Unknown profile: ${this.profileSelection.value}`));
+      }
+      ui.profileHelp = h("p", { class: "oba-help", role: "status" });
+      const syncProfileHelp = () => {
+        const selected = profiles.find((profile) => profile.id === ui.profile.value);
+        ui.profileHelp.textContent = selected
+          ? selected.description || "Choose the authoring and publishing behavior for this post."
+          : `Unknown profile: ${ui.profile.value}. It will be preserved and rendered as an article.`;
+      };
+      ui.profile.addEventListener("change", () => {
+        this.profileTouched = true;
+        syncProfileHelp();
+      });
+      syncProfileHelp();
+      side.push(h("div", { class: "oba-field" }, h("label", { for: "oba-profile" }, "Content profile"), ui.profile, ui.profileHelp));
       ui.description = h("textarea", { id: "oba-desc", rows: 3, value: f.description || "" });
       side.push(this.field("oba-desc", "Description", ui.description, "Shown in search results and feeds. Leave empty to use an excerpt."));
       ui.tags = h("input", { id: "oba-tags", type: "text", list: "oba-taglist", value: (Array.isArray(f.tags) ? f.tags : f.tags ? [f.tags] : []).join(", ") });
@@ -1252,6 +1294,7 @@ class Editor {
             "section",
             { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" },
             paneHeader("Review", "Site preview", h("div", { class: "oba-preview-tools" }, ui.previewTheme, ui.previewWidth)),
+            ui.previewWarnings,
             h("div", { class: "oba-preview-canvas" }, ui.preview),
           ),
           h(
@@ -1325,7 +1368,7 @@ class Editor {
         this.schedulePreview();
       });
     }
-    for (const control of [ui.theme, ui.series, ui.order, ui.date, ui.nav].filter(Boolean)) control.addEventListener("change", () => this.schedulePreview());
+    for (const control of [ui.theme, ui.profile, ui.series, ui.order, ui.date, ui.nav].filter(Boolean)) control.addEventListener("change", () => this.schedulePreview());
     for (const radio of ui.statusRadios || []) radio.querySelector("input").addEventListener("change", () => this.schedulePreview());
 
     // Drag and drop or paste an image into the Markdown.
@@ -1473,11 +1516,20 @@ class Editor {
       this.ui.preview.removeAttribute("srcdoc");
       this.ui.preview.src = preview.previewUrl;
       this.ui.previewTheme.textContent = `Theme: ${preview.theme}`;
+      const warnings = previewWarningsForDisplay(preview.warnings);
+      this.ui.previewWarnings.replaceChildren(
+        ...(warnings.length
+          ? [h("strong", {}, "Publishing warnings"), h("ul", {}, warnings.map((warning) => h("li", {}, warning)))]
+          : []),
+      );
+      this.ui.previewWarnings.hidden = warnings.length === 0;
       this.updateSocialPreview(preview.social);
     } catch (error) {
       if (request !== this.previewRequest) return;
       this.ui.preview.srcdoc = "<!doctype html><html><body><p>Preview unavailable. Check the editor for validation problems.</p></body></html>";
       this.ui.previewTheme.textContent = "Preview unavailable";
+      this.ui.previewWarnings.replaceChildren();
+      this.ui.previewWarnings.hidden = true;
       this.updateSocialPreview({ siteName: this.meta.siteTitle, title: "Preview unavailable", description: "Fix the document validation problems, then try again.", url: "", image: null, imageAlt: "", type: "—", card: "—" });
       this.ui.socialStatus.textContent = "Social metadata unavailable";
     }
@@ -1703,6 +1755,7 @@ class Editor {
     set("theme", ui.theme.value);
     if (ui.cover) set("cover", ui.cover.value.trim());
     if (this.kind === "posts") {
+      if (this.profileTouched) set("profile", ui.profile.value);
       set("description", ui.description.value.trim());
       set("tags", ui.tags.value.split(",").map((t) => t.trim()).filter(Boolean));
       set("series", ui.series.value);
@@ -1761,6 +1814,10 @@ class Editor {
         ? await this.app.api.call("PUT", `document?path=${encodeURIComponent(this.doc.path)}`, { json: payload })
         : await this.app.api.call("POST", "document", { json: payload });
       this.f = fields;
+      if (this.kind === "posts") {
+        this.profileSelection = resolveProfileSelection(fields, this.meta.profiles || [], this.doc.resolvedProfile);
+        this.profileTouched = false;
+      }
       this.doc.path = res.path;
       this.doc.etag = res.etag;
       this.isNew = false;

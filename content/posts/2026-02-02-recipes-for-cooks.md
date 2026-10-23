@@ -5,7 +5,7 @@ tags:
   - recipe
   - guide
 description: open.blog is not only for code. Mark a post as a recipe and readers get a recipe card, servings scaling, checklists, timers, cook mode, and a print view.
-recipe: true
+profile: recipe
 servings: 4
 prep: 10 min
 cook: 15 min
@@ -13,7 +13,7 @@ cuisine: Italian
 course: Dinner
 ---
 
-open.blog is not only for code. Add `recipe: true` to a post's front matter, put the
+open.blog is not only for code. Add `profile: recipe` to a post's front matter, put the
 ingredients in a list under an `## Ingredients` heading and the steps in a list under a
 `## Steps` heading, and the post becomes a recipe:
 
@@ -55,7 +55,7 @@ example; try the buttons above.
 The front matter for this post:
 
 ```yaml
-recipe: true
+profile: recipe
 servings: 4
 prep: 10 min
 cook: 15 min

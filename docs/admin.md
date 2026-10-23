@@ -26,6 +26,7 @@ immediately.
 | **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
 | **Formatting** | Apply H2, bold, italic, link, quote, list, and inline/fenced-code Markdown without converting or hiding the source. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in the editor. |
+| **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
@@ -75,6 +76,12 @@ rich-writing ergonomics without an HTML-to-Markdown round trip, so existing cust
 embeds, quizzes, and front matter cannot be lost by switching editor modes. Saving,
 conflict detection, preview sandboxing, and publishing use the same file-based workflow
 and security checks.
+
+In a post's **Settings** view, **Content profile** defaults to Article. Recipe posts select
+Recipe and continue through the existing recipe renderer and structured-data path. Files
+using `recipe: true` or another legacy recipe alias appear as Recipe but keep that original
+field unless you explicitly change the selector. An unknown `profile` value appears as its
+own option with a warning; saving without changing it preserves the value.
 
 Every save is checked against the whole site before anything is written (duplicate slugs,
 unknown themes, bad dates), then the site is rebuilt. A save that would break the build is

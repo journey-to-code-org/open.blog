@@ -1,4 +1,4 @@
-//! Recipes: a post with `recipe: true` in its front matter gets a summary card
+//! Recipes: a post with `profile: recipe` in its front matter gets a summary card
 //! (times, servings), interactive ingredients and steps, and schema.org
 //! `Recipe` data so search engines can show it as a recipe.
 //!
@@ -118,11 +118,7 @@ pub struct Recipe {
 
 /// True when the front matter marks the post as a recipe.
 pub fn is_recipe(fm: &FrontMatter) -> bool {
-    fm.get_bool("recipe") == Some(true)
-        || ["type", "layout", "kind"]
-            .iter()
-            .filter_map(|k| fm.get(k))
-            .any(|v| v.trim().eq_ignore_ascii_case("recipe"))
+    crate::profile::resolve(fm).behavior == crate::profile::ProfileBehavior::Recipe
 }
 
 impl Recipe {
