@@ -5,6 +5,30 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-23
+
+### Added
+
+- Added a stable contributor registry with public profile links, normalized manually entered
+  ORCID identifiers, `sameAs` identities, and explicit provenance boundaries that avoid
+  presenting editable identity data as authenticated.
+- Added versioned per-post credit sidecars with ordered contributors and controlled
+  Crossref/CRediT roles, including explicit-empty credits and legacy site-author inheritance.
+- Added Admin Studio tools for managing contributor identities and per-post credits with
+  conflict detection, reference-aware deletion, repair states, and source-preserving saves.
+- Added `openblog contributors migrate --id <stable-id>` with a dry-run default and explicit
+  `--write` mode for safely converting inherited authorship to reusable contributor credits.
+
+### Changed
+
+- Published bylines, article JSON-LD (including recipe posts), RSS, JSON Feed, and research
+  metadata now use the resolved ordered contributor credits while preserving legacy author
+  behavior for existing sites.
+- Admin and CLI content writes, imports, migrations, and publishing now share a filesystem
+  transaction lock so configuration and credit sidecars cannot be published half-written.
+- Document listing, preview, save, delete, and validation now understand adjacent
+  credit sidecars and surface malformed, orphaned, or ambiguous ownership errors.
+
 ## [0.9.0] - 2026-10-23
 
 ### Added
@@ -187,7 +211,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.6.2...v0.7.0
