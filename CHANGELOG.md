@@ -5,6 +5,20 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-23
+
+### Added
+
+- A reader-facing guide to safely syndicating open.blog articles to Hashnode, DEV,
+  Medium, Ghost, WordPress.com, and self-hosted WordPress.
+- A deploy-gated GitHub Actions template and dependency-free DEV adapter that create
+  drafts, verify canonical URLs, and update existing articles without duplicating them.
+
+### Changed
+
+- Expanded the starter Getting Started series with a cross-posting walkthrough and
+  documented feed, credential, canonical URL, and platform-specific safety requirements.
+
 ## [0.4.0] - 2026-10-22
 
 ### Added
@@ -55,6 +69,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/journey-to-code-org/open.blog/releases/tag/v0.2.0
