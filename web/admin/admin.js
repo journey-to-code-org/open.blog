@@ -1,8 +1,7 @@
 // open.blog admin editor: <ob-admin>. A single autonomous custom element that
 // renders three views (sign in, content list, editor) with plain DOM calls.
-// Nothing user-controlled is ever assigned through innerHTML; the only HTML we
-// render from content is the Markdown preview, which goes into a sandboxed
-// iframe whose nonce policy runs only the built-in quiz enhancement.
+// Nothing user-controlled is ever assigned through innerHTML. Publishing-engine
+// previews are served from an authenticated URL into an opaque-origin sandbox.
 
 const ADMIN_SCHEME_KEY = "ob-admin-scheme";
 const ADMIN_PREVIEW_WIDTH_KEY = "ob-admin-preview-width";
@@ -138,7 +137,7 @@ export function saveStateForVersions(saveVersion, editVersion) {
 }
 
 export function applyPaneSelection(root, buttons, pane) {
-  root.dataset.mobilePane = pane;
+  root.dataset.editorView = pane;
   for (const button of buttons) button.setAttribute("aria-pressed", String(button.dataset.paneTarget === pane));
 }
 
@@ -224,7 +223,7 @@ export class ObAdmin extends AdminElement {
       }
       if (this.editor && e.altKey && ["1", "2", "3"].includes(e.key)) {
         e.preventDefault();
-        const pane = ["settings", "markdown", "preview"][Number(e.key) - 1];
+        const pane = ["write", "preview", "settings"][Number(e.key) - 1];
         this.editor.activatePane(pane, true);
       }
     });
@@ -403,8 +402,8 @@ export class ObAdmin extends AdminElement {
     ];
     if (this.editor) {
       commands.unshift({ label: "Save document", category: "Editor", keywords: "publish ctrl s", run: () => this.editor.save() });
-      for (const pane of ["settings", "markdown", "preview"]) {
-        commands.unshift({ label: `Show ${pane}`, category: "Editor", keywords: "pane", run: () => this.editor.activatePane(pane) });
+      for (const pane of ["write", "preview", "settings"]) {
+        commands.unshift({ label: `Show ${pane}`, category: "Editor", keywords: "view pane", run: () => this.editor.activatePane(pane) });
       }
     }
 
@@ -1009,49 +1008,55 @@ class Editor {
     let paneButtons = [];
     const activatePane = (pane, focus = false) => {
       applyPaneSelection(this.root, paneButtons, pane);
+      if (pane === "preview") this.renderPreview();
+      else {
+        clearTimeout(this.previewTimer);
+        this.previewRequest += 1;
+      }
       if (focus) {
         const container = this.root.querySelector(`[data-pane="${pane}"]`);
-        const target = pane === "markdown" ? this.ui.body : pane === "preview" ? this.ui.preview : container?.querySelector("input,select,textarea,button");
+        const target = pane === "write" ? this.ui.body : pane === "preview" ? this.ui.preview : container?.querySelector("input,select,textarea,button");
         requestAnimationFrame(() => target?.focus());
       }
     };
     this.activatePane = activatePane;
-    paneButtons = ["settings", "markdown", "preview"].map((pane) =>
+    const paneLabels = { write: "Write", preview: "Site preview", settings: "Settings" };
+    paneButtons = ["write", "preview", "settings"].map((pane) =>
       h(
         "button",
         {
           class: "oba-tab",
           type: "button",
           "data-pane-target": pane,
-          "aria-pressed": String(pane === "markdown"),
+          "aria-pressed": String(pane === "write"),
           onClick: () => activatePane(pane),
         },
-        pane[0].toUpperCase() + pane.slice(1),
+        paneLabels[pane],
       ),
     );
-    const mobileNav = h("nav", { class: "oba-mobile-nav", "aria-label": "Editor panes" }, paneButtons);
+    const viewNav = h("nav", { class: "oba-editor-nav", "aria-label": "Editor views" }, paneButtons);
 
     this.root = h(
       "div",
-      { class: "oba-editor", "data-mobile-pane": "markdown", "data-preview-width": savedPreviewWidth },
-      mobileNav,
-      h("aside", { class: "oba-side oba-pane", "data-pane": "settings", "aria-label": "Document settings" }, paneHeader("Document", "Settings"), h("div", { class: "oba-side-fields" }, side)),
+      { class: "oba-editor", "data-editor-view": "write", "data-preview-width": savedPreviewWidth },
       h(
         "div",
         { class: "oba-main" },
         toolbar,
         ui.status,
         ui.title,
+        viewNav,
         h(
           "div",
           { class: "oba-panes" },
-          h("section", { class: "oba-pane oba-markdown-pane", "data-pane": "markdown", "aria-label": "Markdown editor" }, paneHeader("Write", "Markdown", h("span", { class: "oba-small" }, "Plain text · portable")), ui.body),
+          h("section", { class: "oba-pane oba-markdown-pane", "data-pane": "write", "aria-label": "Markdown editor" }, paneHeader("Write", "Markdown", h("span", { class: "oba-small" }, "Plain text · portable")), ui.body),
           h(
             "section",
             { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" },
             paneHeader("Review", "Site preview", h("div", { class: "oba-preview-tools" }, ui.previewTheme, ui.previewWidth)),
             h("div", { class: "oba-preview-canvas" }, ui.preview),
           ),
+          h("section", { class: "oba-pane oba-settings-pane", "data-pane": "settings", "aria-label": "Document settings" }, paneHeader("Document", "Settings"), h("div", { class: "oba-side-fields" }, side)),
         ),
         h("footer", { class: "oba-editor-status" }, ui.saveState, h("span", { class: "oba-spacer" }), ui.documentStats, h("span", { class: "oba-small" }, "Markdown · UTF-8")),
       ),
@@ -1117,7 +1122,6 @@ class Editor {
     this.syncDateField();
     this.updateSeoAudit();
     this.updateDocumentStats();
-    this.renderPreview();
     (this.isNew ? ui.title : ui.body).focus();
   }
 
@@ -1170,6 +1174,10 @@ class Editor {
 
   schedulePreview() {
     clearTimeout(this.previewTimer);
+    if (this.root?.dataset.editorView !== "preview") {
+      this.previewRequest += 1;
+      return;
+    }
     this.previewTimer = setTimeout(() => this.renderPreview(), 250);
   }
 

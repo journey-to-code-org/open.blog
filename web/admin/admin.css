@@ -848,21 +848,18 @@ kbd {
 }
 
 .oba-editor {
-  display: grid;
-  grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
-  gap: 0;
   margin: -1.25rem clamp(-2rem, -2vw, -1rem) -4rem;
   min-height: calc(100vh - 13rem);
   border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
 }
 
-.oba-side {
-  border-right: var(--ob-border-width) solid var(--oba-panel-border);
-  background: var(--ob-color-surface);
-}
-
 .oba-side-fields {
   padding: 1rem;
+}
+
+.oba-settings-pane .oba-side-fields {
+  width: min(100%, 48rem);
+  margin-inline: auto;
 }
 
 .oba-pane {
@@ -940,7 +937,7 @@ kbd {
 
 .oba-main {
   min-width: 0;
-  padding: 1rem;
+  padding: 1rem clamp(0.75rem, 2vw, 2rem);
   background: var(--ob-color-page);
 }
 
@@ -962,9 +959,6 @@ kbd {
 }
 
 .oba-panes {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
   border: var(--ob-border-width) solid var(--oba-panel-border);
   border-radius: var(--ob-radius);
   background: var(--ob-color-surface);
@@ -972,8 +966,14 @@ kbd {
   overflow: hidden;
 }
 
-.oba-preview-pane {
-  border-left: var(--ob-border-width) solid var(--oba-panel-border);
+.oba-panes > .oba-pane {
+  display: none;
+}
+
+.oba-editor[data-editor-view="write"] .oba-markdown-pane,
+.oba-editor[data-editor-view="preview"] .oba-preview-pane,
+.oba-editor[data-editor-view="settings"] .oba-settings-pane {
+  display: block;
 }
 
 .oba-body,
@@ -1049,8 +1049,11 @@ kbd {
   color: var(--ob-color-accent);
 }
 
-.oba-mobile-nav {
-  display: none;
+.oba-editor-nav {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+  overflow-x: auto;
 }
 
 .oba-small {
@@ -1088,46 +1091,6 @@ kbd {
 
   .oba-context-copy p {
     display: none;
-  }
-
-  .oba-editor {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .oba-mobile-nav {
-    display: flex;
-    gap: 0.3rem;
-    padding: 0.6rem 1rem;
-    overflow-x: auto;
-    border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
-    background: var(--ob-color-surface);
-  }
-
-  .oba-editor > .oba-side,
-  .oba-editor .oba-panes > .oba-pane {
-    display: none;
-  }
-
-  .oba-editor[data-mobile-pane="settings"] > .oba-side {
-    display: block;
-    border-right: 0;
-  }
-
-  .oba-editor[data-mobile-pane="settings"] > .oba-main {
-    display: none;
-  }
-
-  .oba-editor[data-mobile-pane="markdown"] .oba-markdown-pane,
-  .oba-editor[data-mobile-pane="preview"] .oba-preview-pane {
-    display: block;
-  }
-
-  .oba-panes {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .oba-preview-pane {
-    border-left: 0;
   }
 
   .oba-overview-metrics {

@@ -61,19 +61,19 @@ test("an edit made during save remains dirty after the earlier response", () => 
   assert.deepEqual(saveStateForVersions(7, 8), { dirty: true, label: "Unsaved changes", messageIsCurrent: false });
 });
 
-test("mobile pane selection updates the container and every toggle", () => {
-  const root = { dataset: { mobilePane: "markdown" } };
+test("editor view selection updates the container and every toggle", () => {
+  const root = { dataset: { editorView: "write" } };
   const pressed = new Map();
-  const buttons = ["settings", "markdown", "preview"].map((paneTarget) => ({
+  const buttons = ["write", "preview", "settings"].map((paneTarget) => ({
     dataset: { paneTarget },
     setAttribute: (name, value) => pressed.set(paneTarget, [name, value]),
   }));
   applyPaneSelection(root, buttons, "preview");
-  assert.equal(root.dataset.mobilePane, "preview");
+  assert.equal(root.dataset.editorView, "preview");
   assert.deepEqual(Object.fromEntries(pressed), {
-    settings: ["aria-pressed", "false"],
-    markdown: ["aria-pressed", "false"],
+    write: ["aria-pressed", "false"],
     preview: ["aria-pressed", "true"],
+    settings: ["aria-pressed", "false"],
   });
 });
 

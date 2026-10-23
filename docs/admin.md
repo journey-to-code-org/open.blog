@@ -33,9 +33,9 @@ immediately.
 
 The admin is organized like a writing studio. The tool groups at the top move between
 content, analytics, and the public site; the status bar keeps unpublished changes and
-the publish action visible. Inside the editor, document settings, Markdown, and the live
-preview are separate labeled panes. On smaller screens, use the **Settings**, **Markdown**,
-and **Preview** buttons to switch panes without losing edits.
+the publish action visible. Inside the editor, **Write**, **Site preview**, and **Settings**
+are separate full-width views, so writing is not squeezed beside a permanent preview.
+Switching views never loses edits, and opening Site preview refreshes it from the current draft.
 
 Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace
 commands. The palette opens content lists, creates documents, switches editor panes,
@@ -43,7 +43,7 @@ saves the current document, changes the color scheme, and reaches account action
 the arrow keys and Enter to choose a result, or Escape to close it.
 
 The editor footer shows whether the document is saved plus its line, word, and character
-counts. Press `Alt+1`, `Alt+2`, or `Alt+3` to focus Settings, Markdown, or Preview. The
+counts. Press `Alt+1`, `Alt+2`, or `Alt+3` to focus Write, Site preview, or Settings. The
 preview toolbar can constrain the canvas to wide, tablet, or mobile width; this preference
 is stored in the browser and does not change the published theme.
 

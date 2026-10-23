@@ -13,24 +13,25 @@ test("admin shell exposes a grouped publishing workspace", () => {
   assert.match(admin, /h\("h1", \{\}, activeInfo\.title\)/);
 });
 
-test("editor has named settings, markdown, and preview panes", () => {
+test("editor has named writing, preview, and settings views", () => {
   assert.match(admin, /"data-pane": "settings"/);
-  assert.match(admin, /"data-pane": "markdown"/);
+  assert.match(admin, /"data-pane": "write"/);
   assert.match(admin, /"data-pane": "preview"/);
-  assert.match(admin, /"aria-label": "Editor panes"/);
+  assert.match(admin, /"aria-label": "Editor views"/);
 });
 
-test("mobile editors expose one explicitly selected pane", () => {
+test("editors expose one explicitly selected view at every width", () => {
   assert.match(admin, /applyPaneSelection\(this\.root, paneButtons, pane\)/);
   assert.match(admin, /aria-pressed/);
-  assert.match(styles, /\.oba-mobile-nav/);
-  assert.match(styles, /\.oba-editor\[data-mobile-pane="settings"\]/);
-  assert.match(styles, /\.oba-editor\[data-mobile-pane="markdown"\]/);
-  assert.match(styles, /\.oba-editor\[data-mobile-pane="preview"\]/);
+  assert.match(styles, /\.oba-editor-nav/);
+  assert.match(styles, /\.oba-editor\[data-editor-view="settings"\]/);
+  assert.match(styles, /\.oba-editor\[data-editor-view="write"\]/);
+  assert.match(styles, /\.oba-editor\[data-editor-view="preview"\]/);
 });
 
-test("workspace layout keeps wide-screen panes and narrow-screen controls explicit", () => {
-  assert.match(styles, /grid-template-columns:\s*minmax\(16rem,\s*22rem\)\s+minmax\(0,\s*1fr\)/);
+test("workspace layout keeps one focused editor view and responsive controls", () => {
+  assert.match(styles, /\.oba-panes > \.oba-pane/);
+  assert.match(styles, /display:\s*none/);
   assert.match(styles, /@media \(max-width: 64rem\)/);
   assert.match(styles, /@media \(max-width: 44rem\)/);
 });
