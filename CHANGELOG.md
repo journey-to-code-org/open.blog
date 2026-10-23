@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+### Changed
+
+- Reworked the admin into a publishing workspace with grouped tools, a persistent
+  publish-status bar, labeled settings/Markdown/preview panes, and an explicit
+  mobile pane switcher inspired by the README Studio workspace pattern.
+
 ## [0.4.1] - 2026-10-23
 
 ### Added

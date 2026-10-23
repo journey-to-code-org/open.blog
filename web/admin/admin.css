@@ -11,9 +11,7 @@
 
 body {
   min-width: 20rem;
-  background:
-    radial-gradient(circle at 12% 0%, var(--ob-color-glow) 0, transparent 28rem),
-    var(--ob-color-outer);
+  background: var(--ob-color-outer);
 }
 
 ob-admin {
@@ -22,46 +20,97 @@ ob-admin {
 }
 
 .oba-shell {
-  width: min(92rem, 100% - 2rem);
+  width: min(112rem, 100%);
   margin: 0 auto;
-  padding-block: 0.75rem 4rem;
+  min-height: 100vh;
+  border-inline: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-page);
 }
 
-.oba-bar {
+.oba-app-header {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem 1rem;
-  position: sticky;
-  z-index: 10;
-  top: 0.75rem;
-  padding: 0.7rem 0.85rem;
-  border: var(--ob-border-width) solid var(--oba-panel-border);
-  border-radius: calc(var(--ob-radius) + 2px);
-  background: color-mix(in srgb, var(--ob-color-surface) 92%, transparent);
-  box-shadow: var(--oba-shadow-sm);
-  backdrop-filter: blur(18px);
+  gap: 0.75rem;
+  min-height: 4.75rem;
+  padding: 0.75rem clamp(1rem, 2vw, 2rem);
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface);
 }
 
-.oba-bar h1 {
-  margin: 0;
-  font-size: 1.15rem;
-  letter-spacing: -0.02em;
-}
-
-.oba-bar > a:not(.oba-btn) {
-  color: var(--ob-color-muted);
-  font-size: 0.88rem;
-  font-weight: 600;
+.oba-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--ob-color-text);
   text-decoration: none;
 }
 
-.oba-bar > a:not(.oba-btn):hover {
-  color: var(--ob-color-accent);
+.oba-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 2.65rem;
+  height: 2.65rem;
+  border-radius: calc(var(--ob-radius-sm) + 3px);
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+  font-family: var(--ob-font-heading);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.08em;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--ob-color-accent) 22%, transparent);
+}
+
+.oba-brand-copy {
+  display: grid;
+  gap: 0.05rem;
+}
+
+.oba-brand-copy strong {
+  font-family: var(--ob-font-heading);
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+
+.oba-brand-copy small {
+  color: var(--ob-color-subtle);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
 }
 
 .oba-spacer {
   flex: 1;
+}
+
+.oba-toolbelt {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: clamp(1rem, 3vw, 4rem);
+  padding: 0.9rem clamp(1rem, 2vw, 2rem);
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface);
+}
+
+.oba-tool-group {
+  display: grid;
+  align-content: start;
+  gap: 0.4rem;
+}
+
+.oba-tool-label,
+.oba-pane-eyebrow {
+  color: var(--ob-color-accent);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.oba-tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
 }
 
 .oba-tabs {
@@ -69,7 +118,7 @@ ob-admin {
   gap: 0.25rem;
   width: fit-content;
   max-width: 100%;
-  margin: 1.25rem 0;
+  margin: 0 0 1rem;
   padding: 0.3rem;
   overflow-x: auto;
   border: var(--ob-border-width) solid var(--oba-panel-border);
@@ -93,15 +142,59 @@ ob-admin {
 }
 
 .oba-tab {
-  border-color: transparent;
-  background: transparent;
+  min-height: 34px;
+  padding: 0.35rem 0.7rem;
+  background: var(--ob-color-surface);
+  font-size: 0.84rem;
 }
 
-.oba-tab[aria-selected="true"] {
+.oba-tab[aria-current="page"],
+.oba-tab[aria-selected="true"],
+.oba-tab[aria-pressed="true"] {
   border-color: var(--ob-color-accent-border);
   background: var(--ob-color-glow);
   color: var(--ob-color-accent);
   font-weight: 600;
+}
+
+.oba-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 4.25rem;
+  padding: 0.7rem clamp(1rem, 2vw, 2rem);
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+  background: color-mix(in srgb, var(--ob-color-surface-raised) 72%, var(--ob-color-surface));
+}
+
+.oba-context-copy {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 0.15rem 0.75rem;
+}
+
+.oba-context-copy .oba-eyebrow {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.oba-context-copy h1,
+.oba-context-copy p {
+  margin: 0;
+}
+
+.oba-context-copy h1 {
+  font-size: 1rem;
+}
+
+.oba-context-copy p {
+  color: var(--ob-color-subtle);
+  font-size: 0.78rem;
+}
+
+.oba-workspace-content {
+  padding: 1.25rem clamp(1rem, 2vw, 2rem) 4rem;
 }
 
 .oba-btn:hover {
@@ -452,17 +545,64 @@ ob-admin {
 
 .oba-editor {
   display: grid;
-  grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
-  gap: 1.5rem;
-  align-items: start;
+  grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr);
+  gap: 0;
+  margin: -1.25rem clamp(-2rem, -2vw, -1rem) -4rem;
+  min-height: calc(100vh - 13rem);
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
 }
 
 .oba-side {
-  padding: 1.1rem;
-  border: var(--ob-border-width) solid var(--oba-panel-border);
-  border-radius: var(--ob-radius);
+  border-right: var(--ob-border-width) solid var(--oba-panel-border);
   background: var(--ob-color-surface);
-  box-shadow: var(--oba-shadow-sm);
+}
+
+.oba-side-fields {
+  padding: 1rem;
+}
+
+.oba-pane {
+  min-width: 0;
+}
+
+.oba-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 3.45rem;
+  padding: 0.65rem 1rem;
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface);
+}
+
+.oba-pane-header > div {
+  display: grid;
+  gap: 0.05rem;
+}
+
+.oba-pane-header h2 {
+  margin: 0;
+  font-size: 0.9rem;
+  letter-spacing: -0.01em;
+}
+
+.oba-live-dot {
+  color: var(--oba-success);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.oba-live-dot::before {
+  content: "";
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .oba-fieldset {
@@ -480,6 +620,12 @@ ob-admin {
 
 .oba-main {
   min-width: 0;
+  padding: 1rem;
+  background: var(--ob-color-page);
+}
+
+.oba-editor-actions {
+  margin-top: 0;
 }
 
 .oba-title-input {
@@ -498,17 +644,26 @@ ob-admin {
 .oba-panes {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  box-shadow: var(--oba-shadow-sm);
+  overflow: hidden;
+}
+
+.oba-preview-pane {
+  border-left: var(--ob-border-width) solid var(--oba-panel-border);
 }
 
 .oba-body,
 .oba-preview {
+  display: block;
   width: 100%;
   min-height: 60vh;
-  border: var(--ob-border-width) solid var(--oba-panel-border);
-  border-radius: var(--ob-radius);
+  border: 0;
+  border-radius: 0;
   background: var(--ob-color-page);
-  box-shadow: var(--oba-shadow-sm);
 }
 
 .oba-body {
@@ -523,6 +678,10 @@ ob-admin {
 
 .oba-preview {
   background: #fff;
+}
+
+.oba-mobile-nav {
+  display: none;
 }
 
 .oba-small {
@@ -543,24 +702,109 @@ ob-admin {
   white-space: nowrap;
 }
 
-@media (max-width: 56rem) {
-  .oba-editor,
-  .oba-panes {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .oba-bar {
-    position: static;
-  }
-
-  .oba-theme-label,
-  .oba-bar > .oba-small {
+@media (max-width: 64rem) {
+  .oba-app-header > .oba-small,
+  .oba-theme-label {
     display: none;
   }
 
   .oba-theme-toggle {
     min-width: 40px;
     padding-inline: 0.65rem;
+  }
+
+  .oba-context-copy p {
+    display: none;
+  }
+
+  .oba-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-mobile-nav {
+    display: flex;
+    gap: 0.3rem;
+    padding: 0.6rem 1rem;
+    overflow-x: auto;
+    border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+    background: var(--ob-color-surface);
+  }
+
+  .oba-editor > .oba-side,
+  .oba-editor .oba-panes > .oba-pane {
+    display: none;
+  }
+
+  .oba-editor[data-mobile-pane="settings"] > .oba-side {
+    display: block;
+    border-right: 0;
+  }
+
+  .oba-editor[data-mobile-pane="settings"] > .oba-main {
+    display: none;
+  }
+
+  .oba-editor[data-mobile-pane="markdown"] .oba-markdown-pane,
+  .oba-editor[data-mobile-pane="preview"] .oba-preview-pane {
+    display: block;
+  }
+
+  .oba-panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-preview-pane {
+    border-left: 0;
+  }
+}
+
+@media (max-width: 44rem) {
+  .oba-shell {
+    border-inline: 0;
+  }
+
+  .oba-app-header {
+    min-height: 4rem;
+  }
+
+  .oba-brand-copy small,
+  .oba-tool-label {
+    display: none;
+  }
+
+  .oba-toolbelt {
+    display: flex;
+    gap: 0.75rem;
+    padding-block: 0.6rem;
+    overflow-x: auto;
+  }
+
+  .oba-tool-group,
+  .oba-tool-actions {
+    display: contents;
+  }
+
+  .oba-context-bar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .oba-context-bar .oba-publish {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .oba-main {
+    padding: 0.75rem;
+  }
+
+  .oba-editor-actions .oba-small {
+    display: none;
+  }
+
+  .oba-table {
+    display: block;
+    overflow-x: auto;
   }
 }
 

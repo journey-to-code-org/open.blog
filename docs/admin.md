@@ -29,6 +29,18 @@ immediately.
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
 | **Publish** | A button in the header commits changed content with git and pushes it, so a Pages workflow deploys. Drafts stay local. See [publishing.md](publishing.md). |
 
+## Workspace layout
+
+The admin is organized like a writing studio. The tool groups at the top move between
+content, analytics, and the public site; the status bar keeps unpublished changes and
+the publish action visible. Inside the editor, document settings, Markdown, and the live
+preview are separate labeled panes. On smaller screens, use the **Settings**, **Markdown**,
+and **Preview** buttons to switch panes without losing edits.
+
+The Markdown remains the source of truth. The visual structure only changes how the
+tools are arranged; saving, conflict detection, preview sandboxing, and publishing use
+the same file-based workflow and security checks.
+
 Every save is checked against the whole site before anything is written (duplicate slugs,
 unknown themes, bad dates), then the site is rebuilt. A save that would break the build is
 refused with the reason. If the file changed on disk since you opened it (for example you

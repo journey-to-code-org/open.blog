@@ -275,31 +275,46 @@ class ObAdmin extends HTMLElement {
       },
       "Sign out",
     );
-    const tabs = h(
-      "div",
-      { class: "oba-tabs", role: "tablist" },
-      Object.entries(KINDS).map(([kind, info]) =>
-        h("a", { class: "oba-tab", role: "tab", "aria-selected": String(kind === active), href: `#/${kind}` }, info.label),
-      ),
-      h("a", { class: "oba-tab", role: "tab", "aria-selected": String(active === "analytics"), href: "#/analytics" }, "Analytics"),
+    const toolGroup = (label, ...tools) =>
+      h("div", { class: "oba-tool-group" }, h("span", { class: "oba-tool-label" }, label), h("div", { class: "oba-tool-actions" }, tools));
+    const contentTabs = Object.entries(KINDS).map(([kind, info]) =>
+      h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
     );
+    const activeInfo = active === "analytics"
+      ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
+      : { title: KINDS[active]?.label || "Workspace", detail: "Create, review, and publish content from the files you own." };
     return h(
       "div",
       { class: "oba-shell" },
       h(
         "header",
-        { class: "oba-bar" },
-        h("h1", {}, this.meta.siteTitle),
-        h("span", { class: "oba-small" }, "Admin"),
+        { class: "oba-app-header" },
+        h(
+          "a",
+          { class: "oba-brand", href: "#/posts", "aria-label": `${this.meta.siteTitle} admin home` },
+          h("span", { class: "oba-brand-mark", "aria-hidden": "true" }, "ob"),
+          h("span", { class: "oba-brand-copy" }, h("strong", {}, this.meta.siteTitle), h("small", {}, "Publishing studio")),
+        ),
         h("span", { class: "oba-spacer" }),
-        h("a", { href: "/", target: "_blank", rel: "noopener" }, "View site"),
-        publishBox,
         h("span", { class: "oba-small" }, `Signed in as ${this.user}`),
         themeButton(),
         logout,
       ),
-      tabs,
-      ...content,
+      h(
+        "nav",
+        { class: "oba-toolbelt", "aria-label": "Admin tools" },
+        toolGroup("Content", ...contentTabs),
+        toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics")),
+        toolGroup("Site", h("a", { class: "oba-tab", href: "/", target: "_blank", rel: "noopener" }, "View site ↗")),
+      ),
+      h(
+        "section",
+        { class: "oba-context-bar", "aria-label": "Workspace status" },
+        h("div", { class: "oba-context-copy" }, h("span", { class: "oba-eyebrow" }, "Workspace"), h("h1", {}, activeInfo.title), h("p", {}, activeInfo.detail)),
+        h("span", { class: "oba-spacer" }),
+        publishBox,
+      ),
+      h("main", { class: "oba-workspace-content" }, ...content),
     );
   }
 
@@ -681,13 +696,56 @@ class Editor {
       ui.imageFile.value = "";
     });
     const back = h("a", { class: "oba-btn", href: `#/${kind}` }, "← Back");
-    const toolbar = h("div", { class: "oba-toolbar" }, back, ui.saveBtn, ui.deleteBtn, imageButton, quizButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
+    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, quizButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
+
+    const paneHeader = (eyebrow, title, trailing = null) =>
+      h(
+        "header",
+        { class: "oba-pane-header" },
+        h("div", {}, h("span", { class: "oba-pane-eyebrow" }, eyebrow), h("h2", {}, title)),
+        trailing,
+      );
+    let paneButtons = [];
+    const activatePane = (pane) => {
+      this.root.dataset.mobilePane = pane;
+      for (const button of paneButtons) {
+        const selected = button.dataset.paneTarget === pane;
+        button.setAttribute("aria-pressed", String(selected));
+      }
+    };
+    paneButtons = ["settings", "markdown", "preview"].map((pane) =>
+      h(
+        "button",
+        {
+          class: "oba-tab",
+          type: "button",
+          "data-pane-target": pane,
+          "aria-pressed": String(pane === "markdown"),
+          onClick: () => activatePane(pane),
+        },
+        pane[0].toUpperCase() + pane.slice(1),
+      ),
+    );
+    const mobileNav = h("nav", { class: "oba-mobile-nav", "aria-label": "Editor panes" }, paneButtons);
 
     this.root = h(
       "div",
-      { class: "oba-editor" },
-      h("aside", { class: "oba-side", "aria-label": "Settings" }, side),
-      h("div", { class: "oba-main" }, toolbar, ui.status, ui.title, h("div", { class: "oba-panes" }, ui.body, ui.preview)),
+      { class: "oba-editor", "data-mobile-pane": "markdown" },
+      mobileNav,
+      h("aside", { class: "oba-side oba-pane", "data-pane": "settings", "aria-label": "Document settings" }, paneHeader("Document", "Settings"), h("div", { class: "oba-side-fields" }, side)),
+      h(
+        "div",
+        { class: "oba-main" },
+        toolbar,
+        ui.status,
+        ui.title,
+        h(
+          "div",
+          { class: "oba-panes" },
+          h("section", { class: "oba-pane oba-markdown-pane", "data-pane": "markdown", "aria-label": "Markdown editor" }, paneHeader("Write", "Markdown", h("span", { class: "oba-small" }, "Plain text · portable")), ui.body),
+          h("section", { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" }, paneHeader("Review", "Live preview", h("span", { class: "oba-live-dot" }, "Live")), ui.preview),
+        ),
+      ),
     );
     return this.root;
   }
