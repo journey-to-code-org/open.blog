@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-23
+
 ### Changed
 
 - Reworked the admin into a publishing workspace with grouped tools, a persistent
@@ -82,7 +84,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.2.0...v0.3.0
