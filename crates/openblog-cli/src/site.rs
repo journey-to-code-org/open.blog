@@ -326,9 +326,22 @@ pub fn load_site(
     include_drafts: bool,
     now: Option<DateTime>,
 ) -> Result<(Site, ThemeSet), String> {
-    let config = with_asset_version(root, load_config(root)?);
-    let counts = view_counts(root, &config);
+    let config = load_config(root)?;
     let sources = read_sources(root, &config)?;
+    load_site_from_sources(root, config, sources, include_drafts, now)
+}
+
+/// Load a production-faithful site after a caller has substituted in-memory
+/// sources, as the admin preview does for an unsaved document.
+pub fn load_site_from_sources(
+    root: &Path,
+    config: SiteConfig,
+    sources: Sources,
+    include_drafts: bool,
+    now: Option<DateTime>,
+) -> Result<(Site, ThemeSet), String> {
+    let config = with_asset_version(root, config);
+    let counts = view_counts(root, &config);
     let themes = load_themes(root, &config)?;
     let site = Site::load(
         config,

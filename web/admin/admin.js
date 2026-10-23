@@ -178,21 +178,6 @@ class Api {
   }
 }
 
-let enginePromise;
-/** The WebAssembly engine (same Rust code as the build), or null if unavailable. */
-function loadEngine() {
-  enginePromise ??= (async () => {
-    try {
-      const mod = await import("/assets/wasm/openblog_wasm.js");
-      await mod.default();
-      return mod;
-    } catch {
-      return null;
-    }
-  })();
-  return enginePromise;
-}
-
 const KINDS = {
   posts: { label: "Posts", single: "post", titleKey: "title" },
   pages: { label: "Pages", single: "page", titleKey: "title" },
@@ -872,6 +857,7 @@ class Editor {
     this.f = { ...doc.fields };
     this.slugTouched = !this.isNew;
     this.previewTimer = 0;
+    this.previewRequest = 0;
   }
 
   get meta() {
@@ -899,6 +885,7 @@ class Editor {
     ui.title = h("input", { class: "oba-title-input", id: "oba-title", type: "text", placeholder: kind === "series" ? "Series name" : "Title", value: f[titleKey] || "", "aria-label": "Title" });
     ui.body = h("textarea", { class: "oba-body", id: "oba-body", spellcheck: "true", "aria-label": "Markdown", value: this.doc.body || "" });
     ui.preview = h("iframe", { class: "oba-preview", title: "Preview", sandbox: "allow-scripts" });
+    ui.previewTheme = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Rendering site…");
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
     ui.saveState = h("span", { class: "oba-save-state", role: "status", "aria-live": "polite" }, this.isNew ? "Not saved yet" : "Saved");
@@ -967,6 +954,7 @@ class Editor {
             this.app.dirty = true;
             this.markDirty();
             this.updateSeoAudit();
+            this.schedulePreview();
           }
         }
         ui.coverFile.value = "";
@@ -1061,7 +1049,7 @@ class Editor {
           h(
             "section",
             { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" },
-            paneHeader("Review", "Live preview", h("div", { class: "oba-preview-tools" }, h("span", { class: "oba-live-dot" }, "Live"), ui.previewWidth)),
+            paneHeader("Review", "Site preview", h("div", { class: "oba-preview-tools" }, ui.previewTheme, ui.previewWidth)),
             h("div", { class: "oba-preview-canvas" }, ui.preview),
           ),
         ),
@@ -1082,9 +1070,7 @@ class Editor {
       if (!this.slugTouched) ui.slug.value = slugify(ui.title.value);
     });
     ui.slug.addEventListener("input", () => (this.slugTouched = true));
-    ui.body.addEventListener("input", () => this.schedulePreview());
     ui.body.addEventListener("input", () => this.updateDocumentStats());
-    ui.theme.addEventListener("change", () => this.schedulePreview());
     ui.previewWidth.addEventListener("input", (e) => e.stopPropagation());
     ui.previewWidth.addEventListener("change", () => {
       this.root.dataset.previewWidth = ui.previewWidth.value;
@@ -1095,9 +1081,14 @@ class Editor {
       }
     });
     for (const r of ui.statusRadios || []) r.querySelector("input").addEventListener("change", () => this.syncDateField());
-    for (const control of [ui.title, ui.description, ui.tags, ui.cover, ui.coverAlt, ui.body].filter(Boolean)) {
-      control.addEventListener("input", () => this.updateSeoAudit());
+    for (const control of [ui.title, ui.slug, ui.description, ui.tags, ui.cover, ui.coverAlt, ui.canonical, ui.body].filter(Boolean)) {
+      control.addEventListener("input", () => {
+        this.updateSeoAudit();
+        this.schedulePreview();
+      });
     }
+    for (const control of [ui.theme, ui.series, ui.order, ui.date, ui.nav].filter(Boolean)) control.addEventListener("change", () => this.schedulePreview());
+    for (const radio of ui.statusRadios || []) radio.querySelector("input").addEventListener("change", () => this.schedulePreview());
 
     // Drag and drop or paste an image into the Markdown.
     ui.body.addEventListener("dragover", (e) => {
@@ -1183,28 +1174,26 @@ class Editor {
   }
 
   async renderPreview() {
-    const body = this.ui.body.value;
-    let html;
-    const engine = await loadEngine();
-    if (engine) {
-      html = JSON.parse(engine.renderMarkdown(body)).html;
-    } else {
-      try {
-        html = (await this.app.api.call("POST", "preview", { json: { body } })).html;
-      } catch {
-        html = "<p>Preview unavailable.</p>";
-      }
+    const request = ++this.previewRequest;
+    this.ui.previewTheme.textContent = "Rendering site…";
+    try {
+      const preview = await this.app.api.call("POST", "preview", {
+        json: {
+          kind: this.kind,
+          path: this.doc.path,
+          fields: this.collect(),
+          body: this.ui.body.value,
+        },
+      });
+      if (request !== this.previewRequest) return;
+      this.ui.preview.removeAttribute("srcdoc");
+      this.ui.preview.src = preview.previewUrl;
+      this.ui.previewTheme.textContent = `Theme: ${preview.theme}`;
+    } catch (error) {
+      if (request !== this.previewRequest) return;
+      this.ui.preview.srcdoc = "<!doctype html><html><body><p>Preview unavailable. Check the editor for validation problems.</p></body></html>";
+      this.ui.previewTheme.textContent = "Preview unavailable";
     }
-    const known = this.meta.themes.map((t) => t.name);
-    const chosen = this.ui.theme.value || this.meta.defaultTheme;
-    const theme = known.includes(chosen) ? chosen : "base";
-    const nonce = [...crypto.getRandomValues(new Uint8Array(16))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    this.ui.preview.srcdoc =
-      `<!doctype html><html><head><meta charset="utf-8"><base target="_blank">` +
-      `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src http: https:; img-src http: https: data:; font-src http: https: data:; script-src 'nonce-${nonce}'">` +
-      `<link rel="stylesheet" href="/assets/base.css"><link rel="stylesheet" href="/themes/${theme}/tokens.css">` +
-      `</head><body data-ob-theme="${theme}"><div class="ob-container ob-container-reading"><div class="ob-prose">${html}</div></div>` +
-      `<script nonce="${nonce}" src="/assets/components/ob-quiz.js"></script></body></html>`;
   }
 
   async upload(file) {

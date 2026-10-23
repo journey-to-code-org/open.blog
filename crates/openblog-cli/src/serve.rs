@@ -311,19 +311,19 @@ pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response
                 // unversioned one (such as a module imported by another script)
                 // must revalidate, or a deploy would leave readers on stale code.
                 let versioned = req.query.contains_key("v");
-                let cache =
-                    if versioned && state.cdn.max_age > 0 && state.cdn.is_asset_path(&req.path) {
-                        format!("public, max-age={}", state.cdn.max_age)
-                    } else {
-                        "no-cache".to_string()
-                    };
+                let cache = if versioned && state.cdn.max_age > 0 && state.cdn.is_asset_path(path) {
+                    format!("public, max-age={}", state.cdn.max_age)
+                } else {
+                    "no-cache".to_string()
+                };
                 let mut response =
                     Response::new(200, mime(&file), bytes).with_header("Cache-Control", &cache);
                 // Public data files may be read by scripts on other sites (a "latest posts" list).
                 if matches!(
                     path,
                     "/api/blog.json" | "/feed.json" | "/rss.xml" | "/search.json"
-                ) {
+                ) || state.cdn.is_asset_path(path)
+                {
                     response = response.with_header("Access-Control-Allow-Origin", "*");
                 }
                 response
@@ -451,6 +451,37 @@ mod tests {
         assert!(resolve(&dir, "/../secret").is_none());
         assert!(resolve(&dir, "/about/../../x").is_none());
         assert!(resolve(&dir, "/.openblog-output").is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn base_path_assets_are_cacheable_and_cors_readable_for_sandboxed_previews() {
+        let dir = std::env::temp_dir().join(format!("ob-serve-base-assets-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("dist/assets")).unwrap();
+        fs::write(
+            dir.join("openblog.json"),
+            r#"{"url":"https://example.com/blog/","cdn":{"maxAge":86400}}"#,
+        )
+        .unwrap();
+        fs::write(dir.join("dist/assets/theme.js"), "export {};").unwrap();
+        let state = AppState::new(dir.clone(), None, false, false);
+        let mut request = Request {
+            method: "GET".into(),
+            path: "/blog/assets/theme.js".into(),
+            ..Default::default()
+        };
+        request.query.insert("v".into(), "preview".into());
+        let response = route(&state, &request, &dir.join("dist"));
+        assert_eq!(response.status, 200);
+        assert!(response
+            .headers
+            .iter()
+            .any(|(name, value)| name == "Access-Control-Allow-Origin" && value == "*"));
+        assert!(response
+            .headers
+            .iter()
+            .any(|(name, value)| { name == "Cache-Control" && value == "public, max-age=86400" }));
         let _ = fs::remove_dir_all(&dir);
     }
 }

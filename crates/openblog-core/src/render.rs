@@ -81,40 +81,8 @@ fn url_to_file(url: &str) -> String {
 /// Render the whole site to files. `themes` supplies every registered theme;
 /// the ones the site uses must resolve, others are emitted when they do.
 pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, String> {
-    let mut resolved: HashMap<String, Theme> = HashMap::new();
-    for name in site.used_themes() {
-        resolved.insert(name.clone(), themes.resolve(&name)?);
-    }
-    for name in themes.names() {
-        if let std::collections::hash_map::Entry::Vacant(slot) = resolved.entry(name.clone()) {
-            if let Ok(theme) = themes.resolve(&name) {
-                slot.insert(theme);
-            }
-        }
-    }
-
-    for page in &site.pages {
-        if RESERVED.contains(&page.slug.as_str()) {
-            return Err(format!(
-                "{}: the page slug `{}` is reserved by open.blog; choose another",
-                page.source, page.slug
-            ));
-        }
-    }
-    for post in &site.posts {
-        let first = post
-            .url
-            .trim_start_matches('/')
-            .split('/')
-            .next()
-            .unwrap_or("");
-        if RESERVED.contains(&first) {
-            return Err(format!(
-                "{}: the post URL `{}` collides with a reserved path; adjust `postPath` or the slug",
-                post.source, post.url
-            ));
-        }
-    }
+    validate_output_paths(site)?;
+    let resolved = resolve_themes(site, themes)?;
 
     let r = Renderer {
         site,
@@ -228,6 +196,85 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     )?;
 
     Ok(out.files)
+}
+
+/// Render one content document through the same page shell used by [`generate`].
+/// This keeps the admin preview faithful without generating feeds, indexes, and
+/// every unrelated page after each edit.
+pub fn generate_document(
+    site: &Site,
+    themes: &ThemeSet,
+    source: &str,
+) -> Result<OutputFile, String> {
+    validate_output_paths(site)?;
+    let resolved = resolve_themes(site, themes)?;
+    let renderer = Renderer {
+        site,
+        themes: &resolved,
+    };
+    let (url, contents) = if let Some((index, post)) = site
+        .posts
+        .iter()
+        .enumerate()
+        .find(|(_, post)| post.source == source)
+    {
+        (post.url.as_str(), renderer.post(index, post))
+    } else if let Some(series) = site
+        .series
+        .iter()
+        .find(|series| series.source.as_deref() == Some(source))
+    {
+        (series.url.as_str(), renderer.series_page(series))
+    } else if let Some(page) = site.pages.iter().find(|page| page.source == source) {
+        (page.url.as_str(), renderer.page(page))
+    } else {
+        return Err(format!("no content document came from `{source}`"));
+    };
+    Ok(OutputFile {
+        path: url_to_file(url),
+        contents,
+    })
+}
+
+fn validate_output_paths(site: &Site) -> Result<(), String> {
+    for page in &site.pages {
+        if RESERVED.contains(&page.slug.as_str()) {
+            return Err(format!(
+                "{}: the page slug `{}` is reserved by open.blog; choose another",
+                page.source, page.slug
+            ));
+        }
+    }
+    for post in &site.posts {
+        let first = post
+            .url
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .unwrap_or("");
+        if RESERVED.contains(&first) {
+            return Err(format!(
+                "{}: the post URL `{}` collides with a reserved path; adjust `postPath` or the slug",
+                post.source, post.url
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn resolve_themes(site: &Site, themes: &ThemeSet) -> Result<HashMap<String, Theme>, String> {
+    let mut resolved = HashMap::new();
+    for name in site.used_themes() {
+        resolved.insert(name.clone(), themes.resolve(&name)?);
+    }
+    for name in themes.names() {
+        if let std::collections::hash_map::Entry::Vacant(slot) = resolved.entry(name.clone()) {
+            if let Ok(theme) = themes.resolve(&name) {
+                slot.insert(theme);
+            }
+        }
+    }
+    Ok(resolved)
 }
 
 impl<'a> Renderer<'a> {
@@ -1577,7 +1624,7 @@ mod tests {
     use crate::model::{LoadOptions, SourceFile, Sources};
     use crate::theme::ThemeFile;
 
-    fn build(config_json: &str, extra_theme: bool) -> Vec<OutputFile> {
+    fn model(config_json: &str, extra_theme: bool) -> (Site, ThemeSet) {
         let config = SiteConfig::from_json(config_json).unwrap();
         let src = |p: &str, c: &str| SourceFile {
             path: p.into(),
@@ -1604,6 +1651,11 @@ mod tests {
                 ThemeFile::from_json(r##"{"extends":"base","options":{"headingCodeLabels":true,"headingWrapper":"x-type","navLabel":"//{index}. <{label}/>","listStyle":"cards","codeLineNumbers":false},"scripts":["fx.js"],"colors":{"dark":{"accent":"#ff0"}}}"##).unwrap(),
             );
         }
+        (site, themes)
+    }
+
+    fn build(config_json: &str, extra_theme: bool) -> Vec<OutputFile> {
+        let (site, themes) = model(config_json, extra_theme);
         generate(&site, &themes).unwrap()
     }
 
@@ -1670,6 +1722,35 @@ mod tests {
         assert!(!solo.contains("x-type"));
         assert!(!solo.contains("fx.js"));
         assert!(file(&files, "series/s/index.html").contains("data-ob-theme=\"loud\""));
+    }
+
+    #[test]
+    fn one_document_renderer_matches_generated_posts_pages_and_series() {
+        let (site, themes) = model(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            true,
+        );
+        let all = generate(&site, &themes).unwrap();
+        for (source, path) in [
+            ("posts/one.md", "one/index.html"),
+            ("pages/about.md", "about/index.html"),
+            ("series/s.md", "series/s/index.html"),
+        ] {
+            let one = generate_document(&site, &themes, source).unwrap();
+            assert_eq!(one.path, path);
+            assert_eq!(one.contents, file(&all, path));
+        }
+        assert!(generate_document(&site, &themes, "posts/missing.md").is_err());
+    }
+
+    #[test]
+    fn one_document_renderer_applies_production_path_validation() {
+        let (site, themes) = model(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/assets/{slug}/"}"#,
+            false,
+        );
+        let error = generate_document(&site, &themes, "posts/one.md").unwrap_err();
+        assert!(error.contains("reserved path"), "{error}");
     }
 
     fn build_posts(config_json: &str, posts: &[(&str, &str)]) -> Vec<OutputFile> {

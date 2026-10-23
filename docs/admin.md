@@ -21,7 +21,7 @@ immediately.
 | --- | --- |
 | **Edit** | Every post, page, and series. Front matter fields become a form; unknown fields you added by hand are kept. |
 | **Create** | New posts, pages, and series. The file is named from the date and slug. |
-| **Preview** | Live Markdown preview. It runs the same Rust renderer as the build, compiled to WebAssembly in your browser, inside a sandboxed frame. It falls back to the server if WASM is missing. |
+| **Preview** | A full-page preview produced by the same site model, document renderer, theme inheritance, metadata, and components as a real build. Front matter stays in the settings form and is never printed into the preview. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
@@ -183,9 +183,11 @@ contact the generation service.
   `pages/`, `.md` only) and resolved inside the content directory, including through symlinks.
 - Uploads are accepted by their bytes, not their names: PNG, JPEG, GIF, WebP, and AVIF only.
   SVG is refused because it can carry scripts.
-- The admin page is served with a strict Content-Security-Policy (no inline scripts), and the
-  Markdown preview is rendered in a sandboxed iframe whose per-render nonce permits only the
-  built-in knowledge-check enhancement; scripts in article content remain blocked.
+- The admin page is served with a strict Content-Security-Policy (no inline scripts). Full-page
+  previews are kept in a small in-memory cache behind an authenticated random URL and rendered in
+  an opaque-origin sandbox. Built-in components and the selected theme's local or configured-CDN
+  assets can run, while owner-supplied analytics, comments, and other raw HTML snippets are removed
+  from unpublished previews. The preview cannot submit forms or access the admin document.
 - Front matter values are always quoted so a value containing a newline cannot add fields.
 - Limits: 64 concurrent connections (16 per address, not applied to trusted proxies),
   header and body size caps, deadlines for slow senders and slow readers, and no chunked

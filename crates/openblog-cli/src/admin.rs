@@ -18,9 +18,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use openblog_core::frontmatter::{self, Value};
-use openblog_core::markdown::{self, RenderOptions};
+use openblog_core::markdown::RenderOptions;
 use openblog_core::slug::slugify;
-use openblog_core::{generate, DateTime, LoadOptions, Site, SiteConfig, SourceFile};
+use openblog_core::{
+    generate, generate_document, DateTime, LoadOptions, Site, SiteConfig, SourceFile,
+};
 use serde_json::{json, Map, Value as Json};
 
 use crate::auth::{self, Sessions, Throttle, Users};
@@ -41,6 +43,12 @@ pub struct BuildStatus {
     pub last_error: Option<String>,
     /// (title, slug, date) of posts waiting for their publish time.
     pub scheduled: Vec<(String, String, String)>,
+}
+
+struct PreviewDocument {
+    token: String,
+    html: String,
+    csp: String,
 }
 
 pub struct AppState {
@@ -64,6 +72,8 @@ pub struct AppState {
     pub publish_lock: Mutex<()>,
     /// Last analytics backup to the branch, as a unix time.
     pub last_backup: Mutex<i64>,
+    /// Small, bounded cache of generated documents served into sandboxed previews.
+    previews: Mutex<Vec<PreviewDocument>>,
 }
 
 /// The server registers its `Arc<AppState>` here so request handlers, which
@@ -125,6 +135,7 @@ impl AppState {
             trusted_proxies,
             publish_lock: Mutex::new(()),
             last_backup: Mutex::new(0),
+            previews: Mutex::new(Vec::new()),
         }
     }
 
@@ -330,16 +341,27 @@ fn route(state: &AppState, req: &Request) -> Response {
 }
 
 /// Headers every admin response carries.
-fn secured(response: Response) -> Response {
+fn header_default(mut response: Response, name: &str, value: &str) -> Response {
+    if !response
+        .headers
+        .iter()
+        .any(|(existing, _)| existing.eq_ignore_ascii_case(name))
+    {
+        response.headers.push((name.to_string(), value.to_string()));
+    }
     response
-        .with_header(
-            "Content-Security-Policy",
-            "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: https:; \
-             frame-src 'self' https://codepen.io; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
-        )
-        .with_header("X-Frame-Options", "DENY")
-        .with_header("Referrer-Policy", "same-origin")
-        .with_header("Cache-Control", "no-store")
+}
+
+fn secured(response: Response) -> Response {
+    let response = header_default(
+        response,
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: https:; \
+         frame-src 'self' https://codepen.io; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    );
+    let response = header_default(response, "X-Frame-Options", "DENY");
+    let response = header_default(response, "Referrer-Policy", "same-origin");
+    header_default(response, "Cache-Control", "no-store")
 }
 
 fn api(state: &AppState, req: &Request, name: &str) -> Response {
@@ -353,6 +375,11 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
     if !req.is_read_only() {
         if let Err(r) = check_csrf(req, &session) {
             return r;
+        }
+    }
+    if req.method == "GET" {
+        if let Some(token) = name.strip_prefix("preview/") {
+            return preview_document(state, token);
         }
     }
     match (req.method.as_str(), name) {
@@ -387,7 +414,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         }
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "upload") => upload(state, req),
-        ("POST", "preview") => preview(req),
+        ("POST", "preview") => preview(state, req),
         ("POST", "quiz/generate") => generate_quiz(state, req),
         ("POST", "rebuild") => rebuild(state),
         ("GET", "publish") => {
@@ -1364,7 +1391,7 @@ fn rebuild(state: &AppState) -> Response {
     }
 }
 
-fn preview(req: &Request) -> Response {
+fn preview(state: &AppState, req: &Request) -> Response {
     if let Err(r) = require_json(req) {
         return r;
     }
@@ -1372,15 +1399,162 @@ fn preview(req: &Request) -> Response {
         Ok(b) => b,
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
-    let text = body["body"].as_str().unwrap_or("");
-    if text.len() > MAX_DOCUMENT_BYTES {
+    let text_body = body["body"].as_str().unwrap_or("");
+    if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
         return Response::error(413, "The post body is too large");
     }
-    let rendered = markdown::render(text, RenderOptions::default());
+    let fields = match fields_from_json(&body["fields"]) {
+        Ok(fields) => fields,
+        Err(e) => return Response::error(422, &e),
+    };
+    let kind = body["kind"].as_str().unwrap_or("posts");
+    if !matches!(kind, "posts" | "pages" | "series") {
+        return Response::error(422, "kind must be posts, series, or pages");
+    }
+    let rel = match body["path"].as_str().filter(|path| !path.is_empty()) {
+        Some(path) => match check_rel_path(path) {
+            Ok(path_kind) if path_kind == kind => path.to_string(),
+            Ok(_) => return Response::error(422, "path does not match the document kind"),
+            Err(e) => return Response::error(422, &e),
+        },
+        None => match derive_new_path(kind, &fields) {
+            Ok(path) => path,
+            Err(e) => return Response::error(422, &e),
+        },
+    };
+    let source = frontmatter::compose(&fields, text_body);
+    let mut config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(e) => return Response::error(500, &e),
+    };
+    let mut sources = match site::read_sources(&state.root, &config) {
+        Ok(sources) => sources,
+        Err(e) => return Response::error(500, &e),
+    };
+    for bucket in [&mut sources.posts, &mut sources.series, &mut sources.pages] {
+        bucket.retain(|file| file.path != rel);
+    }
+    sources.add(SourceFile {
+        path: rel.clone(),
+        contents: source,
+    });
+    // Owner-supplied analytics/comments snippets are intentionally disabled in
+    // an unpublished preview. Theme assets and built-in components still run.
+    config.snippets = Default::default();
+    config.analytics.builtin = false;
+    config.analytics.show_views = false;
+    config.analytics.endpoint.clear();
+    let (preview_site, themes) =
+        match site::load_site_from_sources(&state.root, config, sources, true, None) {
+            Ok(loaded) => loaded,
+            Err(error) => return Response::error(422, &error),
+        };
+    let target = match kind {
+        "posts" => preview_site
+            .posts
+            .iter()
+            .find(|post| post.source == rel)
+            .map(|post| {
+                (
+                    post.url.clone(),
+                    preview_site.theme_for_post(post).to_string(),
+                )
+            }),
+        "pages" => preview_site
+            .pages
+            .iter()
+            .find(|page| page.source == rel)
+            .map(|page| {
+                (
+                    page.url.clone(),
+                    preview_site.theme_for_page(page).to_string(),
+                )
+            }),
+        "series" => preview_site
+            .series
+            .iter()
+            .find(|series| series.source.as_deref() == Some(rel.as_str()))
+            .map(|series| {
+                (
+                    series.url.clone(),
+                    preview_site.theme_for_series(series).to_string(),
+                )
+            }),
+        _ => None,
+    };
+    let Some((url, theme)) = target else {
+        return Response::error(422, "Preview document was not found in the site model");
+    };
+    let document = match generate_document(&preview_site, &themes, &rel) {
+        Ok(document) => document,
+        Err(e) => return Response::error(422, &e),
+    };
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(e) => return Response::error(500, &e),
+    };
+    let asset_origin = http_origin(&preview_site.config.cdn.url);
+    let script_sources = asset_origin
+        .as_deref()
+        .map(|origin| format!("'self' {origin}"))
+        .unwrap_or_else(|| "'self'".to_string());
+    let csp = format!(
+        "default-src 'none'; script-src 'unsafe-inline' {script_sources}; style-src 'unsafe-inline' 'self' https:; \
+         img-src 'self' https: data:; font-src 'self' https: data:; connect-src 'self' https://play.rust-lang.org; \
+         frame-src https://codepen.io; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+    );
+    let mut previews = lock(&state.previews);
+    previews.push(PreviewDocument {
+        token: token.clone(),
+        html: document.contents,
+        csp,
+    });
+    if previews.len() > 16 {
+        previews.remove(0);
+    }
     Response::json(
         200,
-        &json!({ "html": rendered.html, "words": rendered.word_count, "minutes": markdown::reading_minutes(rendered.word_count) }),
+        &json!({
+            "previewUrl": format!("/admin/api/preview/{token}"),
+            "url": url,
+            "theme": theme,
+            "warnings": preview_site.warnings
+        }),
     )
+}
+
+fn preview_document(state: &AppState, token: &str) -> Response {
+    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Response::error(404, "Preview not found");
+    }
+    let document = lock(&state.previews)
+        .iter()
+        .find(|document| document.token == token)
+        .map(|document| (document.html.clone(), document.csp.clone()));
+    let Some((html, csp)) = document else {
+        return Response::error(404, "Preview not found");
+    };
+    Response::new(200, "text/html; charset=utf-8", html.into_bytes())
+        .with_header("Content-Security-Policy", &csp)
+        .with_header("X-Frame-Options", "SAMEORIGIN")
+        .with_header("Referrer-Policy", "no-referrer")
+}
+
+fn http_origin(value: &str) -> Option<String> {
+    let value = value.trim();
+    let (scheme, rest) = value.split_once("://")?;
+    if !matches!(scheme, "http" | "https") {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    if authority.is_empty()
+        || !authority.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
+        })
+    {
+        return None;
+    }
+    Some(format!("{scheme}://{authority}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -2294,22 +2468,59 @@ mod tests {
     }
 
     #[test]
-    fn logout_ends_the_session_and_preview_renders() {
+    fn logout_ends_the_session_and_preview_uses_the_publishing_engine() {
         let f = fixture("logout");
         let session = login_ok(&f);
+        fs::write(
+            f.dir.join("content/series/guides.md"),
+            "---\nname: Guides\nslug: guides\ntheme: paper\n---\nA guided path.",
+        )
+        .unwrap();
         let prev = handle(
             &f.state,
             &authed(
                 json_req(
                     "POST",
                     "/admin/api/preview",
-                    json!({ "body": "## Hi\n\ntext" }),
+                    json!({
+                        "kind": "posts",
+                        "path": "posts/preview.md",
+                        "fields": {
+                            "title": "Preview title",
+                            "date": "2026-01-01",
+                            "description": "A complete preview description for search and social cards.",
+                            "series": "guides",
+                            "tags": ["preview"]
+                        },
+                        "body": "## Hi\n\ntext"
+                    }),
                 ),
                 &session,
                 true,
             ),
         );
-        assert!(body_json(&prev)["html"].as_str().unwrap().contains("<h2"));
+        assert_eq!(prev.status, 200, "{}", String::from_utf8_lossy(&prev.body));
+        let preview = body_json(&prev);
+        assert_eq!(preview["theme"], "paper");
+        assert_eq!(preview["url"], "/posts/preview/");
+        let preview_url = preview["previewUrl"].as_str().unwrap();
+        let document = handle(&f.state, &authed(req("GET", preview_url), &session, false));
+        assert_eq!(document.status, 200);
+        let html = String::from_utf8_lossy(&document.body);
+        assert!(html.contains("<article") && html.contains("Preview title"));
+        assert!(html.contains("/themes/paper/tokens.css"));
+        assert!(html.contains("property=\"og:title\"") && html.contains("<h2"));
+        assert!(
+            !html.contains("series: guides"),
+            "front matter is never rendered"
+        );
+        assert!(document.headers.iter().any(|(name, value)| {
+            name == "Content-Security-Policy" && value.contains("script-src 'unsafe-inline'")
+        }));
+        assert!(document
+            .headers
+            .iter()
+            .any(|(name, value)| name == "X-Frame-Options" && value == "SAMEORIGIN"));
         assert_eq!(
             handle(
                 &f.state,
