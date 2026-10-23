@@ -175,14 +175,32 @@ impl AppState {
 
     /// Publish in the background after a save, when `publish.auto` is on.
     pub fn auto_publish(self: &Arc<Self>, summary: String) {
-        let config = site::load_config(&self.root).unwrap_or_default();
-        if !config.publish.auto {
+        if !site::load_config(&self.root)
+            .unwrap_or_default()
+            .publish
+            .auto
+        {
             return;
         }
         let state = Arc::clone(self);
         std::thread::spawn(move || {
             let _publish = lock(&state.publish_lock);
             let _content_transaction = lock(&state.build);
+            let _filesystem_transaction =
+                match crate::transaction::ContentTransactionLock::acquire_with_wait(
+                    &state.root,
+                    Duration::from_secs(30),
+                ) {
+                    Ok(lock) => lock,
+                    Err(error) => {
+                        eprintln!("auto-publish skipped after waiting for another writer: {error}");
+                        return;
+                    }
+                };
+            let config = site::load_config(&state.root).unwrap_or_default();
+            if !config.publish.auto {
+                return;
+            }
             match crate::publish::publish(&state.root, &config, Some(&summary)) {
                 Ok(outcome) => eprintln!("publish: {}", outcome.message),
                 Err(e) => eprintln!("publish failed: {e}"),
@@ -440,9 +458,13 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             let summary = body["summary"]
                 .as_str()
                 .map(|s| s.chars().take(120).collect::<String>());
-            let config = site::load_config(&state.root).unwrap_or_default();
             let _publish = lock(&state.publish_lock);
             let _content_transaction = lock(&state.build);
+            let _filesystem_transaction = match content_transaction(state) {
+                Ok(lock) => lock,
+                Err(response) => return response,
+            };
+            let config = site::load_config(&state.root).unwrap_or_default();
             match crate::publish::publish(&state.root, &config, summary.as_deref()) {
                 Ok(o) => Response::json(
                     200,
@@ -523,6 +545,13 @@ fn require_json(req: &Request) -> Result<(), Response> {
             "Content-Type must be application/json",
         )),
     }
+}
+
+fn content_transaction(
+    state: &AppState,
+) -> Result<crate::transaction::ContentTransactionLock, Response> {
+    crate::transaction::ContentTransactionLock::acquire(&state.root)
+        .map_err(|error| Response::error(409, &error))
 }
 
 fn session_cookie(token: &str, max_age: u64, secure: bool) -> String {
@@ -1393,6 +1422,10 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
     }
 
     let mut status = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
     let path = state.root.join(site::CONFIG_FILE);
     let current_bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -1718,6 +1751,10 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     let source = frontmatter::compose(&fields, text_body);
 
     let mut status = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
     let config = match site::load_config(&state.root) {
         Ok(c) => c,
         Err(e) => return Response::error(500, &e),
@@ -1884,6 +1921,10 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
         return Response::error(400, "Missing ?path=");
     };
     let mut status = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
     let config = match site::load_config(&state.root) {
         Ok(c) => c,
         Err(e) => return Response::error(500, &e),
@@ -2267,6 +2308,10 @@ fn upload(state: &AppState, req: &Request) -> Response {
     let static_dir = state.root.join(&config.paths.static_dir);
 
     let _guard = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
     let mut file_name = format!("{stem}.{ext}");
     let mut n = 2;
     while static_dir.join(&dir_rel).join(&file_name).exists() {
@@ -3249,6 +3294,51 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
         assert_eq!(written["futureSetting"]["keep"], true);
         assert_eq!(written["title"], config["title"]);
+    }
+
+    #[test]
+    fn contributor_registry_honors_the_shared_content_transaction_lock() {
+        let f = fixture("contributor-registry-lock");
+        let session = login_ok(&f);
+        let registry = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/contributors"), &session, false),
+        ));
+        let lock = crate::transaction::ContentTransactionLock::acquire(&f.dir).unwrap();
+
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({
+                        "etag": registry["etag"],
+                        "contributors": registry["contributors"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(response.status, 409);
+        assert!(String::from_utf8_lossy(&response.body).contains("no writer is running"));
+
+        let publish = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/publish",
+                    json!({ "summary": "Locked publish" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(publish.status, 409);
+        drop(lock);
     }
 
     #[test]

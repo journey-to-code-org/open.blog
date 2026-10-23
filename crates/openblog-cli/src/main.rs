@@ -4,6 +4,7 @@ mod admin;
 mod analytics;
 mod auth;
 mod clock;
+mod contributor_migration;
 mod fsutil;
 mod git;
 mod hashnode;
@@ -12,6 +13,7 @@ mod publish;
 mod scaffold;
 mod serve;
 mod site;
+mod transaction;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -41,6 +43,8 @@ COMMANDS
     analytics service [dir]    Write a Node + MongoDB counter for Render (default: counter-service/)
     themes                     List themes and the inheritance chain of each
     import hashnode <host>     Import a Hashnode blog (e.g. yourname.hashnode.dev)
+    contributors migrate --id <stable-id> [--write]
+                               Plan or write explicit legacy-author credit sidecars
     build-wasm                 Rebuild the WebAssembly module (engine repository only)
     help                       Show this help
 
@@ -84,6 +88,7 @@ const SWITCHES: &[&str] = &[
     "github-pages",
     "overwrite",
     "recipe",
+    "write",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -178,6 +183,7 @@ fn run(raw: &[String]) -> Result<(), String> {
                         .collect()
                 })
                 .unwrap_or_default();
+            let _transaction = transaction::ContentTransactionLock::acquire(&root)?;
             let created = scaffold::new_post(
                 &root,
                 title,
@@ -187,6 +193,42 @@ fn run(raw: &[String]) -> Result<(), String> {
                 args.switches.contains("recipe"),
             )?;
             println!("created {created}");
+            Ok(())
+        }
+        "contributors" => {
+            if args.positional.first().map(String::as_str) != Some("migrate") {
+                return Err(
+                    "usage: openblog contributors migrate --id <stable-id> [--write]".into(),
+                );
+            }
+            let id = args
+                .options
+                .get("id")
+                .ok_or("usage: openblog contributors migrate --id <stable-id> [--write]")?;
+            let write = args.switches.contains("write");
+            let preview = contributor_migration::plan(&root, id)?;
+            let plan = if write {
+                contributor_migration::apply(&preview)?
+            } else {
+                preview
+            };
+            let identity_action = if plan.config_changed {
+                format!("register `{}`", plan.contributor_id)
+            } else {
+                format!("reuse `{}`", plan.contributor_id)
+            };
+            println!(
+                "Contributor migration {}: {}, {} credit sidecar(s), {} existing sidecar(s) skipped.",
+                if write { "write" } else { "dry run" },
+                identity_action,
+                plan.sidecars.len(),
+                plan.skipped
+            );
+            if write {
+                println!("Migration written. Markdown was not changed; manually entered identity data remains unauthenticated.");
+            } else {
+                println!("No files changed. Re-run with --write to apply this plan.");
+            }
             Ok(())
         }
         "build" => {
@@ -226,6 +268,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         }
         "user" => user_command(&root, &args),
         "publish" => {
+            let _transaction = transaction::ContentTransactionLock::acquire(&root)?;
             let config = site::load_config(&root)?;
             if args.positional.first().map(String::as_str) == Some("setup") {
                 for note in publish::setup(&root, &config)? {
@@ -322,6 +365,7 @@ fn run(raw: &[String]) -> Result<(), String> {
                     .transpose()?
                     .unwrap_or(250),
             };
+            let _transaction = transaction::ContentTransactionLock::acquire(&root)?;
             let report = hashnode::run(&options)?;
             println!(
                 "\nImported: {} posts written, {} unchanged, {} series, {} images downloaded.",

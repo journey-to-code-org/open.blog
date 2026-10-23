@@ -145,6 +145,9 @@ configuration format cannot claim OAuth provenance. See the
 [contributor identity decision](adr/0003-contributor-identity-and-orcid-provenance.md) for
 the model and trust boundary.
 
+Legacy posts remain valid without sidecars. To opt into explicit credits across existing
+posts, use the dry-run-first [contributor migration command](contributor-migration.md).
+
 ### File names and addresses
 
 A file named `2026-01-12-writing-a-post.md` gets the slug `writing-a-post` and, with the

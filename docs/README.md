@@ -28,6 +28,7 @@ If you are new, read these in order; each one stands alone otherwise.
    visible references, scholarly metadata, deterministic evidence checks, and their limits.
 13. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
 14. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+15. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
@@ -54,6 +55,8 @@ openblog analytics pull <url> --secret s
 openblog analytics worker [dir]         Write a Cloudflare Worker counter
 openblog analytics service [dir]        Write a Node + MongoDB counter (Render)
 openblog user add|passwd|remove|list <name> [--password-stdin]
+openblog contributors migrate --id <stable-id> [--write]
+                                        Dry-run or write explicit legacy-author credits
 openblog import hashnode <host> [--source public|graphql] [--token t]
                                         [--limit n] [--no-images] [--delay ms] [--overwrite]
 openblog help
