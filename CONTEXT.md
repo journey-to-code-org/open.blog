@@ -46,9 +46,23 @@ _Avoid_: Canonical URL, source URL
 A person or organization publicly credited for a defined role in a published work.
 _Avoid_: Admin user, site account, author when the role is more specific
 
+**Author**:
+A contributor who holds the author relationship for a particular published work.
+_Avoid_: Site owner, publisher, or every person acknowledged on the work
+
+**Work credit**:
+An ordered relationship between one contributor and one published work, with one or more
+explicitly named roles.
+_Avoid_: Contributor profile, global job title
+
 **Contributor identifier**:
 A persistent identifier for a person credited on a work.
 _Avoid_: Work identifier, profile URL
+
+**Identifier provenance**:
+How a contributor identifier was collected, especially manual entry versus an authenticated
+provider workflow.
+_Avoid_: Treating syntax validation or a resolvable URL as identity verification
 
 **Organization identifier**:
 A persistent identifier for an organization associated with a work or contributor.

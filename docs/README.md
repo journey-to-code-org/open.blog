@@ -32,6 +32,10 @@ If you are new, read these in order; each one stands alone otherwise.
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
 
+Current design frontiers include
+[contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),
+which defines the incremental path from one site author to ordered, work-specific credit.
+
 ## Command reference
 
 ```
