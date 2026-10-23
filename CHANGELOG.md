@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+### Added
+
+- Added a Video production content profile with privacy-enhanced YouTube embeds, duration
+  and thumbnail metadata, creator-authored AI-assistance disclosure, and `VideoObject`
+  structured data.
+- Added an Admin release kit that extracts timestamp lines from Markdown, validates YouTube
+  chapter rules, and composes a copy-ready description from the current draft.
+
 ## [0.10.1] - 2026-10-23
 
 ### Added

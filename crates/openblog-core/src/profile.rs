@@ -6,6 +6,7 @@ use crate::frontmatter::FrontMatter;
 pub const ARTICLE_ID: &str = "article";
 pub const RECIPE_ID: &str = "recipe";
 pub const RESEARCH_ID: &str = "research";
+pub const VIDEO_ID: &str = "video";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileFieldKind {
@@ -106,6 +107,33 @@ const RESEARCH_FIELDS: &[ProfileField] = &[
     },
 ];
 
+const VIDEO_FIELDS: &[ProfileField] = &[
+    ProfileField {
+        key: "videoUrl",
+        label: "YouTube URL",
+        kind: ProfileFieldKind::Text,
+        help: "Public YouTube watch, short, or Shorts URL.",
+    },
+    ProfileField {
+        key: "duration",
+        label: "Duration",
+        kind: ProfileFieldKind::Duration,
+        help: "Readable duration such as 12 min 34 sec.",
+    },
+    ProfileField {
+        key: "thumbnail",
+        label: "Video thumbnail",
+        kind: ProfileFieldKind::Text,
+        help: "Site-relative or absolute thumbnail URL for video discovery.",
+    },
+    ProfileField {
+        key: "aiDisclosure",
+        label: "AI assistance disclosure",
+        kind: ProfileFieldKind::Text,
+        help: "A concise, creator-authored note describing meaningful AI assistance.",
+    },
+];
+
 const PROFILES: &[ContentProfile] = &[
     ContentProfile {
         id: ARTICLE_ID,
@@ -125,6 +153,12 @@ const PROFILES: &[ContentProfile] = &[
         description: "A research article with portable references and scholarly metadata.",
         fields: RESEARCH_FIELDS,
     },
+    ContentProfile {
+        id: VIDEO_ID,
+        label: "Video production",
+        description: "A video companion page with production metadata and discovery markup.",
+        fields: VIDEO_FIELDS,
+    },
 ];
 
 pub fn catalog() -> &'static [ContentProfile] {
@@ -136,6 +170,7 @@ pub enum ProfileBehavior {
     Article,
     Recipe,
     Research,
+    Video,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -159,6 +194,7 @@ pub fn resolve(front_matter: &FrontMatter) -> ProfileResolution {
         let behavior = match normalized_id.as_str() {
             RECIPE_ID => ProfileBehavior::Recipe,
             RESEARCH_ID => ProfileBehavior::Research,
+            VIDEO_ID => ProfileBehavior::Video,
             _ => ProfileBehavior::Article,
         };
         let mut warnings = Vec::new();

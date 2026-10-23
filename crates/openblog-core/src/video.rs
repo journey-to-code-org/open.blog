@@ -1,0 +1,126 @@
+//! Video-production metadata shared by rendering and the browser studio.
+
+use crate::{embed, frontmatter::FrontMatter};
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VideoMetadata {
+    pub url: Option<String>,
+    pub youtube_id: Option<String>,
+    pub duration_seconds: Option<u32>,
+    pub thumbnail: Option<String>,
+    pub ai_disclosure: Option<String>,
+}
+
+impl VideoMetadata {
+    pub fn from_front_matter(fm: &FrontMatter) -> Self {
+        let value = |key: &str| {
+            fm.get(key)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        };
+        let url = value("videoUrl");
+        Self {
+            youtube_id: url.as_deref().and_then(embed::youtube_video_id),
+            duration_seconds: value("duration")
+                .as_deref()
+                .and_then(parse_duration_seconds),
+            thumbnail: value("thumbnail"),
+            ai_disclosure: value("aiDisclosure"),
+            url,
+        }
+    }
+
+    pub fn embed_url(&self) -> Option<String> {
+        self.youtube_id
+            .as_ref()
+            .map(|id| format!("https://www.youtube-nocookie.com/embed/{id}"))
+    }
+
+    pub fn iso_duration(&self) -> Option<String> {
+        let total = self.duration_seconds?;
+        let hours = total / 3600;
+        let minutes = total % 3600 / 60;
+        let seconds = total % 60;
+        let mut value = String::from("PT");
+        if hours > 0 {
+            value.push_str(&format!("{hours}H"));
+        }
+        if minutes > 0 {
+            value.push_str(&format!("{minutes}M"));
+        }
+        if seconds > 0 || total == 0 {
+            value.push_str(&format!("{seconds}S"));
+        }
+        Some(value)
+    }
+}
+
+/// Seconds in `HH:MM:SS`, `MM:SS`, ISO 8601 `PT...`, or a readable value
+/// such as `12 min 34 sec`.
+pub fn parse_duration_seconds(input: &str) -> Option<u32> {
+    let input = input.trim().to_ascii_lowercase();
+    if input.is_empty() {
+        return None;
+    }
+    if input.contains(':') {
+        let values = input
+            .split(':')
+            .map(|part| part.trim().parse::<u32>().ok())
+            .collect::<Option<Vec<_>>>()?;
+        return match values.as_slice() {
+            [minutes, seconds] if *seconds < 60 => minutes.checked_mul(60)?.checked_add(*seconds),
+            [hours, minutes, seconds] if *minutes < 60 && *seconds < 60 => hours
+                .checked_mul(3600)?
+                .checked_add(minutes.checked_mul(60)?)?
+                .checked_add(*seconds),
+            _ => None,
+        };
+    }
+
+    let mut rest = input.as_str();
+    if let Some(value) = rest.strip_prefix("pt") {
+        rest = value;
+    }
+    let mut total = 0u32;
+    let mut found = false;
+    while !rest.trim_start().is_empty() {
+        rest = rest.trim_start();
+        let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+        if digits == 0 {
+            return None;
+        }
+        let amount = rest[..digits].parse::<u32>().ok()?;
+        rest = rest[digits..].trim_start();
+        let unit_len = rest.chars().take_while(|c| c.is_ascii_alphabetic()).count();
+        let unit = &rest[..unit_len];
+        rest = &rest[unit_len..];
+        let multiplier = match unit {
+            "h" | "hr" | "hrs" | "hour" | "hours" => 3600,
+            "m" | "min" | "mins" | "minute" | "minutes" => 60,
+            "s" | "sec" | "secs" | "second" | "seconds" => 1,
+            _ => return None,
+        };
+        total = total.checked_add(amount.checked_mul(multiplier)?)?;
+        found = true;
+    }
+    found.then_some(total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_human_iso_and_clock_durations() {
+        for (source, seconds) in [
+            ("12 min 34 sec", 754),
+            ("PT1H2M3S", 3723),
+            ("12:34", 754),
+            ("1:02:03", 3723),
+        ] {
+            assert_eq!(parse_duration_seconds(source), Some(seconds), "{source}");
+        }
+        assert_eq!(parse_duration_seconds("unknown"), None);
+    }
+}

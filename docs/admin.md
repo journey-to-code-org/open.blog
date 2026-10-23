@@ -29,6 +29,7 @@ immediately.
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
 | **Formatting** | Apply H2, bold, italic, link, quote, list, and inline/fenced-code Markdown without converting or hiding the source. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in the editor. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
+| **Video release kit** | Validate authored YouTube chapters and copy a description assembled from the current summary, chapters, and AI-assistance disclosure. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
@@ -50,8 +51,8 @@ saves the current document, changes the color scheme, and reaches account action
 the arrow keys and Enter to choose a result, or Escape to close it.
 
 The editor footer shows whether the document is saved plus its line, word, and character
-counts. Press `Alt+1` through `Alt+5` to focus Write, Site preview, Social, Optimize, or
-Settings; `Alt+6` opens Accessibility Studio and `Alt+7` opens Evidence Studio. The preview
+counts. Press `Alt+1` through `Alt+8` to focus Write, Site preview, Social, Release kit,
+Optimize, Settings, Accessibility, or Evidence. The preview
 toolbar can constrain the canvas to wide, tablet, or mobile width; this preference is stored
 in the browser and does not change the published theme.
 
@@ -119,6 +120,8 @@ field unless you explicitly change the selector. An unknown `profile` value appe
 own option with a warning; saving without changing it preserves the value.
 Research posts select Research and expose DOI and license fields. Values entered there are
 preserved when switching profiles and saved without discarding explicit clears.
+Video posts select Video production and expose YouTube URL, duration, thumbnail, and
+AI-assistance disclosure fields. The Release kit view remains inactive for other profiles.
 
 Every save is checked against the whole site before anything is written (duplicate slugs,
 unknown themes, bad dates), then the site is rebuilt. A save that would break the build is

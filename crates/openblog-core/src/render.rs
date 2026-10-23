@@ -1031,6 +1031,18 @@ impl<'a> Renderer<'a> {
         if let Some(research) = &post.research {
             body.push_str(&self.research_work_meta(research));
         }
+        if c.markdown.embeds {
+            if let Some(video) = &post.video {
+                if let Some(url) = &video.url {
+                    if let Some(mut embed) = crate::embed::detect(url) {
+                        embed.title = format!("{} on YouTube", post.title);
+                        if !post.html.contains(&embed.frame_src) {
+                            body.push_str(&crate::embed::html(&embed));
+                        }
+                    }
+                }
+            }
+        }
         if theme.post_covers {
             if let Some(cover) = &post.cover {
                 body.push_str(&format!(
@@ -1104,7 +1116,11 @@ impl<'a> Renderer<'a> {
             path: post.url.clone(),
             canonical,
             kind: "article",
-            image: post.cover.clone(),
+            image: post.cover.clone().or_else(|| {
+                post.video
+                    .as_ref()
+                    .and_then(|video| video.thumbnail.clone())
+            }),
             image_alt: (!post.cover_alt.is_empty()).then(|| post.cover_alt.clone()),
             json_ld: Some({
                 let mut posting = serde_json::json!({
@@ -1148,6 +1164,29 @@ impl<'a> Renderer<'a> {
                         if let Some(publisher) = author_json_ld(c) {
                             posting["publisher"] = publisher;
                         }
+                    }
+                }
+                if let Some((video, embed_url, thumbnail)) = post.video.as_ref().and_then(|video| {
+                    Some((
+                        video,
+                        video.embed_url()?,
+                        video.thumbnail.as_ref().or(post.cover.as_ref())?,
+                    ))
+                }) {
+                    posting["@type"] = serde_json::json!("VideoObject");
+                    posting["name"] = serde_json::json!(post.title);
+                    posting["uploadDate"] = serde_json::json!(post.date.rfc3339());
+                    if let Some(object) = posting.as_object_mut() {
+                        object.remove("headline");
+                        object.remove("wordCount");
+                    }
+                    posting["thumbnailUrl"] = serde_json::json!(c.absolute(thumbnail));
+                    posting["embedUrl"] = serde_json::json!(embed_url);
+                    if let Some(duration) = video.iso_duration() {
+                        posting["duration"] = serde_json::json!(duration);
+                    }
+                    if let Some(disclosure) = &video.ai_disclosure {
+                        posting["creditText"] = serde_json::json!(disclosure);
                     }
                 }
                 if let Some(research) = &post.research {
@@ -2512,6 +2551,50 @@ mod tests {
             "zero is not scalable"
         );
         assert!(ld["@graph"][1].get("recipeYield") == Some(&serde_json::json!(["0"])));
+    }
+
+    #[test]
+    fn video_posts_emit_video_object_metadata_and_privacy_enhanced_embeds() {
+        let post = "---\ntitle: Episode one\ndate: 2026-10-23\nprofile: video\nvideoUrl: https://youtu.be/dQw4w9WgXcQ\nduration: 12 min 34 sec\nthumbnail: /images/episode.jpg\naiDisclosure: AI-assisted animation\n---\n## Transcript\nOpening narration.";
+        let files = build_posts(
+            r#"{"title":"Studio","url":"https://studio.example","postPath":"/{slug}/"}"#,
+            &[("posts/episode.md", post)],
+        );
+        let page = file(&files, "episode/index.html");
+        assert!(page.contains("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"));
+
+        let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
+        let end = start + page[start..].find("</script>").unwrap();
+        let ld: serde_json::Value = serde_json::from_str(&page[start..end]).unwrap();
+        assert_eq!(ld["@type"], "VideoObject");
+        assert_eq!(ld["name"], "Episode one");
+        assert_eq!(
+            ld["embedUrl"],
+            "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"
+        );
+        assert_eq!(ld["duration"], "PT12M34S");
+        assert_eq!(
+            ld["thumbnailUrl"],
+            "https://studio.example/images/episode.jpg"
+        );
+        assert_eq!(ld["creditText"], "AI-assisted animation");
+    }
+
+    #[test]
+    fn incomplete_video_profiles_fall_back_to_article_metadata() {
+        let files = build_posts(
+            r#"{"title":"Studio","url":"https://studio.example","postPath":"/{slug}/"}"#,
+            &[(
+                "posts/episode.md",
+                "---\ntitle: Episode one\ndate: 2026-10-23\nprofile: video\n---\nProduction notes.",
+            )],
+        );
+        let page = file(&files, "episode/index.html");
+        let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
+        let end = start + page[start..].find("</script>").unwrap();
+        let ld: serde_json::Value = serde_json::from_str(&page[start..end]).unwrap();
+        assert_eq!(ld["@type"], "BlogPosting");
+        assert!(ld.get("embedUrl").is_none());
     }
 
     #[test]

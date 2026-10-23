@@ -14,6 +14,7 @@ use crate::profile::{self, ProfileBehavior};
 use crate::recipe::Recipe;
 use crate::research::{self, EvidenceFinding, ResearchMetadata};
 use crate::slug::{from_file_stem, slugify};
+use crate::video::VideoMetadata;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceFile {
@@ -169,6 +170,8 @@ pub struct Post {
     pub recipe: Option<Recipe>,
     /// Set for posts using the research profile: identifiers and evidence metadata.
     pub research: Option<ResearchMetadata>,
+    /// Set for posts using the video-production profile.
+    pub video: Option<VideoMetadata>,
     /// Per-post code-block overrides from front matter (`highlight`, `lineNumbers`).
     pub code_highlight: Option<bool>,
     pub code_line_numbers: Option<bool>,
@@ -670,7 +673,7 @@ pub fn load_post(
 ) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
-    let profile = profile::resolve(fm);
+    let mut profile = profile::resolve(fm);
     let is_recipe = profile.behavior == ProfileBehavior::Recipe;
     let rendered = markdown::render(
         &doc.body,
@@ -695,6 +698,8 @@ pub fn load_post(
     };
     let research = (profile.behavior == ProfileBehavior::Research)
         .then(|| ResearchMetadata::from_source(fm, &doc.body, doc.body_line));
+    let video =
+        (profile.behavior == ProfileBehavior::Video).then(|| VideoMetadata::from_front_matter(fm));
 
     let title = match first(fm, &["title"]) {
         Some(t) => t.to_string(),
@@ -758,6 +763,23 @@ pub fn load_post(
         .unwrap_or_else(|| markdown::excerpt(&rendered.text, 180));
     let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]));
     let cover = authored_cover.clone().or(rendered.first_image.clone());
+    if let Some(video) = &video {
+        if video.url.is_none() {
+            profile
+                .warnings
+                .push("video profile needs a `videoUrl`".to_string());
+        } else if video.youtube_id.is_none() {
+            profile.warnings.push(
+                "video profile `videoUrl` must be a supported YouTube watch, short, or Shorts URL"
+                    .to_string(),
+            );
+        }
+        if video.thumbnail.is_none() && cover.is_none() {
+            profile.warnings.push(
+                "video profile needs a `thumbnail` or `cover` for discovery metadata".to_string(),
+            );
+        }
+    }
     let cover_alt = first(fm, &["coverAlt", "imageAlt", "cover_alt"])
         .unwrap_or("")
         .to_string();
@@ -811,6 +833,7 @@ pub fn load_post(
         evidence,
         recipe,
         research,
+        video,
         code_highlight: fm
             .get_bool("highlight")
             .or_else(|| fm.get_bool("codeHighlighting")),

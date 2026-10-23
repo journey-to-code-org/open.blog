@@ -1093,11 +1093,32 @@ kbd {
 .oba-editor[data-editor-view="write"] .oba-markdown-pane,
 .oba-editor[data-editor-view="preview"] .oba-preview-pane,
 .oba-editor[data-editor-view="social"] .oba-social-pane,
+.oba-editor[data-editor-view="release"] .oba-release-pane,
 .oba-editor[data-editor-view="optimize"] .oba-optimize-pane,
 .oba-editor[data-editor-view="settings"] .oba-settings-pane,
 .oba-editor[data-editor-view="accessibility"] .oba-accessibility-pane,
 .oba-editor[data-editor-view="evidence"] .oba-evidence-pane {
   display: block;
+}
+
+.oba-release-workspace {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 52rem);
+  margin-inline: auto;
+  padding: 1rem;
+}
+
+.oba-release-workspace > p,
+.oba-release-issues {
+  margin: 0;
+}
+
+.oba-release-output {
+  width: 100%;
+  min-height: 18rem;
+  resize: vertical;
+  font-family: var(--ob-font-mono);
 }
 
 .oba-body,

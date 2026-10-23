@@ -3,12 +3,14 @@
 ## Content profiles
 
 Posts can opt into field-specific authoring and publishing behavior with `profile` in front
-matter. The shared catalog currently provides `article`, `recipe`, and `research`; the admin reads the
+matter. The shared catalog currently provides `article`, `recipe`, `research`, and `video`; the admin reads the
 same definitions as the native and WebAssembly-capable core. Unknown ids are preserved and
 fall back to article output with a warning, so content remains portable while future
 journalism, education, media, and dataset profiles are added incrementally. Research posts
 add work metadata and evidence guidance while retaining ordinary Markdown as their source;
-see [Research posts and Evidence Studio](research-profile.md).
+see [Research posts and Evidence Studio](research-profile.md). Video posts add a
+privacy-enhanced YouTube player, discovery metadata, and a release-kit workflow; see
+[Video productions and release kits](video-production.md).
 
 ## Syntax highlighting
 

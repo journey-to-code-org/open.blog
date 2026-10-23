@@ -2160,10 +2160,11 @@ fn preview(state: &AppState, req: &Request) -> Response {
         .as_deref()
         .map(|origin| format!("'self' {origin}"))
         .unwrap_or_else(|| "'self'".to_string());
+    let frame_sources = openblog_core::embed::FRAME_SOURCES;
     let csp = format!(
         "default-src 'none'; script-src 'unsafe-inline' {script_sources}; style-src 'unsafe-inline' 'self' https:; \
          img-src 'self' https: data:; font-src 'self' https: data:; connect-src 'self' https://play.rust-lang.org; \
-         frame-src https://codepen.io; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+         frame-src {frame_sources}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
     );
     let mut previews = lock(&state.previews);
     previews.push(PreviewDocument {
@@ -2768,6 +2769,9 @@ mod tests {
         assert_eq!(profiles[2]["id"], "research");
         assert_eq!(profiles[2]["fields"][0]["key"], "doi");
         assert_eq!(profiles[2]["fields"][1]["key"], "license");
+        assert_eq!(profiles[3]["id"], "video");
+        assert_eq!(profiles[3]["fields"][0]["key"], "videoUrl");
+        assert_eq!(profiles[3]["fields"][1]["kind"], "duration");
     }
 
     #[test]
@@ -4182,6 +4186,10 @@ mod tests {
         );
         assert!(document.headers.iter().any(|(name, value)| {
             name == "Content-Security-Policy" && value.contains("script-src 'unsafe-inline'")
+        }));
+        assert!(document.headers.iter().any(|(name, value)| {
+            name == "Content-Security-Policy"
+                && value.contains("frame-src https://codepen.io https://www.youtube-nocookie.com")
         }));
         assert!(document
             .headers

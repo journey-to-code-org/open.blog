@@ -8,6 +8,7 @@ import {
   evidenceStudioState,
   applyPaneSelection,
   applyProfileFieldDrafts,
+  buildVideoReleaseKit,
   creditHasAuthor,
   creditPayload,
   contributorDraftPayload,
@@ -28,6 +29,40 @@ import {
   validateCreditDraft,
   validateContributorDraft,
 } from "../../web/admin/admin.js";
+
+test("video release kits compose copy and enforce YouTube chapter rules", () => {
+  const kit = buildVideoReleaseKit({
+    profile: "video",
+    description: "Seven adventurers enter a forbidden ruin.",
+    body: "## Chapters\n\n00:00 The gate opens\n00:14 A warning\n01:02 Into the ruin\n\n```text\n00:01 ignored code\n```",
+    duration: "1 min 20 sec",
+    aiDisclosure: "AI-assisted animation with human direction and editing.",
+  });
+
+  assert.equal(kit.active, true);
+  assert.deepEqual(
+    kit.chapters.map(({ label, seconds }) => ({ label, seconds })),
+    [
+      { label: "The gate opens", seconds: 0 },
+      { label: "A warning", seconds: 14 },
+      { label: "Into the ruin", seconds: 62 },
+    ],
+  );
+  assert.deepEqual(kit.issues, []);
+  assert.equal(
+    kit.description,
+    "Seven adventurers enter a forbidden ruin.\n\nChapters\n00:00 The gate opens\n00:14 A warning\n01:02 Into the ruin\n\nAI assistance: AI-assisted animation with human direction and editing.",
+  );
+
+  assert.deepEqual(
+    buildVideoReleaseKit({ profile: "video", body: "00:05 Late start\n00:10 Too close", duration: "1:15" }).issues,
+    ["The first chapter must start at 00:00.", "Add at least three chapters.", "Keep every chapter at least 10 seconds long."],
+  );
+  assert.deepEqual(buildVideoReleaseKit({ profile: "video", body: "00:00 Intro\n00:20 Story\n01:00 Credits", duration: "1:05" }).issues, [
+    "Keep every chapter at least 10 seconds long.",
+  ]);
+  assert.equal(buildVideoReleaseKit({ profile: "article", body: "00:00 Intro" }).active, false);
+});
 
 test("contributor drafts preserve stable ids and prefill editable identity fields", () => {
   const draft = normalizeContributorDraft({

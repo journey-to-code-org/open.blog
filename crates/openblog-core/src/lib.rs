@@ -29,6 +29,7 @@ pub mod research;
 pub mod search;
 pub mod slug;
 pub mod theme;
+pub mod video;
 
 pub use config::SiteConfig;
 pub use date::DateTime;

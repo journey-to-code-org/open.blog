@@ -49,7 +49,7 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
     let profiles = profile::catalog();
     assert_eq!(
         profiles.iter().map(|item| item.id).collect::<Vec<_>>(),
-        vec!["article", "recipe", "research"]
+        vec!["article", "recipe", "research", "video"]
     );
     assert_eq!(profiles[0].label, "Article");
     assert!(profiles[0].fields.is_empty());
@@ -79,6 +79,15 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
             .collect::<Vec<_>>(),
         vec!["doi", "license"]
     );
+    assert_eq!(profiles[3].label, "Video production");
+    assert_eq!(
+        profiles[3]
+            .fields
+            .iter()
+            .map(|field| field.key)
+            .collect::<Vec<_>>(),
+        vec!["videoUrl", "duration", "thumbnail", "aiDisclosure"]
+    );
 }
 
 #[test]
@@ -90,6 +99,35 @@ fn resolves_the_research_profile_without_changing_article_or_recipe_behavior() {
     assert_eq!(resolved.id, "research");
     assert_eq!(resolved.behavior, profile::ProfileBehavior::Research);
     assert!(resolved.warnings.is_empty());
+}
+
+#[test]
+fn resolves_and_loads_the_video_profile() {
+    let resolved = profile::resolve(&fields(
+        "---\nprofile: video\nvideoUrl: https://youtu.be/dQw4w9WgXcQ\n---\nBody",
+    ));
+    assert_eq!(resolved.id, "video");
+    assert_eq!(resolved.behavior, profile::ProfileBehavior::Video);
+
+    let post = model::load_post(
+        &SourceFile {
+            path: "posts/episode.md".into(),
+            contents: "---\ntitle: Episode one\ndate: 2026-10-23\nprofile: video\nvideoUrl: https://www.youtube.com/watch?v=dQw4w9WgXcQ\nduration: 12 min 34 sec\nthumbnail: /images/episode.jpg\naiDisclosure: AI-assisted animation\n---\n## Transcript\nOpening narration."
+                .into(),
+        },
+        &SiteConfig::default(),
+        Default::default(),
+    )
+    .unwrap();
+
+    let video = post.video.expect("video metadata");
+    assert_eq!(video.youtube_id.as_deref(), Some("dQw4w9WgXcQ"));
+    assert_eq!(video.duration_seconds, Some(754));
+    assert_eq!(video.thumbnail.as_deref(), Some("/images/episode.jpg"));
+    assert_eq!(
+        video.ai_disclosure.as_deref(),
+        Some("AI-assisted animation")
+    );
 }
 
 #[test]

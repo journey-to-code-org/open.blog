@@ -134,6 +134,7 @@ Start with [the docs index](docs/README.md). The main guides:
 - [SEO and answer discovery](docs/seo.md)
 - [Accessibility checks and manual review](docs/accessibility.md)
 - [Research posts and Evidence Studio](docs/research-profile.md)
+- [Video productions and release kits](docs/video-production.md)
 - [Deploying](docs/deploy.md): GitHub Pages, other hosts, self-hosting, moving URLs
 - [Publishing from home, backups, and view counts without a server](docs/publishing.md)
 - [Cross-posting to Hashnode, DEV, Medium, Ghost, and WordPress](docs/cross-posting.md)

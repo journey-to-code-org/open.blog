@@ -442,6 +442,64 @@ function markdownOutsideCode(source) {
   return output;
 }
 
+function chapterSeconds(timestamp) {
+  const parts = timestamp.split(":").map(Number);
+  if (parts.some((part) => !Number.isInteger(part) || part < 0)) return null;
+  if (parts.length === 2 && parts[1] < 60) return parts[0] * 60 + parts[1];
+  if (parts.length === 3 && parts[1] < 60 && parts[2] < 60) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return null;
+}
+
+function videoDurationSeconds(value) {
+  const source = String(value || "").trim().toLowerCase();
+  if (!source) return null;
+  if (source.includes(":")) return chapterSeconds(source);
+  const iso = source.match(/^pt(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/u);
+  if (iso && iso.slice(1).some(Boolean)) return Number(iso[1] || 0) * 3600 + Number(iso[2] || 0) * 60 + Number(iso[3] || 0);
+  const token = /(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)/gu;
+  const matches = [...source.matchAll(token)];
+  if (!matches.length || source.replace(token, "").trim()) return null;
+  return matches.reduce((total, match) => {
+    const unit = match[2][0];
+    return total + Number(match[1]) * (unit === "h" ? 3600 : unit === "m" ? 60 : 1);
+  }, 0);
+}
+
+/** Build creator-owned release copy while enforcing YouTube's authored chapter rules. */
+export function buildVideoReleaseKit({ profile, description = "", body = "", duration = "", aiDisclosure = "" }) {
+  if (String(profile).toLowerCase() !== "video") return { active: false, chapters: [], issues: [], description: "" };
+  const chapters = markdownOutsideCode(String(body)).split("\n").flatMap((line) => {
+    const match = line.trim().match(/^(?:[-*+]\s+)?((?:\d{1,2}:)?\d{1,3}:\d{2})\s+(.+)$/u);
+    if (!match) return [];
+    const seconds = chapterSeconds(match[1]);
+    const label = match[2].trim();
+    return seconds === null || !label ? [] : [{ timestamp: match[1], seconds, label }];
+  });
+  const issues = [];
+  if (chapters.length && chapters[0].seconds !== 0) issues.push("The first chapter must start at 00:00.");
+  if (chapters.length < 3) issues.push("Add at least three chapters.");
+  const chronological = !chapters.some((chapter, index) => index > 0 && chapter.seconds <= chapters[index - 1].seconds);
+  if (!chronological) {
+    issues.push("List chapters in chronological order.");
+  }
+  const durationSeconds = videoDurationSeconds(duration);
+  if (chapters.length && durationSeconds === null) issues.push("Add a valid duration to verify the final chapter.");
+  const shortChapter =
+    chronological &&
+    (chapters.some((chapter, index) => index > 0 && chapter.seconds - chapters[index - 1].seconds < 10) ||
+      (durationSeconds !== null && durationSeconds - chapters.at(-1).seconds < 10));
+  if (shortChapter) {
+    issues.push("Keep every chapter at least 10 seconds long.");
+  }
+  const sections = [];
+  const summary = String(description).trim();
+  if (summary) sections.push(summary);
+  if (chapters.length) sections.push(`Chapters\n${chapters.map((chapter) => `${chapter.timestamp} ${chapter.label}`).join("\n")}`);
+  const disclosure = String(aiDisclosure).trim();
+  if (disclosure) sections.push(`AI assistance: ${disclosure}`);
+  return { active: true, chapters, issues, description: sections.join("\n\n") };
+}
+
 export function analyzeReadiness({ kind, title, description, slug, canonical, tags = [], cover, coverAlt, body, authorReady }) {
   const analysisBody = markdownOutsideCode(body).replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
   const wordCount = (analysisBody.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
@@ -649,9 +707,9 @@ export class ObAdmin extends AdminElement {
         this.editor.save();
         return;
       }
-      if (this.editor && e.altKey && ["1", "2", "3", "4", "5", "6", "7"].includes(e.key)) {
+      if (this.editor && e.altKey && ["1", "2", "3", "4", "5", "6", "7", "8"].includes(e.key)) {
         e.preventDefault();
-        const pane = ["write", "preview", "social", "optimize", "settings", "accessibility", "evidence"][Number(e.key) - 1];
+        const pane = ["write", "preview", "social", "release", "optimize", "settings", "accessibility", "evidence"][Number(e.key) - 1];
         this.editor.activatePane(pane, true);
       }
     });
@@ -838,7 +896,7 @@ export class ObAdmin extends AdminElement {
     ];
     if (this.editor) {
       commands.unshift({ label: "Save document", category: "Editor", keywords: "publish ctrl s", run: () => this.editor.save() });
-      for (const pane of ["write", "preview", "social", "optimize", "settings", "accessibility"]) {
+      for (const pane of ["write", "preview", "social", "release", "optimize", "settings", "accessibility", "evidence"]) {
         commands.unshift({ label: `Show ${pane}`, category: "Editor", keywords: "view pane", run: () => this.editor.activatePane(pane) });
       }
     }
@@ -1919,7 +1977,8 @@ class Editor {
     let paneButtons = [];
     const activatePane = (pane, focus = false) => {
       applyPaneSelection(this.root, paneButtons, pane);
-      if (["preview", "social", "accessibility", "evidence"].includes(pane)) this.renderPreview();
+      if (pane === "release") this.updateReleaseKit();
+      else if (["preview", "social", "accessibility", "evidence"].includes(pane)) this.renderPreview();
       else {
         clearTimeout(this.previewTimer);
         this.previewRequest += 1;
@@ -1931,8 +1990,8 @@ class Editor {
       }
     };
     this.activatePane = activatePane;
-    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", optimize: "Optimize", settings: "Settings", accessibility: "Accessibility", evidence: "Evidence" };
-    paneButtons = ["write", "preview", "social", "optimize", "settings", "accessibility", "evidence"].map((pane) =>
+    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", release: "Release kit", optimize: "Optimize", settings: "Settings", accessibility: "Accessibility", evidence: "Evidence" };
+    paneButtons = ["write", "preview", "social", "release", "optimize", "settings", "accessibility", "evidence"].map((pane) =>
       h(
         "button",
         {
@@ -1951,6 +2010,26 @@ class Editor {
       { class: "oba-social-card", tabindex: "-1", "aria-label": "Social card preview" },
       ui.socialImage,
       h("div", { class: "oba-social-copy" }, ui.socialSite, ui.socialTitle, ui.socialDescription, ui.socialUrl),
+    );
+    ui.releaseStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    ui.releaseIssues = h("ul", { class: "oba-release-issues" });
+    ui.releaseOutput = h("textarea", { class: "oba-release-output", rows: 14, readonly: true, "aria-label": "YouTube release description" });
+    ui.releaseCopy = h(
+      "button",
+      {
+        class: "oba-btn oba-btn-primary",
+        type: "button",
+        onClick: async () => {
+          try {
+            await navigator.clipboard.writeText(ui.releaseOutput.value);
+            ui.releaseStatus.textContent = "Release description copied.";
+          } catch {
+            ui.releaseOutput.select();
+            ui.releaseStatus.textContent = "Copy is unavailable; the release description is selected.";
+          }
+        },
+      },
+      "Copy release description",
     );
 
     this.root = h(
@@ -1989,6 +2068,19 @@ class Editor {
                 h("div", {}, h("dt", {}, "X card"), ui.socialCardType),
                 h("div", {}, h("dt", {}, "Resolved image"), ui.socialImageUrl),
               ),
+            ),
+          ),
+          h(
+            "section",
+            { class: "oba-pane oba-release-pane", "data-pane": "release", "aria-label": "Video release kit" },
+            paneHeader("Publish", "Video release kit", ui.releaseStatus),
+            h(
+              "div",
+              { class: "oba-release-workspace" },
+              h("p", {}, "Write timestamp lines in the Markdown draft. OpenBlog validates them and composes a YouTube-ready description from the current summary, chapters, and AI-assistance disclosure."),
+              ui.releaseIssues,
+              ui.releaseOutput,
+              h("div", { class: "oba-toolbar" }, ui.releaseCopy),
             ),
           ),
           h(
@@ -2277,11 +2369,32 @@ class Editor {
 
   schedulePreview() {
     clearTimeout(this.previewTimer);
+    if (this.root?.dataset.editorView === "release") {
+      this.updateReleaseKit();
+      return;
+    }
     if (!["preview", "social", "accessibility", "evidence"].includes(this.root?.dataset.editorView)) {
       this.previewRequest += 1;
       return;
     }
     this.previewTimer = setTimeout(() => this.renderPreview(), 250);
+  }
+
+  updateReleaseKit() {
+    const fields = this.collect();
+    const kit = buildVideoReleaseKit({
+      profile: this.ui.profile?.value || fields.profile || "article",
+      description: this.ui.description?.value || fields.description || "",
+      body: this.ui.body.value,
+      duration: fields.duration || "",
+      aiDisclosure: fields.aiDisclosure || "",
+    });
+    this.ui.releaseOutput.value = kit.description;
+    this.ui.releaseCopy.disabled = !kit.active || !kit.description;
+    this.ui.releaseIssues.replaceChildren(...kit.issues.map((issue) => h("li", {}, issue)));
+    if (!kit.active) this.ui.releaseStatus.textContent = "Choose the Video production content profile to build a release kit.";
+    else if (kit.issues.length) this.ui.releaseStatus.textContent = `${kit.issues.length} chapter issue${kit.issues.length === 1 ? "" : "s"} to resolve.`;
+    else this.ui.releaseStatus.textContent = `${kit.chapters.length} valid chapters · ready to copy.`;
   }
 
   async renderPreview() {

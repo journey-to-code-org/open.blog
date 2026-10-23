@@ -11,7 +11,7 @@ accessibility review.
 
 ## Author workflow
 
-In the browser editor, open **Accessibility** or press `Alt+6`. The studio audits the current
+In the browser editor, open **Accessibility** or press `Alt+7`. The studio audits the current
 unsaved document through the production preview endpoint. It shows site-wide findings and
 findings for that document only; guidance from unrelated posts, pages, or series is excluded.
 

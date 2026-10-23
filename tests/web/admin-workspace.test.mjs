@@ -13,11 +13,12 @@ test("admin shell exposes a grouped publishing workspace", () => {
   assert.match(admin, /h\("h1", \{\}, activeInfo\.title\)/);
 });
 
-test("editor has named writing, preview, optimization, accessibility, and evidence views", () => {
+test("editor has named writing, preview, release, optimization, accessibility, and evidence views", () => {
   assert.match(admin, /"data-pane": "settings"/);
   assert.match(admin, /"data-pane": "write"/);
   assert.match(admin, /"data-pane": "preview"/);
   assert.match(admin, /"data-pane": "social"/);
+  assert.match(admin, /"data-pane": "release"/);
   assert.match(admin, /"data-pane": "optimize"/);
   assert.match(admin, /"data-pane": "accessibility"/);
   assert.match(admin, /"data-pane": "evidence"/);
@@ -32,9 +33,19 @@ test("editors expose one explicitly selected view at every width", () => {
   assert.match(styles, /\.oba-editor\[data-editor-view="write"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="preview"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="social"\]/);
+  assert.match(styles, /\.oba-editor\[data-editor-view="release"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="optimize"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="accessibility"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="evidence"\]/);
+});
+
+test("video release kit stays local and exposes decision-ready copy", () => {
+  assert.match(admin, /buildVideoReleaseKit/);
+  assert.match(admin, /Copy release description/);
+  assert.match(admin, /The first chapter must start at 00:00/);
+  assert.match(admin, /Keep every chapter at least 10 seconds long/);
+  assert.match(styles, /\.oba-release-workspace/);
+  assert.doesNotMatch(admin, /youtube.*(?:fetch|api\.call)/i);
 });
 
 test("workspace layout keeps one focused editor view and responsive controls", () => {

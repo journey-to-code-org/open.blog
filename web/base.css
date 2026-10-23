@@ -1278,7 +1278,7 @@ ob-recipe.ob-cooking .ob-recipe-part {
   white-space: nowrap;
 }
 
-/* ---------- Embeds (a standalone CodePen link becomes a pen) ---------- */
+/* ---------- Embeds (standalone supported links become players) ---------- */
 
 .ob-embed {
   margin: 2em 0;
@@ -1291,6 +1291,11 @@ ob-recipe.ob-cooking .ob-recipe-part {
   border: var(--ob-border-width) solid var(--ob-color-border);
   border-radius: var(--ob-radius-sm);
   background: var(--ob-color-surface-raised);
+}
+
+.ob-embed-youtube iframe {
+  height: auto;
+  aspect-ratio: 16 / 9;
 }
 
 .ob-embed figcaption {
