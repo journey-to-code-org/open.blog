@@ -12,6 +12,7 @@
 //! - [`feeds`]: RSS 2.0, JSON Feed, sitemap, and the latest-posts snapshot
 //! - [`search`]: a small ranked search over a JSON index
 
+pub mod accessibility;
 pub mod config;
 pub mod date;
 pub mod embed;

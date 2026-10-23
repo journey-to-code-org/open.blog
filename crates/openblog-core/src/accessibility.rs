@@ -1,0 +1,470 @@
+//! Structured accessibility guidance derived from canonical blog source.
+
+use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use serde::Serialize;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuditOutcome {
+    Detected,
+    Potential,
+    NeedsReview,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuditScope {
+    Content,
+    Site,
+    Theme,
+    Embed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FindingSource {
+    pub path: String,
+    pub line: Option<usize>,
+    pub column: Option<usize>,
+    pub field: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessibilityFinding {
+    pub code: String,
+    pub outcome: AuditOutcome,
+    pub scope: AuditScope,
+    pub source: FindingSource,
+    pub message: String,
+    pub repair: String,
+    pub references: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct DocumentAuditInput<'a> {
+    pub path: &'a str,
+    pub markdown: &'a str,
+    /// `Some(alt)` means the document has a cover image; `None` means it does not.
+    pub cover_alt: Option<&'a str>,
+}
+
+/// Audit the site-wide language needed on every generated page.
+pub fn audit_site_language(path: &str, language: &str) -> Vec<AccessibilityFinding> {
+    if !language.trim().is_empty() {
+        return Vec::new();
+    }
+    vec![field_finding(
+        path,
+        "language",
+        FindingDetails::new(
+            "document-language-missing",
+            AuditOutcome::Detected,
+            AuditScope::Site,
+            "Generated pages have no configured default language.",
+            "Set `language` in openblog.json to the site's BCP 47 language tag.",
+            &["WCAG-2.2-3.1.1"],
+        ),
+    )]
+}
+
+struct LinkState {
+    offset: usize,
+    name: String,
+    destination: Option<String>,
+    indeterminate_name: bool,
+}
+
+/// Audit author-controlled Markdown and front-matter context for one document.
+pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding> {
+    let mut findings = Vec::new();
+    if let Some(alt) = input.cover_alt {
+        if alt.trim().is_empty() {
+            findings.push(field_finding(
+                input.path,
+                "coverAlt",
+                FindingDetails::new(
+                    "image-alt-review",
+                    AuditOutcome::NeedsReview,
+                    AuditScope::Content,
+                    "Decide whether the cover image is decorative or needs alternative text.",
+                    "Describe the cover's purpose in context, or keep the alternative empty when it is decorative.",
+                    &["WCAG-2.2-1.1.1"],
+                ),
+            ));
+        } else if placeholder_alt(alt) {
+            findings.push(field_finding(
+                input.path,
+                "coverAlt",
+                FindingDetails::new(
+                    "image-alt-placeholder",
+                    AuditOutcome::Potential,
+                    AuditScope::Content,
+                    "The cover image alternative looks like a filename or placeholder.",
+                    "Review the cover in context and describe its purpose rather than its file name.",
+                    &["WCAG-2.2-1.1.1"],
+                ),
+            ));
+        }
+    }
+    let mut link = None;
+    let mut image = None;
+    // Document templates render the front-matter title as H1 before the body.
+    let mut previous_heading = 1;
+    let mut saw_table = false;
+    let mut saw_raw_html = false;
+    let mut saw_media = false;
+    let options = parser_options();
+
+    for (event, range) in Parser::new_ext(input.markdown, options).into_offset_iter() {
+        match event {
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                link = Some(LinkState {
+                    offset: range.start,
+                    name: String::new(),
+                    destination: Some(dest_url.into_string()),
+                    indeterminate_name: false,
+                });
+            }
+            Event::Start(Tag::Image { .. }) => {
+                image = Some(LinkState {
+                    offset: range.start,
+                    name: String::new(),
+                    destination: None,
+                    indeterminate_name: false,
+                });
+            }
+            Event::Start(Tag::Heading { level, .. }) => {
+                let level = heading_level(level);
+                if level > previous_heading + 1 {
+                    findings.push(finding(
+                        input.path,
+                        input.markdown,
+                        range.start,
+                        FindingDetails::new(
+                            "heading-level-skip",
+                            AuditOutcome::Potential,
+                            AuditScope::Content,
+                            format!(
+                                "The heading outline jumps from H{previous_heading} to H{level}."
+                            ),
+                            "Review the outline and use the next heading level when it represents a nested section.",
+                            &["WCAG-2.2-1.3.1", "WCAG-2.2-2.4.6"],
+                        ),
+                    ));
+                }
+                previous_heading = level;
+            }
+            Event::Start(Tag::Table(_)) if !saw_table => {
+                saw_table = true;
+                findings.push(finding(
+                    input.path,
+                    input.markdown,
+                    range.start,
+                    FindingDetails::new(
+                        "table-structure-review",
+                        AuditOutcome::NeedsReview,
+                        AuditScope::Content,
+                        "Review whether this table's structure communicates its relationships.",
+                        "Confirm that headers describe the correct rows or columns and that complex relationships remain understandable.",
+                        &["WCAG-2.2-1.3.1"],
+                    ),
+                ));
+            }
+            Event::Html(_) | Event::InlineHtml(_) => {
+                if let Some(link) = link.as_mut() {
+                    link.indeterminate_name = true;
+                }
+                if !saw_raw_html {
+                    saw_raw_html = true;
+                    findings.push(finding(
+                        input.path,
+                        input.markdown,
+                        range.start,
+                        FindingDetails::new(
+                            "raw-html-review",
+                            AuditOutcome::NeedsReview,
+                            AuditScope::Content,
+                            "Raw HTML can introduce semantics and interactions that source checks cannot verify.",
+                            "Inspect the rendered HTML, keyboard behavior, accessible names, and relationships for this custom markup.",
+                            &[],
+                        ),
+                    ));
+                }
+            }
+            Event::Text(text) | Event::Code(text) => {
+                if let Some(link) = link.as_mut() {
+                    link.name.push_str(&text);
+                }
+                if let Some(image) = image.as_mut() {
+                    image.name.push_str(&text);
+                }
+            }
+            Event::End(TagEnd::Image) => {
+                if let Some(image) = image.take() {
+                    if image.name.trim().is_empty() {
+                        findings.push(finding(
+                            input.path,
+                            input.markdown,
+                            image.offset,
+                            FindingDetails::new(
+                                "image-alt-review",
+                                AuditOutcome::NeedsReview,
+                                AuditScope::Content,
+                                "Decide whether this image is decorative or needs alternative text.",
+                                "Describe the image's purpose in context, or keep the alternative empty when it is decorative.",
+                                &["WCAG-2.2-1.1.1"],
+                            ),
+                        ));
+                    } else if placeholder_alt(&image.name) {
+                        findings.push(finding(
+                            input.path,
+                            input.markdown,
+                            image.offset,
+                            FindingDetails::new(
+                                "image-alt-placeholder",
+                                AuditOutcome::Potential,
+                                AuditScope::Content,
+                                "This image alternative looks like a filename or placeholder.",
+                                "Review the image in context and describe its purpose rather than its file name.",
+                                &["WCAG-2.2-1.1.1"],
+                            ),
+                        ));
+                    }
+                }
+            }
+            Event::End(TagEnd::Link) => {
+                if let Some(link) = link.take() {
+                    if link.name.trim().is_empty() && !link.indeterminate_name {
+                        findings.push(finding(
+                            input.path,
+                            input.markdown,
+                            link.offset,
+                            FindingDetails::new(
+                                "link-name-empty",
+                                AuditOutcome::Detected,
+                                AuditScope::Content,
+                                "This link has no accessible name.",
+                                "Add link text that identifies its destination or action.",
+                                &["WCAG-2.2-2.4.4"],
+                            ),
+                        ));
+                    } else if generic_link_text(&link.name) {
+                        findings.push(finding(
+                            input.path,
+                            input.markdown,
+                            link.offset,
+                            FindingDetails::new(
+                                "link-purpose-review",
+                                AuditOutcome::Potential,
+                                AuditScope::Content,
+                                format!(
+                                    "The link text “{}” may not identify its purpose in context.",
+                                    link.name.trim()
+                                ),
+                                "Use link text that describes the destination or action, then review it with the surrounding sentence.",
+                                &["WCAG-2.2-2.4.4"],
+                            ),
+                        ));
+                    }
+                    if !saw_media
+                        && link
+                            .destination
+                            .as_deref()
+                            .is_some_and(is_media_destination)
+                    {
+                        saw_media = true;
+                        findings.push(finding(
+                            input.path,
+                            input.markdown,
+                            link.offset,
+                            FindingDetails::new(
+                                "media-alternatives-review",
+                                AuditOutcome::NeedsReview,
+                                AuditScope::Content,
+                                "Linked audio or video needs an alternatives review.",
+                                "Confirm that the media provides the captions, transcript, and audio description its content requires.",
+                                &["WCAG-2.2-1.2.1", "WCAG-2.2-1.2.2", "WCAG-2.2-1.2.5"],
+                            ),
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut offset = 0;
+    for line in input.markdown.split_inclusive('\n') {
+        let source = line.trim();
+        if standalone_embed(source) {
+            findings.push(finding(
+                input.path,
+                input.markdown,
+                offset + line.find(source).unwrap_or(0),
+                FindingDetails::new(
+                    "embed-accessibility-review",
+                    AuditOutcome::NeedsReview,
+                    AuditScope::Embed,
+                    "This link becomes an embedded third-party experience when published.",
+                    "Inspect the rendered embed with keyboard and assistive technology, and keep its fallback link meaningful.",
+                    &[],
+                ),
+            ));
+            break;
+        }
+        offset += line.len();
+    }
+
+    findings
+}
+
+fn parser_options() -> Options {
+    Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_HEADING_ATTRIBUTES
+        | Options::ENABLE_GFM
+}
+
+fn standalone_embed(source: &str) -> bool {
+    if source.is_empty() {
+        return false;
+    }
+    if crate::embed::detect(source).is_some() {
+        return true;
+    }
+    let events: Vec<_> = Parser::new_ext(source, parser_options()).collect();
+    match events.as_slice() {
+        [Event::Start(Tag::Paragraph), Event::Start(Tag::Link { dest_url, .. }), middle @ .., Event::End(TagEnd::Link), Event::End(TagEnd::Paragraph)]
+            if middle
+                .iter()
+                .all(|event| matches!(event, Event::Text(_) | Event::Code(_))) =>
+        {
+            crate::embed::detect(dest_url).is_some()
+        }
+        _ => false,
+    }
+}
+
+fn heading_level(level: HeadingLevel) -> u8 {
+    match level {
+        HeadingLevel::H1 => 1,
+        HeadingLevel::H2 => 2,
+        HeadingLevel::H3 => 3,
+        HeadingLevel::H4 => 4,
+        HeadingLevel::H5 => 5,
+        HeadingLevel::H6 => 6,
+    }
+}
+
+fn placeholder_alt(alt: &str) -> bool {
+    let normalized = alt.trim().to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "image" | "photo" | "picture" | "placeholder" | "alt text" | "todo"
+    ) || [".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg"]
+        .iter()
+        .any(|extension| normalized.ends_with(extension))
+}
+
+fn generic_link_text(text: &str) -> bool {
+    matches!(
+        text.trim().to_ascii_lowercase().as_str(),
+        "click here" | "here" | "read more" | "link" | "more"
+    )
+}
+
+fn is_media_destination(destination: &str) -> bool {
+    let path = destination
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(destination)
+        .to_ascii_lowercase();
+    [
+        ".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac", ".mp4", ".webm", ".mov", ".m4v",
+    ]
+    .iter()
+    .any(|extension| path.ends_with(extension))
+}
+
+struct FindingDetails {
+    code: String,
+    outcome: AuditOutcome,
+    scope: AuditScope,
+    message: String,
+    repair: String,
+    references: Vec<String>,
+}
+
+impl FindingDetails {
+    fn new(
+        code: &str,
+        outcome: AuditOutcome,
+        scope: AuditScope,
+        message: impl Into<String>,
+        repair: &str,
+        references: &[&str],
+    ) -> Self {
+        Self {
+            code: code.to_string(),
+            outcome,
+            scope,
+            message: message.into(),
+            repair: repair.to_string(),
+            references: references
+                .iter()
+                .map(|reference| reference.to_string())
+                .collect(),
+        }
+    }
+}
+
+fn field_finding(path: &str, field: &str, details: FindingDetails) -> AccessibilityFinding {
+    AccessibilityFinding {
+        code: details.code,
+        outcome: details.outcome,
+        scope: details.scope,
+        source: FindingSource {
+            path: path.to_string(),
+            line: None,
+            column: None,
+            field: Some(field.to_string()),
+        },
+        message: details.message,
+        repair: details.repair,
+        references: details.references,
+    }
+}
+
+fn finding(
+    path: &str,
+    markdown: &str,
+    offset: usize,
+    details: FindingDetails,
+) -> AccessibilityFinding {
+    let line_start = markdown[..offset]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
+    AccessibilityFinding {
+        code: details.code,
+        outcome: details.outcome,
+        scope: details.scope,
+        source: FindingSource {
+            path: path.to_string(),
+            line: Some(
+                markdown[..offset]
+                    .bytes()
+                    .filter(|byte| *byte == b'\n')
+                    .count()
+                    + 1,
+            ),
+            column: Some(markdown[line_start..offset].chars().count() + 1),
+            field: None,
+        },
+        message: details.message,
+        repair: details.repair,
+        references: details.references,
+    }
+}
