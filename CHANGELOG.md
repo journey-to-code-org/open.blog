@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-22
+
+### Added
+
+- Opt-in editor-style Rust examples with syntax colouring, line decorations, inline
+  compiler/program output through the official Rust Playground, reset, copy, an optional
+  external fallback, a privacy notice, and a no-JavaScript code-block fallback.
+
 ## [0.3.0] - 2026-10-22
 
 ### Added
