@@ -148,6 +148,23 @@ the model and trust boundary.
 Legacy posts remain valid without sidecars. To opt into explicit credits across existing
 posts, use the dry-run-first [contributor migration command](contributor-migration.md).
 
+#### Runnable contributor demonstration
+
+The repository example site contains a complete, synthetic demonstration you can inspect or
+copy:
+
+- [`openblog.json`](../openblog.json) registers `example-author` and `example-editor`;
+- the [research Markdown](../content/posts/2026-02-16-research-and-contributor-credits.md)
+  selects the `research` profile; and
+- its adjacent [credit sidecar](../content/posts/2026-02-16-research-and-contributor-credits.credits.json)
+  assigns ordered Crossref and CRediT roles.
+
+Run `cargo run -p openblog-cli -- user add you` once, then
+`cargo run -p openblog-cli -- serve --admin` from the repository to inspect the authoring
+workflow. Alternatively, run `cargo run -p openblog-cli -- build` and inspect the generated
+page, feeds, and JSON-LD. The example identities are not real people and intentionally omit
+ORCID iDs.
+
 ### File names and addresses
 
 A file named `2026-01-12-writing-a-post.md` gets the slug `writing-a-post` and, with the

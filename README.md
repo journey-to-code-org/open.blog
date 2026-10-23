@@ -97,11 +97,22 @@ Markdown here: tables, task lists, footnotes, fenced code, images, raw HTML.
 A post dated in the future is scheduled and appears by itself when the time comes. The
 full list of fields is in [Writing content](docs/content.md).
 
+## Contributor and research demonstration
+
+The repository's runnable example includes a synthetic multi-contributor research post. It
+connects the registry in [`openblog.json`](openblog.json) to an adjacent
+[`credits.json`](content/posts/2026-02-16-research-and-contributor-credits.credits.json) file
+and a portable [Markdown article](content/posts/2026-02-16-research-and-contributor-credits.md).
+Run `openblog user add you` once and then `openblog serve --admin` to inspect the credits,
+Evidence view, production preview, and social metadata, or run `openblog build` to inspect
+the generated page, feeds, and JSON-LD. The demonstration identities are intentionally
+synthetic and contain no borrowed ORCID iDs.
+
 ## Project layout
 
 ```
 openblog.json         site settings (title, address, theme, navigation, feeds, ...)
-content/posts/        posts, one Markdown file each
+content/posts/        posts plus optional adjacent .credits.json files
 content/series/       series descriptions (optional)
 content/pages/        pages such as About (optional)
 static/               copied to the site root as is (images, favicon, CNAME)

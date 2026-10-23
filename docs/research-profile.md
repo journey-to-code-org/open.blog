@@ -34,6 +34,13 @@ absolute HTTP or HTTPS URL for the license that applies to the work. Neither fie
 required, but an explicitly empty or malformed value produces a finding instead of being
 silently treated as verified metadata.
 
+For a complete runnable example, see the repository's
+[research and contributor-credit post](../content/posts/2026-02-16-research-and-contributor-credits.md),
+its adjacent [credit sidecar](../content/posts/2026-02-16-research-and-contributor-credits.credits.json),
+and the synthetic contributor registry in [`openblog.json`](../openblog.json). Together they
+demonstrate the Admin Studio workflow, ordered author/editor roles, visible contributions,
+research findings, feeds, and structured data without borrowing a real person's ORCID.
+
 The Abstract and References/Bibliography headings must be visible top-level document
 sections. A matching heading inside a quote, list item, footnote, code block, or HTML block
 does not define the section. References can be list items or prose; resolvable HTTP and HTTPS
