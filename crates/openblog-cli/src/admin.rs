@@ -2934,4 +2934,30 @@ mod tests {
             404
         );
     }
+
+    #[test]
+    fn admin_page_serves_public_styles_when_the_site_has_a_base_path() {
+        let f = fixture("page-base-path");
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["url"] = json!("https://example.com/blog/");
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+        let state = AppState::new(f.dir.clone(), None, false, true);
+        let response = handle(&state, &req("GET", "/admin"));
+        assert_eq!(response.status, 200);
+        let body = String::from_utf8(response.body).unwrap();
+        assert!(body.contains("href=\"/assets/base.css\""), "{body}");
+        assert!(body.contains("href=\"/themes/base/tokens.css\""), "{body}");
+
+        for path in ["/assets/base.css", "/themes/base/tokens.css"] {
+            let stylesheet = crate::serve::route(&state, &req("GET", path), &f.dir.join("dist"));
+            assert_eq!(stylesheet.status, 200, "{path}");
+            assert!(stylesheet
+                .headers
+                .iter()
+                .any(|(name, value)| name == "Content-Type" && value.starts_with("text/css")));
+        }
+    }
 }

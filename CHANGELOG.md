@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-23
+
+### Fixed
+
+- Served the admin shell's root-relative theme and base styles from the built site when a
+  configured deployment base path is active, preventing HTML fallback responses and strict
+  MIME-type stylesheet failures during local administration.
+
 ## [0.6.0] - 2026-10-23
 
 ### Added

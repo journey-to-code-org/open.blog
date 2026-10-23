@@ -276,6 +276,11 @@ pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response
         "/"
     } else if let Some(rest) = req.path.strip_prefix(&format!("{}/", state.base_path)) {
         &req.path[req.path.len() - rest.len() - 1..]
+    } else if state.admin && state.cdn.is_asset_path(&req.path) {
+        // The admin lives at `/admin` even when the published site has a base
+        // path. Let its root-relative styles and images use the same built
+        // assets without weakening the public site's base-path routing.
+        req.path.as_str()
     } else {
         return Response::new(
             404,
