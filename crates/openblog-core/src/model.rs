@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::accessibility::{self, AccessibilityFinding, DocumentAuditInput};
 use crate::config::SiteConfig;
 use crate::date::DateTime;
 use crate::frontmatter::{self, FrontMatter};
@@ -88,6 +89,7 @@ pub struct Post {
     /// use article behavior until a matching profile is available.
     pub profile: String,
     pub(crate) profile_warnings: Vec<String>,
+    pub(crate) accessibility: Vec<AccessibilityFinding>,
     /// Set for posts using the recipe profile: times, servings, ingredients, steps.
     pub recipe: Option<Recipe>,
     /// Per-post code-block overrides from front matter (`highlight`, `lineNumbers`).
@@ -111,6 +113,7 @@ pub struct Series {
     /// Indices into `Site::posts`, in reading order (first part first).
     pub posts: Vec<usize>,
     pub source: Option<String>,
+    pub(crate) accessibility: Vec<AccessibilityFinding>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,6 +139,7 @@ pub struct Page {
     pub nav: bool,
     pub aliases: Vec<String>,
     pub source: String,
+    pub(crate) accessibility: Vec<AccessibilityFinding>,
 }
 
 #[derive(Clone, Debug)]
@@ -149,6 +153,8 @@ pub struct Site {
     /// Posts waiting for their publish date, soonest first.
     pub scheduled: Vec<Scheduled>,
     pub warnings: Vec<String>,
+    /// Structured source findings for Accessibility Studio and CLI reporting.
+    pub accessibility: Vec<AccessibilityFinding>,
     /// Known view totals per page path, supplied by the caller (for example from
     /// the analytics backup) so static builds can show counts.
     pub view_counts: BTreeMap<String, u64>,
@@ -164,6 +170,8 @@ impl Site {
     ) -> Result<Site, Vec<String>> {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
+        let mut accessibility =
+            accessibility::audit_site_language("openblog.json", &config.language);
         let render_options = RenderOptions {
             smart_punctuation: config.markdown.smart_punctuation,
             lazy_images: true,
@@ -180,6 +188,7 @@ impl Site {
                     if series.iter().any(|existing| existing.slug == s.slug) {
                         errors.push(format!("{}: duplicate series slug `{}`", file.path, s.slug));
                     } else {
+                        accessibility.extend(s.accessibility.iter().cloned());
                         series.push(s);
                     }
                 }
@@ -244,6 +253,7 @@ impl Site {
                     if !post.draft {
                         warnings.extend(seo_warnings(&post));
                     }
+                    accessibility.extend(post.accessibility.iter().cloned());
                     posts.push(post);
                 }
                 Err(e) => errors.push(format!("{}: {e}", file.path)),
@@ -261,6 +271,7 @@ impl Site {
                             file.path, page.slug
                         ));
                     } else {
+                        accessibility.extend(page.accessibility.iter().cloned());
                         pages.push(page);
                     }
                 }
@@ -296,6 +307,7 @@ impl Site {
                         order: u32::MAX,
                         posts: Vec::new(),
                         source: None,
+                        accessibility: Vec::new(),
                     });
                     series.len() - 1
                 }
@@ -363,6 +375,7 @@ impl Site {
             pages,
             scheduled,
             warnings,
+            accessibility,
             view_counts: BTreeMap::new(),
         })
     }
@@ -628,11 +641,18 @@ pub fn load_post(
     let description = first(fm, &["description", "summary", "brief", "excerpt"])
         .map(str::to_string)
         .unwrap_or_else(|| markdown::excerpt(&rendered.text, 180));
-    let cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]))
-        .or(rendered.first_image.clone());
+    let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]));
+    let cover = authored_cover.clone().or(rendered.first_image.clone());
     let cover_alt = first(fm, &["coverAlt", "imageAlt", "cover_alt"])
         .unwrap_or("")
         .to_string();
+    let accessibility = accessibility::audit_document(DocumentAuditInput {
+        path: &file.path,
+        markdown: &doc.body,
+        body_line: doc.body_line,
+        embeds_enabled: options.embeds,
+        cover_alt: authored_cover.as_ref().map(|_| cover_alt.as_str()),
+    });
 
     Ok(Post {
         url: config.post_url(&slug),
@@ -662,6 +682,7 @@ pub fn load_post(
         code_languages: rendered.code_languages,
         profile: profile.id,
         profile_warnings: profile.warnings,
+        accessibility,
         recipe,
         code_highlight: fm
             .get_bool("highlight")
@@ -687,6 +708,13 @@ fn load_series(file: &SourceFile, options: RenderOptions) -> Result<Series, Stri
     let name = first(fm, &["name", "title"])
         .map(str::to_string)
         .unwrap_or_else(|| humanize(&slug));
+    let accessibility = accessibility::audit_document(DocumentAuditInput {
+        path: &file.path,
+        markdown: &doc.body,
+        body_line: doc.body_line,
+        embeds_enabled: options.embeds,
+        cover_alt: None,
+    });
     Ok(Series {
         url: format!("/series/{slug}/"),
         name,
@@ -700,6 +728,7 @@ fn load_series(file: &SourceFile, options: RenderOptions) -> Result<Series, Stri
         order: fm.get_u32("order").unwrap_or(1000),
         posts: Vec::new(),
         source: Some(file.path.clone()),
+        accessibility,
     })
 }
 
@@ -723,6 +752,13 @@ fn load_page(file: &SourceFile, options: RenderOptions) -> Result<Page, String> 
             .map(|h| h.text.clone())
             .unwrap_or_else(|| humanize(&slug)),
     };
+    let accessibility = accessibility::audit_document(DocumentAuditInput {
+        path: &file.path,
+        markdown: &doc.body,
+        body_line: doc.body_line,
+        embeds_enabled: options.embeds,
+        cover_alt: None,
+    });
     Ok(Page {
         url: format!("/{slug}/"),
         title,
@@ -737,6 +773,7 @@ fn load_page(file: &SourceFile, options: RenderOptions) -> Result<Page, String> 
         nav: fm.get_bool("nav").unwrap_or(false),
         aliases: aliases(fm)?,
         source: file.path.clone(),
+        accessibility,
     })
 }
 

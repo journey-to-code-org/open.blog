@@ -2,6 +2,7 @@
 
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
 use serde::{ser::SerializeStruct, Serialize, Serializer};
+use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -9,6 +10,16 @@ pub enum AuditOutcome {
     Detected,
     Potential,
     NeedsReview,
+}
+
+impl fmt::Display for AuditOutcome {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Detected => "detected",
+            Self::Potential => "potential",
+            Self::NeedsReview => "needs-review",
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -34,6 +45,23 @@ pub enum FindingCode {
     MediaAlternativesReview,
     EmbedAccessibilityReview,
     RawHtmlReview,
+}
+
+impl fmt::Display for FindingCode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::LinkNameEmpty => "link-name-empty",
+            Self::DocumentLanguageMissing => "document-language-missing",
+            Self::ImageAltReview => "image-alt-review",
+            Self::ImageAltPlaceholder => "image-alt-placeholder",
+            Self::HeadingLevelSkip => "heading-level-skip",
+            Self::LinkPurposeReview => "link-purpose-review",
+            Self::TableStructureReview => "table-structure-review",
+            Self::MediaAlternativesReview => "media-alternatives-review",
+            Self::EmbedAccessibilityReview => "embed-accessibility-review",
+            Self::RawHtmlReview => "raw-html-review",
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

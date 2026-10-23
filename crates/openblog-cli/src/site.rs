@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use openblog_core::accessibility::AccessibilityFinding;
 use openblog_core::theme::{ThemeFile, ThemeSet};
 use openblog_core::{generate, DateTime, LoadOptions, Site, SiteConfig, SourceFile, Sources};
 
@@ -163,6 +164,7 @@ pub struct BuildReport {
     pub next_due: Option<DateTime>,
     pub out_dir: PathBuf,
     pub warnings: Vec<String>,
+    pub accessibility: Vec<AccessibilityFinding>,
 }
 
 pub fn load_config(root: &Path) -> Result<SiteConfig, String> {
@@ -469,6 +471,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         next_due: site.next_scheduled(),
         out_dir,
         warnings: site.warnings.clone(),
+        accessibility: site.accessibility.clone(),
     })
 }
 

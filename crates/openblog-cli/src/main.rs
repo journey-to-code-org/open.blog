@@ -259,6 +259,7 @@ fn run(raw: &[String]) -> Result<(), String> {
             for w in &site.warnings {
                 eprintln!("warning: {w}");
             }
+            serve::print_accessibility_findings(&site.accessibility);
             Ok(())
         }
         "themes" => {

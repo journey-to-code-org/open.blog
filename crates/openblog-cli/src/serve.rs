@@ -15,6 +15,7 @@ use crate::admin::{self, AppState};
 use crate::fsutil;
 use crate::http::{self, Conn, Request, Response};
 use crate::site;
+use openblog_core::accessibility::{AccessibilityFinding, FindingLocation};
 
 /// Concurrent connections served at once; extras are dropped, so a flood of
 /// slow clients cannot exhaust threads.
@@ -222,6 +223,26 @@ pub fn print_report(report: &site::BuildReport) {
     for w in &report.warnings {
         eprintln!("warning: {w}");
     }
+    print_accessibility_findings(&report.accessibility);
+}
+
+pub fn print_accessibility_findings(findings: &[AccessibilityFinding]) {
+    for finding in findings {
+        eprintln!("{}", accessibility_line(finding));
+    }
+}
+
+fn accessibility_line(finding: &AccessibilityFinding) -> String {
+    let location = match &finding.source.location {
+        FindingLocation::Markdown { line, column } => {
+            format!("{}:{line}:{column}", finding.source.path)
+        }
+        FindingLocation::Field { field } => format!("{} ({field})", finding.source.path),
+    };
+    format!(
+        "accessibility {}: {location}: {} Repair: {} [{}]",
+        finding.outcome, finding.message, finding.repair, finding.code
+    )
 }
 
 fn handle(stream: &TcpStream, state: &AppState, out_dir: &Path) -> std::io::Result<()> {
@@ -404,6 +425,34 @@ fn mime(path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openblog_core::accessibility::{audit_document, audit_site_language, DocumentAuditInput};
+
+    #[test]
+    fn accessibility_output_names_outcome_location_code_and_repair() {
+        let finding = audit_document(DocumentAuditInput {
+            path: "posts/example.md",
+            markdown: "[](/destination)\n",
+            body_line: 4,
+            embeds_enabled: true,
+            cover_alt: None,
+        })
+        .remove(0);
+
+        assert_eq!(
+            accessibility_line(&finding),
+            "accessibility detected: posts/example.md:4:1: This link has no accessible name. Repair: Add link text that identifies its destination or action. [link-name-empty]"
+        );
+    }
+
+    #[test]
+    fn accessibility_output_names_front_matter_or_config_fields() {
+        let finding = audit_site_language("openblog.json", "").remove(0);
+
+        assert_eq!(
+            accessibility_line(&finding),
+            "accessibility detected: openblog.json (language): Generated pages have no configured default language. Repair: Set `language` in openblog.json to the site's BCP 47 language tag. [document-language-missing]"
+        );
+    }
 
     #[test]
     fn slots_are_capped_globally_and_per_address_and_released_on_drop() {

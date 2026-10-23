@@ -1,6 +1,7 @@
 use openblog_core::accessibility::{
     audit_document, audit_site_language, AuditOutcome, AuditScope, DocumentAuditInput, FindingCode,
 };
+use openblog_core::{LoadOptions, Site, SiteConfig, SourceFile, Sources};
 
 #[test]
 fn empty_text_link_is_a_located_detected_issue() {
@@ -362,4 +363,68 @@ fn finding_json_keeps_stable_codes_and_flat_optional_locations() {
     assert_eq!(json["source"]["line"], 4);
     assert_eq!(json["source"]["column"], 1);
     assert!(json["source"]["field"].is_null());
+}
+
+#[test]
+fn site_model_collects_site_and_document_findings_without_mixing_warnings() {
+    let mut config = SiteConfig::default();
+    config.language.clear();
+    let site = Site::load(
+        config,
+        Sources {
+            posts: vec![SourceFile {
+                path: "posts/example.md".into(),
+                contents:
+                    "---\ntitle: Example post\ndate: 2026-10-23\n---\nIntro.\n\n[](/destination)\n"
+                        .into(),
+            }],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+
+    assert_eq!(site.accessibility.len(), 2);
+    assert_eq!(
+        site.accessibility[0].code,
+        FindingCode::DocumentLanguageMissing
+    );
+    assert_eq!(site.accessibility[1].code, FindingCode::LinkNameEmpty);
+    assert_eq!(site.accessibility[1].source.path, "posts/example.md");
+    assert_eq!(site.accessibility[1].source.line(), Some(7));
+    assert!(!site
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("accessible name")));
+}
+
+#[test]
+fn site_model_audits_page_and_series_markdown_too() {
+    let site = Site::load(
+        SiteConfig::default(),
+        Sources {
+            series: vec![SourceFile {
+                path: "series/guide.md".into(),
+                contents: "---\nname: Guide\n---\n[](/series-link)\n".into(),
+            }],
+            pages: vec![SourceFile {
+                path: "pages/about.md".into(),
+                contents: "---\ntitle: About\n---\n[](/page-link)\n".into(),
+            }],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+
+    let paths: Vec<_> = site
+        .accessibility
+        .iter()
+        .map(|finding| finding.source.path.as_str())
+        .collect();
+    assert_eq!(paths, ["series/guide.md", "pages/about.md"]);
+    assert!(site
+        .accessibility
+        .iter()
+        .all(|finding| finding.code == FindingCode::LinkNameEmpty));
 }
