@@ -62,6 +62,16 @@ The fence for that block is ```` ```rust title="src/main.rs" {2} ````. Add
 `showLineNumbers=10` to count from 10, or `showLineNumbers=false` to drop the numbers.
 To change this for the whole blog, see `code` in `openblog.json`.
 
+## Check your understanding
+
+```quiz
+What happens when a post is dated in the future?
+- [ ] It is published immediately with a future date
+- [x] It stays hidden until a build runs after the scheduled time
+- [ ] It is automatically saved as a draft
+> A future-dated post becomes public in the first build run after its scheduled time.
+```
+
 ## Images
 
 Put files in `static/`; they are copied to the site root. `static/images/photo.png` is

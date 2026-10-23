@@ -1,15 +1,30 @@
 /* Admin editor styles. Uses the same --ob-* tokens as the blog, so it follows
    the base theme's light and dark colours. Class prefix: oba- */
 
+:root {
+  --oba-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 14px rgb(0 0 0 / 0.05);
+  --oba-shadow-lg: 0 18px 50px rgb(0 0 0 / 0.16);
+  --oba-panel-border: color-mix(in srgb, var(--ob-color-border) 82%, transparent);
+  --oba-danger: var(--ob-color-callout-caution, #c0392b);
+  --oba-success: var(--ob-color-callout-tip, #2e8b57);
+}
+
+body {
+  min-width: 20rem;
+  background:
+    radial-gradient(circle at 12% 0%, var(--ob-color-glow) 0, transparent 28rem),
+    var(--ob-color-outer);
+}
+
 ob-admin {
   display: block;
   min-height: 100vh;
 }
 
 .oba-shell {
-  width: min(88rem, 100% - 2rem);
+  width: min(92rem, 100% - 2rem);
   margin: 0 auto;
-  padding-block: 1rem 4rem;
+  padding-block: 0.75rem 4rem;
 }
 
 .oba-bar {
@@ -17,13 +32,32 @@ ob-admin {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem 1rem;
-  padding-bottom: 1rem;
-  border-bottom: var(--ob-border-width) solid var(--ob-color-border);
+  position: sticky;
+  z-index: 10;
+  top: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: calc(var(--ob-radius) + 2px);
+  background: color-mix(in srgb, var(--ob-color-surface) 92%, transparent);
+  box-shadow: var(--oba-shadow-sm);
+  backdrop-filter: blur(18px);
 }
 
 .oba-bar h1 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.oba-bar > a:not(.oba-btn) {
+  color: var(--ob-color-muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.oba-bar > a:not(.oba-btn):hover {
+  color: var(--ob-color-accent);
 }
 
 .oba-spacer {
@@ -33,7 +67,15 @@ ob-admin {
 .oba-tabs {
   display: flex;
   gap: 0.25rem;
-  margin: 1rem 0;
+  width: fit-content;
+  max-width: 100%;
+  margin: 1.25rem 0;
+  padding: 0.3rem;
+  overflow-x: auto;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: calc(var(--ob-radius-sm) + 4px);
+  background: var(--ob-color-surface);
+  box-shadow: var(--oba-shadow-sm);
 }
 
 .oba-tab,
@@ -47,16 +89,36 @@ ob-admin {
   font: inherit;
   font-size: 0.95rem;
   cursor: pointer;
+  transition: border-color var(--ob-motion), background var(--ob-motion), color var(--ob-motion), transform var(--ob-motion), box-shadow var(--ob-motion);
+}
+
+.oba-tab {
+  border-color: transparent;
+  background: transparent;
 }
 
 .oba-tab[aria-selected="true"] {
-  border-color: var(--ob-color-accent);
-  color: var(--ob-color-accent-soft);
+  border-color: var(--ob-color-accent-border);
+  background: var(--ob-color-glow);
+  color: var(--ob-color-accent);
   font-weight: 600;
 }
 
 .oba-btn:hover {
   border-color: var(--ob-color-accent-border);
+  background: var(--ob-color-surface-raised);
+  transform: translateY(-1px);
+}
+
+.oba-btn:focus-visible,
+.oba-tab:focus-visible,
+.oba-field input:focus-visible,
+.oba-field select:focus-visible,
+.oba-field textarea:focus-visible,
+.oba-search:focus-visible,
+.oba-body:focus-visible {
+  outline: var(--ob-focus-ring);
+  outline-offset: 2px;
 }
 
 .oba-btn-primary {
@@ -67,12 +129,21 @@ ob-admin {
 }
 
 .oba-btn-primary:hover {
+  border-color: var(--ob-color-accent-soft);
   background: var(--ob-color-accent-soft);
+  box-shadow: 0 7px 18px color-mix(in srgb, var(--ob-color-accent) 25%, transparent);
 }
 
 .oba-btn-danger {
-  color: #c0392b;
-  border-color: #c0392b66;
+  color: var(--oba-danger);
+  border-color: color-mix(in srgb, var(--oba-danger) 45%, transparent);
+}
+
+.oba-btn-feature {
+  border-color: var(--ob-color-accent-border);
+  background: var(--ob-color-glow);
+  color: var(--ob-color-accent);
+  font-weight: 650;
 }
 
 .oba-btn[disabled] {
@@ -81,17 +152,52 @@ ob-admin {
 }
 
 .oba-card {
-  width: min(26rem, 100%);
-  margin: 12vh auto 0;
-  padding: 1.5rem;
-  border: var(--ob-border-width) solid var(--ob-color-border);
-  border-radius: var(--ob-radius);
+  width: min(30rem, calc(100% - 2rem));
+  margin: clamp(3rem, 12vh, 8rem) auto 0;
+  padding: clamp(1.4rem, 5vw, 2.25rem);
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: calc(var(--ob-radius) + 6px);
   background: var(--ob-color-surface);
+  box-shadow: var(--oba-shadow-lg);
 }
 
 .oba-card h1 {
-  margin: 0 0 1rem;
-  font-size: 1.4rem;
+  margin: 0;
+  font-size: 1.65rem;
+  letter-spacing: -0.025em;
+}
+
+.oba-login-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.oba-eyebrow {
+  margin: 0 0 0.2rem;
+  color: var(--ob-color-accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.oba-login-copy {
+  margin: 0.55rem 0 1.5rem;
+  color: var(--ob-color-muted);
+}
+
+.oba-theme-toggle {
+  gap: 0.4rem;
+  min-width: 5.2rem;
+  justify-content: center;
+}
+
+.oba-theme-icon {
+  width: 1rem;
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .oba-field {
@@ -123,10 +229,87 @@ ob-admin {
   color: var(--ob-color-text);
   font: inherit;
   font-size: 0.95rem;
+  transition: border-color var(--ob-motion), box-shadow var(--ob-motion), background var(--ob-motion);
 }
 
 .oba-field textarea {
   resize: vertical;
+}
+
+.oba-dialog {
+  width: min(42rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  padding: 1.25rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: calc(var(--ob-radius) + 4px);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  box-shadow: var(--oba-shadow-lg);
+  overflow: auto;
+}
+
+.oba-dialog::backdrop {
+  background: rgb(0 0 0 / 0.55);
+}
+
+.oba-dialog h2 {
+  margin-top: 0;
+}
+
+.oba-quiz-editors {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.oba-generation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+  margin: 1rem 0;
+  padding: 0.75rem;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-generation select {
+  padding: 0.5rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  color: inherit;
+  font: inherit;
+}
+
+.oba-quiz-editor {
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-page);
+}
+
+.oba-quiz-editor legend {
+  padding: 0 0.35rem;
+  font-weight: 700;
+}
+
+.oba-quiz-choice-edit {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 0.55rem;
+}
+
+.oba-quiz-choice-edit input[type="text"] {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  font: inherit;
 }
 
 .oba-help {
@@ -146,11 +329,11 @@ ob-admin {
 }
 
 .oba-error {
-  border-left-color: #c0392b;
+  border-left-color: var(--oba-danger);
 }
 
 .oba-ok {
-  border-left-color: #2e8b57;
+  border-left-color: var(--oba-success);
 }
 
 .oba-error ul {
@@ -168,7 +351,12 @@ ob-admin {
 
 .oba-table {
   width: 100%;
-  border-collapse: collapse;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-spacing: 0;
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  box-shadow: var(--oba-shadow-sm);
+  overflow: hidden;
 }
 
 .oba-table th,
@@ -195,6 +383,10 @@ ob-admin {
   background: var(--ob-color-surface-raised);
 }
 
+.oba-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 .oba-badge {
   display: inline-block;
   padding: 0.1rem 0.55rem;
@@ -206,8 +398,8 @@ ob-admin {
 }
 
 .oba-badge-published {
-  border-color: #2e8b57;
-  color: #2e8b57;
+  border-color: var(--oba-success);
+  color: var(--oba-success);
 }
 
 .oba-badge-scheduled {
@@ -220,8 +412,8 @@ ob-admin {
 }
 
 .oba-badge-error {
-  border-color: #c0392b;
-  color: #c0392b;
+  border-color: var(--oba-danger);
+  color: var(--oba-danger);
 }
 
 .oba-editor {
@@ -232,8 +424,11 @@ ob-admin {
 }
 
 .oba-side {
-  position: sticky;
-  top: 1rem;
+  padding: 1.1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  box-shadow: var(--oba-shadow-sm);
 }
 
 .oba-fieldset {
@@ -256,10 +451,10 @@ ob-admin {
 .oba-title-input {
   width: 100%;
   margin-bottom: 0.75rem;
-  padding: 0.6rem 0.2rem;
-  border: 0;
-  border-bottom: var(--ob-border-width) solid var(--ob-color-border);
-  background: transparent;
+  padding: 0.75rem 0.9rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
   color: var(--ob-color-text);
   font-family: var(--ob-font-heading);
   font-size: 1.6rem;
@@ -276,9 +471,10 @@ ob-admin {
 .oba-preview {
   width: 100%;
   min-height: 60vh;
-  border: var(--ob-border-width) solid var(--ob-color-border);
-  border-radius: var(--ob-radius-sm);
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
   background: var(--ob-color-page);
+  box-shadow: var(--oba-shadow-sm);
 }
 
 .oba-body {
@@ -319,8 +515,18 @@ ob-admin {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .oba-side {
+  .oba-bar {
     position: static;
+  }
+
+  .oba-theme-label,
+  .oba-bar > .oba-small {
+    display: none;
+  }
+
+  .oba-theme-toggle {
+    min-width: 40px;
+    padding-inline: 0.65rem;
   }
 }
 
@@ -359,6 +565,7 @@ a.oba-btn-primary {
   border: var(--ob-border-width) solid var(--ob-color-border);
   border-radius: var(--ob-radius);
   background: var(--ob-color-surface);
+  box-shadow: var(--oba-shadow-sm);
 }
 
 .oba-tile-value {

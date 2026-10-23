@@ -218,6 +218,7 @@ mod tests {
         assert!(dir.join("dist/index.html").exists());
         assert!(dir.join("dist/rss.xml").exists());
         assert!(dir.join("dist/assets/base.css").exists());
+        assert!(dir.join("dist/assets/components/ob-quiz.js").exists());
         assert!(dir.join("dist/themes/base/tokens.css").exists());
         assert!(dir.join("dist/assets/wasm/openblog_wasm_bg.wasm").exists());
         fs::write(dir.join("content/posts/_notes.md"), "not a post").unwrap();

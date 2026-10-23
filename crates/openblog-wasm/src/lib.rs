@@ -21,6 +21,7 @@ pub fn render_markdown(source: &str) -> String {
         "wordCount": rendered.word_count,
         "readingMinutes": markdown::reading_minutes(rendered.word_count),
         "text": rendered.text,
+        "errors": rendered.errors,
     })
     .to_string()
 }

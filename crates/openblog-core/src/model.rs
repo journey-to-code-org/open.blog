@@ -469,6 +469,9 @@ pub fn load_post(
             ..options
         },
     );
+    if !rendered.errors.is_empty() {
+        return Err(rendered.errors.join("; "));
+    }
     let recipe = if is_recipe {
         let mut r = Recipe::from_front_matter(
             fm,
@@ -588,6 +591,9 @@ fn load_series(file: &SourceFile, options: RenderOptions) -> Result<Series, Stri
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
     let rendered = markdown::render(&doc.body, options);
+    if !rendered.errors.is_empty() {
+        return Err(rendered.errors.join("; "));
+    }
     let stem = file_stem(&file.path);
     let slug = first(fm, &["slug"])
         .map(slugify)
@@ -615,6 +621,9 @@ fn load_page(file: &SourceFile, options: RenderOptions) -> Result<Page, String> 
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
     let rendered = markdown::render(&doc.body, options);
+    if !rendered.errors.is_empty() {
+        return Err(rendered.errors.join("; "));
+    }
     let stem = file_stem(&file.path);
     let slug = first(fm, &["slug"])
         .map(slugify)
@@ -758,6 +767,26 @@ mod tests {
         )
         .unwrap_err();
         assert!(bad[0].contains("alias"));
+    }
+
+    #[test]
+    fn invalid_quizzes_fail_site_validation() {
+        let errors = Site::load(
+            SiteConfig::default(),
+            Sources {
+                posts: vec![post(
+                    "posts/lesson.md",
+                    "---\ntitle: Lesson\ndate: 2026-01-01\n---\n```quiz\nQuestion\n- [ ] A\n- [ ] B\n```\n",
+                )],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap_err();
+        assert!(
+            errors[0].contains("exactly one correct choice"),
+            "{errors:?}"
+        );
     }
 
     #[test]

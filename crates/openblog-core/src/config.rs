@@ -49,6 +49,8 @@ pub struct SiteConfig {
     pub code: CodeConfig,
     /// Interactive extras on posts with `recipe: true`.
     pub recipes: RecipesConfig,
+    /// Optional author-time generation for interactive knowledge checks.
+    pub knowledge_checks: KnowledgeChecksConfig,
     pub paths: PathsConfig,
     pub admin: AdminConfig,
     pub publish: PublishConfig,
@@ -164,6 +166,15 @@ impl Default for RecipesConfig {
     }
 }
 
+/// An owner-supplied service that drafts questions for the admin editor.
+/// The API key is intentionally read from the environment, never this file.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct KnowledgeChecksConfig {
+    pub generation_endpoint: String,
+    pub model: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PathsConfig {
@@ -221,6 +232,7 @@ impl Default for SiteConfig {
             markdown: MarkdownConfig::default(),
             code: CodeConfig::default(),
             recipes: RecipesConfig::default(),
+            knowledge_checks: KnowledgeChecksConfig::default(),
             paths: PathsConfig::default(),
             admin: AdminConfig::default(),
             publish: PublishConfig::default(),

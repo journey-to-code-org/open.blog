@@ -2,15 +2,31 @@
 // renders three views (sign in, content list, editor) with plain DOM calls.
 // Nothing user-controlled is ever assigned through innerHTML; the only HTML we
 // render from content is the Markdown preview, which goes into a sandboxed
-// iframe that cannot run scripts.
+// iframe whose nonce policy runs only the built-in quiz enhancement.
 
-// Follow the colour scheme the reader chose on the blog (the page's CSP forbids inline scripts).
-try {
-  const saved = localStorage.getItem("ob-scheme");
-  if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
-} catch {
-  // Storage can be blocked; fall back to the system preference.
+const ADMIN_SCHEME_KEY = "ob-admin-scheme";
+
+function preferredAdminScheme() {
+  try {
+    const saved = localStorage.getItem(ADMIN_SCHEME_KEY) || localStorage.getItem("ob-scheme");
+    if (saved === "light" || saved === "dark") return saved;
+  } catch {
+    // Storage can be blocked; fall back to the system preference.
+  }
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
+
+function applyAdminScheme(scheme, persist = false) {
+  document.documentElement.dataset.theme = scheme;
+  if (!persist) return;
+  try {
+    localStorage.setItem(ADMIN_SCHEME_KEY, scheme);
+  } catch {
+    // The visual change still works when storage is blocked.
+  }
+}
+
+applyAdminScheme(preferredAdminScheme());
 
 // ---------------------------------------------------------------- helpers
 
@@ -30,6 +46,27 @@ function h(tag, props = {}, ...children) {
     el.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
   return el;
+}
+
+function themeButton() {
+  const icon = h("span", { class: "oba-theme-icon", "aria-hidden": "true" });
+  const label = h("span", { class: "oba-theme-label" });
+  const button = h("button", { class: "oba-btn oba-theme-toggle", type: "button" }, icon, label);
+  const sync = () => {
+    const dark = document.documentElement.dataset.theme === "dark";
+    const next = dark ? "light" : "dark";
+    icon.textContent = dark ? "☀" : "☾";
+    label.textContent = dark ? "Light" : "Dark";
+    button.setAttribute("aria-label", "Dark mode");
+    button.setAttribute("title", `Switch to ${next} mode`);
+    button.setAttribute("aria-pressed", String(dark));
+  };
+  button.addEventListener("click", () => {
+    applyAdminScheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark", true);
+    sync();
+  });
+  sync();
+  return button;
 }
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -206,7 +243,8 @@ class ObAdmin extends HTMLElement {
           }
         },
       },
-      h("h1", {}, "Sign in"),
+      h("div", { class: "oba-login-head" }, h("div", {}, h("p", { class: "oba-eyebrow" }, "open.blog"), h("h1", {}, "Welcome back")), themeButton()),
+      h("p", { class: "oba-login-copy" }, "Sign in to write, preview, and publish your blog."),
       h("div", { class: "oba-field" }, h("label", { for: "oba-user" }, "Username"), user),
       h("div", { class: "oba-field" }, h("label", { for: "oba-pass" }, "Password"), pass),
       status,
@@ -257,6 +295,7 @@ class ObAdmin extends HTMLElement {
         h("a", { href: "/", target: "_blank", rel: "noopener" }, "View site"),
         publishBox,
         h("span", { class: "oba-small" }, `Signed in as ${this.user}`),
+        themeButton(),
         logout,
       ),
       tabs,
@@ -540,7 +579,7 @@ class Editor {
 
     ui.title = h("input", { class: "oba-title-input", id: "oba-title", type: "text", placeholder: kind === "series" ? "Series name" : "Title", value: f[titleKey] || "", "aria-label": "Title" });
     ui.body = h("textarea", { class: "oba-body", id: "oba-body", spellcheck: "true", "aria-label": "Markdown", value: this.doc.body || "" });
-    ui.preview = h("iframe", { class: "oba-preview", title: "Preview", sandbox: "" });
+    ui.preview = h("iframe", { class: "oba-preview", title: "Preview", sandbox: "allow-scripts" });
     ui.status = h("div", { role: "status", "aria-live": "polite" });
 
     const side = [];
@@ -622,6 +661,7 @@ class Editor {
     ui.live = h("span", { class: "oba-small" });
 
     const imageButton = h("button", { class: "oba-btn", type: "button", onClick: () => ui.imageFile.click() }, "Insert image");
+    const quizButton = kind === "posts" ? h("button", { class: "oba-btn oba-btn-feature", type: "button", onClick: () => this.openKnowledgeCheck() }, "✦ Add knowledge check") : null;
     ui.imageFile = h("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp,image/avif", class: "oba-sr", tabindex: "-1", "aria-hidden": "true" });
     ui.imageFile.addEventListener("change", async () => {
       const file = ui.imageFile.files[0];
@@ -629,7 +669,7 @@ class Editor {
       ui.imageFile.value = "";
     });
     const back = h("a", { class: "oba-btn", href: `#/${kind}` }, "← Back");
-    const toolbar = h("div", { class: "oba-toolbar" }, back, ui.saveBtn, ui.deleteBtn, imageButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
+    const toolbar = h("div", { class: "oba-toolbar" }, back, ui.saveBtn, ui.deleteBtn, imageButton, quizButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
 
     this.root = h(
       "div",
@@ -715,10 +755,13 @@ class Editor {
     const known = this.meta.themes.map((t) => t.name);
     const chosen = this.ui.theme.value || this.meta.defaultTheme;
     const theme = known.includes(chosen) ? chosen : "base";
+    const nonce = [...crypto.getRandomValues(new Uint8Array(16))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
     this.ui.preview.srcdoc =
       `<!doctype html><html><head><meta charset="utf-8"><base target="_blank">` +
+      `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src http: https:; img-src http: https: data:; font-src http: https: data:; script-src 'nonce-${nonce}'">` +
       `<link rel="stylesheet" href="/assets/base.css"><link rel="stylesheet" href="/themes/${theme}/tokens.css">` +
-      `</head><body data-ob-theme="${theme}"><div class="ob-container ob-container-reading"><div class="ob-prose">${html}</div></div></body></html>`;
+      `</head><body data-ob-theme="${theme}"><div class="ob-container ob-container-reading"><div class="ob-prose">${html}</div></div>` +
+      `<script nonce="${nonce}" src="/assets/components/ob-quiz.js"></script></body></html>`;
   }
 
   async upload(file) {
@@ -748,6 +791,152 @@ class Editor {
     this.app.dirty = true;
     this.schedulePreview();
     ta.focus();
+  }
+
+  openKnowledgeCheck() {
+    const trigger = document.activeElement;
+    const dialog = h("dialog", { class: "oba-dialog", "aria-labelledby": "oba-quiz-title" });
+    const questions = h("div", { class: "oba-quiz-editors" });
+    const status = h("p", { class: "oba-error", role: "alert", hidden: true });
+    let count = 0;
+
+    const addQuestion = (draft = null) => {
+      if (count >= 3) return;
+      count += 1;
+      const number = count;
+      const promptId = `oba-quiz-prompt-${number}`;
+      const feedbackId = `oba-quiz-feedback-${number}`;
+      const prompt = h("input", { id: promptId, type: "text", required: true, placeholder: "What should the reader remember?", value: draft?.prompt || "" });
+      const explanation = h("textarea", { id: feedbackId, rows: 2, placeholder: "Optional explanation shown after answering", value: draft?.explanation || "" });
+      const draftChoices = Array.isArray(draft?.choices) && draft.choices.length >= 2 ? draft.choices.slice(0, 4) : ["", "", ""];
+      const choices = draftChoices.map((choice, index) => {
+        const choiceId = `oba-quiz-${number}-choice-${index + 1}`;
+        const correct = h("input", { type: "radio", name: `oba-correct-${number}`, value: index, checked: index === (draft?.correctIndex ?? 0), "aria-label": `Choice ${index + 1} is correct` });
+        const text = h("input", { id: choiceId, type: "text", required: true, placeholder: index === 0 ? "Correct answer" : "Other answer", value: choice });
+        return h("div", { class: "oba-quiz-choice-edit" }, correct, h("label", { for: choiceId, class: "oba-sr" }, `Answer ${index + 1}`), text);
+      });
+      const fieldset = h(
+        "fieldset",
+        { class: "oba-quiz-editor" },
+        h("legend", {}, `Question ${number}`),
+        h("div", { class: "oba-field" }, h("label", { for: promptId }, "Question"), prompt),
+        h("p", { class: "oba-help" }, "Select the radio button beside the correct answer."),
+        ...choices,
+        h("div", { class: "oba-field" }, h("label", { for: feedbackId }, "Feedback"), explanation),
+      );
+      fieldset.quizControls = { prompt, choices, explanation };
+      questions.append(fieldset);
+      add.disabled = count >= 3;
+      prompt.focus();
+    };
+
+    const add = h("button", { class: "oba-btn", type: "button", onClick: addQuestion }, "Add another question");
+    const generation = [];
+    if (this.meta.quizGeneration) {
+      const amount = h("select", { "aria-label": "Number of generated questions" }, [1, 2, 3].map((n) => h("option", { value: n, selected: n === 1 }, `${n} question${n === 1 ? "" : "s"}`)));
+      const generate = h("button", {
+        class: "oba-btn oba-btn-primary",
+        type: "button",
+        onClick: async () => {
+          const ta = this.ui.body;
+          const selected = ta.value.slice(ta.selectionStart ?? 0, ta.selectionEnd ?? 0).trim();
+          let context = selected;
+          if (!context) {
+            const cursor = ta.selectionStart ?? ta.value.length;
+            const before = ta.value.slice(0, cursor);
+            const heading = [...before.matchAll(/^#{1,6}\s+.+$/gm)].pop();
+            if (heading) {
+              const rest = ta.value.slice(cursor);
+              const next = rest.match(/^#{1,6}\s+.+$/m);
+              const end = next?.index === undefined ? ta.value.length : cursor + next.index;
+              context = ta.value.slice(heading.index, end).trim();
+            } else {
+              context = ta.value.trim();
+            }
+          }
+          generate.disabled = true;
+          status.hidden = true;
+          try {
+            const result = await this.app.api.call("POST", "quiz/generate", { json: { context, count: Number(amount.value) } });
+            questions.replaceChildren();
+            count = 0;
+            result.questions.forEach((question) => addQuestion(question));
+            status.textContent = "Draft questions generated. Review every answer before inserting.";
+            status.className = "oba-ok";
+            status.hidden = false;
+          } catch (error) {
+            status.textContent = error.message;
+            status.className = "oba-error";
+            status.hidden = false;
+          } finally {
+            generate.disabled = false;
+          }
+        },
+      }, "Generate draft");
+      generation.push(h("div", { class: "oba-generation" }, h("span", {}, "Use the selected text or current section:"), amount, generate));
+    }
+    const close = (focusBody = false) => {
+      dialog.close();
+      dialog.remove();
+      if (focusBody) this.ui.body.focus();
+      else if (trigger instanceof HTMLElement) trigger.focus();
+    };
+    const insert = h("button", {
+      class: "oba-btn oba-btn-primary",
+      type: "button",
+      onClick: () => {
+        const oneLine = (value) => value.trim().replace(/\s+/g, " ");
+        const blocks = [];
+        for (const fieldset of questions.children) {
+          const { prompt, choices, explanation } = fieldset.quizControls;
+          const question = oneLine(prompt.value);
+          const answers = choices.map((row) => oneLine(row.querySelector('input[type="text"]').value));
+          if (!question || answers.some((answer) => !answer)) {
+            status.className = "oba-error";
+            status.textContent = "Every question and answer choice is required.";
+            status.hidden = false;
+            return;
+          }
+          if ([question, ...answers, explanation.value].some((value) => value.includes("```"))) {
+            status.className = "oba-error";
+            status.textContent = "Knowledge-check text cannot contain a triple backtick.";
+            status.hidden = false;
+            return;
+          }
+          const correct = choices.findIndex((row) => row.querySelector('input[type="radio"]').checked);
+          const lines = ["```quiz", question, ...answers.map((answer, index) => `- [${index === correct ? "x" : " "}] ${answer}`)];
+          const feedback = oneLine(explanation.value);
+          if (feedback) lines.push(`> ${feedback}`);
+          lines.push("```");
+          blocks.push(lines.join("\n"));
+        }
+        const ta = this.ui.body;
+        const at = ta.selectionEnd ?? ta.value.length;
+        const before = ta.value.slice(0, at).replace(/\s*$/, "");
+        const after = ta.value.slice(at).replace(/^\s*/, "");
+        const snippet = `${before ? "\n\n" : ""}${blocks.join("\n\n")}${after ? "\n\n" : ""}`;
+        ta.value = before + snippet + after;
+        ta.selectionStart = ta.selectionEnd = (before + snippet).length;
+        this.app.dirty = true;
+        this.schedulePreview();
+        close(true);
+      },
+    }, "Insert");
+    dialog.append(
+      h("h2", { id: "oba-quiz-title" }, "Add a knowledge check"),
+      h("p", { class: "oba-help" }, "Add up to three short multiple-choice questions. Readers get feedback immediately."),
+      ...generation,
+      questions,
+      status,
+      h("div", { class: "oba-toolbar" }, add, h("span", { class: "oba-spacer" }), h("button", { class: "oba-btn", type: "button", onClick: () => close() }, "Cancel"), insert),
+    );
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      close();
+    });
+    document.body.append(dialog);
+    addQuestion();
+    dialog.showModal();
   }
 
   flash(kind, message, problems = [], action = null) {

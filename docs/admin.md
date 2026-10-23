@@ -23,6 +23,7 @@ immediately.
 | **Create** | New posts, pages, and series. The file is named from the date and slug. |
 | **Preview** | Live Markdown preview. It runs the same Rust renderer as the build, compiled to WebAssembly in your browser, inside a sandboxed frame. It falls back to the server if WASM is missing. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
+| **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
@@ -102,6 +103,43 @@ The public site and the admin share one process, so the blog is served by this s
 If you would rather host the static output elsewhere, run the admin where the content lives
 and publish `dist/` onward (for example with a git push or rsync after each build).
 
+## Optional question generation
+
+Knowledge checks work without an AI service. To add **Generate draft** to their editor,
+site owners can configure an HTTPS endpoint and keep its bearer token in the server
+environment:
+
+```jsonc
+// openblog.json
+"knowledgeChecks": {
+  "generationEndpoint": "https://lessons.example.com/generate",
+  "model": "your-model-name"
+}
+```
+
+```sh
+export OPENBLOG_LESSONS_API_KEY="your secret"
+openblog serve --admin
+```
+
+The endpoint receives JSON with `context`, `count`, `model`, task instructions, and the
+expected response shape. It returns one to three questions:
+
+```json
+{
+  "questions": [{
+    "prompt": "What stays in the reader's browser?",
+    "choices": ["Quiz attempts", "Published posts"],
+    "correctIndex": 0,
+    "explanation": "Attempts are private local progress."
+  }]
+}
+```
+
+The key and endpoint are used only by the admin server. The browser calls the authenticated
+same-origin admin API, public builds contain only the reviewed Markdown, and readers never
+contact the generation service.
+
 ## Security design
 
 - Passwords are hashed with Argon2id. Session and CSRF tokens are 256 random bits from the
@@ -120,7 +158,8 @@ and publish `dist/` onward (for example with a git push or rsync after each buil
 - Uploads are accepted by their bytes, not their names: PNG, JPEG, GIF, WebP, and AVIF only.
   SVG is refused because it can carry scripts.
 - The admin page is served with a strict Content-Security-Policy (no inline scripts), and the
-  Markdown preview is rendered in a sandboxed iframe that cannot run scripts.
+  Markdown preview is rendered in a sandboxed iframe whose per-render nonce permits only the
+  built-in knowledge-check enhancement; scripts in article content remain blocked.
 - Front matter values are always quoted so a value containing a newline cannot add fields.
 - Limits: 64 concurrent connections (16 per address, not applied to trusted proxies),
   header and body size caps, deadlines for slow senders and slow readers, and no chunked

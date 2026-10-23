@@ -712,6 +712,88 @@ h2.ob-title {
 .ob-callout-warning { --ob-callout: var(--ob-color-callout-warning, #bf8700); }
 .ob-callout-caution { --ob-callout: var(--ob-color-callout-caution, #cf222e); }
 
+/* ---------- Knowledge checks: ```quiz ---------- */
+
+.ob-knowledge-check {
+  display: block;
+  margin: 1.5rem 0;
+}
+
+.ob-knowledge-check > ob-quiz {
+  display: block;
+}
+
+.ob-knowledge-check > ob-quiz + ob-quiz {
+  margin-top: 0.85rem;
+}
+
+ob-quiz fieldset {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface-raised);
+}
+
+ob-quiz legend {
+  padding: 0 0.35rem;
+  font-weight: 700;
+}
+
+.ob-quiz-choices {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.ob-quiz-choice {
+  display: flex;
+  gap: 0.65rem;
+  align-items: start;
+  padding: 0.65rem 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  cursor: pointer;
+}
+
+.ob-quiz-choice:has(input:focus-visible) {
+  outline: 2px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+.ob-quiz-choice.ob-quiz-selected {
+  border-color: var(--ob-color-accent-border);
+}
+
+.ob-quiz-choice.ob-quiz-correct {
+  border-color: var(--ob-color-callout-tip, #2da44e);
+  background: color-mix(in srgb, var(--ob-color-callout-tip, #2da44e) 9%, transparent);
+}
+
+.ob-quiz-feedback {
+  margin: 0.85rem 0 0;
+}
+
+.ob-quiz-result {
+  margin-right: 0.35em;
+}
+
+.ob-quiz-retry {
+  margin-top: 0.75rem;
+  padding: 0.45rem 0.8rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ob-quiz-error {
+  padding: 0.75rem 1rem;
+  border-left: 4px solid var(--ob-color-callout-caution, #cf222e);
+  color: var(--ob-color-callout-caution, #cf222e);
+}
+
 /* ---------- Recipes (posts with `recipe: true`; controls added by <ob-recipe>) ---------- */
 
 .ob-recipe-card {

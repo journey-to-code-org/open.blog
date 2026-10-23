@@ -36,6 +36,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "markdown": { "smartPunctuation": false, "headingAnchors": true, "tocDepth": 3, "tocMinHeadings": 3 },
   "code": { "highlight": null, "lineNumbers": null, "copyButton": true },
   "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true },
+  "knowledgeChecks": { "generationEndpoint": "", "model": "" },
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
   "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] },
   "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true }
@@ -120,6 +121,14 @@ Every option is on by default; set one to `false` to leave that feature out.
 Folder names relative to `openblog.json`. `output` is wiped of stale files on every build,
 so point it at a folder of its own. The build refuses an output folder that contains the
 blog itself or that it did not create.
+
+## Knowledge checks
+
+Knowledge checks and their local reader interactions need no configuration. Setting
+`generationEndpoint` enables optional author-time question generation in the admin editor
+when `OPENBLOG_LESSONS_API_KEY` is also present in the server environment. `model` is an
+optional identifier passed through to that endpoint. See [The admin editor](admin.md#optional-question-generation)
+for the endpoint contract and security boundary.
 
 ## Admin
 

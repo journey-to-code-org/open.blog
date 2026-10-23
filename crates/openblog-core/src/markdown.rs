@@ -21,6 +21,8 @@ pub struct Heading {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Rendered {
     pub html: String,
+    /// Content errors discovered by Markdown extensions such as quiz blocks.
+    pub errors: Vec<String>,
     pub headings: Vec<Heading>,
     /// Body text with markup removed; code blocks are excluded.
     pub text: String,
@@ -155,6 +157,172 @@ struct BlockData {
     ingredients: Vec<String>,
     steps: Vec<String>,
     recipe_anchor: Option<String>,
+    errors: Vec<String>,
+}
+
+struct QuizChoice {
+    text: String,
+    correct: bool,
+}
+
+struct QuizQuestion {
+    prompt: String,
+    choices: Vec<QuizChoice>,
+    explanation: Option<String>,
+    key: String,
+}
+
+fn quiz_inline(source: &str) -> Result<String, String> {
+    let parser = Parser::new_ext(source, Options::ENABLE_STRIKETHROUGH);
+    let events: Vec<_> = parser.collect();
+    if events.iter().any(|event| {
+        !matches!(
+            event,
+            Event::Start(Tag::Paragraph | Tag::Emphasis | Tag::Strong | Tag::Strikethrough)
+                | Event::End(
+                    TagEnd::Paragraph | TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough
+                )
+                | Event::Text(_)
+                | Event::Code(_)
+                | Event::SoftBreak
+                | Event::HardBreak
+        )
+    }) {
+        return Err("quiz text supports only emphasis, strikethrough, and inline code".into());
+    }
+    let mut html = String::new();
+    pulldown_cmark::html::push_html(&mut html, events.into_iter());
+    let html = html.trim();
+    Ok(html
+        .strip_prefix("<p>")
+        .and_then(|s| s.strip_suffix("</p>"))
+        .unwrap_or(html)
+        .to_string())
+}
+
+fn quiz_key(source: &str) -> String {
+    // Stable FNV-1a: deliberately small and sufficient for namespacing local UI state.
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in source.trim().replace("\r\n", "\n").bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn parse_quiz(source: &str) -> Result<QuizQuestion, String> {
+    let mut lines = source
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
+    let prompt = lines.next().ok_or("quiz needs a question prompt")?;
+    if prompt.starts_with("- [") || prompt.starts_with('>') {
+        return Err("quiz needs a question prompt before its choices".into());
+    }
+    let mut choices = Vec::new();
+    let mut explanation = Vec::new();
+    let mut in_explanation = false;
+    for line in lines {
+        if let Some(rest) = line.strip_prefix("> ").or_else(|| line.strip_prefix('>')) {
+            if !explanation.is_empty() {
+                return Err("quiz explanation must fit on one blockquote line".into());
+            }
+            in_explanation = true;
+            explanation.push(rest.trim());
+            continue;
+        }
+        if in_explanation {
+            return Err(format!(
+                "quiz has an unexpected line after its explanation: `{line}`"
+            ));
+        }
+        let (correct, text) = if let Some(text) = line.strip_prefix("- [ ] ") {
+            (false, text)
+        } else if let Some(text) = line
+            .strip_prefix("- [x] ")
+            .or_else(|| line.strip_prefix("- [X] "))
+        {
+            (true, text)
+        } else {
+            return Err(format!("quiz has an unexpected line: `{line}`"));
+        };
+        if text.trim().is_empty() {
+            return Err("quiz choices cannot be empty".into());
+        }
+        choices.push(QuizChoice {
+            text: text.trim().to_string(),
+            correct,
+        });
+    }
+    if !(2..=4).contains(&choices.len()) {
+        return Err("quiz needs between two and four choices".into());
+    }
+    if choices.iter().filter(|choice| choice.correct).count() != 1 {
+        return Err("quiz needs exactly one correct choice".into());
+    }
+    // Validate the supported inline subset here so rendering cannot partially succeed.
+    quiz_inline(prompt)?;
+    for choice in &choices {
+        quiz_inline(&choice.text)?;
+    }
+    if !explanation.is_empty() {
+        quiz_inline(&explanation.join(" "))?;
+    }
+    let mut normalized = collapse_whitespace(prompt);
+    for choice in &choices {
+        normalized.push_str(if choice.correct { "\n[x] " } else { "\n[ ] " });
+        normalized.push_str(&collapse_whitespace(&choice.text));
+    }
+    if !explanation.is_empty() {
+        normalized.push_str("\n> ");
+        normalized.push_str(&collapse_whitespace(&explanation.join(" ")));
+    }
+    Ok(QuizQuestion {
+        prompt: prompt.to_string(),
+        choices,
+        explanation: (!explanation.is_empty()).then(|| explanation.join(" ")),
+        key: quiz_key(&normalized),
+    })
+}
+
+fn render_quiz(
+    source: &str,
+    seen: &mut std::collections::HashMap<String, usize>,
+) -> Result<String, String> {
+    let quiz = parse_quiz(source)?;
+    let prompt = quiz_inline(&quiz.prompt)?;
+    let occurrence = seen.entry(quiz.key.clone()).or_default();
+    *occurrence += 1;
+    let instance_key = if *occurrence == 1 {
+        quiz.key.clone()
+    } else {
+        format!("{}-{occurrence}", quiz.key)
+    };
+    let mut html = format!(
+        "<ob-quiz data-key=\"{}\"><fieldset><legend>{prompt}</legend><div class=\"ob-quiz-choices\">",
+        instance_key
+    );
+    for (index, choice) in quiz.choices.iter().enumerate() {
+        let answer = quiz_inline(&choice.text)?;
+        let correct = if choice.correct {
+            " data-correct=\"true\""
+        } else {
+            ""
+        };
+        html.push_str(&format!(
+            "<label class=\"ob-quiz-choice\"><input type=\"radio\" name=\"obq-{}\" value=\"{index}\"{correct}> <span>{answer}</span></label>",
+            instance_key
+        ));
+    }
+    html.push_str("</div><p class=\"ob-quiz-feedback\" aria-live=\"polite\" hidden>");
+    if let Some(explanation) = quiz.explanation {
+        html.push_str(&format!(
+            "<span class=\"ob-quiz-explanation\">{}</span>",
+            quiz_inline(&explanation)?
+        ));
+    }
+    html.push_str("</p><button class=\"ob-quiz-retry\" type=\"button\" hidden>Retry</button></fieldset></ob-quiz>\n");
+    Ok(html)
 }
 
 /// How a line of raw block HTML changes the element depth: `+1` for an
@@ -207,6 +375,9 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
     let mut item: Option<String> = None;
     // Raw HTML elements opened (and not yet closed) since the section began.
     let mut html_depth = 0i32;
+    let mut in_quiz = false;
+    let mut quiz_group_open = false;
+    let mut quiz_occurrences = std::collections::HashMap::new();
     // The section a deeper heading switched away from ("### Ingredients for the
     // glaze" inside "## Method"); it resumes when that sub-section ends.
     let mut outer: Option<(Section, u8)> = None;
@@ -217,6 +388,45 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
     };
 
     for (i, event) in events.iter().enumerate() {
+        if matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) if info.trim() == "quiz")
+        {
+            if !quiz_group_open {
+                out.push(Event::Html(CowStr::from(
+                    "<section class=\"ob-knowledge-check\" aria-label=\"Knowledge check\">\n",
+                )));
+                quiz_group_open = true;
+            }
+            in_quiz = true;
+            continue;
+        }
+        if in_quiz {
+            match event {
+                Event::Text(source) => match render_quiz(source, &mut quiz_occurrences) {
+                    Ok(html) => out.push(Event::Html(CowStr::from(html))),
+                    Err(error) => {
+                        data.errors.push(error.clone());
+                        out.push(Event::Html(CowStr::from(format!(
+                            "<aside class=\"ob-quiz-error\" role=\"alert\">Invalid knowledge check: {}</aside>\n",
+                            escape::text(&error)
+                        ))));
+                    }
+                },
+                Event::End(TagEnd::CodeBlock) => {
+                    in_quiz = false;
+                    let next_is_quiz = matches!(
+                        events.get(i + 1),
+                        Some(Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))))
+                            if info.trim() == "quiz"
+                    );
+                    if !next_is_quiz {
+                        out.push(Event::Html(CowStr::from("</section>\n")));
+                        quiz_group_open = false;
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
         // What this event becomes in the output.
         let rendered = match event {
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
@@ -490,7 +700,8 @@ pub fn render(markdown: &str, options: RenderOptions) -> Rendered {
                 in_code_block = true;
                 if let CodeBlockKind::Fenced(info) = kind {
                     let lang = parse_fence_info(info).lang;
-                    if !lang.is_empty() && !code_languages.contains(&lang) {
+                    if !lang.is_empty() && info.trim() != "quiz" && !code_languages.contains(&lang)
+                    {
                         code_languages.push(lang);
                     }
                 }
@@ -580,6 +791,7 @@ pub fn render(markdown: &str, options: RenderOptions) -> Rendered {
     let word_count = text.split_whitespace().count();
     Rendered {
         html,
+        errors: blocks.errors,
         headings,
         text,
         word_count,
@@ -670,6 +882,88 @@ mod tests {
         assert_eq!(r.code_languages, vec!["rust", "js"]);
         assert_eq!(r.text, "Intro");
         assert!(r.html.contains("<pre><code class=\"language-rust\">"));
+    }
+
+    #[test]
+    fn quiz_fences_render_as_accessible_knowledge_checks() {
+        let r = render(
+            "```quiz\nWhat does `draft: true` do?\n- [ ] Publishes privately\n- [x] Excludes the post from public builds\n- [ ] Schedules it\n> Draft posts remain available in preview.\n```\n",
+            RenderOptions::default(),
+        );
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(r.html.contains("<ob-quiz data-key=\""), "{}", r.html);
+        assert!(r.html.contains("<section class=\"ob-knowledge-check\""));
+        assert!(r.html.contains("<fieldset>"), "{}", r.html);
+        assert!(r
+            .html
+            .contains("<legend>What does <code>draft: true</code> do?</legend>"));
+        assert_eq!(r.html.matches("type=\"radio\"").count(), 3);
+        assert!(r.html.contains("data-correct"));
+        assert!(r.html.contains("Draft posts remain available in preview."));
+        assert!(!r.code_languages.contains(&"quiz".to_string()));
+    }
+
+    #[test]
+    fn invalid_quiz_fences_report_validation_errors() {
+        for (body, problem) in [
+            ("Question\n- [ ] A\n", "between two and four"),
+            ("Question\n- [x] A\n- [x] B\n", "exactly one"),
+            ("Question\n- [ ] A\n- [ ] B\n", "exactly one"),
+            ("Question\n- [x] A\n- [ ] B\nextra\n", "unexpected line"),
+            (
+                "Question\n- [x] A\n- [ ] B\n> One\n> Two\n",
+                "one blockquote line",
+            ),
+        ] {
+            let r = render(&format!("```quiz\n{body}```\n"), RenderOptions::default());
+            assert!(
+                r.errors.iter().any(|e| e.contains(problem)),
+                "expected {problem:?} in {:?}",
+                r.errors
+            );
+            assert!(!r.html.contains("<ob-quiz"));
+        }
+    }
+
+    #[test]
+    fn consecutive_quizzes_form_one_knowledge_check() {
+        let question = "```quiz\nQuestion?\n- [x] Yes\n- [ ] No\n```";
+        let r = render(
+            &format!("{question}\n\n{question}\n"),
+            RenderOptions::default(),
+        );
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert_eq!(r.html.matches("class=\"ob-knowledge-check\"").count(), 1);
+        assert_eq!(r.html.matches("<ob-quiz ").count(), 2);
+        assert_eq!(r.html.matches("</section>").count(), 1);
+        let keys: Vec<_> = r
+            .html
+            .split("data-key=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[1].strip_suffix("-2"), Some(keys[0]));
+    }
+
+    #[test]
+    fn quiz_identity_ignores_insignificant_whitespace() {
+        let a = render(
+            "```quiz\nQuestion?\n- [x] Yes\n- [ ] No\n```",
+            RenderOptions::default(),
+        );
+        let b = render(
+            "```quiz\n  Question?  \n\n- [x]  Yes  \n- [ ] No\n\n```",
+            RenderOptions::default(),
+        );
+        let key = |html: &str| {
+            html.split("data-key=\"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(key(&a.html), key(&b.html));
     }
 
     #[test]

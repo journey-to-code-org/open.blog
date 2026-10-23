@@ -388,6 +388,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "upload") => upload(state, req),
         ("POST", "preview") => preview(req),
+        ("POST", "quiz/generate") => generate_quiz(state, req),
         ("POST", "rebuild") => rebuild(state),
         ("GET", "publish") => {
             let config = site::load_config(&state.root).unwrap_or_default();
@@ -834,9 +835,152 @@ fn meta(state: &AppState) -> Response {
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
+            "quizGeneration": !config.knowledge_checks.generation_endpoint.trim().is_empty()
+                && std::env::var("OPENBLOG_LESSONS_API_KEY").is_ok_and(|key| !key.trim().is_empty()),
             "now": clock::now().rfc3339(),
         }),
     )
+}
+
+fn validated_questions(value: &Json) -> Result<Json, String> {
+    let questions = value["questions"]
+        .as_array()
+        .ok_or("generation response needs a `questions` array")?;
+    if !(1..=3).contains(&questions.len()) {
+        return Err("generation response needs between one and three questions".into());
+    }
+    let mut clean = Vec::with_capacity(questions.len());
+    for (number, question) in questions.iter().enumerate() {
+        let prompt = question["prompt"].as_str().unwrap_or("").trim();
+        let choices = question["choices"]
+            .as_array()
+            .ok_or_else(|| format!("question {} needs a choices array", number + 1))?;
+        let correct = question["correctIndex"]
+            .as_u64()
+            .ok_or_else(|| format!("question {} needs a correctIndex", number + 1))?
+            as usize;
+        let explanation = question["explanation"].as_str().unwrap_or("").trim();
+        if prompt.is_empty() || prompt.chars().count() > 500 {
+            return Err(format!("question {} has an invalid prompt", number + 1));
+        }
+        if !(2..=4).contains(&choices.len()) || correct >= choices.len() {
+            return Err(format!(
+                "question {} needs two to four choices and a valid correctIndex",
+                number + 1
+            ));
+        }
+        let mut clean_choices = Vec::with_capacity(choices.len());
+        for choice in choices {
+            let text = choice.as_str().unwrap_or("").trim();
+            if text.is_empty() || text.chars().count() > 300 {
+                return Err(format!("question {} has an invalid choice", number + 1));
+            }
+            clean_choices.push(text);
+        }
+        if explanation.chars().count() > 1000 {
+            return Err(format!(
+                "question {} has an explanation that is too long",
+                number + 1
+            ));
+        }
+        clean.push(json!({
+            "prompt": prompt,
+            "choices": clean_choices,
+            "correctIndex": correct,
+            "explanation": explanation,
+        }));
+    }
+    Ok(json!({ "questions": clean }))
+}
+
+fn generate_quiz(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let context = body["context"].as_str().unwrap_or("").trim();
+    let count = body["count"].as_u64().unwrap_or(0);
+    if context.is_empty() || context.chars().count() > 50_000 {
+        return Response::error(
+            400,
+            "Select between 1 and 50,000 characters of article text",
+        );
+    }
+    if !(1..=3).contains(&count) {
+        return Response::error(400, "Question count must be between one and three");
+    }
+
+    let config = site::load_config(&state.root).unwrap_or_default();
+    let endpoint = config.knowledge_checks.generation_endpoint.trim();
+    if endpoint.is_empty() {
+        return Response::error(404, "Quiz generation is not configured");
+    }
+    let test_loopback = cfg!(test) && endpoint.starts_with("http://127.0.0.1:");
+    if !endpoint.starts_with("https://") && !test_loopback {
+        return Response::error(400, "Quiz generation endpoint must use HTTPS");
+    }
+    let key = match std::env::var("OPENBLOG_LESSONS_API_KEY") {
+        Ok(key) if !key.trim().is_empty() => key,
+        _ => return Response::error(503, "OPENBLOG_LESSONS_API_KEY is not set"),
+    };
+    let payload = json!({
+        "model": config.knowledge_checks.model,
+        "context": context,
+        "count": count,
+        "task": "Draft short multiple-choice knowledge checks grounded only in the supplied article context. Return JSON only.",
+        "responseSchema": {
+            "questions": [{
+                "prompt": "string",
+                "choices": ["string", "string"],
+                "correctIndex": 0,
+                "explanation": "string"
+            }]
+        }
+    });
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(if cfg!(test) {
+            Duration::from_millis(300)
+        } else {
+            Duration::from_secs(30)
+        }))
+        .user_agent(concat!(
+            "open.blog-admin/",
+            env!("CARGO_PKG_VERSION"),
+            " (+https://github.com/journey-to-code-org/open.blog)"
+        ))
+        .build()
+        .into();
+    let mut response = match agent
+        .post(endpoint)
+        .header("Content-Type", "application/json")
+        .header("Authorization", &format!("Bearer {}", key.trim()))
+        .send(payload.to_string())
+    {
+        Ok(response) => response,
+        Err(error) => return Response::error(502, &format!("Quiz generation failed: {error}")),
+    };
+    let bytes = match response
+        .body_mut()
+        .with_config()
+        .limit(128 * 1024)
+        .read_to_vec()
+    {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Response::error(502, &format!("Cannot read generation response: {error}"))
+        }
+    };
+    let value: Json = match serde_json::from_slice(&bytes) {
+        Ok(value) => value,
+        Err(_) => return Response::error(502, "Generation endpoint returned invalid JSON"),
+    };
+    match validated_questions(&value) {
+        Ok(clean) => Response::json(200, &clean),
+        Err(error) => Response::error(502, &error),
+    }
 }
 
 fn status(state: &AppState) -> Response {
@@ -1338,6 +1482,34 @@ mod tests {
     use super::*;
     use crate::scaffold;
     use std::collections::HashMap;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    static QUIZ_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct EnvRestore {
+        name: &'static str,
+        value: Option<std::ffi::OsString>,
+    }
+
+    impl EnvRestore {
+        fn capture(name: &'static str) -> Self {
+            Self {
+                name,
+                value: std::env::var_os(name),
+            }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            if let Some(value) = &self.value {
+                std::env::set_var(self.name, value);
+            } else {
+                std::env::remove_var(self.name);
+            }
+        }
+    }
 
     struct Fixture {
         state: AppState,
@@ -1360,6 +1532,60 @@ mod tests {
         let state = AppState::new(dir.clone(), None, false, true);
         state.rebuild().unwrap();
         Fixture { state, dir }
+    }
+
+    fn quiz_provider(
+        status: u16,
+        body: String,
+        delay: Duration,
+    ) -> (String, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let read = stream.read(&mut chunk).unwrap_or(0);
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+                let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n")
+                else {
+                    continue;
+                };
+                let headers = String::from_utf8_lossy(&request[..header_end]);
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                if request.len() >= header_end + 4 + content_length {
+                    break;
+                }
+            }
+            std::thread::sleep(delay);
+            let reason = if status == 200 { "OK" } else { "Error" };
+            let response = format!(
+                "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        });
+        (format!("http://{address}/generate"), handle)
+    }
+
+    fn set_quiz_endpoint(fixture: &Fixture, endpoint: &str) {
+        let path = fixture.dir.join("openblog.json");
+        let mut config: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        config["knowledgeChecks"] = json!({ "generationEndpoint": endpoint, "model": "test" });
+        fs::write(path, config.to_string()).unwrap();
     }
 
     fn req(method: &str, path: &str) -> Request {
@@ -1645,6 +1871,114 @@ mod tests {
         same.headers
             .insert("origin".into(), "http://localhost:8080".into());
         assert_eq!(handle(&f.state, &same).status, 201);
+    }
+
+    #[test]
+    fn quiz_generation_responses_are_strictly_validated() {
+        let good = validated_questions(&json!({
+            "questions": [{
+                "prompt": "What stays local?",
+                "choices": ["Reader attempts", "Published posts"],
+                "correctIndex": 0,
+                "explanation": "Attempts are stored in the reader's browser."
+            }]
+        }))
+        .unwrap();
+        assert_eq!(good["questions"][0]["correctIndex"], 0);
+        for bad in [
+            json!({ "questions": [] }),
+            json!({ "questions": [{ "prompt": "Q", "choices": ["A"], "correctIndex": 0 }] }),
+            json!({ "questions": [{ "prompt": "Q", "choices": ["A", "B"], "correctIndex": 2 }] }),
+            json!({ "questions": [{ "prompt": "", "choices": ["A", "B"], "correctIndex": 0 }] }),
+        ] {
+            assert!(validated_questions(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn quiz_generation_is_authenticated_optional_and_csrf_protected() {
+        let f = fixture("quiz-generate");
+        let request = || {
+            json_req(
+                "POST",
+                "/admin/api/quiz/generate",
+                json!({ "context": "A short article section.", "count": 1 }),
+            )
+        };
+        assert_eq!(handle(&f.state, &request()).status, 401);
+        let session = login_ok(&f);
+        assert_eq!(
+            handle(&f.state, &authed(request(), &session, false)).status,
+            403
+        );
+        let response = handle(&f.state, &authed(request(), &session, true));
+        assert_eq!(response.status, 404);
+        assert!(String::from_utf8_lossy(&response.body).contains("not configured"));
+    }
+
+    #[test]
+    fn quiz_generation_handles_provider_boundary_failures() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("quiz-provider");
+        let session = login_ok(&f);
+        let request = || {
+            authed(
+                json_req(
+                    "POST",
+                    "/admin/api/quiz/generate",
+                    json!({ "context": "A short article section.", "count": 1 }),
+                ),
+                &session,
+                true,
+            )
+        };
+
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        set_quiz_endpoint(&f, "https://example.com/generate");
+        assert_eq!(handle(&f.state, &request()).status, 503, "missing secret");
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "test-secret");
+
+        let cases = [
+            (500, "{}".to_string(), Duration::ZERO, "provider status"),
+            (200, "not json".to_string(), Duration::ZERO, "invalid JSON"),
+            (
+                200,
+                json!({ "questions": [{ "prompt": "Q", "choices": ["A"], "correctIndex": 0 }] })
+                    .to_string(),
+                Duration::ZERO,
+                "invalid schema",
+            ),
+            (
+                200,
+                "x".repeat(129 * 1024),
+                Duration::ZERO,
+                "oversized response",
+            ),
+            (200, "{}".to_string(), Duration::from_millis(600), "timeout"),
+        ];
+        for (status, body, delay, label) in cases {
+            let (endpoint, server) = quiz_provider(status, body, delay);
+            set_quiz_endpoint(&f, &endpoint);
+            assert_eq!(handle(&f.state, &request()).status, 502, "{label}");
+            server.join().unwrap();
+        }
+
+        let body = json!({
+            "questions": [{
+                "prompt": "What stays local?",
+                "choices": ["Attempts", "Posts"],
+                "correctIndex": 0,
+                "explanation": "Reader attempts stay local."
+            }]
+        })
+        .to_string();
+        let (endpoint, server) = quiz_provider(200, body, Duration::ZERO);
+        set_quiz_endpoint(&f, &endpoint);
+        let response = handle(&f.state, &request());
+        server.join().unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(body_json(&response)["questions"][0]["correctIndex"], 0);
     }
 
     #[test]
@@ -2282,7 +2616,16 @@ mod tests {
             .headers
             .iter()
             .any(|(k, v)| k == "X-Frame-Options" && v == "DENY"));
-        assert_eq!(handle(&f.state, &req("GET", "/admin/admin.js")).status, 200);
+        assert!(String::from_utf8_lossy(&resp.body)
+            .contains("<meta name=\"color-scheme\" content=\"light dark\">"));
+        let script = handle(&f.state, &req("GET", "/admin/admin.js"));
+        assert_eq!(script.status, 200);
+        let script = String::from_utf8_lossy(&script.body);
+        assert!(script.contains("ob-admin-scheme"));
+        assert!(script.contains("Dark mode"));
+        let styles = handle(&f.state, &req("GET", "/admin/admin.css"));
+        assert_eq!(styles.status, 200);
+        assert!(String::from_utf8_lossy(&styles.body).contains(".oba-theme-toggle"));
         assert_eq!(
             handle(&f.state, &req("GET", "/admin/secrets.txt")).status,
             404

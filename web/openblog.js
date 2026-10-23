@@ -6,6 +6,7 @@
 import "./components/ob-theme-toggle.js";
 import "./components/ob-code.js";
 import "./components/ob-recipe.js";
+import "./components/ob-quiz.js";
 import "./components/ob-back-to-top.js";
 import "./components/ob-search.js";
 import "./components/ob-share.js";

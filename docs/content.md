@@ -77,6 +77,33 @@ The kinds are `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, and `CAUTION` (any case); e
 its own colour and is titled with its kind. Put the marker alone on the first line: any
 other text after it, or another kind, leaves an ordinary quote that shows the marker.
 
+### Knowledge checks
+
+Put a short multiple-choice question in a `quiz` fence. Readers receive feedback as soon
+as they choose an answer; their attempt is remembered only in that browser and is never
+sent to the blog or its analytics.
+
+````markdown
+```quiz
+What does `draft: true` do?
+- [ ] Publishes the post privately
+- [x] Excludes the post from public builds
+- [ ] Schedules it for tomorrow
+> Drafts remain available in the admin preview.
+```
+````
+
+A question needs two to four choices and exactly one checked (`[x]`) answer. The final
+`>` explanation is optional. Prompts, choices, and explanations support emphasis,
+strikethrough, and inline code, but not links, images, raw HTML, or multiple lines.
+`openblog check` reports an invalid knowledge check instead of publishing it.
+
+In the admin editor, choose **Add knowledge check** to fill in a small form instead of
+writing the fence. You can add up to three questions at once. If the site owner configured
+generation, select some article text (or put the cursor in a section), open the same form,
+and choose **Generate draft**. Generated questions remain editable and are not added to
+the post until you choose **Insert**.
+
 ### Code blocks
 
 Fenced code blocks are coloured in the browser, numbered when they have two or more

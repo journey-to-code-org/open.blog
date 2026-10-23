@@ -1600,6 +1600,22 @@ mod tests {
     const RECIPE: &str = "---\ntitle: Lemon Pasta\ndate: 2026-03-02\nrecipe: true\nservings: 4\nprep: 10 min\ncook: 1 hr 5 min\ncuisine: Italian\ncourse: Dinner\ncover: /images/pasta.jpg\ntags: [pasta]\n---\nA story first.\n\n## Ingredients\n\n- 400 g spaghetti\n- 1/2 cup parmesan\n\n## Method\n\n1. Boil for 10 minutes.\n2. Toss with the cheese.\n";
 
     #[test]
+    fn quiz_posts_render_static_accessible_markup() {
+        let files = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            &[(
+                "posts/lesson.md",
+                "---\ntitle: Lesson\ndate: 2026-01-01\n---\n```quiz\nWhat stays local?\n- [x] Reader attempts\n- [ ] Published posts\n> Attempts remain in the browser.\n```\n",
+            )],
+        );
+        let page = file(&files, "lesson/index.html");
+        assert!(page.contains("<ob-quiz data-key=\""), "{page}");
+        assert!(page.contains("<fieldset><legend>What stays local?</legend>"));
+        assert!(page.contains("data-correct=\"true\""));
+        assert!(page.contains("Attempts remain in the browser."));
+    }
+
+    #[test]
     fn recipe_posts_get_a_card_controls_and_recipe_data() {
         let files = build_posts(
             r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"Cook"}}"#,
