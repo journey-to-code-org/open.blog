@@ -34,6 +34,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "cdn": { "url": "", "paths": ["/assets/", "/themes/", "/images/"], "version": "", "maxAge": 86400 },
   "feeds": { "rss": true, "json": true, "sitemap": true, "portfolioSnapshot": true, "limit": 20, "fullContent": true },
   "markdown": { "smartPunctuation": false, "headingAnchors": true, "tocDepth": 3, "tocMinHeadings": 3 },
+  "code": { "highlight": null, "lineNumbers": null, "copyButton": true },
+  "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true },
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
   "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] },
   "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true }
@@ -86,6 +88,32 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
 - `headingAnchors` adds a hover link to each section heading.
 - `tocDepth` is the deepest heading level in the table of contents (`2` for `##` only);
   `tocMinHeadings` is how many headings a post needs before it gets one.
+
+## Code blocks
+
+- `highlight` colours code blocks; `lineNumbers` numbers blocks of two or more lines.
+  Leave them `null` (or out) to follow the theme, which turns both on by default. Set
+  `true` or `false` to decide for the whole blog whatever the theme says.
+- `copyButton` adds a Copy button to every code block.
+
+A post can override `highlight` and `lineNumbers` in its front matter, and one code block
+can override line numbers with its fence options (see [Writing content](content.md#code-blocks)).
+The order is: the fence, then the post, then this setting, then the theme.
+
+## Recipes
+
+What readers get on posts with `recipe: true` (see [Writing content](content.md#recipes)).
+Every option is on by default; set one to `false` to leave that feature out.
+
+- `scaling`: buttons that scale the amount at the start of each ingredient to more or
+  fewer servings. Shown only when the recipe has a number in `servings`.
+- `checklists`: checkboxes to tick off ingredients and steps, remembered on the reader's device.
+- `timers`: durations in steps ("bake for 25 minutes") become countdown buttons.
+- `cookMode`: a "Cook mode" button that keeps the screen awake and enlarges the
+  ingredients and steps. Browsers that cannot keep the screen awake do not show it.
+- `print`: a "Print recipe" button that prints only the title, the summary, the
+  ingredients, and the steps.
+- `jumpLink`: a "Jump to recipe" link in the summary card.
 
 ## Paths
 

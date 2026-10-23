@@ -3,7 +3,7 @@
 If you are new, read these in order; each one stands alone otherwise.
 
 1. [Writing content](content.md): where files go, what a post looks like, series, pages,
-   drafts, scheduling, images, and every front matter field.
+   drafts, scheduling, images, code blocks, callouts, recipes, and every front matter field.
 2. [Configuration](configuration.md): every setting in `openblog.json`, with defaults.
 3. [Deploying](deploy.md): GitHub Pages, other static hosts, running your own server,
    and keeping old URLs working.
@@ -25,7 +25,7 @@ If you are new, read these in order; each one stands alone otherwise.
 ```
 openblog init [dir] [--title "..."] [--github-pages]
                                         Create a new blog (optionally with a Pages workflow)
-openblog new "Title" [--series s] [--tags a,b] [--draft]
+openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
 openblog check                          Validate content and themes, write nothing

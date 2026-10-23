@@ -34,6 +34,11 @@
       "codePunctuation": "#383a42",
       "codeConstant": "#986801",
       "codeRegex": "#0184bc",
+      "calloutNote": "#0969da",
+      "calloutTip": "#116329",
+      "calloutImportant": "#6f3fc4",
+      "calloutWarning": "#7d5400",
+      "calloutCaution": "#d1242f",
       "ink": "#0b0d11"
     },
     "dark": {
@@ -68,6 +73,11 @@
       "codePunctuation": "#abb2bf",
       "codeConstant": "#d19a66",
       "codeRegex": "#56b6c2",
+      "calloutNote": "#4493f8",
+      "calloutTip": "#3fb950",
+      "calloutImportant": "#ab7df8",
+      "calloutWarning": "#d29922",
+      "calloutCaution": "#f85149",
       "ink": "#0b0d11"
     }
   },

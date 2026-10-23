@@ -45,6 +45,10 @@ pub struct SiteConfig {
     pub cdn: CdnConfig,
     pub feeds: FeedsConfig,
     pub markdown: MarkdownConfig,
+    /// Code blocks: colours, line numbers, copy buttons.
+    pub code: CodeConfig,
+    /// Interactive extras on posts with `recipe: true`.
+    pub recipes: RecipesConfig,
     pub paths: PathsConfig,
     pub admin: AdminConfig,
     pub publish: PublishConfig,
@@ -107,6 +111,59 @@ pub struct MarkdownConfig {
     pub toc_min_headings: usize,
 }
 
+/// Code-block behaviour for the whole site. `highlight` and `lineNumbers`
+/// override the theme when set; leave them out (or `null`) to follow the theme.
+/// A post's front matter and a fence's options override these in turn.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CodeConfig {
+    pub highlight: Option<bool>,
+    pub line_numbers: Option<bool>,
+    /// A "Copy" button on every code block.
+    pub copy_button: bool,
+}
+
+impl Default for CodeConfig {
+    fn default() -> Self {
+        Self {
+            highlight: None,
+            line_numbers: None,
+            copy_button: true,
+        }
+    }
+}
+
+/// Features on recipe posts. Each can be turned off on its own.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RecipesConfig {
+    /// Buttons that scale ingredient amounts to more or fewer servings.
+    pub scaling: bool,
+    /// Tick off ingredients and steps while cooking (remembered on the device).
+    pub checklists: bool,
+    /// Durations in steps ("bake for 25 minutes") become countdown timers.
+    pub timers: bool,
+    /// A button that keeps the screen awake while cooking.
+    pub cook_mode: bool,
+    /// A button that prints just the recipe.
+    pub print: bool,
+    /// A "Jump to recipe" link at the top of the post.
+    pub jump_link: bool,
+}
+
+impl Default for RecipesConfig {
+    fn default() -> Self {
+        Self {
+            scaling: true,
+            checklists: true,
+            timers: true,
+            cook_mode: true,
+            print: true,
+            jump_link: true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PathsConfig {
@@ -162,6 +219,8 @@ impl Default for SiteConfig {
             cdn: CdnConfig::default(),
             feeds: FeedsConfig::default(),
             markdown: MarkdownConfig::default(),
+            code: CodeConfig::default(),
+            recipes: RecipesConfig::default(),
             paths: PathsConfig::default(),
             admin: AdminConfig::default(),
             publish: PublishConfig::default(),

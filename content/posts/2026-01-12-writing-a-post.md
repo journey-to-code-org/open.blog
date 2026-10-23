@@ -43,13 +43,24 @@ Headings get ids and anchor links, so `#markdown-that-works` links here.
 - [x] Write the post
 - [ ] Publish it
 
-Code blocks keep their language for styling and the copy button:
+Callouts draw attention to a note, a tip, or a warning:
 
-```rust
+> [!TIP]
+> Write `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, or `> [!CAUTION]`
+> on the first line of a quote.
+
+Code blocks are coloured, numbered, and get a copy button. After the language you can
+add a title, lines to highlight, and where numbering starts:
+
+```rust title="src/main.rs" {2}
 fn main() {
     println!("Hello from a code block");
 }
 ```
+
+The fence for that block is ```` ```rust title="src/main.rs" {2} ````. Add
+`showLineNumbers=10` to count from 10, or `showLineNumbers=false` to drop the numbers.
+To change this for the whole blog, see `code` in `openblog.json`.
 
 ## Images
 

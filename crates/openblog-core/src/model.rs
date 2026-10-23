@@ -8,6 +8,7 @@ use crate::config::SiteConfig;
 use crate::date::DateTime;
 use crate::frontmatter::{self, FrontMatter};
 use crate::markdown::{self, Heading, RenderOptions};
+use crate::recipe::{self, Recipe};
 use crate::slug::{from_file_stem, slugify};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,6 +80,11 @@ pub struct Post {
     pub word_count: usize,
     pub reading_minutes: u32,
     pub code_languages: Vec<String>,
+    /// Set for posts with `recipe: true`: times, servings, ingredients, steps.
+    pub recipe: Option<Recipe>,
+    /// Per-post code-block overrides from front matter (`highlight`, `lineNumbers`).
+    pub code_highlight: Option<bool>,
+    pub code_line_numbers: Option<bool>,
     /// The source file this post came from.
     pub source: String,
 }
@@ -155,6 +161,7 @@ impl Site {
             lazy_images: true,
             heading_anchors: config.markdown.heading_anchors,
             embeds: config.markdown.embeds,
+            recipe: false,
         };
 
         // Series definitions first, so posts can reference them.
@@ -189,6 +196,21 @@ impl Site {
                         continue;
                     }
                     slug_sources.insert(post.slug.clone(), file.path.clone());
+                    if let Some(r) = &post.recipe {
+                        // The usual mistake: **Ingredients** in bold instead of a
+                        // heading, or steps written as paragraphs instead of a list.
+                        for (found, what, heading) in [
+                            (r.ingredients.is_empty(), "ingredients", "## Ingredients"),
+                            (r.steps.is_empty(), "steps", "## Steps"),
+                        ] {
+                            if found {
+                                warnings.push(format!(
+                                    "{}: recipe has no {what}; put them in a list under a `{heading}` heading",
+                                    file.path
+                                ));
+                            }
+                        }
+                    }
                     if post.draft && !options.include_drafts {
                         continue;
                     }
@@ -439,7 +461,25 @@ pub fn load_post(
 ) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
-    let rendered = markdown::render(&doc.body, options);
+    let is_recipe = recipe::is_recipe(fm);
+    let rendered = markdown::render(
+        &doc.body,
+        RenderOptions {
+            recipe: is_recipe,
+            ..options
+        },
+    );
+    let recipe = if is_recipe {
+        let mut r = Recipe::from_front_matter(
+            fm,
+            rendered.recipe_ingredients.clone(),
+            rendered.recipe_steps.clone(),
+        );
+        r.anchor = rendered.recipe_anchor.clone();
+        Some(r)
+    } else {
+        None
+    };
 
     let title = match first(fm, &["title"]) {
         Some(t) => t.to_string(),
@@ -533,6 +573,13 @@ pub fn load_post(
         word_count: rendered.word_count,
         reading_minutes: markdown::reading_minutes(rendered.word_count),
         code_languages: rendered.code_languages,
+        recipe,
+        code_highlight: fm
+            .get_bool("highlight")
+            .or_else(|| fm.get_bool("codeHighlighting")),
+        code_line_numbers: fm
+            .get_bool("lineNumbers")
+            .or_else(|| fm.get_bool("showLineNumbers")),
         source: file.path.clone(),
     })
 }

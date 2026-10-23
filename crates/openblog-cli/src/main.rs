@@ -56,6 +56,7 @@ new OPTIONS
     --series <slug>            Put the post in a series
     --tags a,b,c               Comma-separated tags
     --draft                    Mark the post as a draft
+    --recipe                   Start from a recipe template (servings, times, ingredients, steps)
 
 import hashnode OPTIONS
     --source public|graphql    public (default) reads your live site and needs no account;
@@ -82,6 +83,7 @@ const SWITCHES: &[&str] = &[
     "password-stdin",
     "github-pages",
     "overwrite",
+    "recipe",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -182,6 +184,7 @@ fn run(raw: &[String]) -> Result<(), String> {
                 args.options.get("series").map(String::as_str),
                 &tags,
                 args.switches.contains("draft"),
+                args.switches.contains("recipe"),
             )?;
             println!("created {created}");
             Ok(())

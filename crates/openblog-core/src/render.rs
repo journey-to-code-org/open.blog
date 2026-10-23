@@ -791,6 +791,10 @@ impl<'a> Renderer<'a> {
                 ));
             }
         }
+        if let Some(recipe) = &post.recipe {
+            body.push_str(&self.recipe_open_tag(post, recipe));
+            body.push_str(&self.recipe_card(recipe));
+        }
         // Table of contents.
         let toc: Vec<_> = post
             .headings
@@ -811,9 +815,12 @@ impl<'a> Renderer<'a> {
         }
         body.push_str(&format!(
             "<ob-code{}><div class=\"ob-prose e-content\">{}</div></ob-code>\n",
-            self.code_attr(theme),
+            self.code_attr(theme, Some(post)),
             post.html
         ));
+        if post.recipe.is_some() {
+            body.push_str("</ob-recipe>\n");
+        }
 
         if let Some(source_url) = &post.source_url {
             body.push_str(&format!(
@@ -850,8 +857,8 @@ impl<'a> Renderer<'a> {
             canonical,
             kind: "article",
             image: post.cover.clone(),
-            json_ld: Some(
-                serde_json::json!({
+            json_ld: Some({
+                let posting = serde_json::json!({
                     "@context": "https://schema.org",
                     "@type": "BlogPosting",
                     "headline": post.title,
@@ -865,9 +872,23 @@ impl<'a> Renderer<'a> {
                     "wordCount": post.word_count,
                     "author": { "@type": "Person", "name": c.author.name, "url": c.author.url },
                     "isPartOf": series.map(|s| serde_json::json!({ "@type": "CreativeWorkSeries", "name": s.name, "url": c.absolute(&s.url) })),
-                })
-                .to_string(),
-            ),
+                });
+                match &post.recipe {
+                    // A recipe page describes both the article and the recipe.
+                    Some(recipe) => {
+                        let mut posting = posting;
+                        if let Some(o) = posting.as_object_mut() {
+                            o.remove("@context");
+                        }
+                        serde_json::json!({
+                            "@context": "https://schema.org",
+                            "@graph": [posting, self.recipe_json_ld(post, recipe)],
+                        })
+                        .to_string()
+                    }
+                    None => posting.to_string(),
+                }
+            }),
             theme,
             published: Some(post.date.rfc3339()),
             modified: post.updated.map(|u| u.rfc3339()),
@@ -964,15 +985,183 @@ impl<'a> Renderer<'a> {
     }
 
     /// Attributes for `<ob-code>`: what the component does to code blocks.
-    fn code_attr(&self, theme: &Theme) -> String {
+    /// A post's front matter beats the site's `code` settings, which beat the
+    /// theme. (A fence's own options are read by the component itself.)
+    fn code_attr(&self, theme: &Theme, post: Option<&Post>) -> String {
+        let code = &self.site.config.code;
+        let highlight = post
+            .and_then(|p| p.code_highlight)
+            .or(code.highlight)
+            .unwrap_or(theme.code_highlighting);
+        let line_numbers = post
+            .and_then(|p| p.code_line_numbers)
+            .or(code.line_numbers)
+            .unwrap_or(theme.code_line_numbers);
         let mut attrs = String::new();
-        if theme.code_highlighting {
+        if highlight {
             attrs.push_str(" highlight");
         }
-        if theme.code_line_numbers {
+        if line_numbers {
             attrs.push_str(" line-numbers");
         }
+        if !code.copy_button {
+            attrs.push_str(" no-copy");
+        }
         attrs
+    }
+
+    /// The summary card at the top of a recipe: times, servings, and the
+    /// "Jump to recipe" link. `<ob-recipe>` adds the interactive controls.
+    fn recipe_card(&self, recipe: &crate::recipe::Recipe) -> String {
+        use crate::recipe::{format_minutes, iso_duration};
+        let rc = &self.site.config.recipes;
+        let mut facts = String::new();
+        let mut fact = |label: &str, value: String| {
+            facts.push_str(&format!("<div><dt>{label}</dt><dd>{value}</dd></div>"));
+        };
+        for (label, minutes, written) in [
+            ("Prep", recipe.prep, &recipe.prep_text),
+            ("Cook", recipe.cook, &recipe.cook_text),
+            ("Total", recipe.total, &recipe.total_text),
+        ] {
+            if let Some(m) = minutes {
+                fact(
+                    label,
+                    format!(
+                        "<time datetime=\"{}\">{}</time>",
+                        iso_duration(m),
+                        format_minutes(m)
+                    ),
+                );
+            } else if let Some(w) = written {
+                // "overnight", "10-15 min": shown as written.
+                fact(label, text(w));
+            }
+        }
+        if let Some(s) = &recipe.servings_text {
+            // A plain number can be scaled; the component updates this span.
+            let value = if recipe.servings.is_some_and(|n| s.parse::<u32>() == Ok(n)) {
+                format!("<span class=\"ob-recipe-servings\">{}</span>", text(s))
+            } else {
+                text(s)
+            };
+            fact("Serves", value);
+        }
+        if let Some(y) = &recipe.yield_text {
+            fact("Makes", text(y));
+        }
+        if let Some(v) = &recipe.cuisine {
+            fact("Cuisine", text(v));
+        }
+        if let Some(v) = &recipe.category {
+            fact("Course", text(v));
+        }
+        if let Some(v) = &recipe.calories {
+            fact("Calories", text(v));
+        }
+        let mut h =
+            String::from("<section class=\"ob-recipe-card\" aria-label=\"Recipe summary\">\n");
+        if !facts.is_empty() {
+            h.push_str(&format!("<dl class=\"ob-recipe-facts\">{facts}</dl>\n"));
+        }
+        h.push_str("<div class=\"ob-recipe-actions\">");
+        if rc.jump_link {
+            if let Some(anchor) = &recipe.anchor {
+                h.push_str(&format!(
+                    "<a class=\"ob-recipe-jump\" href=\"#{}\">Jump to recipe</a>",
+                    attr(anchor)
+                ));
+            }
+        }
+        h.push_str("</div>\n</section>\n");
+        h
+    }
+
+    /// `<ob-recipe>` with one attribute per enabled feature.
+    fn recipe_open_tag(&self, post: &Post, recipe: &crate::recipe::Recipe) -> String {
+        let rc = &self.site.config.recipes;
+        let mut tag = format!("<ob-recipe key=\"{}\"", attr(&post.url));
+        if rc.scaling {
+            if let Some(n) = recipe.servings {
+                tag.push_str(&format!(" servings=\"{n}\" scaling"));
+            }
+        }
+        for (on, name) in [
+            (rc.checklists, "checklists"),
+            (rc.timers, "timers"),
+            (rc.cook_mode, "cook-mode"),
+            (rc.print, "print"),
+        ] {
+            if on {
+                tag.push(' ');
+                tag.push_str(name);
+            }
+        }
+        tag.push_str(">\n");
+        tag
+    }
+
+    /// schema.org `Recipe` for search engines' recipe results.
+    fn recipe_json_ld(&self, post: &Post, recipe: &crate::recipe::Recipe) -> serde_json::Value {
+        use crate::recipe::iso_duration;
+        let c = &self.site.config;
+        let mut r = serde_json::json!({
+            "@type": "Recipe",
+            "name": post.title,
+            "description": post.description,
+            "datePublished": post.date.rfc3339(),
+            "url": c.absolute(&post.url),
+            "mainEntityOfPage": c.absolute(&post.url),
+            "author": { "@type": "Person", "name": c.author.name, "url": c.author.url },
+            "recipeIngredient": recipe.ingredients,
+            "recipeInstructions": recipe.steps.iter().enumerate().map(|(i, s)| serde_json::json!({
+                "@type": "HowToStep",
+                "position": i + 1,
+                "text": s,
+            })).collect::<Vec<_>>(),
+            "keywords": post.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>().join(", "),
+        });
+        let obj = r.as_object_mut().expect("json object");
+        if let Some(image) = &post.cover {
+            obj.insert("image".into(), serde_json::json!([c.absolute(image)]));
+        }
+        for (key, minutes) in [
+            ("prepTime", recipe.prep),
+            ("cookTime", recipe.cook),
+            ("totalTime", recipe.total),
+        ] {
+            if let Some(m) = minutes {
+                obj.insert(key.into(), serde_json::json!(iso_duration(m)));
+            }
+        }
+        let yields: Vec<String> = recipe
+            .servings_text
+            .iter()
+            .map(|s| {
+                if recipe.servings.is_some_and(|n| s.parse::<u32>() == Ok(n)) {
+                    format!("{s} servings")
+                } else {
+                    s.clone()
+                }
+            })
+            .chain(recipe.yield_text.clone())
+            .collect();
+        if !yields.is_empty() {
+            obj.insert("recipeYield".into(), serde_json::json!(yields));
+        }
+        if let Some(v) = &recipe.cuisine {
+            obj.insert("recipeCuisine".into(), serde_json::json!(v));
+        }
+        if let Some(v) = &recipe.category {
+            obj.insert("recipeCategory".into(), serde_json::json!(v));
+        }
+        if let Some(v) = &recipe.calories {
+            obj.insert(
+                "nutrition".into(),
+                serde_json::json!({ "@type": "NutritionInformation", "calories": v }),
+            );
+        }
+        r
     }
 
     fn series_box(&self, index: usize, post: &Post, series: &Series) -> String {
@@ -1205,7 +1394,7 @@ impl<'a> Renderer<'a> {
         body.push_str(&self.heading(theme, 1, &page.title, "ob-post-title"));
         body.push_str(&format!(
             "\n<ob-code{}><div class=\"ob-prose\">{}</div></ob-code>\n</article>\n</div>",
-            self.code_attr(theme),
+            self.code_attr(theme, None),
             page.html
         ));
         self.simple(theme, &page.title, &page.description, &page.url, &body)
@@ -1390,6 +1579,156 @@ mod tests {
         assert!(!solo.contains("x-type"));
         assert!(!solo.contains("fx.js"));
         assert!(file(&files, "series/s/index.html").contains("data-ob-theme=\"loud\""));
+    }
+
+    fn build_posts(config_json: &str, posts: &[(&str, &str)]) -> Vec<OutputFile> {
+        let config = SiteConfig::from_json(config_json).unwrap();
+        let sources = Sources {
+            posts: posts
+                .iter()
+                .map(|(p, c)| SourceFile {
+                    path: (*p).into(),
+                    contents: (*c).into(),
+                })
+                .collect(),
+            ..Sources::default()
+        };
+        let site = Site::load(config, sources, LoadOptions::default()).unwrap();
+        generate(&site, &ThemeSet::new()).unwrap()
+    }
+
+    const RECIPE: &str = "---\ntitle: Lemon Pasta\ndate: 2026-03-02\nrecipe: true\nservings: 4\nprep: 10 min\ncook: 1 hr 5 min\ncuisine: Italian\ncourse: Dinner\ncover: /images/pasta.jpg\ntags: [pasta]\n---\nA story first.\n\n## Ingredients\n\n- 400 g spaghetti\n- 1/2 cup parmesan\n\n## Method\n\n1. Boil for 10 minutes.\n2. Toss with the cheese.\n";
+
+    #[test]
+    fn recipe_posts_get_a_card_controls_and_recipe_data() {
+        let files = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"Cook"}}"#,
+            &[("posts/pasta.md", RECIPE)],
+        );
+        let page = file(&files, "pasta/index.html");
+        assert!(page.contains("<ob-recipe key=\"/pasta/\" servings=\"4\" scaling checklists timers cook-mode print>"), "{page}");
+        assert!(page
+            .contains("<div><dt>Prep</dt><dd><time datetime=\"PT10M\">10 min</time></dd></div>"));
+        assert!(page.contains(
+            "<div><dt>Cook</dt><dd><time datetime=\"PT1H5M\">1 hr 5 min</time></dd></div>"
+        ));
+        assert!(page.contains(
+            "<div><dt>Total</dt><dd><time datetime=\"PT1H15M\">1 hr 15 min</time></dd></div>"
+        ));
+        assert!(
+            page.contains("<dt>Serves</dt><dd><span class=\"ob-recipe-servings\">4</span></dd>")
+        );
+        assert!(
+            page.contains("<a class=\"ob-recipe-jump\" href=\"#ingredients\">Jump to recipe</a>")
+        );
+        assert!(page.contains("<ul class=\"ob-recipe-list ob-ingredients\">"));
+        assert!(page.contains("</ob-code>\n</ob-recipe>"));
+        // schema.org: the article and the recipe, with ISO durations and the lists.
+        let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
+        let end = start + page[start..].find("</script>").unwrap();
+        let ld: serde_json::Value = serde_json::from_str(&page[start..end]).unwrap();
+        let recipe = &ld["@graph"][1];
+        assert_eq!(ld["@graph"][0]["@type"], "BlogPosting");
+        assert_eq!(recipe["@type"], "Recipe");
+        assert_eq!(
+            recipe["recipeIngredient"],
+            serde_json::json!(["400 g spaghetti", "1/2 cup parmesan"])
+        );
+        assert_eq!(
+            recipe["recipeInstructions"][0]["text"],
+            "Boil for 10 minutes."
+        );
+        assert_eq!(recipe["totalTime"], "PT1H15M");
+        assert_eq!(recipe["recipeYield"], serde_json::json!(["4 servings"]));
+        assert_eq!(recipe["recipeCuisine"], "Italian");
+        assert_eq!(
+            recipe["image"],
+            serde_json::json!(["https://t.dev/images/pasta.jpg"])
+        );
+
+        // Each feature can be switched off in openblog.json.
+        let files = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","recipes":{"scaling":false,"timers":false,"jumpLink":false,"cookMode":false}}"#,
+            &[("posts/pasta.md", RECIPE)],
+        );
+        let page = file(&files, "pasta/index.html");
+        assert!(
+            page.contains("<ob-recipe key=\"/pasta/\" checklists print>"),
+            "{page}"
+        );
+        assert!(!page.contains("Jump to recipe"));
+    }
+
+    #[test]
+    fn recipe_text_cannot_escape_the_json_ld_script() {
+        let post = "---\ntitle: Pie <!--<script> x\ndate: 2026-01-01\nrecipe: true\nservings: 0\ncook: overnight\n---\n## Ingredients\n\n- 1 cup sugar (the `<!--<script>` trick) & </script>\n\n## Steps\n\n1. Melt.\n";
+        let files = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            &[("posts/pie.md", post)],
+        );
+        let page = file(&files, "pie/index.html");
+        let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
+        let end = start + page[start..].find("</script>").unwrap();
+        let json = &page[start..end];
+        assert!(
+            !json.contains('<') && !json.contains('>') && !json.contains('&'),
+            "{json}"
+        );
+        let ld: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            ld["@graph"][1]["recipeIngredient"][0],
+            "1 cup sugar (the <!--<script> trick) &"
+        );
+        assert!(
+            ld["@graph"][1].get("cookTime").is_none(),
+            "unreadable times stay out of the data"
+        );
+        assert!(
+            page.contains("<dt>Cook</dt><dd>overnight</dd>"),
+            "but show as written"
+        );
+        assert!(
+            page.contains("<dt>Serves</dt><dd>0</dd>"),
+            "zero is not scalable"
+        );
+        assert!(ld["@graph"][1].get("recipeYield") == Some(&serde_json::json!(["0"])));
+    }
+
+    #[test]
+    fn recipes_without_lists_warn() {
+        let config = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev"}"#).unwrap();
+        let sources = Sources {
+            posts: vec![SourceFile {
+                path: "posts/c.md".into(),
+                contents: "---\ntitle: C\ndate: 2026-01-01\nrecipe: true\n---\n**Ingredients**\n\n- flour\n".into(),
+            }],
+            ..Sources::default()
+        };
+        let site = Site::load(config, sources, LoadOptions::default()).unwrap();
+        assert_eq!(site.warnings.len(), 2, "{:?}", site.warnings);
+        assert!(site.warnings[0].contains("## Ingredients"));
+    }
+
+    #[test]
+    fn code_settings_follow_post_then_site_then_theme() {
+        let post =
+            |fm: &str| format!("---\ntitle: P\ndate: 2026-01-01\n{fm}---\n```js\na\nb\n```\n");
+        let site = r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#;
+        let files = build_posts(site, &[("posts/p.md", &post(""))]);
+        assert!(file(&files, "p/index.html").contains("<ob-code highlight line-numbers>"));
+
+        let off = r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","code":{"lineNumbers":false,"copyButton":false}}"#;
+        let files = build_posts(off, &[("posts/p.md", &post(""))]);
+        assert!(file(&files, "p/index.html").contains("<ob-code highlight no-copy>"));
+
+        let files = build_posts(
+            off,
+            &[("posts/p.md", &post("lineNumbers: true\nhighlight: false\n"))],
+        );
+        assert!(
+            file(&files, "p/index.html").contains("<ob-code line-numbers no-copy>"),
+            "the post wins"
+        );
     }
 
     #[test]

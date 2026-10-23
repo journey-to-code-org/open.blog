@@ -715,6 +715,21 @@ export function isPlainText(language) {
   return ALIASES[language] === "none";
 }
 
+/** `"1,3-5"` -> Set {1, 3, 4, 5}. Ranges are capped, so a typo cannot hang the page. */
+export function parseLineRanges(spec, max = 10000) {
+  const lines = new Set();
+  for (const part of String(spec || "").split(",")) {
+    const m = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/.exec(part);
+    if (!m) continue;
+    let from = Number(m[1]);
+    let to = m[2] ? Number(m[2]) : from;
+    if (from > to) [from, to] = [to, from]; // {5-3} means 3 to 5
+    to = Math.min(to, max);
+    for (let n = from; n <= to; n += 1) lines.add(n);
+  }
+  return lines;
+}
+
 /**
  * Split tokens into lines, cutting tokens that span lines (block comments,
  * multi-line strings). A final newline does not start an extra empty line.

@@ -32,11 +32,18 @@ Colours are theme tokens, so a theme sets its own palette:
 
 Code blocks of two or more lines are numbered. The numbers are drawn by CSS, so copying
 the code, with the button or by selecting it, never includes them. Plain-text fences
-(`text`, `output`) are not numbered. A theme turns numbering off with
-`"options": { "codeLineNumbers": false }`.
+(`text`, `output`) are not numbered. A block can have a title and highlighted lines
+(see [Writing content](content.md#code-blocks)).
+
+A theme sets the defaults with `"options": { "codeHighlighting": false, "codeLineNumbers": false }`.
+The blog owner overrides them under `code` in `openblog.json` (where `copyButton: false`
+also removes the Copy buttons), a post with `highlight:` or `lineNumbers:` in its front
+matter, and one block with its fence options.
 
 A theme that prefers another highlighter sets `"options": { "codeHighlighting": false }`
-and loads its own through `scripts`; the engine then only adds the copy buttons.
+and loads its own through `scripts`. The engine still adds Copy buttons and line numbers
+unless those are turned off, and a site that sets `"code": { "highlight": true }` switches
+the built-in colouring back on.
 
 ## Share links
 
@@ -161,7 +168,10 @@ Two things to know:
 
 ## Everything else that is already built in
 
-Reading time, a table of contents for longer posts, previous and next links, series
+Recipes (servings scaling, checklists, step timers, cook mode, a print view, and
+schema.org recipe data; see [Writing content](content.md#recipes)), GitHub-style callouts,
+code-block titles and highlighted lines, reading time, a table of contents for longer
+posts, previous and next links, series
 navigation, tag pages, an archive, client-side search, RSS and JSON feeds, a sitemap,
 Open Graph and JSON-LD metadata, a light and dark toggle, copy buttons on code blocks,
 "last updated" dates, canonical links for cross-posts, and print styles.

@@ -10,6 +10,12 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
   its own, and a theme can ship its own web components.
 - **Everything works without JavaScript.** A handful of small custom elements add search,
   a light/dark toggle, copy buttons, syntax highlighting, sharing, and view counts on top.
+- **Not only for developers.** Mark a post `recipe: true` and readers get a recipe card,
+  servings scaling, checklists, step timers, a cook mode, a print view, and recipe data
+  for search engines. Callouts (`> [!TIP]`) work in any post.
+- **Code that reads well.** Colours for common languages (with the language guessed when a
+  block has none), line numbers, titles, and highlighted lines. Colours and numbers can be
+  turned off for the whole blog or one post, and numbers for a single block.
 - **Feeds and metadata built in.** RSS, JSON Feed, sitemap, Open Graph, JSON-LD, canonical
   links, and a small JSON of your latest posts for embedding on another site.
 - **Browser editor.** `openblog serve --admin` adds a login-protected editor with live

@@ -13,11 +13,16 @@
 // Plain-text fences (`text`, `output`) and unrecognised untagged blocks,
 // which are usually program output or prose, are not numbered.
 //
+// A fence can override this and more (the Markdown renderer turns its options
+// into data attributes): ```js title="app.js" {2,4-6} showLineNumbers=10
+// numbers from 10 and highlights lines 2 and 4 to 6. `no-copy` on the element
+// (from "copyButton": false in openblog.json) leaves out the Copy buttons.
+//
 // The tokenizer lives in ob-highlight.js. Blocks without a language are
 // guessed from their content. Tokens are emitted as <span class="tok-…">
 // elements built with DOM calls, never innerHTML, so code can never inject markup.
 
-import { detectLanguage, highlight, isKnownLanguage, isPlainText, splitLines } from "./ob-highlight.js";
+import { detectLanguage, highlight, isKnownLanguage, isPlainText, parseLineRanges, splitLines } from "./ob-highlight.js";
 
 /** Append one token to `parent`: a classed span, or plain text. */
 function append(parent, token) {
@@ -45,24 +50,35 @@ function enhance(codeEl, { colour, numbers }) {
     const painted = highlight(text, language);
     if (painted.some((t) => t.cls)) tokens = painted;
   }
+  // A fence's own options win: ```js showLineNumbers=10 {2-3}
+  const asked = codeEl.dataset.lineNumbers; // "true" | "false" | undefined
   const lineCount = text.replace(/\n$/, "").split("\n").length;
-  const numbered = numbers && lineCount >= 2 && Boolean(language) && !isPlainText(language);
-  if (!tokens && !numbered) return;
+  const numbered =
+    asked === "true" || (asked !== "false" && numbers && lineCount >= 2 && Boolean(language) && !isPlainText(language));
+  const marked = parseLineRanges(codeEl.dataset.highlightLines);
+  if (!tokens && !numbered && !marked.size) return;
 
   const frag = document.createDocumentFragment();
   const all = tokens || [{ text, cls: null }];
-  if (numbered) {
+  if (numbered || marked.size) {
     const lines = splitLines(all);
     lines.forEach((line, i) => {
       const row = document.createElement("span");
-      row.className = "ob-line";
+      row.className = marked.has(i + 1) ? "ob-line ob-line-hl" : "ob-line";
       for (const t of line) append(row, t);
       frag.append(row);
       if (i < lines.length - 1) frag.append("\n");
     });
     if (text.endsWith("\n")) frag.append("\n"); // keep the text exactly as written
-    codeEl.classList.add("ob-numbered");
-    codeEl.style.setProperty("--ob-line-digits", String(String(lines.length).length));
+    // Lines can be wider than the block; sizing the code to its widest line
+    // lets a highlight band reach across when the block scrolls sideways.
+    if (marked.size) codeEl.classList.add("ob-has-hl");
+    if (numbered) {
+      const start = Math.max(1, Number(codeEl.dataset.lineStart) || 1);
+      codeEl.classList.add("ob-numbered");
+      codeEl.style.setProperty("counter-reset", `ob-line ${start - 1}`);
+      codeEl.style.setProperty("--ob-line-digits", String(String(start + lines.length - 1).length));
+    }
   } else {
     for (const t of all) append(frag, t);
   }
@@ -74,16 +90,17 @@ function enhance(codeEl, { colour, numbers }) {
 class ObCode extends HTMLElement {
   connectedCallback() {
     const options = { colour: this.hasAttribute("highlight"), numbers: this.hasAttribute("line-numbers") };
+    const copy = !this.hasAttribute("no-copy");
     for (const pre of this.querySelectorAll("pre")) {
       const code = pre.querySelector("code");
-      if (code && (options.colour || options.numbers)) {
+      if (code) {
         try {
           enhance(code, options);
         } catch {
           // A tokenizer bug must never blank out the code; the plain text stays.
         }
       }
-      if (navigator.clipboard && !pre.querySelector(".ob-copy")) {
+      if (copy && navigator.clipboard && !pre.querySelector(".ob-copy")) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "ob-copy";
@@ -91,7 +108,11 @@ class ObCode extends HTMLElement {
         button.setAttribute("aria-label", "Copy code to clipboard");
         button.addEventListener("click", async () => {
           try {
-            await navigator.clipboard.writeText(code?.textContent ?? pre.textContent);
+            // Without a <code>, read the <pre> but not this button's own label.
+            const text = code
+              ? code.textContent
+              : [...pre.childNodes].filter((n) => n !== button).map((n) => n.textContent).join("");
+            await navigator.clipboard.writeText(text);
             button.textContent = "Copied";
           } catch {
             button.textContent = "Failed";

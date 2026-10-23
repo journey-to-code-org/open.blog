@@ -635,7 +635,7 @@ h2.ob-title {
   counter-reset: ob-line;
 }
 
-.ob-line::before {
+.ob-numbered .ob-line::before {
   display: inline-block;
   min-width: calc(var(--ob-line-digits, 2) * 1ch);
   margin-right: 1.6ch;
@@ -645,6 +645,265 @@ h2.ob-title {
   counter-increment: ob-line;
   opacity: 0.75;
   user-select: none;
+}
+
+/* Lines a fence marks with {2,4-6}: a full-width band with an accent edge.
+   The band is neutral so token colours keep their contrast. */
+.ob-prose pre > code.ob-has-hl {
+  display: inline-block;
+  min-width: 100%;
+}
+
+.ob-line-hl {
+  display: inline-block;
+  min-width: calc(100% + 2.4rem);
+  margin-inline: -1.2rem;
+  padding-inline: calc(1.2rem - 3px) 1.2rem;
+  border-left: 3px solid var(--ob-color-accent);
+  background: color-mix(in srgb, var(--ob-color-text) 4%, transparent);
+}
+
+/* ```js title="app.js" puts a caption bar on top of the block. */
+.ob-prose .ob-code-block {
+  margin: 1.1em 0;
+}
+
+.ob-code-block pre {
+  margin: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.ob-code-title {
+  padding: 0.45rem 1.2rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-bottom: 0;
+  border-radius: var(--ob-radius-sm) var(--ob-radius-sm) 0 0;
+  background: var(--ob-color-surface-raised);
+  color: var(--ob-color-muted);
+  font-family: var(--ob-font-mono);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Callouts: > [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION] ---------- */
+
+.ob-callout {
+  --ob-callout: var(--ob-color-callout-note, #2f81f7);
+  margin: 1.4em 0;
+  padding: 0.75rem 1.1rem;
+  border-left: 4px solid var(--ob-callout);
+  border-radius: var(--ob-radius-sm);
+  background: color-mix(in srgb, var(--ob-callout) 9%, transparent);
+}
+
+.ob-callout > :last-child {
+  margin-bottom: 0;
+}
+
+.ob-callout .ob-callout-title {
+  margin: 0 0 0.35em;
+  color: var(--ob-callout);
+  font-weight: 700;
+}
+
+.ob-callout-tip { --ob-callout: var(--ob-color-callout-tip, #2da44e); }
+.ob-callout-important { --ob-callout: var(--ob-color-callout-important, #8250df); }
+.ob-callout-warning { --ob-callout: var(--ob-color-callout-warning, #bf8700); }
+.ob-callout-caution { --ob-callout: var(--ob-color-callout-caution, #cf222e); }
+
+/* ---------- Recipes (posts with `recipe: true`; controls added by <ob-recipe>) ---------- */
+
+.ob-recipe-card {
+  margin: 1.5rem 0;
+  padding: 1rem 1.2rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.ob-recipe-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2rem;
+  margin: 0;
+}
+
+.ob-recipe-facts dt {
+  color: var(--ob-color-subtle);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ob-recipe-facts dd {
+  margin: 0.1rem 0 0;
+  font-weight: 600;
+}
+
+.ob-recipe-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.6rem;
+  margin-top: 0.9rem;
+}
+
+.ob-recipe-actions:empty {
+  display: none;
+}
+
+.ob-recipe-button,
+.ob-recipe-jump {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.25rem;
+  padding: 0.25rem 0.8rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.875rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ob-recipe-button:hover,
+.ob-recipe-jump:hover {
+  border-color: var(--ob-color-accent-border);
+}
+
+.ob-recipe-button[aria-pressed="true"] {
+  border-color: var(--ob-color-accent);
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+}
+
+.ob-recipe-button:disabled,
+.ob-recipe-button[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.ob-recipe-actions [hidden] {
+  display: none !important;
+}
+
+.ob-recipe-jump {
+  border-color: var(--ob-color-accent-border);
+  color: var(--ob-color-link);
+}
+
+.ob-recipe-scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+}
+
+.ob-recipe-scale .ob-recipe-button {
+  justify-content: center;
+  min-width: 2.25rem;
+  padding: 0;
+  font-size: 1.1rem;
+}
+
+.ob-recipe-count {
+  min-width: 1.5ch;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ob-qty-scaled {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ob-color-accent) 18%, transparent);
+}
+
+.ob-done .ob-qty-scaled {
+  background: none;
+}
+
+.ob-recipe-list > li + li {
+  margin-top: 0.45em;
+}
+
+.ob-steps > li + li {
+  margin-top: 0.8em;
+}
+
+.ob-has-checks .ob-ingredients {
+  padding-left: 0.2rem;
+  list-style: none;
+}
+
+.ob-has-checks .ob-recipe-list > li {
+  cursor: pointer;
+}
+
+.ob-check {
+  width: 1.05em;
+  height: 1.05em;
+  margin: 0 0.6em 0 0;
+  vertical-align: -0.15em;
+  accent-color: var(--ob-color-accent);
+  cursor: pointer;
+}
+
+.ob-recipe-list > li.ob-done {
+  color: var(--ob-color-subtle);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, currentColor 60%, transparent);
+}
+
+.ob-timer {
+  padding: 0 0.45em;
+  border: 1px dashed var(--ob-color-accent-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ob-color-link);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.ob-timer::before {
+  content: "⏱ ";
+}
+
+.ob-timer[data-state="running"] {
+  border-style: solid;
+  background: color-mix(in srgb, var(--ob-color-accent) 16%, transparent);
+}
+
+.ob-timer[data-state="done"] {
+  border-style: solid;
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+}
+
+/* While running, the countdown replaces the label; once done, both show. */
+.ob-timer-clock:empty,
+.ob-timer[data-state="running"] .ob-timer-label {
+  display: none;
+}
+
+.ob-timer[data-state="done"] .ob-timer-clock::before {
+  content: " · ";
+}
+
+/* Cook mode: larger, easier to read from a step back. */
+ob-recipe.ob-cooking .ob-recipe-part {
+  font-size: 1.15em;
+}
+
+.ob-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ---------- Embeds (a standalone CodePen link becomes a pen) ---------- */
@@ -1053,5 +1312,53 @@ ob-back-to-top button:hover {
   body {
     background: #fff;
     color: #000;
+  }
+
+  .ob-recipe-actions,
+  .ob-check,
+  .ob-timer::before,
+  .ob-timer-clock {
+    display: none !important;
+  }
+
+  .ob-timer .ob-timer-label {
+    display: inline !important;
+  }
+
+  .ob-recipe-card {
+    background: none;
+    color: inherit;
+  }
+
+  .ob-recipe-facts dt {
+    color: #555;
+  }
+
+  .ob-qty-scaled {
+    background: none;
+  }
+
+  .ob-timer,
+  .ob-timer[data-state] {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+  }
+
+  /* "Print recipe": the title, the summary, the ingredients and the steps. */
+  .ob-print-recipe .ob-post-header > :not(.ob-heading, h1),
+  .ob-print-recipe .ob-cover,
+  .ob-print-recipe .ob-toc,
+  .ob-print-recipe .ob-prose > :not(.ob-recipe-part),
+  .ob-print-recipe .ob-post > :not(.ob-post-header, ob-recipe),
+  .ob-print-recipe .ob-heading-anchor,
+  .ob-print-recipe .ob-code-label {
+    display: none !important;
+  }
+
+  .ob-print-recipe .ob-recipe-list > li.ob-done {
+    color: inherit;
+    text-decoration: none;
   }
 }

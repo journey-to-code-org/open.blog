@@ -67,7 +67,8 @@ colours `codeKeyword`, `codeString`, `codeComment`, `codeNumber`, `codeFunction`
 `codeType`, `codeAttr`, `codeTag`, `codeMeta`, `codeVariable`, `codeProperty`,
 `codeOperator`, `codePunctuation`, `codeConstant`, `codeRegex`. The last five are
 optional: a theme without them falls back to `codeAttr`, `codeVariable`, the code
-text colour, `codeNumber`, and `codeString`.
+text colour, `codeNumber`, and `codeString`. Callouts use `calloutNote`, `calloutTip`,
+`calloutImportant`, `calloutWarning`, and `calloutCaution` for their accent colour.
 
 ### Other tokens
 

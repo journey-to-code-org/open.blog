@@ -98,13 +98,36 @@ pub fn init(dir: &Path, title: Option<&str>, github_pages: bool) -> Result<Vec<S
     Ok(created)
 }
 
-/// Create `content/posts/<date>-<slug>.md` and return its path.
+/// The body of `openblog new --recipe`: the sections the engine turns into
+/// a recipe card, scaling, checklists and timers, ready to fill in.
+const RECIPE_BODY: &str = "
+A few words about this dish: where it comes from and why you make it.
+
+> [!TIP]
+> A swap, a shortcut, or something to watch out for.
+
+## Ingredients
+
+- 2 cups flour
+- 1 tsp salt
+- 1 1/2 cups milk
+
+## Steps
+
+1. Heat the oven to 200 °C (400 °F).
+2. Mix everything into a smooth batter.
+3. Bake for 25 minutes, until golden.
+";
+
+/// Create `content/posts/<date>-<slug>.md` and return its path. With `recipe`,
+/// the post starts from a recipe template (servings, times, ingredients, steps).
 pub fn new_post(
     root: &Path,
     title: &str,
     series: Option<&str>,
     tags: &[String],
     draft: bool,
+    recipe: bool,
 ) -> Result<String, String> {
     let config = site::load_config(root)?;
     let slug = slugify(title);
@@ -128,11 +151,25 @@ pub fn new_post(
         fields.push(("tags", Value::List(tags.to_vec())));
     }
     fields.push(("description", Value::Scalar(String::new())));
+    if recipe {
+        for (key, value) in [
+            ("recipe", "true"),
+            ("servings", "4"),
+            ("prep", "15 min"),
+            ("cook", "25 min"),
+        ] {
+            fields.push((key, Value::Scalar(value.into())));
+        }
+    }
     if draft {
         fields.push(("draft", Value::Scalar("true".into())));
     }
     let mut text = frontmatter::serialize(&fields);
-    text.push_str("\nWrite your post here.\n");
+    text.push_str(if recipe {
+        RECIPE_BODY
+    } else {
+        "\nWrite your post here.\n"
+    });
     fs::create_dir_all(path.parent().unwrap_or(root)).map_err(|e| e.to_string())?;
     fsutil::write_file(&path, text.as_bytes())?;
     Ok(rel)
@@ -193,10 +230,16 @@ mod tests {
             Some("My Series"),
             &["rust".into()],
             true,
+            false,
         )
         .unwrap();
         assert!(rel.ends_with("-a-new-post.md"));
-        assert!(new_post(&dir, "A New Post!", None, &[], false).is_err());
+        assert!(new_post(&dir, "A New Post!", None, &[], false, false).is_err());
+        let recipe = new_post(&dir, "Lemon Pasta", None, &[], true, true).unwrap();
+        let text = fs::read_to_string(dir.join(&recipe)).unwrap();
+        let doc = openblog_core::frontmatter::parse(&text).unwrap();
+        assert!(openblog_core::recipe::is_recipe(&doc.front_matter));
+        assert!(text.contains("## Ingredients") && text.contains("## Steps"));
         let drafts = site::build(
             &dir,
             &site::BuildOptions {
@@ -206,7 +249,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(drafts.posts, 2);
+        assert_eq!(drafts.posts, 3, "hello world, the new post and the recipe");
         let _ = fs::remove_dir_all(&dir);
     }
 }
