@@ -4,6 +4,11 @@ Use the Field journal profile for hikes, paddles, field surveys, restoration day
 other place-based notes. The post remains ordinary Markdown; the profile adds a compact
 field summary, optional route and elevation drawings, and explicit location privacy.
 
+For a complete working example, see
+[`content/posts/2026-10-23-a-wet-morning-on-the-ridge.md`](../content/posts/2026-10-23-a-wet-morning-on-the-ridge.md).
+It includes a cover image, narrative trail log, field observations, access and stewardship
+notes, and privacy-safe route and elevation drawings.
+
 ## Start a field note
 
 Select **Field journal** under **Settings → Content profile**, or author the fields directly:
