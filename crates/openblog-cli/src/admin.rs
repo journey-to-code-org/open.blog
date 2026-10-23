@@ -395,6 +395,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             &json!({ "user": session.user, "csrf": session.csrf, "now": clock::now().rfc3339() }),
         ),
         ("GET", "meta") => meta(state),
+        ("GET", "contributors") => get_contributors(state),
+        ("PUT", "contributors") => save_contributors(state, req),
         ("GET", "status") => status(state),
         ("GET", "analytics") => {
             if !state.analytics_enabled {
@@ -1310,6 +1312,172 @@ fn document_credits(sidecar: &Path, config: &SiteConfig) -> (Json, Json, Json) {
             .map(Json::String)
             .unwrap_or(Json::Null);
     (Json::Array(credits.clone()), credit_etag, credit_error)
+}
+
+fn contributor_registry_response(config_bytes: &[u8], config: &SiteConfig) -> Response {
+    Response::json(
+        200,
+        &json!({
+            "etag": etag_bytes(config_bytes),
+            "contributors": config.contributors,
+            "author": config.author,
+        }),
+    )
+}
+
+fn get_contributors(state: &AppState) -> Response {
+    let _content_transaction = lock(&state.build);
+    let path = state.root.join(site::CONFIG_FILE);
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Response::error(500, &format!("cannot read {}: {error}", path.display()))
+        }
+    };
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(text) => text,
+        Err(error) => {
+            return Response::error(500, &format!("{} is not UTF-8: {error}", path.display()))
+        }
+    };
+    match SiteConfig::from_json(text) {
+        Ok(config) => contributor_registry_response(&bytes, &config),
+        Err(error) => Response::error(500, &error),
+    }
+}
+
+fn referenced_removed_contributors(
+    root: &Path,
+    config: &SiteConfig,
+    removed: &[String],
+) -> Result<Vec<String>, String> {
+    if removed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let sources = site::read_sources(root, config)?;
+    let mut references = Vec::new();
+    for sidecar in sources.credits {
+        let Ok(value) = serde_json::from_str::<Json>(&sidecar.contents) else {
+            continue;
+        };
+        let Some(credits) = value.get("credits").and_then(Json::as_array) else {
+            continue;
+        };
+        if credits.iter().any(|credit| {
+            credit
+                .get("contributor")
+                .and_then(Json::as_str)
+                .is_some_and(|id| removed.iter().any(|removed| removed == id))
+        }) {
+            references.push(sidecar.path);
+        }
+    }
+    references.sort();
+    references.dedup();
+    Ok(references)
+}
+
+fn save_contributors(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let Some(contributors) = body.get("contributors").and_then(Json::as_object) else {
+        return Response::error(422, "contributors must be an object");
+    };
+    if contributors.len() > 500 {
+        return Response::error(422, "contributors has too many entries");
+    }
+
+    let mut status = lock(&state.build);
+    let path = state.root.join(site::CONFIG_FILE);
+    let current_bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Response::error(500, &format!("cannot read {}: {error}", path.display()))
+        }
+    };
+    if body.get("etag").and_then(Json::as_str) != Some(etag_bytes(&current_bytes).as_str()) {
+        return Response::error(
+            409,
+            "Site settings changed on disk since you opened Contributors. Reload before saving.",
+        );
+    }
+    let current_text = match std::str::from_utf8(&current_bytes) {
+        Ok(text) => text,
+        Err(error) => {
+            return Response::error(500, &format!("{} is not UTF-8: {error}", path.display()))
+        }
+    };
+    let current_config = match SiteConfig::from_json(current_text) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let mut candidate_json: Json = match serde_json::from_str(current_text) {
+        Ok(Json::Object(object)) => Json::Object(object),
+        Ok(_) => return Response::error(500, "openblog.json must contain a JSON object"),
+        Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
+    };
+    candidate_json["contributors"] = Json::Object(contributors.clone());
+    let candidate_text = match serde_json::to_string(&candidate_json) {
+        Ok(text) => text,
+        Err(error) => {
+            return Response::error(422, &format!("cannot serialize contributors: {error}"))
+        }
+    };
+    let candidate_config = match SiteConfig::from_json(&candidate_text) {
+        Ok(config) => config,
+        Err(error) => return Response::error(422, &error),
+    };
+    let removed = current_config
+        .contributors
+        .keys()
+        .filter(|id| !candidate_config.contributors.contains_key(*id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let references = match referenced_removed_contributors(&state.root, &current_config, &removed) {
+        Ok(references) => references,
+        Err(error) => return Response::error(422, &error),
+    };
+    if !references.is_empty() {
+        return Response::json(
+            422,
+            &json!({
+                "error": "Referenced contributors cannot be removed. Update these post credits first.",
+                "paths": references,
+            }),
+        );
+    }
+
+    candidate_json["contributors"] = json!(candidate_config.contributors);
+    let written = match serde_json::to_string_pretty(&candidate_json) {
+        Ok(text) => format!("{text}\n"),
+        Err(error) => {
+            return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
+        }
+    };
+    if let Err(error) = write_atomic(&path, &written) {
+        return Response::error(500, &error);
+    }
+    let build = state.rebuild_locked(&mut status);
+    let build_json = match build {
+        Ok(report) => json!({ "ok": true, "posts": report.posts, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
+    eprintln!("admin: updated contributor registry");
+    state_arc(state).auto_publish("Update contributor registry".into());
+    Response::json(
+        200,
+        &json!({
+            "etag": etag(&written),
+            "contributors": candidate_config.contributors,
+            "author": candidate_config.author,
+            "build": build_json,
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -2964,6 +3132,123 @@ mod tests {
             fs::read_dir(f.dir.join(".openblog/trash")).unwrap().count(),
             1
         );
+    }
+
+    #[test]
+    fn contributor_registry_edits_are_validated_conflict_safe_and_reference_aware() {
+        let f = fixture("contributor-registry");
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["futureSetting"] = json!({ "keep": true });
+        config["author"] = json!({
+            "name": "Legacy Author",
+            "url": "/about/",
+            "sameAs": ["https://example.com/legacy"]
+        });
+        config["contributors"] = json!({ "ada": { "name": "Ada" } });
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        fs::write(
+            f.dir.join("content/posts/hello-world.credits.json"),
+            r#"{"version":1,"credits":[{"contributor":"ada","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,
+        )
+        .unwrap();
+        let session = login_ok(&f);
+
+        let registry = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/contributors"), &session, false),
+        ));
+        assert_eq!(registry["contributors"]["ada"]["name"], "Ada");
+        assert_eq!(registry["author"]["name"], "Legacy Author");
+        let original_etag = registry["etag"].as_str().unwrap();
+
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({ "etag": "stale", "contributors": registry["contributors"] }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+
+        let invalid = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({ "etag": original_etag, "contributors": {
+                        "Bad ID": { "name": "Bad" }
+                    } }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(invalid.status, 422);
+
+        let referenced = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({ "etag": original_etag, "contributors": {} }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(referenced.status, 422);
+        assert!(
+            String::from_utf8_lossy(&referenced.body).contains("posts/hello-world.credits.json")
+        );
+
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({ "etag": original_etag, "contributors": {
+                        "ada": { "name": "Ada Lovelace", "url": "/people/ada/" },
+                        "grace": { "name": "Grace Hopper", "orcid": "0000-0002-1825-0097" }
+                    } }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved = body_json(&saved);
+        assert_eq!(saved["contributors"]["ada"]["name"], "Ada Lovelace");
+        assert_eq!(
+            saved["contributors"]["grace"]["orcid"],
+            "https://orcid.org/0000-0002-1825-0097"
+        );
+        assert_eq!(
+            saved["build"]["ok"],
+            true,
+            "{}",
+            saved["build"]["error"].as_str().unwrap_or("")
+        );
+        assert_ne!(saved["etag"], original_etag);
+
+        let written: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        assert_eq!(written["futureSetting"]["keep"], true);
+        assert_eq!(written["title"], config["title"]);
     }
 
     #[test]

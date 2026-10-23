@@ -237,6 +237,75 @@ export function focusCreditControl(ui, index, schedule = globalThis.requestAnima
   });
 }
 
+export function normalizeContributorDraft(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value).map(([id, contributor]) => ({
+    id,
+    originalId: id,
+    name: typeof contributor?.name === "string" ? contributor.name : "",
+    url: typeof contributor?.url === "string" ? contributor.url : "",
+    sameAs: Array.isArray(contributor?.sameAs) ? contributor.sameAs.filter((item) => typeof item === "string").join("\n") : "",
+    orcid: typeof contributor?.orcid === "string" ? contributor.orcid : "",
+  }));
+}
+
+function contributorUrls(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isAbsoluteHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function isPublicProfileUrl(value) {
+  if (!value) return true;
+  return (value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") && !/\s/.test(value)) || isAbsoluteHttpUrl(value);
+}
+
+export function validateContributorDraft(drafts) {
+  const rows = Array.isArray(drafts) ? drafts : [];
+  const ids = new Set();
+  for (const contributor of rows) {
+    const id = String(contributor?.id || "").trim();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) return "Each contributor ID must be a lowercase ASCII slug such as ada-lovelace.";
+    if (contributor.originalId && contributor.originalId !== id) return `Existing contributor ID “${contributor.originalId}” cannot be renamed.`;
+    if (ids.has(id)) return `Contributor ID “${id}” is used more than once.`;
+    ids.add(id);
+    if (!String(contributor.name || "").trim()) return `Contributor “${id}” needs a name.`;
+    const profileUrl = String(contributor.url || "").trim();
+    if (!isPublicProfileUrl(profileUrl)) return `Contributor “${id}” needs an HTTP(S) URL or site-root path.`;
+    if (contributorUrls(contributor.sameAs).some((url) => !isAbsoluteHttpUrl(url))) return `Contributor “${id}” same-as links must be absolute HTTP(S) URLs.`;
+  }
+  return "";
+}
+
+export function contributorDraftPayload(drafts) {
+  return Object.fromEntries(
+    (Array.isArray(drafts) ? drafts : []).map((contributor) => [
+      String(contributor.id || "").trim(),
+      {
+        name: String(contributor.name || "").trim(),
+        url: String(contributor.url || "").trim(),
+        sameAs: contributorUrls(contributor.sameAs),
+        orcid: String(contributor.orcid || "").trim(),
+      },
+    ]),
+  );
+}
+
+export function contributorSaveState(saveVersion, editVersion, mountedView, currentView) {
+  if (mountedView !== currentView) return { active: false, dirty: null, messageIsCurrent: false };
+  return { active: true, ...saveStateForVersions(saveVersion, editVersion) };
+}
+
 export function previewWarningsForDisplay(warnings) {
   return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
 }
@@ -551,6 +620,7 @@ export class ObAdmin extends AdminElement {
   user = "";
   dirty = false;
   editVersion = 0;
+  viewVersion = 0;
   skipRoute = false;
   currentHash = "";
 
@@ -610,6 +680,7 @@ export class ObAdmin extends AdminElement {
 
   mount(...nodes) {
     this.editor = null;
+    this.viewVersion += 1;
     this.replaceChildren(...nodes);
   }
 
@@ -695,6 +766,8 @@ export class ObAdmin extends AdminElement {
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
+      : active === "contributors"
+        ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "overview"
         ? { title: "Overview", detail: "See what is live, what needs attention, and what to work on next." }
         : { title: KINDS[active]?.label || "Workspace", detail: "Create, review, and publish content from the files you own." };
@@ -721,7 +794,11 @@ export class ObAdmin extends AdminElement {
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
         toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics")),
-        toolGroup("Site", h("a", { class: "oba-tab", href: "/", target: "_blank", rel: "noopener" }, "View site ↗")),
+        toolGroup(
+          "Site",
+          h("a", { class: "oba-tab", "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
+          h("a", { class: "oba-tab", href: "/", target: "_blank", rel: "noopener" }, "View site ↗"),
+        ),
       ),
       h(
         "section",
@@ -754,6 +831,7 @@ export class ObAdmin extends AdminElement {
       { label: "Pages", category: "Content", run: () => go("#/pages") },
       { label: "Series", category: "Content", run: () => go("#/series") },
       { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
+      { label: "Contributors", category: "Site", keywords: "authors credits orcid identity", run: () => go("#/contributors") },
       { label: "View site", category: "Site", keywords: "public blog", run: () => open("/", "_blank", "noopener") },
       { label: "Switch theme", category: "Workspace", keywords: "dark light mode", run: () => document.querySelector(".oba-theme-toggle")?.click() },
       { label: "Sign out", category: "Account", keywords: "logout", run: () => this.querySelector('[data-action="logout"]')?.click() },
@@ -906,6 +984,7 @@ export class ObAdmin extends AdminElement {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
+      else if (head === "contributors") await this.showContributors();
       else if (head === "overview" || !head) await this.showOverview(params.get("focus"));
       else await this.showList(KINDS[head] ? head : "posts", params.get("status"));
     } catch (err) {
@@ -1119,6 +1198,171 @@ export class ObAdmin extends AdminElement {
     );
   }
 
+  async showContributors() {
+    const registry = await this.api.call("GET", "contributors");
+    let drafts = normalizeContributorDraft(registry.contributors);
+    let etag = registry.etag;
+    let editVersion = 0;
+    let mountedView = 0;
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const grid = h("div", { class: "oba-contributor-grid" });
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Save contributors");
+    const add = h("button", { class: "oba-btn", type: "button" }, "Add contributor");
+    const legacy = h("button", { class: "oba-btn", type: "button" }, "Prefill legacy author");
+
+    const uniqueId = (suggestion) => {
+      const base = String(suggestion || "contributor")
+        .toLowerCase()
+        .normalize("NFKD")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "contributor";
+      const used = new Set(drafts.map((draft) => draft.id));
+      if (!used.has(base)) return base;
+      let number = 2;
+      while (used.has(`${base}-${number}`)) number += 1;
+      return `${base}-${number}`;
+    };
+    const markDirty = () => {
+      editVersion += 1;
+      this.dirty = true;
+      status.className = "oba-small";
+      status.textContent = "Unsaved contributor changes.";
+    };
+    const render = (focusIndex = -1) => {
+      grid.replaceChildren(
+        ...drafts.map((draft, index) => {
+          const id = h("input", {
+            id: `oba-contributor-${index}-id`,
+            type: "text",
+            value: draft.id,
+            disabled: Boolean(draft.originalId),
+            required: true,
+            autocapitalize: "none",
+            spellcheck: "false",
+          });
+          const name = h("input", { id: `oba-contributor-${index}-name`, type: "text", value: draft.name, required: true });
+          const url = h("input", { id: `oba-contributor-${index}-url`, type: "text", value: draft.url, inputmode: "url", placeholder: "/about/ or https://…" });
+          const sameAs = h("textarea", { id: `oba-contributor-${index}-same-as`, rows: "3", placeholder: "One absolute profile URL per line" }, draft.sameAs);
+          const orcid = h("input", {
+            id: `oba-contributor-${index}-orcid`,
+            type: "text",
+            value: draft.orcid,
+            autocapitalize: "none",
+            spellcheck: "false",
+            placeholder: "0000-0000-0000-000X or https://orcid.org/…",
+          });
+          const bind = (control, key) =>
+            control.addEventListener("input", () => {
+              draft[key] = control.value;
+              markDirty();
+            });
+          bind(id, "id");
+          bind(name, "name");
+          bind(url, "url");
+          bind(sameAs, "sameAs");
+          bind(orcid, "orcid");
+          const remove = h(
+            "button",
+            {
+              class: "oba-btn oba-btn-danger",
+              type: "button",
+              "aria-label": `Remove ${draft.name || draft.id || `contributor ${index + 1}`}`,
+              onClick: () => {
+                drafts.splice(index, 1);
+                markDirty();
+                render(Math.min(index, drafts.length - 1));
+              },
+            },
+            "Remove",
+          );
+          return h(
+            "section",
+            { class: "oba-contributor-card", "aria-labelledby": `oba-contributor-${index}-heading` },
+            h("header", {}, h("div", {}, h("p", { class: "oba-eyebrow" }, draft.originalId ? "Registered identity" : "New identity"), h("h2", { id: `oba-contributor-${index}-heading` }, draft.name || draft.id || `Contributor ${index + 1}`)), remove),
+            h("div", { class: "oba-contributor-fields" },
+              h("div", { class: "oba-field" }, h("label", { for: id.id }, "Stable ID"), id, h("small", { class: "oba-small" }, draft.originalId ? "IDs stay fixed so existing post credits keep resolving." : "Lowercase letters, numbers, and single hyphens.")),
+              h("div", { class: "oba-field" }, h("label", { for: name.id }, "Public name"), name),
+              h("div", { class: "oba-field" }, h("label", { for: url.id }, "Profile URL"), url),
+              h("div", { class: "oba-field" }, h("label", { for: sameAs.id }, "Same-as profile links"), sameAs),
+              h("div", { class: "oba-field" }, h("label", { for: orcid.id }, "Manually entered ORCID iD"), orcid, h("small", { class: "oba-small" }, "Validated for format and checksum only; this does not verify identity or authenticated ownership.")),
+            ),
+          );
+        }),
+      );
+      if (!drafts.length) grid.append(h("p", { class: "oba-notice" }, "No contributors are registered yet. Add one or prefill the legacy site author."));
+      if (focusIndex >= 0) requestAnimationFrame(() => grid.querySelector(`#oba-contributor-${focusIndex}-name`)?.focus());
+      else if (!drafts.length) requestAnimationFrame(() => add.focus());
+    };
+
+    add.addEventListener("click", () => {
+      drafts.push({ id: uniqueId("contributor"), originalId: "", name: "", url: "", sameAs: "", orcid: "" });
+      markDirty();
+      render(drafts.length - 1);
+    });
+    legacy.disabled = !registry.author?.name;
+    legacy.addEventListener("click", () => {
+      const author = registry.author || {};
+      drafts.push({
+        id: uniqueId(author.name || "site-author"),
+        originalId: "",
+        name: author.name || "",
+        url: author.url || "",
+        sameAs: Array.isArray(author.sameAs) ? author.sameAs.join("\n") : "",
+        orcid: "",
+      });
+      markDirty();
+      render(drafts.length - 1);
+    });
+    save.addEventListener("click", async () => {
+      const problem = validateContributorDraft(drafts);
+      if (problem) {
+        status.className = "oba-error";
+        status.textContent = problem;
+        return;
+      }
+      save.disabled = true;
+      const saveVersion = editVersion;
+      status.className = "oba-small";
+      status.textContent = "Saving contributors…";
+      try {
+        const result = await this.api.call("PUT", "contributors", { json: { etag, contributors: contributorDraftPayload(drafts) } });
+        this.meta.contributors = result.contributors;
+        const responseState = contributorSaveState(saveVersion, editVersion, mountedView, this.viewVersion);
+        if (!responseState.active) return;
+        etag = result.etag;
+        this.dirty = responseState.dirty;
+        if (responseState.messageIsCurrent) {
+          drafts = normalizeContributorDraft(result.contributors);
+          status.className = result.build?.ok === false ? "oba-notice" : "oba-ok";
+          status.textContent = result.build?.ok === false ? `Contributors saved, but the preview build failed: ${result.build.error}` : "Contributors saved.";
+          render();
+        } else {
+          status.className = "oba-notice";
+          status.textContent = "Earlier changes saved. Newer contributor edits are still unsaved.";
+        }
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        status.className = "oba-error";
+        const paths = Array.isArray(error.data?.paths) ? ` ${error.data.paths.join(", ")}` : "";
+        status.textContent = `${error.data?.error || error.message}${paths}`;
+      } finally {
+        save.disabled = false;
+      }
+    });
+
+    render();
+    this.mount(
+      this.shell(
+        "contributors",
+        h("section", { class: "oba-contributor-intro" }, h("p", {}, "Register each person once, then select them in a post’s Settings view and assign publishing or CRediT roles."), h("p", { class: "oba-small" }, "Saving updates only the contributors member of openblog.json. Existing IDs cannot be renamed, and referenced identities cannot be removed until their post credits are updated.")),
+        h("div", { class: "oba-toolbar" }, add, legacy, h("span", { class: "oba-spacer" }), save),
+        status,
+        grid,
+      ),
+    );
+    mountedView = this.viewVersion;
+  }
+
   // ---- analytics
 
   async showAnalytics(days) {
@@ -1203,8 +1447,7 @@ export class ObAdmin extends AdminElement {
       doc = { path: null, kind: newKind, etag: null, fields: {}, body: "" };
     }
     const editor = new Editor(this, doc);
-    this.editor = editor;
-    this.replaceChildren(this.shell(doc.kind, editor.render()));
+    this.mount(this.shell(doc.kind, editor.render()));
     this.editor = editor;
     editor.afterMount();
   }

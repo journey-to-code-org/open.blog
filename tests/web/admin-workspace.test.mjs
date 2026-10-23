@@ -68,3 +68,16 @@ test("post settings expose ordered contributor credits and repair states", () =>
   assert.match(styles, /\.oba-credit-card/);
   assert.match(styles, /\.oba-credit-roles/);
 });
+
+test("site tools expose a contributor registry workspace with manual identity provenance", () => {
+  assert.match(admin, /href: "#\/contributors"/);
+  assert.match(admin, /async showContributors\(\)/);
+  assert.match(admin, /Manually entered ORCID iD/);
+  assert.match(admin, /Prefill legacy author/);
+  assert.match(admin, /api\.call\("PUT", "contributors"/);
+  assert.match(admin, /contributorSaveState\(saveVersion, editVersion/);
+  assert.match(admin, /this\.viewVersion !== mountedView/);
+  assert.match(admin, /this\.mount\(this\.shell\(doc\.kind, editor\.render\(\)\)\)/);
+  assert.match(styles, /\.oba-contributor-grid/);
+  assert.match(styles, /\.oba-contributor-card/);
+});

@@ -144,8 +144,21 @@ roles for each person. Every selected person needs at least one role. An explici
 no people intentionally suppresses inherited authorship; the editor labels this state so it
 cannot be confused with inheritance.
 
-The people available in the picker come from `openblog.json` `contributors`; add or update
-identities there for now. If a sidecar is malformed, Settings shows the error without hiding
+The people available in the picker come from the site contributor registry. Open
+**Site → Contributors** to add or update a public name, stable ID, profile URL, same-as
+profiles, and optional ORCID iD. Existing IDs cannot be renamed in Admin because post
+sidecars refer to them; a contributor cannot be removed while any sidecar still uses that
+ID. If the registry is empty, **Prefill legacy author** copies the existing site author into
+an unsaved draft for review—it does not change configuration or post credits until you save.
+
+Registry saves use their own `openblog.json` revision token. If configuration changed on
+disk after the workspace opened, Admin refuses the stale save and asks you to reload. It
+updates only the `contributors` member of the parsed JSON object, preserving unrelated and
+future configuration members, validates the complete candidate with the publishing engine,
+then rebuilds the preview. ORCID iDs entered here are manual and unauthenticated: format and
+checksum validation does not verify the person or ownership of the record.
+
+If a sidecar is malformed, Settings shows the error without hiding
 the Markdown and requires an explicit repair choice: inherit to remove the broken sidecar,
 or set new explicit credits to replace it. Credit-only changes participate in unsaved-change
 warnings, production preview, conflict detection, and the normal save validation.

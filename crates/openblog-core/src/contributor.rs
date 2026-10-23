@@ -175,6 +175,15 @@ pub fn normalize_registry(contributors: &mut BTreeMap<String, Contributor>) -> R
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .collect();
+        if contributor
+            .same_as
+            .iter()
+            .any(|value| value.starts_with('/') || !safe_profile_url(value))
+        {
+            return Err(format!(
+                "contributors.{id}.sameAs must contain only absolute HTTP(S) URLs"
+            ));
+        }
         contributor.orcid = normalize_orcid(&contributor.orcid)
             .map_err(|error| format!("contributors.{id}.orcid: {error}"))?;
     }

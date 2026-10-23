@@ -1508,6 +1508,50 @@ kbd {
   white-space: nowrap;
 }
 
+/* Contributor registry */
+.oba-contributor-intro {
+  max-width: 54rem;
+  margin-bottom: 1rem;
+}
+
+.oba-contributor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.oba-contributor-card {
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  box-shadow: var(--oba-shadow-sm);
+}
+
+.oba-contributor-card > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.oba-contributor-card h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.oba-contributor-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 1rem;
+}
+
+.oba-contributor-fields .oba-field:nth-child(n + 4) {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 64rem) {
   .oba-app-header > .oba-small,
   .oba-theme-label {
@@ -1636,6 +1680,14 @@ kbd {
 
   .oba-credit-roles {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-contributor-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-contributor-fields .oba-field {
+    grid-column: auto;
   }
 }
 

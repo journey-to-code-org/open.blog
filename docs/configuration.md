@@ -63,7 +63,11 @@ default, so you can edit values in place and delete the ones you do not need.
   `social` for generic footer links.
 - **`contributors`** is a reusable registry for posts with multiple authors or other
   credited people. Keys are lowercase slugs. Each person supports `name`, `url`, `sameAs`,
-  and an optional ORCID iD. See [Work-specific credits](content.md#work-specific-credits).
+  and an optional ORCID iD. Profile `url` accepts an HTTP(S) URL or site-root path; every
+  `sameAs` entry must be an absolute HTTP(S) URL. Contributor IDs are referenced by post
+  credit sidecars, so treat them as stable identifiers. They can also be managed under
+  **Site → Contributors** in Admin Studio. See
+  [Work-specific credits](content.md#work-specific-credits).
 - **`home.intro`** is Markdown shown above the post list on the first page.
 
 ## Share, analytics, related posts, snippets, CDN

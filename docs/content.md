@@ -127,7 +127,10 @@ research `citation_author` metadata, and per-item feed authors; every credited p
 role appears in the visible Contributions panel. JSON-LD separates ordered authors from
 other contributors. An explicit empty `credits` array suppresses inherited authorship.
 Contributor profile `url` values must be complete HTTP(S) URLs or site-root paths beginning
-with `/`; executable and protocol-relative schemes are rejected during configuration load.
+with `/`; `sameAs` values must be complete HTTP(S) URLs. Executable and protocol-relative
+schemes are rejected during configuration load. Admin Studio's **Site → Contributors**
+workspace manages this registry with conflict-aware saves, stable IDs, and deletion guards;
+editing `openblog.json` directly remains supported.
 
 Accepted Crossref roles are `author`, `corresponding-author`, `editor`, `chair`, `other`,
 `reviewer`, `review-assistant`, `reviewer-external`, `stats-reviewer`, `reader`, and

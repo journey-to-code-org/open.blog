@@ -10,10 +10,13 @@ import {
   applyProfileFieldDrafts,
   creditHasAuthor,
   creditPayload,
+  contributorDraftPayload,
+  contributorSaveState,
   focusCreditControl,
   moveCredit,
   normalizeStatusFilter,
   normalizeCreditDraft,
+  normalizeContributorDraft,
   parseAdminHash,
   preserveProfileFieldDrafts,
   previewWarningsForDisplay,
@@ -23,7 +26,50 @@ import {
   saveStateForVersions,
   toggleCreditRole,
   validateCreditDraft,
+  validateContributorDraft,
 } from "../../web/admin/admin.js";
+
+test("contributor drafts preserve stable ids and prefill editable identity fields", () => {
+  const draft = normalizeContributorDraft({
+    ada: { name: " Ada Lovelace ", url: "/people/ada/", sameAs: ["https://example.test/ada"], orcid: "0000-0002-1825-0097" },
+  });
+  assert.deepEqual(draft, [
+    {
+      id: "ada",
+      originalId: "ada",
+      name: " Ada Lovelace ",
+      url: "/people/ada/",
+      sameAs: "https://example.test/ada",
+      orcid: "0000-0002-1825-0097",
+    },
+  ]);
+  assert.equal(validateContributorDraft(draft), "");
+  assert.deepEqual(contributorDraftPayload(draft), {
+    ada: {
+      name: "Ada Lovelace",
+      url: "/people/ada/",
+      sameAs: ["https://example.test/ada"],
+      orcid: "0000-0002-1825-0097",
+    },
+  });
+  assert.match(validateContributorDraft([{ ...draft[0], id: "Ada Lovelace" }]), /lowercase ASCII slug/);
+  assert.match(validateContributorDraft([{ ...draft[0], id: "renamed", originalId: "ada" }]), /cannot be renamed/);
+  assert.match(validateContributorDraft([{ ...draft[0], sameAs: "javascript:alert(1)" }]), /HTTP/);
+});
+
+test("late contributor saves retain newer edits and cannot alter a replacement view", () => {
+  assert.deepEqual(contributorSaveState(2, 3, 7, 7), {
+    active: true,
+    dirty: true,
+    label: "Unsaved changes",
+    messageIsCurrent: false,
+  });
+  assert.deepEqual(contributorSaveState(2, 2, 7, 8), {
+    active: false,
+    dirty: null,
+    messageIsCurrent: false,
+  });
+});
 
 test("credit drafts preserve inherited, explicit empty, and ordered contributor semantics", () => {
   const credits = normalizeCreditDraft([

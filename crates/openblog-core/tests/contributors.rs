@@ -189,6 +189,24 @@ fn executable_contributor_profile_urls_cannot_enter_the_config_model() {
 }
 
 #[test]
+fn contributor_same_as_values_must_be_absolute_http_urls() {
+    let error = SiteConfig::from_json(
+        r#"{"contributors":{"ada":{"name":"Ada","sameAs":["javascript:alert(1)"]}}}"#,
+    )
+    .unwrap_err();
+    assert!(error.contains("contributors.ada.sameAs"));
+
+    let config = SiteConfig::from_json(
+        r#"{"contributors":{"ada":{"name":"Ada","sameAs":[" https://example.test/ada "]}}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        config.contributors["ada"].same_as,
+        vec!["https://example.test/ada"]
+    );
+}
+
+#[test]
 fn editable_config_cannot_claim_authenticated_orcid_provenance() {
     let error = SiteConfig::from_json(
         r#"{
