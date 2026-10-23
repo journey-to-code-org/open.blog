@@ -99,6 +99,8 @@ pub struct ResearchMetadata {
     pub doi_url: Option<String>,
     /// Authored absolute license URL. Validation findings are kept separate.
     pub license: Option<String>,
+    /// Authored license URL when it is safe to emit as an absolute link.
+    pub license_url: Option<String>,
     /// Resolvable links authored inside the bounded References/Bibliography section.
     pub references: Vec<ResearchReference>,
 }
@@ -108,10 +110,16 @@ impl ResearchMetadata {
         let authored_doi = non_empty(front_matter.get("doi"));
         let doi = authored_doi.as_deref().map(doi_name);
         let doi_url = doi.as_deref().and_then(normalize_doi_url);
+        let license = non_empty(front_matter.get("license"));
+        let license_url = license
+            .as_deref()
+            .filter(|value| absolute_http_url(value))
+            .map(str::to_string);
         Self {
             doi,
             doi_url,
-            license: non_empty(front_matter.get("license")),
+            license,
+            license_url,
             references: extract_references(markdown, body_line),
         }
     }

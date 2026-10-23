@@ -53,6 +53,7 @@ struct Meta<'a> {
     published: Option<String>,
     modified: Option<String>,
     tags: Vec<String>,
+    highwire: Vec<(&'static str, String)>,
     noindex: bool,
 }
 
@@ -107,16 +108,24 @@ fn resolve_social_metadata(config: &SiteConfig, input: SocialMetadataInput<'_>) 
     }
 }
 
+fn resolved_post_canonical(config: &SiteConfig, post: &Post) -> Option<String> {
+    match (&post.research, &post.canonical) {
+        (Some(_), Some(url)) => Some(config.absolute(url)),
+        _ => post.canonical.clone(),
+    }
+}
+
 /// Resolve exactly the social metadata emitted for one authored document.
 pub fn social_metadata(site: &Site, source: &str) -> Result<SocialMetadata, String> {
     if let Some(post) = site.posts.iter().find(|post| post.source == source) {
+        let canonical = resolved_post_canonical(&site.config, post);
         return Ok(resolve_social_metadata(
             &site.config,
             SocialMetadataInput {
                 title: &post.title,
                 description: &post.description,
                 path: &post.url,
-                canonical: post.canonical.as_deref(),
+                canonical: canonical.as_deref(),
                 kind: "article",
                 image: post.cover.as_deref(),
                 image_alt: Some(&post.cover_alt),
@@ -519,6 +528,13 @@ impl<'a> Renderer<'a> {
                 attr(tag)
             ));
         }
+        for (name, value) in &meta.highwire {
+            h.push_str(&format!(
+                "<meta name=\"{}\" content=\"{}\">\n",
+                name,
+                attr(value)
+            ));
+        }
         // Feeds.
         if c.feeds.rss {
             h.push_str(&format!("<link rel=\"alternate\" type=\"application/rss+xml\" title=\"{}\" href=\"/rss.xml\">\n", attr(&c.title)));
@@ -911,6 +927,7 @@ impl<'a> Renderer<'a> {
             published: None,
             modified: None,
             tags: Vec::new(),
+            highwire: Vec::new(),
             noindex: false,
         };
         self.document(&meta, &body)
@@ -923,6 +940,12 @@ impl<'a> Renderer<'a> {
             .series
             .as_deref()
             .and_then(|s| self.site.series_by_slug(s));
+        let canonical = resolved_post_canonical(c, post);
+        let entity_url = if post.research.is_some() {
+            canonical.clone().unwrap_or_else(|| c.absolute(&post.url))
+        } else {
+            c.absolute(&post.url)
+        };
 
         let mut body = String::from("<div class=\"ob-container ob-container-reading\">\n");
         body.push_str("<article class=\"ob-post h-entry\">\n<header class=\"ob-post-header\">\n");
@@ -991,6 +1014,9 @@ impl<'a> Renderer<'a> {
             body.push_str("</ul>\n");
         }
         body.push_str("</header>\n");
+        if let Some(research) = &post.research {
+            body.push_str(&self.research_work_meta(research));
+        }
         if theme.post_covers {
             if let Some(cover) = &post.cover {
                 body.push_str(&format!(
@@ -1058,7 +1084,6 @@ impl<'a> Renderer<'a> {
         }
         body.push_str("</article>\n</div>");
 
-        let canonical = post.canonical.clone();
         let meta = Meta {
             title: post.title.clone(),
             description: post.description.clone(),
@@ -1075,8 +1100,8 @@ impl<'a> Renderer<'a> {
                     "description": post.description,
                     "datePublished": post.date.rfc3339(),
                     "dateModified": post.updated.unwrap_or(post.date).rfc3339(),
-                    "mainEntityOfPage": c.absolute(&post.url),
-                    "url": c.absolute(&post.url),
+                    "mainEntityOfPage": entity_url,
+                    "url": entity_url,
                     "image": post.cover.as_ref().map(|i| c.absolute(i)),
                     "keywords": post.tags.iter().map(|t| t.name.clone()).collect::<Vec<_>>().join(", "),
                     "wordCount": post.word_count,
@@ -1085,6 +1110,25 @@ impl<'a> Renderer<'a> {
                 if let Some(author) = author_json_ld(c) {
                     posting["author"] = author.clone();
                     posting["publisher"] = author;
+                }
+                if let Some(research) = &post.research {
+                    posting["@type"] = serde_json::json!("ScholarlyArticle");
+                    if let Some(object) = posting.as_object_mut() {
+                        object.remove("publisher");
+                    }
+                    if let Some(doi_url) = &research.doi_url {
+                        posting["identifier"] = serde_json::json!(doi_url);
+                    }
+                    if let Some(license_url) = &research.license_url {
+                        posting["license"] = serde_json::json!(license_url);
+                    }
+                    if !research.references.is_empty() {
+                        posting["citation"] = serde_json::json!(research
+                            .references
+                            .iter()
+                            .map(|reference| &reference.url)
+                            .collect::<Vec<_>>());
+                    }
                 }
                 match &post.recipe {
                     // A recipe page describes both the article and the recipe.
@@ -1106,9 +1150,45 @@ impl<'a> Renderer<'a> {
             published: Some(post.date.rfc3339()),
             modified: post.updated.map(|u| u.rfc3339()),
             tags: post.tags.iter().map(|t| t.name.clone()).collect(),
+            highwire: if post.research.is_some() && !c.author.name.trim().is_empty() {
+                let date = post.date.civil();
+                vec![
+                    ("citation_title", post.title.clone()),
+                    ("citation_author", c.author.name.trim().to_string()),
+                    (
+                        "citation_publication_date",
+                        format!("{}/{}/{}", date.year, date.month, date.day),
+                    ),
+                ]
+            } else {
+                Vec::new()
+            },
             noindex: false,
         };
         self.document(&meta, &body)
+    }
+
+    fn research_work_meta(&self, research: &crate::research::ResearchMetadata) -> String {
+        if research.doi_url.is_none() && research.license_url.is_none() {
+            return String::new();
+        }
+        let mut html =
+            String::from("<aside class=\"ob-work-meta\" aria-label=\"Research work details\"><dl>");
+        if let (Some(name), Some(url)) = (&research.doi, &research.doi_url) {
+            html.push_str(&format!(
+                "<div><dt>DOI</dt><dd><a href=\"{}\">{}</a></dd></div>",
+                attr(url),
+                text(name)
+            ));
+        }
+        if let Some(url) = &research.license_url {
+            html.push_str(&format!(
+                "<div><dt>Reuse</dt><dd><a href=\"{}\">License</a></dd></div>",
+                attr(url)
+            ));
+        }
+        html.push_str("</dl></aside>\n");
+        html
     }
 
     /// Share links. Plain anchors, so they work without JavaScript; the
@@ -1649,6 +1729,7 @@ impl<'a> Renderer<'a> {
             published: None,
             modified: None,
             tags: Vec::new(),
+            highwire: Vec::new(),
             noindex: false,
         }
     }
@@ -1863,11 +1944,19 @@ mod tests {
         let site = Site::load(
             config,
             Sources {
-                posts: vec![SourceFile {
-                    path: "posts/blank.md".into(),
-                    contents: "---\ntitle: Blank\ndate: 2026-01-01\ncanonical: /original\n---\n"
-                        .into(),
-                }],
+                posts: vec![
+                    SourceFile {
+                        path: "posts/blank.md".into(),
+                        contents:
+                            "---\ntitle: Blank\ndate: 2026-01-01\ncanonical: /original\n---\n"
+                                .into(),
+                    },
+                    SourceFile {
+                        path: "posts/study.md".into(),
+                        contents: "---\ntitle: Study\ndate: 2026-01-01\nprofile: research\ncanonical: /journal/study\n---\n## Abstract\nSummary.\n\n## References\n1. [Source](https://example.com/source)"
+                            .into(),
+                    },
+                ],
                 ..Default::default()
             },
             LoadOptions::default(),
@@ -1881,6 +1970,10 @@ mod tests {
         assert_eq!(social.url, "/original");
         assert_eq!(social.image.as_deref(), Some("https://t.dev/default.png"));
         assert_eq!(social.card, "summary_large_image");
+        assert_eq!(
+            social_metadata(&site, "posts/study.md").unwrap().url,
+            "https://t.dev/journal/study"
+        );
         assert!(!page.contains("og:description"));
         assert!(page.contains("<meta property=\"og:url\" content=\"/original\">"));
         assert!(page.contains("<meta property=\"og:image\" content=\"https://t.dev/default.png\">"));
@@ -1979,6 +2072,67 @@ mod tests {
             "{page}"
         );
         assert!(!page.contains("Jump to recipe"));
+    }
+
+    #[test]
+    fn research_posts_render_visible_and_machine_readable_work_metadata() {
+        let files = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"Dr. Ada & Co."}}"#,
+            &[(
+                "posts/study.md",
+                "---\ntitle: Study & Results\ndate: 2026-10-23\nprofile: research\ncanonical: https://journal.example/study\ndoi: 10.1234/café/results\nlicense: https://creativecommons.org/licenses/by/4.0/\n---\n## Abstract\nSummary.\n\n## References\n1. [Prior work](https://doi.org/10.1000/prior)\n2. [Dataset](https://data.example/set)",
+            )],
+        );
+        let page = file(&files, "study/index.html");
+
+        assert!(
+            page.contains("<aside class=\"ob-work-meta\" aria-label=\"Research work details\">")
+        );
+        assert!(page.contains(
+            "href=\"https://doi.org/10.1234/caf%C3%A9%2Fresults\">10.1234/café/results</a>"
+        ));
+        assert!(page.contains("href=\"https://creativecommons.org/licenses/by/4.0/\">License</a>"));
+        assert!(page.contains("<meta name=\"citation_title\" content=\"Study &amp; Results\">"));
+        assert!(page.contains("<meta name=\"citation_author\" content=\"Dr. Ada &amp; Co.\">"));
+        assert!(page.contains("<meta name=\"citation_publication_date\" content=\"2026/10/23\">"));
+        assert!(!page.contains("citation_doi"));
+        assert!(!page.contains("DC."));
+
+        let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
+        let end = page[start..].find("</script>").unwrap() + start;
+        let ld: serde_json::Value = serde_json::from_str(&page[start..end]).unwrap();
+        assert_eq!(ld["@type"], "ScholarlyArticle");
+        assert_eq!(ld["url"], "https://journal.example/study");
+        assert_eq!(ld["mainEntityOfPage"], "https://journal.example/study");
+        assert!(ld.get("publisher").is_none());
+        assert_eq!(
+            ld["identifier"],
+            "https://doi.org/10.1234/caf%C3%A9%2Fresults"
+        );
+        assert_eq!(
+            ld["license"],
+            "https://creativecommons.org/licenses/by/4.0/"
+        );
+        assert_eq!(
+            ld["citation"],
+            serde_json::json!(["https://doi.org/10.1000/prior", "https://data.example/set"])
+        );
+    }
+
+    #[test]
+    fn research_highwire_metadata_is_omitted_without_an_actual_author() {
+        let files = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            &[(
+                "posts/anonymous.md",
+                "---\ntitle: Anonymous study\ndate: 2026-10-23\nprofile: research\n---\n## Abstract\nSummary.\n\n## References\n1. [Source](https://example.com/source)",
+            )],
+        );
+        let page = file(&files, "anonymous/index.html");
+
+        assert!(!page.contains("name=\"citation_title\""));
+        assert!(!page.contains("name=\"citation_author\""));
+        assert!(!page.contains("name=\"citation_publication_date\""));
     }
 
     #[test]

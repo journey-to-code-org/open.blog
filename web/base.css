@@ -467,6 +467,33 @@ h2.ob-title {
   list-style-type: circle;
 }
 
+.ob-work-meta {
+  margin: 0 0 1.5rem;
+  padding: 0.85rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.ob-work-meta dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2rem;
+  margin: 0;
+}
+
+.ob-work-meta dt {
+  color: var(--ob-color-subtle);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ob-work-meta dd {
+  margin: 0.1rem 0 0;
+  overflow-wrap: anywhere;
+}
+
 .ob-source {
   color: var(--ob-color-muted);
   font-size: 0.9rem;
