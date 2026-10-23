@@ -13,10 +13,11 @@ test("admin shell exposes a grouped publishing workspace", () => {
   assert.match(admin, /h\("h1", \{\}, activeInfo\.title\)/);
 });
 
-test("editor has named writing, preview, and settings views", () => {
+test("editor has named writing, site preview, social, and settings views", () => {
   assert.match(admin, /"data-pane": "settings"/);
   assert.match(admin, /"data-pane": "write"/);
   assert.match(admin, /"data-pane": "preview"/);
+  assert.match(admin, /"data-pane": "social"/);
   assert.match(admin, /"aria-label": "Editor views"/);
 });
 
@@ -27,6 +28,7 @@ test("editors expose one explicitly selected view at every width", () => {
   assert.match(styles, /\.oba-editor\[data-editor-view="settings"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="write"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="preview"\]/);
+  assert.match(styles, /\.oba-editor\[data-editor-view="social"\]/);
 });
 
 test("workspace layout keeps one focused editor view and responsive controls", () => {

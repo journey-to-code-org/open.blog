@@ -21,7 +21,8 @@ use openblog_core::frontmatter::{self, Value};
 use openblog_core::markdown::RenderOptions;
 use openblog_core::slug::slugify;
 use openblog_core::{
-    generate, generate_document, DateTime, LoadOptions, Site, SiteConfig, SourceFile,
+    generate, generate_document, social_metadata, DateTime, LoadOptions, Site, SiteConfig,
+    SourceFile,
 };
 use serde_json::{json, Map, Value as Json};
 
@@ -1485,6 +1486,19 @@ fn preview(state: &AppState, req: &Request) -> Response {
     let Some((url, theme)) = target else {
         return Response::error(422, "Preview document was not found in the site model");
     };
+    let social = match social_metadata(&preview_site, &rel) {
+        Ok(meta) => json!({
+            "siteName": meta.site_name,
+            "title": meta.title,
+            "description": meta.description,
+            "url": meta.url,
+            "image": meta.image,
+            "imageAlt": meta.image_alt.unwrap_or_default(),
+            "type": meta.kind,
+            "card": meta.card,
+        }),
+        Err(e) => return Response::error(422, &e),
+    };
     let document = match generate_document(&preview_site, &themes, &rel) {
         Ok(document) => document,
         Err(e) => return Response::error(422, &e),
@@ -1518,6 +1532,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "previewUrl": format!("/admin/api/preview/{token}"),
             "url": url,
             "theme": theme,
+            "social": social,
             "warnings": preview_site.warnings
         }),
     )
@@ -2503,6 +2518,36 @@ mod tests {
         let preview = body_json(&prev);
         assert_eq!(preview["theme"], "paper");
         assert_eq!(preview["url"], "/posts/preview/");
+        assert_eq!(preview["social"]["title"], "Preview title");
+        assert_eq!(
+            preview["social"]["description"],
+            "A complete preview description for search and social cards."
+        );
+        assert_eq!(preview["social"]["type"], "article");
+        assert_eq!(preview["social"]["card"], "summary");
+        assert!(preview["social"]["url"]
+            .as_str()
+            .unwrap()
+            .ends_with("/posts/preview/"));
+        let blank = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({
+                        "kind": "posts",
+                        "path": "posts/blank.md",
+                        "fields": { "title": "Blank", "date": "2026-01-01" },
+                        "body": ""
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(blank.status, 200);
+        assert_eq!(body_json(&blank)["social"]["description"], "");
         let preview_url = preview["previewUrl"].as_str().unwrap();
         let document = handle(&f.state, &authed(req("GET", preview_url), &session, false));
         assert_eq!(document.status, 200);

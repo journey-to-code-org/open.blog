@@ -23,10 +23,22 @@ test("editor reports document size and save state", () => {
 });
 
 test("editor panes can be focused from Alt number shortcuts", () => {
-  assert.match(admin, /e\.altKey && \["1", "2", "3"\]\.includes\(e\.key\)/);
-  assert.match(admin, /\["write", "preview", "settings"\]/);
+  assert.match(admin, /e\.altKey && \["1", "2", "3", "4"\]\.includes\(e\.key\)/);
+  assert.match(admin, /\["write", "preview", "social", "settings"\]/);
   assert.match(admin, /this\.editor\.activatePane\(pane, true\)/);
   assert.match(admin, /target\?\.focus\(\)/);
+});
+
+test("social preview displays publishing-engine OpenGraph metadata", () => {
+  assert.match(admin, /"data-pane": "social"/);
+  assert.match(admin, /preview\.social/);
+  assert.match(admin, /Matches generated OpenGraph metadata/);
+  assert.match(admin, /ui\.socialCardPreview = h\(/);
+  assert.match(admin, /ui\.socialCardType = h\("dd"/);
+  assert.match(admin, /ui\.socialCardType\.textContent = social\.card/);
+  assert.match(admin, /ui\.socialCardPreview\.setAttribute\("aria-busy"/);
+  assert.match(styles, /\.oba-social-card/);
+  assert.match(styles, /aspect-ratio:\s*1\.91 \/ 1/);
 });
 
 test("preview width controls expose wide, tablet, and mobile canvases", () => {

@@ -972,6 +972,7 @@ kbd {
 
 .oba-editor[data-editor-view="write"] .oba-markdown-pane,
 .oba-editor[data-editor-view="preview"] .oba-preview-pane,
+.oba-editor[data-editor-view="social"] .oba-social-pane,
 .oba-editor[data-editor-view="settings"] .oba-settings-pane {
   display: block;
 }
@@ -1007,6 +1008,94 @@ kbd {
   padding: 0;
   overflow: auto;
   background: color-mix(in srgb, var(--ob-color-outer) 55%, var(--ob-color-page));
+}
+
+.oba-social-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 42rem) minmax(15rem, 1fr);
+  gap: clamp(1rem, 3vw, 2.5rem);
+  align-items: start;
+  padding: clamp(1rem, 3vw, 2.5rem);
+}
+
+.oba-social-card {
+  overflow: hidden;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: calc(var(--ob-radius) + 0.2rem);
+  background: var(--ob-color-surface);
+  box-shadow: var(--oba-shadow-sm);
+}
+
+.oba-social-image {
+  display: grid;
+  aspect-ratio: 1.91 / 1;
+  place-items: center;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ob-color-outer) 70%, var(--ob-color-page));
+  color: var(--ob-color-subtle);
+}
+
+.oba-social-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.oba-social-copy {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.15rem 1.15rem;
+}
+
+.oba-social-site,
+.oba-social-url {
+  overflow: hidden;
+  color: var(--ob-color-subtle);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oba-social-title {
+  font-family: var(--ob-font-heading);
+  font-size: clamp(1rem, 2vw, 1.3rem);
+  line-height: 1.25;
+}
+
+.oba-social-description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ob-color-muted);
+  font-size: 0.9rem;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.oba-social-meta {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.oba-social-meta > div {
+  min-width: 0;
+  padding-bottom: 0.75rem;
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-social-meta dt {
+  color: var(--ob-color-subtle);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.oba-social-meta dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
 }
 
 .oba-editor[data-preview-width="tablet"] .oba-preview {
@@ -1095,6 +1184,10 @@ kbd {
 
   .oba-overview-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .oba-social-workspace {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

@@ -221,9 +221,9 @@ export class ObAdmin extends AdminElement {
         this.editor.save();
         return;
       }
-      if (this.editor && e.altKey && ["1", "2", "3"].includes(e.key)) {
+      if (this.editor && e.altKey && ["1", "2", "3", "4"].includes(e.key)) {
         e.preventDefault();
-        const pane = ["write", "preview", "settings"][Number(e.key) - 1];
+        const pane = ["write", "preview", "social", "settings"][Number(e.key) - 1];
         this.editor.activatePane(pane, true);
       }
     });
@@ -402,7 +402,7 @@ export class ObAdmin extends AdminElement {
     ];
     if (this.editor) {
       commands.unshift({ label: "Save document", category: "Editor", keywords: "publish ctrl s", run: () => this.editor.save() });
-      for (const pane of ["write", "preview", "settings"]) {
+      for (const pane of ["write", "preview", "social", "settings"]) {
         commands.unshift({ label: `Show ${pane}`, category: "Editor", keywords: "view pane", run: () => this.editor.activatePane(pane) });
       }
     }
@@ -885,6 +885,15 @@ class Editor {
     ui.body = h("textarea", { class: "oba-body", id: "oba-body", spellcheck: "true", "aria-label": "Markdown", value: this.doc.body || "" });
     ui.preview = h("iframe", { class: "oba-preview", title: "Preview", sandbox: "allow-scripts" });
     ui.previewTheme = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Rendering site…");
+    ui.socialStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Open this view to render the current social metadata.");
+    ui.socialImage = h("div", { class: "oba-social-image" }, h("span", {}, "No social image"));
+    ui.socialSite = h("span", { class: "oba-social-site" }, this.meta.siteTitle);
+    ui.socialTitle = h("strong", { class: "oba-social-title" }, "Untitled");
+    ui.socialDescription = h("p", { class: "oba-social-description" }, "Add a description to control how this page is introduced when shared.");
+    ui.socialUrl = h("span", { class: "oba-social-url" });
+    ui.socialType = h("dd", {}, "—");
+    ui.socialCardType = h("dd", {}, "—");
+    ui.socialImageUrl = h("dd", {}, "—");
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
     ui.saveState = h("span", { class: "oba-save-state", role: "status", "aria-live": "polite" }, this.isNew ? "Not saved yet" : "Saved");
@@ -1008,20 +1017,20 @@ class Editor {
     let paneButtons = [];
     const activatePane = (pane, focus = false) => {
       applyPaneSelection(this.root, paneButtons, pane);
-      if (pane === "preview") this.renderPreview();
+      if (["preview", "social"].includes(pane)) this.renderPreview();
       else {
         clearTimeout(this.previewTimer);
         this.previewRequest += 1;
       }
       if (focus) {
         const container = this.root.querySelector(`[data-pane="${pane}"]`);
-        const target = pane === "write" ? this.ui.body : pane === "preview" ? this.ui.preview : container?.querySelector("input,select,textarea,button");
+        const target = pane === "write" ? this.ui.body : pane === "preview" ? this.ui.preview : container?.querySelector("input,select,textarea,button,[tabindex]");
         requestAnimationFrame(() => target?.focus());
       }
     };
     this.activatePane = activatePane;
-    const paneLabels = { write: "Write", preview: "Site preview", settings: "Settings" };
-    paneButtons = ["write", "preview", "settings"].map((pane) =>
+    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", settings: "Settings" };
+    paneButtons = ["write", "preview", "social", "settings"].map((pane) =>
       h(
         "button",
         {
@@ -1035,6 +1044,12 @@ class Editor {
       ),
     );
     const viewNav = h("nav", { class: "oba-editor-nav", "aria-label": "Editor views" }, paneButtons);
+    ui.socialCardPreview = h(
+      "article",
+      { class: "oba-social-card", tabindex: "-1", "aria-label": "Social card preview" },
+      ui.socialImage,
+      h("div", { class: "oba-social-copy" }, ui.socialSite, ui.socialTitle, ui.socialDescription, ui.socialUrl),
+    );
 
     this.root = h(
       "div",
@@ -1055,6 +1070,23 @@ class Editor {
             { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" },
             paneHeader("Review", "Site preview", h("div", { class: "oba-preview-tools" }, ui.previewTheme, ui.previewWidth)),
             h("div", { class: "oba-preview-canvas" }, ui.preview),
+          ),
+          h(
+            "section",
+            { class: "oba-pane oba-social-pane", "data-pane": "social", "aria-label": "OpenGraph and social preview" },
+            paneHeader("Review", "Social preview", ui.socialStatus),
+            h(
+              "div",
+              { class: "oba-social-workspace" },
+              ui.socialCardPreview,
+              h(
+                "dl",
+                { class: "oba-social-meta" },
+                h("div", {}, h("dt", {}, "OpenGraph type"), ui.socialType),
+                h("div", {}, h("dt", {}, "X card"), ui.socialCardType),
+                h("div", {}, h("dt", {}, "Resolved image"), ui.socialImageUrl),
+              ),
+            ),
           ),
           h("section", { class: "oba-pane oba-settings-pane", "data-pane": "settings", "aria-label": "Document settings" }, paneHeader("Document", "Settings"), h("div", { class: "oba-side-fields" }, side)),
         ),
@@ -1174,7 +1206,7 @@ class Editor {
 
   schedulePreview() {
     clearTimeout(this.previewTimer);
-    if (this.root?.dataset.editorView !== "preview") {
+    if (!["preview", "social"].includes(this.root?.dataset.editorView)) {
       this.previewRequest += 1;
       return;
     }
@@ -1184,6 +1216,8 @@ class Editor {
   async renderPreview() {
     const request = ++this.previewRequest;
     this.ui.previewTheme.textContent = "Rendering site…";
+    this.ui.socialStatus.textContent = "Rendering current social metadata…";
+    this.ui.socialCardPreview.setAttribute("aria-busy", "true");
     try {
       const preview = await this.app.api.call("POST", "preview", {
         json: {
@@ -1197,11 +1231,32 @@ class Editor {
       this.ui.preview.removeAttribute("srcdoc");
       this.ui.preview.src = preview.previewUrl;
       this.ui.previewTheme.textContent = `Theme: ${preview.theme}`;
+      this.updateSocialPreview(preview.social);
     } catch (error) {
       if (request !== this.previewRequest) return;
       this.ui.preview.srcdoc = "<!doctype html><html><body><p>Preview unavailable. Check the editor for validation problems.</p></body></html>";
       this.ui.previewTheme.textContent = "Preview unavailable";
+      this.updateSocialPreview({ siteName: this.meta.siteTitle, title: "Preview unavailable", description: "Fix the document validation problems, then try again.", url: "", image: null, imageAlt: "", type: "—", card: "—" });
+      this.ui.socialStatus.textContent = "Social metadata unavailable";
     }
+  }
+
+  updateSocialPreview(social) {
+    const ui = this.ui;
+    ui.socialSite.textContent = social.siteName;
+    ui.socialTitle.textContent = social.title;
+    ui.socialDescription.textContent = social.description || "No description will be included in the shared card.";
+    ui.socialUrl.textContent = social.url;
+    ui.socialType.textContent = social.type;
+    ui.socialCardType.textContent = social.card;
+    ui.socialImageUrl.textContent = social.image || "No image";
+    ui.socialImage.replaceChildren(
+      social.image
+        ? h("img", { src: social.image, alt: social.imageAlt || "", loading: "lazy", referrerpolicy: "no-referrer" })
+        : h("span", {}, "No social image"),
+    );
+    ui.socialCardPreview.setAttribute("aria-busy", "false");
+    ui.socialStatus.textContent = "Matches generated OpenGraph metadata";
   }
 
   async upload(file) {

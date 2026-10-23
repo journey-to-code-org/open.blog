@@ -22,6 +22,19 @@ pub struct OutputFile {
     pub contents: String,
 }
 
+/// Social metadata after site-level fallbacks and URL resolution are applied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SocialMetadata {
+    pub site_name: String,
+    pub title: String,
+    pub description: String,
+    pub url: String,
+    pub image: Option<String>,
+    pub image_alt: Option<String>,
+    pub kind: String,
+    pub card: String,
+}
+
 /// Paths reserved by the generator. Pages and posts may not use them.
 const RESERVED: &[&str] = &[
     "series", "tags", "archive", "search", "page", "themes", "assets", "api",
@@ -51,6 +64,98 @@ struct Renderer<'a> {
 struct Output {
     files: Vec<OutputFile>,
     seen: HashSet<String>,
+}
+
+fn resolve_social_metadata(
+    config: &SiteConfig,
+    title: &str,
+    description: &str,
+    path: &str,
+    canonical: Option<&str>,
+    kind: &str,
+    image: Option<&str>,
+    image_alt: Option<&str>,
+) -> SocialMetadata {
+    let image = image
+        .or((!config.og_image.is_empty()).then_some(config.og_image.as_str()))
+        .map(|value| config.absolute(value));
+    SocialMetadata {
+        site_name: config.title.clone(),
+        title: if title.is_empty() {
+            config.title.clone()
+        } else {
+            title.to_string()
+        },
+        description: description.to_string(),
+        url: canonical
+            .map(str::to_string)
+            .unwrap_or_else(|| config.absolute(path)),
+        image_alt: image_alt
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        kind: kind.to_string(),
+        card: if image.is_some() {
+            "summary_large_image".to_string()
+        } else {
+            "summary".to_string()
+        },
+        image,
+    }
+}
+
+/// Resolve exactly the social metadata emitted for one authored document.
+pub fn social_metadata(site: &Site, source: &str) -> Result<SocialMetadata, String> {
+    if let Some(post) = site.posts.iter().find(|post| post.source == source) {
+        return Ok(resolve_social_metadata(
+            &site.config,
+            &post.title,
+            &post.description,
+            &post.url,
+            post.canonical.as_deref(),
+            "article",
+            post.cover.as_deref(),
+            Some(&post.cover_alt),
+        ));
+    }
+    if let Some(page) = site.pages.iter().find(|page| page.source == source) {
+        let description = if page.description.is_empty() {
+            &site.config.description
+        } else {
+            &page.description
+        };
+        return Ok(resolve_social_metadata(
+            &site.config,
+            &page.title,
+            description,
+            &page.url,
+            None,
+            "website",
+            None,
+            None,
+        ));
+    }
+    if let Some(series) = site
+        .series
+        .iter()
+        .find(|series| series.source.as_deref() == Some(source))
+    {
+        let description = if series.description_text.is_empty() {
+            &site.config.description
+        } else {
+            &series.description_text
+        };
+        return Ok(resolve_social_metadata(
+            &site.config,
+            &series.name,
+            description,
+            &series.url,
+            None,
+            "website",
+            None,
+            None,
+        ));
+    }
+    Err(format!("no post, page, or series uses source `{source}`"))
 }
 
 impl Output {
@@ -292,19 +397,16 @@ impl<'a> Renderer<'a> {
         } else {
             format!("{} · {}", meta.title, c.title)
         };
-        let canonical = meta
-            .canonical
-            .clone()
-            .unwrap_or_else(|| c.absolute(&meta.path));
-        let image = meta
-            .image
-            .as_deref()
-            .or(if c.og_image.is_empty() {
-                None
-            } else {
-                Some(c.og_image.as_str())
-            })
-            .map(|i| c.absolute(i));
+        let social = resolve_social_metadata(
+            c,
+            &meta.title,
+            &meta.description,
+            &meta.path,
+            meta.canonical.as_deref(),
+            meta.kind,
+            meta.image.as_deref(),
+            meta.image_alt.as_deref(),
+        );
 
         let mut h = String::with_capacity(body.len() + 4096);
         h.push_str("<!doctype html>\n");
@@ -315,10 +417,10 @@ impl<'a> Renderer<'a> {
         ));
         h.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
         h.push_str(&format!("<title>{}</title>\n", text(&full_title)));
-        if !meta.description.is_empty() {
+        if !social.description.is_empty() {
             h.push_str(&format!(
                 "<meta name=\"description\" content=\"{}\">\n",
-                attr(&meta.description)
+                attr(&social.description)
             ));
         }
         if meta.noindex {
@@ -326,7 +428,7 @@ impl<'a> Renderer<'a> {
         }
         h.push_str(&format!(
             "<link rel=\"canonical\" href=\"{}\">\n",
-            attr(&canonical)
+            attr(&social.url)
         ));
         h.push_str("<meta name=\"generator\" content=\"open.blog\">\n");
         if let Some(page) = theme.colors.get("light").and_then(|m| m.get("page")) {
@@ -338,35 +440,35 @@ impl<'a> Renderer<'a> {
         // Social cards.
         h.push_str(&format!(
             "<meta property=\"og:site_name\" content=\"{}\">\n",
-            attr(&c.title)
+            attr(&social.site_name)
         ));
         h.push_str(&format!(
             "<meta property=\"og:type\" content=\"{}\">\n",
-            meta.kind
+            social.kind
         ));
         h.push_str(&format!(
             "<meta property=\"og:title\" content=\"{}\">\n",
-            attr(&meta.title.clone().if_empty(&c.title))
+            attr(&social.title)
         ));
         h.push_str(&format!(
             "<meta name=\"twitter:title\" content=\"{}\">\n",
-            attr(&meta.title.clone().if_empty(&c.title))
+            attr(&social.title)
         ));
-        if !meta.description.is_empty() {
+        if !social.description.is_empty() {
             h.push_str(&format!(
                 "<meta property=\"og:description\" content=\"{}\">\n",
-                attr(&meta.description)
+                attr(&social.description)
             ));
             h.push_str(&format!(
                 "<meta name=\"twitter:description\" content=\"{}\">\n",
-                attr(&meta.description)
+                attr(&social.description)
             ));
         }
         h.push_str(&format!(
             "<meta property=\"og:url\" content=\"{}\">\n",
-            attr(&canonical)
+            attr(&social.url)
         ));
-        if let Some(image) = &image {
+        if let Some(image) = &social.image {
             h.push_str(&format!(
                 "<meta property=\"og:image\" content=\"{}\">\n",
                 attr(image)
@@ -375,17 +477,18 @@ impl<'a> Renderer<'a> {
                 "<meta name=\"twitter:image\" content=\"{}\">\n",
                 attr(image)
             ));
-            if let Some(alt_text) = meta.image_alt.as_deref().filter(|alt| !alt.is_empty()) {
+            if let Some(alt_text) = social.image_alt.as_deref() {
                 h.push_str(&format!(
                     "<meta property=\"og:image:alt\" content=\"{}\">\n<meta name=\"twitter:image:alt\" content=\"{}\">\n",
                     attr(alt_text),
                     attr(alt_text)
                 ));
             }
-            h.push_str("<meta name=\"twitter:card\" content=\"summary_large_image\">\n");
-        } else {
-            h.push_str("<meta name=\"twitter:card\" content=\"summary\">\n");
         }
+        h.push_str(&format!(
+            "<meta name=\"twitter:card\" content=\"{}\">\n",
+            social.card
+        ));
         if let Some(p) = &meta.published {
             h.push_str(&format!(
                 "<meta property=\"article:published_time\" content=\"{}\">\n",
@@ -1562,20 +1665,6 @@ fn site_views_text(site: &Site, path: &str) -> String {
     }
 }
 
-trait IfEmpty {
-    fn if_empty(self, fallback: &str) -> String;
-}
-
-impl IfEmpty for String {
-    fn if_empty(self, fallback: &str) -> String {
-        if self.is_empty() {
-            fallback.to_string()
-        } else {
-            self
-        }
-    }
-}
-
 // `cdata` is re-exported for callers that build custom feeds on top of the renderer.
 #[allow(dead_code)]
 fn _keep_cdata(s: &str) -> String {
@@ -1751,6 +1840,39 @@ mod tests {
         );
         let error = generate_document(&site, &themes, "posts/one.md").unwrap_err();
         assert!(error.contains("reserved path"), "{error}");
+    }
+
+    #[test]
+    fn social_metadata_is_the_value_emitted_by_the_renderer() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","description":"Site fallback","url":"https://t.dev","postPath":"/{slug}/","ogImage":"/default.png"}"#,
+        )
+        .unwrap();
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/blank.md".into(),
+                    contents: "---\ntitle: Blank\ndate: 2026-01-01\ncanonical: /original\n---\n"
+                        .into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let social = social_metadata(&site, "posts/blank.md").unwrap();
+        let page = generate_document(&site, &ThemeSet::new(), "posts/blank.md")
+            .unwrap()
+            .contents;
+        assert_eq!(social.description, "");
+        assert_eq!(social.url, "/original");
+        assert_eq!(social.image.as_deref(), Some("https://t.dev/default.png"));
+        assert_eq!(social.card, "summary_large_image");
+        assert!(!page.contains("og:description"));
+        assert!(page.contains("<meta property=\"og:url\" content=\"/original\">"));
+        assert!(page.contains("<meta property=\"og:image\" content=\"https://t.dev/default.png\">"));
+        assert!(page.contains("<meta name=\"twitter:card\" content=\"summary_large_image\">"));
     }
 
     fn build_posts(config_json: &str, posts: &[(&str, &str)]) -> Vec<OutputFile> {
