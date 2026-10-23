@@ -15,6 +15,8 @@ All notable changes to open.blog are recorded here. Releases follow
   protection when moving between admin views.
 - Added editor save-state feedback, live line/word/character counts, `Alt+1/2/3`
   pane focus shortcuts, and persistent wide/tablet/mobile preview widths.
+- Added an admin overview with publishing-pipeline totals, quick-create actions,
+  content inventory, recent posts, scheduled-post context, and build health.
 
 ## [0.4.1] - 2026-10-23
 

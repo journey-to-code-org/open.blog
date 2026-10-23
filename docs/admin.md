@@ -47,6 +47,10 @@ counts. Press `Alt+1`, `Alt+2`, or `Alt+3` to focus Settings, Markdown, or Previ
 preview toolbar can constrain the canvas to wide, tablet, or mobile width; this preference
 is stored in the browser and does not change the published theme.
 
+The **Overview** is the admin home. It summarizes the publishing pipeline, links to quick
+creation flows, shows the size of the content library and recent posts, and surfaces the
+next scheduled post or last build error without requiring a trip through each content list.
+
 The Markdown remains the source of truth. The visual structure only changes how the
 tools are arranged; saving, conflict detection, preview sandboxing, and publishing use
 the same file-based workflow and security checks.

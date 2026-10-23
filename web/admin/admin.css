@@ -572,6 +572,209 @@ kbd {
   margin: 0.75rem 0 1rem;
 }
 
+.oba-overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.oba-overview-metric {
+  display: grid;
+  gap: 0.15rem;
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  text-decoration: none;
+  box-shadow: var(--oba-shadow-sm);
+  transition: border-color var(--ob-motion), transform var(--ob-motion), box-shadow var(--ob-motion);
+}
+
+.oba-overview-metric:hover {
+  border-color: var(--ob-color-accent-border);
+  transform: translateY(-1px);
+  box-shadow: var(--oba-shadow-lg);
+}
+
+.oba-overview-metric strong {
+  font-family: var(--ob-font-heading);
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.oba-overview-metric span {
+  font-weight: 700;
+}
+
+.oba-overview-metric small,
+.oba-quick-create small {
+  color: var(--ob-color-subtle);
+}
+
+.oba-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.oba-overview-panel {
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  box-shadow: var(--oba-shadow-sm);
+}
+
+.oba-overview-panel > header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.oba-overview-panel > header .oba-eyebrow {
+  width: 100%;
+}
+
+.oba-overview-panel > header h2,
+.oba-overview-panel > header p {
+  margin: 0;
+}
+
+.oba-overview-panel > header h2 {
+  font-size: 1.05rem;
+  white-space: nowrap;
+}
+
+.oba-overview-panel > header a {
+  margin-left: auto;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.oba-quick-grid {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.oba-quick-create {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  color: var(--ob-color-text);
+  text-decoration: none;
+}
+
+.oba-quick-create:hover {
+  border-color: var(--ob-color-accent-border);
+  background: var(--ob-color-glow);
+}
+
+.oba-quick-create > span:last-child {
+  display: grid;
+}
+
+.oba-quick-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-glow);
+  color: var(--ob-color-accent);
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.oba-inventory {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.oba-inventory div {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.85rem;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-inventory dt {
+  color: var(--ob-color-subtle);
+  font-size: 0.75rem;
+}
+
+.oba-inventory dd {
+  margin: 0;
+  font-family: var(--ob-font-heading);
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.oba-overview-recent {
+  grid-row: span 2;
+}
+
+.oba-recent-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-recent-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  padding: 0.65rem 0;
+  border-bottom: var(--ob-border-width) solid var(--ob-color-border);
+}
+
+.oba-recent-list li:last-child {
+  border-bottom: 0;
+}
+
+.oba-recent-list a {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ob-color-text);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.oba-recent-list time {
+  grid-column: 1 / -1;
+  color: var(--ob-color-subtle);
+  font-size: 0.75rem;
+}
+
+.oba-issue-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-issue-list li {
+  display: grid;
+  gap: 0.15rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--oba-danger);
+}
+
 .oba-table {
   width: 100%;
   border: var(--ob-border-width) solid var(--oba-panel-border);
@@ -921,6 +1124,10 @@ kbd {
   .oba-preview-pane {
     border-left: 0;
   }
+
+  .oba-overview-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 44rem) {
@@ -987,6 +1194,15 @@ kbd {
   .oba-table {
     display: block;
     overflow-x: auto;
+  }
+
+  .oba-overview-grid,
+  .oba-overview-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-overview-recent {
+    grid-row: auto;
   }
 }
 

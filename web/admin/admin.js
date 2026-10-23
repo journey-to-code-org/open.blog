@@ -310,12 +310,17 @@ class ObAdmin extends HTMLElement {
     );
     const toolGroup = (label, ...tools) =>
       h("div", { class: "oba-tool-group" }, h("span", { class: "oba-tool-label" }, label), h("div", { class: "oba-tool-actions" }, tools));
-    const contentTabs = Object.entries(KINDS).map(([kind, info]) =>
-      h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
-    );
+    const contentTabs = [
+      h("a", { class: "oba-tab", "aria-current": active === "overview" ? "page" : null, href: "#/overview" }, "Overview"),
+      ...Object.entries(KINDS).map(([kind, info]) =>
+        h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
+      ),
+    ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
-      : { title: KINDS[active]?.label || "Workspace", detail: "Create, review, and publish content from the files you own." };
+      : active === "overview"
+        ? { title: "Overview", detail: "See what is live, what needs attention, and what to work on next." }
+        : { title: KINDS[active]?.label || "Workspace", detail: "Create, review, and publish content from the files you own." };
     return h(
       "div",
       { class: "oba-shell" },
@@ -324,7 +329,7 @@ class ObAdmin extends HTMLElement {
         { class: "oba-app-header" },
         h(
           "a",
-          { class: "oba-brand", href: "#/posts", "aria-label": `${this.meta.siteTitle} admin home` },
+          { class: "oba-brand", href: "#/overview", "aria-label": `${this.meta.siteTitle} admin home` },
           h("span", { class: "oba-brand-mark", "aria-hidden": "true" }, "ob"),
           h("span", { class: "oba-brand-copy" }, h("strong", {}, this.meta.siteTitle), h("small", {}, "Publishing studio")),
         ),
@@ -365,6 +370,7 @@ class ObAdmin extends HTMLElement {
     const trigger = document.activeElement;
     const go = (hash) => (location.hash = hash);
     const commands = [
+      { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
       { label: "New series", category: "Create", keywords: "collection", run: () => go("#/new/series") },
@@ -514,30 +520,144 @@ class ObAdmin extends HTMLElement {
       this.currentHash = location.hash;
       return;
     }
-    const nextHash = location.hash || "#/posts";
+    const nextHash = location.hash || "#/overview";
     if (this.dirty && this.currentHash && nextHash !== this.currentHash && !(await this.confirmLeave())) {
       history.replaceState(null, "", this.currentHash);
       return;
     }
     const hash = location.hash.replace(/^#\/?/, "");
-    const [head, ...rest] = hash.split("/");
+    const [route, query = ""] = hash.split("?");
+    const params = new URLSearchParams(query);
+    const [head, ...rest] = route.split("/");
     const tail = rest.join("/");
     this.dirty = false;
     try {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
-      else await this.showList(KINDS[head] ? head : "posts");
+      else if (head === "overview" || !head) await this.showOverview(params.get("focus"));
+      else await this.showList(KINDS[head] ? head : "posts", params.get("status"));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) this.showLogin("Your session ended. Sign in again.");
       else this.showFatal(err);
     }
-    this.currentHash = location.hash || "#/posts";
+    this.currentHash = location.hash || "#/overview";
   }
 
   // ---- list
 
-  async showList(kind) {
+  async showOverview(focus) {
+    const kinds = Object.keys(KINDS);
+    const responses = await Promise.all([
+      ...kinds.map((kind) => this.api.call("GET", `documents?kind=${kind}`)),
+      this.api.call("GET", "status"),
+    ]);
+    const status = responses.pop();
+    const inventories = Object.fromEntries(kinds.map((kind, index) => [kind, responses[index].items]));
+    const posts = inventories.posts;
+    const count = (wanted) => posts.filter((item) => item.status === wanted).length;
+    const documentProblems = kinds.flatMap((kind) =>
+      inventories[kind]
+        .filter((item) => item.status === "error")
+        .map((item) => ({ ...item, kind })),
+    );
+    const problemCount = documentProblems.length + (status.lastError ? 1 : 0);
+    const overviewMetric = (label, value, note, href) =>
+      h(
+        "a",
+        { class: "oba-overview-metric", href },
+        h("strong", {}, Number(value).toLocaleString()),
+        h("span", {}, label),
+        h("small", {}, note),
+      );
+    const recent = [...posts]
+      .filter((item) => item.date)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 5);
+    const quickCreate = (kind, description) =>
+      h(
+        "a",
+        { class: "oba-quick-create", href: `#/new/${kind}` },
+        h("span", { class: "oba-quick-icon", "aria-hidden": "true" }, "+"),
+        h("span", {}, h("strong", {}, `New ${KINDS[kind].single}`), h("small", {}, description)),
+      );
+    const recentList = h(
+      "ol",
+      { class: "oba-recent-list" },
+      recent.length
+        ? recent.map((item) =>
+            h(
+              "li",
+              {},
+              h("a", { href: `#/edit/${encodeURIComponent(item.path)}` }, item.title || item.path),
+              h("span", { class: `oba-badge oba-badge-${item.status}` }, item.status),
+              h("time", { datetime: item.date }, formatWhen(item.date)),
+            ),
+          )
+        : h("li", { class: "oba-small" }, "No dated posts yet."),
+    );
+    const buildMessage = status.lastError
+      ? h("p", { class: "oba-error", role: "alert" }, `Last build failed: ${status.lastError}`)
+      : h("p", { class: "oba-ok" }, status.lastBuilt ? `Last built ${formatWhen(status.lastBuilt)}.` : "Ready for the first build.");
+    const scheduleMessage = status.scheduled.length
+      ? h(
+          "p",
+          { class: "oba-notice" },
+          `${status.scheduled.length} scheduled ${status.scheduled.length === 1 ? "post" : "posts"}. Next: “${status.scheduled[0].title}” on ${formatWhen(status.scheduled[0].date)}.`,
+        )
+      : h("p", { class: "oba-small" }, "Nothing is waiting to publish on a schedule.");
+    const issues = h(
+      "ul",
+      { class: "oba-issue-list" },
+      ...documentProblems.map((item) =>
+        h(
+          "li",
+          {},
+          h("a", { href: `#/edit/${encodeURIComponent(item.path)}` }, item.title || item.path),
+          h("span", { class: "oba-small" }, `${KINDS[item.kind].single}: ${item.error || "Invalid front matter"}`),
+        ),
+      ),
+      status.lastError ? h("li", {}, h("strong", {}, "Last build"), h("span", { class: "oba-small" }, status.lastError)) : null,
+      problemCount ? null : h("li", { class: "oba-small" }, "No content or build errors."),
+    );
+    const healthPanel = h(
+      "section",
+      { class: "oba-overview-panel", id: "oba-overview-issues", tabindex: "-1" },
+      h("header", {}, h("p", { class: "oba-eyebrow" }, "System"), h("h2", {}, "Publishing health")),
+      buildMessage,
+      scheduleMessage,
+      h("h3", {}, "Issues"),
+      issues,
+    );
+
+    this.mount(
+      this.shell(
+        "overview",
+        h(
+          "section",
+          { class: "oba-overview-metrics", "aria-label": "Publishing pipeline" },
+          overviewMetric("Published", count("published"), `${posts.length} posts total`, "#/posts?status=published"),
+          overviewMetric("Drafts", count("draft"), "Kept local", "#/posts?status=draft"),
+          overviewMetric("Scheduled", count("scheduled"), "Waiting to go live", "#/posts?status=scheduled"),
+          overviewMetric("Needs attention", problemCount, problemCount ? "Review errors" : "Everything looks healthy", "#/overview?focus=issues"),
+        ),
+        h(
+          "div",
+          { class: "oba-overview-grid" },
+          h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Start"), h("h2", {}, "Quick create")), h("div", { class: "oba-quick-grid" }, quickCreate("posts", "Write an article or draft"), quickCreate("pages", "Add evergreen site content"), quickCreate("series", "Group posts into a collection"))),
+          h("section", { class: "oba-overview-panel" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Library"), h("h2", {}, "Content inventory")), h("dl", { class: "oba-inventory" }, h("div", {}, h("dt", {}, "Posts"), h("dd", {}, posts.length)), h("div", {}, h("dt", {}, "Pages"), h("dd", {}, inventories.pages.length)), h("div", {}, h("dt", {}, "Series"), h("dd", {}, inventories.series.length)))),
+          h("section", { class: "oba-overview-panel oba-overview-recent" }, h("header", {}, h("p", { class: "oba-eyebrow" }, "Continue"), h("h2", {}, "Recent posts"), h("a", { href: "#/posts" }, "View all")), recentList),
+          healthPanel,
+        ),
+      ),
+    );
+    if (focus === "issues") {
+      healthPanel.focus();
+      healthPanel.scrollIntoView({ block: "start" });
+    }
+  }
+
+  async showList(kind, initialStatus) {
     const [list, status] = await Promise.all([
       this.api.call("GET", `documents?kind=${kind}`),
       this.api.call("GET", "status"),
@@ -549,6 +669,7 @@ class ObAdmin extends HTMLElement {
       { class: "oba-search", "aria-label": "Status", style: null },
       ["all", "published", "scheduled", "draft", "error"].map((s) => h("option", { value: s }, s === "all" ? "All statuses" : s[0].toUpperCase() + s.slice(1))),
     );
+    if (["published", "scheduled", "draft", "error"].includes(initialStatus)) stateSel.value = initialStatus;
     const tbody = h("tbody");
     const render = () => {
       const q = filter.value.trim().toLowerCase();
