@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Fixed Anthropic reviews that could spend the entire output budget on adaptive thinking before
+  returning JSON, and now report safe, actionable stop-reason errors for empty responses.
 - Added native Anthropic Claude support with the correct Messages API authentication and response
   adapter, plus an author-friendly provider choice that keeps custom HTTPS integrations compatible.
 - Added an Assistant provider settings panel for endpoint and model configuration plus write-only
