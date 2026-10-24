@@ -14,6 +14,7 @@
 
 pub mod accessibility;
 pub mod assistant_guide;
+pub mod capability;
 pub mod config;
 pub mod contributor;
 pub mod date;
@@ -24,6 +25,7 @@ pub mod field_journal;
 pub mod frontmatter;
 pub mod markdown;
 pub mod model;
+pub mod portability;
 pub mod profile;
 pub mod recipe;
 pub mod render;

@@ -72,3 +72,33 @@ _Avoid_: Contributor identifier, organization website
 Authoring assistance that checks structure and resolvability without rating truth,
 authority, peer review, or professional approval.
 _Avoid_: Fact checking, evidence score, trust score
+
+**Semantic representation**:
+The meaning-bearing content and relationships of a published work, independent of a
+particular interface or destination payload.
+_Avoid_: Rendered HTML when referring to authored meaning
+
+**Portable representation**:
+A destination-neutral or destination-specific projection derived from the canonical
+published work without becoming a second editable source of truth.
+_Avoid_: A separately authored export document
+
+**Portable fallback**:
+A derived, usable representation for a capability that a destination cannot render
+natively, with any material semantic loss made explicit.
+_Avoid_: Silent omission, decorative placeholder
+
+**Portability level**:
+The declared relationship between a capability's semantics and its portable output:
+Fully portable, Gracefully transformed, or Canonical-only interaction.
+_Avoid_: A quality score or promise that every destination behaves identically
+
+**Semantic loss**:
+Meaning, structure, attribution, reference identity, or interaction that a portable
+representation cannot preserve.
+_Avoid_: Merely different styling
+
+**Destination policy**:
+Rules for projecting a capability to a particular destination, including its supported
+representation, fallback, portability level, and diagnostics.
+_Avoid_: Changing the canonical work to satisfy one destination

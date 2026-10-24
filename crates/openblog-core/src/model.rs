@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use crate::accessibility::{self, AccessibilityFinding, DocumentAuditInput};
+use crate::capability::CapabilityDescriptor;
 use crate::config::SiteConfig;
 use crate::contributor::{self, CreditProvenance, ResolvedCredit};
 use crate::date::DateTime;
@@ -171,6 +172,8 @@ pub struct Post {
     pub theme: Option<String>,
     /// Old addresses that redirect here (`/old-slug/`), for moved or renamed posts.
     pub aliases: Vec<String>,
+    /// Canonical Markdown body retained for portable representations.
+    pub(crate) authored_markdown: String,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -187,6 +190,8 @@ pub struct Post {
     pub(crate) profile_warnings: Vec<String>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
     pub(crate) evidence: Vec<EvidenceFinding>,
+    /// Semantic capabilities detected in the authored Markdown.
+    pub capabilities: Vec<CapabilityDescriptor>,
     /// Set for posts using the recipe profile: times, servings, ingredients, steps.
     pub recipe: Option<Recipe>,
     /// Set for posts using the research profile: identifiers and evidence metadata.
@@ -227,6 +232,8 @@ pub struct Series {
     pub posts: Vec<usize>,
     pub source: Option<String>,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
+    /// Semantic capabilities detected in the authored description.
+    pub capabilities: Vec<CapabilityDescriptor>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -253,6 +260,8 @@ pub struct Page {
     pub aliases: Vec<String>,
     pub source: String,
     pub(crate) accessibility: Vec<AccessibilityFinding>,
+    /// Semantic capabilities detected in the authored Markdown.
+    pub capabilities: Vec<CapabilityDescriptor>,
 }
 
 #[derive(Clone, Debug)]
@@ -452,6 +461,7 @@ impl Site {
                         posts: Vec::new(),
                         source: None,
                         accessibility: Vec::new(),
+                        capabilities: Vec::new(),
                     });
                     series.len() - 1
                 }
@@ -858,6 +868,7 @@ pub fn load_post(
         )),
         theme: optional_string(first(fm, &["theme"])),
         aliases: aliases(fm)?,
+        authored_markdown: doc.body,
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
@@ -870,6 +881,7 @@ pub fn load_post(
         profile_warnings: profile.warnings,
         accessibility,
         evidence,
+        capabilities: rendered.capabilities,
         recipe,
         research,
         video,
@@ -962,6 +974,7 @@ fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, 
         posts: Vec::new(),
         source: Some(file.path.clone()),
         accessibility,
+        capabilities: rendered.capabilities,
     })
 }
 
@@ -1007,6 +1020,7 @@ fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, Stri
         aliases: aliases(fm)?,
         source: file.path.clone(),
         accessibility,
+        capabilities: rendered.capabilities,
     })
 }
 
@@ -1106,6 +1120,28 @@ mod tests {
         assert_eq!(prev.unwrap().slug, "first");
         assert!(next.is_none());
         assert!(s.pages[0].nav);
+    }
+
+    #[test]
+    fn posts_pages_and_series_retain_markdown_capabilities() {
+        let s = site(Sources {
+            posts: vec![post(
+                "posts/runnable.md",
+                "---\ntitle: Runnable\ndate: 2026-10-01\n---\n```rust runnable\nfn main() {}\n```\n",
+            )],
+            series: vec![post(
+                "series/guide.md",
+                "---\nname: Guide\n---\n```web runnable\n---html\n<p>Example</p>\n```\n",
+            )],
+            pages: vec![post(
+                "pages/about.md",
+                "---\ntitle: About\n---\n```quiz\nQuestion?\n- [x] Yes\n- [ ] No\n```\n",
+            )],
+            ..Default::default()
+        });
+        assert_eq!(s.posts[0].capabilities[0].id, "runnable-code");
+        assert_eq!(s.series[0].capabilities[0].id, "web-sandbox");
+        assert_eq!(s.pages[0].capabilities[0].id, "knowledge-check");
     }
 
     #[test]

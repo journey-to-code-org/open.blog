@@ -6,6 +6,7 @@ use pulldown_cmark::{
     BlockQuoteKind, CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd,
 };
 
+use crate::capability::{CapabilityDescriptor, CapabilityDiagnosticCode};
 use crate::escape;
 use crate::recipe::{self, Section};
 use crate::slug::slugify;
@@ -21,6 +22,8 @@ pub struct Heading {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Rendered {
     pub html: String,
+    /// Semantic capabilities detected in authored Markdown, in source order.
+    pub capabilities: Vec<CapabilityDescriptor>,
     /// Content errors discovered by Markdown extensions such as quiz blocks.
     pub errors: Vec<String>,
     pub headings: Vec<Heading>,
@@ -189,6 +192,7 @@ fn callout_label(kind: BlockQuoteKind) -> (&'static str, &'static str) {
 /// What [`transform_blocks`] found besides the new events.
 #[derive(Default)]
 struct BlockData {
+    capabilities: Vec<CapabilityDescriptor>,
     ingredients: Vec<String>,
     steps: Vec<String>,
     recipe_anchor: Option<String>,
@@ -432,6 +436,10 @@ fn transform_blocks<'a>(
     for (i, event) in events.iter().enumerate() {
         if matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) if info.trim() == "quiz")
         {
+            data.capabilities.push(CapabilityDescriptor::describe(
+                "knowledge-check",
+                Some("ob-quiz"),
+            ));
             if !quiz_group_open {
                 out.push(Event::Html(CowStr::from(
                     "<section class=\"ob-knowledge-check\" aria-label=\"Knowledge check\">\n",
@@ -447,6 +455,12 @@ fn transform_blocks<'a>(
                     Ok(html) => out.push(Event::Html(CowStr::from(html))),
                     Err(error) => {
                         data.errors.push(error.clone());
+                        if let Some(capability) = data.capabilities.last_mut() {
+                            capability.add_diagnostic(
+                                CapabilityDiagnosticCode::MalformedContent,
+                                "Malformed knowledge check; see the source-scoped Markdown error.",
+                            );
+                        }
                         out.push(Event::Html(CowStr::from(format!(
                             "<aside class=\"ob-quiz-error\" role=\"alert\">Invalid knowledge check: {}</aside>\n",
                             escape::text(&error)
@@ -475,6 +489,12 @@ fn transform_blocks<'a>(
                 "a `web runnable` fence needs a non-empty `---html`, `---css`, or `---js` section and must stay under 100,000 bytes"
                     .into(),
             );
+            if let Some(capability) = data.capabilities.last_mut() {
+                capability.add_diagnostic(
+                    CapabilityDiagnosticCode::MalformedContent,
+                    "Malformed web sandbox; see the source-scoped Markdown error.",
+                );
+            }
         }
         // What this event becomes in the output.
         let rendered = match event {
@@ -498,6 +518,19 @@ fn transform_blocks<'a>(
                 configured_runner = fence.runnable && runner.is_some();
                 runnable_code = fence.runnable && fence.lang.eq_ignore_ascii_case("rust");
                 web_sandbox = fence.runnable && fence.lang.eq_ignore_ascii_case("web");
+                if fence.runnable {
+                    let (id, renderer) = if web_sandbox {
+                        ("web-sandbox", Some("ob-web-sandbox"))
+                    } else if configured_runner {
+                        ("runnable-code", Some("ob-code-runner"))
+                    } else if runnable_code {
+                        ("runnable-code", Some("ob-rust-playground"))
+                    } else {
+                        ("runnable-code", None)
+                    };
+                    data.capabilities
+                        .push(CapabilityDescriptor::describe(id, renderer));
+                }
                 if configured_runner {
                     let runner = runner.expect("configured runner was checked");
                     html.push_str(&format!(
@@ -793,8 +826,42 @@ pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
 }
 
 pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
-    let parser = Parser::new_ext(markdown, parser_options(options.smart_punctuation));
+    let parsed_events =
+        Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    render_events(parsed_events, markdown.len(), options, None)
+}
 
+pub fn render_portable(
+    markdown: &str,
+    options: RenderOptions<'_>,
+    projection: &crate::portability::PortableProjection<'_>,
+) -> Result<Rendered, String> {
+    let mut parsed_events =
+        Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    for event in &mut parsed_events {
+        let destination = match event {
+            Event::Start(Tag::Link { dest_url, .. })
+            | Event::Start(Tag::Image { dest_url, .. }) => Some(dest_url),
+            _ => None,
+        };
+        if let Some(destination) = destination {
+            *destination = CowStr::from(projection.resolve_link(destination)?);
+        }
+    }
+    Ok(render_events(
+        parsed_events,
+        markdown.len(),
+        options,
+        Some(projection.canonical_url()),
+    ))
+}
+
+fn render_events<'a>(
+    parsed_events: Vec<Event<'a>>,
+    source_length: usize,
+    options: RenderOptions<'_>,
+    anchor_base: Option<&str>,
+) -> Rendered {
     let mut events: Vec<Event> = Vec::new();
     let mut headings = Vec::new();
     let mut used_ids = std::collections::HashSet::new();
@@ -805,7 +872,7 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
     let mut in_code_block = false;
     let mut heading: Option<(HeadingLevel, usize, String)> = None;
 
-    for event in parser {
+    for event in parsed_events {
         match &event {
             Event::Start(Tag::CodeBlock(kind)) => {
                 in_code_block = true;
@@ -868,9 +935,12 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
                 }
                 let level_num = heading_level(level);
                 if options.heading_anchors && level_num >= 2 {
+                    let href = anchor_base
+                        .map(|base| format!("{base}#{id}"))
+                        .unwrap_or_else(|| format!("#{id}"));
                     let anchor = format!(
-                        "<a class=\"ob-heading-anchor\" href=\"#{}\" aria-label=\"Link to this section\">#</a>",
-                        crate::escape::attr(&id)
+                        "<a class=\"ob-heading-anchor\" href=\"{}\" aria-label=\"Link to this section\">#</a>",
+                        crate::escape::attr(&href)
                     );
                     events.push(Event::Html(CowStr::from(anchor)));
                 }
@@ -892,7 +962,7 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
         events
     };
     let (events, blocks) = transform_blocks(events, options.recipe, options.code_runner);
-    let mut html = String::with_capacity(markdown.len() * 2);
+    let mut html = String::with_capacity(source_length * 2);
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
     if options.lazy_images {
         html = html.replace("<img src=", "<img loading=\"lazy\" decoding=\"async\" src=");
@@ -902,6 +972,7 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
     let word_count = text.split_whitespace().count();
     Rendered {
         html,
+        capabilities: blocks.capabilities,
         errors: blocks.errors,
         headings,
         text,
@@ -993,6 +1064,7 @@ mod tests {
         assert_eq!(r.code_languages, vec!["rust", "js"]);
         assert_eq!(r.text, "Intro");
         assert!(r.html.contains("<pre><code class=\"language-rust\">"));
+        assert!(r.capabilities.is_empty());
     }
 
     #[test]
@@ -1003,6 +1075,12 @@ mod tests {
         assert!(rendered.html.contains("data-runnable=\"web\""));
         assert!(rendered.html.contains("&lt;button&gt;Hi&lt;/button&gt;"));
         assert!(rendered.html.contains("</ob-web-sandbox></figure>"));
+        assert_eq!(rendered.capabilities.len(), 1);
+        assert_eq!(rendered.capabilities[0].id, "web-sandbox");
+        assert_eq!(
+            rendered.capabilities[0].native_renderer,
+            Some("ob-web-sandbox")
+        );
     }
 
     #[test]
@@ -1019,6 +1097,15 @@ mod tests {
                     .any(|error| error.contains("needs a non-empty")),
                 "{:?}",
                 rendered.errors
+            );
+            assert_eq!(rendered.capabilities.len(), 1);
+            assert_eq!(
+                rendered.capabilities[0].diagnostics[0].code,
+                CapabilityDiagnosticCode::MalformedContent
+            );
+            assert!(
+                rendered.capabilities[0].diagnostics[0].message.len()
+                    <= crate::capability::MAX_DIAGNOSTIC_MESSAGE_LENGTH
             );
         }
     }
@@ -1040,6 +1127,13 @@ mod tests {
         assert!(r.html.contains("data-correct"));
         assert!(r.html.contains("Draft posts remain available in preview."));
         assert!(!r.code_languages.contains(&"quiz".to_string()));
+        assert_eq!(r.capabilities.len(), 1);
+        assert_eq!(r.capabilities[0].id, "knowledge-check");
+        assert_eq!(r.capabilities[0].native_renderer, Some("ob-quiz"));
+        assert_eq!(
+            r.capabilities[0].portability,
+            crate::capability::PortabilityLevel::GracefullyTransformed
+        );
     }
 
     #[test]
@@ -1061,6 +1155,11 @@ mod tests {
                 r.errors
             );
             assert!(!r.html.contains("<ob-quiz"));
+            assert_eq!(r.capabilities.len(), 1);
+            assert_eq!(
+                r.capabilities[0].diagnostics[0].code,
+                CapabilityDiagnosticCode::MalformedContent
+            );
         }
     }
 
@@ -1075,6 +1174,11 @@ mod tests {
         assert_eq!(r.html.matches("class=\"ob-knowledge-check\"").count(), 1);
         assert_eq!(r.html.matches("<ob-quiz ").count(), 2);
         assert_eq!(r.html.matches("</section>").count(), 1);
+        assert_eq!(r.capabilities.len(), 2);
+        assert!(r
+            .capabilities
+            .iter()
+            .all(|capability| capability.id == "knowledge-check"));
         let keys: Vec<_> = r
             .html
             .split("data-key=\"")
@@ -1083,6 +1187,34 @@ mod tests {
             .collect();
         assert_eq!(keys.len(), 2);
         assert_eq!(keys[1].strip_suffix("-2"), Some(keys[0]));
+    }
+
+    #[test]
+    fn capabilities_are_detected_in_nested_containers_and_keep_source_order() {
+        let r = render(
+            "> ```rust runnable\n> fn main() {}\n> ```\n\n```quiz\nQuestion?\n- [x] Yes\n- [ ] No\n```\n",
+            RenderOptions::default(),
+        );
+        assert_eq!(
+            r.capabilities
+                .iter()
+                .map(|capability| capability.id.as_str())
+                .collect::<Vec<_>>(),
+            ["runnable-code", "knowledge-check"]
+        );
+        assert!(r.html.contains("<blockquote>"));
+        assert!(r.html.contains("<ob-rust-playground>"));
+        assert!(r.html.contains("<ob-quiz"));
+    }
+
+    #[test]
+    fn unknown_markdown_fences_remain_ordinary_content() {
+        let source = "```future-capability\nunmodified source\n```\n";
+        let r = render(source, RenderOptions::default());
+        assert!(r.capabilities.is_empty());
+        assert!(r.html.contains(
+            "<pre><code class=\"language-future-capability\">unmodified source\n</code></pre>"
+        ));
     }
 
     #[test]
