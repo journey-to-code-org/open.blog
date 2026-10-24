@@ -27,6 +27,43 @@ The public intellectual or creative work represented by a document, independent 
 or presentation.
 _Avoid_: Page when identity rather than location is meant
 
+## Semantic portability
+
+These terms implement the invariant adopted in
+[ADR 0004](docs/adr/0004-semantic-portability.md): open.blog has one semantic model of a
+document and derives destination-specific output from it.
+
+**Semantic representation**:
+The destination-independent meaning loaded from a document, including its content, metadata,
+identity, attribution, references, and publishing capabilities.
+_Avoid_: Presentation widget, destination payload, a second editable document model
+
+**Portable representation**:
+A destination-ready projection derived from the semantic representation without changing the
+canonical document. It may use destination-specific syntax while preserving the same meaning.
+_Avoid_: Canonical source, independent copy, provider object
+
+**Portable fallback**:
+An explicit substitute used when a destination cannot carry a publishing capability directly,
+chosen to preserve useful meaning, attribution, reference identity, canonical URL, and source
+provenance as far as that destination allows.
+_Avoid_: Silent downgrade, best-effort copy with unreported loss
+
+**Portability level**:
+The destination policy's declared outcome for one capability: Fully portable, Gracefully
+transformed, or Canonical-only interaction.
+_Avoid_: Quality score, destination support badge, presentation mode
+
+**Semantic loss**:
+Meaning, identity, attribution, provenance, or interaction that a portable representation cannot
+preserve and therefore reports explicitly.
+_Avoid_: Formatting difference with no change in meaning, unreported omission
+
+**Destination policy**:
+The rules that map publishing capabilities to a portability level, allowed portable fallback,
+and required semantic-loss report for one destination.
+_Avoid_: Destination payload schema, UI component configuration, remote state
+
 ## Evidence and identity
 
 **Citation**:

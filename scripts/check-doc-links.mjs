@@ -76,6 +76,7 @@ export function discoverDocumentationFiles(root) {
   return [
     path.join(root, "README.md"),
     path.join(root, "CHANGELOG.md"),
+    path.join(root, "CONTEXT.md"),
     ...documentationFiles(path.join(root, "docs")),
     path.join(root, "crates", "openblog-cli", "templates", "counter-service", "README.md"),
   ].filter((file) => fs.existsSync(file));
