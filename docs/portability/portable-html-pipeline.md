@@ -97,7 +97,7 @@ sanitizer API. The native page keeps passing raw HTML through, as before.
 | Authored markup | Portable output |
 | --- | --- |
 | Static content elements: paragraphs, headings, lists, tables, quotes, figures, `<details>`, `<abbr>`, `<kbd>`, `<time>`, `<img>`, links, and similar | Kept, with `id`, `class`, `title`, `lang`, `dir`, `aria-label`, `aria-labelledby`, `aria-describedby`, and each element's own static attributes (for example `href`, `src`, `alt`, `cite`, `datetime`, `colspan`, `scope`, `open`). Anything else, including `style`, `target`, `srcset`, `data-*`, and every event handler, is removed. |
-| `<script>`, `<style>`, `<noscript>`, `<template>`, `<title>`, `<textarea>`, `<select>`, `<button>` | Removed with their content. Inline text written between separate inline tags is skipped until the paragraph (or other container) ends. |
+| `<script>`, `<style>`, `<noscript>`, `<template>`, `<title>`, `<textarea>`, `<select>`, `<button>` | Removed with their content, including any Markdown written inside them, until their end tag. An inline one that is never closed ends with its paragraph (or other container). One opened in an HTML block that hides authored content after the block and is never closed fails the projection for that post, naming the element, such as `posts/work.md: raw HTML <iframe> is never closed …`, since a browser would hide that content too. A paragraph left empty by removals is removed. |
 | `<base>`, `<meta>`, `<link>`, `<input>`, `<source>`, `<track>`, `<area>` | Removed. |
 | `<iframe>`, `<frame>`, `<object>`, `<embed>`, `<video>`, `<audio>`, `<canvas>`, `<svg>`, `<math>` | Replaced with "**Video**: see it on the original article" (or Embedded frame, Embedded object, Interactive graphic, Illustration, Math), naming the element's `title` or `aria-label` when it has one. Nothing inside them is kept or checked. |
 | `<form>`, `<label>`, page landmarks (`<nav>`, `<main>`, `<header>`, `<footer>`), presentational tags (`<font>`, `<center>`), custom elements (including hand-written `<ob-…>` tags), and unknown elements | The tags (and their attributes) are removed; their content is kept. |
@@ -120,7 +120,18 @@ A `<base>` element is removed, so it cannot redirect relative URLs.
 **Anchors.** Raw `id` values are kept as written, Unicode included, so authored fragment links
 keep their target; a legacy `<a name>` anchor becomes an `id`. An id that repeats an earlier raw
 id, a heading id, or a footnote id, that contains whitespace, or that starts with the reserved
-`ob-` prefix is removed and counted in the report; the heading or first element keeps the anchor.
+`ob-` prefix is removed and counted in the report; for a duplicate, the heading or first element
+keeps the anchor. A heading id (`{#id}` or a slug) that repeats an earlier heading's id or starts
+with `ob-` is renamed to a unique id without the prefix (`x-2`, `contributions-title`) and counted;
+slugs never reuse an id written elsewhere in the post. Like every fragment link, a link to a
+removed or renamed id points at the canonical article, where the native page still has that id,
+so it reaches the original target there rather than a place in the portable copy.
+
+**Images.** A raw `<img>` written without `alt` gets `alt=""` (decorative) and is counted in the
+report, so every portable image has alternative text; add a real `alt` to describe it.
+
+**Linear time.** An unterminated tag or quoted value is escaped text through the end of its
+fragment, so hostile or broken markup costs time in proportion to its length.
 
 **Balance.** Kept elements are closed inside the Markdown container that opened them, a stray
 end tag is dropped, and anything still open at the end of the body is closed there, so the body

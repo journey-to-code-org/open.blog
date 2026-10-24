@@ -28,7 +28,12 @@ All notable changes to open.blog are recorded here. Releases follow
   and an unsafe one (including `data:` and encoded `javascript:` URLs) fails the projection for
   that post. Raw ids stay unique against headings and footnotes, elements stay balanced, and a
   body over 2 MiB or 64 levels deep fails with a diagnostic instead of being truncated. Heading
-  `{key=value}` attributes no longer reach portable output. Native pages are unchanged.
+  `{key=value}` attributes no longer reach portable output. Markdown written inside a removed
+  element is removed with it; a removed element opened in an HTML block that would hide later
+  content and is never closed fails the projection; paragraphs left empty are dropped. Duplicate
+  or `ob-` heading ids are renamed, raw images without `alt` get `alt=""`, and unterminated tags
+  no longer take quadratic time. Native heading slugs no longer reuse an explicit `{#id}`;
+  native pages are otherwise unchanged.
 
 ## [0.15.0] - 2026-10-24
 

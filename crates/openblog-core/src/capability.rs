@@ -53,7 +53,8 @@ pub enum CapabilityDiagnosticCode {
     UnknownCapability,
     MalformedIdentifier,
     MalformedContent,
-    /// The portable projection removed, unwrapped, or replaced authored markup.
+    /// The portable projection removed, unwrapped, replaced, renamed, or
+    /// repaired authored markup.
     RemovedMarkup,
 }
 

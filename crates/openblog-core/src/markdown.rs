@@ -1262,10 +1262,17 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
 }
 
 /// Give every heading its id: the `{#id}` the author wrote, or a slug of its
-/// text made unique within the post. Done before rendering so the portable
-/// projection knows every heading anchor before it checks raw HTML ids.
+/// text made unique within the post and against every written id. Done before
+/// rendering so the portable projection knows every heading anchor before it
+/// checks raw HTML ids.
 fn assign_heading_ids(events: &mut [Event<'_>]) {
-    let mut used_ids = std::collections::HashSet::new();
+    let mut used_ids: std::collections::HashSet<String> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Start(Tag::Heading { id: Some(id), .. }) => Some(id.to_string()),
+            _ => None,
+        })
+        .collect();
     let mut heading: Option<(usize, String)> = None;
     for index in 0..events.len() {
         match &events[index] {

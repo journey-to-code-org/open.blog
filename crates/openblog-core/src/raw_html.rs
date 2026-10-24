@@ -209,7 +209,9 @@ fn next_token(source: &str, at: usize) -> (Token<'_>, usize) {
             },
             at + length,
         ),
-        None => (Token::Text(&rest[..1]), at + 1),
+        // A tag that never ends runs to the end of the fragment, as in a
+        // browser; it is all text, so nothing after it is scanned again.
+        None => (Token::Text(rest), source.len()),
     }
 }
 
@@ -226,6 +228,7 @@ fn parse_tag(rest: &str, name_at: usize) -> Option<ParsedTag> {
     }
     let name = rest[name_at..i].to_ascii_lowercase();
     let mut attributes: Vec<(String, String)> = Vec::new();
+    let mut seen = HashSet::new();
     let mut self_closing = false;
     loop {
         while i < length && (is_space(bytes[i]) || bytes[i] == b'/') {
@@ -269,7 +272,7 @@ fn parse_tag(rest: &str, name_at: usize) -> Option<ParsedTag> {
                 }
             }
         }
-        if !attributes.iter().any(|(name, _)| *name == attribute) {
+        if seen.insert(attribute.clone()) {
             attributes.push((attribute, value));
         }
     }
@@ -407,24 +410,45 @@ fn listed(name: &str) -> &str {
     }
 }
 
-/// Content removed from the portable copy, grouped for the `raw-html` report.
+/// Distinct names in the order they were first seen.
 #[derive(Default)]
-struct Losses {
-    dropped: Vec<String>,
-    removed: Vec<String>,
-    unwrapped: Vec<String>,
-    replaced: Vec<String>,
-    attributes: Vec<String>,
-    ids: usize,
+struct Group {
+    names: Vec<String>,
+    seen: HashSet<String>,
 }
 
-fn note(group: &mut Vec<String>, name: String) {
-    if !group.contains(&name) {
-        group.push(name);
+impl Group {
+    fn is_empty(&self) -> bool {
+        self.names.is_empty()
     }
 }
 
-fn names(group: &[String], tags: bool) -> String {
+/// Content removed or repaired in the portable copy, grouped for the
+/// `raw-html` report.
+#[derive(Default)]
+struct Losses {
+    dropped: Group,
+    removed: Group,
+    unwrapped: Group,
+    replaced: Group,
+    attributes: Group,
+    ids: usize,
+    heading_ids: usize,
+    images_without_alt: usize,
+}
+
+fn note(group: &mut Group, name: String) {
+    if group.seen.insert(name.clone()) {
+        group.names.push(name);
+    }
+}
+
+fn plural(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
+fn names(group: &Group, tags: bool) -> String {
+    let group = &group.names;
     let mut listed: Vec<String> = group
         .iter()
         .take(NAMES_PER_DIAGNOSTIC)
@@ -471,6 +495,26 @@ impl Losses {
                 if self.ids == 1 { "" } else { "s" }
             ));
         }
+        if self.heading_ids > 0 {
+            messages.push(format!(
+                "Renamed {}.",
+                plural(
+                    self.heading_ids,
+                    "duplicate or reserved heading id",
+                    "duplicate or reserved heading ids"
+                )
+            ));
+        }
+        if self.images_without_alt > 0 {
+            messages.push(format!(
+                "Marked {} as decorative (alt=\"\").",
+                plural(
+                    self.images_without_alt,
+                    "image without alternative text",
+                    "images without alternative text"
+                )
+            ));
+        }
         if messages.is_empty() {
             return None;
         }
@@ -487,9 +531,16 @@ struct Skip {
     name: String,
     raw_text: bool,
     nested: usize,
-    /// The Markdown depth it opened at; inline text there is skipped too, until
-    /// that container ends.
+    /// The Markdown depth it opened at. Everything inside it is skipped,
+    /// Markdown included, until its end tag or the end of that container.
     depth: usize,
+    /// Opened in a raw HTML block rather than by an inline tag.
+    in_block: bool,
+    /// Its HTML block ended before its end tag arrived, so the Markdown after
+    /// the block is inside it, as in a browser.
+    outlived: bool,
+    /// Authored content after its HTML block was skipped waiting for the end tag.
+    swallowed: bool,
 }
 
 struct RawHtml<'p, 'a> {
@@ -502,16 +553,86 @@ struct RawHtml<'p, 'a> {
     skip: Option<Skip>,
     /// Open Markdown containers.
     depth: usize,
+    /// Whether the fragment being rewritten is a raw HTML block.
+    in_block: bool,
     losses: Losses,
+}
+
+/// Whether an id can appear in portable output: not empty, no whitespace, and
+/// not in the `ob-` namespace the projection writes its own ids in.
+fn valid_id(id: &str) -> bool {
+    !id.is_empty() && !id.bytes().any(is_space) && !id.starts_with("ob-")
+}
+
+/// Whether skipping `event` loses authored content.
+fn has_content(event: &Event<'_>) -> bool {
+    match event {
+        Event::Start(Tag::HtmlBlock) | Event::End(_) | Event::SoftBreak | Event::HardBreak => false,
+        Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => !text.trim().is_empty(),
+        _ => true,
+    }
+}
+
+/// Whether an output event shows a reader nothing.
+fn is_blank(event: &Event<'_>) -> bool {
+    match event {
+        Event::SoftBreak => true,
+        Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => text.trim().is_empty(),
+        _ => false,
+    }
+}
+
+/// Rename each heading id that repeats an earlier heading's id or is not a
+/// [`valid_id`], so authored `{#id}` values cannot duplicate an anchor or take
+/// one the projection writes. The first heading with an id keeps it. Returns
+/// how many were renamed.
+fn unique_heading_ids(events: &mut [Event<'_>]) -> usize {
+    let taken: HashSet<String> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Start(Tag::Heading { id: Some(id), .. }) => Some(id.to_string()),
+            Event::Start(Tag::FootnoteDefinition(name)) => Some(name.to_string()),
+            _ => None,
+        })
+        .collect();
+    let mut used = HashSet::new();
+    let mut renamed = 0;
+    for event in events {
+        let Event::Start(Tag::Heading { id: Some(id), .. }) = event else {
+            continue;
+        };
+        if valid_id(id) && used.insert(id.to_string()) {
+            continue;
+        }
+        let mut base = id.split_whitespace().collect::<Vec<_>>().join("-");
+        while let Some(rest) = base.strip_prefix("ob-") {
+            base = rest.to_string();
+        }
+        if base.is_empty() {
+            base = "section".to_string();
+        }
+        let mut candidate = base.clone();
+        let mut n = 2;
+        while taken.contains(&candidate) || used.contains(&candidate) {
+            candidate = format!("{base}-{n}");
+            n += 1;
+        }
+        used.insert(candidate.clone());
+        *id = CowStr::from(candidate);
+        renamed += 1;
+    }
+    renamed
 }
 
 /// Apply the raw HTML policy to parsed events whose links are already
 /// resolved and whose headings already have ids. Returns the events and, when
-/// anything authored was removed, the `raw-html` capability that reports it.
+/// anything authored was removed or repaired, the `raw-html` capability that
+/// reports it.
 pub(crate) fn sanitize<'e>(
-    events: Vec<Event<'e>>,
+    mut events: Vec<Event<'e>>,
     projection: &PortableProjection<'_>,
 ) -> Result<(Vec<Event<'e>>, Option<CapabilityDescriptor>), String> {
+    let heading_ids = unique_heading_ids(&mut events);
     let reserved = events
         .iter()
         .filter_map(|event| match event {
@@ -527,12 +648,25 @@ pub(crate) fn sanitize<'e>(
         open: Vec::new(),
         skip: None,
         depth: 0,
-        losses: Losses::default(),
+        in_block: false,
+        losses: Losses {
+            heading_ids,
+            ..Losses::default()
+        },
     };
     let mut out = Vec::with_capacity(events.len());
     // Raw block HTML arrives a line at a time; each block is handled whole.
     let mut block: Option<String> = None;
+    // Depths of Markdown containers that started inside a removed element.
+    let mut skipped: Vec<usize> = Vec::new();
+    // Where each open paragraph starts in `out`.
+    let mut paragraphs: Vec<usize> = Vec::new();
     for event in events {
+        if let Some(skip) = state.skip.as_mut() {
+            if skip.outlived && has_content(&event) {
+                skip.swallowed = true;
+            }
+        }
         match event {
             Event::Start(Tag::HtmlBlock) => {
                 block = Some(String::new());
@@ -545,8 +679,14 @@ pub(crate) fn sanitize<'e>(
             }
             Event::End(TagEnd::HtmlBlock) => {
                 let source = block.take().unwrap_or_default();
-                out.push(Event::Html(CowStr::from(state.fragment(&source)?)));
+                state.in_block = true;
+                let html = state.fragment(&source);
+                state.in_block = false;
+                out.push(Event::Html(CowStr::from(html?)));
                 out.push(Event::End(TagEnd::HtmlBlock));
+                if let Some(skip) = state.skip.as_mut() {
+                    skip.outlived |= skip.in_block;
+                }
             }
             Event::Html(html) | Event::InlineHtml(html) => {
                 out.push(Event::InlineHtml(CowStr::from(state.fragment(&html)?)));
@@ -554,11 +694,18 @@ pub(crate) fn sanitize<'e>(
             Event::Start(mut tag) => {
                 state.depth += 1;
                 state.check_depth()?;
+                if state.skip.is_some() {
+                    skipped.push(state.depth);
+                    continue;
+                }
                 // `{key=value}` heading attributes are authored markup too.
                 if let Tag::Heading { attrs, .. } = &mut tag {
                     for (attribute, _) in attrs.drain(..) {
                         state.remove_attribute(&attribute.to_ascii_lowercase());
                     }
+                }
+                if matches!(tag, Tag::Paragraph) {
+                    paragraphs.push(out.len());
                 }
                 out.push(Event::Start(tag));
             }
@@ -572,19 +719,32 @@ pub(crate) fn sanitize<'e>(
                     .as_ref()
                     .is_some_and(|skip| skip.depth >= state.depth)
                 {
-                    state.skip = None;
+                    state.end_skip()?;
+                }
+                let started_inside_skip = skipped.last() == Some(&state.depth);
+                if started_inside_skip {
+                    skipped.pop();
                 }
                 state.depth = state.depth.saturating_sub(1);
+                if started_inside_skip {
+                    continue;
+                }
+                // A paragraph whose every part was removed is removed too.
+                if matches!(tag, TagEnd::Paragraph) {
+                    if let Some(start) = paragraphs.pop() {
+                        if out[start + 1..].iter().all(is_blank) {
+                            out.truncate(start);
+                            continue;
+                        }
+                    }
+                }
                 out.push(Event::End(tag));
             }
-            Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak
-                if state
-                    .skip
-                    .as_ref()
-                    .is_some_and(|skip| skip.depth == state.depth) => {}
+            _ if state.skip.is_some() => {}
             other => out.push(other),
         }
     }
+    state.end_skip()?;
     let closes = state.close_from(0);
     if !closes.is_empty() {
         out.push(Event::Html(CowStr::from(closes)));
@@ -601,6 +761,22 @@ impl RawHtml<'_, '_> {
             ));
         }
         Ok(())
+    }
+
+    /// Stop skipping a removed element whose container (or the body) ended
+    /// before its end tag. One that outlived its HTML block and hid authored
+    /// content after it fails the projection rather than losing it silently.
+    fn end_skip(&mut self) -> Result<(), String> {
+        match self.skip.take() {
+            Some(skip) if skip.outlived && skip.swallowed => {
+                let name = listed(&skip.name);
+                Err(format!(
+                    "{}: raw HTML <{name}> is never closed, so everything after it would be hidden; close it with </{name}> (nothing was published)",
+                    self.projection.source_path()
+                ))
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Close the kept elements opened at `depth` or deeper.
@@ -748,6 +924,9 @@ impl RawHtml<'_, '_> {
                 raw_text,
                 nested: 0,
                 depth: self.depth,
+                in_block: self.in_block,
+                outlived: false,
+                swallowed: false,
             });
         }
         Ok(())
@@ -771,6 +950,7 @@ impl RawHtml<'_, '_> {
         html.push('<');
         html.push_str(&name);
         let has_id = attributes.iter().any(|(attribute, _)| attribute == "id");
+        let has_alt = attributes.iter().any(|(attribute, _)| attribute == "alt");
         for (attribute, value) in attributes {
             // A legacy `<a name>` anchor keeps working as an id.
             let attribute = if name == "a" && attribute == "name" && !has_id {
@@ -790,9 +970,7 @@ impl RawHtml<'_, '_> {
                     .resolve_link(&value)
                     .map_err(|error| format!("{error} (raw HTML <{name} {attribute}>)"))?
             } else if attribute == "id" {
-                let unique = !value.is_empty()
-                    && !value.bytes().any(is_space)
-                    && !value.starts_with("ob-")
+                let unique = valid_id(&value)
                     && !self.reserved.contains(&value)
                     && self.ids.insert(value.clone());
                 if !unique {
@@ -808,6 +986,12 @@ impl RawHtml<'_, '_> {
             } else {
                 html.push_str(&format!(" {attribute}=\"{}\"", escape::attr(&value)));
             }
+        }
+        // Every portable image has alternative text; one written without any
+        // is marked decorative and reported.
+        if name == "img" && !has_alt {
+            html.push_str(" alt=\"\"");
+            self.losses.images_without_alt += 1;
         }
         html.push('>');
         Ok(())
@@ -873,8 +1057,10 @@ mod tests {
                 at = next;
             }
         }
-        let (token, _) = next_token("<a href=\"x", 0);
-        assert!(matches!(token, Token::Text("<")));
+        // A tag that never ends is text through the end of the fragment.
+        let (token, next) = next_token("x <a href=\"x <b>y</b>", 2);
+        assert!(matches!(token, Token::Text("<a href=\"x <b>y</b>")));
+        assert_eq!(next, 21);
         let (token, next) = next_token("<A HREF=x Title='T' href=y/>", 0);
         let Token::Start {
             name,

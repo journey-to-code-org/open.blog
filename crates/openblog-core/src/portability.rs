@@ -1448,4 +1448,161 @@ A[^a b].
         assert!(output.html.len() <= MAX_PORTABLE_HTML_BYTES);
         assert!(output.html.ends_with("<p>Last words.</p>\n"));
     }
+
+    #[test]
+    fn portable_raw_html_with_unterminated_tags_stays_linear() {
+        let front = "---\ntitle: Work\ndate: 2026-10-01\n---\n";
+        let started = std::time::Instant::now();
+        for body in [
+            format!("<div>\n{}\n", "<a ".repeat(100_000)),
+            format!("<div>\n{}\n", "<a href=\"".repeat(40_000)),
+            format!("<div>\n<span {}>x</span>\n", {
+                (0..40_000).map(|n| format!("x{n} ")).collect::<String>()
+            }),
+        ] {
+            let output = portable(&format!("{front}{body}"));
+            assert!(output.html.starts_with("<div>"), "{}", &output.html[..80]);
+        }
+        // Quadratic scanning took minutes here; linear work takes well under this.
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+        // An unterminated tag and everything after it in the block is escaped text.
+        let output = portable(&format!(
+            "{front}<div>\n<a title=\"never closed <b>bold</b>\n"
+        ));
+        assert_eq!(
+            output.html,
+            "<div>\n&lt;a title=\"never closed &lt;b&gt;bold&lt;/b&gt;</div>"
+        );
+    }
+
+    #[test]
+    fn portable_raw_html_drops_markdown_written_inside_removed_elements() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\nBefore <script>alert(*secret*)</script> after\n\nHi <style>p{x:1} **leak** </style> end\n\nText <script>if (a) { *private* [x](/y) }</script> end.\n\nOpen <script>*a </script> **b** c* d\n",
+        );
+        assert_eq!(
+            output.html,
+            "<p>Before  after</p>\n<p>Hi  end</p>\n<p>Text  end.</p>\n<p>Open  <strong>b</strong> c d</p>\n"
+        );
+        for leaked in ["secret", "leak", "private", "/y"] {
+            assert!(!output.html.contains(leaked), "{leaked}: {}", output.html);
+        }
+    }
+
+    #[test]
+    fn portable_raw_html_removed_elements_keep_skipping_until_their_end_tag() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n<div class=\"embed\">\n<script>\n\n  window.SECRET_KEY = \"sk_live_123\";\n</script>\n</div>\n\n<div>\n<style>\n\n.hidden-note{display:none}\n</style>\n</div>\n\n<div><template>\n\n<p>Hidden *template*</p>\n\n</template></div>\n\nAfter.\n",
+        );
+        for leaked in ["SECRET", "sk_live", "hidden-note", "Hidden", "template"] {
+            assert!(!output.html.contains(leaked), "{leaked}: {}", output.html);
+        }
+        assert!(output.html.starts_with("<div class=\"embed\">"));
+        // The last div's end tag sits in a removed paragraph, so it closes at
+        // the end of the body.
+        assert!(
+            output.html.ends_with("<div>\n<p>After.</p>\n</div>"),
+            "{}",
+            output.html
+        );
+        assert_eq!(
+            raw_html_losses(&output),
+            ["Removed with their content: <script>, <style>, <template>."]
+        );
+    }
+
+    #[test]
+    fn portable_raw_html_never_closed_across_blocks_fails_for_the_source() {
+        for (body, element) in [
+            (
+                "<iframe src=\"https://www.youtube.com/embed/x\" />\n\nPara with <a href=\"/later/\">a later link</a>.\n\n<figure><img src=\"a.png\" alt=\"A\"><figcaption>Cap</figcaption></figure>\n",
+                "<iframe>",
+            ),
+            (
+                "<div><button>\n\nLater <kbd>Ctrl</kbd> and <a href=\"/x\">link</a>.\n\n<p>Block para</p>\n",
+                "<button>",
+            ),
+            ("<button>\n\n<div>next block content</div>\n\nPara\n", "<button>"),
+            ("- <div><script>\n\n  secret()\n- next\n", "<script>"),
+        ] {
+            let error = portable_error(&format!(
+                "---\ntitle: Work\ndate: 2026-10-01\n---\n{body}"
+            ));
+            assert!(
+                error.contains("posts/work.md")
+                    && error.contains(element)
+                    && error.contains("never closed"),
+                "{body}: {error}"
+            );
+        }
+        // An unclosed element that hides nothing after its block is only reported.
+        let output =
+            portable("---\ntitle: Work\ndate: 2026-10-01\n---\nKept.\n\n<div><script>\nsteal()\n");
+        assert_eq!(output.html, "<p>Kept.</p>\n<div></div>");
+    }
+
+    #[test]
+    fn portable_paragraphs_left_empty_by_removal_are_dropped() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\nKept.\n\n<noscript><img src=\"https://tracker.example/p.gif\" alt=\"t\"></noscript>\n\n<noscript>a</noscript> <button>b</button>\n\nEnd.\n",
+        );
+        assert_eq!(output.html, "<p>Kept.</p>\n<p>End.</p>\n");
+    }
+
+    #[test]
+    fn portable_raw_images_without_alternative_text_are_marked_decorative() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n<p><img src=\"x.png\"> <img src=\"y.png\" alt=\"Y\"> <img src=\"z.png\" alt></p>\n",
+        );
+        assert_eq!(
+            output.html,
+            "<p><img loading=\"lazy\" decoding=\"async\" src=\"https://example.test/blog/work/x.png\" alt=\"\"> <img loading=\"lazy\" decoding=\"async\" src=\"https://example.test/blog/work/y.png\" alt=\"Y\"> <img loading=\"lazy\" decoding=\"async\" src=\"https://example.test/blog/work/z.png\" alt=\"\"></p>"
+        );
+        assert_eq!(
+            raw_html_losses(&output),
+            ["Marked 1 image without alternative text as decorative (alt=\"\")."]
+        );
+    }
+
+    #[test]
+    fn portable_heading_ids_stay_unique_and_avoid_the_reserved_prefix() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n## A {#x}\n\n## B {#x}\n\n## Foo {#bar}\n\n## Bar\n\n## C {#ob-contributions-title}\n\n## Ob Note\n\n<span id=\"x-2\">raw</span> [first](#x)\n",
+        );
+        let ids: Vec<&str> = output
+            .html
+            .match_indices("<h2 id=\"")
+            .map(|(at, _)| {
+                let rest = &output.html[at + 8..];
+                &rest[..rest.find('"').unwrap()]
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            ["x", "x-2", "bar", "bar-2", "contributions-title", "note"]
+        );
+        assert!(output.html.contains("<span>raw</span>"), "{}", output.html);
+        assert!(output
+            .html
+            .contains("<a href=\"https://example.test/blog/work/#x\">first</a>"));
+        assert_eq!(
+            raw_html_losses(&output),
+            [
+                "Removed 1 duplicate, reserved, or invalid id.",
+                "Renamed 3 duplicate or reserved heading ids."
+            ]
+        );
+        // The native page gives the slugged heading its own id too.
+        let (_, site) =
+            public_post("---\ntitle: Work\ndate: 2026-10-01\n---\n## Foo {#bar}\n\n## Bar\n");
+        assert!(
+            site.posts[0].html.contains("id=\"bar-2\""),
+            "{}",
+            site.posts[0].html
+        );
+    }
 }
