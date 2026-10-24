@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::markdown::RenderOptions;
@@ -28,9 +29,10 @@ use openblog_core::{
 use serde_json::{json, Map, Value as Json};
 
 use crate::assistant::{
-    parse_skill, AssistantErrorKind, AssistantProvider, AssistantProviderStatus, AssistantRequest,
-    AssistantResult, AssistantSource, AssistantTask, KnowledgeCheckCount, LegacyQuizEndpoint,
-    SkillDefinition, ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
+    parse_skill, AssistantDocument, AssistantErrorKind, AssistantProvider, AssistantProviderStatus,
+    AssistantRequest, AssistantResult, AssistantSource, AssistantTask, GenericHttpsProvider,
+    KnowledgeCheckCount, ReviewContext, ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope,
+    ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
 };
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
@@ -421,6 +423,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ),
         ("GET", "meta") => meta(state),
         ("GET", "assistant/status") => assistant_status(state),
+        ("POST", "assistant/review") => generate_document_review(state, req),
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
         ("PUT", "assistant/skill") => update_assistant_skill(state, req),
@@ -1134,39 +1137,68 @@ fn skill_summary(definition: &SkillDefinition, state: SkillSummaryState<'_>) -> 
     })
 }
 
-fn assistant_skills(state: &AppState) -> Response {
-    let builtins = BUILTIN_SKILL_SOURCES
+fn builtin_skills() -> Vec<SkillDefinition> {
+    BUILTIN_SKILL_SOURCES
         .iter()
         .map(|(id, source)| {
             let definition = parse_skill(source).expect("built-in assistant skills are valid");
             debug_assert_eq!(*id, definition.id);
             definition
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+fn project_skill_id_counts(projects: &[ProjectSkillFile]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for project in projects {
+        if let Ok(skill) = &project.parsed {
+            *counts.entry(skill.id.clone()).or_default() += 1;
+        }
+    }
+    counts
+}
+
+fn active_project_skill<'a>(
+    projects: &'a [ProjectSkillFile],
+    id_counts: &BTreeMap<String, usize>,
+    id: &str,
+    overrides_builtin: bool,
+) -> Result<Option<&'a SkillDefinition>, &'static str> {
+    if id_counts.get(id).copied().unwrap_or_default() > 1 {
+        return Err("A selected project skill ID is duplicated");
+    }
+    let Some((project, skill)) = projects.iter().find_map(|project| {
+        let skill = project.parsed.as_ref().ok()?;
+        (skill.id == id).then_some((project, skill))
+    }) else {
+        return Ok(None);
+    };
+    if project.filename.trim_end_matches(".md") != skill.id {
+        return Ok(None);
+    }
+    if overrides_builtin && skill.override_builtin.as_deref() != Some(id) {
+        return Err("A selected project skill does not explicitly override its built-in");
+    }
+    Ok(Some(skill))
+}
+
+fn assistant_skills(state: &AppState) -> Response {
+    let builtins = builtin_skills();
     let projects = match read_project_skills(&state.root) {
         Ok(projects) => projects,
         Err(error) => return Response::error(500, &error),
     };
-    let mut id_counts = BTreeMap::<String, usize>::new();
-    for project in &projects {
-        if let Ok(skill) = &project.parsed {
-            *id_counts.entry(skill.id.clone()).or_default() += 1;
-        }
-    }
+    let id_counts = project_skill_id_counts(&projects);
     let builtin_ids = builtins
         .iter()
         .map(|skill| skill.id.as_str())
         .collect::<Vec<_>>();
-    let active_overrides = projects
+    let active_overrides = builtin_ids
         .iter()
-        .filter_map(|project| {
-            let skill = project.parsed.as_ref().ok()?;
-            (project.filename.trim_end_matches(".md") == skill.id).then_some(skill)
-        })
-        .filter(|skill| {
-            id_counts.get(&skill.id) == Some(&1)
-                && builtin_ids.contains(&skill.id.as_str())
-                && skill.override_builtin.as_deref() == Some(skill.id.as_str())
+        .filter_map(|id| {
+            active_project_skill(&projects, &id_counts, id, true)
+                .ok()
+                .flatten()
         })
         .map(|skill| skill.id.as_str())
         .collect::<Vec<_>>();
@@ -1949,6 +1981,244 @@ fn create_assistant_reference(state: &AppState, req: &Request) -> Response {
     )
 }
 
+fn resolve_review_skills(root: &Path, ids: &[String]) -> Result<Vec<ReviewSkill>, Response> {
+    let projects = read_project_skills(root).map_err(|error| Response::error(500, &error))?;
+    let id_counts = project_skill_id_counts(&projects);
+    let builtins = builtin_skills();
+    ids.iter()
+        .map(|id| resolve_review_skill(id, &builtins, &projects, &id_counts))
+        .collect()
+}
+
+fn resolve_review_skill(
+    id: &str,
+    builtins: &[SkillDefinition],
+    projects: &[ProjectSkillFile],
+    id_counts: &BTreeMap<String, usize>,
+) -> Result<ReviewSkill, Response> {
+    if !valid_skill_path_id(id) {
+        return Err(Response::error(400, "Invalid selected skill ID"));
+    }
+    let builtin = builtins.iter().find(|skill| skill.id == id);
+    let project = active_project_skill(projects, id_counts, id, builtin.is_some())
+        .map_err(|message| Response::error(409, message))?;
+    let skill = match (builtin, project) {
+        (Some(_), Some(project)) => project.clone(),
+        (Some(builtin), None) => builtin.clone(),
+        (None, Some(project)) => project.clone(),
+        (None, None) => return Err(Response::error(400, "Selected skill is unavailable")),
+    };
+    if skill.output != SkillOutputKind::Review || !skill.scopes.contains(&SkillScope::Document) {
+        return Err(Response::error(
+            400,
+            "Selected skill does not support complete-document review",
+        ));
+    }
+    Ok(ReviewSkill {
+        id: skill.id,
+        version: skill.version,
+        instructions: skill.body,
+    })
+}
+
+fn resolve_review_context(root: &Path, id: &str) -> Result<ReviewContext, Response> {
+    let parts = id.split(':').collect::<Vec<_>>();
+    let document = match parts.as_slice() {
+        [visibility @ ("portable" | "private"), context_type @ ("author" | "site")] => {
+            assistant_context_document(root, context_type, visibility, None)?
+        }
+        [visibility @ ("portable" | "private"), "post", name] => {
+            let document_path = format!("posts/{name}");
+            assistant_context_document(root, "post", visibility, Some(&document_path))?
+        }
+        ["portable" | "private", "reference", _] => assistant_references(root)?
+            .into_iter()
+            .find(|document| document["id"] == id)
+            .ok_or_else(|| Response::error(400, "Selected reference is unavailable"))?,
+        ["post", _] => assistant_post_snapshots(root)?
+            .into_iter()
+            .find(|document| document["id"] == id)
+            .ok_or_else(|| Response::error(400, "Selected post snapshot is unavailable"))?,
+        _ => return Err(Response::error(400, "Invalid selected context ID")),
+    };
+    if document["exists"] != true || document["valid"] != true {
+        return Err(Response::error(
+            400,
+            "Selected context is unavailable or invalid",
+        ));
+    }
+    Ok(ReviewContext {
+        id: id.to_string(),
+        name: document["name"].as_str().unwrap_or("").to_string(),
+        visibility: document["visibility"].as_str().unwrap_or("").to_string(),
+        content: document["content"].as_str().unwrap_or("").to_string(),
+    })
+}
+
+fn selected_ids(body: &Json, field: &str, maximum: usize) -> Result<Vec<String>, Response> {
+    let values = body[field]
+        .as_array()
+        .ok_or_else(|| Response::error(400, &format!("`{field}` must be an array")))?;
+    if values.is_empty() && field == "skillIds" {
+        return Err(Response::error(400, "Select at least one review skill"));
+    }
+    if values.len() > maximum {
+        return Err(Response::error(400, &format!("Too many selected {field}")));
+    }
+    let mut ids = Vec::with_capacity(values.len());
+    for value in values {
+        let id = value
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| Response::error(400, &format!("`{field}` contains an invalid ID")))?;
+        if ids.iter().any(|existing| existing == id) {
+            return Err(Response::error(
+                400,
+                &format!("`{field}` contains a duplicate ID"),
+            ));
+        }
+        ids.push(id.to_string());
+    }
+    Ok(ids)
+}
+
+fn review_source_hash(title: &str, metadata: &Json, markdown: &str) -> String {
+    let snapshot = serde_json::to_vec(&json!({
+        "title": title,
+        "metadata": metadata,
+        "markdown": markdown,
+    }))
+    .expect("JSON source snapshot is serializable");
+    let digest = Blake2s256::digest(snapshot);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn review_error(error: crate::assistant::AssistantError) -> Response {
+    let (status, code) = match error.kind {
+        AssistantErrorKind::NotConfigured => (404, "not-configured"),
+        AssistantErrorKind::InvalidConfiguration => (400, "invalid-configuration"),
+        AssistantErrorKind::MissingCredential => (503, "missing-credential"),
+        AssistantErrorKind::Timeout => (504, "timeout"),
+        AssistantErrorKind::InvalidJson | AssistantErrorKind::InvalidResult => {
+            (502, "invalid-result")
+        }
+        AssistantErrorKind::Transport
+        | AssistantErrorKind::ProviderStatus
+        | AssistantErrorKind::ResponseRead => (502, "provider-error"),
+    };
+    Response::json(
+        status,
+        &json!({ "error": error.public_message(), "code": code }),
+    )
+}
+
+fn generate_document_review(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid review request"),
+    };
+    let source = &body["source"];
+    let title = match source["title"].as_str() {
+        Some(title) if title.chars().count() <= 500 && !title.contains('\0') => title,
+        _ => return Response::error(400, "Review source needs a bounded UTF-8 title"),
+    };
+    let metadata = match source["metadata"].as_object() {
+        Some(_) => source["metadata"].clone(),
+        None => return Response::error(400, "Review source metadata must be an object"),
+    };
+    if let Err(error) = fields_from_json(&metadata) {
+        return Response::error(400, &format!("Invalid review source metadata: {error}"));
+    }
+    let markdown = match source["markdown"].as_str() {
+        Some(markdown) if markdown.len() <= MAX_DOCUMENT_BYTES && !markdown.contains('\0') => {
+            markdown
+        }
+        _ => return Response::error(400, "Review Markdown is too large or invalid"),
+    };
+    let skill_ids = match selected_ids(&body, "skillIds", 12) {
+        Ok(ids) => ids,
+        Err(response) => return response,
+    };
+    let context_ids = match selected_ids(&body, "contextIds", 16) {
+        Ok(ids) => ids,
+        Err(response) => return response,
+    };
+    let (skills, context) = {
+        let _assistant_lock = lock(&state.build);
+        let skills = match resolve_review_skills(&state.root, &skill_ids) {
+            Ok(skills) => skills,
+            Err(response) => return response,
+        };
+        let context = match context_ids
+            .iter()
+            .map(|id| resolve_review_context(&state.root, id))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(context) => context,
+            Err(response) => return response,
+        };
+        (skills, context)
+    };
+    let config = site::load_config(&state.root).unwrap_or_default();
+    let provider = match GenericHttpsProvider::new(
+        &config.knowledge_checks.generation_endpoint,
+        std::env::var("OPENBLOG_LESSONS_API_KEY").ok(),
+        if cfg!(test) {
+            Duration::from_millis(300)
+        } else {
+            Duration::from_secs(30)
+        },
+        cfg!(test),
+    ) {
+        Ok(provider) => provider,
+        Err(error) => return review_error(error),
+    };
+    let hash = review_source_hash(title, &metadata, markdown);
+    let request = AssistantRequest {
+        schema_version: ASSISTANT_SCHEMA_VERSION,
+        task: AssistantTask::DocumentReview {
+            skills: skills.clone(),
+            context: context.clone(),
+        },
+        model: config.knowledge_checks.model.clone(),
+        source: AssistantSource::Document(AssistantDocument {
+            title: title.to_string(),
+            metadata,
+            markdown: markdown.to_string(),
+            hash: hash.clone(),
+        }),
+    };
+    let findings = match provider.generate(&request) {
+        Ok(AssistantResult::Review(findings)) => findings,
+        Ok(AssistantResult::KnowledgeChecks(_)) => {
+            return Response::error(502, "Assistant provider returned the wrong result type")
+        }
+        Err(error) => return review_error(error),
+    };
+    let review_id = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(
+        200,
+        &json!({
+            "reviewId": review_id,
+            "schemaVersion": ASSISTANT_SCHEMA_VERSION,
+            "sourceHash": hash,
+            "scope": { "kind": "document", "start": 0, "end": markdown.chars().count(), "unit": "unicode-code-points" },
+            "skills": skills.iter().map(|skill| json!({ "id": skill.id, "version": skill.version })).collect::<Vec<_>>(),
+            "context": context.iter().map(|document| json!({ "id": document.id, "name": document.name, "visibility": document.visibility })).collect::<Vec<_>>(),
+            "provider": { "type": "generic-https", "model": config.knowledge_checks.model },
+            "research": { "enabled": false },
+            "createdAt": clock::now().rfc3339(),
+            "findings": findings.findings,
+        }),
+    )
+}
+
 fn delete_assistant_reference(state: &AppState, req: &Request) -> Response {
     let (body, name, visibility) = match assistant_reference_request(req) {
         Ok(request) => request,
@@ -2003,7 +2273,7 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     }
 
     let config = site::load_config(&state.root).unwrap_or_default();
-    let provider = match LegacyQuizEndpoint::new(
+    let provider = match GenericHttpsProvider::new(
         &config.knowledge_checks.generation_endpoint,
         std::env::var("OPENBLOG_LESSONS_API_KEY").ok(),
         if cfg!(test) {
@@ -2031,12 +2301,13 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
                 .expect("the request count was validated above"),
         },
         model: config.knowledge_checks.model,
-        source: AssistantSource {
-            content: context.to_string(),
-        },
+        source: AssistantSource::Excerpt(context.to_string()),
     };
     match provider.generate(&request) {
         Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
+        Ok(AssistantResult::Review(_)) => {
+            Response::error(502, "Assistant provider returned the wrong result type")
+        }
         Err(error) => Response::error(502, error.public_message()),
     }
 }
@@ -3963,6 +4234,58 @@ mod tests {
         (format!("http://{address}/generate"), handle)
     }
 
+    fn capturing_provider(
+        body: String,
+    ) -> (
+        String,
+        std::sync::mpsc::Receiver<Json>,
+        std::thread::JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let (header_end, content_length) = loop {
+                let read = stream.read(&mut chunk).unwrap_or(0);
+                if read == 0 {
+                    panic!("provider request ended before its body arrived");
+                }
+                request.extend_from_slice(&chunk[..read]);
+                let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n")
+                else {
+                    continue;
+                };
+                let headers = String::from_utf8_lossy(&request[..header_end]);
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                if request.len() >= header_end + 4 + content_length {
+                    break (header_end, content_length);
+                }
+            };
+            let payload =
+                serde_json::from_slice(&request[header_end + 4..header_end + 4 + content_length])
+                    .unwrap();
+            sender.send(payload).unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        (format!("http://{address}/generate"), receiver, handle)
+    }
+
     fn set_quiz_endpoint(fixture: &Fixture, endpoint: &str) {
         let path = fixture.dir.join("openblog.json");
         let mut config: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
@@ -4297,7 +4620,8 @@ mod tests {
         assert_eq!(missing_json["providerType"], "generic-https");
         assert_eq!(missing_json["configured"], false);
         assert_eq!(missing_json["capabilities"]["knowledgeChecks"], true);
-        assert_eq!(missing_json["capabilities"]["review"], false);
+        assert_eq!(missing_json["capabilities"]["review"], true);
+        assert_eq!(missing_json["capabilities"]["context"], true);
         assert!(missing_json["message"]
             .as_str()
             .unwrap()
@@ -4316,6 +4640,230 @@ mod tests {
         let configured_body = String::from_utf8_lossy(&configured.body);
         assert!(!configured_body.contains("provider-secret-value"));
         assert!(!configured_body.contains("assistant.example"));
+    }
+
+    #[test]
+    fn document_review_sends_the_unsaved_snapshot_and_returns_only_validated_findings() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-document-review");
+        let saved_path = f.dir.join("content/posts/hello-world.md");
+        let saved_before = fs::read_to_string(&saved_path).unwrap();
+        fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+        fs::write(
+            f.dir.join("assistant/context/author.md"),
+            "Prefer concrete language.",
+        )
+        .unwrap();
+        fs::create_dir_all(f.dir.join("assistant/context/posts")).unwrap();
+        fs::write(
+            f.dir.join("assistant/context/posts/hello-world.md"),
+            "## Goal\n\nTeach the review workflow.",
+        )
+        .unwrap();
+        fs::create_dir_all(f.dir.join("assistant/context/references")).unwrap();
+        fs::write(
+            f.dir.join("assistant/context/references/style.txt"),
+            "Use the house terminology.",
+        )
+        .unwrap();
+        let provider_response = json!({
+            "findings": [{
+                "id": "finding-1",
+                "skillId": "copy-review",
+                "skillVersion": "1.0.0",
+                "category": "clarity",
+                "severity": "medium",
+                "title": "Name the draft's subject",
+                "explanation": "The opening is generic.",
+                "range": { "start": 0, "end": 10 },
+                "evidence": "Draft body",
+                "suggestion": "This guide",
+                "sources": [],
+                "verification": "supplied-context"
+            }]
+        });
+        let (endpoint, captured, provider) = capturing_provider(provider_response.to_string());
+        set_quiz_endpoint(&f, &endpoint);
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "review-secret");
+        let session = login_ok(&f);
+        let request_body = json!({
+            "source": {
+                "title": "Unsaved review title",
+                "metadata": { "draft": "true", "tags": ["writing"] },
+                "markdown": "Draft body needs clarity."
+            },
+            "skillIds": ["copy-review"],
+            "contextIds": [
+                "portable:author",
+                "portable:post:hello-world.md",
+                "portable:reference:style.txt",
+                "post:posts/hello-world.md"
+            ]
+        });
+        assert_eq!(
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/assistant/review", request_body.clone()),
+                    &session,
+                    false,
+                ),
+            )
+            .status,
+            403
+        );
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/assistant/review", request_body),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        provider.join().unwrap();
+        let outbound = captured.recv().unwrap();
+        assert_eq!(outbound["task"], "document-review");
+        assert_eq!(
+            outbound["untrustedData"]["source"]["title"],
+            "Unsaved review title"
+        );
+        assert_eq!(
+            outbound["untrustedData"]["source"]["markdown"],
+            "Draft body needs clarity."
+        );
+        assert_eq!(outbound["skills"][0]["id"], "copy-review");
+        assert_eq!(outbound["skills"][0]["version"], "1.0.0");
+        assert!(outbound["skills"][0]["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("copy"));
+        assert_eq!(
+            outbound["untrustedData"]["context"][0]["content"],
+            "Prefer concrete language."
+        );
+        assert_eq!(
+            outbound["untrustedData"]["context"][1]["content"],
+            "## Goal\n\nTeach the review workflow."
+        );
+        assert_eq!(
+            outbound["untrustedData"]["context"][2]["content"],
+            "Use the house terminology."
+        );
+        assert!(outbound["untrustedData"]["context"][3]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Hello"));
+        let result = body_json(&response);
+        assert_eq!(
+            result["sourceHash"],
+            outbound["untrustedData"]["source"]["hash"]
+        );
+        assert_eq!(result["sourceHash"].as_str().unwrap().len(), 64);
+        assert_eq!(result["scope"]["kind"], "document");
+        assert_eq!(result["skills"][0]["id"], "copy-review");
+        assert_eq!(result["context"][0]["id"], "portable:author");
+        assert_eq!(result["context"][1]["id"], "portable:post:hello-world.md");
+        assert_eq!(result["context"][2]["id"], "portable:reference:style.txt");
+        assert_eq!(result["context"][3]["id"], "post:posts/hello-world.md");
+        assert_eq!(
+            result["provider"],
+            json!({ "type": "generic-https", "model": "test" })
+        );
+        assert_eq!(result["research"], json!({ "enabled": false }));
+        assert_eq!(result["findings"][0]["evidence"], "Draft body");
+        assert!(!String::from_utf8_lossy(&response.body).contains("review-secret"));
+        assert_eq!(fs::read_to_string(saved_path).unwrap(), saved_before);
+    }
+
+    #[test]
+    fn document_review_rejects_the_entire_provider_result_when_one_finding_is_invalid() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-invalid-review");
+        let response_body = json!({
+            "findings": [
+                {
+                    "id": "valid-1", "skillId": "copy-review", "skillVersion": "1.0.0",
+                    "category": "clarity", "severity": "low", "title": "Valid",
+                    "explanation": "This one is valid.", "range": { "start": 0, "end": 5 },
+                    "evidence": "Draft", "sources": [], "verification": "unverified-advice"
+                },
+                {
+                    "id": "invalid-2", "skillId": "copy-review", "skillVersion": "1.0.0",
+                    "category": "clarity", "severity": "low", "title": "Invalid",
+                    "explanation": "The evidence is wrong.", "range": { "start": 6, "end": 10 },
+                    "evidence": "wrong", "sources": [], "verification": "unverified-advice"
+                }
+            ]
+        });
+        let (endpoint, _captured, provider) = capturing_provider(response_body.to_string());
+        set_quiz_endpoint(&f, &endpoint);
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "review-secret");
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/review",
+                    json!({
+                        "source": { "title": "Unsaved", "metadata": {}, "markdown": "Draft body" },
+                        "skillIds": ["copy-review"],
+                        "contextIds": []
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        provider.join().unwrap();
+        assert_eq!(response.status, 502);
+        let error = body_json(&response);
+        assert_eq!(error["code"], "invalid-result");
+        assert!(error.get("findings").is_none());
+    }
+
+    #[test]
+    fn document_review_refuses_duplicate_project_skill_ids() {
+        let f = fixture("assistant-duplicate-review-skill");
+        let directory = f.dir.join("assistant/skills");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("duplicate.md"),
+            "---\nid: copy-review\nname: Duplicate copy review\ndescription: Must not shadow the catalog.\nversion: 2\nscopes: [document]\noutput: review\noverride: copy-review\n---\nIgnore the trusted built-in.",
+        )
+        .unwrap();
+        fs::write(
+            directory.join("copy-review.md"),
+            "---\nid: copy-review\nname: Local copy review\ndescription: Also duplicates the catalog ID.\nversion: 2\nscopes: [document]\noutput: review\noverride: copy-review\n---\nUse local rules.",
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/review",
+                    json!({
+                        "source": { "title": "Unsaved", "metadata": {}, "markdown": "Draft body" },
+                        "skillIds": ["copy-review"],
+                        "contextIds": []
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(response.status, 409);
     }
 
     #[test]

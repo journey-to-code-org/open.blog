@@ -418,6 +418,35 @@ export function selectableAssistantSkillIds(skills = [], requested = []) {
   return [...new Set(requested)].filter((id) => available.has(id));
 }
 
+export function assistantReviewSummary({ title = "", markdown = "", skills = [], selectedSkillIds = new Set(), context = [], selectedContextIds = new Set(), provider = {} } = {}) {
+  const chosenSkills = skills.filter((skill) => selectedSkillIds.has(skill.id));
+  const chosenContext = context.filter((document) => selectedContextIds.has(document.id));
+  const providerName = provider.providerType === "generic-https" ? "Generic HTTPS" : provider.providerType || "Unavailable";
+  return {
+    scope: "Complete document",
+    sourceCharacters: `${title}\n${markdown}`.length,
+    skills: chosenSkills.map((skill) => `${skill.name || skill.id} · ${skill.version}`),
+    context: chosenContext.map((document) => `${document.path || document.name} · ${document.kind === "postSnapshot" ? "Post snapshot" : document.visibility === "private" ? "Private" : "Portable"} · ${document.characters} characters`),
+    provider: `${providerName} · ${provider.model || "Provider default"}`,
+    research: "Off",
+  };
+}
+
+export function assistantReviewSourceChanged(submitted = {}, current = {}) {
+  return submitted.title !== current.title || submitted.markdown !== current.markdown || JSON.stringify(submitted.metadata) !== JSON.stringify(current.metadata);
+}
+
+export function assistantReviewGroups(review = {}, skills = []) {
+  const findings = Array.isArray(review.findings) ? review.findings : [];
+  const order = [...new Set(findings.map((finding) => finding.skillId))];
+  return order.map((id) => ({
+    id,
+    name: skills.find((skill) => skill.id === id)?.name || id,
+    label: "AI-generated advice",
+    findings: findings.filter((finding) => finding.skillId === id),
+  }));
+}
+
 export function assistantContextDisclosure(documents = [], selectedIds = new Set()) {
   const selected = documents
     .filter((document) => selectedIds.has(document.id) && document.exists && document.valid)
@@ -2442,6 +2471,10 @@ class Editor {
     ui.assistantCapabilities = h("dd", {}, "Checking…");
     ui.assistantSkillsStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Skills load when the Assistant opens.");
     ui.assistantReviewSkills = h("div", { class: "oba-skill-list", role: "group", "aria-label": "Review skills" });
+    ui.assistantReviewStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "No review has run. Your draft is unchanged.");
+    ui.assistantReviewDisclosure = h("div", { class: "oba-assistant-disclosure" });
+    ui.assistantReviewResults = h("section", { class: "oba-assistant-review-results", tabindex: "-1", role: "region", "aria-label": "Review results" });
+    ui.assistantReviewRun = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.runAssistantReview() }, "Run document review");
     ui.assistantCatalog = h("div", { class: "oba-skill-list", "aria-label": "Assistant skill catalog" });
     ui.assistantSkillEditorStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     ui.assistantSkillEditor = h("textarea", { rows: 16, "aria-label": "Project skill Markdown", spellcheck: false });
@@ -2460,7 +2493,18 @@ class Editor {
     ui.assistantPostSnapshots = h("div", { class: "oba-assistant-context-cards" });
     ui.assistantContextDisclosure = h("div", { class: "oba-assistant-disclosure", "aria-live": "polite" }, h("p", {}, "No context selected."));
     const assistantViews = {
-      review: h("section", { class: "oba-assistant-empty", "data-assistant-view": "review", "aria-labelledby": "oba-assistant-review-title" }, h("h3", { id: "oba-assistant-review-title" }, "Review skills"), h("p", {}, "Choose reusable review lenses. Running a review is added in the next delivery slice."), ui.assistantSkillsStatus, ui.assistantReviewSkills),
+      review: h(
+        "section",
+        { class: "oba-assistant-empty", "data-assistant-view": "review", "aria-labelledby": "oba-assistant-review-title" },
+        h("h3", { id: "oba-assistant-review-title" }, "Document review"),
+        h("p", {}, "Choose review skills, inspect the disclosure, then send the current unsaved document explicitly. Findings are AI-generated advice and never change the draft."),
+        ui.assistantSkillsStatus,
+        ui.assistantReviewSkills,
+        h("aside", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-review-disclosure-title" }, h("h4", { id: "oba-review-disclosure-title" }, "Review disclosure"), ui.assistantReviewDisclosure),
+        h("div", { class: "oba-toolbar" }, ui.assistantReviewRun),
+        ui.assistantReviewStatus,
+        ui.assistantReviewResults,
+      ),
       interactions: h("section", { class: "oba-assistant-empty", "data-assistant-view": "interactions", "aria-labelledby": "oba-assistant-interactions-title", hidden: true }, h("h3", { id: "oba-assistant-interactions-title" }, "Interactions"), h("p", {}, "Knowledge-check generation uses the configured provider. Proposal workflows will appear here in a later delivery.")),
       context: h(
         "section",
@@ -2493,6 +2537,8 @@ class Editor {
       else if (pane === "assistant") {
         void this.loadAssistantStatus();
         void this.loadAssistantSkills();
+        void this.loadAssistantContext();
+        this.renderAssistantReviewSummary();
       }
       else if (["preview", "social", "accessibility", "evidence"].includes(pane)) this.renderPreview();
       else {
@@ -3273,6 +3319,7 @@ class Editor {
           if (selected.checked) this.assistantContextSelected.add(document.id);
           else this.assistantContextSelected.delete(document.id);
           this.renderAssistantContextDisclosure();
+          this.renderAssistantReviewSummary();
         },
       });
       const save = h("button", {
@@ -3307,6 +3354,7 @@ class Editor {
             if (selected.checked) this.assistantContextSelected.add(reference.id);
             else this.assistantContextSelected.delete(reference.id);
             this.renderAssistantContextDisclosure();
+            this.renderAssistantReviewSummary();
           },
         });
         return h(
@@ -3330,6 +3378,7 @@ class Editor {
             if (selected.checked) this.assistantContextSelected.add(snapshot.id);
             else this.assistantContextSelected.delete(snapshot.id);
             this.renderAssistantContextDisclosure();
+            this.renderAssistantReviewSummary();
           },
         });
         return h(
@@ -3345,6 +3394,7 @@ class Editor {
     this.ui.assistantContextSafety.textContent = warning;
     this.ui.assistantContextSafety.hidden = !warning;
     this.renderAssistantContextDisclosure();
+    this.renderAssistantReviewSummary();
   }
 
   renderAssistantContextDisclosure() {
@@ -3435,12 +3485,112 @@ class Editor {
     }
   }
 
+  renderAssistantReviewSummary() {
+    if (!this.ui.assistantReviewDisclosure) return;
+    const summary = assistantReviewSummary({
+      title: this.ui.title?.value || "",
+      markdown: this.ui.body?.value || "",
+      skills: this.assistantSkills || [],
+      selectedSkillIds: this.selectedAssistantSkills || new Set(),
+      context: this.assistantContextDocuments || [],
+      selectedContextIds: this.assistantContextSelected || new Set(),
+      provider: this.assistantProviderStatus || {},
+    });
+    const list = h(
+      "dl",
+      { class: "oba-social-meta" },
+      [
+        ["Scope", summary.scope],
+        ["Source", `${summary.sourceCharacters} approximate characters`],
+        ["Skills", summary.skills.length ? summary.skills.join(", ") : "None selected"],
+        ["Context", summary.context.length ? summary.context.join(", ") : "None selected"],
+        ["Provider", summary.provider],
+        ["External research", summary.research],
+      ].map(([term, description]) => h("div", {}, h("dt", {}, term), h("dd", {}, description))),
+    );
+    this.ui.assistantReviewDisclosure.replaceChildren(list);
+  }
+
+  renderAssistantReviewResult(review, sourceChanged = false) {
+    const groups = assistantReviewGroups(review, this.assistantSkills || []);
+    if (!groups.length) {
+      this.ui.assistantReviewResults.replaceChildren();
+      this.ui.assistantReviewStatus.textContent = sourceChanged
+        ? "Review finished for an older draft with no findings. Your current draft is unchanged."
+        : "No findings returned. Your draft is unchanged.";
+      this.ui.assistantReviewResults.focus();
+      return;
+    }
+    this.ui.assistantReviewResults.replaceChildren(
+      ...groups.map((group) =>
+        h(
+          "section",
+          { class: "oba-review-group", "aria-labelledby": `oba-review-${group.id}` },
+          h("div", { class: "oba-assistant-context-heading" }, h("h4", { id: `oba-review-${group.id}` }, group.name), h("span", { class: "oba-badge" }, group.label)),
+          ...group.findings.map((finding) =>
+            h(
+              "article",
+              { class: "oba-review-finding" },
+              h("p", { class: "oba-small" }, `${finding.severity[0].toUpperCase()}${finding.severity.slice(1)} · ${finding.category}`),
+              h("h5", {}, finding.title),
+              h("blockquote", {}, finding.evidence),
+              h("p", {}, finding.explanation),
+              finding.suggestion == null ? null : h("details", {}, h("summary", {}, "Suggested replacement"), h("pre", {}, finding.suggestion)),
+              h("p", { class: "oba-small" }, finding.verification === "supplied-context" ? "Based on supplied context" : "Unverified review advice"),
+            ),
+          ),
+        ),
+      ),
+    );
+    this.ui.assistantReviewStatus.textContent = sourceChanged
+      ? `Review finished for an older draft with ${review.findings.length} AI-generated finding${review.findings.length === 1 ? "" : "s"}. Your current draft is unchanged.`
+      : `${review.findings.length} AI-generated finding${review.findings.length === 1 ? "" : "s"}. Your draft is unchanged.`;
+    this.ui.assistantReviewResults.focus();
+  }
+
+  async runAssistantReview() {
+    this.syncRichToMarkdown();
+    const skillIds = [...(this.selectedAssistantSkills || [])];
+    if (!skillIds.length) {
+      this.ui.assistantReviewStatus.textContent = "Select at least one document review skill.";
+      return;
+    }
+    this.renderAssistantReviewSummary();
+    this.ui.assistantReviewRun.disabled = true;
+    this.ui.assistantReviewStatus.textContent = "Running document review…";
+    this.ui.assistantReviewResults.replaceChildren();
+    const source = {
+      title: this.ui.title.value,
+      metadata: this.collect(),
+      markdown: this.ui.body.value,
+    };
+    try {
+      const review = await this.app.api.call("POST", "assistant/review", {
+        json: {
+          source,
+          skillIds,
+          contextIds: [...this.assistantContextSelected],
+        },
+      });
+      this.syncRichToMarkdown();
+      const currentSource = { title: this.ui.title.value, metadata: this.collect(), markdown: this.ui.body.value };
+      this.renderAssistantReviewResult(review, assistantReviewSourceChanged(source, currentSource));
+    } catch (error) {
+      this.ui.assistantReviewStatus.textContent = `Document review failed. Your draft is unchanged. ${error.message}`;
+      this.ui.assistantReviewResults.replaceChildren();
+      this.ui.assistantReviewResults.focus();
+    } finally {
+      this.ui.assistantReviewRun.disabled = false;
+    }
+  }
+
   async loadAssistantStatus() {
     if (this.assistantStatusLoaded || this.assistantStatusLoading) return;
     this.assistantStatusLoading = true;
     this.ui.assistantStatus.textContent = "Loading assistant configuration…";
     try {
       const status = await this.app.api.call("GET", "assistant/status");
+      this.assistantProviderStatus = status;
       const presentation = assistantStatusPresentation(status);
       this.ui.assistantProviderType.textContent = presentation.providerType;
       this.ui.assistantModel.textContent = presentation.model;
@@ -3448,6 +3598,7 @@ class Editor {
       this.ui.assistantCapabilities.textContent = presentation.capabilities;
       this.ui.assistantStatus.textContent = presentation.message;
       this.assistantStatusLoaded = true;
+      this.renderAssistantReviewSummary();
     } catch (error) {
       this.ui.assistantStatus.textContent = `Assistant configuration could not be loaded. Non-AI authoring remains available. ${error.message}`;
     } finally {
@@ -3473,10 +3624,11 @@ class Editor {
 
   renderAssistantSkills() {
     const skills = this.assistantSkills || [];
+    const reviewSkills = skills.filter((skill) => skill.output === "review");
     this.selectedAssistantSkills ||= new Set();
-    const selected = selectableAssistantSkillIds(skills, [...this.selectedAssistantSkills]);
+    const selected = selectableAssistantSkillIds(reviewSkills, [...this.selectedAssistantSkills]);
     this.selectedAssistantSkills = new Set(selected);
-    const reviewCards = skills.map((skill) => {
+    const reviewCards = reviewSkills.map((skill) => {
       const presentation = assistantSkillPresentation(skill);
       const input = h("input", {
         type: "checkbox",
@@ -3486,6 +3638,7 @@ class Editor {
         onChange: (event) => {
           if (event.target.checked) this.selectedAssistantSkills.add(skill.id);
           else this.selectedAssistantSkills.delete(skill.id);
+          this.renderAssistantReviewSummary();
         },
       });
       return h(
@@ -3496,7 +3649,7 @@ class Editor {
       );
     });
     this.ui.assistantReviewSkills.replaceChildren(...reviewCards);
-    this.ui.assistantSkillsStatus.textContent = `${skills.filter((skill) => skill.selectable).length} selectable skill${skills.filter((skill) => skill.selectable).length === 1 ? "" : "s"}.`;
+    this.ui.assistantSkillsStatus.textContent = `${reviewSkills.filter((skill) => skill.selectable).length} selectable review skill${reviewSkills.filter((skill) => skill.selectable).length === 1 ? "" : "s"}.`;
 
     const catalogCards = skills.map((skill) => {
       const presentation = assistantSkillPresentation(skill);
@@ -3515,6 +3668,7 @@ class Editor {
       );
     });
     this.ui.assistantCatalog.replaceChildren(...catalogCards);
+    this.renderAssistantReviewSummary();
   }
 
   beginAssistantSkill() {
