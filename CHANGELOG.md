@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-24
+
 - Defined the semantic portability invariant and domain language for derived output,
   destination policies, private/public boundaries, and canonical work identity.
 - Added core descriptors for authored Markdown capabilities, including renderer,
@@ -352,7 +354,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.1...v0.11.2
