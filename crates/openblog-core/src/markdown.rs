@@ -1255,9 +1255,54 @@ pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
 }
 
 pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
-    let parsed_events =
+    let mut parsed_events =
         Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    assign_heading_ids(&mut parsed_events);
     render_events(parsed_events, markdown.len(), options, None)
+}
+
+/// Give every heading its id: the `{#id}` the author wrote, or a slug of its
+/// text made unique within the post. Done before rendering so the portable
+/// projection knows every heading anchor before it checks raw HTML ids.
+fn assign_heading_ids(events: &mut [Event<'_>]) {
+    let mut used_ids = std::collections::HashSet::new();
+    let mut heading: Option<(usize, String)> = None;
+    for index in 0..events.len() {
+        match &events[index] {
+            Event::Start(Tag::Heading { .. }) => heading = Some((index, String::new())),
+            Event::Text(t) | Event::Code(t) => {
+                if let Some((_, title)) = heading.as_mut() {
+                    title.push_str(t);
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                if let Some((_, title)) = heading.as_mut() {
+                    title.push(' ');
+                }
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                let Some((start, title)) = heading.take() else {
+                    continue;
+                };
+                let mut id = slugify(&title);
+                if id.is_empty() {
+                    id = "section".to_string();
+                }
+                let base = id.clone();
+                let mut n = 2;
+                while !used_ids.insert(id.clone()) {
+                    id = format!("{base}-{n}");
+                    n += 1;
+                }
+                if let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start] {
+                    if existing.is_none() {
+                        *existing = Some(CowStr::from(id));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 pub fn render_portable(
@@ -1267,6 +1312,7 @@ pub fn render_portable(
 ) -> Result<Rendered, String> {
     let mut parsed_events =
         Parser::new_ext(markdown, parser_options(options.smart_punctuation)).collect::<Vec<_>>();
+    assign_heading_ids(&mut parsed_events);
     for event in &mut parsed_events {
         let destination = match event {
             Event::Start(Tag::Link { dest_url, .. })
@@ -1277,12 +1323,15 @@ pub fn render_portable(
             *destination = CowStr::from(projection.resolve_link(destination)?);
         }
     }
-    Ok(render_events(
+    let (parsed_events, raw_html) = crate::raw_html::sanitize(parsed_events, projection)?;
+    let mut rendered = render_events(
         parsed_events,
         markdown.len(),
         options,
         Some(projection.markdown_context()),
-    ))
+    );
+    rendered.capabilities.extend(raw_html);
+    Ok(rendered)
 }
 
 fn render_events<'a>(
@@ -1293,7 +1342,6 @@ fn render_events<'a>(
 ) -> Rendered {
     let mut events: Vec<Event> = Vec::new();
     let mut headings = Vec::new();
-    let mut used_ids = std::collections::HashSet::new();
     let mut text = String::new();
     let mut code_languages: Vec<String> = Vec::new();
     let mut first_image = None;
@@ -1345,23 +1393,10 @@ fn render_events<'a>(
 
         if let Event::End(TagEnd::Heading(_)) = &event {
             if let Some((level, start_index, title)) = heading.take() {
-                let mut id = slugify(&title);
-                if id.is_empty() {
-                    id = "section".to_string();
-                }
-                let base = id.clone();
-                let mut n = 2;
-                while !used_ids.insert(id.clone()) {
-                    id = format!("{base}-{n}");
-                    n += 1;
-                }
-                if let Event::Start(Tag::Heading { id: existing, .. }) = &mut events[start_index] {
-                    if let Some(given) = existing.as_ref() {
-                        id = given.to_string();
-                    } else {
-                        *existing = Some(CowStr::from(id.clone()));
-                    }
-                }
+                let id = match &events[start_index] {
+                    Event::Start(Tag::Heading { id: Some(id), .. }) => id.to_string(),
+                    _ => "section".to_string(),
+                };
                 let level_num = heading_level(level);
                 if options.heading_anchors && level_num >= 2 {
                     let href = portable

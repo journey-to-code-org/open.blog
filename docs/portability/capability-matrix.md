@@ -42,9 +42,10 @@ below only where a `CapabilityDescriptor` or fixture already records one:
   quizzes, runnable code, web sandboxes, embeds, video chapters, recipes, callouts, and comment
   participation ([#112](https://github.com/journey-to-code-org/open.blog/issues/112)), keeps
   credits, DOI/license, footnote citations, and source provenance, and fails closed for planned
-  capabilities ([#113](https://github.com/journey-to-code-org/open.blog/issues/113)), but
-  preserves authored raw HTML, so sanitization remains future work under
-  [#114](https://github.com/journey-to-code-org/open.blog/issues/114). See the
+  capabilities ([#113](https://github.com/journey-to-code-org/open.blog/issues/113)). Authored
+  raw HTML passes through an allowlist that removes active and destination-hostile markup,
+  reports the loss, resolves its URLs, keeps ids unique, and bounds size and nesting
+  ([#114](https://github.com/journey-to-code-org/open.blog/issues/114)). See the
   [portable HTML pipeline](./portable-html-pipeline.md) for its exact boundaries. Story
   [#95](https://github.com/journey-to-code-org/open.blog/issues/95) remains in progress until the
   planned capability-specific work is complete; [#96](https://github.com/journey-to-code-org/open.blog/issues/96)

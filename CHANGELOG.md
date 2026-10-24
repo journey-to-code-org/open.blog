@@ -11,8 +11,7 @@ All notable changes to open.blog are recorded here. Releases follow
   embeds become titled provider links; video chapters become a linked list; recipe facts and
   video production notes stay visible; and comments become a link to the canonical
   discussion. Generated fallback markup needs no open.blog script, custom element, form, or
-  iframe; authored raw HTML is unchanged until
-  [#114](https://github.com/journey-to-code-org/open.blog/issues/114).
+  iframe.
 - Fixed quizzes and web sandboxes failing to build when nested in a callout, quote, or list item.
 - The portable HTML projection now keeps research and attribution: ordered contributor credits
   with their roles and unauthenticated ORCID iDs (kept apart from the references), the DOI and
@@ -22,6 +21,14 @@ All notable changes to open.blog are recorded here. Releases follow
 - Planned or unknown capabilities without a portable fallback yet now fail closed in portable
   HTML: their authored content stays visible, a labeled link points to the canonical article,
   private-only state adds nothing, and each is reported with the canonical-only level.
+- Portable HTML now rewrites authored raw HTML through an allowlist: scripts, styles, event
+  handlers, forms, `<base>` and `<meta>` tags, comments, and custom elements are removed or
+  unwrapped; frames, media, SVG, and MathML become a link to the canonical article; and each
+  removal is reported as a `raw-html` capability. Raw HTML URLs resolve like Markdown links,
+  and an unsafe one (including `data:` and encoded `javascript:` URLs) fails the projection for
+  that post. Raw ids stay unique against headings and footnotes, elements stay balanced, and a
+  body over 2 MiB or 64 levels deep fails with a diagnostic instead of being truncated. Heading
+  `{key=value}` attributes no longer reach portable output. Native pages are unchanged.
 
 ## [0.15.0] - 2026-10-24
 

@@ -98,6 +98,12 @@ Meaning, structure, attribution, reference identity, or interaction that a porta
 representation cannot preserve.
 _Avoid_: Merely different styling
 
+**Raw HTML policy**:
+The fixed allowlist the portable projection applies to authored raw HTML: static content
+elements are kept, active or destination-hostile markup is removed, unwrapped, or replaced
+with a canonical link, and every removal of reader content is reported.
+_Avoid_: Sanitizer (a general-purpose API), passing authored HTML through to a destination
+
 **Destination policy**:
 Rules for projecting a capability to a particular destination, including its supported
 representation, fallback, portability level, and diagnostics.

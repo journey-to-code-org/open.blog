@@ -10,6 +10,7 @@ const PORTABLE_FALLBACKS: &[&str] = &[
     "runnable-code",
     "web-sandbox",
     "comments",
+    "raw-html",
 ];
 
 /// Planned capabilities registered in `docs/portability/planned-capability-contracts.json`,
@@ -52,6 +53,8 @@ pub enum CapabilityDiagnosticCode {
     UnknownCapability,
     MalformedIdentifier,
     MalformedContent,
+    /// The portable projection removed, unwrapped, or replaced authored markup.
+    RemovedMarkup,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -114,6 +117,11 @@ impl CapabilityDescriptor {
                 "Reader discussion hosted with the canonical article.",
                 Some("canonical-link"),
                 PortabilityLevel::CanonicalOnlyInteraction,
+            ),
+            "raw-html" => (
+                "Markup the author wrote as raw HTML or Markdown attributes.",
+                Some("allowlisted-html"),
+                PortabilityLevel::GracefullyTransformed,
             ),
             planned if matches!(planned_entry(planned), Some(Some(_))) => (
                 "A planned capability: its authored content stays visible and the canonical article carries the rest.",

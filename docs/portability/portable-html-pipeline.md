@@ -13,8 +13,8 @@ links fail with a source-scoped error instead of silently producing a successful
 
 This is a body projection, not a complete page or a consumer migration. `representation(Html)`
 continues to return the existing native `post.html`; feeds, Admin preview, and syndication are not
-switched to `portable_html()` yet. Authored raw HTML remains untouched; raw-HTML policy and
-sanitization are scoped to [#114](https://github.com/journey-to-code-org/open.blog/issues/114).
+switched to `portable_html()` yet. Authored raw HTML follows the
+[raw HTML policy](#raw-html-urls-anchors-and-size-bounds) below.
 
 ## Static fallbacks for interactive capabilities
 
@@ -85,6 +85,52 @@ drafts) adds nothing to the copy and is left out of the capability report, so no
 learns that it exists. Unknown front matter stays in the canonical source and never
 reaches the output.
 
+## Raw HTML, URLs, anchors, and size bounds
+
+Authored raw HTML (HTML blocks, inline tags, and `{key=value}` heading attributes) is
+untrusted ([#114](https://github.com/journey-to-code-org/open.blog/issues/114)). The projection
+tokenizes it and writes it out again from a fixed allowlist, so nothing authored reaches a
+destination byte for byte, and anything that is not complete markup (a stray `<`, an
+unterminated tag) becomes escaped text. This is the projection's policy, not a general-purpose
+sanitizer API. The native page keeps passing raw HTML through, as before.
+
+| Authored markup | Portable output |
+| --- | --- |
+| Static content elements: paragraphs, headings, lists, tables, quotes, figures, `<details>`, `<abbr>`, `<kbd>`, `<time>`, `<img>`, links, and similar | Kept, with `id`, `class`, `title`, `lang`, `dir`, `aria-label`, `aria-labelledby`, `aria-describedby`, and each element's own static attributes (for example `href`, `src`, `alt`, `cite`, `datetime`, `colspan`, `scope`, `open`). Anything else, including `style`, `target`, `srcset`, `data-*`, and every event handler, is removed. |
+| `<script>`, `<style>`, `<noscript>`, `<template>`, `<title>`, `<textarea>`, `<select>`, `<button>` | Removed with their content. Inline text written between separate inline tags is skipped until the paragraph (or other container) ends. |
+| `<base>`, `<meta>`, `<link>`, `<input>`, `<source>`, `<track>`, `<area>` | Removed. |
+| `<iframe>`, `<frame>`, `<object>`, `<embed>`, `<video>`, `<audio>`, `<canvas>`, `<svg>`, `<math>` | Replaced with "**Video**: see it on the original article" (or Embedded frame, Embedded object, Interactive graphic, Illustration, Math), naming the element's `title` or `aria-label` when it has one. Nothing inside them is kept or checked. |
+| `<form>`, `<label>`, page landmarks (`<nav>`, `<main>`, `<header>`, `<footer>`), presentational tags (`<font>`, `<center>`), custom elements (including hand-written `<ob-…>` tags), and unknown elements | The tags (and their attributes) are removed; their content is kept. |
+| Comments, doctypes, processing instructions, and CDATA | Removed without a report, since they are never reader content and may hold private notes. An unterminated comment hides the rest of its block. |
+
+Every removal is reported once per kind as a `raw-html` capability (gracefully transformed,
+fallback `allowlisted-html`) whose `RemovedMarkup` diagnostics name the removed elements and
+attributes, never their content. A post whose raw HTML loses nothing reports no `raw-html`
+capability.
+
+**URLs.** `href`, `src`, and `cite` values are decoded (numeric and common named character
+references) and then resolved exactly like Markdown links: relative paths against the canonical
+article, root-relative paths against the site base, `#fragment` links to the fragment on the
+canonical article. A value that cannot be made a safe HTTP(S), `mailto:`, or `tel:` URL
+(`javascript:` in any spelling or encoding, `data:` URLs including SVG images, credentials,
+control characters, or an empty value) fails the projection for that post with the element and
+attribute named, such as `posts/work.md: link must use HTTP(S), mailto, or tel (raw HTML <img src>)`.
+A `<base>` element is removed, so it cannot redirect relative URLs.
+
+**Anchors.** Raw `id` values are kept as written, Unicode included, so authored fragment links
+keep their target; a legacy `<a name>` anchor becomes an `id`. An id that repeats an earlier raw
+id, a heading id, or a footnote id, that contains whitespace, or that starts with the reserved
+`ob-` prefix is removed and counted in the report; the heading or first element keeps the anchor.
+
+**Balance.** Kept elements are closed inside the Markdown container that opened them, a stray
+end tag is dropped, and anything still open at the end of the body is closed there, so the body
+can be embedded in any destination container without closing it early.
+
+**Bounds.** A portable body larger than `MAX_PORTABLE_HTML_BYTES` (2 MiB), or nested more than
+`MAX_PORTABLE_NESTING_DEPTH` (64) elements deep, fails the projection for that post with a
+diagnostic naming the bound. Nothing is ever truncated. As with every projection failure, the
+canonical Markdown, the native HTML, and any remote state are left untouched.
+
 ## Tests
 
 The focused contract is tested in
@@ -92,10 +138,13 @@ The focused contract is tested in
 [markdown.rs](../../crates/openblog-core/src/markdown.rs). The golden suite in
 [portable_html.rs](../../crates/openblog-core/tests/portable_html.rs) renders the
 [video lesson](../../tests/fixtures/portable-html/video-lesson.md),
-[recipe](../../tests/fixtures/portable-html/recipe.md), and
-[research](../../tests/fixtures/portable-html/research.md) fixtures (the last with a
+[recipe](../../tests/fixtures/portable-html/recipe.md),
+[research](../../tests/fixtures/portable-html/research.md) (with a
 [credit sidecar](../../tests/fixtures/portable-html/research.credits.json) naming two authors
-and a translator) and compares them with their expected `.html` files. It also checks that the output has no runtime-only elements or
+and a translator), and [hostile HTML](../../tests/fixtures/portable-html/hostile-html.md)
+fixtures and compares them with their expected `.html` files. The last is an imported post
+with scripts, event handlers, a `<base>` tag, frames, SVG, a form, a private comment,
+duplicate ids, a legacy anchor, and unclosed tags. It also checks that the output has no runtime-only elements or
 attributes, uses only absolute URLs, has a target for every anchor, gives every link an
 accessible name and every image alternative text, and leaks neither the comments nor the runner
 endpoint nor unknown front matter. The shared [portability fixtures](../../tests/fixtures/portability-contract.json)

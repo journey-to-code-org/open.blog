@@ -429,6 +429,95 @@ fn research_attribution_and_references_match_the_golden_output() {
 }
 
 #[test]
+fn hostile_raw_html_follows_the_portable_policy_and_matches_the_golden_output() {
+    let (config, site) = load("hostile-html");
+    let post = &site.posts[0];
+    let output = PortableProjection::from_post(post, &config)
+        .unwrap()
+        .portable_html()
+        .unwrap();
+    let html = &output.html;
+    assert_golden("hostile-html", html);
+    assert_static_and_accessible("hostile-html", html);
+
+    let visible = text_without_tags(html);
+    for essential in [
+        "keeps its HTML, its",
+        "Ctrl+K shortcuts",
+        "event handlers and",
+        "link targets go. Inline\ncode in  tags is dropped.",
+        "The gate plan, from the Stadtarchiv Zürich.",
+        "The annals mention the gate twice.",
+        "Box 12, folder 3 holds the original survey.",
+        "Bridge built (uncertain)",
+        "Embedded frame (Gate of Embers trailer): see it on the original article.",
+        "Illustration (Bridge outline): see it on the original article.",
+        "Email",
+        "Unclosed bold and italic",
+        "A hand-written custom element keeps its text.",
+    ] {
+        assert!(
+            visible.contains(essential),
+            "missing {essential:?}:\n{html}"
+        );
+    }
+    for exact in [
+        "<a href=\"https://example.test/blog/glossary/\">relative links</a>",
+        "<img loading=\"lazy\" decoding=\"async\" src=\"https://example.test/blog/hostile-html/images/gate-plan.png\"",
+        "<q cite=\"https://example.test/blog/sources/annals/\">",
+        "<a id=\"archive-anchor\">",
+        "<a href=\"https://partner.example/\" rel=\"noopener\">",
+        "<b>bold and <i>italic</i></b></p></div>",
+    ] {
+        assert!(html.contains(exact), "missing {exact}:\n{html}");
+    }
+    // Comments may hold private notes; hostile and tracking markup never leaves.
+    for leaked in [
+        "Dana",
+        "Private",
+        "evil.example",
+        "tracker.example",
+        "steal",
+        "javascript:",
+        "srcset",
+        "target=",
+        "allowfullscreen",
+        "data-correct",
+    ] {
+        assert!(!html.contains(leaked), "leaked {leaked}:\n{html}");
+    }
+    let report = output
+        .capabilities
+        .iter()
+        .find(|capability| capability.id == "raw-html")
+        .expect("the removed markup is reported");
+    assert_eq!(
+        report
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Removed with their content: <script>, <button>, <style>, <noscript>.",
+            "Removed: <base>, <meta>, <input>.",
+            "Kept the content but removed the tags: <form>, <label>, <ob-quiz>.",
+            "Replaced with a link to the original article: <iframe>, <svg>.",
+            "Removed attributes: event handlers, target, srcset, style.",
+            "Removed 1 duplicate, reserved, or invalid id.",
+        ]
+    );
+
+    // The native page keeps the authored markup, as it always has.
+    for native in [
+        "<script>steal(document.cookie)</script>",
+        "onclick=\"steal()\"",
+        "<iframe",
+    ] {
+        assert!(post.html.contains(native), "native lost {native}");
+    }
+}
+
+#[test]
 fn portable_fallbacks_are_deterministic_and_leave_the_source_untouched() {
     for name in ["video-lesson", "recipe"] {
         let (config, site) = load(name);
