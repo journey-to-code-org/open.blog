@@ -2,7 +2,7 @@
 id: learning-design
 name: Learning design
 description: Finds teaching moments and opportunities for useful interaction.
-version: 1.2.0
+version: 1.3.0
 scopes: [section, document]
 output: review
 ---
