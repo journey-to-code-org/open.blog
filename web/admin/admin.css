@@ -1228,6 +1228,19 @@ kbd {
   margin-top: 1rem;
 }
 
+.oba-url-context-preview {
+  margin-top: 1rem;
+}
+
+.oba-url-context-preview:empty {
+  display: none;
+}
+
+.oba-url-context-preview textarea {
+  width: 100%;
+  resize: vertical;
+}
+
 .oba-field-charts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));

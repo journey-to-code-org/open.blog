@@ -14,8 +14,9 @@ path = "src/main.rs"
 openblog-core = { path = "../openblog-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# Only the importer needs HTTP and HTML-to-Markdown conversion.
+# The importer and explicit URL snapshots need HTTP and HTML-to-Markdown conversion.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+url = "2"
 htmd = "0.5"
 # Admin login: a vetted password hash and OS randomness, never hand-rolled crypto.
 argon2 = "0.5"

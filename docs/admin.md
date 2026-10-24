@@ -84,6 +84,18 @@ preview lists every selected filename, whether it is Portable or Private, its ch
 and the total size. Selection alone does not contact a provider; a later explicit Assistant
 request will use this disclosure before anything is sent.
 
+To capture a web reference, use **Add URL snapshot** and confirm the retrieval. Admin accepts
+only public HTTP(S) destinations, rechecks every bounded redirect, rejects credentials and
+local or private network addresses, and applies one total deadline plus strict response and
+extracted-text limits. Supported responses are UTF-8 HTML, Markdown, and plain text. Compressed
+responses are rejected, so an encoded body cannot expand past the extraction limit.
+
+Retrieval does not save anything. Inspect the source and final canonical URLs, retrieval time,
+content type, and extracted text, then choose portable or private storage and explicitly save.
+Saved references live under `assistant/context/references/` or the matching
+`.openblog/private/context/references/` directory. They are labelled untrusted reference data;
+selecting one uses the saved Markdown snapshot and never silently contacts the URL again.
+
 ### Write visually or in Markdown
 
 The Write view defaults to **Visual**, which behaves like a word processor while keeping

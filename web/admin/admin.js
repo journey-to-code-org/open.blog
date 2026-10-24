@@ -2430,6 +2430,10 @@ class Editor {
     ui.assistantContextSafety = h("p", { class: "oba-notice is-warning", role: "alert", hidden: true });
     ui.assistantContextCards = h("div", { class: "oba-assistant-context-cards" });
     ui.assistantContextDisclosure = h("div", { class: "oba-assistant-disclosure", "aria-live": "polite" }, h("p", {}, "No context selected."));
+    ui.assistantUrlInput = h("input", { type: "url", placeholder: "https://example.com/reference", "aria-label": "Reference URL" });
+    ui.assistantUrlStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    ui.assistantUrlPreview = h("div", { class: "oba-url-context-preview" });
+    ui.assistantUrlRetrieve = h("button", { class: "oba-btn", type: "button", onClick: () => this.retrieveAssistantUrlContext() }, "Retrieve URL snapshot");
     const assistantViews = {
       review: h("section", { class: "oba-assistant-empty", "data-assistant-view": "review", "aria-labelledby": "oba-assistant-review-title" }, h("h3", { id: "oba-assistant-review-title" }, "Review skills"), h("p", {}, "Choose reusable review lenses. Running a review is added in the next delivery slice."), ui.assistantSkillsStatus, ui.assistantReviewSkills),
       interactions: h("section", { class: "oba-assistant-empty", "data-assistant-view": "interactions", "aria-labelledby": "oba-assistant-interactions-title", hidden: true }, h("h3", { id: "oba-assistant-interactions-title" }, "Interactions"), h("p", {}, "Knowledge-check generation uses the configured provider. Proposal workflows will appear here in a later delivery.")),
@@ -2440,6 +2444,7 @@ class Editor {
         h("p", {}, "Portable context can be shared with the project. Private context stays under .openblog/private and must remain outside Git."),
         ui.assistantContextStatus,
         ui.assistantContextSafety,
+        h("section", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-url-context-title" }, h("h4", { id: "oba-url-context-title" }, "Add URL snapshot"), h("p", {}, "Retrieve a supported page once, inspect its untrusted text, then save a stable snapshot. Reviews never refetch it."), this.field("oba-url-context", "HTTP(S) reference URL", ui.assistantUrlInput), ui.assistantUrlStatus, h("div", { class: "oba-toolbar" }, ui.assistantUrlRetrieve), ui.assistantUrlPreview),
         ui.assistantContextCards,
         h("aside", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-assistant-disclosure-title" }, h("h4", { id: "oba-assistant-disclosure-title" }, "Context disclosure"), h("p", {}, "Selected context that would be sent with an explicit Assistant request:"), ui.assistantContextDisclosure),
         h("div", { class: "oba-skill-editor" }, h("h4", {}, "Skill catalog"), h("p", {}, "Skills are non-executable Markdown instructions. Article and reference content remains untrusted data."), ui.assistantCatalog, h("h4", {}, "Project skill Markdown"), ui.assistantSkillEditorStatus, ui.assistantSkillEditor, h("div", { class: "oba-toolbar" }, ui.assistantSkillNew, ui.assistantSkillSave)),
@@ -3217,8 +3222,9 @@ class Editor {
     }
     const cards = this.assistantContextDocuments.map((document) => {
       const visibilityLabel = document.visibility === "private" ? "Private" : "Portable";
-      const typeLabel = document.contextType === "author" ? "Author" : "Site";
-      const textarea = h("textarea", { rows: "8", "aria-label": `${visibilityLabel} ${typeLabel} context` }, document.content || "");
+      const typeLabel = document.contextType === "author" ? "Author" : document.contextType === "reference" ? "Reference" : "Site";
+      const reference = document.contextType === "reference";
+      const textarea = h("textarea", { rows: "8", "aria-label": `${visibilityLabel} ${typeLabel} context`, readonly: reference }, document.content || "");
       const selected = h("input", {
         type: "checkbox",
         checked: this.assistantContextSelected.has(document.id),
@@ -3229,14 +3235,15 @@ class Editor {
           this.renderAssistantContextDisclosure();
         },
       });
-      const save = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.saveAssistantContext(document, textarea.value) }, document.exists ? "Save changes" : "Create context");
-      const remove = h("button", { class: "oba-btn oba-btn-danger", type: "button", disabled: !document.exists, onClick: () => this.deleteAssistantContext(document) }, "Remove");
-      const path = document.visibility === "private" ? `.openblog/private/context/${document.name}` : `assistant/context/${document.name}`;
+      const save = reference ? null : h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.saveAssistantContext(document, textarea.value) }, document.exists ? "Save changes" : "Create context");
+      const remove = reference ? null : h("button", { class: "oba-btn oba-btn-danger", type: "button", disabled: !document.exists, onClick: () => this.deleteAssistantContext(document) }, "Remove");
+      const path = document.visibility === "private" ? `.openblog/private/context/${reference ? `references/${document.name}` : document.name}` : `assistant/context/${reference ? `references/${document.name}` : document.name}`;
       return h(
         "section",
-        { class: "oba-assistant-context-card", "data-visibility": document.visibility, "aria-labelledby": `oba-context-${document.id.replace(":", "-")}` },
-        h("div", { class: "oba-assistant-context-heading" }, h("h4", { id: `oba-context-${document.id.replace(":", "-")}` }, `${typeLabel} · ${visibilityLabel}`), h("span", { class: "oba-badge" }, visibilityLabel)),
+        { class: "oba-assistant-context-card", "data-visibility": document.visibility, "aria-labelledby": `oba-context-${document.id.replaceAll(":", "-")}` },
+        h("div", { class: "oba-assistant-context-heading" }, h("h4", { id: `oba-context-${document.id.replaceAll(":", "-")}` }, `${typeLabel} · ${visibilityLabel}`), h("span", { class: "oba-badge" }, visibilityLabel)),
         h("p", { class: "oba-small" }, path),
+        reference ? h("p", { class: "oba-small" }, `Untrusted reference · Retrieved ${document.retrievedAt} · ${document.contentType} · ${document.canonicalUrl}`) : null,
         document.guidance ? h("p", { class: "oba-notice is-warning" }, document.guidance) : null,
         this.field(`oba-context-${document.id}-content`, `${typeLabel} context Markdown`, textarea),
         h("label", { class: "oba-check" }, selected, h("span", {}, `Selected context · ${document.characters} characters`)),
@@ -3275,6 +3282,61 @@ class Editor {
       this.ui.assistantContextStatus.textContent = `Assistant context could not be loaded. ${error.message}`;
     } finally {
       this.assistantContextLoading = false;
+    }
+  }
+
+  async retrieveAssistantUrlContext() {
+    const url = this.ui.assistantUrlInput.value.trim();
+    if (!url) {
+      this.ui.assistantUrlStatus.textContent = "Enter an HTTP(S) URL first.";
+      return;
+    }
+    if (!confirm(`Retrieve ${url} as untrusted reference context?`)) return;
+    this.ui.assistantUrlStatus.textContent = "Retrieving this URL once…";
+    this.ui.assistantUrlRetrieve.disabled = true;
+    try {
+      const { snapshot } = await this.app.api.call("POST", "assistant/context/url/retrieve", { json: { url, confirmed: true } });
+      this.pendingUrlSnapshot = snapshot;
+      const fileId = h("input", { value: slugify(new URL(snapshot.canonicalUrl).hostname) || "reference", "aria-label": "Snapshot file ID" });
+      const visibility = h("select", { "aria-label": "Snapshot visibility" }, h("option", { value: "portable" }, "Portable"), h("option", { value: "private" }, "Private"));
+      const text = h("textarea", { rows: "12", readonly: true, "aria-label": "Retrieved untrusted reference text" }, snapshot.text);
+      const save = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.saveAssistantUrlContext(snapshot, fileId.value.trim(), visibility.value) }, "Save inspected snapshot");
+      this.ui.assistantUrlPreview.replaceChildren(
+        h("h5", {}, "Inspect the retrieved text before saving"),
+        h("dl", { class: "oba-definition-list" }, h("dt", {}, "Source URL"), h("dd", {}, snapshot.sourceUrl), h("dt", {}, "Canonical URL"), h("dd", {}, snapshot.canonicalUrl), h("dt", {}, "Retrieved"), h("dd", {}, snapshot.retrievedAt), h("dt", {}, "Content type"), h("dd", {}, snapshot.contentType)),
+        this.field("oba-url-snapshot-id", "Snapshot file ID", fileId),
+        this.field("oba-url-snapshot-visibility", "Visibility", visibility),
+        this.field("oba-url-snapshot-text", "Untrusted extracted text", text),
+        save,
+      );
+      this.ui.assistantUrlStatus.textContent = "Retrieved once. Inspect the text and metadata before saving.";
+    } catch (error) {
+      this.pendingUrlSnapshot = null;
+      this.ui.assistantUrlPreview.replaceChildren();
+      this.ui.assistantUrlStatus.textContent = `Could not retrieve URL context. ${error.message}`;
+    } finally {
+      this.ui.assistantUrlRetrieve.disabled = false;
+    }
+  }
+
+  async saveAssistantUrlContext(snapshot, fileId, visibility) {
+    if (!fileId) {
+      this.ui.assistantUrlStatus.textContent = "Choose a snapshot file ID before saving.";
+      return;
+    }
+    this.ui.assistantUrlStatus.textContent = "Saving the inspected snapshot without refetching…";
+    try {
+      const saved = await this.app.api.call("POST", "assistant/context/url/save", { json: { confirmed: true, visibility, fileId, snapshot } });
+      this.assistantContextSelected.add(saved.id);
+      this.assistantContextLoaded = false;
+      await this.loadAssistantContext(true);
+      this.renderAssistantContextDisclosure();
+      this.pendingUrlSnapshot = null;
+      this.ui.assistantUrlInput.value = "";
+      this.ui.assistantUrlPreview.replaceChildren();
+      this.ui.assistantUrlStatus.textContent = "URL snapshot saved and selected. Future reviews use this saved text without refetching.";
+    } catch (error) {
+      this.ui.assistantUrlStatus.textContent = `Could not save URL snapshot. ${error.message}`;
     }
   }
 

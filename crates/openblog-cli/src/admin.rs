@@ -427,6 +427,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ("GET", "assistant/context") => assistant_context_catalog(state),
         ("PUT", "assistant/context") => save_assistant_context(state, req),
         ("DELETE", "assistant/context") => delete_assistant_context(state, req),
+        ("POST", "assistant/context/url/retrieve") => retrieve_url_context(req),
+        ("POST", "assistant/context/url/save") => save_url_context(state, req),
         ("GET", "contributors") => get_contributors(state),
         ("PUT", "contributors") => save_contributors(state, req),
         ("GET", "status") => status(state),
@@ -1478,11 +1480,18 @@ fn assistant_context_catalog(state: &AppState) -> Response {
             Err(response) => return response,
         }
     }
+    for visibility in ["portable", "private"] {
+        match assistant_url_context_documents(&state.root, visibility) {
+            Ok(mut references) => documents.append(&mut references),
+            Err(response) => return response,
+        }
+    }
     let git = crate::git::Git::new(&state.root);
     let private_safety = if git.is_repo() {
         let ignored = [
             ".openblog/private/context/author.md",
             ".openblog/private/context/site.md",
+            ".openblog/private/context/references/snapshot.md",
         ]
         .iter()
         .all(|path| git.run(&["check-ignore", "-q", "--no-index", path]).is_ok());
@@ -1595,6 +1604,166 @@ fn delete_assistant_context(state: &AppState, req: &Request) -> Response {
         Ok(()) => Response::json(200, &json!({ "deleted": true })),
         Err(error) => Response::error(500, &format!("Cannot remove context: {error}")),
     }
+}
+
+fn retrieve_url_context(req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid URL context request"),
+    };
+    if body["confirmed"] != true {
+        return Response::error(400, "Confirm retrieval before contacting this URL");
+    }
+    let source = match body["url"].as_str() {
+        Some(source) => source,
+        None => return Response::error(400, "Missing URL"),
+    };
+    match crate::url_context::validate_public_url(source) {
+        Ok(_) => match crate::url_context::fetch_url_snapshot(source, &clock::now().rfc3339()) {
+            Ok(snapshot) => Response::json(200, &json!({ "snapshot": snapshot })),
+            Err(error) => Response::error(502, &error),
+        },
+        Err(error) => Response::error(400, &error),
+    }
+}
+
+fn url_context_directory(root: &Path, visibility: &str) -> Result<PathBuf, Response> {
+    let path = match visibility {
+        "portable" => root.join("assistant/context/references"),
+        "private" => root.join(".openblog/private/context/references"),
+        _ => {
+            return Err(Response::error(
+                400,
+                "Snapshot visibility must be portable or private",
+            ))
+        }
+    };
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|_| Response::error(400, "URL snapshot path escaped the project"))?;
+    let mut cursor = root.to_path_buf();
+    for component in relative.components() {
+        cursor.push(component);
+        if fs::symlink_metadata(&cursor).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            return Err(Response::error(
+                400,
+                "URL snapshot paths cannot contain symbolic links",
+            ));
+        }
+    }
+    Ok(path)
+}
+
+fn assistant_url_context_documents(root: &Path, visibility: &str) -> Result<Vec<Json>, Response> {
+    let directory = url_context_directory(root, visibility)?;
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut paths = fs::read_dir(&directory)
+        .map_err(|error| Response::error(500, &format!("Cannot read URL snapshots: {error}")))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("md"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut documents = Vec::new();
+    for path in paths {
+        let file_id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("invalid");
+        if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            documents.push(json!({
+                "id": format!("{visibility}:reference:{file_id}"), "name": format!("{file_id}.md"),
+                "contextType": "reference", "visibility": visibility, "exists": true,
+                "valid": false, "selectable": false, "untrusted": true, "content": "",
+                "characters": 0, "guidance": "Replace this symlink with a regular URL snapshot file."
+            }));
+            continue;
+        }
+        let bytes = fs::read(&path)
+            .map_err(|error| Response::error(500, &format!("Cannot read URL snapshot: {error}")))?;
+        let parsed = String::from_utf8(bytes.clone())
+            .map_err(|_| "URL snapshot is not valid UTF-8".to_string())
+            .and_then(|source| crate::url_context::parse_snapshot_markdown(&source));
+        match parsed {
+            Ok(snapshot) => documents.push(json!({
+                "id": format!("{visibility}:reference:{file_id}"), "name": format!("{file_id}.md"),
+                "contextType": "reference", "visibility": visibility, "exists": true,
+                "valid": true, "selectable": true, "untrusted": true,
+                "content": snapshot.text, "characters": snapshot.text.chars().count(),
+                "sourceUrl": snapshot.source_url, "canonicalUrl": snapshot.canonical_url,
+                "retrievedAt": snapshot.retrieved_at, "contentType": snapshot.content_type,
+                "etag": etag_bytes(&bytes)
+            })),
+            Err(error) => documents.push(json!({
+                "id": format!("{visibility}:reference:{file_id}"), "name": format!("{file_id}.md"),
+                "contextType": "reference", "visibility": visibility, "exists": true,
+                "valid": false, "selectable": false, "untrusted": true, "content": "",
+                "characters": 0, "etag": etag_bytes(&bytes), "guidance": error
+            })),
+        }
+    }
+    Ok(documents)
+}
+
+fn save_url_context(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid URL snapshot request"),
+    };
+    if body["confirmed"] != true {
+        return Response::error(400, "Confirm saving this inspected URL snapshot");
+    }
+    let visibility = body["visibility"].as_str().unwrap_or("");
+    let file_id = body["fileId"].as_str().unwrap_or("");
+    if !valid_skill_path_id(file_id) {
+        return Response::error(
+            400,
+            "Snapshot file ID must use lowercase letters, digits, and hyphens",
+        );
+    }
+    let snapshot: crate::url_context::UrlContextSnapshot =
+        match serde_json::from_value(body["snapshot"].clone()) {
+            Ok(snapshot) => snapshot,
+            Err(_) => return Response::error(400, "URL snapshot metadata is incomplete"),
+        };
+    let source = match crate::url_context::snapshot_markdown(&snapshot) {
+        Ok(source) => source,
+        Err(error) => return Response::error(400, &error),
+    };
+    let directory = match url_context_directory(&state.root, visibility) {
+        Ok(directory) => directory,
+        Err(response) => return response,
+    };
+    let _content_lock = lock(&state.build);
+    let _filesystem_lock = match content_transaction(state) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    if let Err(error) = fs::create_dir_all(&directory) {
+        return Response::error(
+            500,
+            &format!("Cannot create URL snapshot directory: {error}"),
+        );
+    }
+    let path = directory.join(format!("{file_id}.md"));
+    if path.exists() {
+        return Response::error(409, "A URL snapshot with this file ID already exists");
+    }
+    if let Err(error) = write_atomic(&path, &source) {
+        return Response::error(500, &error);
+    }
+    Response::json(
+        201,
+        &json!({ "id": format!("{visibility}:reference:{file_id}"), "etag": etag(&source) }),
+    )
 }
 
 fn generate_quiz(state: &AppState, req: &Request) -> Response {
@@ -4137,6 +4306,134 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("already tracked"));
+    }
+
+    #[test]
+    fn url_context_retrieval_requires_confirmation_and_rejects_unsafe_targets_without_writes() {
+        let f = fixture("url-context-policy");
+        let session = login_ok(&f);
+        let public = json_req(
+            "POST",
+            "/admin/api/assistant/context/url/retrieve",
+            json!({ "url": "https://example.com", "confirmed": true }),
+        );
+        assert_eq!(handle(&f.state, &public).status, 401);
+        assert_eq!(
+            handle(&f.state, &authed(public, &session, false)).status,
+            403
+        );
+        for (url, confirmed) in [
+            ("https://example.com/reference", false),
+            ("file:///etc/passwd", true),
+            ("https://user:secret@example.com/reference", true),
+            ("http://127.0.0.1/reference", true),
+            ("http://[::1]/reference", true),
+            ("http://10.0.0.5/reference", true),
+            ("http://169.254.169.254/latest/meta-data", true),
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/assistant/context/url/retrieve",
+                        json!({ "url": url, "confirmed": confirmed }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                response.status,
+                400,
+                "{url}: {}",
+                String::from_utf8_lossy(&response.body)
+            );
+        }
+        assert!(!f.dir.join("assistant/context/references").exists());
+        assert!(!f.dir.join(".openblog/private/context/references").exists());
+    }
+
+    #[test]
+    fn url_context_save_is_atomic_and_catalogs_the_saved_snapshot_without_refetching() {
+        let f = fixture("url-context-save");
+        let session = login_ok(&f);
+        let snapshot = json!({
+            "sourceUrl": "https://example.com/start",
+            "canonicalUrl": "https://www.example.com/reference",
+            "retrievedAt": "2026-10-23T12:00:00Z",
+            "contentType": "text/html",
+            "text": "# Stable reference\n\nSaved once."
+        });
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/context/url/save",
+                    json!({
+                        "confirmed": true,
+                        "visibility": "portable",
+                        "fileId": "rust-guide",
+                        "snapshot": snapshot
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let path = f.dir.join("assistant/context/references/rust-guide.md");
+        let source = fs::read_to_string(&path).unwrap();
+        assert!(source.contains("canonicalUrl: https://www.example.com/reference"));
+        assert!(source.ends_with("# Stable reference\n\nSaved once.\n"));
+
+        let catalog = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        ));
+        let reference = catalog["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|document| document["id"] == "portable:reference:rust-guide")
+            .unwrap();
+        assert_eq!(reference["sourceUrl"], "https://example.com/start");
+        assert_eq!(
+            reference["canonicalUrl"],
+            "https://www.example.com/reference"
+        );
+        assert_eq!(reference["content"], "# Stable reference\n\nSaved once.");
+        assert_eq!(reference["untrusted"], true);
+        assert_eq!(reference["selectable"], true);
+
+        let duplicate = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/context/url/save",
+                    json!({
+                        "confirmed": true, "visibility": "portable", "fileId": "rust-guide",
+                        "snapshot": {
+                            "sourceUrl": "https://example.com/changed",
+                            "canonicalUrl": "https://example.com/changed",
+                            "retrievedAt": "2026-10-23T13:00:00Z",
+                            "contentType": "text/plain", "text": "replacement"
+                        }
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(duplicate.status, 409);
+        assert_eq!(fs::read_to_string(path).unwrap(), source);
     }
 
     #[test]
