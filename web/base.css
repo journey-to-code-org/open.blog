@@ -284,6 +284,15 @@ h2.ob-title {
   font-size: 0.875rem;
 }
 
+.ob-post-subtitle {
+  max-width: 62ch;
+  margin: 0.25rem 0 0.75rem;
+  color: var(--ob-color-muted);
+  font-family: var(--ob-font-heading);
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+
 .ob-lede {
   max-width: 62ch;
   color: var(--ob-color-muted);

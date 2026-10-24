@@ -2845,6 +2845,7 @@ export class Editor {
     const ui = this.ui;
 
     ui.title = h("input", { class: "oba-title-input", id: "oba-title", type: "text", placeholder: kind === "series" ? "Series name" : "Title", value: f[titleKey] || "", "aria-label": "Title" });
+    ui.subtitle = kind === "posts" ? h("input", { class: "oba-subtitle-input", id: "oba-subtitle", type: "text", placeholder: "Subtitle (optional)", value: f.subtitle || "", "aria-label": "Subtitle" }) : null;
     ui.body = h("textarea", { class: "oba-body", id: "oba-body", spellcheck: "true", "aria-label": "Markdown", value: this.doc.body || "" });
     ui.richBody = h("div", {
       class: "oba-rich-body",
@@ -3369,6 +3370,7 @@ export class Editor {
         toolbar,
         ui.status,
         ui.title,
+        ui.subtitle,
         viewNav,
         h(
           "div",
@@ -3999,7 +4001,7 @@ export class Editor {
       }
     });
     for (const r of ui.statusRadios || []) r.querySelector("input").addEventListener("change", () => this.syncDateField());
-    for (const control of [ui.title, ui.slug, ui.description, ui.tags, ui.cover, ui.coverAlt, ui.canonical, ui.body].filter(Boolean)) {
+    for (const control of [ui.title, ui.subtitle, ui.slug, ui.description, ui.tags, ui.cover, ui.coverAlt, ui.canonical, ui.body].filter(Boolean)) {
       control.addEventListener("input", () => {
         this.updateSeoAudit();
         this.schedulePreview();
@@ -5509,6 +5511,7 @@ export class Editor {
     if (ui.cover) set("cover", ui.cover.value.trim());
     if (this.kind === "posts") {
       if (this.profileTouched) set("profile", ui.profile.value);
+      set("subtitle", ui.subtitle.value.replace(/\s+/g, " ").trim());
       set("description", ui.description.value.trim());
       set("comments", ui.commentPolicy.value === "open" ? "" : ui.commentPolicy.value);
       set("tags", ui.tags.value.split(",").map((t) => t.trim()).filter(Boolean));

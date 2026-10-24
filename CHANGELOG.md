@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added an optional post `subtitle` (also `subheading` or `dek`) shown under the title, edited directly
+  beneath the title in Admin Studio, imported from and sent to Hashnode, and kept separate from the
+  search `description`. Subtitles longer than 160 characters produce an editorial warning.
+
 ## [0.16.0] - 2026-10-24
 
 - Portable HTML now renders static fallbacks for every current interactive capability:

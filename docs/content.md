@@ -33,6 +33,7 @@ a `#` heading, which is then used. Everything else is optional:
 | Field | Meaning |
 | --- | --- |
 | `title` | The headline. If missing, the first `#` heading in the body is used. |
+| `subtitle` | An optional one-line subheading shown under the title. Plain text; line breaks become spaces. Also accepted as `subheading` or `dek`. Separate from `description`, which is for search and feeds. |
 | `date` | `YYYY-MM-DD` (midnight UTC) or a full time such as `2026-01-12T09:30:00Z` or `2026-01-12T09:30:00-05:00`. A future date **schedules** the post. |
 | `updated` | When the post was last revised. Shown on the page and used in feeds. |
 | `slug` | The address part. Defaults to the file name without a leading `YYYY-MM-DD-`. |

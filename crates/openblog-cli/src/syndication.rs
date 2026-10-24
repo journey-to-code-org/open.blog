@@ -43,6 +43,7 @@ struct SyndicationPost {
     source_path: String,
     slug: String,
     title: String,
+    subtitle: Option<String>,
     description: String,
     markdown: String,
     html: String,
@@ -569,6 +570,11 @@ fn syndication_post(
     )?;
     let mut hasher = Blake2b512::new();
     hasher.update(post.title.as_bytes());
+    // Posts without a subtitle keep the revision they had before subtitles existed.
+    if let Some(subtitle) = &post.subtitle {
+        hasher.update(b"\0subtitle\0");
+        hasher.update(subtitle.as_bytes());
+    }
     hasher.update(markdown.as_bytes());
     hasher.update(canonical_url.as_bytes());
     let revision = hasher
@@ -582,6 +588,7 @@ fn syndication_post(
         source_path: post.source.clone(),
         slug: post.slug.clone(),
         title: post.title.clone(),
+        subtitle: post.subtitle.clone(),
         description: post.description.clone(),
         markdown,
         html: absolutize_html(
@@ -1209,7 +1216,9 @@ fn hashnode_request(
         .map(|name| json!({"name": name, "slug": slug(name)}))
         .collect();
     let input = json!({
-        "title": post.title, "subtitle": post.description, "slug": post.slug,
+        "title": post.title,
+        "subtitle": post.subtitle.as_deref().unwrap_or(&post.description),
+        "slug": post.slug,
         "contentMarkdown": post.markdown, "canonicalUrl": post.canonical_url, "tags": tags
     });
     let (query, variables) = if let Some(record) = existing {
@@ -1407,6 +1416,7 @@ mod tests {
             source_path: "posts/a.md".into(),
             slug: "a".into(),
             title: "A".into(),
+            subtitle: None,
             description: "D".into(),
             markdown: "Body".into(),
             html: "<p>Body</p>".into(),
@@ -1555,6 +1565,45 @@ mod tests {
         .unwrap();
         assert_eq!(update.method, "PUT");
         assert_eq!(update.body["posts"][0]["updated_at"], state.remote_revision);
+    }
+
+    #[test]
+    fn hashnode_subtitle_prefers_the_post_subtitle_over_the_description() {
+        let mut post = post_fixture();
+        let request = hashnode_request("pub-id", &post, None, false, "pat").unwrap();
+        assert_eq!(request.body["variables"]["input"]["subtitle"], "D");
+        post.subtitle = Some("S".into());
+        let request = hashnode_request("pub-id", &post, None, false, "pat").unwrap();
+        assert_eq!(request.body["variables"]["input"]["subtitle"], "S");
+    }
+
+    #[test]
+    fn subtitle_changes_revise_the_syndication_revision() {
+        use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
+
+        let config = SiteConfig::from_json(r#"{"url":"https://blog.openblog.dev"}"#).unwrap();
+        let revision = |front: &str| {
+            let source =
+                format!("---\ntitle: Post\nslug: post\ndate: 2020-01-01\n{front}---\n\nBody\n");
+            let site = Site::load(
+                config.clone(),
+                Sources {
+                    posts: vec![SourceFile {
+                        path: "posts/post.md".into(),
+                        contents: source.clone(),
+                    }],
+                    ..Default::default()
+                },
+                LoadOptions::default(),
+            )
+            .unwrap();
+            syndication_post(&site.posts[0], &source, &config)
+                .unwrap()
+                .revision
+        };
+        let plain = revision("");
+        assert_eq!(plain, revision("subtitle: \"\"\n"));
+        assert_ne!(plain, revision("subtitle: A new angle\n"));
     }
 
     #[test]
