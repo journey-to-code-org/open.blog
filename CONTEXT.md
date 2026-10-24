@@ -34,8 +34,10 @@ An in-text pointer connecting a passage to a reference.
 _Avoid_: Reference, source
 
 **Reference**:
-A description or resolvable identifier for a work used as evidence or context.
-_Avoid_: Citation when no in-text pointer is meant
+A description or resolvable identifier for a work used as evidence or context. In the
+source library, a reference record points at exactly one work, edition, translation, or
+witness, never at another reference or a contributor.
+_Avoid_: Citation when no in-text pointer is meant; contributor or work credit
 
 **Work identifier**:
 A persistent identifier assigned to a published work, distinct from the page URL where a
@@ -102,6 +104,49 @@ _Avoid_: Merely different styling
 Rules for projecting a capability to a particular destination, including its supported
 representation, fallback, portability level, and diagnostics.
 _Avoid_: Changing the canonical work to satisfy one destination
+
+## Research sources
+
+**Source library**:
+An author's private, versioned collection of works, editions, translations, witnesses, and
+references reused across research. It is never content and reaches public output only
+through an explicit projection.
+_Avoid_: Bibliography when the public reference list of one work is meant; database
+
+**Source identifier**:
+A stable, author-assigned slug naming one source-library record for its whole life,
+independent of its title and never reused for a different kind.
+_Avoid_: Work identifier, bibliographic identifier, contributor identifier, URL
+
+**Work**:
+An intellectual or creative creation recorded in the source library independently of any
+edition, translation, or copy of it; also called the original work.
+_Avoid_: Published work when this site's own output is meant; book or edition
+
+**Edition**:
+One published realization of a work or of a translation, with its own text, pagination,
+and publication details.
+_Avoid_: Work, copy, version when a manuscript or translation is meant
+
+**Translation**:
+A rendering of a work into another language, recorded separately from the work it
+translates and from the edition or witness it was made from.
+_Avoid_: Edition, language variant
+
+**Witness**:
+One particular manuscript, printed copy, recording, or capture that attests a work,
+edition, or translation.
+_Avoid_: Edition, or source when a specific exemplar is meant
+
+**Bibliographic identifier**:
+A scheme-qualified value such as a DOI, ISBN, ISSN, or URL that describes a source-library
+record without replacing its source identifier.
+_Avoid_: Source identifier; treating syntax checks as proof the identifier resolves
+
+**Source location**:
+A scheme-qualified position, such as a page, folio, line, or timestamp, inside the specific
+work, edition, translation, or witness a reference points at.
+_Avoid_: Citation, URL fragment
 
 ## Admin workspace
 

@@ -285,7 +285,7 @@ pub fn sidecar_path(post_path: &str) -> Option<String> {
     Some(format!("{stem}.credits.json"))
 }
 
-fn valid_registry_key(value: &str) -> bool {
+pub(crate) fn valid_registry_key(value: &str) -> bool {
     !value.is_empty()
         && !value.starts_with('-')
         && !value.ends_with('-')

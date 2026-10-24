@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined the versioned research source library contract in core: distinct works, editions,
+  translations, witnesses, and references with stable identifiers, source locations, lossless
+  unknown fields, and source-scoped diagnostics that keep contributor credits out of
+  bibliography. Builds, the CLI, and Admin Studio do not read it yet.
+
 ## [0.15.0] - 2026-10-24
 
 - Added private per-admin workspace personalization to Admin Studio: Simple (the new default),

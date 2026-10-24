@@ -11,6 +11,7 @@
 //! - [`render`]: semantic HTML pages built from native elements and web components
 //! - [`feeds`]: RSS 2.0, JSON Feed, sitemap, and the latest-posts snapshot
 //! - [`search`]: a small ranked search over a JSON index
+//! - [`source_library`]: private research sources with stable, versioned identities
 
 pub mod accessibility;
 pub mod assistant_guide;
@@ -32,6 +33,7 @@ pub mod render;
 pub mod research;
 pub mod search;
 pub mod slug;
+pub mod source_library;
 pub mod theme;
 pub mod video;
 

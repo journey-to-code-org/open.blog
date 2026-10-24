@@ -42,9 +42,11 @@ Architecture decisions and their supporting primary-source research live under
 
 Current design frontiers include
 [contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),
-which defines the incremental path from one site author to ordered, work-specific credit, and
+which defines the incremental path from one site author to ordered, work-specific credit,
 [Assistant provider APIs](research/assistant-provider-apis.md), which records the native-provider
-contracts and why GitHub Copilot is not exposed as a generic API provider.
+contracts and why GitHub Copilot is not exposed as a generic API provider, and the
+[research source library format](specs/research-source-library.md), which keeps works,
+editions, translations, witnesses, and references distinct under stable identifiers.
 
 ## Command reference
 
