@@ -13,6 +13,17 @@ test("admin shell exposes a grouped publishing workspace", () => {
   assert.match(admin, /h\("h1", \{\}, activeInfo\.title\)/);
 });
 
+test("posts edit an optional subtitle directly under the title", () => {
+  assert.match(
+    admin,
+    /ui\.subtitle = kind === "posts" \? h\("input", \{ class: "oba-subtitle-input", id: "oba-subtitle", type: "text", placeholder: "Subtitle \(optional\)", value: f\.subtitle \|\| f\.subheading \|\| f\.dek \|\| "", "aria-label": "Subtitle" \}\) : null;/,
+  );
+  assert.match(admin, /ui\.title,\n\s*ui\.subtitle,\n\s*viewNav,/);
+  assert.match(admin, /set\("subtitle", ui\.subtitle\.value\.replace\(\/\\s\+\/g, " "\)\.trim\(\)\);\n\s*\/\/[^\n]*\n\s*set\("subheading", ""\);\n\s*set\("dek", ""\);/);
+  assert.match(admin, /for \(const control of \[ui\.title, ui\.subtitle, ui\.slug,/);
+  assert.match(styles, /\.oba-subtitle-input \{/);
+});
+
 test("editor has named writing, preview, release, optimization, accessibility, and evidence views", () => {
   assert.match(admin, /"data-pane": "settings"/);
   assert.match(admin, /"data-pane": "write"/);

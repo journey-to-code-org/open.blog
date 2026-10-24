@@ -1200,6 +1200,18 @@ html[data-admin-density="compact"] .oba-pane {
   font-weight: var(--ob-heading-weight);
 }
 
+.oba-subtitle-input {
+  width: 100%;
+  margin: -0.25rem 0 0.75rem;
+  padding: 0.5rem 0.9rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-muted);
+  font-family: var(--ob-font-heading);
+  font-size: 1.1rem;
+}
+
 .oba-panes {
   border: var(--ob-border-width) solid var(--oba-panel-border);
   border-radius: var(--ob-radius);

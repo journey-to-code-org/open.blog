@@ -48,6 +48,7 @@ pub struct ImportOptions {
 struct ImportedPost {
     slug: String,
     title: String,
+    subtitle: Option<String>,
     date: String,
     updated: Option<String>,
     description: String,
@@ -347,6 +348,8 @@ fn parse_post_page(url: &str, html: &str) -> Result<Option<ImportedPost>, String
     Ok(Some(ImportedPost {
         slug,
         title,
+        // Public pages expose no reliable subtitle; the GraphQL import carries it.
+        subtitle: None,
         date,
         updated,
         description,
@@ -399,7 +402,7 @@ const POSTS_QUERY: &str = "query Posts($host: String!, $first: Int!, $after: Str
     posts(first: $first, after: $after) {
       pageInfo { hasNextPage endCursor }
       edges { node {
-        slug title brief publishedAt updatedAt url canonicalUrl
+        slug title subtitle brief publishedAt updatedAt url canonicalUrl
         coverImage { url }
         tags { name slug }
         series { name slug }
@@ -483,6 +486,11 @@ fn import_graphql(
             posts.push(ImportedPost {
                 slug: n["slug"].as_str().unwrap_or("").to_string(),
                 title: n["title"].as_str().unwrap_or("").trim().to_string(),
+                subtitle: n["subtitle"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string),
                 updated: updated.filter(|u| ymd(u) != ymd(&date)),
                 date,
                 description: n["brief"].as_str().unwrap_or("").to_string(),
@@ -632,11 +640,12 @@ fn extension_for(url: &str, content_type: &str) -> String {
 // ---------------------------------------------------------------------------
 
 fn render_post_file(post: &ImportedPost) -> String {
-    let mut fields: Vec<(&str, Value)> = vec![
-        ("title", Value::Scalar(post.title.clone())),
-        ("slug", Value::Scalar(post.slug.clone())),
-        ("date", Value::Scalar(post.date.clone())),
-    ];
+    let mut fields: Vec<(&str, Value)> = vec![("title", Value::Scalar(post.title.clone()))];
+    if let Some(s) = &post.subtitle {
+        fields.push(("subtitle", Value::Scalar(s.clone())));
+    }
+    fields.push(("slug", Value::Scalar(post.slug.clone())));
+    fields.push(("date", Value::Scalar(post.date.clone())));
     if let Some(u) = &post.updated {
         fields.push(("updated", Value::Scalar(u.clone())));
     }
@@ -1250,6 +1259,7 @@ mod tests {
         let post = ImportedPost {
             slug: "hello".into(),
             title: "Hello: a `title`".into(),
+            subtitle: Some("Why: it matters".into()),
             date: "2026-10-21T04:15:10.033Z".into(),
             description: "Desc".into(),
             tags: vec!["rust lang".into()],
@@ -1260,6 +1270,12 @@ mod tests {
             ..Default::default()
         };
         let text = render_post_file(&post);
+        assert!(
+            text.contains(
+                "title: \"Hello: a `title`\"\nsubtitle: \"Why: it matters\"\nslug: hello\n"
+            ),
+            "{text}"
+        );
         let config = openblog_core::SiteConfig::default();
         let loaded = openblog_core::model::load_post(
             &openblog_core::SourceFile {
@@ -1271,6 +1287,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(loaded.title, "Hello: a `title`");
+        assert_eq!(loaded.subtitle.as_deref(), Some("Why: it matters"));
         assert_eq!(loaded.slug, "hello");
         assert_eq!(loaded.series_order, Some(2));
         assert_eq!(loaded.tags[0].slug, "rust-lang");

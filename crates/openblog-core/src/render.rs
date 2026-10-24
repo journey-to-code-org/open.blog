@@ -984,6 +984,12 @@ impl<'a> Renderer<'a> {
                 .heading(theme, 1, &post.title, "ob-post-title")
                 .replace("class=\"ob-title\"", "class=\"ob-title p-name\""),
         );
+        if let Some(subtitle) = &post.subtitle {
+            body.push_str(&format!(
+                "\n<p class=\"ob-post-subtitle\">{}</p>",
+                text(subtitle)
+            ));
+        }
         body.push_str("\n<p class=\"ob-meta\">");
         body.push_str(&format!(
             "<time class=\"dt-published\" datetime=\"{}\">{}</time>",
@@ -1188,6 +1194,9 @@ impl<'a> Renderer<'a> {
                     "wordCount": post.word_count,
                     "isPartOf": series.map(|s| serde_json::json!({ "@type": "CreativeWorkSeries", "name": s.name, "url": c.absolute(&s.url) })),
                 });
+                if let Some(subtitle) = &post.subtitle {
+                    posting["alternativeHeadline"] = serde_json::json!(subtitle);
+                }
                 match post.credit_provenance {
                     CreditProvenance::LegacySiteAuthor => {
                         if let Some(author) = author_json_ld(c) {
@@ -2717,6 +2726,39 @@ mod tests {
         let files = generate(&site, &ThemeSet::new()).unwrap();
         assert!(!file(&files, "index.html").contains("Powered by"));
         assert!(file(&files, "api/blog.json").contains("\"schemaVersion\": 1"));
+    }
+
+    #[test]
+    fn post_subtitles_render_escaped_between_the_title_and_byline() {
+        let config =
+            SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#)
+                .unwrap();
+        let sources = Sources {
+            posts: vec![
+                SourceFile {
+                    path: "posts/dek.md".into(),
+                    contents: "---\ntitle: Dek\ndate: 2026-10-01\nsubtitle: Why <small> sites & feeds win\n---\nBody".into(),
+                },
+                SourceFile {
+                    path: "posts/plain.md".into(),
+                    contents: "---\ntitle: Plain\ndate: 2026-10-02\n---\nBody".into(),
+                },
+            ],
+            ..Sources::default()
+        };
+        let site = Site::load(config, sources, LoadOptions::default()).unwrap();
+        let files = generate(&site, &ThemeSet::new()).unwrap();
+        let dek = file(&files, "dek/index.html");
+        let title = dek.find("ob-post-title").unwrap();
+        let subtitle = dek
+            .find("<p class=\"ob-post-subtitle\">Why &lt;small&gt; sites &amp; feeds win</p>")
+            .expect("escaped subtitle under the title");
+        let byline = dek.find("<p class=\"ob-meta\">").unwrap();
+        assert!(title < subtitle && subtitle < byline);
+        assert!(dek.contains("\"alternativeHeadline\":\"Why "));
+        let plain = file(&files, "plain/index.html");
+        assert!(!plain.contains("ob-post-subtitle"));
+        assert!(!plain.contains("alternativeHeadline"));
     }
 
     #[test]

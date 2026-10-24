@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-24
+
+- Added an optional post `subtitle` (also `subheading` or `dek`) shown under the title, edited directly
+  beneath the title in Admin Studio, imported from and sent to Hashnode, and kept separate from the
+  search `description`. JSON-LD carries it as `alternativeHeadline`, and subtitles over 160 characters are
+  flagged in Admin readiness and as a build warning. Re-running the Hashnode import reports posts that have a
+  Hashnode subtitle as changed; overwriting them adds `subtitle`, which marks them for re-syndication.
+
 ## [0.16.0] - 2026-10-24
 
 - Portable HTML now renders static fallbacks for every current interactive capability:
@@ -399,7 +407,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.13.0...v0.14.0

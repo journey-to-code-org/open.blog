@@ -27,6 +27,14 @@ test("readiness analysis rewards a structured, sourced answer", () => {
   assert.deepEqual(result.groups.map((group) => group.name), ["Search", "Answer readiness", "Trust & access"]);
 });
 
+test("readiness flags only a subtitle that is too long for one line", () => {
+  const body = "Durable content answers the reader’s main question immediately.";
+  const subtitleChecks = (result) => result.groups.flatMap((group) => group.checks).filter((check) => check.label === "Subtitle");
+  assert.deepEqual(subtitleChecks(analyzeReadiness({ ...base, body })), []);
+  assert.equal(subtitleChecks(analyzeReadiness({ ...base, body, subtitle: "A short line" }))[0].ready, true);
+  assert.equal(subtitleChecks(analyzeReadiness({ ...base, body, subtitle: "x".repeat(161) }))[0].ready, false);
+});
+
 test("readiness analysis exposes specific weak signals without claiming rank", () => {
   const result = analyzeReadiness({
     ...base,

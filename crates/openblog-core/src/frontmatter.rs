@@ -283,6 +283,7 @@ pub fn serialize(fields: &[(&str, Value)]) -> String {
 /// Preferred key order when writing a document, so edits produce stable diffs.
 const KEY_ORDER: &[&str] = &[
     "title",
+    "subtitle",
     "slug",
     "date",
     "updated",
@@ -421,6 +422,16 @@ mod tests {
             Some("line one\nslug: evil\n---\ndraft: true")
         );
         assert_eq!(doc.body.trim(), "body");
+    }
+
+    #[test]
+    fn subtitles_are_written_directly_under_the_title() {
+        let mut fields = BTreeMap::new();
+        fields.insert("description".to_string(), Value::Scalar("D".into()));
+        fields.insert("subtitle".to_string(), Value::Scalar("S".into()));
+        fields.insert("title".to_string(), Value::Scalar("T".into()));
+        let text = compose(&fields, "body");
+        assert!(text.starts_with("---\ntitle: T\nsubtitle: S\n"), "{text}");
     }
 
     #[test]
