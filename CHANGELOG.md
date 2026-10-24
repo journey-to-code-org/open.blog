@@ -7,6 +7,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ### Added
 
+- Added a post Assistant workspace with keyboard and command-palette navigation, labelled
+  Review, Interactions, and Context areas, and an authenticated credential-safe provider
+  capability summary that leaves non-AI authoring available when configuration is missing.
+
 - Added Visual and Markdown writing modes in Admin, with a remembered author preference,
   Heading 2–6 selection, familiar rich-text controls, and protected advanced blocks that
   retain source the visual editor cannot safely represent.

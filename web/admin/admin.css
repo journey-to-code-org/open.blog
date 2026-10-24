@@ -1098,8 +1098,41 @@ kbd {
 .oba-editor[data-editor-view="optimize"] .oba-optimize-pane,
 .oba-editor[data-editor-view="settings"] .oba-settings-pane,
 .oba-editor[data-editor-view="accessibility"] .oba-accessibility-pane,
-.oba-editor[data-editor-view="evidence"] .oba-evidence-pane {
+.oba-editor[data-editor-view="evidence"] .oba-evidence-pane,
+.oba-editor[data-editor-view="assistant"] .oba-assistant-pane {
   display: block;
+}
+
+.oba-assistant-workspace {
+  display: grid;
+  grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr);
+  gap: clamp(1rem, 3vw, 2.5rem);
+  align-items: start;
+  padding: clamp(1rem, 3vw, 2.5rem);
+}
+
+.oba-assistant-provider,
+.oba-assistant-empty {
+  padding: 1rem 1.1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-assistant-provider h3,
+.oba-assistant-empty h3,
+.oba-assistant-empty p {
+  margin-top: 0;
+}
+
+.oba-assistant-main {
+  min-width: 0;
+}
+
+.oba-assistant-nav {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 1rem;
 }
 
 .oba-field-charts {
@@ -1762,6 +1795,10 @@ kbd {
   }
 
   .oba-accessibility-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-assistant-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
 }

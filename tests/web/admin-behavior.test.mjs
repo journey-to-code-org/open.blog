@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   ObAdmin,
   accessibilityReview,
+  assistantStatusPresentation,
   evidenceReview,
   evidenceStudioState,
   fieldJournalReview,
@@ -31,6 +32,36 @@ import {
   validateCreditDraft,
   validateContributorDraft,
 } from "../../web/admin/admin.js";
+
+test("assistant provider status presents configured and unconfigured states without credentials", () => {
+  assert.deepEqual(
+    assistantStatusPresentation({
+      providerType: "generic-https",
+      model: "story-model",
+      configured: true,
+      message: "Assistant provider is ready.",
+      capabilities: { review: false, interactions: true, context: false, knowledgeChecks: true },
+    }),
+    {
+      providerType: "Generic HTTPS",
+      model: "story-model",
+      configured: "Configured",
+      capabilities: "Interactions, Knowledge checks",
+      message: "Assistant provider is ready.",
+    },
+  );
+
+  assert.deepEqual(
+    assistantStatusPresentation({ providerType: "generic-https", model: "", configured: false, capabilities: {} }),
+    {
+      providerType: "Generic HTTPS",
+      model: "Provider default",
+      configured: "Not configured",
+      capabilities: "No generation capabilities",
+      message: "Assistant provider is not configured. Non-AI authoring remains available.",
+    },
+  );
+});
 
 const SAMPLE_GPX = `<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>
   <trkpt lat="42.0000" lon="-72.0000"><ele>100</ele><time>2026-10-23T10:00:00Z</time></trkpt>

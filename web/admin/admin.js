@@ -378,6 +378,25 @@ export function applyPaneSelection(root, buttons, pane) {
   for (const button of buttons) button.setAttribute("aria-pressed", String(button.dataset.paneTarget === pane));
 }
 
+export function assistantStatusPresentation(status = {}) {
+  const labels = {
+    review: "Review",
+    interactions: "Interactions",
+    context: "Context",
+    knowledgeChecks: "Knowledge checks",
+  };
+  const capabilities = Object.entries(status.capabilities || {})
+    .filter(([, supported]) => supported)
+    .map(([name]) => labels[name] || name);
+  return {
+    providerType: status.providerType === "generic-https" ? "Generic HTTPS" : status.providerType || "Unavailable",
+    model: status.model || "Provider default",
+    configured: status.configured ? "Configured" : "Not configured",
+    capabilities: capabilities.length ? capabilities.join(", ") : "No generation capabilities",
+    message: status.message || (status.configured ? "Assistant provider is ready." : "Assistant provider is not configured. Non-AI authoring remains available."),
+  };
+}
+
 function markdownOutsideCode(source) {
   const kept = [];
   let fence = null;
@@ -1040,9 +1059,10 @@ export class ObAdmin extends AdminElement {
         this.editor.save();
         return;
       }
-      if (this.editor && e.altKey && ["1", "2", "3", "4", "5", "6", "7", "8", "9"].includes(e.key)) {
+      if (this.editor && e.altKey && ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].includes(e.key)) {
+        const pane = e.key === "0" ? "assistant" : ["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence"][Number(e.key) - 1];
+        if (pane === "assistant" && this.editor.kind !== "posts") return;
         e.preventDefault();
-        const pane = ["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence"][Number(e.key) - 1];
         this.editor.activatePane(pane, true);
       }
     });
@@ -1229,7 +1249,8 @@ export class ObAdmin extends AdminElement {
     ];
     if (this.editor) {
       commands.unshift({ label: "Save document", category: "Editor", keywords: "publish ctrl s", run: () => this.editor.save() });
-      for (const pane of ["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence"]) {
+      const panes = ["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence", ...(this.editor.kind === "posts" ? ["assistant"] : [])];
+      for (const pane of panes) {
         commands.unshift({ label: `Show ${pane}`, category: "Editor", keywords: "view pane", run: () => this.editor.activatePane(pane) });
       }
     }
@@ -2360,11 +2381,30 @@ class Editor {
         : null,
     );
     ui.formatToolbar.addEventListener("mousedown", () => this.captureVisualSelection());
+    ui.assistantStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "Loading assistant configuration…");
+    ui.assistantProviderType = h("dd", {}, "Loading…");
+    ui.assistantModel = h("dd", {}, "Loading…");
+    ui.assistantConfigured = h("dd", {}, "Checking…");
+    ui.assistantCapabilities = h("dd", {}, "Checking…");
+    const assistantViews = {
+      review: h("section", { class: "oba-assistant-empty", "data-assistant-view": "review", "aria-labelledby": "oba-assistant-review-title" }, h("h3", { id: "oba-assistant-review-title" }, "Review"), h("p", {}, "Review workflows will appear here after skills and context are configured in a later delivery.")),
+      interactions: h("section", { class: "oba-assistant-empty", "data-assistant-view": "interactions", "aria-labelledby": "oba-assistant-interactions-title", hidden: true }, h("h3", { id: "oba-assistant-interactions-title" }, "Interactions"), h("p", {}, "Knowledge-check generation uses the configured provider. Proposal workflows will appear here in a later delivery.")),
+      context: h("section", { class: "oba-assistant-empty", "data-assistant-view": "context", "aria-labelledby": "oba-assistant-context-title", hidden: true }, h("h3", { id: "oba-assistant-context-title" }, "Context"), h("p", {}, "Author, site, post, and reference context management will appear here in a later delivery.")),
+    };
+    const activateAssistantView = (view) => {
+      for (const [name, section] of Object.entries(assistantViews)) section.hidden = name !== view;
+      ui.assistantViewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.assistantView === view)));
+    };
+    ui.assistantViewButtons = ["review", "interactions", "context"].map((view) =>
+      h("button", { class: "oba-tab", type: "button", "data-assistant-view": view, "aria-pressed": String(view === "review"), onClick: () => activateAssistantView(view) }, view[0].toUpperCase() + view.slice(1)),
+    );
+    ui.assistantViewNav = h("nav", { class: "oba-assistant-nav", "aria-label": "Assistant views" }, ui.assistantViewButtons);
     let paneButtons = [];
     const activatePane = (pane, focus = false) => {
       applyPaneSelection(this.root, paneButtons, pane);
       if (pane === "release") this.updateReleaseKit();
       else if (pane === "field") this.updateFieldReview();
+      else if (pane === "assistant") void this.loadAssistantStatus();
       else if (["preview", "social", "accessibility", "evidence"].includes(pane)) this.renderPreview();
       else {
         clearTimeout(this.previewTimer);
@@ -2377,8 +2417,9 @@ class Editor {
       }
     };
     this.activatePane = activatePane;
-    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", release: "Release kit", field: "Field review", optimize: "Optimize", settings: "Settings", accessibility: "Accessibility", evidence: "Evidence" };
-    paneButtons = ["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence"].map((pane) =>
+    const paneLabels = { write: "Write", preview: "Site preview", social: "Social", release: "Release kit", field: "Field review", optimize: "Optimize", settings: "Settings", accessibility: "Accessibility", evidence: "Evidence", assistant: "Assistant" };
+    const editorPanes = ["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence", ...(kind === "posts" ? ["assistant"] : [])];
+    paneButtons = editorPanes.map((pane) =>
       h(
         "button",
         {
@@ -2386,6 +2427,7 @@ class Editor {
           type: "button",
           "data-pane-target": pane,
           "aria-pressed": String(pane === "write"),
+          title: pane === "assistant" ? "Assistant (Alt+0)" : null,
           onClick: () => activatePane(pane),
         },
         paneLabels[pane],
@@ -2523,6 +2565,32 @@ class Editor {
               ui.fieldCharts,
             ),
           ),
+          kind === "posts"
+            ? h(
+                "section",
+                { class: "oba-pane oba-assistant-pane", "data-pane": "assistant", "aria-label": "Assistant workspace" },
+                paneHeader("Assist", "Assistant", h("span", { class: "oba-small" }, "Alt+0")),
+                h(
+                  "div",
+                  { class: "oba-assistant-workspace" },
+                  h(
+                    "aside",
+                    { class: "oba-assistant-provider", "aria-label": "Assistant provider" },
+                    h("h3", {}, "Provider"),
+                    ui.assistantStatus,
+                    h(
+                      "dl",
+                      { class: "oba-social-meta" },
+                      h("div", {}, h("dt", {}, "Type"), ui.assistantProviderType),
+                      h("div", {}, h("dt", {}, "Model"), ui.assistantModel),
+                      h("div", {}, h("dt", {}, "Credential"), ui.assistantConfigured),
+                      h("div", {}, h("dt", {}, "Capabilities"), ui.assistantCapabilities),
+                    ),
+                  ),
+                  h("div", { class: "oba-assistant-main" }, ui.assistantViewNav, assistantViews.review, assistantViews.interactions, assistantViews.context),
+                ),
+              )
+            : null,
           h(
             "section",
             { class: "oba-pane oba-optimize-pane", "data-pane": "optimize", "aria-label": "SEO and answer readiness analysis" },
@@ -3081,6 +3149,26 @@ class Editor {
     ];
     this.ui.fieldFacts.replaceChildren(...facts.map(([label, value]) => h("div", {}, h("dt", {}, label), h("dd", {}, value))));
     this.ui.fieldCharts.replaceChildren(fieldChart(fields.routeShape, "Privacy-filtered route outline"), fieldChart(fields.elevationProfile, "Elevation profile"));
+  }
+
+  async loadAssistantStatus() {
+    if (this.assistantStatusLoaded || this.assistantStatusLoading) return;
+    this.assistantStatusLoading = true;
+    this.ui.assistantStatus.textContent = "Loading assistant configuration…";
+    try {
+      const status = await this.app.api.call("GET", "assistant/status");
+      const presentation = assistantStatusPresentation(status);
+      this.ui.assistantProviderType.textContent = presentation.providerType;
+      this.ui.assistantModel.textContent = presentation.model;
+      this.ui.assistantConfigured.textContent = presentation.configured;
+      this.ui.assistantCapabilities.textContent = presentation.capabilities;
+      this.ui.assistantStatus.textContent = presentation.message;
+      this.assistantStatusLoaded = true;
+    } catch (error) {
+      this.ui.assistantStatus.textContent = `Assistant configuration could not be loaded. Non-AI authoring remains available. ${error.message}`;
+    } finally {
+      this.assistantStatusLoading = false;
+    }
   }
 
   async importGpx() {

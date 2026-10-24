@@ -31,6 +31,7 @@ immediately.
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
 | **Video release kit** | Validate authored YouTube chapters and copy a description assembled from the current summary, chapters, and AI-assistance disclosure. |
 | **Field Review** | Analyze GPX locally, derive route facts, and choose hidden, trimmed, approximate, or exact location publication. |
+| **Assistant** | Inspect the configured author-time provider and its capabilities, then move between clearly labelled Review, Interactions, and Context work areas. Provider credentials remain on the server. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
@@ -42,7 +43,7 @@ immediately.
 The admin is organized like a writing studio. The tool groups at the top move between
 content, analytics, and the public site; the status bar keeps unpublished changes and
 the publish action visible. Inside the editor, **Write**, **Site preview**, **Social**,
-**Optimize**, **Settings**, **Accessibility**, and **Evidence** are separate full-width
+**Optimize**, **Settings**, **Accessibility**, **Evidence**, and **Assistant** are separate full-width
 views, so writing is not squeezed beside a permanent preview.
 Switching views never loses edits, and opening Site preview refreshes it from the current draft.
 
@@ -56,6 +57,12 @@ counts. Press `Alt+1` through `Alt+9` to focus Write, Site preview, Social, Rele
 Field Review, Optimize, Settings, Accessibility, or Evidence. The preview
 toolbar can constrain the canvas to wide, tablet, or mobile width; this preference is stored
 in the browser and does not change the published theme.
+
+For posts, press `Alt+0` to open **Assistant**. Its provider card reports the provider type,
+model, configured state, and supported capabilities without returning the credential or
+configured endpoint to the browser. Review, Interactions, and Context remain useful labelled
+empty states until their later workflows are available; provider failures do not disable
+ordinary non-AI authoring.
 
 ### Write visually or in Markdown
 
@@ -304,6 +311,10 @@ expected response shape. It returns one to three questions:
 The key and endpoint are used only by the admin server. The browser calls the authenticated
 same-origin admin API, public builds contain only the reviewed Markdown, and readers never
 contact the generation service.
+
+Open a post's **Assistant** view to confirm whether this provider is ready. If configuration
+is incomplete, the status message identifies the server-side setting or environment variable
+to add. It never displays the endpoint or credential value.
 
 ## Security design
 
