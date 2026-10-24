@@ -16,6 +16,8 @@ All notable changes to open.blog are recorded here. Releases follow
   disclosure, debouncing, selected context, stale-response suppression, abort-on-navigation, and
   author-controlled accept or dismiss actions.
 - Completed Assistant Interactions by connecting it to the reviewed knowledge-check proposal flow.
+- Added a CI-enforced documentation link and heading-anchor check, and expanded the documentation
+  index and project overview to cover the completed author-time Assistant workflows.
 
 ## [0.11.2] - 2026-10-23
 

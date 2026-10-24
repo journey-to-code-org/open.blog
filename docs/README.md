@@ -16,8 +16,9 @@ If you are new, read these in order; each one stands alone otherwise.
 7. [Adding web components to a theme](theme-components.md): scripts, heading effects,
    and the demo theme to copy from.
 8. [The admin editor](admin.md): the writing workspace, production-faithful theme and
-   social previews, search, answer-readiness and accessibility guidance, scheduling, and
-   safe operation.
+   social previews, search, answer-readiness and accessibility guidance, optional AI review,
+   safe suggestion application, knowledge-check proposals, opt-in autocomplete, provider
+   configuration, scheduling, and safe operation.
 9. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
    syntax highlighting, related posts, a CDN, and slots for comments or newsletters.
 10. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
@@ -40,7 +41,9 @@ Architecture decisions and their supporting primary-source research live under
 
 Current design frontiers include
 [contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),
-which defines the incremental path from one site author to ordered, work-specific credit.
+which defines the incremental path from one site author to ordered, work-specific credit, and
+[Assistant provider APIs](research/assistant-provider-apis.md), which records the native-provider
+contracts and why GitHub Copilot is not exposed as a generic API provider.
 
 ## Command reference
 
