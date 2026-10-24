@@ -1,6 +1,7 @@
 //! The `openblog` command line.
 
 mod admin;
+mod admin_preferences;
 mod analytics;
 mod assistant;
 mod assistant_storage;

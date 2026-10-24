@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added private per-admin workspace personalization with Simple, Guided, Advanced, and Custom
+  layouts, optional-tool ordering, density and writing-mode preferences, and an always-available
+  Advanced tools drawer that keeps essential authoring and publishing controls visible.
 - Added `openblog syndicate <slug>` with dry-run planning, draft-first DEV, Hashnode,
   Ghost, and WordPress adapters, guided Medium import, private remote-ID state, and
   explicit two-step publication safety.
