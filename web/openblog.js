@@ -12,3 +12,4 @@ import "./components/ob-back-to-top.js";
 import "./components/ob-search.js";
 import "./components/ob-share.js";
 import "./components/ob-views.js";
+import "./components/ob-comments.js";

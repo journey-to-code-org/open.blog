@@ -30,6 +30,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "home": { "heading": "Latest posts", "intro": "", "showSeries": true },
   "share": { "enabled": true, "networks": ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"] },
   "analytics": { "builtin": true, "showViews": true, "retentionDays": 400, "endpoint": "", "branch": "analytics", "bakeCounts": true },
+  "engagement": { "enabled": false, "comments": true, "analytics": true, "endpoint": "" },
   "snippets": { "head": "", "postFooter": "", "bodyEnd": "" },
   "relatedPosts": 3,
   "cdn": { "url": "", "paths": ["/assets/", "/themes/", "/images/"], "version": "", "maxAge": 86400 },
@@ -81,6 +82,9 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   hosted elsewhere, `branch` names the git branch that backs the counts up, and
   `bakeCounts` writes the known counts into static builds. See
   [Publishing from home](publishing.md).
+- `engagement.enabled` adds hosted comments and analytics to static deployments;
+  `engagement.endpoint` is the public function URL. Database and moderation secrets stay in server
+  environment variables or Admin's write-only private credential store.
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.

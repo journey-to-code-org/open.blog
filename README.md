@@ -31,7 +31,8 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
   workflow deploys, and the repository is the backup. Drafts stay out of commits.
 - **Privacy-respecting analytics.** A cookie-free view counter with a dashboard, counts
   backed up to a git branch and baked into static builds, and two counters you can host
-  yourself when the site is static: a Cloudflare Worker or a Node service with MongoDB.
+  yourself when the site is static: a Cloudflare Worker, a Node service with MongoDB, or a
+  Supabase-backed Netlify Function that also provides moderated comments.
 - **Import from Hashnode** without a paid plan.
 - **Few dependencies.** The engine needs a Markdown parser and JSON support; only the
   command-line tool adds an HTTP client, an HTML-to-Markdown converter, and password hashing.

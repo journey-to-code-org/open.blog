@@ -1939,15 +1939,24 @@ export class ObAdmin extends AdminElement {
   // ---- analytics
 
   async showAnalytics(days) {
+    let engagement = null;
+    try {
+      engagement = await this.api.call("GET", "engagement/settings");
+    } catch {
+      // Older servers still expose the local analytics dashboard.
+    }
     let data;
     try {
-      data = await this.api.call("GET", `analytics?days=${days}`);
+      data = engagement?.enabled && engagement?.analytics && engagement?.credential?.configured
+        ? await this.api.call("GET", `engagement/analytics?days=${days}`)
+        : await this.api.call("GET", `analytics?days=${days}`);
     } catch (err) {
-      if (err.status === 404) {
+      if (err.status === 404 && engagement) {
+        data = { days, from: "", to: "", views: 0, uniques: 0, allTimeViews: 0, firstDay: "", series: [], topPosts: [], referrers: [], agentRequests: 0, agents: [], agentPages: [] };
+      } else if (err.status === 404) {
         this.mount(this.shell("analytics", h("p", { class: "oba-notice" }, "The built-in view counter is switched off (analytics.builtin in openblog.json).")));
         return;
-      }
-      throw err;
+      } else throw err;
     }
     const n = (v) => Number(v || 0).toLocaleString();
     const tile = (label, value, note) =>
@@ -1988,9 +1997,123 @@ export class ObAdmin extends AdminElement {
     const agentPages = data.agentPages.map((page) =>
       h("tr", {}, h("td", {}, h("a", { href: page.path, target: "_blank", rel: "noopener" }, page.path)), h("td", {}, n(page.requests)), h("td", {}, page.agents.join(", "))),
     );
+    let hostedSettings = null;
+    let moderation = null;
+    if (engagement) {
+      const enabled = h("input", { type: "checkbox", checked: engagement.enabled });
+      const comments = h("input", { type: "checkbox", checked: engagement.comments });
+      const hostedAnalytics = h("input", { type: "checkbox", checked: engagement.analytics });
+      const endpoint = h("input", { type: "url", value: engagement.endpoint || `${String(this.meta.siteUrl || "").replace(/\/$/, "")}/api`, placeholder: "https://your-site.example/api" });
+      const credential = h("input", { type: "password", value: "", autocomplete: "new-password", placeholder: "Leave blank to keep the saved token" });
+      const credentialStatus = () => {
+        if (engagement.credential?.source === "environment") {
+          return engagement.credential.boundToEndpoint
+            ? `Configured by ${engagement.credential.environmentName}; the environment token takes precedence.`
+            : `Set ${engagement.credential.originEnvironmentName} to this endpoint's exact origin before Admin can use the environment token.`;
+        }
+        if (engagement.credential?.configured) return "A private moderation token is saved, bound to this origin, and never displayed.";
+        if (engagement.credential?.privateConfigured) return "The saved token belongs to another origin. Enter the token again to bind it to this endpoint.";
+        return "No moderation token is configured.";
+      };
+      const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, credentialStatus());
+      const save = h("button", {
+        class: "oba-btn oba-btn-primary",
+        type: "button",
+        onClick: async () => {
+          save.disabled = true;
+          status.textContent = "Saving hosted engagement settings…";
+          try {
+            const result = await this.api.call("PUT", "engagement/settings", { json: {
+              enabled: enabled.checked,
+              comments: comments.checked,
+              analytics: hostedAnalytics.checked,
+              endpoint: endpoint.value.trim(),
+              etag: engagement.etag,
+              credentialAction: credential.value.trim() ? "replace" : "keep",
+              ...(credential.value.trim() ? { credential: credential.value.trim() } : {}),
+            } });
+            engagement = result;
+            credential.value = "";
+            status.className = engagement.credential?.configured ? "oba-ok" : "oba-notice";
+            status.textContent = `${credentialStatus()} Rebuild or publish to update public pages.`;
+          } catch (error) {
+            status.className = "oba-error";
+            status.textContent = error.message;
+          } finally {
+            save.disabled = false;
+          }
+        },
+      }, "Save hosted settings");
+      const clear = h("button", {
+        class: "oba-btn oba-btn-danger oba-btn-link",
+        type: "button",
+        disabled: !engagement.credential?.privateConfigured,
+        onClick: async () => {
+          if (!confirm("Remove the saved moderation token? A server environment token, if present, will remain active.")) return;
+          const result = await this.api.call("PUT", "engagement/settings", { json: {
+            enabled: enabled.checked, comments: comments.checked, analytics: hostedAnalytics.checked,
+            endpoint: endpoint.value.trim(), etag: engagement.etag, credentialAction: "clear",
+          } });
+          engagement = result;
+          clear.disabled = true;
+          status.textContent = "Saved moderation token removed.";
+        },
+      }, "Remove saved token");
+      hostedSettings = h(
+        "section",
+        { class: "oba-assistant-provider-settings-body", "aria-labelledby": "oba-hosted-engagement-title" },
+        h("h2", { id: "oba-hosted-engagement-title" }, "Hosted comments and analytics"),
+        h("p", {}, "Netlify Functions can persist comments and view counts in Supabase. The public site receives only this function endpoint; Supabase URL and service-role credentials stay in Netlify environment variables."),
+        h("p", { class: "oba-notice" }, "Required Netlify variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ADMIN_API_KEY, and OPENBLOG_ANALYTICS_SALT."),
+        h("label", {}, enabled, " Enable hosted engagement"),
+        h("label", {}, comments, " Enable moderated comments"),
+        h("label", {}, hostedAnalytics, " Store analytics in Supabase"),
+        h("div", { class: "oba-field" }, h("label", {}, "Public function endpoint"), endpoint),
+        h("div", { class: "oba-field" }, h("label", {}, "Moderation API token (write-only)"), credential),
+        status,
+        h("div", { class: "oba-toolbar" }, save, clear),
+      );
+      if (engagement.enabled && engagement.comments && engagement.credential?.configured) {
+        const moderationStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Loading pending comments…");
+        const cards = h("div", { class: "oba-assistant-context-cards" });
+        moderation = h("section", { "aria-labelledby": "oba-comment-moderation-title" }, h("h2", { id: "oba-comment-moderation-title" }, "Pending comments"), moderationStatus, cards);
+        try {
+          const result = await this.api.call("GET", "engagement/comments?status=pending");
+          const pending = Array.isArray(result.comments) ? result.comments : [];
+          moderationStatus.textContent = pending.length ? `${pending.length} comment${pending.length === 1 ? "" : "s"} awaiting review.` : "No comments awaiting review.";
+          const decide = async (comment, decision, card) => {
+            card.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+            try {
+              await this.api.call("PATCH", "engagement/comments", { json: { id: comment.id, status: decision } });
+              card.remove();
+              moderationStatus.textContent = `Comment ${decision}.`;
+            } catch (error) {
+              moderationStatus.textContent = error.message;
+            }
+          };
+          cards.append(...pending.map((comment) => {
+            const card = h("article", { class: "oba-context-card" },
+              h("h3", {}, comment.authorName),
+              h("p", { class: "oba-small" }, `${comment.path} · ${formatWhen(comment.createdAt)}`),
+              h("p", {}, comment.body),
+            );
+            card.append(h("div", { class: "oba-toolbar" },
+              h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => decide(comment, "approved", card) }, "Approve"),
+              h("button", { class: "oba-btn oba-btn-danger", type: "button", onClick: () => decide(comment, "rejected", card) }, "Reject"),
+            ));
+            return card;
+          }));
+        } catch (error) {
+          moderationStatus.className = "oba-error";
+          moderationStatus.textContent = `Comments could not be loaded. ${error.message}`;
+        }
+      }
+    }
     this.mount(
       this.shell(
         "analytics",
+        hostedSettings,
+        moderation,
         ranges,
         h("div", { class: "oba-tiles" }, tile("Views", n(data.views), `${data.from} to ${data.to}`), tile("Unique visitors", n(data.uniques), "per page, per day"), tile("All-time views", n(data.allTimeViews), data.firstDay ? `since ${data.firstDay}` : ""), tile("AI agent requests", n(data.agentRequests), "server-observed user-agent claims")),
         bars,

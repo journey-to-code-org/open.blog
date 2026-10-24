@@ -43,6 +43,8 @@ pub struct SiteConfig {
     pub home: HomeConfig,
     pub share: ShareConfig,
     pub analytics: AnalyticsConfig,
+    /// Optional hosted comments and analytics endpoint for static deployments.
+    pub engagement: EngagementConfig,
     /// Raw HTML the owner wants on every page: third-party analytics, comments, forms.
     pub snippets: Snippets,
     /// How many related posts to show under each post. `0` disables the section.
@@ -270,6 +272,7 @@ impl Default for SiteConfig {
             home: HomeConfig::default(),
             share: ShareConfig::default(),
             analytics: AnalyticsConfig::default(),
+            engagement: EngagementConfig::default(),
             snippets: Snippets::default(),
             related_posts: 3,
             cdn: CdnConfig::default(),
@@ -389,6 +392,28 @@ impl Default for AnalyticsConfig {
             endpoint: String::new(),
             branch: "analytics".to_string(),
             bake_counts: true,
+        }
+    }
+}
+
+/// Hosted comments and analytics for static deployments such as Netlify.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EngagementConfig {
+    pub enabled: bool,
+    pub comments: bool,
+    pub analytics: bool,
+    /// Public function base URL. Secrets are never stored here.
+    pub endpoint: String,
+}
+
+impl Default for EngagementConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            comments: true,
+            analytics: true,
+            endpoint: String::new(),
         }
     }
 }
@@ -635,6 +660,26 @@ impl SiteConfig {
         if self.theme.is_empty() {
             self.theme = "base".to_string();
         }
+        if self.engagement.enabled {
+            let endpoint = self
+                .engagement
+                .endpoint
+                .parse::<http::Uri>()
+                .map_err(|_| "engagement.endpoint must be a valid HTTPS URL")?;
+            let authority = endpoint
+                .authority()
+                .ok_or("engagement.endpoint must include a host")?;
+            if endpoint.scheme_str() != Some("https")
+                || authority.as_str().contains('@')
+                || endpoint.query().is_some()
+                || self.engagement.endpoint.contains('#')
+            {
+                return Err(
+                    "engagement.endpoint must be HTTPS without credentials, query, or fragment"
+                        .into(),
+                );
+            }
+        }
         contributor::normalize_registry(&mut self.contributors)?;
         Ok(())
     }
@@ -737,6 +782,28 @@ mod tests {
     }
 
     #[test]
+    fn hosted_engagement_requires_a_public_https_style_endpoint_when_enabled() {
+        for endpoint in [
+            "http://blog.example/api",
+            "https://user:secret@blog.example/api",
+            "https://blog.example/api?token=secret",
+            "https://blog.example/api#fragment",
+        ] {
+            let source = serde_json::json!({
+                "engagement": { "enabled": true, "endpoint": endpoint }
+            });
+            assert!(
+                SiteConfig::from_json(&source.to_string()).is_err(),
+                "{endpoint}"
+            );
+        }
+        assert!(SiteConfig::from_json(
+            r#"{"engagement":{"enabled":true,"endpoint":"https://blog.example/api"}}"#
+        )
+        .is_ok());
+    }
+
+    #[test]
     fn cdn_rewrites_only_asset_urls() {
         let cdn = CdnConfig {
             url: "https://cdn.example.com/".into(),
@@ -795,6 +862,8 @@ mod tests {
         assert_eq!(c.absolute("/rss.xml"), "https://x.dev/rss.xml");
         assert!(c.feeds.rss);
         assert_eq!(c.theme, "base");
+        assert!(!c.engagement.enabled);
+        assert!(c.engagement.comments && c.engagement.analytics);
         assert_eq!(
             c.knowledge_checks.provider,
             AssistantProviderKind::CustomHttps

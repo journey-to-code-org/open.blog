@@ -20,9 +20,42 @@
 [build.environment]
   CARGO_TERM_COLOR = "always"
 
+[functions]
+  directory = "netlify/functions"
+
+[[redirects]]
+  from = "/api/hit"
+  to = "/.netlify/functions/engagement/hit"
+  status = 200
+
+[[redirects]]
+  from = "/api/views"
+  to = "/.netlify/functions/engagement/views"
+  status = 200
+
+[[redirects]]
+  from = "/api/comments"
+  to = "/.netlify/functions/engagement/comments"
+  status = 200
+
+[[redirects]]
+  from = "/api/admin/comments"
+  to = "/.netlify/functions/engagement/admin/comments"
+  status = 200
+
+[[redirects]]
+  from = "/api/admin/analytics"
+  to = "/.netlify/functions/engagement/admin/analytics"
+  status = 200
+
 # The latest-posts JSON and the feeds may be read by scripts on other sites.
 [[headers]]
-  for = "/api/*"
+  for = "/api/blog.json"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "/api/views.json"
   [headers.values]
     Access-Control-Allow-Origin = "*"
 

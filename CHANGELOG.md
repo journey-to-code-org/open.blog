@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added optional Supabase-backed Netlify Functions for moderated comments and persistent,
+  privacy-respecting view analytics, with a checked-in SQL schema and deployment guide.
+- Added hosted engagement settings and pending-comment moderation to Admin Analytics. Public
+  endpoints live in `openblog.json`; the matching Admin token is write-only, privately protected,
+  bound to its endpoint origin, and can be overridden with `OPENBLOG_ENGAGEMENT_API_KEY` plus
+  `OPENBLOG_ENGAGEMENT_API_ORIGIN`. Admin requests reject redirects and public writes use
+  Supabase-backed per-client and per-site quotas.
 - Expanded Assistant Interactions with editable runnable Rust examples and bounded coding challenges,
   including selected-section grounding, visible TODO and expected-result requirements, explicit
   insertion in Visual or Markdown mode, and a non-AI authoring path.

@@ -126,6 +126,10 @@ The counts are backed up to a git branch, baked into pages at build time so a st
 shows them, and can be recorded by a dependency-free Cloudflare Worker when there is no
 server. All of that is in [Publishing from home](publishing.md).
 
+Netlify deployments can instead use the included Supabase-backed function for analytics and
+moderated comments. It preserves the `/hit` and `/views` contract, so `<ob-views>` needs no
+provider-specific code. See [Netlify deployment](deploy.md#comments-and-persistent-analytics-on-netlify).
+
 ### What it records, and what it never records
 
 Per day and page: views, unique visitors, a count per referring site, and aggregate AI
@@ -152,6 +156,14 @@ Paste the provider's tag into `snippets.head` (see below) and set `analytics.bui
 `false` if you do not want both. Plausible, Umami, GoatCounter, and Fathom all work this way.
 
 ## Embeds: comments, newsletters, any tag
+
+For first-party, text-only moderated comments on Netlify, enable hosted engagement in
+**Admin → Analytics**. Each post then receives an accessible comment list and form. Submissions are
+pending by default and only approved comments are public. Comment content is rendered as text rather
+than HTML. Supabase credentials remain in the function environment; Admin stores only a write-only
+moderation token.
+
+The raw HTML slots below remain available for third-party systems such as giscus or utterances.
 
 Three places accept raw HTML from `openblog.json`. It is inserted as-is on every page, so
 only put there what you would put in a template yourself.

@@ -71,6 +71,20 @@ it is the natural choice when the repository is private. A clone of the engine r
 The file also sets cache headers for assets and CORS headers for the feeds and the
 latest-posts JSON. Aliases are plain redirect pages, so they need no Netlify redirects.
 
+### Comments and persistent analytics on Netlify
+
+The repository includes an optional Netlify Function backed by Supabase. It adds moderated comments
+and lets the existing privacy-respecting view counter retain analytics across deploys. Run
+[`supabase/openblog.sql`](../supabase/openblog.sql) in a Supabase project, then follow the
+[function setup guide](../netlify/functions/README.md) to configure the server environment. The
+Supabase service-role key remains in Netlify and is never an Admin or public-site setting.
+
+After deployment, open **Admin → Analytics**, enable hosted engagement, enter the public `/api`
+endpoint, and save the matching write-only moderation token. New comments remain pending until an
+Admin user approves them. Tokens saved by Admin are bound to the endpoint origin, redirects are not
+followed, and Supabase-backed quotas limit public writes. The existing local counter stays the
+default when hosted engagement is off.
+
 For a blog made with `openblog init` (no engine source in the repository), use this
 build command instead, with `dist` as the publish directory:
 

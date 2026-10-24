@@ -161,3 +161,12 @@ test("site tools expose a contributor registry workspace with manual identity pr
   assert.match(styles, /\.oba-contributor-grid/);
   assert.match(styles, /\.oba-contributor-card/);
 });
+
+test("Analytics configures hosted Supabase engagement without exposing service credentials", () => {
+  assert.match(admin, /engagement\/settings/);
+  assert.match(admin, /engagement\/analytics/);
+  assert.match(admin, /engagement\/comments\?status=pending/);
+  assert.match(admin, /Moderation API token \(write-only\)/);
+  assert.match(admin, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(admin, /SUPABASE_SERVICE_ROLE_KEY[^\n]*(?:value|credentialAction)/);
+});

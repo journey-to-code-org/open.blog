@@ -20,7 +20,8 @@ If you are new, read these in order; each one stands alone otherwise.
    safe suggestion application, knowledge-check proposals, opt-in autocomplete, provider
    configuration, scheduling, and safe operation.
 9. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
-   syntax highlighting, related posts, a CDN, and slots for comments or newsletters.
+   Supabase-backed Netlify comments and analytics, syntax highlighting, related posts, a CDN, and
+   slots for comments or newsletters.
 10. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
    and machine-access analytics.
 11. [Accessibility checks and manual review](accessibility.md): source findings, outcome

@@ -1429,6 +1429,22 @@ ob-views:empty {
   display: none;
 }
 
+ob-comments {
+  display: block;
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+}
+
+.ob-comments-list { padding-inline-start: 1.25rem; }
+.ob-comments-list li { margin-block: 1rem; }
+.ob-comments-list p { margin-block: .25rem; white-space: pre-wrap; }
+.ob-comments-form { display: grid; gap: .75rem; max-width: 42rem; }
+.ob-comments-form label { display: grid; gap: .25rem; font-weight: 600; }
+.ob-comments-form input,
+.ob-comments-form textarea { font: inherit; padding: .65rem; border: 1px solid var(--ob-color-border); border-radius: .35rem; background: var(--ob-color-surface); color: inherit; }
+.ob-comments-form button { justify-self: start; }
+
 /* ---------- Series ---------- */
 
 .ob-series-box {

@@ -1002,13 +1002,23 @@ impl<'a> Renderer<'a> {
             }
         }
         body.push_str(&format!(" · {} min read", post.reading_minutes));
-        if c.analytics.show_views && (c.analytics.builtin || !c.analytics.endpoint.is_empty()) {
+        let hosted_engagement_endpoint = c
+            .engagement
+            .enabled
+            .then_some(c.engagement.endpoint.trim())
+            .filter(|endpoint| c.engagement.analytics && !endpoint.is_empty());
+        let analytics_endpoint = if c.analytics.endpoint.trim().is_empty() {
+            hosted_engagement_endpoint.unwrap_or("")
+        } else {
+            c.analytics.endpoint.trim()
+        };
+        if c.analytics.show_views && (c.analytics.builtin || !analytics_endpoint.is_empty()) {
             // A live counter updates this; a baked count shows until then, or forever on a static host.
             let baked = site_views_text(self.site, &post.url);
             body.push_str(&format!(
                 "<ob-views path=\"{}\" endpoint=\"{}\">{}</ob-views>",
                 attr(&post.url),
-                attr(c.analytics.endpoint.trim().trim_end_matches('/')),
+                attr(analytics_endpoint.trim_end_matches('/')),
                 text(&baked)
             ));
         }
@@ -1106,6 +1116,14 @@ impl<'a> Renderer<'a> {
             body.push_str("\n</section>\n");
         }
         body.push_str(&self.chronological_nav(index));
+        if c.engagement.enabled && c.engagement.comments && !c.engagement.endpoint.trim().is_empty()
+        {
+            body.push_str(&format!(
+                "<ob-comments path=\"{}\" endpoint=\"{}\"><p>Comments require JavaScript.</p></ob-comments>\n",
+                attr(&post.url),
+                attr(c.engagement.endpoint.trim().trim_end_matches('/')),
+            ));
+        }
         if !c.snippets.post_footer.trim().is_empty() {
             body.push_str("<div class=\"ob-post-extra\">\n");
             body.push_str(c.snippets.post_footer.trim());
@@ -2830,6 +2848,23 @@ mod tests {
                 && !one.contains("ob-views")
                 && !one.contains("Related posts")
         );
+    }
+
+    #[test]
+    fn hosted_engagement_renders_comments_and_reuses_the_endpoint_for_views() {
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","analytics":{"builtin":false,"showViews":true},"engagement":{"enabled":true,"comments":true,"analytics":true,"endpoint":"https://t.dev/api/"}}"#,
+            true,
+        );
+        let one = file(&files, "one/index.html");
+        assert!(one.contains("<ob-views path=\"/one/\" endpoint=\"https://t.dev/api\">"));
+        assert!(one.contains("<ob-comments path=\"/one/\" endpoint=\"https://t.dev/api\">"));
+
+        let disabled = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":false,"endpoint":"https://t.dev/api"}}"#,
+            true,
+        );
+        assert!(!file(&disabled, "one/index.html").contains("<ob-comments"));
     }
 
     #[test]

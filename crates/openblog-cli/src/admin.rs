@@ -430,6 +430,11 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
+        ("GET", "engagement/settings") => engagement_settings(state),
+        ("PUT", "engagement/settings") => save_engagement_settings(state, req),
+        ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
+        ("GET", "engagement/comments") => hosted_engagement_request(state, req, "admin/comments"),
+        ("PATCH", "engagement/comments") => hosted_engagement_request(state, req, "admin/comments"),
         ("POST", "assistant/review") => generate_document_review(state, req),
         ("POST", "assistant/complete") => generate_inline_completion(state, req),
         ("POST", "assistant/code-interaction") => generate_code_interaction(state, req),
@@ -1604,6 +1609,479 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
             "credential": credential,
         }),
     )
+}
+
+const ENGAGEMENT_CREDENTIAL_FILE: &str = ".openblog/private/engagement/api-key";
+const ENGAGEMENT_ENVIRONMENT_NAME: &str = "OPENBLOG_ENGAGEMENT_API_KEY";
+const ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME: &str = "OPENBLOG_ENGAGEMENT_API_ORIGIN";
+
+fn engagement_credential_path(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(ENGAGEMENT_CREDENTIAL_FILE))
+}
+
+fn engagement_endpoint_origin(endpoint: &str) -> Option<String> {
+    let url = url::Url::parse(endpoint).ok()?;
+    (url.scheme() == "https" && url.host_str().is_some())
+        .then(|| url.origin().ascii_serialization())
+}
+
+fn private_engagement_credential(root: &Path) -> Result<Option<(String, String)>, String> {
+    let path = engagement_credential_path(root)?;
+    match fs::read(path) {
+        Ok(bytes) if bytes.len() > 32 * 1024 => {
+            Err("private engagement credential is too large".into())
+        }
+        Ok(bytes) => {
+            let bytes = unprotect_private_credential(&bytes)?;
+            let envelope: Json = serde_json::from_slice(&bytes)
+                .map_err(|_| "private engagement credential envelope is invalid".to_string())?;
+            let credential = envelope["credential"].as_str().unwrap_or("").trim();
+            let target_origin = envelope["targetOrigin"].as_str().unwrap_or("").trim();
+            if credential.is_empty()
+                || engagement_endpoint_origin(target_origin).as_deref() != Some(target_origin)
+            {
+                return Err("private engagement credential envelope is invalid".into());
+            }
+            Ok(Some((credential.to_string(), target_origin.to_string())))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!(
+            "cannot read private engagement credential: {error}"
+        )),
+    }
+}
+
+fn engagement_credential(root: &Path, endpoint: &str) -> Result<Option<String>, String> {
+    let target_origin = engagement_endpoint_origin(endpoint)
+        .ok_or_else(|| "hosted engagement endpoint is invalid".to_string())?;
+    if let Ok(value) = std::env::var(ENGAGEMENT_ENVIRONMENT_NAME) {
+        if !value.trim().is_empty() {
+            let bound_origin = std::env::var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME)
+                .unwrap_or_default()
+                .trim_end_matches('/')
+                .to_string();
+            if bound_origin != target_origin {
+                return Err(format!(
+                    "{ENGAGEMENT_ENVIRONMENT_NAME} is not bound to this endpoint; set {ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME} to {target_origin}"
+                ));
+            }
+            return Ok(Some(value.trim().to_string()));
+        }
+    }
+    match private_engagement_credential(root)? {
+        Some((credential, bound_origin)) if bound_origin == target_origin => Ok(Some(credential)),
+        Some(_) => Err("The saved hosted engagement token belongs to a different origin. Replace it explicitly before connecting to this endpoint.".into()),
+        None => Ok(None),
+    }
+}
+
+fn engagement_credential_summary(root: &Path, endpoint: &str) -> Result<Json, String> {
+    let environment =
+        std::env::var(ENGAGEMENT_ENVIRONMENT_NAME).is_ok_and(|value| !value.trim().is_empty());
+    let private_credential = private_engagement_credential(root)?;
+    let private = private_credential.is_some();
+    let target_origin = engagement_endpoint_origin(endpoint).unwrap_or_default();
+    let environment_bound = environment
+        && std::env::var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME)
+            .is_ok_and(|value| value.trim_end_matches('/') == target_origin);
+    let private_bound = private_credential
+        .as_ref()
+        .is_some_and(|(_, origin)| origin == &target_origin);
+    Ok(json!({
+        "configured": environment_bound || (!environment && private_bound),
+        "source": if environment { "environment" } else if private { "private" } else { "none" },
+        "privateConfigured": private,
+        "environmentOverride": environment,
+        "environmentName": ENGAGEMENT_ENVIRONMENT_NAME,
+        "originEnvironmentName": ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME,
+        "boundToEndpoint": environment_bound || (!environment && private_bound),
+    }))
+}
+
+fn engagement_settings_etag(root: &Path, config: &[u8]) -> Result<String, String> {
+    let credential = read_optional_bytes(&engagement_credential_path(root)?)?.unwrap_or_default();
+    let mut digest = Blake2s256::new();
+    digest.update(config);
+    digest.update([0]);
+    digest.update(credential);
+    Ok(digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+fn engagement_settings(state: &AppState) -> Response {
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let bytes = match fs::read(state.root.join(site::CONFIG_FILE)) {
+        Ok(bytes) => bytes,
+        Err(error) => return Response::error(500, &format!("cannot read openblog.json: {error}")),
+    };
+    let config = match std::str::from_utf8(&bytes)
+        .map_err(|error| error.to_string())
+        .and_then(SiteConfig::from_json)
+    {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let credential = match engagement_credential_summary(&state.root, &config.engagement.endpoint) {
+        Ok(summary) => summary,
+        Err(error) => return Response::error(500, &error),
+    };
+    let etag = match engagement_settings_etag(&state.root, &bytes) {
+        Ok(etag) => etag,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(
+        200,
+        &json!({
+            "enabled": config.engagement.enabled,
+            "comments": config.engagement.comments,
+            "analytics": config.engagement.analytics,
+            "endpoint": config.engagement.endpoint,
+            "etag": etag,
+            "credential": credential,
+        }),
+    )
+}
+
+fn valid_engagement_endpoint(endpoint: &str) -> bool {
+    url::Url::parse(endpoint).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+    })
+}
+
+fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let enabled = body["enabled"].as_bool().unwrap_or(false);
+    let comments = body["comments"].as_bool().unwrap_or(true);
+    let analytics = body["analytics"].as_bool().unwrap_or(true);
+    let endpoint = body["endpoint"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches('/');
+    if endpoint.len() > 2048 || (enabled && !valid_engagement_endpoint(endpoint)) {
+        return Response::error(
+            422,
+            "Hosted endpoint must be an HTTPS URL without credentials, query, or fragment",
+        );
+    }
+    let action = body["credentialAction"].as_str().unwrap_or("keep");
+    let replacement = body["credential"].as_str().unwrap_or("").trim();
+    if !matches!(action, "keep" | "replace" | "clear")
+        || (action == "replace" && (replacement.is_empty() || replacement.len() > 16 * 1024))
+    {
+        return Response::error(
+            422,
+            "Choose keep, replace, or clear and provide a bounded credential when replacing",
+        );
+    }
+    let target_origin = engagement_endpoint_origin(endpoint);
+    if action == "replace" && target_origin.is_none() {
+        return Response::error(422, "Enter a valid HTTPS endpoint before saving a token");
+    }
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let config_path = state.root.join(site::CONFIG_FILE);
+    let current = match fs::read(&config_path) {
+        Ok(bytes) => bytes,
+        Err(error) => return Response::error(500, &format!("cannot read openblog.json: {error}")),
+    };
+    let current_etag = match engagement_settings_etag(&state.root, &current) {
+        Ok(etag) => etag,
+        Err(error) => return Response::error(500, &error),
+    };
+    if body["etag"].as_str() != Some(current_etag.as_str()) {
+        return Response::error(
+            409,
+            "Hosted engagement settings changed on disk; reload before saving",
+        );
+    }
+    let mut value: Json = match serde_json::from_slice(&current) {
+        Ok(Json::Object(object)) => Json::Object(object),
+        Ok(_) => return Response::error(500, "openblog.json must contain a JSON object"),
+        Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
+    };
+    value["engagement"] = json!({ "enabled": enabled, "comments": comments, "analytics": analytics, "endpoint": endpoint });
+    let candidate = match serde_json::to_string_pretty(&value) {
+        Ok(value) => format!("{value}\n"),
+        Err(error) => {
+            return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
+        }
+    };
+    if let Err(error) = SiteConfig::from_json(&candidate) {
+        return Response::error(422, &error);
+    }
+    let credential_path = match engagement_credential_path(&state.root) {
+        Ok(path) => path,
+        Err(error) => return Response::error(500, &error),
+    };
+    let previous_credential = match read_optional_bytes(&credential_path) {
+        Ok(value) => value,
+        Err(error) => return Response::error(500, &error),
+    };
+    let credential_result = match action {
+        "replace" => serde_json::to_vec(&json!({
+            "credential": replacement,
+            "targetOrigin": target_origin.expect("validated above"),
+        }))
+        .map_err(|error| format!("cannot serialize private engagement credential: {error}"))
+        .and_then(|envelope| protect_private_credential(&envelope))
+        .and_then(|bytes| write_private_bytes_atomic(&credential_path, &bytes)),
+        "clear" if credential_path.exists() => fs::remove_file(&credential_path)
+            .map_err(|error| format!("cannot clear private engagement credential: {error}")),
+        "clear" | "keep" => Ok(()),
+        _ => unreachable!(),
+    };
+    if let Err(error) = credential_result {
+        let rollback =
+            restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
+        return Response::error(500, &mutation_with_rollback_error(&error, rollback));
+    }
+    if let Err(error) = write_atomic(&config_path, &candidate) {
+        let rollback =
+            restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
+        return Response::error(500, &mutation_with_rollback_error(&error, rollback));
+    }
+    let credential = match engagement_credential_summary(&state.root, endpoint) {
+        Ok(summary) => summary,
+        Err(error) => return Response::error(500, &error),
+    };
+    let etag = match engagement_settings_etag(&state.root, candidate.as_bytes()) {
+        Ok(etag) => etag,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(
+        200,
+        &json!({
+            "enabled": enabled, "comments": comments, "analytics": analytics,
+            "endpoint": endpoint, "etag": etag, "credential": credential,
+        }),
+    )
+}
+
+fn hosted_text<'a>(object: &'a Json, key: &str, max: usize) -> Result<&'a str, String> {
+    object[key]
+        .as_str()
+        .filter(|value| value.len() <= max && !value.chars().any(char::is_control))
+        .ok_or_else(|| format!("hosted engagement returned an invalid {key}"))
+}
+
+fn hosted_count(object: &Json, key: &str) -> Result<u64, String> {
+    object[key]
+        .as_u64()
+        .ok_or_else(|| format!("hosted engagement returned an invalid {key}"))
+}
+
+fn hosted_site_path(value: &str) -> bool {
+    (2..=500).contains(&value.len())
+        && value.starts_with('/')
+        && !value.starts_with("//")
+        && value.ends_with('/')
+        && !value.contains(['\\', '?', '#'])
+        && !value.chars().any(char::is_control)
+        && !value.split('/').any(|part| matches!(part, "." | ".."))
+}
+
+fn validate_hosted_comments(value: &Json) -> Result<Json, String> {
+    let rows = value["comments"]
+        .as_array()
+        .filter(|rows| rows.len() <= 200)
+        .ok_or_else(|| "hosted engagement returned invalid comments".to_string())?;
+    let mut comments = Vec::with_capacity(rows.len());
+    for row in rows {
+        let id = hosted_text(row, "id", 64)?;
+        let path = hosted_text(row, "path", 500)?;
+        let author = hosted_text(row, "authorName", 80)?;
+        let body = hosted_text(row, "body", 4_000)?;
+        let status = hosted_text(row, "status", 16)?;
+        let created = hosted_text(row, "createdAt", 64)?;
+        if !hosted_site_path(path) || !matches!(status, "pending" | "approved" | "rejected") {
+            return Err("hosted engagement returned an invalid comment".into());
+        }
+        comments.push(json!({
+            "id": id, "path": path, "authorName": author, "body": body,
+            "status": status, "createdAt": created,
+        }));
+    }
+    Ok(json!({ "comments": comments }))
+}
+
+fn validate_hosted_analytics(value: &Json) -> Result<Json, String> {
+    let days = hosted_count(value, "days")?;
+    if !matches!(days, 7 | 30 | 90 | 365) {
+        return Err("hosted engagement returned an invalid days value".into());
+    }
+    let series = value["series"]
+        .as_array()
+        .filter(|rows| rows.len() <= 365)
+        .ok_or_else(|| "hosted engagement returned an invalid series".to_string())?;
+    let mut safe_series = Vec::with_capacity(series.len());
+    for row in series {
+        safe_series.push(json!({
+            "day": hosted_text(row, "day", 16)?,
+            "views": hosted_count(row, "views")?,
+            "uniques": hosted_count(row, "uniques")?,
+        }));
+    }
+    let posts = value["topPosts"]
+        .as_array()
+        .filter(|rows| rows.len() <= 50)
+        .ok_or_else(|| "hosted engagement returned invalid topPosts".to_string())?;
+    let mut safe_posts = Vec::with_capacity(posts.len());
+    for row in posts {
+        let path = hosted_text(row, "path", 500)?;
+        if !hosted_site_path(path) {
+            return Err("hosted engagement returned an invalid post path".into());
+        }
+        safe_posts.push(json!({
+            "path": path, "views": hosted_count(row, "views")?,
+            "uniques": hosted_count(row, "uniques")?, "allTime": hosted_count(row, "allTime")?,
+        }));
+    }
+    let referrers = value["referrers"]
+        .as_array()
+        .filter(|rows| rows.len() <= 50)
+        .ok_or_else(|| "hosted engagement returned invalid referrers".to_string())?;
+    let mut safe_referrers = Vec::with_capacity(referrers.len());
+    for row in referrers {
+        safe_referrers.push(json!({
+            "host": hosted_text(row, "host", 253)?, "views": hosted_count(row, "views")?,
+        }));
+    }
+    Ok(json!({
+        "days": days,
+        "from": hosted_text(value, "from", 16)?,
+        "to": hosted_text(value, "to", 16)?,
+        "views": hosted_count(value, "views")?,
+        "uniques": hosted_count(value, "uniques")?,
+        "allTimeViews": hosted_count(value, "allTimeViews")?,
+        "firstDay": value["firstDay"].as_str().filter(|text| text.len() <= 16).unwrap_or(""),
+        "series": safe_series,
+        "topPosts": safe_posts,
+        "referrers": safe_referrers,
+        "agentRequests": 0,
+        "agents": [],
+        "agentPages": [],
+    }))
+}
+
+fn validate_hosted_engagement_response(
+    method: &str,
+    operation: &str,
+    value: &Json,
+) -> Result<Json, String> {
+    match (method, operation) {
+        ("GET", "admin/comments") => validate_hosted_comments(value),
+        ("PATCH", "admin/comments") => {
+            let status = hosted_text(value, "status", 16)?;
+            if value["ok"].as_bool() == Some(true) && matches!(status, "approved" | "rejected") {
+                Ok(json!({ "ok": true, "status": status }))
+            } else {
+                Err("hosted engagement returned an invalid moderation response".into())
+            }
+        }
+        ("GET", "admin/analytics") => validate_hosted_analytics(value),
+        _ => Err("unsupported hosted engagement operation".into()),
+    }
+}
+
+fn hosted_engagement_request(state: &AppState, req: &Request, operation: &str) -> Response {
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    if !config.engagement.enabled || !valid_engagement_endpoint(&config.engagement.endpoint) {
+        return Response::error(404, "Hosted engagement is not configured");
+    }
+    let credential = match engagement_credential(&state.root, &config.engagement.endpoint) {
+        Ok(Some(credential)) => credential,
+        Ok(None) => {
+            return Response::error(503, "Hosted engagement admin credential is not configured")
+        }
+        Err(error) => return Response::error(500, &error),
+    };
+    let mut url = format!(
+        "{}/{}",
+        config.engagement.endpoint.trim_end_matches('/'),
+        operation
+    );
+    if !req.query.is_empty() {
+        let query = req
+            .query
+            .iter()
+            .map(|(key, value)| {
+                format!(
+                    "{}={}",
+                    url::form_urlencoded::byte_serialize(key.as_bytes()).collect::<String>(),
+                    url::form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("&");
+        url.push('?');
+        url.push_str(&query);
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(20)))
+        .max_redirects(0)
+        .user_agent(concat!("open.blog-admin/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into();
+    let authorization = format!("Bearer {credential}");
+    let response = if req.method == "PATCH" {
+        agent
+            .patch(&url)
+            .header("Authorization", &authorization)
+            .header("Content-Type", "application/json")
+            .send(&req.body)
+    } else {
+        agent
+            .get(&url)
+            .header("Authorization", &authorization)
+            .call()
+    };
+    let mut response = match response {
+        Ok(response) => response,
+        Err(ureq::Error::StatusCode(status)) => {
+            return Response::error(502, &format!("Hosted engagement returned HTTP {status}"))
+        }
+        Err(ureq::Error::Timeout(_)) => return Response::error(504, "Hosted engagement timed out"),
+        Err(_) => return Response::error(502, "Hosted engagement request failed"),
+    };
+    let bytes = match response
+        .body_mut()
+        .with_config()
+        .limit(2 * 1024 * 1024)
+        .read_to_vec()
+    {
+        Ok(bytes) => bytes,
+        Err(_) => return Response::error(502, "Cannot read hosted engagement response"),
+    };
+    match serde_json::from_slice::<Json>(&bytes)
+        .map_err(|_| "Hosted engagement returned invalid JSON".to_string())
+        .and_then(|value| validate_hosted_engagement_response(&req.method, operation, &value))
+    {
+        Ok(value) => Response::json(200, &value),
+        Err(error) => Response::error(502, &error),
+    }
 }
 
 struct ProjectSkillFile {
@@ -4588,6 +5066,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
     config.analytics.builtin = false;
     config.analytics.show_views = false;
     config.analytics.endpoint.clear();
+    config.engagement.enabled = false;
     let (preview_site, themes) = match site::load_site_from_sources(
         &state.root,
         config,
@@ -5558,6 +6037,153 @@ mod tests {
         assert!(!configured_body.contains("endpoint-user"));
         assert!(!configured_body.contains("endpoint-password"));
         assert!(!configured_body.contains("query-secret"));
+    }
+
+    #[test]
+    fn engagement_settings_are_authenticated_write_only_and_conflict_safe() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture(ENGAGEMENT_ENVIRONMENT_NAME);
+        let _origin = EnvRestore::capture(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        let f = fixture("engagement-settings");
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/engagement/settings")).status,
+            401
+        );
+        let session = login_ok(&f);
+        let initial = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/settings"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(initial.status, 200);
+        let initial_json = body_json(&initial);
+        assert_eq!(initial_json["enabled"], false);
+        let save = json!({
+            "enabled": true,
+            "comments": true,
+            "analytics": true,
+            "endpoint": "https://blog.example/api",
+            "etag": initial_json["etag"],
+            "credentialAction": "replace",
+            "credential": "moderation-secret",
+        });
+        assert_eq!(
+            handle(
+                &f.state,
+                &authed(
+                    json_req("PUT", "/admin/api/engagement/settings", save.clone()),
+                    &session,
+                    false,
+                ),
+            )
+            .status,
+            403
+        );
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/engagement/settings", save),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(saved.status, 200);
+        assert_eq!(body_json(&saved)["credential"]["configured"], true);
+        assert!(!String::from_utf8_lossy(&saved.body).contains("moderation-secret"));
+        let config = site::load_config(&f.dir).unwrap();
+        assert!(
+            config.engagement.enabled && config.engagement.comments && config.engagement.analytics
+        );
+        assert_eq!(config.engagement.endpoint, "https://blog.example/api");
+
+        let saved_json = body_json(&saved);
+        let moved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true,
+                        "comments": true,
+                        "analytics": true,
+                        "endpoint": "https://elsewhere.example/api",
+                        "etag": saved_json["etag"],
+                        "credentialAction": "keep",
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(moved.status, 200);
+        assert_eq!(body_json(&moved)["credential"]["configured"], false);
+        assert!(
+            engagement_credential(&f.dir, "https://elsewhere.example/api")
+                .unwrap_err()
+                .contains("different origin")
+        );
+
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({ "enabled": false, "etag": initial_json["etag"] }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+    }
+
+    #[test]
+    fn hosted_engagement_responses_are_bounded_and_keep_links_site_relative() {
+        let safe = json!({
+            "days": 30, "from": "2026-09-25", "to": "2026-10-24",
+            "views": 4, "uniques": 3, "allTimeViews": 9, "firstDay": "2026-09-01",
+            "series": [{ "day": "2026-10-24", "views": 4, "uniques": 3 }],
+            "topPosts": [{ "path": "/story/", "views": 4, "uniques": 3, "allTime": 9 }],
+            "referrers": [{ "host": "search.example", "views": 2 }],
+            "agentRequests": 99, "agents": [{ "name": "ignored" }], "agentPages": [],
+        });
+        let validated =
+            validate_hosted_engagement_response("GET", "admin/analytics", &safe).unwrap();
+        assert_eq!(validated["topPosts"][0]["path"], "/story/");
+        assert_eq!(validated["agentRequests"], 0);
+
+        let unsafe_path = json!({
+            "days": 30, "from": "2026-09-25", "to": "2026-10-24",
+            "views": 1, "uniques": 1, "allTimeViews": 1, "firstDay": null,
+            "series": [],
+            "topPosts": [{ "path": "javascript:alert(1)", "views": 1, "uniques": 1, "allTime": 1 }],
+            "referrers": [],
+        });
+        assert!(
+            validate_hosted_engagement_response("GET", "admin/analytics", &unsafe_path).is_err()
+        );
+        assert!(validate_hosted_engagement_response(
+            "GET",
+            "admin/comments",
+            &json!({ "comments": [{
+                "id": "x", "path": "//evil.example/", "authorName": "Mira", "body": "Hi",
+                "status": "pending", "createdAt": "2026-10-24T12:00:00Z"
+            }] })
+        )
+        .is_err());
+        let list = json!({ "comments": [] });
+        let confirmation = json!({ "ok": true, "status": "approved" });
+        assert!(
+            validate_hosted_engagement_response("GET", "admin/comments", &confirmation).is_err()
+        );
+        assert!(validate_hosted_engagement_response("PATCH", "admin/comments", &list).is_err());
     }
 
     #[test]
