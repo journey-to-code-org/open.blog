@@ -1,0 +1,67 @@
+# ADR 0007: Keep each shared publication in one private, versioned record
+
+- Status: Accepted
+- Date: 2026-10-24
+- Decision issue: [#156](https://github.com/journey-to-code-org/open.blog/issues/156)
+- Parent story: [#144](https://github.com/journey-to-code-org/open.blog/issues/144)
+- Contract: [Shared perspectives collaboration contract](../specs/shared-perspectives-collaboration.md#shared-publication-record)
+
+## Context
+
+[ADR 0005](0005-shared-publication-language.md) keeps private collaboration apart from Posts and
+public credit, and [ADR 0006](0006-collaborator-identity-binding.md) requires the authorization
+policy and the collaboration contract to be loaded from the same publication record. Until now
+nothing stored either one. The first Admin flow, creating a shared reflection from a source,
+needs somewhere to keep the title or guiding question, the source references, the contract, and
+the policy.
+
+Two places were available. A draft Post in `content/` would reuse the existing editor, but its
+front matter would carry private sources, participants, and bindings into a file that Git,
+feeds, exports, and `serve --drafts` all treat as canonical content. A private file outside
+`content/` keeps the Post format untouched and needs no new database.
+
+## Decision
+
+Each shared publication is one JSON file at
+`.openblog/private/collaboration/publications/<publication-id>.json`. `openblog init` already
+ignores `.openblog/private/` in Git and `openblog publish` refuses to commit it, so these records
+never reach the repository, the build, feeds, or exports. Creating a shared reflection writes no
+Post or Document; a later publication operation (#158, #169) creates the author-owned Document
+from an approved revision.
+
+The record is versioned (`version: 1`) and holds:
+
+- the stable opaque publication ID, which is also the file stem;
+- an optional title and an optional guiding question, at least one of which is present;
+- one to 20 ordered source references, keyed by stable IDs and marked with author provenance;
+- the version 1 collaboration contract; and
+- the version 1 authorization policy, whose `publicationId` must equal the record's.
+
+Publication IDs are random (`shared-` and 12 hex digits), so a file name never reveals a title.
+A record is written completely to a private temporary file and then hard-linked into place. The
+link fails if the name is taken, so two creators can never overwrite each other, a crash leaves
+either no record or a complete one, and a taken ID is retried with a new one. A record that is
+malformed, oversized, misnamed, or a symlink grants nothing and is skipped.
+
+The creator becomes the only participant, bound as `siteOwner` and `contributor` with the
+contributor profile they choose. The Admin user always comes from the session, and the display
+name always comes from the registry entry, never from the request body.
+
+ADR 0006 left the persisted policy to enforce that a binding cannot follow a reused name. Removing
+an Admin account with `openblog user remove`, and adding one with `openblog user add`, now remove
+that username from every record's bindings and advance the policy revision. The Admin
+Contributors editor refuses to remove a registry key that a record binds. Hand edits to the users
+file or `openblog.json` stay outside these checks; a binding whose account or key is missing
+already grants nothing.
+
+## Consequences
+
+- The canonical Post format, existing drafts, credits, builds, and feeds are unchanged, and a
+  failed or refused creation writes nothing at all.
+- Records are local to the server that hosts Admin Studio. Because Git ignores them, they are not
+  backed up by `openblog publish`; operators back up `.openblog/private/` like other private state.
+- One file per publication keeps writes independent. Later tasks that edit drafts (#163) or
+  invitations (#159) replace the whole record under the content transaction lock with the
+  existing revision checks.
+- A future storage change is a migration of one versioned JSON shape. No hosted service or
+  database is required, and the decision is reversible while no published work depends on it.

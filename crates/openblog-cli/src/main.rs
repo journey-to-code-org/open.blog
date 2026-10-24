@@ -15,6 +15,7 @@ mod publish;
 mod safe_http;
 mod scaffold;
 mod serve;
+mod shared_publications;
 mod site;
 mod syndication;
 mod transaction;
@@ -667,6 +668,10 @@ fn user_command(root: &std::path::Path, args: &Args) -> Result<(), String> {
                 return Err(format!("no user named `{name}`"));
             }
             let password = read_password(args, true)?;
+            if action == "add" {
+                // A new account under a reused name must not inherit an old binding.
+                revoke_shared_publication_bindings(root, name)?;
+            }
             users.set(name, &password)?;
             users.save(&path)?;
             println!(
@@ -685,10 +690,25 @@ fn user_command(root: &std::path::Path, args: &Args) -> Result<(), String> {
             }
             users.save(&path)?;
             println!("Removed `{name}`. Their open sessions end immediately.");
-            Ok(())
+            revoke_shared_publication_bindings(root, name)
         }
         _ => Err("usage: openblog user add|passwd|remove|list <name>".into()),
     }
+}
+
+/// Remove an Admin username from every shared publication binding, under the content
+/// transaction lock so a running Admin server cannot interleave a write.
+fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Result<(), String> {
+    let _transaction = transaction::ContentTransactionLock::acquire_with_wait(
+        root,
+        std::time::Duration::from_secs(30),
+    )?;
+    let changed = shared_publications::revoke_admin_user(root, name)
+        .map_err(|error| format!("cannot revoke `{name}` from shared reflections: {error}"))?;
+    if changed > 0 {
+        println!("Removed `{name}` from {changed} shared reflection(s).");
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -716,5 +736,48 @@ mod tests {
         assert_eq!(a.options["tags"], "a,b");
         assert!(a.switches.contains("drafts"));
         assert!(parse_args(&strings(&["--series"])).is_err());
+    }
+
+    #[test]
+    fn removing_an_admin_user_revokes_their_shared_publication_bindings() {
+        use openblog_core::collaboration::{
+            NewParticipant, NewSharedPublication, NewSourceReference,
+        };
+
+        let root = std::env::temp_dir().join(format!("ob-user-revoke-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        scaffold::init(&root, Some("Revoke"), false).unwrap();
+        let users_path = root.join(".openblog/users.json");
+        let mut users = auth::Users::default();
+        users.set("ada", "correct horse battery").unwrap();
+        users.save(&users_path).unwrap();
+        let record = shared_publications::create(
+            &root,
+            NewSharedPublication {
+                title: "Shared".into(),
+                sources: vec![NewSourceReference {
+                    title: "Talk".into(),
+                    ..NewSourceReference::default()
+                }],
+                creator: NewParticipant {
+                    admin_user: "ada".into(),
+                    contributor_id: "ada".into(),
+                    display_name: "Ada".into(),
+                },
+                ..NewSharedPublication::default()
+            },
+        )
+        .unwrap();
+
+        user_command(&root, &parse_args(&strings(&["remove", "ada"])).unwrap()).unwrap();
+
+        let loaded = shared_publications::load_all(&root).unwrap();
+        assert_eq!(loaded[0].1.publication_id, record.publication_id);
+        assert!(loaded[0].1.authorization.bindings.is_empty());
+        assert!(auth::Users::load(&users_path)
+            .unwrap()
+            .find("ada")
+            .is_none());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

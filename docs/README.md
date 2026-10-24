@@ -43,7 +43,9 @@ The [shared-publication language decision](adr/0005-shared-publication-language.
 private collaboration, source material, and draft approval from canonical posts and public credit.
 The [collaborator identity binding decision](adr/0006-collaborator-identity-binding.md) defines
 how an Admin user explicitly becomes a publication participant and what each collaboration role
-may do.
+may do. The [shared publication record decision](adr/0007-private-shared-publication-records.md)
+keeps each shared reflection's sources, contract, and policy in one private file outside your
+content.
 
 Current design frontiers include
 [contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),

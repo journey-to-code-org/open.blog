@@ -19,6 +19,17 @@ All notable changes to open.blog are recorded here. Releases follow
   binding or its roles is itself authorized: only a site owner can grant or revoke the site owner
   role, and the last site owner cannot be removed. Admin usernames and binding names now share
   one validation rule.
+- Added **Content → Shared reflections** to Admin Studio: start a private shared reflection from
+  a video, article, podcast, book, or other source, with or without a link, plus a working title
+  or guiding question, using labelled fields and examples instead of Markdown. Each one is stored
+  atomically as a versioned private record outside `content/` with ordered source references,
+  normalized HTTP(S) links, and the creator bound as site owner. Unsafe links, unknown fields, and
+  identity claims in the request are refused without echoing them, and no post, credit, build, or
+  feed changes.
+- Added a View publication collaboration action, listed shared reflections only to bound
+  participants, and removed an account's bindings when `openblog user remove` or
+  `openblog user add` reuses its name. Contributors bound to a shared reflection can no longer be
+  removed from the registry.
 
 ## [0.14.0] - 2026-10-24
 

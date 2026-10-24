@@ -2022,6 +2022,39 @@ kbd {
   grid-column: 1 / -1;
 }
 
+.oba-shared-form {
+  display: grid;
+  gap: 1rem;
+  max-width: 54rem;
+}
+
+.oba-shared-form fieldset {
+  min-width: 0;
+  margin: 0;
+}
+
+.oba-shared-form legend {
+  padding: 0 0.25rem;
+}
+
+.oba-shared-source-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.oba-shared-question {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--ob-color-muted);
+}
+
+.oba-shared-sources {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding-left: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 64rem) {
   .oba-app-header > .oba-small,
   .oba-theme-label {

@@ -1,7 +1,8 @@
 # Shared perspectives collaboration contract
 
-Status: contract and authorization policy established; workflow UI and quorum behavior are not
-implemented
+Status: contract, authorization policy, and private shared publication record established;
+creating a shared reflection works in Admin Studio; invitations, drafting, and quorum behavior are
+not implemented
 Date: 2026-10-24
 
 ## Outcome
@@ -14,7 +15,8 @@ of an otherwise unchanged group contract.
 The surrounding domain terms are defined by
 [ADR 0005](../adr/0005-shared-publication-language.md). In particular, private participation and
 contribution ownership never imply public authorship or work credit. Source references are part of
-that language but not of this version 1 contract; the private collaboration artifact adds them as an
+that language but not of this version 1 contract; the
+[shared publication record](#shared-publication-record) holds them beside the contract as an
 ordered collection keyed by stable IDs.
 
 The contract is intentionally isolated from the document model and renderer. Invalid collaboration
@@ -151,6 +153,7 @@ wrong kind is denied rather than ignored.
 
 | Action | Target | Site owner | Coordinator | Contributor | Editor | Reader |
 | --- | --- | --- | --- | --- | --- | --- |
+| View publication | Publication | Yes | Yes | Yes | Yes | Yes |
 | View published | Publication | Yes | Yes | Yes | Yes | Yes |
 | View revealed | Contribution | Revealed | Revealed | Revealed | Revealed | Revealed |
 | View contribution | Contribution | No | No | Own | Own or revealed | No |
@@ -180,6 +183,8 @@ wrong kind is denied rather than ignored.
   replacement applies it to every binding a replacement adds, changes, or removes; for a binding
   that holds `siteOwner` before or after the change, the target counts as a site owner. It never
   changes who a binding is (see Policy replacement).
+- View publication covers the record's title, guiding question, and source references. It
+  never delivers a contribution draft, another participant's binding, or an Admin username.
 - View published and Export cover only the published projection. Neither exposes private
   collaboration state, which reaches public output only through a Published assembly under
   [ADR 0004](../adr/0004-portable-projections-from-canonical-work.md).
@@ -207,8 +212,11 @@ publication gate remain separate contracts.
   `from_json` loads a stored policy and takes no requester, so it is not a change path.
 - Treat Admin usernames and registry keys as names that a binding would follow if reused.
   Removing an Admin account or renaming a registry key must also remove that name's bindings in
-  every policy, or the name must never be reused. The first persisted policy (#156) owns
-  enforcing this. Until then nothing stores a binding.
+  every policy, or the name must never be reused. The
+  [shared publication record](#shared-publication-record) enforces this for the supported paths:
+  `openblog user remove` and `openblog user add` remove the username from every record's
+  bindings, and the Admin Contributors editor refuses to remove a bound registry key. A hand edit
+  that removes an account or key leaves a binding that grants nothing until the name returns.
 
 ### Policy replacement
 
@@ -247,6 +255,104 @@ replacement must keep the publication ID, advance the observed revision by exact
 the replacement rules above.
 Because the policy has no document, renderer, feed, export, filesystem, or network integration,
 denial cannot mutate canonical content or public output.
+
+## Shared publication record
+
+[ADR 0007](../adr/0007-private-shared-publication-records.md) records this decision. Each shared
+publication is one versioned JSON file at
+`.openblog/private/collaboration/publications/<publication-id>.json`, outside the content
+directory and ignored by Git. It is the publication record that ties the policy and the contract
+together:
+
+```json
+{
+  "version": 1,
+  "publicationId": "shared-0a1b2c3d4e5f",
+  "title": "On attention",
+  "guidingQuestion": "What does attention ask of us?",
+  "sources": [
+    {
+      "id": "source-1",
+      "kind": "video",
+      "title": "The Art of Noticing",
+      "url": "https://www.youtube.com/watch?v=abc123",
+      "creator": "A channel",
+      "provenance": "author"
+    },
+    {
+      "id": "source-2",
+      "kind": "book",
+      "title": "Middlemarch",
+      "creator": "George Eliot",
+      "publisher": "Blackwood",
+      "published": "1871",
+      "isbn": "978-0-14-143954-9",
+      "provenance": "author"
+    }
+  ],
+  "collaboration": { "version": 1, "revision": 1, "participants": ["…"], "…": "…" },
+  "authorization": { "version": 1, "revision": 1, "publicationId": "shared-0a1b2c3d4e5f", "…": "…" }
+}
+```
+
+- `publicationId` is random (`shared-` and 12 hex digits), follows the identifier rule, is the
+  file stem, and must equal the policy's `publicationId`. A file stored under another name is
+  ignored.
+- A title, a guiding question, or both must be present. They follow the display-name text rules:
+  ordinary Unicode, one line, visible text, and no bidi controls.
+- `sources` is ordered and holds one to 20 entries. Source IDs follow the identifier rule, are
+  unique ASCII case-insensitively, and are assigned in authored order at creation (`source-1`,
+  `source-2`, …). `kind` is `video`, `article`, `podcast`, `book`, or `other`. A title is
+  required; `url`, `creator`, `publisher`, `published`, and `isbn` are optional, and `isbn` is
+  accepted only for a book. `provenance` is `author` in version 1: every value was typed by a
+  person, and later provider suggestions need their own provenance.
+- A source link is an absolute HTTP or HTTPS URL with no username or password, a valid host and
+  port, and no control or bidi characters. Creation trims and normalizes a pasted link, so a
+  Unicode host becomes punycode and a Unicode path is percent-encoded; a stored link must already
+  be ASCII. Nothing fetches the link.
+- An ISBN has 10 digits (the last may be `X`) or 13 digits, optionally grouped by hyphens or
+  spaces. The checksum is not verified, so a mistyped digit is kept rather than rejected.
+- At creation the contract has one participant, `participant-1`, whose display name is the chosen
+  registry entry's name, and no contributions, reveals, layout, or approvals. The policy binds the
+  signed-in Admin user and the chosen registry key to that participant with `siteOwner` and
+  `contributor`. Both revisions start at 1.
+- Unknown fields are rejected throughout. Stored-record failures return one non-identifying
+  error; creation errors name a field and a source position from the requester's own submission
+  and never repeat a value.
+
+| Input | Limit |
+| --- | ---: |
+| Encoded record | 384 KiB |
+| Sources | 20 |
+| Title | 300 bytes |
+| Guiding question | 1,000 bytes |
+| Source title | 300 bytes |
+| Creator or publisher | 200 bytes |
+| Published date | 64 bytes |
+| Source link | 2,048 bytes |
+
+### Admin API
+
+Both routes require a signed-in session; creation also requires the CSRF token, a same-origin
+request, and `Content-Type: application/json`.
+
+- `POST /admin/api/collaboration/publications` takes `title`, `guidingQuestion`,
+  `contributorId`, and ordered `sources`, each with `kind`, `title`, `url`, `creator`,
+  `publisher`, `published`, and `isbn`. Any other field is refused, so a body cannot name an Admin
+  user, participant, role, or binding. `contributorId` must be a current registry key. It returns
+  `201` with the summary below, or `422` with `error` and `field` (for example `title` or
+  `sources.1.url`).
+- `GET /admin/api/collaboration/publications` lists the summaries of records where the signed-in
+  account may View publication, so an unbound account, a removed account, or a renamed registry
+  key sees nothing.
+
+A summary holds `publicationId`, `title`, `guidingQuestion`, `sources`, and the requester's own
+`roles`. It never includes participants, bindings, Admin usernames, or drafts.
+
+Creation holds the content transaction lock, writes the record to a private temporary file, and
+hard-links it into place. The link fails rather than overwrite a taken ID, and the temporary file
+is removed whether or not it succeeds. Creation reads the registry but never writes `content/`,
+`openblog.json`, or the build output.
 
 ## Validation and failure contract
 
@@ -302,8 +408,8 @@ collaboration-shaped front matter on a legacy post stays lossless and changes no
 generated output. The no-credit property holds by construction while site loading takes no
 collaboration input; the first collaboration-to-publication seam must route bindings and
 approvals through it and assert that credits are unchanged. Source-reference fixtures (one and
-many ordered sources with stable IDs, and rejection of zero sources) arrive with the source
-collection in #156.
+many ordered sources with stable IDs, and rejection of zero sources) live in
+`crates/openblog-core/tests/shared_publication_record.rs`.
 
 Authorization matrix fixtures in `crates/openblog-core/tests/collaboration_authorization.rs`
 check every role against every action and target kind, including unknown IDs and an unbound
@@ -323,10 +429,12 @@ authorization in groups of 1, 2, 3, 10, and the binding limit (the last binding 
 site-owner role is honoured, and an unbound account is denied), and stale, replayed, skipped, and
 exhausted policy revisions. An isolation pin builds a site with no collaboration input before and
 after denials; it holds by construction, and the first collaboration-to-publication seam (#156
-and #158) owns the real unchanged-output assertion.
+and #158) owns the real unchanged-output assertion. The Admin tests for creation compare the
+content directory before and after every accepted and refused request and scan a full build for
+the record's title, question, sources, IDs, and contributor key.
 
 ## Out of scope
 
 - Group workflow UI, layout rendering, reveal delivery, approval quorum, authentication, provider
-  identity verification, and collaboration persistence.
+  identity verification, and persistence beyond creating a shared publication record.
 - Adding collaboration data to existing documents, generated pages, feeds, or public APIs.
