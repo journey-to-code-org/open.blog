@@ -105,7 +105,8 @@ fn text_without_tags(html: &str) -> String {
     out
 }
 
-/// Static checks a no-JavaScript, no-stylesheet, or printed reader depends on.
+/// Static checks a no-JavaScript or no-stylesheet reader depends on. Print is
+/// covered by `quiz_answers_stay_behind_a_closed_disclosure_in_print`.
 fn assert_static_and_accessible(name: &str, html: &str) {
     let tags = tags(html);
     let mut stack: Vec<&str> = Vec::new();
@@ -245,17 +246,50 @@ fn video_lesson_fallbacks_match_the_golden_output() {
         "print(&quot;runs on the canonical page&quot;)",
         "A pen about gates &lt;3 (See the Pen on CodePen)",
         "Join the discussion on the original article",
+        "Season 1, episode 3",
+        "Writing by Mira &amp; &lt;Lantern&gt; Team",
+        "cargo run --release",
     ] {
         assert!(
             visible.contains(essential),
             "missing {essential:?}:\n{html}"
         );
     }
+    assert!(
+        html.contains(
+            "<code class=\"language-python\" data-line-numbers=\"true\" data-highlight-lines=\"1\">"
+        ),
+        "runnable fences keep their line options:\n{html}"
+    );
+    // The native page shows the AI disclosure only as structured data, so the
+    // portable body adds no visible copy of it either.
+    assert!(!site.posts[0].html.contains("AI-assisted animation"));
+    assert!(!html.contains("AI-assisted animation"));
 
     // The same post's native page keeps its interactive markup.
     let native = &site.posts[0].html;
     for interactive in ["<ob-quiz", "<ob-code-runner", "<ob-web-sandbox>", "<iframe"] {
         assert!(native.contains(interactive), "native lost {interactive}");
+    }
+}
+
+/// Print policy: the answer and explanation sit in a closed `<details>`, which
+/// browsers print collapsed. A printed knowledge check therefore shows the
+/// prompt and choices, and the reader opens the disclosure first to print the
+/// answer; the answer is never shown before the reader asks.
+#[test]
+fn quiz_answers_stay_behind_a_closed_disclosure_in_print() {
+    let (html, _) = portable("video-lesson");
+    assert!(!html.contains("<details open"), "{html}");
+    for answer in ["Answer: B.", "Answer: A. No"] {
+        let at = html.find(answer).expect(answer);
+        let opened = html[..at]
+            .rfind("<details class=\"ob-quiz-answer\"><summary>Show answer</summary>")
+            .expect("answer outside a disclosure");
+        assert!(
+            !html[opened..at].contains("</details>"),
+            "{answer} must sit inside its disclosure"
+        );
     }
 }
 
@@ -271,6 +305,11 @@ fn recipe_fallbacks_match_the_golden_output() {
         "When do you add the basil?",
         "Answer: B. At the end",
         "Comments are closed.",
+        "Prep10 min",
+        "Cook10-15 min",
+        "Serves4",
+        "Makes2 bowls",
+        "CuisineAndalusian &amp; &lt;Italian&gt;",
     ] {
         assert!(
             visible.contains(essential),

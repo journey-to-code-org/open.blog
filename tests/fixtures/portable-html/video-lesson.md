@@ -4,6 +4,10 @@ date: 2026-10-24
 profile: video
 videoUrl: https://youtu.be/dQw4w9WgXcQ
 comments: open
+seasonNumber: 1
+episodeNumber: 3
+productionCredits: Writing by Mira & <Lantern> Team
+aiDisclosure: AI-assisted animation
 ---
 A lesson about the café gate, with a [relative link](../reference/) and a [section link](#chapters).
 
@@ -19,6 +23,10 @@ A lesson about the café gate, with a [relative link](../reference/) and a [sect
 > ```rust runnable title="src/<main> &amp; 'lib'.rs"
 > fn main() { println!("</code></pre><script>alert(1)</script>"); }
 > ```
+
+An indented block after a titled runnable fence stays plain code:
+
+    cargo run --release
 
 ```quiz
 Which tag opens a **disclosure** without `<script>`?
@@ -43,7 +51,7 @@ button { color: red; }
 document.body.append('</script><img src=x onerror=alert(1)>');
 ```
 
-```python runnable
+```python runnable {1} showLineNumbers
 print("runs on the canonical page")
 ```
 

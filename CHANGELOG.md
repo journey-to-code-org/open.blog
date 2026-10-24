@@ -6,10 +6,13 @@ All notable changes to open.blog are recorded here. Releases follow
 ## [Unreleased]
 
 - Added static fallbacks to the portable HTML projection: quizzes keep their prompt, choices,
-  and answer behind a native disclosure; runnable code and web sandboxes keep their labelled
-  source with a link to run them on the canonical article; embeds become titled provider
-  links; video chapters become a linked list; and comments become a link to the canonical
-  discussion. The output needs no open.blog script, custom element, form, or iframe.
+  and answer behind a native disclosure; runnable code (with its line options) and web
+  sandboxes keep their labelled source with a link to run them on the canonical article;
+  embeds become titled provider links; video chapters become a linked list; recipe facts and
+  video production notes stay visible; and comments become a link to the canonical
+  discussion. Generated fallback markup needs no open.blog script, custom element, form, or
+  iframe; authored raw HTML is unchanged until
+  [#114](https://github.com/journey-to-code-org/open.blog/issues/114).
 - Fixed quizzes and web sandboxes failing to build when nested in a callout, quote, or list item.
 
 ## [0.15.0] - 2026-10-24

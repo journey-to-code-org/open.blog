@@ -3,6 +3,11 @@ title: Basil pasta
 date: 2026-10-24
 profile: recipe
 comments: locked
+prep: 10
+cook: 10-15 min
+servings: 4
+yield: 2 bowls
+cuisine: Andalusian & <Italian>
 ---
 A weeknight recipe from Málaga.
 

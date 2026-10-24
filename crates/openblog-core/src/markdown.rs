@@ -419,6 +419,25 @@ fn render_portable_quiz(source: &str) -> Result<String, String> {
     Ok(html)
 }
 
+/// The fence's authored line options (`showLineNumbers`, the start line, and
+/// `{2,4-5}` highlights) as `data-line-*` attributes.
+fn line_attributes(fence: &FenceInfo) -> String {
+    let mut attributes = String::new();
+    if let Some(on) = fence.line_numbers {
+        attributes.push_str(&format!(" data-line-numbers=\"{on}\""));
+    }
+    if let Some(n) = fence.line_start {
+        attributes.push_str(&format!(" data-line-start=\"{n}\""));
+    }
+    if let Some(ranges) = &fence.highlight {
+        attributes.push_str(&format!(
+            " data-highlight-lines=\"{}\"",
+            escape::attr(ranges)
+        ));
+    }
+    attributes
+}
+
 /// A runnable fence without its runtime: the authored source stays visible as code
 /// and the live interaction is pointed at the canonical article.
 fn portable_code_html(
@@ -427,13 +446,16 @@ fn portable_code_html(
     web_sandbox: bool,
     canonical_url: &str,
 ) -> String {
-    let code = |lang: &str, source: &str| {
+    let code = |lang: &str, source: &str, lines: &str| {
         let class = if lang.is_empty() {
             String::new()
         } else {
             format!(" class=\"language-{}\"", escape::attr(lang))
         };
-        format!("<pre><code{class}>{}</code></pre>", escape::text(source))
+        format!(
+            "<pre><code{class}{lines}>{}</code></pre>",
+            escape::text(source)
+        )
     };
     let kind = if web_sandbox {
         "ob-web-sandbox"
@@ -474,17 +496,17 @@ fn portable_code_html(
             buffer.push('\n');
         }
         if !preamble.trim().is_empty() {
-            html.push_str(&code("", &preamble));
+            html.push_str(&code("", &preamble, ""));
         }
         for (lang, label, source) in &files {
             if !source.trim().is_empty() {
                 html.push_str(&format!("<p class=\"ob-web-sandbox-label\">{label}</p>"));
-                html.push_str(&code(lang, source));
+                html.push_str(&code(lang, source, ""));
             }
         }
         "Open the live preview on"
     } else {
-        html.push_str(&code(&fence.lang, source));
+        html.push_str(&code(&fence.lang, source, &line_attributes(fence)));
         "Run and edit this example on"
     };
     html.push_str(&format!(
@@ -591,11 +613,16 @@ fn transform_blocks<'a>(
                 Event::Text(text) => source.push_str(text),
                 Event::End(TagEnd::CodeBlock) => {
                     let source = quiz.take().unwrap_or_default();
-                    match if portable.is_some() {
+                    // An empty fence has always built as an empty knowledge check.
+                    let rendered = if source.is_empty() {
+                        Ok(String::new())
+                    } else if portable.is_some() {
                         render_portable_quiz(&source)
                     } else {
                         render_quiz(&source, &mut quiz_occurrences)
-                    } {
+                    };
+                    match rendered {
+                        Ok(html) if html.is_empty() => {}
                         Ok(html) => out.push(Event::Html(CowStr::from(html))),
                         Err(error) => {
                             data.errors.push(error.clone());
@@ -630,10 +657,11 @@ fn transform_blocks<'a>(
                 sandbox_source.push_str(text);
             }
         }
-        if web_sandbox
-            && matches!(event, Event::End(TagEnd::CodeBlock))
-            && !valid_web_sandbox_source(&std::mem::take(&mut sandbox_source))
-        {
+        // An empty fence (no text at all) has always built; validate what was written.
+        if web_sandbox && matches!(event, Event::End(TagEnd::CodeBlock)) && {
+            let source = std::mem::take(&mut sandbox_source);
+            !source.is_empty() && !valid_web_sandbox_source(&source)
+        } {
             data.errors.push(
                 "a `web runnable` fence needs a non-empty `---html`, `---css`, or `---js` section and must stay under 100,000 bytes"
                     .into(),
@@ -656,6 +684,7 @@ fn transform_blocks<'a>(
                         context.canonical_url,
                     ))));
                     portable_code = None;
+                    titled_code = false;
                     runnable_code = false;
                     configured_runner = false;
                     web_sandbox = false;
@@ -735,15 +764,7 @@ fn transform_blocks<'a>(
                 } else if web_sandbox {
                     html.push_str(" data-runnable=\"web\"");
                 }
-                if let Some(on) = fence.line_numbers {
-                    html.push_str(&format!(" data-line-numbers=\"{on}\""));
-                }
-                if let Some(n) = fence.line_start {
-                    html.push_str(&format!(" data-line-start=\"{n}\""));
-                }
-                if let Some(ranges) = &fence.highlight {
-                    html.push_str(&format!(" data-highlight-lines=\"{ranges}\""));
-                }
+                html.push_str(&line_attributes(&fence));
                 html.push('>');
                 Event::Html(CowStr::from(html))
             }
@@ -1010,7 +1031,14 @@ fn apply_portable_paragraphs<'a>(
                     .or_else(|| {
                         context
                             .chapters
-                            .then(|| chapters_html(inner, context.video_id))
+                            .then(|| {
+                                chapters_html(
+                                    inner
+                                        .split(|e| matches!(e, Event::SoftBreak | Event::HardBreak))
+                                        .collect(),
+                                    context.video_id,
+                                )
+                            })
                             .flatten()
                     });
                 if let Some(html) = replacement {
@@ -1020,10 +1048,37 @@ fn apply_portable_paragraphs<'a>(
                 }
             }
         }
+        if context.chapters && matches!(events[i], Event::Start(Tag::List(None))) {
+            if let Some((len, html)) = chapter_list(&events[i..], context.video_id) {
+                out.push(Event::Html(CowStr::from(html)));
+                i += len;
+                continue;
+            }
+        }
         out.push(events[i].clone());
         i += 1;
     }
     out
+}
+
+/// A chapter list for a tight bulleted list whose items are all timestamp
+/// lines (`- 00:00 Intro`), with the number of events it replaces.
+fn chapter_list(events: &[Event<'_>], video_id: Option<&str>) -> Option<(usize, String)> {
+    let mut lines = Vec::new();
+    let mut item = None;
+    for (index, event) in events.iter().enumerate().skip(1) {
+        match event {
+            Event::Start(Tag::Item) if item.is_none() => item = Some(index + 1),
+            Event::End(TagEnd::Item) => lines.push(&events[item.take()?..index]),
+            Event::End(TagEnd::List(false)) if item.is_none() => {
+                return chapters_html(lines, video_id).map(|html| (index + 1, html));
+            }
+            // Anything inside an item is checked as a chapter line.
+            _ if item.is_some() => {}
+            _ => return None,
+        }
+    }
+    None
 }
 
 /// A provider link in place of an embedded frame. An authored link keeps its
@@ -1056,8 +1111,8 @@ fn portable_embed_html(inner: &[Event<'_>], embed: &crate::embed::Embed) -> Stri
     )
 }
 
-/// Seconds for a chapter timestamp (`MM:SS` or `H:MM:SS`), read as the Admin
-/// release kit reads them.
+/// Seconds for a chapter timestamp (`M:SS` or `H:M:SS`, up to two hour and
+/// three minute digits), read as the Admin release kit reads them.
 fn chapter_seconds(timestamp: &str) -> Option<u32> {
     let parts: Vec<&str> = timestamp.split(':').collect();
     if !parts
@@ -1073,7 +1128,7 @@ fn chapter_seconds(timestamp: &str) -> Option<u32> {
             (seconds < 60).then(|| minutes * 60 + seconds)
         }
         [hours, minutes, seconds]
-            if hours.len() <= 2 && minutes.len() == 2 && seconds.len() == 2 =>
+            if hours.len() <= 2 && minutes.len() <= 3 && seconds.len() == 2 =>
         {
             let (hours, minutes, seconds) = (value(hours)?, value(minutes)?, value(seconds)?);
             (minutes < 60 && seconds < 60).then(|| hours * 3600 + minutes * 60 + seconds)
@@ -1082,12 +1137,9 @@ fn chapter_seconds(timestamp: &str) -> Option<u32> {
     }
 }
 
-/// A chapter list when every line of a paragraph (at least two) starts with a
-/// timestamp and holds only text, inline code, or emphasis.
-fn chapters_html(inner: &[Event<'_>], video_id: Option<&str>) -> Option<String> {
-    let lines: Vec<&[Event<'_>]> = inner
-        .split(|e| matches!(e, Event::SoftBreak | Event::HardBreak))
-        .collect();
+/// A chapter list when every line (at least two) starts with a timestamp and
+/// holds only text, inline code, or emphasis.
+fn chapters_html(lines: Vec<&[Event<'_>]>, video_id: Option<&str>) -> Option<String> {
     if lines.len() < 2 {
         return None;
     }

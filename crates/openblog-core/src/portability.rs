@@ -6,6 +6,7 @@ use crate::contributor::{CreditProvenance, ResolvedCredit};
 use crate::escape;
 use crate::markdown::{CodeRunnerRenderOptions, PortableContext, RenderOptions};
 use crate::model::{CommentsPolicy, Post};
+use crate::recipe::Recipe;
 use crate::research::ResearchReference;
 use crate::video::VideoMetadata;
 use url::Url;
@@ -39,6 +40,7 @@ pub struct PortableProjection<'a> {
     /// Languages the canonical page can run; `None` without a configured runner.
     runner_languages: Option<Vec<String>>,
     video: Option<&'a VideoMetadata>,
+    recipe: Option<&'a Recipe>,
     /// Reader discussion the canonical page offers, when it offers any.
     participation: Option<CommentsPolicy>,
 }
@@ -100,6 +102,7 @@ impl<'a> PortableProjection<'a> {
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),
             video: post.video.as_ref(),
+            recipe: post.recipe.as_ref(),
             participation: (config.engagement.enabled
                 && config.engagement.comments
                 && post.comments != CommentsPolicy::Hidden
@@ -186,6 +189,10 @@ impl<'a> PortableProjection<'a> {
         }
         let mut html = String::new();
         let mut capabilities = rendered.capabilities;
+        // The native page shows these beside the body, so they stay visible here.
+        if let Some(video) = self.video {
+            html.push_str(&video.production_notes_html());
+        }
         // The native page adds the post's video beside the body; keep it as a link.
         let video_id = self.video.and_then(|video| video.youtube_id.as_deref());
         if let (Some(mut embed), Some(id)) = (
@@ -210,6 +217,14 @@ impl<'a> PortableProjection<'a> {
                     embed.provider,
                     escape::attr(&embed.link),
                     escape::text(&embed.link_label)
+                ));
+            }
+        }
+        if let Some(recipe) = self.recipe {
+            let facts = recipe.facts_html(false);
+            if !facts.is_empty() {
+                html.push_str(&format!(
+                    "<section class=\"ob-recipe-card\" aria-label=\"Recipe summary\">\n<dl class=\"ob-recipe-facts\">{facts}</dl>\n</section>\n"
                 ));
             }
         }
@@ -466,7 +481,7 @@ mod tests {
             "---\ntitle: Work\ndate: 2026-10-01\n---\n```rust runnable title=\"src/<main>.rs\" {2} showLineNumbers\nfn main() {\n    println!(\"<hi> & bye\");\n}\n```\n\n```python runnable\nprint('static')\n```\n",
         );
         assert!(output.html.contains(
-            "<figure class=\"ob-code-block ob-runnable-code\"><figcaption class=\"ob-code-title\">src/&lt;main&gt;.rs</figcaption><pre><code class=\"language-rust\">fn main() {\n    println!(&quot;&lt;hi&gt; &amp; bye&quot;);\n}\n</code></pre><p class=\"ob-portable-note\">Run and edit this example on <a href=\"https://example.test/blog/work/\">the original article</a>.</p></figure>\n"
+            "<figure class=\"ob-code-block ob-runnable-code\"><figcaption class=\"ob-code-title\">src/&lt;main&gt;.rs</figcaption><pre><code class=\"language-rust\" data-line-numbers=\"true\" data-highlight-lines=\"2\">fn main() {\n    println!(&quot;&lt;hi&gt; &amp; bye&quot;);\n}\n</code></pre><p class=\"ob-portable-note\">Run and edit this example on <a href=\"https://example.test/blog/work/\">the original article</a>.</p></figure>\n"
         ), "{}", output.html);
         assert!(
             output
@@ -520,6 +535,54 @@ mod tests {
             output.capabilities[0].native_renderer,
             site.posts[0].capabilities[0].native_renderer
         );
+    }
+
+    #[test]
+    fn portable_titled_runnable_fence_does_not_wrap_a_later_indented_block() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n```rust runnable title=\"main.rs\"\nfn main(){}\n```\n\nText\n\n    indented code\n",
+        );
+        assert_eq!(output.html.matches("<figure").count(), 1, "{}", output.html);
+        assert_eq!(
+            output.html.matches("</figure>").count(),
+            1,
+            "{}",
+            output.html
+        );
+        assert!(
+            output
+                .html
+                .ends_with("<p>Text</p>\n<pre><code>indented code</code></pre>\n"),
+            "{}",
+            output.html
+        );
+    }
+
+    #[test]
+    fn empty_quiz_and_web_sandbox_fences_still_build() {
+        // Before fences were collected whole, a fence with no text was never
+        // validated; existing posts that contain one keep building.
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n```quiz\n```\n\n```web runnable\n```\n\nBody\n",
+        );
+        let post = &site.posts[0];
+        assert!(post.html.contains("<ob-web-sandbox>"), "{}", post.html);
+        let output = PortableProjection::from_post(post, &config)
+            .unwrap()
+            .portable_html()
+            .unwrap();
+        assert!(output.html.contains("<p>Body</p>"), "{}", output.html);
+        assert!(!output.html.contains("<ob-"), "{}", output.html);
+        // Whitespace-only text is still written content, and still validated.
+        let (config, site) = public_post("---\ntitle: Work\ndate: 2026-10-01\n---\nBody\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let rendered = crate::markdown::render_portable(
+            "```web runnable\n\n```\n",
+            projection.render_options,
+            &projection,
+        )
+        .unwrap();
+        assert_eq!(rendered.errors.len(), 1, "{:?}", rendered.errors);
     }
 
     #[test]
@@ -615,6 +678,58 @@ mod tests {
         assert!(output
             .html
             .contains("<p>Narration at 00:14 stays prose.</p>"));
+    }
+
+    #[test]
+    fn portable_chapters_accept_the_admin_release_kit_grammar() {
+        let output = portable(
+            "---\ntitle: Episode\ndate: 2026-10-01\nprofile: video\n---\n- 00:00 Intro\n- 1:2:03 Part *two*\n\n* 00:00 Only one bullet\n\n- 00:00 Loose\n\n  More text.\n- 00:30 Item\n",
+        );
+        assert!(output.html.starts_with(
+            "<ol class=\"ob-chapters\" aria-label=\"Video chapters\">\n<li><time datetime=\"PT0S\">00:00</time> Intro</li>\n<li><time datetime=\"PT3723S\">1:2:03</time> Part <em>two</em></li>\n</ol>\n"
+        ), "{}", output.html);
+        assert!(
+            output
+                .html
+                .contains("<ul>\n<li>00:00 Only one bullet</li>\n</ul>"),
+            "{}",
+            output.html
+        );
+        assert_eq!(
+            output.html.matches("ob-chapters").count(),
+            1,
+            "{}",
+            output.html
+        );
+    }
+
+    #[test]
+    fn portable_video_posts_keep_their_production_notes() {
+        let output = portable(
+            "---\ntitle: Episode one\ndate: 2026-10-01\nprofile: video\nseasonNumber: 2\nepisodeNumber: 4\nproductionStatus: released\nproductionCredits: Writing by Mira & <Lantern>\nvideoUrl: https://youtu.be/dQw4w9WgXcQ\n---\nBody\n",
+        );
+        assert!(output.html.starts_with(
+            "<aside class=\"ob-video-production\" aria-label=\"Video production summary\"><h2>Production notes</h2><dl><div><dt>Production</dt><dd>Season 2, episode 4</dd></div><div><dt>Status</dt><dd>released</dd></div><div><dt>Credits</dt><dd>Writing by Mira &amp; &lt;Lantern&gt;</dd></div></dl></aside>\n<p class=\"ob-embed-link ob-embed-youtube\">"
+        ), "{}", output.html);
+    }
+
+    #[test]
+    fn portable_recipes_keep_their_summary_facts() {
+        let output = portable(
+            "---\ntitle: Basil pasta\ndate: 2026-10-01\nprofile: recipe\nprep: 10\ncook: overnight\nservings: 4\ncuisine: Italian & <more>\n---\n## Ingredients\n\n- 1 cup flour\n",
+        );
+        assert!(output.html.starts_with(
+            "<section class=\"ob-recipe-card\" aria-label=\"Recipe summary\">\n<dl class=\"ob-recipe-facts\"><div><dt>Prep</dt><dd><time datetime=\"PT10M\">10 min</time></dd></div><div><dt>Cook</dt><dd>overnight</dd></div><div><dt>Serves</dt><dd>4</dd></div><div><dt>Cuisine</dt><dd>Italian &amp; &lt;more&gt;</dd></div></dl>\n</section>\n"
+        ), "{}", output.html);
+        assert!(
+            !output.html.contains("ob-recipe-servings"),
+            "{}",
+            output.html
+        );
+        let output = portable(
+            "---\ntitle: Toast\ndate: 2026-10-01\nprofile: recipe\n---\n## Steps\n\n1. Toast.\n",
+        );
+        assert!(!output.html.contains("Recipe summary"), "{}", output.html);
     }
 
     #[test]

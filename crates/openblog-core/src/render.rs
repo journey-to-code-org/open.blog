@@ -1535,78 +1535,12 @@ impl<'a> Renderer<'a> {
     }
 
     fn video_production_card(&self, video: &crate::video::VideoMetadata) -> String {
-        let mut facts = Vec::new();
-        if let Some(label) = video.production_label() {
-            facts.push(format!(
-                "<div><dt>Production</dt><dd>{}</dd></div>",
-                text(&label)
-            ));
-        }
-        if let Some(status) = &video.production_status {
-            facts.push(format!(
-                "<div><dt>Status</dt><dd>{}</dd></div>",
-                text(status)
-            ));
-        }
-        if let Some(credits) = &video.production_credits {
-            facts.push(format!(
-                "<div><dt>Credits</dt><dd>{}</dd></div>",
-                text(credits)
-            ));
-        }
-        if facts.is_empty() {
-            return String::new();
-        }
-        format!("<aside class=\"ob-video-production\" aria-label=\"Video production summary\"><h2>Production notes</h2><dl>{}</dl></aside>\n", facts.join(""))
+        video.production_notes_html()
     }
 
     fn recipe_card(&self, recipe: &crate::recipe::Recipe) -> String {
-        use crate::recipe::{format_minutes, iso_duration};
         let rc = &self.site.config.recipes;
-        let mut facts = String::new();
-        let mut fact = |label: &str, value: String| {
-            facts.push_str(&format!("<div><dt>{label}</dt><dd>{value}</dd></div>"));
-        };
-        for (label, minutes, written) in [
-            ("Prep", recipe.prep, &recipe.prep_text),
-            ("Cook", recipe.cook, &recipe.cook_text),
-            ("Total", recipe.total, &recipe.total_text),
-        ] {
-            if let Some(m) = minutes {
-                fact(
-                    label,
-                    format!(
-                        "<time datetime=\"{}\">{}</time>",
-                        iso_duration(m),
-                        format_minutes(m)
-                    ),
-                );
-            } else if let Some(w) = written {
-                // "overnight", "10-15 min": shown as written.
-                fact(label, text(w));
-            }
-        }
-        if let Some(s) = &recipe.servings_text {
-            // A plain number can be scaled; the component updates this span.
-            let value = if recipe.servings.is_some_and(|n| s.parse::<u32>() == Ok(n)) {
-                format!("<span class=\"ob-recipe-servings\">{}</span>", text(s))
-            } else {
-                text(s)
-            };
-            fact("Serves", value);
-        }
-        if let Some(y) = &recipe.yield_text {
-            fact("Makes", text(y));
-        }
-        if let Some(v) = &recipe.cuisine {
-            fact("Cuisine", text(v));
-        }
-        if let Some(v) = &recipe.category {
-            fact("Course", text(v));
-        }
-        if let Some(v) = &recipe.calories {
-            fact("Calories", text(v));
-        }
+        let facts = recipe.facts_html(true);
         let mut h =
             String::from("<section class=\"ob-recipe-card\" aria-label=\"Recipe summary\">\n");
         if !facts.is_empty() {
