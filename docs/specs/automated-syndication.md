@@ -1,6 +1,6 @@
 # Automated syndication
 
-Status: implemented first stable iteration  
+Status: implemented first stable iteration
 Date: 2026-10-24
 
 ## Outcome
@@ -133,4 +133,3 @@ receives at most fifteen.
 - Automatic Hashnode `publishDraft`, reconciliation by title, bulk runs, retry loops,
   scheduling, remote deletion, media upload, or live provider tests.
 - Browser/Admin credential setup. This iteration targets a trusted shell or protected CI.
-
