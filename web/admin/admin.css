@@ -151,7 +151,7 @@ kbd {
 
 .oba-tab,
 .oba-btn {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0.45rem 1rem;
   border: var(--ob-border-width) solid var(--ob-color-border);
   border-radius: var(--ob-radius-sm);
@@ -369,6 +369,128 @@ kbd {
 
 .oba-dialog h2 {
   margin-top: 0;
+}
+
+.oba-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.oba-advanced-grid,
+.oba-module-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-advanced-group {
+  margin-top: 1rem;
+}
+
+.oba-advanced-group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.oba-advanced-tool {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  min-height: 56px;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.oba-advanced-tool:hover,
+.oba-advanced-tool:focus-visible {
+  border-color: var(--ob-color-accent);
+}
+
+.oba-advanced-tool span {
+  color: var(--ob-color-subtle);
+  font-size: 0.85rem;
+}
+
+.oba-preferences-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.oba-essential-note,
+.oba-module-fieldset {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+}
+
+.oba-essential-note p {
+  margin-bottom: 0;
+}
+
+.oba-module-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0.35rem 0.5rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+}
+
+.oba-module-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.oba-module-row > span {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.oba-module-row .oba-btn {
+  min-width: 44px;
+  padding-inline: 0.6rem;
+}
+
+.oba-preferences-warning {
+  margin: 0.75rem 1rem 0;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-progressive-tools[hidden],
+[data-admin-module][hidden],
+[data-admin-module-group][hidden],
+.oba-editor-advanced[hidden] {
+  display: none;
+}
+
+html[data-admin-preset="simple"] .oba-toolbelt {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-admin-density="compact"] .oba-workspace-content,
+html[data-admin-density="compact"] .oba-context-bar,
+html[data-admin-density="compact"] .oba-pane {
+  padding-block: 0.55rem;
 }
 
 .oba-command-dialog {
@@ -1955,9 +2077,44 @@ kbd {
 
 .oba-editor-nav {
   display: flex;
+  align-items: flex-start;
   gap: 0.3rem;
   margin-bottom: 0.75rem;
   overflow-x: auto;
+}
+
+.oba-editor-primary,
+.oba-editor-advanced-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.oba-editor-advanced {
+  flex: none;
+}
+
+.oba-editor-advanced > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.45rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  cursor: pointer;
+}
+
+.oba-editor-advanced-actions {
+  position: absolute;
+  z-index: 4;
+  max-width: min(32rem, calc(100vw - 2rem));
+  margin-top: 0.35rem;
+  padding: 0.4rem;
+  flex-wrap: wrap;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+  box-shadow: var(--oba-shadow-lg);
 }
 
 .oba-small {
@@ -2079,6 +2236,7 @@ kbd {
   .oba-brand-copy,
   .oba-account-label,
   .oba-command-trigger > span,
+  .oba-personalize-trigger,
   .oba-tool-label {
     display: none;
   }
@@ -2097,6 +2255,22 @@ kbd {
     gap: 0.75rem;
     padding-block: 0.6rem;
     overflow-x: auto;
+  }
+
+  .oba-preferences-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-module-row {
+    flex-wrap: wrap;
+  }
+
+  .oba-dialog-actions {
+    flex-wrap: wrap;
+  }
+
+  .oba-editor-primary {
+    min-width: max-content;
   }
 
   .oba-tool-group,

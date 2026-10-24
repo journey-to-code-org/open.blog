@@ -29,6 +29,7 @@ use openblog_core::{
 };
 use serde_json::{json, Map, Value as Json};
 
+use crate::admin_preferences::{self, Preferences, SaveError};
 use crate::assistant::{
     parse_skill, AnthropicProvider, AssistantCompletionSource, AssistantConcurrency,
     AssistantDocument, AssistantErrorKind, AssistantProvider, AssistantProviderStatus,
@@ -437,6 +438,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             &json!({ "user": session.user, "csrf": session.csrf, "now": clock::now().rfc3339() }),
         ),
         ("GET", "meta") => meta(state),
+        ("GET", "preferences") => admin_preferences(state, &session.user),
+        ("PUT", "preferences") => save_admin_preferences(state, req, &session.user),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
@@ -592,6 +595,48 @@ fn require_json(req: &Request) -> Result<(), Response> {
             415,
             "Content-Type must be application/json",
         )),
+    }
+}
+
+fn admin_preferences(state: &AppState, user: &str) -> Response {
+    match admin_preferences::load(&state.root, user) {
+        Ok(snapshot) => Response::json(200, &serde_json::to_value(snapshot).unwrap_or(Json::Null)),
+        Err(error) => Response::error(500, &error),
+    }
+}
+
+fn save_admin_preferences(state: &AppState, req: &Request, user: &str) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    if req.body.len() > admin_preferences::MAX_REQUEST_BYTES {
+        return Response::error(413, "Workspace preferences are limited to 16 KiB");
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let Some(expected_etag) = body["etag"].as_str() else {
+        return Response::error(400, "Missing preferences ETag");
+    };
+    let preferences: Preferences = match serde_json::from_value(body["preferences"].clone()) {
+        Ok(preferences) => preferences,
+        Err(error) => return Response::error(400, &format!("Invalid preferences: {error}")),
+    };
+
+    let _content_transaction = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    match admin_preferences::save(&state.root, user, expected_etag, preferences) {
+        Ok(snapshot) => Response::json(200, &serde_json::to_value(snapshot).unwrap_or(Json::Null)),
+        Err(SaveError::Conflict) => Response::error(
+            409,
+            "Workspace preferences changed in another session. Reload and try again.",
+        ),
+        Err(SaveError::Invalid(error)) => Response::error(400, &error),
+        Err(SaveError::Storage(error)) => Response::error(500, &error),
     }
 }
 
@@ -5842,6 +5887,207 @@ mod tests {
             .status,
             200
         );
+    }
+
+    #[test]
+    fn workspace_preferences_are_authenticated_csrf_protected_and_conflict_safe() {
+        let f = fixture("workspace-preferences");
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/preferences")).status,
+            401
+        );
+        let session = login_ok(&f);
+        let initial = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/preferences"), &session, false),
+        );
+        assert_eq!(initial.status, 200);
+        let initial = body_json(&initial);
+        assert_eq!(initial["preferences"]["preset"], "simple");
+        assert_eq!(initial["preferences"]["editorMode"], "visual");
+        assert!(!initial.to_string().contains("correct horse battery"));
+
+        let mut preferences = initial["preferences"].clone();
+        preferences["preset"] = json!("custom");
+        preferences["density"] = json!("compact");
+        preferences["hiddenModules"] = json!(["assistant"]);
+        let payload = json!({ "etag": initial["etag"], "preferences": preferences });
+        let without_csrf = handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/preferences", payload.clone()),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without_csrf.status, 403);
+
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/preferences", payload.clone()),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved = body_json(&saved);
+        assert_eq!(saved["preferences"]["preset"], "custom");
+        assert_eq!(saved["preferences"]["density"], "compact");
+        assert_ne!(saved["etag"], initial["etag"]);
+
+        let conflict = handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/preferences", payload),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(conflict.status, 409);
+        assert!(body_json(&conflict)["error"]
+            .as_str()
+            .unwrap()
+            .contains("another session"));
+        let config = fs::read_to_string(f.dir.join("openblog.json")).unwrap();
+        assert!(!config.contains("hiddenModules"));
+        assert!(f.dir.join(".openblog/private/admin-preferences").is_dir());
+    }
+
+    #[test]
+    fn workspace_preferences_are_private_bounded_and_never_built() {
+        let f = fixture("workspace-preferences-private");
+        let users_path = f.dir.join(".openblog/users.json");
+        let mut users = Users::load(&users_path).unwrap();
+        users.set("ada", "another long passphrase").unwrap();
+        users.save(&users_path).unwrap();
+        let mikey = login_ok(&f);
+        let initial = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/preferences"), &mikey, false),
+        ));
+        assert_eq!(initial["stored"], false);
+        let canonical = || {
+            let mut files = crate::fsutil::walk(&f.dir.join("content"));
+            files.push(f.dir.join("openblog.json"));
+            files
+                .into_iter()
+                .map(|file| (file.clone(), fs::read(file).unwrap()))
+                .collect::<Vec<_>>()
+        };
+        let before = canonical();
+
+        let mut preferences = initial["preferences"].clone();
+        preferences["preset"] = json!("custom");
+        preferences["hiddenModules"] = json!(["analytics", "assistant"]);
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/preferences",
+                    json!({ "etag": initial["etag"], "preferences": preferences }),
+                ),
+                &mikey,
+                true,
+            ),
+        );
+        assert_eq!(saved.status, 200);
+        assert_eq!(body_json(&saved)["stored"], true);
+        assert!(
+            before == canonical(),
+            "presentation changed canonical content"
+        );
+
+        let login = handle(
+            &f.state,
+            &json_req(
+                "POST",
+                "/admin/api/login",
+                json!({ "username": "ada", "password": "another long passphrase" }),
+            ),
+        );
+        assert_eq!(login.status, 200);
+        let cookie = login
+            .headers
+            .iter()
+            .find(|(name, _)| name == "Set-Cookie")
+            .unwrap()
+            .1
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        let ada = (
+            cookie,
+            body_json(&login)["csrf"].as_str().unwrap().to_string(),
+        );
+        let theirs = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/preferences"), &ada, false),
+        ));
+        assert_eq!(theirs["preferences"]["preset"], "simple");
+        assert_eq!(theirs["stored"], false);
+
+        for (label, preferences) in [
+            ("essential control", json!({ "hiddenModules": ["write"] })),
+            ("publish control", json!({ "hiddenModules": ["publish"] })),
+            ("preset", json!({ "preset": "<script>" })),
+            ("field", json!({ "theme": "dark" })),
+        ] {
+            let mut invalid = theirs["preferences"].clone();
+            for (key, value) in preferences.as_object().unwrap() {
+                invalid[key] = value.clone();
+            }
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        "/admin/api/preferences",
+                        json!({ "etag": theirs["etag"], "preferences": invalid }),
+                    ),
+                    &ada,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, 400, "{label}");
+        }
+        let oversized = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/preferences",
+                    json!({
+                        "etag": theirs["etag"],
+                        "preferences": theirs["preferences"],
+                        "padding": "x".repeat(admin_preferences::MAX_REQUEST_BYTES),
+                    }),
+                ),
+                &ada,
+                true,
+            ),
+        );
+        assert_eq!(oversized.status, 413);
+
+        f.state.rebuild().unwrap();
+        for file in crate::fsutil::walk(&f.dir.join("dist")) {
+            let bytes = fs::read(&file).unwrap();
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(
+                !text.contains("hiddenModules") && !text.contains("admin-preferences"),
+                "{} exposes workspace preferences",
+                file.display()
+            );
+        }
+        let ignored = fs::read_to_string(f.dir.join(".gitignore")).unwrap();
+        assert!(ignored.lines().any(|line| line == "/.openblog/private/"));
     }
 
     #[test]
