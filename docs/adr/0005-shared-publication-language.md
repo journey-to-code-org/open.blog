@@ -39,8 +39,9 @@ corresponding workflow vocabulary and retain their existing validation and order
 version 1 authorization policy's `publicationId` names the Shared publication.
 
 Participant and Collaboration role describe private workflow involvement. A Participant reaches an
-Admin user and a Contributor only through an explicit binding in the publication's authorization
-policy, and the Collaboration roles are that policy's publication-scoped roles: site owner,
+Admin user and a contributor registry entry (by its contributor ID) only through an explicit
+binding in the publication's authorization policy. That registry entry becomes a Contributor for a
+work only when the work's Work credit names it, never through the binding. The the Collaboration roles are that policy's publication-scoped roles: site owner,
 coordinator, contributor, editor, and reader. The `contributor` role means writing one's own
 Contribution draft; it is not the public Contributor relationship. No participant, binding, or
 role establishes that a person is a Contributor or Author, creates a Work credit, or grants
@@ -51,11 +52,13 @@ deriving them from participant order, collaboration roles, contribution ownershi
 approvals.
 
 A Contribution draft is untrusted collaboration content. Reveal controls which ordered participant
-IDs may receive a draft. Approval records consent to exactly the containing contract revision.
-Neither concept publishes content, defines a quorum, or authorizes a workflow transition. A
-Published assembly exists only when a separate explicit publication operation incorporates an
-ordered selection of Source references and exact approved Contribution draft revisions into an
-author-owned Document. It names that publication-time assembly, not a
+IDs may receive a draft. Approval records consent to exactly the containing contract revision,
+which covers every Contribution draft as it appears in that revision; drafts have no revision of
+their own in version 1, and per-draft revisions would need a separate decision. Neither concept
+publishes content, defines a quorum, or authorizes a workflow transition. A Published assembly
+exists only when a separate explicit publication operation incorporates an ordered selection of
+Source references and Contribution drafts, as they appear in one approved collaboration revision,
+into an author-owned Document. It names that publication-time assembly, not a
 second stored artifact; the Document continues through the existing Post, Published work,
 rendering, and portability paths.
 
@@ -70,7 +73,9 @@ stable ID and its provenance so that reusable source records from
 rewriting published articles. The version 1 collaboration contract has no source collection yet;
 the private collaboration artifact in
 [#156](https://github.com/journey-to-code-org/open.blog/issues/156) adds one as an ordered
-collection keyed by stable IDs under this decision.
+collection keyed by stable IDs under this decision. Its acceptance fixtures must cover one and
+many ordered Source references with stable IDs and reject a Shared publication with zero Source
+references.
 
 ## Trust and failure boundary
 
@@ -81,9 +86,19 @@ untrusted source; and replacement is whole-contract and revision-checked.
 Errors remain non-identifying and cannot echo another participant's content, identity, token, URL,
 or metadata.
 
-Collaboration parsing, validation, and authorization do not mutate a Document, Post, credits, feeds, or rendered
-output. A malformed or stale collaboration replacement returns no new value. Publication is a
-later, explicit boundary, so failure leaves canonical content and public output unchanged and
+The #154 `ViewRevealed` grant authorizes only the action class "view revealed drafts" for a bound
+participant; it is not checked against any Reveal's `participantIds`. Every later delivery path,
+including the collaborative draft in #156 and the preview and publication path in #158, must also
+deliver a Contribution draft only to the participants its Reveal lists, and must test that an
+unlisted participant holding `ViewRevealed` receives nothing.
+
+Collaboration parsing, validation, and authorization do not mutate a Document, Post, credits,
+feeds, or rendered output. Under
+[ADR 0004's explicit-projection rule](0004-portable-projections-from-canonical-work.md), private
+collaboration state never reaches public output, feeds, or exports; a Published assembly is the
+explicit, author-approved projection through which any of it can enter canonical content. A
+malformed or stale collaboration replacement returns no new value. Publication is a later,
+explicit boundary, so failure leaves canonical content and public output unchanged and
 independently reviewable.
 
 ## Compatibility fixtures
@@ -94,7 +109,8 @@ independently reviewable.
 | Two participants | The ordinary group contract may project first and second UI slots without pair fields. |
 | Three or ten participants | Authored participant order and stable-ID relationships remain intact. |
 | Reordered or removed participant | References are revalidated; stale references fail as one private error. |
-| Participants bound to registry contributors | Bindings, roles, and approvals create no Work credit; explicit credit keeps sidecar order. |
+| Participants bound to registry contributors | Bindings, roles, and approvals create no Work credit; explicit credit keeps sidecar order. This holds by construction today because site loading takes no collaboration input; the first collaboration-to-publication seam must route bindings and approvals through it and assert credits are unchanged. |
+| One or many Source references | Deferred to #156, which adds the source collection: ordered stable IDs are kept and zero sources are rejected. |
 | Legacy Post without collaboration state | The existing parser, legacy-author fallback, credits, renderer, feeds, and output remain unchanged. |
 | Legacy Post with collaboration-shaped front matter | Keys such as `participants` or `left` stay lossless unknown front matter and change no credit or output. |
 

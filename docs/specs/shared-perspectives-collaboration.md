@@ -51,8 +51,9 @@ state cannot change source Markdown, canonical content, feeds, or public output.
   that reveal. It does not imply a pair, a quorum, or publication.
 - Layout is an ordered list of contribution-to-region relationships. Region vocabulary remains a
   consumer decision; version 1 validates it as a bounded identifier.
-- An approval records one participant's approval of exactly the containing contract revision.
-  Quorum and workflow transition rules are out of scope.
+- An approval records one participant's approval of exactly the containing contract revision,
+  which covers every contribution as it appears in that revision. Contributions have no revision
+  of their own. Quorum and workflow transition rules are out of scope.
 - `pair_projection()` is available only when the participant array contains exactly two entries. It
   derives first and second UI slots without adding pair-specific persisted state.
 
@@ -83,9 +84,11 @@ Authentication, public attribution, and publication access remain three separate
 
 - An Admin account proves who signed in. Removing the account invalidates its sessions through the
   existing Admin authentication boundary.
-- A contributor registry entry supplies public credit identity. It grants no login or access.
+- A contributor registry entry supplies public credit identity. It grants no login or access, and
+  it makes a person a Contributor for a work only when that work's credit sidecar names it.
 - A publication policy deliberately binds one active Admin account and one current contributor ID
-  to one participant ID from that publication's collaboration contract.
+  to one participant ID from that publication's collaboration contract. The binding points at a
+  registry entry; it never credits that entry on any work.
 
 The version 1 policy is group-safe and contains no pair-specific fields:
 
@@ -120,6 +123,11 @@ removed, renamed, stale, cross-publication, or unbound identities deny by defaul
 | Contributor | Yes | Yes | Own | Own | No | Own | Own | No | No | No | Yes |
 | Editor | Yes | Yes | Yes | Yes | No | No | No | No | No | No | Yes |
 | Reader | Yes | Yes | No | No | No | No | No | No | No | No | Yes |
+
+`ViewRevealed` authorizes only the action class and takes no target: it is not checked against a
+reveal's `participantIds`. Any surface that delivers a revealed contribution must also confirm that
+the reveal lists the requesting participant, and must test that an unlisted participant receives
+nothing.
 
 An editor may edit without becoming the attributed author and cannot reveal or approve for a
 participant. An authorization grant for `Approve` only permits the bound participant to submit an
@@ -185,7 +193,11 @@ Shared-publication language fixtures check that the glossary keeps collaboration
 Post, Contributor, Author, Work credit, and Admin user, that bound and approving participants in
 groups of 1, 2, 3, and 10 create no work credit while explicit credit keeps sidecar order, and that
 collaboration-shaped front matter on a legacy post stays lossless and changes no credit or
-generated output.
+generated output. The no-credit property holds by construction while site loading takes no
+collaboration input; the first collaboration-to-publication seam must route bindings and
+approvals through it and assert that credits are unchanged. Source-reference fixtures (one and
+many ordered sources with stable IDs, and rejection of zero sources) arrive with the source
+collection in #156.
 
 Authorization matrix fixtures cover every role and action plus confused-deputy targeting, removed
 Admin users, renamed contributors, removed participants, unbound accounts, cross-publication use,

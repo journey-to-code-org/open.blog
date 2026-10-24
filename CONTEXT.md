@@ -50,8 +50,9 @@ _Avoid_: Citation when there is no in-text pointer, primary source field, provid
 
 **Participant**:
 A person represented by a stable opaque ID within one shared publication. Participation is bound
-to an Admin user and a Contributor only through an explicit publication authorization binding; it
-grants no site administration authority and implies neither public credit nor authorship.
+to an Admin user and a contributor registry entry only through an explicit publication
+authorization binding; it grants no site administration authority and implies neither public
+credit nor authorship, so the bound entry is not thereby a Contributor.
 _Avoid_: Contributor, Author, Admin user, left participant, right participant
 
 **Pair projection**:
@@ -71,22 +72,28 @@ _Avoid_: Work credit, global job title, site-wide Admin permission
 **Contribution draft**:
 Untrusted Markdown that one participant owns and offers to a shared publication. It stays private
 collaboration state, never stored on a Post or Document, until an explicit assembly and
-publication path incorporates an approved revision into the author-owned Document.
+publication path incorporates it, as it appears in an approved collaboration revision, into the
+author-owned Document. A draft has no revision of its own; per-draft revisions would be a later
+decision.
 _Avoid_: Post, canonical content, public contribution disclosure
 
 **Reveal**:
 Permission for an ordered collection of participants to receive one contribution draft. A reveal
-does not publish the draft, approve an assembly, or imply a two-person exchange.
+does not publish the draft, approve an assembly, or imply a two-person exchange. Only the listed
+participants may receive the draft; permission to view revealed drafts in general does not widen
+that list.
 _Avoid_: Publication, approval, left-to-right handoff
 
 **Approval**:
-One participant's consent to exactly one revision of collaboration state. Approval alone does not
-define quorum, authorize publication, or assign public credit.
+One participant's consent to exactly one revision of collaboration state, covering every
+contribution draft as it appears in that revision. Approval alone does not define quorum,
+authorize publication, or assign public credit.
 _Avoid_: Publication, Work credit, timeless consent
 
 **Published assembly**:
-The explicit, ordered selection of source references and exact approved contribution-draft
-revisions that a publication operation incorporates into canonical content. It names that
+The explicit, ordered selection of source references and contribution drafts, as they appear in
+one approved collaboration revision, that a publication operation incorporates into canonical
+content. It names that
 publication-time assembly, not a second stored Post or Published work. Participant order does not
 determine public credit; publication resolves credit through the existing Work credit model.
 _Avoid_: Collaboration transcript, automatic byline, second Post or canonical document
@@ -109,6 +116,12 @@ _Avoid_: Canonical URL, source URL
 **Contributor**:
 A person or organization publicly credited for a defined role in a published work.
 _Avoid_: Admin user, site account, author when the role is more specific
+
+**Contributor registry entry**:
+A person record in the site's contributor registry, keyed by a contributor ID, that a Work credit
+can reference. An entry grants no login or access and is not by itself a Contributor: it becomes
+one for a published work only when that work's Work credit names it.
+_Avoid_: Contributor before any Work credit, Admin user, Participant
 
 **Author**:
 A contributor who holds the author relationship for a particular published work.

@@ -83,11 +83,37 @@ fn collaboration_terms_are_defined_apart_from_public_publishing_terms() {
     }
 
     // Public attribution, authentication, and publishing keep their own definitions.
-    for term in ["Post", "Contributor", "Author", "Work credit", "Admin user"] {
+    for term in [
+        "Post",
+        "Contributor",
+        "Contributor registry entry",
+        "Author",
+        "Work credit",
+        "Admin user",
+    ] {
         let entry = entry(&entries, term);
         assert_ne!(entry.section, COLLABORATION_SECTION, "{term} section");
         assert!(entry.avoid.is_some(), "{term} has an _Avoid_ line");
     }
+
+    // A binding reaches a registry entry, which is not a Contributor until a Work credit names it.
+    let registry = entry(&entries, "Contributor registry entry")
+        .avoid
+        .unwrap()
+        .to_lowercase();
+    for avoided in ["contributor before any work credit", "participant"] {
+        assert!(
+            registry.contains(avoided),
+            "registry entry avoids {avoided}"
+        );
+    }
+    let unwrapped = GLOSSARY.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        unwrapped.contains("Admin user and a contributor registry entry"),
+        "Participant binds a registry entry, not a Contributor"
+    );
+    assert!(!unwrapped.contains("Admin user and a Contributor"));
+    assert!(!unwrapped.contains("approved contribution-draft revision"));
 }
 
 fn source(path: &str, contents: &str) -> SourceFile {
@@ -185,8 +211,12 @@ fn site_with_registry(count: usize, sidecar: Option<String>) -> Site {
     .unwrap()
 }
 
+/// Pins the current isolation: `Site::load` and `generate` take no collaboration input, so the
+/// contract and policy built here cannot reach credits through any seam today. The first
+/// collaboration-to-publication seam (#156/#158) must route bindings, roles, and approvals
+/// through that seam and assert that credits stay unchanged end to end.
 #[test]
-fn participants_roles_and_approvals_never_become_work_credits() {
+fn site_without_collaboration_input_derives_no_credits_from_participants() {
     for count in [1, 2, 3, 10] {
         let (contract, policy) = shared_publication(count);
         let admin_users = (0..count)
