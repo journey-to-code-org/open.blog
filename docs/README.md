@@ -40,6 +40,11 @@ If you are new, read these in order; each one stands alone otherwise.
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
 
+How posts keep their meaning outside open.blog is recorded under
+[`docs/portability`](portability/): the [capability matrix](portability/capability-matrix.md),
+the [portable HTML pipeline](portability/portable-html-pipeline.md) with its static fallbacks and
+raw HTML policy, and the [planned-capability contracts](portability/planned-capability-contracts.md).
+
 Current design frontiers include
 [contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),
 which defines the incremental path from one site author to ordered, work-specific credit, and

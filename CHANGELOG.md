@@ -5,36 +5,31 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
-- Added static fallbacks to the portable HTML projection: quizzes keep their prompt, choices,
-  and answer behind a native disclosure; runnable code (with its line options) and web
-  sandboxes keep their labelled source with a link to run them on the canonical article;
-  embeds become titled provider links; video chapters become a linked list; recipe facts and
-  video production notes stay visible; and comments become a link to the canonical
-  discussion. Generated fallback markup needs no open.blog script, custom element, form, or
-  iframe.
+- Portable HTML now renders static fallbacks for every current interactive capability:
+  quizzes keep their prompt, lettered choices, and the author's answer and explanation behind a
+  native `<details>` disclosure; runnable code and web sandboxes keep their labelled source with
+  a link to run them on the canonical article; CodePen and YouTube embeds become titled provider
+  links; video chapters become an ordered chapter list; recipe facts, callout titles, and
+  video production notes stay visible; and comments become a link to the canonical discussion.
+  The output needs no open.blog script, custom element, form, or iframe.
+- Portable HTML now keeps research and attribution: ordered contributor credits with their roles
+  and unauthenticated ORCID iDs (kept apart from the references), the DOI and license, the
+  "Originally published at" source, and footnote citations that keep their numbers and ids and
+  link to the note on the canonical article. Planned or unknown capabilities fail closed: their
+  authored content stays visible with a labeled link to the canonical article and a
+  canonical-only report, while private-only state adds nothing to the copy or its report.
+- Portable HTML now rewrites authored raw HTML through a documented allowlist: scripts, styles,
+  event handlers, forms, `<base>` and `<meta>` tags, comments, and custom elements are removed
+  or unwrapped (Markdown inside a removed element goes with it); frames, media, SVG, and MathML
+  become a link to the canonical article; heading `{key=value}` attributes are dropped; and each
+  removal is reported as a `raw-html` capability. Raw HTML URLs resolve against the canonical
+  article like Markdown links, ids stay unique across raw HTML, headings, and footnotes, every
+  image gets `alt`, and the body stays well nested. Native pages are unchanged.
+- The portable projection fails for that post with a source-scoped diagnostic, instead of
+  publishing or truncating, when a raw HTML or `sourceUrl` address is unsafe (including `data:`
+  and encoded `javascript:` URLs), a removed element or comment that is never closed would hide
+  later content, or the body exceeds 2 MiB or 64 levels of nesting.
 - Fixed quizzes and web sandboxes failing to build when nested in a callout, quote, or list item.
-- The portable HTML projection now keeps research and attribution: ordered contributor credits
-  with their roles and unauthenticated ORCID iDs (kept apart from the references), the DOI and
-  license, the "Originally published at" source, and footnote citations that keep their
-  numbers and ids and link to the note on the canonical article. An unsafe `sourceUrl` fails
-  the projection for that post instead of being published.
-- Planned or unknown capabilities without a portable fallback yet now fail closed in portable
-  HTML: their authored content stays visible, a labeled link points to the canonical article,
-  private-only state adds nothing, and each is reported with the canonical-only level.
-- Portable HTML now rewrites authored raw HTML through an allowlist: scripts, styles, event
-  handlers, forms, `<base>` and `<meta>` tags, comments, and custom elements are removed or
-  unwrapped; frames, media, SVG, and MathML become a link to the canonical article; and each
-  removal is reported as a `raw-html` capability. Raw HTML URLs resolve like Markdown links,
-  and an unsafe one (including `data:` and encoded `javascript:` URLs) fails the projection for
-  that post. Raw ids stay unique against headings and footnotes, elements stay balanced, and a
-  body over 2 MiB or 64 levels deep fails with a diagnostic instead of being truncated. Heading
-  `{key=value}` attributes no longer reach portable output. Markdown written inside a removed
-  element is removed with it; a removed element opened in an HTML block that would hide later
-  content and is never closed fails the projection; paragraphs left empty are dropped. Duplicate
-  or `ob-` heading ids are renamed, raw images without `alt` get `alt=""`, and unterminated tags
-  no longer take quadratic time. A comment split by a blank line inside an HTML block stays
-  hidden, heading ids never repeat a footnote id, and recipe sections stay well nested. Native
-  pages are unchanged.
 
 ## [0.15.0] - 2026-10-24
 
