@@ -447,13 +447,14 @@ export function bindAssistantInteractionControl(editor, button, interaction = "k
   });
 }
 
-export function codeInteractionMarkdown({ kind, title, instructions, code, expectedOutput = "", hint = "", explanation = "" }) {
+export function codeInteractionMarkdown({ kind, language = "rust", title, instructions, code, expectedOutput = "", hint = "", explanation = "" }) {
   const escapeText = (value) => String(value || "").trim().replace(/([\\`*_[\]{}<>#+\-.!|])/g, "\\$1");
   const safeTitle = String(title || "").trim().replace(/["'\r\n]/g, "").slice(0, 120);
+  const safeLanguage = /^[a-z][a-z0-9_+#.-]{0,31}$/.test(String(language || "")) ? String(language).toLowerCase() : "rust";
   const label = kind === "challenge" ? "Coding challenge" : "Runnable example";
   const lines = [`**${label}: ${escapeText(title)}**`, "", escapeText(instructions)];
   if (kind === "challenge") lines.push("", `**Expected result:** ${escapeText(expectedOutput)}`);
-  lines.push("", `\`\`\`rust runnable title="${safeTitle}"`, String(code || "").trim(), "\`\`\`");
+  lines.push("", `\`\`\`${safeLanguage} runnable title="${safeTitle}"`, String(code || "").trim(), "\`\`\`");
   if (hint.trim()) lines.push("", "> [!TIP]", ...hint.trim().split(/\r?\n/).map((line) => `> ${escapeText(line)}`));
   if (explanation.trim()) lines.push("", escapeText(explanation));
   return lines.join("\n");
@@ -4761,6 +4762,10 @@ export class Editor {
     const dialog = h("dialog", { class: "oba-dialog", "aria-labelledby": "oba-code-interaction-title" });
     const status = h("p", { class: "oba-error", role: "alert", hidden: true });
     const kind = h("select", { id: "oba-code-interaction-kind", value: "example" }, h("option", { value: "example" }, "Runnable example"), h("option", { value: "challenge" }, "Coding challenge"));
+    const availableLanguages = [...new Set(["rust", "web", ...(this.meta.codeRunnerLanguages || [])])]
+      .filter((value) => /^[a-z][a-z0-9_+#.-]{0,31}$/.test(value));
+    const language = h("select", { id: "oba-code-interaction-language", value: "rust" },
+      ...availableLanguages.map((value) => h("option", { value }, value === "web" ? "Web (HTML/CSS/JavaScript)" : value[0].toUpperCase() + value.slice(1))));
     const title = h("input", { id: "oba-code-interaction-name", type: "text", maxlength: 120, placeholder: "Ownership in action" });
     const instructions = h("textarea", { id: "oba-code-interaction-instructions", rows: 3, placeholder: "Tell the reader what to try or notice." });
     const code = h("textarea", { id: "oba-code-interaction-code", rows: 12, spellcheck: false, value: "fn main() {\n    println!(\"Hello, open.blog!\");\n}" });
@@ -4782,14 +4787,14 @@ export class Editor {
         class: "oba-btn oba-btn-primary",
         type: "button",
         onClick: async () => {
-          const generationSnapshot = JSON.stringify([kind.value, title.value, instructions.value, code.value, expectedOutput.value, hint.value, explanation.value]);
+          const generationSnapshot = JSON.stringify([kind.value, language.value, title.value, instructions.value, code.value, expectedOutput.value, hint.value, explanation.value]);
           generate.disabled = true;
           status.hidden = true;
           try {
             const result = await this.app.api.call("POST", "assistant/code-interaction", {
-              json: { context: this.interactionContext(target), kind: kind.value },
+              json: { context: this.interactionContext(target), kind: kind.value, language: language.value },
             });
-            if (generationSnapshot !== JSON.stringify([kind.value, title.value, instructions.value, code.value, expectedOutput.value, hint.value, explanation.value])) {
+            if (generationSnapshot !== JSON.stringify([kind.value, language.value, title.value, instructions.value, code.value, expectedOutput.value, hint.value, explanation.value])) {
               status.textContent = "The proposal changed while generation was running, so the returned draft was not applied.";
               status.className = "oba-error";
               status.hidden = false;
@@ -4837,14 +4842,21 @@ export class Editor {
           status.hidden = false;
           return;
         }
-        if (kind.value === "challenge" && !/^\s*\/\/.*\bTODO\b/im.test(code.value)) {
-          status.textContent = "Challenge starter code needs a visible // TODO comment.";
+        if (language.value === "web" && (!/^\s*---(?:html|css|js)\s*$/m.test(code.value) || !code.value.split(/^\s*---(?:html|css|js)\s*$/m).some((section) => section.trim()))) {
+          status.textContent = "Web interactions need a non-empty ---html, ---css, or ---js section.";
+          status.className = "oba-error";
+          status.hidden = false;
+          return;
+        }
+        if (kind.value === "challenge" && !/^\s*(?:\/\/|#|--|;|\/\*|<!--).*\bTODO\b/im.test(code.value)) {
+          status.textContent = "Challenge starter code needs a visible TODO comment.";
           status.className = "oba-error";
           status.hidden = false;
           return;
         }
         const markdown = codeInteractionMarkdown({
           kind: kind.value,
+          language: language.value,
           title: title.value,
           instructions: instructions.value,
           code: code.value,
@@ -4858,12 +4870,13 @@ export class Editor {
     }, "Insert into draft");
     dialog.append(
       h("h2", { id: "oba-code-interaction-title" }, "Add runnable code"),
-      h("p", { class: "oba-help" }, "Create one self-contained Rust example or a small challenge. Readers can edit and run it in the published post."),
+      h("p", { class: "oba-help" }, "Create a self-contained Rust or web interaction, or use a language explicitly enabled by the site's external runner. Readers review a disclosure before source is sent externally."),
       ...generation,
       this.field("oba-code-interaction-kind", "Interaction type", kind),
+      this.field("oba-code-interaction-language", "Language", language),
       this.field("oba-code-interaction-name", "Title", title),
       this.field("oba-code-interaction-instructions", "Instructions", instructions),
-      this.field("oba-code-interaction-code", "Rust code", code, "Only Rust runnable blocks are supported."),
+      this.field("oba-code-interaction-code", "Source", code, "Web source uses ---html, ---css, and ---js markers. Other configured languages run through the site's external runner."),
       outputField,
       hintField,
       this.field("oba-code-interaction-explanation", "Explanation", explanation),

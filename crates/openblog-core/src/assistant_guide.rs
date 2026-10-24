@@ -11,7 +11,7 @@ pub struct EngineCapability {
     pub contract: String,
 }
 
-pub const ENGINE_GUIDE_VERSION: u32 = 3;
+pub const ENGINE_GUIDE_VERSION: u32 = 4;
 
 pub fn engine_capabilities() -> Vec<EngineCapability> {
     let capability = |id, contract: &str| EngineCapability {
@@ -25,11 +25,11 @@ pub fn engine_capabilities() -> Vec<EngineCapability> {
         ),
         capability(
             "runnable-rust-fence",
-            "Fenced Rust code blocks marked `runnable` are native open.blog syntax. They render as editable interactive examples with Run, Reset, and Copy controls plus an optional Rust Playground fallback. Do not claim that the `runnable` option is unsupported merely because it is not standard Markdown. You may review the example itself and whether running remote code is appropriately framed.",
+            "Fenced Rust code blocks marked `runnable` are native open.blog syntax. Without a configured code runner they use the official Rust Playground with an optional fallback link. With a public codeRunner endpoint they use the site's external sandbox gateway. Both render editable Run, Reset, and Copy controls. Do not claim that `runnable` is unsupported merely because it is not standard Markdown.",
         ),
         capability(
             "runnable-code-interactions",
-            "Runnable examples and small coding challenges use portable instructions followed by either one self-contained `rust runnable` fence or a `web runnable` fence with `---html`, `---css`, and `---js` sections. Web previews run locally in an opaque-origin iframe whose CSP blocks external resources and network APIs; authored code can still navigate its own preview and must never receive secrets. A challenge should give readers a bounded task, visible TODO starter code, an expected result, and optionally a hint. Do not invent dependencies, executable Python or shell, multi-file imports, hidden tests, grading, or automatic correctness claims.",
+            "Runnable examples and small coding challenges use portable instructions followed by one self-contained runnable fence. Native choices are `rust runnable` and `web runnable` with `---html`, `---css`, and `---js` sections. A site may additionally configure an external codeRunner endpoint and an explicit language allowlist; only languages named by the request are executable. A challenge needs a bounded task, visible TODO comment, expected result, and optional hint. Never invent dependencies, shell commands, multi-file imports, hidden tests, grading, or automatic correctness claims.",
         ),
         capability(
             "web-sandbox-fence",
@@ -37,7 +37,7 @@ pub fn engine_capabilities() -> Vec<EngineCapability> {
         ),
         capability(
             "code-fence-options",
-            "Fenced code may use open.blog options for titles, line numbers, highlighted lines, runnable Rust, and runnable web sandboxes. Preserve valid fence info strings and do not rewrite them as prose.",
+            "Fenced code may use open.blog options for titles, line numbers, highlighted lines, runnable Rust, runnable web sandboxes, and languages explicitly enabled by codeRunner. An unsupported language marked runnable stays static. Preserve valid fence info strings and do not rewrite them as prose.",
         ),
         capability(
             "supported-embeds",

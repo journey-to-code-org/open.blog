@@ -32,9 +32,10 @@ use serde_json::{json, Map, Value as Json};
 use crate::assistant::{
     parse_skill, AnthropicProvider, AssistantCompletionSource, AssistantConcurrency,
     AssistantDocument, AssistantErrorKind, AssistantProvider, AssistantProviderStatus,
-    AssistantRequest, AssistantResult, CodeInteractionKind, GenericHttpsProvider,
-    KnowledgeCheckCount, NativeProvider, NativeProviderKind, ReviewContext, ReviewSkill,
-    SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
+    AssistantRequest, AssistantResult, CodeInteractionKind, CodeInteractionLanguage,
+    GenericHttpsProvider, KnowledgeCheckCount, NativeProvider, NativeProviderKind, ReviewContext,
+    ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION,
+    BUILTIN_SKILL_SOURCES,
 };
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
@@ -994,6 +995,10 @@ fn meta(state: &AppState) -> Response {
             .flatten()
             .is_some(),
     );
+    let mut code_runner_languages = vec!["rust".to_string(), "web".to_string()];
+    if !config.code_runner.endpoint.is_empty() {
+        code_runner_languages.extend(config.code_runner.languages.iter().cloned());
+    }
     Response::json(
         200,
         &json!({
@@ -1012,6 +1017,7 @@ fn meta(state: &AppState) -> Response {
             "maxUploadMb": config.admin.max_upload_mb,
             "quizGeneration": assistant_ready,
             "codeInteractionGeneration": assistant_ready,
+            "codeRunnerLanguages": code_runner_languages,
             "now": clock::now().rfc3339(),
         }),
     )
@@ -3652,10 +3658,28 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
         Some(kind) => kind,
         None => return Response::error(400, "Code interaction kind must be example or challenge"),
     };
+    let language = match CodeInteractionLanguage::parse(body["language"].as_str().unwrap_or("rust"))
+    {
+        Some(language) => language,
+        None => return Response::error(400, "Code interaction language is invalid"),
+    };
     let (config, credential) = match assistant_provider_snapshot(state) {
         Ok(snapshot) => snapshot,
         Err(response) => return response,
     };
+    let language_allowed = matches!(language.as_str(), "rust" | "web")
+        || (!config.code_runner.endpoint.is_empty()
+            && config
+                .code_runner
+                .languages
+                .iter()
+                .any(|allowed| allowed == language.as_str()));
+    if !language_allowed {
+        return Response::error(
+            400,
+            "Code interaction language is not enabled for this site",
+        );
+    }
     let provider = match configured_assistant_provider(
         &config,
         credential,
@@ -3668,6 +3692,7 @@ fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
         config.knowledge_checks.model,
         context.to_string(),
         kind,
+        language,
     );
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
@@ -7018,6 +7043,7 @@ mod tests {
         let f = fixture("assistant-code-interaction");
         let generated = json!({
             "kind": "challenge",
+            "language": "rust",
             "title": "Move the lantern",
             "instructions": "Complete the ownership transfer.",
             "code": "fn main() {\n    // TODO: move the lantern\n}",
@@ -7045,10 +7071,12 @@ mod tests {
         provider.join().unwrap();
         assert_eq!(response.status, 200);
         assert_eq!(body_json(&response)["kind"], "challenge");
+        assert_eq!(body_json(&response)["language"], "rust");
         assert!(!String::from_utf8_lossy(&response.body).contains("code-secret"));
         let outbound = captured.recv().unwrap();
         assert_eq!(outbound["task"], "code-interaction");
         assert_eq!(outbound["interactionKind"], "challenge");
+        assert_eq!(outbound["language"], "rust");
         assert_eq!(
             outbound["untrustedData"]["articleExcerpt"],
             "A section about Rust ownership."
@@ -7063,6 +7091,7 @@ mod tests {
             json!({ "context": "", "kind": "example" }),
             json!({ "context": "x".repeat(50_001), "kind": "challenge" }),
             json!({ "context": "Section", "kind": "project" }),
+            json!({ "context": "Section", "kind": "example", "language": "python" }),
         ] {
             let response = handle(
                 &f.state,

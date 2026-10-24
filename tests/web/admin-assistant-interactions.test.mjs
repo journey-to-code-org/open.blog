@@ -200,12 +200,13 @@ test("runnable-code proposals remain editable until explicit insertion", async (
       dispatchEvent() { this.inputEvents = (this.inputEvents || 0) + 1; },
     });
     const app = {
-      meta: { codeInteractionGeneration: true },
+      meta: { codeInteractionGeneration: true, codeRunnerLanguages: ["rust", "web", "python"] },
       api: {
         async call(method, path, request) {
           assert.equal(method, "POST");
           assert.equal(path, "assistant/code-interaction");
           assert.equal(request.json.kind, "challenge");
+          assert.equal(request.json.language, "rust");
           assert.match(request.json.context, /Ownership/);
           generationCalls += 1;
           if (generationCalls === 1) return new Promise((resolve) => { resolveFirstGeneration = resolve; });
@@ -225,6 +226,7 @@ test("runnable-code proposals remain editable until explicit insertion", async (
     const dialog = bodyRoot.children.find((child) => child.tagName === "DIALOG");
     assert.ok(dialog);
     assert.match(dialog.textContent, /Add runnable code/);
+    assert.match(dialog.textContent, /Python/);
     const kind = dialog.querySelector("#oba-code-interaction-kind");
     kind.value = "challenge";
     kind.listeners.change();
@@ -271,6 +273,28 @@ test("code interaction Markdown escapes authored prose but preserves runnable Ru
   assert.match(markdown, /Try \\\[this\\\] first\\\./);
   assert.match(markdown, /```rust runnable/);
   assert.match(markdown, /println!/);
+});
+
+test("code interaction Markdown emits native web and configured-runner fences", () => {
+  const web = codeInteractionMarkdown({
+    kind: "challenge",
+    language: "web",
+    title: "Reveal",
+    instructions: "Complete the handler.",
+    code: "---html\n<button>Reveal</button>\n---js\n// TODO: handle click",
+    expectedOutput: "The text appears.",
+  });
+  assert.match(web, /```web runnable title="Reveal"/);
+  assert.match(web, /---html/);
+
+  const python = codeInteractionMarkdown({
+    kind: "example",
+    language: "python",
+    title: "Echo",
+    instructions: "Enter text.",
+    code: "print(input())",
+  });
+  assert.match(python, /```python runnable title="Echo"/);
 });
 
 test("non-AI runnable-code authoring preserves a Visual selection and returns focus", () => {
