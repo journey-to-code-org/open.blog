@@ -1,10 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
 
-import { assistantReviewGroups, assistantReviewSourceChanged, assistantReviewSummary } from "../../web/admin/admin.js";
-
-const admin = fs.readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
+import { Editor, assistantReviewGroups, assistantReviewSourceChanged, assistantReviewSummary } from "../../web/admin/admin.js";
 
 test("document review disclosure names every selected input before sending", () => {
   assert.deepEqual(
@@ -15,14 +12,14 @@ test("document review disclosure names every selected input before sending", () 
       selectedSkillIds: new Set(["copy-review"]),
       context: [{ id: "private:author", name: "author.md", visibility: "private", characters: 42 }],
       selectedContextIds: new Set(["private:author"]),
-      provider: { providerType: "generic-https", model: "writer-v1" },
+      provider: { providerType: "generic-https", model: "writer-v1", destination: "https://assistant.example" },
     }),
     {
       scope: "Complete document",
       sourceCharacters: 24,
       skills: ["Copy review · 1.0.0"],
       context: ["author.md · Private · 42 characters"],
-      provider: "Generic HTTPS · writer-v1",
+      provider: "Generic HTTPS · writer-v1 · https://assistant.example",
       research: "Off",
     },
   );
@@ -66,16 +63,133 @@ test("review completion detects when the editor moved beyond the submitted snaps
   assert.equal(assistantReviewSourceChanged(submitted, { ...submitted, markdown: "New edit" }), true);
 });
 
-test("Review view submits unsaved editor state and exposes accessible result states without mutation controls", () => {
-  assert.match(admin, /api\.call\("POST", "assistant\/review"/);
-  assert.match(admin, /title: this\.ui\.title\.value/);
-  assert.match(admin, /metadata: this\.collect\(\)/);
-  assert.match(admin, /markdown: this\.ui\.body\.value/);
-  assert.match(admin, /aria-live": "polite"/);
-  assert.match(admin, /Running document review/);
-  assert.match(admin, /No findings returned/);
-  assert.match(admin, /Review finished for an older draft/);
-  assert.match(admin, /aria-label": "Review results"/);
-  assert.match(admin, /AI-generated advice/);
-  assert.doesNotMatch(admin, /applyAssistantReviewFinding/);
+test("controlled provider response renders through the mounted Review UI without changing the draft", async () => {
+  class DomNode {
+    constructor(tag = "") {
+      this.tagName = tag.toUpperCase();
+      this.children = [];
+      this.attributes = {};
+      this._text = "";
+    }
+    append(...children) {
+      this.children.push(...children);
+    }
+    replaceChildren(...children) {
+      this.children = children;
+      this._text = "";
+    }
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    }
+    addEventListener() {}
+    focus() {
+      this.focused = true;
+    }
+    set textContent(value) {
+      this._text = String(value);
+      this.children = [];
+    }
+    get textContent() {
+      return this._text + this.children.map((child) => child.textContent).join("");
+    }
+  }
+
+  const previousNode = globalThis.Node;
+  const previousDocument = globalThis.document;
+  globalThis.Node = DomNode;
+  globalThis.document = {
+    createElement: (tag) => new DomNode(tag),
+    createTextNode: (text) => {
+      const node = new DomNode("#text");
+      node.textContent = text;
+      return node;
+    },
+  };
+  try {
+    let submitted;
+    const calls = [];
+    const app = {
+      meta: {},
+      api: {
+        call: async (method, path, request) => {
+          calls.push(path);
+          if (path === "assistant/status") {
+            return {
+              providerType: "generic-https",
+              model: "writer-v1",
+              destination: "https://assistant.example",
+              configured: true,
+              capabilities: { review: true },
+              message: "Assistant provider is ready.",
+            };
+          }
+          submitted = { method, path, request };
+          return {
+            findings: [
+              {
+                id: "finding-1",
+                skillId: "copy-review",
+                severity: "medium",
+                category: "clarity",
+                title: "Clarify the opening",
+                evidence: "Draft body",
+                explanation: "Name the specific audience.",
+                suggestion: "Draft body for new readers",
+                verification: "unverified-advice",
+              },
+            ],
+          };
+        },
+      },
+    };
+    const editor = new Editor(app, { kind: "posts", path: "posts/draft.md", fields: {}, credits: null });
+    editor.ui = {
+      title: { value: "Unsaved title" },
+      body: { value: "Draft body" },
+      assistantReviewRun: { disabled: false },
+      assistantReviewStatus: new DomNode("p"),
+      assistantReviewResults: Object.assign(new DomNode("section"), { attributes: { role: "region", "aria-label": "Review results" } }),
+      assistantStatus: new DomNode("p"),
+      assistantProviderType: new DomNode("dd"),
+      assistantModel: new DomNode("dd"),
+      assistantDestination: new DomNode("dd"),
+      assistantConfigured: new DomNode("dd"),
+      assistantCapabilities: new DomNode("dd"),
+    };
+    editor.collect = () => ({ draft: "true" });
+    let disclosedDestination = "";
+    editor.renderAssistantReviewSummary = () => {
+      disclosedDestination = editor.assistantProviderStatus?.destination || "";
+    };
+    editor.selectedAssistantSkills = new Set(["copy-review"]);
+    editor.assistantContextSelected = new Set(["private:author"]);
+    editor.assistantSkills = [{ id: "copy-review", name: "Copy review" }];
+
+    await editor.runAssistantReview();
+
+    assert.deepEqual(calls, ["assistant/status", "assistant/review"]);
+    assert.equal(disclosedDestination, "https://assistant.example");
+    assert.deepEqual(submitted, {
+      method: "POST",
+      path: "assistant/review",
+      request: {
+        json: {
+          source: { title: "Unsaved title", metadata: { draft: "true" }, markdown: "Draft body" },
+          skillIds: ["copy-review"],
+          contextIds: ["private:author"],
+        },
+      },
+    });
+    assert.equal(editor.ui.body.value, "Draft body");
+    assert.equal(editor.ui.assistantReviewResults.textContent.includes("AI-generated advice"), true);
+    assert.equal(editor.ui.assistantReviewResults.textContent.includes("Clarify the opening"), true);
+    assert.equal(editor.ui.assistantReviewResults.attributes["aria-label"], "Review results");
+    assert.equal(editor.ui.assistantReviewResults.focused, true);
+    assert.equal(editor.ui.assistantReviewStatus.textContent, "1 AI-generated finding. Your draft is unchanged.");
+  } finally {
+    if (previousNode === undefined) delete globalThis.Node;
+    else globalThis.Node = previousNode;
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
 });

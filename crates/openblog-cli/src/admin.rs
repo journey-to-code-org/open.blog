@@ -29,10 +29,10 @@ use openblog_core::{
 use serde_json::{json, Map, Value as Json};
 
 use crate::assistant::{
-    parse_skill, AssistantDocument, AssistantErrorKind, AssistantProvider, AssistantProviderStatus,
-    AssistantRequest, AssistantResult, AssistantSource, AssistantTask, GenericHttpsProvider,
-    KnowledgeCheckCount, ReviewContext, ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope,
-    ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
+    parse_skill, AssistantConcurrency, AssistantDocument, AssistantErrorKind, AssistantProvider,
+    AssistantProviderStatus, AssistantRequest, AssistantResult, AssistantSource, AssistantTask,
+    GenericHttpsProvider, KnowledgeCheckCount, ReviewContext, ReviewSkill, SkillDefinition,
+    SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
 };
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
@@ -83,6 +83,8 @@ pub struct AppState {
     pub trusted_proxies: Vec<String>,
     /// Serialises publishes so two saves never run git at the same time.
     pub publish_lock: Mutex<()>,
+    /// Bounds simultaneous paid provider calls across quiz and review APIs.
+    assistant_operations: AssistantConcurrency,
     /// Last analytics backup to the branch, as a unix time.
     pub last_backup: Mutex<i64>,
     /// Small, bounded cache of generated documents served into sandboxed previews.
@@ -147,6 +149,7 @@ impl AppState {
             base_path,
             trusted_proxies,
             publish_lock: Mutex::new(()),
+            assistant_operations: AssistantConcurrency::new(2),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
         }
@@ -1021,26 +1024,10 @@ struct ProjectSkillFile {
 }
 
 fn assistant_skills_dir(root: &Path, create: bool) -> Result<PathBuf, String> {
-    let assistant = root.join("assistant");
-    let skills = assistant.join("skills");
-    for path in [&assistant, &skills] {
-        if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-            return Err(format!(
-                "assistant-managed directory {} cannot be a symlink",
-                path.display()
-            ));
-        }
-    }
+    let skills = crate::assistant_storage::contained_target(root, Path::new("assistant/skills"))?;
     if create {
         fs::create_dir_all(&skills)
             .map_err(|error| format!("cannot create {}: {error}", skills.display()))?;
-    }
-    if skills.exists() {
-        let canonical_root = fs::canonicalize(root).map_err(|error| error.to_string())?;
-        let canonical_skills = fs::canonicalize(&skills).map_err(|error| error.to_string())?;
-        if !canonical_skills.starts_with(&canonical_root) {
-            return Err("assistant skills directory resolves outside the project".into());
-        }
     }
     Ok(skills)
 }
@@ -1434,8 +1421,8 @@ fn assistant_context_target(
         }
     };
     let (visibility, base) = match visibility {
-        "portable" => ("portable", root.join("assistant/context")),
-        "private" => ("private", root.join(".openblog/private/context")),
+        "portable" => ("portable", PathBuf::from("assistant/context")),
+        "private" => ("private", PathBuf::from(".openblog/private/context")),
         _ => {
             return Err(Response::error(
                 400,
@@ -1443,21 +1430,8 @@ fn assistant_context_target(
             ))
         }
     };
-    let target = base.join(relative);
-    let mut cursor = root.to_path_buf();
-    for component in target
-        .strip_prefix(root)
-        .map_err(|_| Response::error(400, "Assistant context path escaped the project"))?
-        .components()
-    {
-        cursor.push(component);
-        if fs::symlink_metadata(&cursor).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-            return Err(Response::error(
-                400,
-                "Assistant context paths cannot contain symbolic links",
-            ));
-        }
-    }
+    let target = crate::assistant_storage::contained_target(root, &base.join(relative))
+        .map_err(|error| Response::error(400, &error))?;
     Ok((target, context_type, visibility))
 }
 
@@ -1554,8 +1528,11 @@ fn assistant_reference_target(
         ));
     }
     let (visibility, base) = match visibility {
-        "portable" => ("portable", root.join("assistant/context/references")),
-        "private" => ("private", root.join(".openblog/private/context/references")),
+        "portable" => ("portable", PathBuf::from("assistant/context/references")),
+        "private" => (
+            "private",
+            PathBuf::from(".openblog/private/context/references"),
+        ),
         _ => {
             return Err(Response::error(
                 400,
@@ -1563,21 +1540,8 @@ fn assistant_reference_target(
             ))
         }
     };
-    let target = base.join(name);
-    let mut cursor = root.to_path_buf();
-    for component in target
-        .strip_prefix(root)
-        .map_err(|_| Response::error(400, "Reference path escaped the project"))?
-        .components()
-    {
-        cursor.push(component);
-        if fs::symlink_metadata(&cursor).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-            return Err(Response::error(
-                400,
-                "Assistant reference paths cannot contain symbolic links",
-            ));
-        }
-    }
+    let target = crate::assistant_storage::contained_target(root, &base.join(name))
+        .map_err(|error| Response::error(400, &error))?;
     Ok((target, visibility))
 }
 
@@ -2068,12 +2032,12 @@ fn resolve_review_context(root: &Path, id: &str) -> Result<ReviewContext, Respon
             "Selected context is unavailable or invalid",
         ));
     }
-    Ok(ReviewContext {
-        id: id.to_string(),
-        name: document["name"].as_str().unwrap_or("").to_string(),
-        visibility: document["visibility"].as_str().unwrap_or("").to_string(),
-        content: document["content"].as_str().unwrap_or("").to_string(),
-    })
+    ReviewContext::new(
+        id,
+        document["name"].as_str().unwrap_or(""),
+        document["content"].as_str().unwrap_or(""),
+    )
+    .map_err(|error| Response::error(400, error))
 }
 
 fn selected_ids(body: &Json, field: &str, maximum: usize) -> Result<Vec<String>, Response> {
@@ -2212,6 +2176,15 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
             hash: hash.clone(),
         }),
     };
+    let _provider_permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => {
+            return Response::json(
+                429,
+                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
+            )
+        }
+    };
     let findings = match provider.generate(&request) {
         Ok(AssistantResult::Review(findings)) => findings,
         Ok(AssistantResult::KnowledgeChecks(_)) => {
@@ -2231,7 +2204,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
             "sourceHash": hash,
             "scope": { "kind": "document", "start": 0, "end": markdown.chars().count(), "unit": "unicode-code-points" },
             "skills": skills.iter().map(|skill| json!({ "id": skill.id, "version": skill.version })).collect::<Vec<_>>(),
-            "context": context.iter().map(|document| json!({ "id": document.id, "name": document.name, "visibility": document.visibility })).collect::<Vec<_>>(),
+            "context": context.iter().map(|document| json!({ "id": document.identity(), "name": document.name(), "visibility": document.visibility().as_str() })).collect::<Vec<_>>(),
             "provider": { "type": "generic-https", "model": config.knowledge_checks.model },
             "research": { "enabled": false },
             "createdAt": clock::now().rfc3339(),
@@ -2300,9 +2273,9 @@ fn retrieve_url_context(req: &Request) -> Response {
 }
 
 fn url_context_directory(root: &Path, visibility: &str) -> Result<PathBuf, Response> {
-    let path = match visibility {
-        "portable" => root.join("assistant/context/references"),
-        "private" => root.join(".openblog/private/context/references"),
+    let relative = match visibility {
+        "portable" => Path::new("assistant/context/references"),
+        "private" => Path::new(".openblog/private/context/references"),
         _ => {
             return Err(Response::error(
                 400,
@@ -2310,20 +2283,8 @@ fn url_context_directory(root: &Path, visibility: &str) -> Result<PathBuf, Respo
             ))
         }
     };
-    let relative = path
-        .strip_prefix(root)
-        .map_err(|_| Response::error(400, "URL snapshot path escaped the project"))?;
-    let mut cursor = root.to_path_buf();
-    for component in relative.components() {
-        cursor.push(component);
-        if fs::symlink_metadata(&cursor).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-            return Err(Response::error(
-                400,
-                "URL snapshot paths cannot contain symbolic links",
-            ));
-        }
-    }
-    Ok(path)
+    crate::assistant_storage::contained_target(root, relative)
+        .map_err(|error| Response::error(400, &error))
 }
 
 fn assistant_url_context_documents(root: &Path, visibility: &str) -> Result<Vec<Json>, Response> {
@@ -2490,6 +2451,15 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         },
         model: config.knowledge_checks.model,
         source: AssistantSource::Excerpt(context.to_string()),
+    };
+    let _provider_permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => {
+            return Response::error(
+                429,
+                "Two Assistant operations are already running; try again shortly",
+            )
+        }
     };
     match provider.generate(&request) {
         Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
@@ -4810,12 +4780,16 @@ mod tests {
         assert_eq!(missing_json["capabilities"]["knowledgeChecks"], true);
         assert_eq!(missing_json["capabilities"]["review"], true);
         assert_eq!(missing_json["capabilities"]["context"], true);
+        assert_eq!(missing_json["capabilities"]["interactions"], false);
         assert!(missing_json["message"]
             .as_str()
             .unwrap()
             .contains("Non-AI authoring remains available"));
 
-        set_quiz_endpoint(&f, "https://assistant.example/generate");
+        set_quiz_endpoint(
+            &f,
+            "https://endpoint-user:endpoint-password@assistant.example:8443/generate?api_key=query-secret",
+        );
         std::env::set_var("OPENBLOG_LESSONS_API_KEY", "provider-secret-value");
         let configured = handle(
             &f.state,
@@ -4825,9 +4799,43 @@ mod tests {
         let configured_json = body_json(&configured);
         assert_eq!(configured_json["configured"], true);
         assert_eq!(configured_json["model"], "test");
+        assert_eq!(
+            configured_json["destination"],
+            "https://assistant.example:8443"
+        );
         let configured_body = String::from_utf8_lossy(&configured.body);
         assert!(!configured_body.contains("provider-secret-value"));
-        assert!(!configured_body.contains("assistant.example"));
+        assert!(!configured_body.contains("endpoint-user"));
+        assert!(!configured_body.contains("endpoint-password"));
+        assert!(!configured_body.contains("query-secret"));
+    }
+
+    #[test]
+    fn assistant_generation_rejects_calls_beyond_the_server_limit() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-concurrency-limit");
+        let session = login_ok(&f);
+        set_quiz_endpoint(&f, "https://assistant.example/generate");
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "test-secret");
+        let _first = f.state.assistant_operations.try_acquire().unwrap();
+        let _second = f.state.assistant_operations.try_acquire().unwrap();
+
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/quiz/generate",
+                    json!({ "context": "Unsaved lesson", "count": 1 }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(response.status, 429);
+        assert!(String::from_utf8_lossy(&response.body).contains("already running"));
     }
 
     #[test]
@@ -5541,7 +5549,7 @@ mod tests {
             .iter()
             .any(|document| document["name"] == "rust-guide.md"));
         let selected = resolve_review_context(&f.dir, "portable:reference:rust-guide").unwrap();
-        assert_eq!(selected.content, "# Stable reference\n\nSaved once.");
+        assert_eq!(selected.content(), "# Stable reference\n\nSaved once.");
 
         let duplicate = handle(
             &f.state,

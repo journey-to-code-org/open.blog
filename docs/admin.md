@@ -60,10 +60,25 @@ in the browser and does not change the published theme.
 
 For posts, press `Alt+0` to open **Assistant**. Its provider card reports the provider type,
 model, configured state, and supported capabilities without returning the credential or
-configured endpoint to the browser. Review, Interactions, and Context remain useful labelled
-work areas; Review and Interactions remain empty until their later workflows are available,
-while Context manages author, site, and post notes plus selected sources. Provider failures do not disable
-ordinary non-AI authoring.
+configured endpoint path, query, or user information to the browser. The provider card and Review
+disclosure show only the safe destination origin so authors know which service receives selected
+material. Review, Interactions, and Context remain labelled work areas. Interactions remains a
+placeholder for a later delivery, while Context manages author, site, and post notes plus selected
+sources. Provider failures do not disable ordinary non-AI authoring.
+
+### Review an unsaved document
+
+Open **Assistant → Review** to review the current unsaved title, metadata, and Markdown without
+saving first. Select one or more review skills and any context the provider should receive, then
+inspect the disclosure: it lists the complete-document scope, approximate source size, every skill
+and context item, provider model and safe destination origin, and confirms external research is off.
+Nothing is sent until **Run document review** is pressed.
+
+Validated findings are grouped under their originating skill and visibly labelled **AI-generated
+advice**. Each finding shows its severity, category, exact source evidence, explanation, optional
+suggested replacement, and whether it is unverified advice or based on supplied context. The current
+review workflow is non-mutating: it does not apply suggestions, save the post, or publish anything.
+Provider errors, invalid results, and edits made while a review is running leave the draft unchanged.
 
 ### Manage Assistant context
 
