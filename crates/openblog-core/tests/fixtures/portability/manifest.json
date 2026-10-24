@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "standard-unicode",
+      "source": "standard-unicode.md",
+      "visibility": "public",
+      "capabilities": [
+        { "id": "hosted-discussion", "semantics": "a moderated discussion associated with the canonical work", "portability": "canonical-only-interaction" }
+      ]
+    },
+    {
+      "id": "research-credits",
+      "source": "research-credits.md",
+      "creditSource": "research-credits.credits.json",
+      "visibility": "public",
+      "capabilities": [
+        { "id": "citation", "semantics": "an in-text pointer connecting a passage to a reference", "portability": "fully-portable" },
+        { "id": "work-credit", "semantics": "an ordered contributor relationship with explicitly named roles", "portability": "gracefully-transformed" }
+      ]
+    },
+    {
+      "id": "legacy-recipe",
+      "source": "legacy-recipe.md",
+      "visibility": "public",
+      "capabilities": []
+    },
+    {
+      "id": "interactive-media",
+      "source": "interactive-media.md",
+      "visibility": "public",
+      "capabilities": [
+        { "id": "callout", "semantics": "a labelled supplemental note, tip, warning, or caution", "portability": "fully-portable" },
+        { "id": "quiz", "semantics": "a question, answer choices, correct answer, and optional explanation", "portability": "gracefully-transformed" },
+        { "id": "runnable-code", "semantics": "source code that may be edited and executed by a reader", "portability": "gracefully-transformed" },
+        { "id": "embed", "semantics": "a referenced external resource shown in document context", "portability": "gracefully-transformed" }
+      ]
+    },
+    {
+      "id": "hostile-future",
+      "source": "hostile-future.md",
+      "visibility": "public",
+      "capabilities": [
+        { "id": "future-widget", "semantics": "meaning preserved for a future renderer", "portability": "unknown" }
+      ]
+    },
+    {
+      "id": "draft",
+      "source": "draft.md",
+      "visibility": "draft",
+      "capabilities": []
+    },
+    {
+      "id": "private-context",
+      "source": "private-context.md",
+      "visibility": "private",
+      "capabilities": []
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "credits": [
+    {
+      "contributor": "ada",
+      "roles": [{ "vocabulary": "crossref", "role": "author" }]
+    },
+    {
+      "contributor": "grace",
+      "roles": [{ "vocabulary": "credit", "role": "software" }]
+    }
+  ]
+}
