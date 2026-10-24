@@ -11,31 +11,33 @@ If you are new, read these in order; each one stands alone otherwise.
    counts on a static host, and a counter you can host for free.
 5. [Cross-posting](cross-posting.md): safely syndicate articles to Hashnode, DEV, Medium,
    Ghost, and WordPress without leaking credentials or creating duplicate originals.
-6. [Themes and the design system](themes.md): how a theme is built from design tokens,
+6. [Content capability portability](content-portability.md): the evidence-backed matrix of
+   implemented, partial, and planned behavior across native pages, feeds, preview, and syndication.
+7. [Themes and the design system](themes.md): how a theme is built from design tokens,
    light and dark, per-series themes, and making your own.
-7. [Adding web components to a theme](theme-components.md): scripts, heading effects,
+8. [Adding web components to a theme](theme-components.md): scripts, heading effects,
    and the demo theme to copy from.
-8. [The admin editor](admin.md): the writing workspace, production-faithful theme and
+9. [The admin editor](admin.md): the writing workspace, production-faithful theme and
    social previews, search, answer-readiness and accessibility guidance, optional AI review,
    safe suggestion application, knowledge-check proposals, opt-in autocomplete, provider
    configuration, scheduling, and safe operation.
-9. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
+10. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
    Supabase-backed Netlify comments and analytics, syntax highlighting, related posts, a CDN, and
    slots for comments or newsletters.
-10. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
+11. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
    and machine-access analytics.
-11. [Accessibility checks and manual review](accessibility.md): source findings, outcome
+12. [Accessibility checks and manual review](accessibility.md): source findings, outcome
    meanings, known limits, and a rendered-site review workflow.
-12. [Research posts and Evidence Studio](research-profile.md): DOI and license fields,
+13. [Research posts and Evidence Studio](research-profile.md): DOI and license fields,
    visible references, contributor-credit demonstration, scholarly metadata, deterministic
    evidence checks, and their limits.
-13. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
+14. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
    chapter validation, structured data, and reusable release copy.
-14. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,
+15. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,
    trail facts, route drawings, and enforceable location-privacy modes.
-15. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-16. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
-17. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
+16. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+17. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+18. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).

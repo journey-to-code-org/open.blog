@@ -106,6 +106,16 @@ export function checkMarkdownFiles(files, root = process.cwd()) {
       ...source.matchAll(/^\s*\[[^\]]+\]:\s+(\S+)/gm),
     ];
     for (const match of links.sort((left, right) => left.index - right.index)) {
+      const issueReference = match[0].match(
+        /^\[#(\d+)\]\(https:\/\/github\.com\/journey-to-code-org\/open\.blog\/issues\/(\d+)(?:\s+[^)]*)?\)$/i,
+      );
+      if (issueReference && issueReference[1] !== issueReference[2]) {
+        problems.push({
+          file,
+          line: lineAt(source, match.index),
+          message: `issue label #${issueReference[1]} points to repository issue #${issueReference[2]}`,
+        });
+      }
       const target = localTarget(match[1]);
       if (!target) continue;
       const resolved = target.pathname ? path.resolve(path.dirname(file), target.pathname) : file;

@@ -94,3 +94,49 @@ test("documentation links validate relative files and anchors while ignoring exa
     ["missing anchor #missing-here in docs/index.md", "missing anchor #missing-section in docs/guide.md", "missing file docs/missing.md"],
   );
 });
+
+test("documentation links keep repository issue labels aligned with their targets", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "openblog-doc-issues-"));
+  const index = path.join(root, "README.md");
+  await writeFile(
+    index,
+    [
+      "[#107](https://github.com/journey-to-code-org/open.blog/issues/107)",
+      "[#108](https://github.com/journey-to-code-org/open.blog/issues/109)",
+    ].join("\n"),
+  );
+
+  const problems = checkMarkdownFiles([index], root);
+  assert.deepEqual(problems.map(({ message }) => message), ["issue label #108 points to repository issue #109"]);
+});
+
+test("the portability matrix covers every required capability with valid citations", async () => {
+  const root = path.resolve(import.meta.dirname, "../..");
+  const matrix = path.join(root, "docs", "content-portability.md");
+  const source = await readFile(matrix, "utf8");
+  const capabilities = [
+    "Articles",
+    "Research and citations",
+    "Credits and bylines",
+    "Recipes",
+    "Callouts",
+    "Quizzes",
+    "Runnable code",
+    "Video and audio",
+    "Timestamps",
+    "Shared Perspectives",
+    "Questions and discussions",
+    "Reflections",
+    "Source previews",
+    "Guided explanations",
+    "Knowledge relationships",
+    "Translation comparisons",
+    "Timelines",
+    "Diagrams",
+  ];
+
+  for (const capability of capabilities) {
+    assert.match(source, new RegExp(`^\\| ${capability.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")} \\|`, "m"));
+  }
+  assert.deepEqual(checkMarkdownFiles([matrix], root), []);
+});
