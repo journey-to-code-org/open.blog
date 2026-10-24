@@ -28,8 +28,9 @@ use openblog_core::{
 use serde_json::{json, Map, Value as Json};
 
 use crate::assistant::{
-    AssistantErrorKind, AssistantProvider, AssistantRequest, AssistantResult, AssistantSource,
-    AssistantTask, KnowledgeCheckCount, LegacyQuizEndpoint, ASSISTANT_SCHEMA_VERSION,
+    AssistantErrorKind, AssistantProvider, AssistantProviderStatus, AssistantRequest,
+    AssistantResult, AssistantSource, AssistantTask, KnowledgeCheckCount, LegacyQuizEndpoint,
+    ASSISTANT_SCHEMA_VERSION,
 };
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
@@ -417,6 +418,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             &json!({ "user": session.user, "csrf": session.csrf, "now": clock::now().rfc3339() }),
         ),
         ("GET", "meta") => meta(state),
+        ("GET", "assistant/status") => assistant_status(state),
         ("GET", "contributors") => get_contributors(state),
         ("PUT", "contributors") => save_contributors(state, req),
         ("GET", "status") => status(state),
@@ -975,6 +977,23 @@ fn meta(state: &AppState) -> Response {
                 && std::env::var("OPENBLOG_LESSONS_API_KEY").is_ok_and(|key| !key.trim().is_empty()),
             "now": clock::now().rfc3339(),
         }),
+    )
+}
+
+fn assistant_status(state: &AppState) -> Response {
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(_) => return Response::error(500, "Cannot read assistant configuration"),
+    };
+    let credential_configured =
+        std::env::var("OPENBLOG_LESSONS_API_KEY").is_ok_and(|value| !value.trim().is_empty());
+    Response::json(
+        200,
+        &json!(AssistantProviderStatus::legacy_quiz(
+            &config.knowledge_checks.generation_endpoint,
+            &config.knowledge_checks.model,
+            credential_configured,
+        )),
     )
 }
 
@@ -3118,6 +3137,49 @@ mod tests {
         assert_eq!(profiles[3]["id"], "video");
         assert_eq!(profiles[3]["fields"][0]["key"], "videoUrl");
         assert_eq!(profiles[3]["fields"][1]["kind"], "duration");
+    }
+
+    #[test]
+    fn assistant_status_is_authenticated_and_never_exposes_credentials() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-status");
+
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/assistant/status")).status,
+            401
+        );
+
+        let session = login_ok(&f);
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        let missing = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(missing.status, 200);
+        let missing_json = body_json(&missing);
+        assert_eq!(missing_json["providerType"], "generic-https");
+        assert_eq!(missing_json["configured"], false);
+        assert_eq!(missing_json["capabilities"]["knowledgeChecks"], true);
+        assert_eq!(missing_json["capabilities"]["review"], false);
+        assert!(missing_json["message"]
+            .as_str()
+            .unwrap()
+            .contains("Non-AI authoring remains available"));
+
+        set_quiz_endpoint(&f, "https://assistant.example/generate");
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "provider-secret-value");
+        let configured = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(configured.status, 200);
+        let configured_json = body_json(&configured);
+        assert_eq!(configured_json["configured"], true);
+        assert_eq!(configured_json["model"], "test");
+        let configured_body = String::from_utf8_lossy(&configured.body);
+        assert!(!configured_body.contains("provider-secret-value"));
+        assert!(!configured_body.contains("assistant.example"));
     }
 
     #[test]

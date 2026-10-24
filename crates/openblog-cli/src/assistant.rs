@@ -12,6 +12,66 @@ use serde_json::{json, Value as Json};
 
 pub const ASSISTANT_SCHEMA_VERSION: u32 = 1;
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantCapabilities {
+    pub review: bool,
+    pub interactions: bool,
+    pub context: bool,
+    pub knowledge_checks: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantProviderStatus {
+    pub provider_type: &'static str,
+    pub model: String,
+    pub configured: bool,
+    pub state: &'static str,
+    pub message: &'static str,
+    pub capabilities: AssistantCapabilities,
+}
+
+impl AssistantProviderStatus {
+    pub fn legacy_quiz(endpoint: &str, model: &str, credential_configured: bool) -> Self {
+        let endpoint = endpoint.trim();
+        let (configured, state, message) = if endpoint.is_empty() {
+            (
+                false,
+                "missing",
+                "Set knowledgeChecks.generationEndpoint in openblog.json and OPENBLOG_LESSONS_API_KEY in the server environment. Non-AI authoring remains available.",
+            )
+        } else if !endpoint.starts_with("https://") {
+            (
+                false,
+                "invalid",
+                "The configured assistant endpoint must use HTTPS. Non-AI authoring remains available.",
+            )
+        } else if !credential_configured {
+            (
+                false,
+                "missing",
+                "Set OPENBLOG_LESSONS_API_KEY in the server environment. Non-AI authoring remains available.",
+            )
+        } else {
+            (true, "ready", "Assistant provider is ready.")
+        };
+        Self {
+            provider_type: "generic-https",
+            model: model.trim().to_string(),
+            configured,
+            state,
+            message,
+            capabilities: AssistantCapabilities {
+                review: false,
+                interactions: true,
+                context: false,
+                knowledge_checks: true,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssistantRequest {
     pub schema_version: u32,

@@ -22,7 +22,20 @@ test("editor has named writing, preview, release, optimization, accessibility, a
   assert.match(admin, /"data-pane": "optimize"/);
   assert.match(admin, /"data-pane": "accessibility"/);
   assert.match(admin, /"data-pane": "evidence"/);
+  assert.match(admin, /"data-pane": "assistant"/);
   assert.match(admin, /"aria-label": "Editor views"/);
+});
+
+test("Assistant workspace exposes safe provider status and labelled empty views", () => {
+  assert.match(admin, /api\.call\("GET", "assistant\/status"\)/);
+  assert.match(admin, /"aria-label": "Assistant views"/);
+  assert.match(admin, /Review/);
+  assert.match(admin, /Interactions/);
+  assert.match(admin, /Context/);
+  assert.match(admin, /Loading assistant configuration/);
+  assert.match(admin, /role: "status", "aria-live": "polite"/);
+  assert.match(admin, /Alt\+0/);
+  assert.doesNotMatch(admin, /OPENBLOG_LESSONS_API_KEY[^"'`]*(?:value|credential|secret)/i);
 });
 
 test("editors expose one explicitly selected view at every width", () => {
@@ -38,6 +51,7 @@ test("editors expose one explicitly selected view at every width", () => {
   assert.match(styles, /\.oba-editor\[data-editor-view="optimize"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="accessibility"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="evidence"\]/);
+  assert.match(styles, /\.oba-editor\[data-editor-view="assistant"\]/);
 });
 
 test("video release kit stays local and exposes decision-ready copy", () => {
