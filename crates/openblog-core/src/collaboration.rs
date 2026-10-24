@@ -17,6 +17,9 @@ pub const MAX_DISPLAY_NAME_BYTES: usize = 200;
 pub const MAX_PROFILE_URL_BYTES: usize = 2_048;
 pub const MAX_MARKDOWN_BYTES: usize = 64 * 1024;
 pub const MAX_REGION_BYTES: usize = 64;
+pub const COLLABORATION_AUTHORIZATION_VERSION: u8 = 1;
+pub const MAX_AUTHORIZATION_POLICY_BYTES: usize = 64 * 1024;
+pub const MAX_AUTHORIZATION_BINDINGS: usize = MAX_PARTICIPANTS;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -77,6 +80,206 @@ pub struct PairProjection<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CollaborationError {
     InvalidContract,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AuthorizationPolicy {
+    pub version: u8,
+    pub revision: u64,
+    pub publication_id: String,
+    pub bindings: Vec<IdentityBinding>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct IdentityBinding {
+    pub admin_user: String,
+    pub contributor_id: String,
+    pub participant_id: String,
+    pub roles: Vec<AuthorizationRole>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AuthorizationRole {
+    SiteOwner,
+    Coordinator,
+    Contributor,
+    Editor,
+    Reader,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthorizationAction {
+    ViewPublished,
+    ViewRevealed,
+    ViewContribution,
+    EditContribution,
+    Invite,
+    RevealContribution,
+    ApproveContribution,
+    Schedule,
+    Publish,
+    RemoveMember,
+    Export,
+}
+
+pub struct AuthorizationContext<'a> {
+    pub publication_id: &'a str,
+    pub authenticated_admin_user: &'a str,
+    pub active_admin_users: &'a [&'a str],
+    pub contributor_ids: &'a [&'a str],
+    pub collaboration: &'a CollaborationContract,
+    pub target_participant_id: Option<&'a str>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AuthorizationError;
+
+impl fmt::Display for AuthorizationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("collaboration access denied")
+    }
+}
+
+impl std::error::Error for AuthorizationError {}
+
+impl AuthorizationPolicy {
+    pub fn from_json(source: &str) -> Result<Self, AuthorizationError> {
+        if source.len() > MAX_AUTHORIZATION_POLICY_BYTES {
+            return Err(AuthorizationError);
+        }
+        let policy: Self = serde_json::from_str(source).map_err(|_| AuthorizationError)?;
+        if policy.version != COLLABORATION_AUTHORIZATION_VERSION
+            || !valid_id(&policy.publication_id)
+            || policy.bindings.len() > MAX_AUTHORIZATION_BINDINGS
+        {
+            return Err(AuthorizationError);
+        }
+        let mut admin_users = HashSet::with_capacity(policy.bindings.len());
+        let mut contributor_ids = HashSet::with_capacity(policy.bindings.len());
+        let mut participant_ids = HashSet::with_capacity(policy.bindings.len());
+        for binding in &policy.bindings {
+            let mut roles = HashSet::with_capacity(binding.roles.len());
+            if !valid_id(&binding.admin_user)
+                || !valid_id(&binding.contributor_id)
+                || !valid_id(&binding.participant_id)
+                || binding.roles.is_empty()
+                || !admin_users.insert(binding.admin_user.as_str())
+                || !contributor_ids.insert(binding.contributor_id.as_str())
+                || !participant_ids.insert(binding.participant_id.as_str())
+                || binding.roles.iter().any(|role| !roles.insert(*role))
+            {
+                return Err(AuthorizationError);
+            }
+        }
+        Ok(policy)
+    }
+
+    /// Replace the complete publication policy after an optimistic revision check.
+    /// Returning a new value keeps malformed, stale, or cross-publication input atomic.
+    pub fn replace_from_json(
+        &self,
+        source: &str,
+        expected_revision: u64,
+    ) -> Result<Self, AuthorizationError> {
+        if self.revision != expected_revision {
+            return Err(AuthorizationError);
+        }
+        let replacement = Self::from_json(source)?;
+        if replacement.publication_id != self.publication_id
+            || expected_revision.checked_add(1) != Some(replacement.revision)
+        {
+            return Err(AuthorizationError);
+        }
+        Ok(replacement)
+    }
+
+    pub fn authorize<'a>(
+        &'a self,
+        context: &AuthorizationContext<'_>,
+        action: AuthorizationAction,
+    ) -> Result<&'a IdentityBinding, AuthorizationError> {
+        if self.publication_id != context.publication_id
+            || !context
+                .active_admin_users
+                .contains(&context.authenticated_admin_user)
+        {
+            return Err(AuthorizationError);
+        }
+        let binding = self
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == context.authenticated_admin_user)
+            .ok_or(AuthorizationError)?;
+        if !context
+            .contributor_ids
+            .contains(&binding.contributor_id.as_str())
+            || !context
+                .collaboration
+                .participants
+                .iter()
+                .any(|participant| participant.id == binding.participant_id)
+        {
+            return Err(AuthorizationError);
+        }
+
+        let target = match action {
+            AuthorizationAction::ViewContribution
+            | AuthorizationAction::EditContribution
+            | AuthorizationAction::RevealContribution
+            | AuthorizationAction::ApproveContribution
+            | AuthorizationAction::RemoveMember => {
+                let target = context.target_participant_id.ok_or(AuthorizationError)?;
+                if !context
+                    .collaboration
+                    .participants
+                    .iter()
+                    .any(|participant| participant.id == target)
+                {
+                    return Err(AuthorizationError);
+                }
+                Some(target)
+            }
+            _ => None,
+        };
+        let allowed = binding
+            .roles
+            .iter()
+            .any(|role| role_allows(*role, action, target, &binding.participant_id));
+        if !allowed {
+            return Err(AuthorizationError);
+        }
+        Ok(binding)
+    }
+}
+
+fn role_allows(
+    role: AuthorizationRole,
+    action: AuthorizationAction,
+    target_participant_id: Option<&str>,
+    own_participant_id: &str,
+) -> bool {
+    use AuthorizationAction::*;
+    use AuthorizationRole::*;
+
+    match (role, action) {
+        (
+            SiteOwner | Coordinator,
+            ViewPublished | ViewRevealed | Invite | Schedule | Publish | RemoveMember | Export,
+        ) => true,
+        (Contributor, ViewPublished | ViewRevealed | Export) => true,
+        (
+            Contributor,
+            ViewContribution | EditContribution | RevealContribution | ApproveContribution,
+        ) => target_participant_id == Some(own_participant_id),
+        (Editor, ViewPublished | ViewRevealed | ViewContribution | EditContribution | Export) => {
+            true
+        }
+        (Reader, ViewPublished | ViewRevealed | Export) => true,
+        _ => false,
+    }
 }
 
 impl fmt::Display for CollaborationError {

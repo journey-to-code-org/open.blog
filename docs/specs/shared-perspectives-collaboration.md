@@ -70,6 +70,62 @@ state cannot change source Markdown, canonical content, feeds, or public output.
 | Markdown per contribution | 64 KiB |
 | Layout region | 64 bytes |
 
+## Authorization policy
+
+Authentication, public attribution, and publication access remain three separate relationships:
+
+- An Admin account proves who signed in. Removing the account invalidates its sessions through the
+  existing Admin authentication boundary.
+- A contributor registry entry supplies public credit identity. It grants no login or access.
+- A publication policy deliberately binds one active Admin account and one current contributor ID
+  to one participant ID from that publication's collaboration contract.
+
+The version 1 policy is group-safe and contains no pair-specific fields:
+
+```json
+{
+  "version": 1,
+  "revision": 7,
+  "publicationId": "shared-reflection",
+  "bindings": [
+    {
+      "adminUser": "ada-admin",
+      "contributorId": "ada",
+      "participantId": "ada-participant",
+      "roles": ["coordinator", "contributor"]
+    }
+  ]
+}
+```
+
+Bindings are one-to-one within a publication: Admin account, contributor ID, and participant ID
+cannot repeat. A binding may carry multiple distinct roles. Authorization checks the publication,
+currently authenticated account, active Admin-user set, current contributor registry, current
+participant collection, requested action, and (for participant-owned actions) target participant on
+every request. Missing, removed, renamed, stale, cross-publication, or unbound identities deny by
+default.
+
+| Role | View published | View revealed | View contribution | Edit contribution | Invite | Reveal | Approve | Schedule | Publish | Remove member | Export |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Site owner | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Yes | Yes |
+| Coordinator | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Yes | Yes |
+| Contributor | Yes | Yes | Own | Own | No | Own | Own | No | No | No | Yes |
+| Editor | Yes | Yes | Yes | Yes | No | No | No | No | No | No | Yes |
+| Reader | Yes | Yes | No | No | No | No | No | No | No | No | Yes |
+
+An editor may edit without becoming the attributed author and cannot reveal or approve for a
+participant. An authorization grant for `Approve` only permits the bound participant to submit an
+approval; it does not create one. Site-owner or coordinator authority to schedule or publish does
+not manufacture or bypass participant approvals. Exact-revision consent and the transactional
+publication gate remain separate contracts.
+
+The policy is capped at 64 KiB and 100 bindings. Unknown fields are rejected, so Markdown, URLs,
+credentials, tokens, provider claims, and arbitrary metadata cannot enter it. Parsing,
+authorization, and optimistic whole-policy replacement return the same non-identifying denial;
+replacement must keep the publication ID and advance the observed revision by exactly one.
+Because the policy has no document, renderer, feed, export, filesystem, or network integration,
+denial cannot mutate canonical content or public output.
+
 ## Validation and failure contract
 
 - Unknown fields are rejected. Credentials, session tokens, arbitrary metadata, and provider
@@ -85,6 +141,8 @@ state cannot change source Markdown, canonical content, feeds, or public output.
 - Replacement is whole-contract and optimistic: the caller supplies the observed revision and the
   replacement must advance it by exactly one. Stale, malformed, oversized, or invalid replacements
   return no new value and cannot partially mutate the current contract.
+- Authorization-policy parsing, decisions, and replacement expose no submitted identity or private
+  participant data in errors.
 
 ## Testing contract
 
@@ -93,6 +151,10 @@ duplicates, and references to a removed participant. Boundary fixtures cover unt
 identities, URLs, Markdown, atomic revision replacement, and private errors. Because this module has
 no renderer, Admin, filesystem, or network integration, canonical content and public output remain
 unchanged by construction.
+
+Authorization matrix fixtures cover every role and action plus confused-deputy targeting, removed
+Admin users, renamed contributors, removed participants, unbound accounts, cross-publication use,
+hostile fields, group sizes, and atomic policy replacement.
 
 ## Out of scope
 
