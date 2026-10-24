@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Made review verification labels context-aware and conservatively downgrade unsupported
+  `supplied-context` claims to unverified advice instead of discarding an otherwise valid review.
 - Extended native Anthropic Assistant requests to four minutes while preserving the existing
   30-second custom-provider deadline, allowing first-use structured-output grammar compilation.
 - Constrained native Anthropic Assistant replies with task-specific JSON schemas so every review
