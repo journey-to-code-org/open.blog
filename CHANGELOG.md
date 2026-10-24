@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-10-24
+
 - Web sandbox HTML, CSS, and JavaScript editors and configured-runner lessons now use the same
   editable-code surface as Rust playgrounds: a labelled editor bar, syntax colouring and optional
   line numbers from the static code blocks, the same focus ring, and matching Run, Reset, and note
