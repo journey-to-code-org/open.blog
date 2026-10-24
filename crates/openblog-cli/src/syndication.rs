@@ -593,7 +593,20 @@ fn absolutize_markdown(markdown: &str, config: &SiteConfig) -> Result<String, St
     let mut spans = Vec::new();
     let mut code_block = false;
     let mut raw_inline_element = None;
-    for (event, range) in Parser::new_ext(markdown, MarkdownOptions::all()).into_offset_iter() {
+    let mut parser = Parser::new_ext(markdown, MarkdownOptions::all()).into_offset_iter();
+    let events: Vec<_> = parser.by_ref().collect();
+    spans.extend(
+        parser
+            .reference_definitions()
+            .iter()
+            .map(|(_, definition)| {
+                (
+                    definition.span.clone(),
+                    MarkdownSpanKind::ReferenceDefinition,
+                )
+            }),
+    );
+    for (event, range) in events {
         let kind = match event {
             Event::Start(Tag::CodeBlock(_)) => {
                 code_block = true;
@@ -629,6 +642,7 @@ fn absolutize_markdown(markdown: &str, config: &SiteConfig) -> Result<String, St
             spans.push((range, kind));
         }
     }
+    spans.sort_by_key(|(range, _)| range.start);
     let mut out = String::with_capacity(markdown.len());
     let mut cursor = 0;
     for (range, kind) in spans {
@@ -644,6 +658,9 @@ fn absolutize_markdown(markdown: &str, config: &SiteConfig) -> Result<String, St
             MarkdownSpanKind::Protected => out.push_str(source),
             MarkdownSpanKind::InlineHtml => out.push_str(&rewrite_inline_html(source, base)),
             MarkdownSpanKind::BlockHtml => out.push_str(&absolutize_html(source, config)),
+            MarkdownSpanKind::ReferenceDefinition => {
+                out.push_str(&rewrite_reference_definition(source, base))
+            }
         }
         cursor = range.end;
     }
@@ -656,6 +673,34 @@ enum MarkdownSpanKind {
     Protected,
     InlineHtml,
     BlockHtml,
+    ReferenceDefinition,
+}
+
+fn rewrite_reference_definition(definition: &str, base: &str) -> String {
+    let bytes = definition.as_bytes();
+    let Some(closing_bracket) = bytes
+        .iter()
+        .enumerate()
+        .find(|(index, byte)| **byte == b']' && !is_escaped(bytes, *index))
+        .map(|(index, _)| index)
+    else {
+        return definition.to_string();
+    };
+    let mut cursor = closing_bracket + 1;
+    if bytes.get(cursor) != Some(&b':') {
+        return definition.to_string();
+    }
+    cursor += 1;
+    while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+        cursor += 1;
+    }
+    if bytes.get(cursor) == Some(&b'<') {
+        cursor += 1;
+    }
+    if bytes.get(cursor) != Some(&b'/') || bytes.get(cursor + 1) == Some(&b'/') {
+        return definition.to_string();
+    }
+    format!("{}{base}{}", &definition[..cursor], &definition[cursor..])
 }
 
 fn rewrite_plain_markdown(markdown: &str, base: &str) -> String {
@@ -885,9 +930,16 @@ trait ProviderAdapter {
 }
 
 struct DevAdapter;
-struct HashnodeAdapter<'a>(&'a SyndicationTargetConfig);
-struct GhostAdapter<'a>(&'a SyndicationTargetConfig);
-struct WordpressAdapter<'a>(&'a SyndicationTargetConfig);
+struct HashnodeAdapter<'a> {
+    publication_id: &'a str,
+}
+struct GhostAdapter<'a> {
+    endpoint: &'a str,
+}
+struct WordpressAdapter<'a> {
+    endpoint: &'a str,
+    publication_id: &'a str,
+}
 struct MediumAdapter;
 
 enum DestinationAdapter<'a> {
@@ -921,13 +973,16 @@ impl DestinationAdapter<'_> {
 fn provider_adapter(target: &SyndicationTargetConfig) -> DestinationAdapter<'_> {
     match target.provider {
         SyndicationProvider::Dev => DestinationAdapter::Remote(Box::new(DevAdapter)),
-        SyndicationProvider::Hashnode => {
-            DestinationAdapter::Remote(Box::new(HashnodeAdapter(target)))
-        }
-        SyndicationProvider::Ghost => DestinationAdapter::Remote(Box::new(GhostAdapter(target))),
-        SyndicationProvider::Wordpress => {
-            DestinationAdapter::Remote(Box::new(WordpressAdapter(target)))
-        }
+        SyndicationProvider::Hashnode => DestinationAdapter::Remote(Box::new(HashnodeAdapter {
+            publication_id: &target.publication_id,
+        })),
+        SyndicationProvider::Ghost => DestinationAdapter::Remote(Box::new(GhostAdapter {
+            endpoint: &target.endpoint,
+        })),
+        SyndicationProvider::Wordpress => DestinationAdapter::Remote(Box::new(WordpressAdapter {
+            endpoint: &target.endpoint,
+            publication_id: &target.publication_id,
+        })),
         SyndicationProvider::Medium => DestinationAdapter::Manual(MediumAdapter),
     }
 }
@@ -968,7 +1023,7 @@ impl ProviderAdapter for HashnodeAdapter<'_> {
         "Hashnode"
     }
     fn validate(&self) -> Result<(), String> {
-        if self.0.publication_id.trim().is_empty() {
+        if self.publication_id.trim().is_empty() {
             Err("Hashnode target requires publicationId (and an eligible Pro publication)".into())
         } else {
             Ok(())
@@ -984,7 +1039,7 @@ impl ProviderAdapter for HashnodeAdapter<'_> {
         publish: bool,
         credential: &str,
     ) -> Result<Request, String> {
-        hashnode_request(self.0, post, existing, publish, credential)
+        hashnode_request(self.publication_id, post, existing, publish, credential)
     }
     fn outcome(&self, body: &Json) -> Result<Outcome, String> {
         if let Some(message) = body["errors"][0]["message"].as_str() {
@@ -1007,7 +1062,7 @@ impl ProviderAdapter for GhostAdapter<'_> {
         "Ghost"
     }
     fn validate(&self) -> Result<(), String> {
-        validated_endpoint(&self.0.endpoint, "Ghost endpoint").map(|_| ())
+        validated_endpoint(self.endpoint, "Ghost endpoint").map(|_| ())
     }
     fn credential(&self) -> Result<String, String> {
         environment_credential("GHOST_ADMIN_API_KEY", self.name())
@@ -1019,7 +1074,7 @@ impl ProviderAdapter for GhostAdapter<'_> {
         publish: bool,
         credential: &str,
     ) -> Result<Request, String> {
-        ghost_request(self.0, post, existing, publish, credential)
+        ghost_request(self.endpoint, post, existing, publish, credential)
     }
     fn outcome(&self, body: &Json) -> Result<Outcome, String> {
         outcome_from_fields(
@@ -1036,14 +1091,14 @@ impl ProviderAdapter for WordpressAdapter<'_> {
         "WordPress"
     }
     fn validate(&self) -> Result<(), String> {
-        if self.0.publication_id.trim().is_empty() {
-            validated_endpoint(&self.0.endpoint, "WordPress endpoint").map(|_| ())
+        if self.publication_id.trim().is_empty() {
+            validated_endpoint(self.endpoint, "WordPress endpoint").map(|_| ())
         } else {
             Ok(())
         }
     }
     fn credential(&self) -> Result<String, String> {
-        if self.0.publication_id.trim().is_empty() {
+        if self.publication_id.trim().is_empty() {
             let username = std::env::var("WORDPRESS_USERNAME").unwrap_or_default();
             let password = std::env::var("WORDPRESS_APPLICATION_PASSWORD").unwrap_or_default();
             if username.trim().is_empty() || password.trim().is_empty() {
@@ -1064,7 +1119,14 @@ impl ProviderAdapter for WordpressAdapter<'_> {
         publish: bool,
         credential: &str,
     ) -> Result<Request, String> {
-        wordpress_request(self.0, post, existing, publish, credential)
+        wordpress_request(
+            self.endpoint,
+            self.publication_id,
+            post,
+            existing,
+            publish,
+            credential,
+        )
     }
     fn outcome(&self, body: &Json) -> Result<Outcome, String> {
         outcome_from_fields(self.name(), &body["id"], &body["link"], "")
@@ -1121,13 +1183,13 @@ fn dev_request(
 }
 
 fn hashnode_request(
-    target: &SyndicationTargetConfig,
+    publication_id: &str,
     post: &SyndicationPost,
     existing: Option<&StateRecord>,
     publish: bool,
     credential: &str,
 ) -> Result<Request, String> {
-    if target.publication_id.trim().is_empty() {
+    if publication_id.trim().is_empty() {
         return Err(
             "Hashnode target requires publicationId (and an eligible Pro publication)".into(),
         );
@@ -1147,7 +1209,7 @@ fn hashnode_request(
          json!({"input": merge_object(input, json!({"draftId": record.remote_id}))}))
     } else {
         ("mutation Create($input: CreateDraftInput!) { createDraft(input: $input) { draft { id slug } } }",
-         json!({"input": merge_object(input, json!({"publicationId": target.publication_id}))}))
+         json!({"input": merge_object(input, json!({"publicationId": publication_id}))}))
     };
     // Hashnode requires a separate publishDraft mutation. A first stable iteration
     // deliberately keeps this adapter draft-only rather than risking a second write.
@@ -1170,13 +1232,13 @@ fn merge_object(mut left: Json, right: Json) -> Json {
 }
 
 fn ghost_request(
-    target: &SyndicationTargetConfig,
+    endpoint: &str,
     post: &SyndicationPost,
     existing: Option<&StateRecord>,
     publish: bool,
     credential: &str,
 ) -> Result<Request, String> {
-    let base = validated_endpoint(&target.endpoint, "Ghost endpoint")?;
+    let base = validated_endpoint(endpoint, "Ghost endpoint")?;
     let token = ghost_token(credential)?;
     let url = match existing {
         Some(record) if !record.remote_id.is_empty() => format!(
@@ -1236,18 +1298,19 @@ fn decode_hex(value: &str) -> Option<Vec<u8>> {
 }
 
 fn wordpress_request(
-    target: &SyndicationTargetConfig,
+    endpoint: &str,
+    publication_id: &str,
     post: &SyndicationPost,
     existing: Option<&StateRecord>,
     publish: bool,
     credential: &str,
 ) -> Result<Request, String> {
-    let base = if target.publication_id.trim().is_empty() {
-        validated_endpoint(&target.endpoint, "WordPress endpoint")?
+    let base = if publication_id.trim().is_empty() {
+        validated_endpoint(endpoint, "WordPress endpoint")?
     } else {
         format!(
             "https://public-api.wordpress.com/wp/v2/sites/{}",
-            target.publication_id.trim()
+            publication_id.trim()
         )
     };
     let suffix = existing
@@ -1364,24 +1427,21 @@ mod tests {
     #[test]
     fn wordpress_and_ghost_default_to_drafts() {
         let post = post_fixture();
-        let wordpress = SyndicationTargetConfig {
-            provider: SyndicationProvider::Wordpress,
-            endpoint: "https://wp.example/wp-json/wp/v2".into(),
-            ..Default::default()
-        };
         assert_eq!(
-            wordpress_request(&wordpress, &post, None, false, "x")
-                .unwrap()
-                .body["status"],
+            wordpress_request(
+                "https://wp.example/wp-json/wp/v2",
+                "",
+                &post,
+                None,
+                false,
+                "x",
+            )
+            .unwrap()
+            .body["status"],
             "draft"
         );
-        let ghost = SyndicationTargetConfig {
-            provider: SyndicationProvider::Ghost,
-            endpoint: "https://ghost.example".into(),
-            ..Default::default()
-        };
         let request = ghost_request(
-            &ghost,
+            "https://ghost.example",
             &post,
             None,
             false,
@@ -1399,7 +1459,7 @@ mod tests {
             ..Default::default()
         };
         let update = ghost_request(
-            &ghost,
+            "https://ghost.example",
             &post,
             Some(&state),
             false,
@@ -1413,12 +1473,7 @@ mod tests {
     #[test]
     fn hashnode_request_is_draft_only_and_updates_by_saved_id() {
         let post = post_fixture();
-        let target = SyndicationTargetConfig {
-            provider: SyndicationProvider::Hashnode,
-            publication_id: "pub-id".into(),
-            ..Default::default()
-        };
-        let create = hashnode_request(&target, &post, None, false, "pat").unwrap();
+        let create = hashnode_request("pub-id", &post, None, false, "pat").unwrap();
         assert!(create.body["query"]
             .as_str()
             .unwrap()
@@ -1428,13 +1483,13 @@ mod tests {
             remote_id: "draft-id".into(),
             ..Default::default()
         };
-        let update = hashnode_request(&target, &post, Some(&state), false, "pat").unwrap();
+        let update = hashnode_request("pub-id", &post, Some(&state), false, "pat").unwrap();
         assert!(update.body["query"]
             .as_str()
             .unwrap()
             .contains("updateDraft"));
         assert_eq!(update.body["variables"]["input"]["draftId"], "draft-id");
-        assert!(hashnode_request(&target, &post, None, true, "pat").is_err());
+        assert!(hashnode_request("pub-id", &post, None, true, "pat").is_err());
     }
 
     #[test]
@@ -1500,7 +1555,11 @@ mod tests {
             serde_json::from_str(r#"{"url":"https://blog.example/base"}"#).unwrap();
         let markdown = r#"[inline](/one)
 ![angle](</images/pic.png> "Picture")
+
 [reference]: /reference "Reference"
+[multiline-reference]:
+/multiline-reference "Multiline reference"
+
 <a href = '/raw'>raw</a><img SRC="/raw.png">
 <a href=/bare>bare</a>
 <!-- href="/comment" --><script>const value = 'src="/script"';</script>
@@ -1528,6 +1587,7 @@ const attribute = 'href="/script"';
             "[inline](https://blog.example/base/one)",
             "![angle](<https://blog.example/base/images/pic.png>",
             "[reference]: https://blog.example/base/reference",
+            "[multiline-reference]:\nhttps://blog.example/base/multiline-reference",
             "href = 'https://blog.example/base/raw'",
             "SRC=\"https://blog.example/base/raw.png\"",
             "href=https://blog.example/base/bare",
@@ -1562,6 +1622,18 @@ const attribute = 'href="/script"';
         assert!(html.contains("<!-- href='/comment' -->"));
         assert!(html.contains("src=\"/script\""));
         assert!(html.contains("ordinary href=\"/prose\""));
+    }
+
+    #[test]
+    fn multiline_reference_definition_destination_becomes_absolute() {
+        let config: SiteConfig =
+            serde_json::from_str(r#"{"url":"https://blog.example/base"}"#).unwrap();
+        let markdown = "[guide]:\n/guide\n\nRead the [guide].\n";
+
+        assert_eq!(
+            absolutize_markdown(markdown, &config).unwrap(),
+            "[guide]:\nhttps://blog.example/base/guide\n\nRead the [guide].\n"
+        );
     }
 
     struct FakeTransport(Response);
