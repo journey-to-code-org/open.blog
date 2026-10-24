@@ -54,6 +54,8 @@ There is intentionally no accessibility percentage score.
 | `media-alternatives-review` | Linked audio or video that may need captions, a transcript, or description. |
 | `embed-accessibility-review` | A link the production renderer turns into an embed. |
 | `raw-html-review` | A document containing raw HTML. One bounded task is emitted rather than pretending to validate arbitrary HTML. |
+| `custom-element-fallback-empty` | An authored `<ob-*>` element whose native fallback is empty or missing before enhanced behavior runs. |
+| `custom-element-fallback-unsafe` | An authored `<ob-*>` fallback containing an executable `javascript:` or `data:text/html` URL. |
 
 Repeated tables, media, embeds, or raw HTML may be collapsed into one document-level task
 where repeating the same guidance would add noise. Alternative text is never generated
@@ -82,4 +84,6 @@ rewrite front matter, and does not treat dismissing a finding as proof that it i
 
 The product boundary and supporting standards research are recorded in
 [ADR 0001](adr/0001-accessibility-studio-boundary.md) and the
-[Accessibility Studio research note](research/accessibility-studio.md).
+[Accessibility Studio research note](research/accessibility-studio.md). The checked
+[no-JavaScript contract](no-javascript.md) lists native host markup and runtime dependencies for
+every built-in custom element.

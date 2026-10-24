@@ -45,6 +45,8 @@ pub enum FindingCode {
     MediaAlternativesReview,
     EmbedAccessibilityReview,
     RawHtmlReview,
+    CustomElementFallbackEmpty,
+    CustomElementFallbackUnsafe,
 }
 
 impl fmt::Display for FindingCode {
@@ -60,6 +62,8 @@ impl fmt::Display for FindingCode {
             Self::MediaAlternativesReview => "media-alternatives-review",
             Self::EmbedAccessibilityReview => "embed-accessibility-review",
             Self::RawHtmlReview => "raw-html-review",
+            Self::CustomElementFallbackEmpty => "custom-element-fallback-empty",
+            Self::CustomElementFallbackUnsafe => "custom-element-fallback-unsafe",
         })
     }
 }
@@ -260,7 +264,7 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                     ),
                 ));
             }
-            Event::Html(_) | Event::InlineHtml(_) => {
+            Event::Html(html) | Event::InlineHtml(html) => {
                 if let Some(link) = link.as_mut() {
                     link.indeterminate_name = true;
                 }
@@ -278,6 +282,13 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
                             &[],
                         ),
                     ));
+                }
+                if html.to_ascii_lowercase().contains("<ob-") {
+                    if let Some(details) =
+                        custom_element_fallback_issue(&input.markdown[range.start..])
+                    {
+                        findings.push(finding(input, range.start, details));
+                    }
                 }
             }
             Event::Text(text) | Event::Code(text) => {
@@ -412,6 +423,77 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
     }
 
     findings
+}
+
+fn custom_element_fallback_issue(html: &str) -> Option<FindingDetails> {
+    let lower = html.to_ascii_lowercase();
+    let start = lower.find("<ob-")?;
+    let opening_end = lower[start..].find('>')? + start;
+    let opening = &lower[start + 1..opening_end];
+    let tag_end = opening
+        .find(|character: char| character.is_ascii_whitespace() || character == '/')
+        .unwrap_or(opening.len());
+    let tag = &opening[..tag_end];
+    if tag.len() <= 3 {
+        return None;
+    }
+    let closing = format!("</{tag}>");
+    let Some(closing_start) = lower[opening_end + 1..].find(&closing) else {
+        return Some(FindingDetails::new(
+            FindingCode::CustomElementFallbackEmpty,
+            AuditOutcome::Detected,
+            AuditScope::Content,
+            format!("The native fallback for `<{tag}>` is missing or cannot be determined before its enhanced behavior runs."),
+            "Put understandable native HTML inside the custom element, then treat JavaScript as an optional enhancement.",
+            &["WCAG-2.2-1.3.1", "WCAG-2.2-4.1.2"],
+        ));
+    };
+    let closing_start = opening_end + 1 + closing_start;
+    let inner = &html[opening_end + 1..closing_start];
+    let inner_lower = inner.to_ascii_lowercase();
+    if inner_lower.contains("javascript:") || inner_lower.contains("data:text/html") {
+        return Some(FindingDetails::new(
+            FindingCode::CustomElementFallbackUnsafe,
+            AuditOutcome::Detected,
+            AuditScope::Content,
+            format!("The native fallback for `<{tag}>` contains an unsafe executable URL; enhanced behavior cannot make that fallback safe."),
+            "Replace executable URLs with a safe HTTP(S) or site-relative destination and keep the fallback operable without JavaScript.",
+            &["WCAG-2.2-2.1.1", "WCAG-2.2-4.1.2"],
+        ));
+    }
+    if !has_meaningful_fallback(inner) {
+        return Some(FindingDetails::new(
+            FindingCode::CustomElementFallbackEmpty,
+            AuditOutcome::Detected,
+            AuditScope::Content,
+            format!("The native fallback for `<{tag}>` is empty; only its enhanced behavior can currently communicate the capability."),
+            "Put understandable native HTML inside the custom element in the same reading order as the enhanced experience.",
+            &["WCAG-2.2-1.3.1", "WCAG-2.2-4.1.2"],
+        ));
+    }
+    None
+}
+
+fn has_meaningful_fallback(html: &str) -> bool {
+    let lower = html.to_ascii_lowercase();
+    if lower.contains("alt=")
+        || lower.contains("aria-label=")
+        || lower.contains("<input")
+        || lower.contains("<button")
+    {
+        return true;
+    }
+    let mut visible = String::new();
+    let mut inside_tag = false;
+    for character in html.chars() {
+        match character {
+            '<' => inside_tag = true,
+            '>' => inside_tag = false,
+            _ if !inside_tag => visible.push(character),
+            _ => {}
+        }
+    }
+    !visible.trim().is_empty()
 }
 
 fn heading_level(level: HeadingLevel) -> u8 {

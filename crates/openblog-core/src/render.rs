@@ -1928,7 +1928,7 @@ impl<'a> Renderer<'a> {
             String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
         body.push_str(&self.heading(theme, 1, "Search", "ob-section-heading"));
         body.push_str(
-            "\n<ob-search index=\"/search.json\" wasm=\"/assets/wasm/openblog_wasm.js\">\n<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\"><label for=\"q\">Search posts</label><input id=\"q\" name=\"q\" type=\"search\" autocomplete=\"off\" placeholder=\"Rust, web components, …\"></form>\n<p class=\"ob-search-status\" role=\"status\" aria-live=\"polite\"></p>\n<ol class=\"ob-search-results\"></ol>\n</ob-search>\n<noscript><p>Search needs JavaScript. You can also browse the <a href=\"/archive/\">archive</a> or <a href=\"/tags/\">tags</a>.</p></noscript>\n",
+            "\n<ob-search index=\"/search.json\" wasm=\"/assets/wasm/openblog_wasm.js\">\n<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\" hidden><label for=\"q\">Search posts</label><input id=\"q\" name=\"q\" type=\"search\" autocomplete=\"off\" placeholder=\"Rust, web components, …\"></form>\n<p class=\"ob-search-status\" role=\"status\" aria-live=\"polite\"></p>\n<ol class=\"ob-search-results\"></ol>\n</ob-search>\n<noscript><p>Search needs JavaScript. You can also browse the <a href=\"/archive/\">archive</a> or <a href=\"/tags/\">tags</a>.</p></noscript>\n",
         );
         body.push_str("</section>\n</div>");
         let mut meta = self.meta_simple(theme, "Search", "Search every post.", "/search/");
@@ -2405,6 +2405,47 @@ mod tests {
         assert!(page.contains("<fieldset><legend>What stays local?</legend>"));
         assert!(page.contains("data-correct=\"true\""));
         assert!(page.contains("Attempts remain in the browser."));
+    }
+
+    #[test]
+    fn native_fallbacks_keep_content_labels_links_and_controls_understandable() {
+        let files = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            &[(
+                "posts/cafe.md",
+                "---\ntitle: Café fallback\ndate: 2026-01-01\n---\nBefore the check.\n\n```quiz\nChoose the linked word.\n- [x] Café\n- [ ] Tea\n```\n\nAfter the check with [a relative link](/résumé/#work).\n",
+            )],
+        );
+        let page = file(&files, "cafe/index.html");
+        let prose = &page[page
+            .find("<div class=\"ob-prose e-content\">")
+            .expect("post body")..];
+
+        let before = prose.find("Before the check.").expect("leading prose");
+        let legend = prose
+            .find("<fieldset><legend>Choose the linked word.</legend>")
+            .expect("labelled static question");
+        let choices = prose
+            .find("<label class=\"ob-quiz-choice\"><input type=\"radio\"")
+            .expect("native selectable choices");
+        let after = prose.find("After the check").expect("trailing prose");
+        assert!(
+            before < legend && legend < choices && choices < after,
+            "content order changed: before={before}, legend={legend}, choices={choices}, after={after}"
+        );
+        assert!(page.contains(
+            "<noscript><p>Answer checking and retry need JavaScript; the question and choices remain readable.</p></noscript>"
+        ));
+        assert!(page.contains("href=\"/r%C3%A9sum%C3%A9/#work\""));
+
+        let search = file(&files, "search/index.html");
+        assert!(search.contains(
+            "<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\" hidden>"
+        ));
+        assert!(search.contains("<label for=\"q\">Search posts</label>"));
+        assert!(search.contains("<noscript><p>Search needs JavaScript."));
+        assert!(search.contains("<a href=\"/archive/\">archive</a>"));
+        assert!(search.contains("<a href=\"/tags/\">tags</a>"));
     }
 
     #[test]

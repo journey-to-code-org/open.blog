@@ -186,6 +186,50 @@ fn raw_html_creates_one_bounded_review_task() {
 }
 
 #[test]
+fn custom_element_fallback_findings_name_native_and_enhanced_experiences() {
+    let findings = audit_document(DocumentAuditInput {
+        path: "posts/custom-elements.md",
+        markdown: "Intro.\n\n<ob-map></ob-map>\n\n<ob-card><a href=\"javascript:alert(1)\">Open</a></ob-card>\n",
+        body_line: 4,
+        embeds_enabled: true,
+        cover_alt: None,
+    });
+
+    let empty = findings
+        .iter()
+        .find(|finding| finding.code == FindingCode::CustomElementFallbackEmpty)
+        .expect("empty custom-element fallback finding");
+    assert_eq!(empty.outcome, AuditOutcome::Detected);
+    assert_eq!(empty.source.line(), Some(6));
+    assert!(empty.message.contains("native fallback"));
+    assert!(empty.message.contains("enhanced behavior"));
+
+    let unsafe_finding = findings
+        .iter()
+        .find(|finding| finding.code == FindingCode::CustomElementFallbackUnsafe)
+        .expect("unsafe custom-element fallback finding");
+    assert_eq!(unsafe_finding.outcome, AuditOutcome::Detected);
+    assert_eq!(unsafe_finding.source.line(), Some(8));
+    assert!(unsafe_finding.message.contains("native fallback"));
+    assert!(unsafe_finding.message.contains("enhanced behavior"));
+}
+
+#[test]
+fn meaningful_custom_element_fallback_keeps_only_the_general_raw_html_review() {
+    let findings = audit_document(DocumentAuditInput {
+        path: "posts/custom-element.md",
+        markdown:
+            "<ob-map><p>Map unavailable. <a href=\"/places/\">Browse places</a>.</p></ob-map>\n",
+        body_line: 1,
+        embeds_enabled: true,
+        cover_alt: None,
+    });
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].code, FindingCode::RawHtmlReview);
+}
+
+#[test]
 fn raw_html_inside_a_link_defers_its_name_to_review() {
     let findings = audit_document(DocumentAuditInput {
         path: "posts/custom-link.md",

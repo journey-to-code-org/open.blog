@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added a checked custom-element and no-JavaScript contract, honest search and quiz fallback
+  messaging, and source-located accessibility findings for empty or unsafe authored fallbacks.
 - Added a shared portability compatibility corpus and golden gates for articles, research credits,
   legacy recipes, interactions, media, comments, hostile input, unknown syntax, and explicit
   draft/private exclusion.

@@ -59,6 +59,7 @@ class ObSearch extends HTMLElement {
     this.form = this.querySelector("form");
     if (!this.input || !this.results) return;
 
+    if (this.form) this.form.hidden = false;
     this.form?.addEventListener("submit", (e) => e.preventDefault());
     this.input.addEventListener("input", () => this.#run());
     this.status.textContent = "Loading search…";
