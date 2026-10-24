@@ -30,10 +30,7 @@ async function responseJson(response) {
     throw new Error("The code runner returned too much data.");
   }
   if (!response.body?.getReader) {
-    if (length === null || !Number.isFinite(length)) {
-      throw new Error("The browser cannot safely read this code runner response.");
-    }
-    return response.json();
+    throw new Error("The browser cannot safely read this code runner response.");
   }
   const reader = response.body.getReader();
   const chunks = [];

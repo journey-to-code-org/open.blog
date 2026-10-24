@@ -156,6 +156,24 @@ pub struct CodeRunnerConfig {
     pub languages: Vec<String>,
 }
 
+/// Normalize one code-runner language identifier shared by configuration and
+/// authoring tools. Returns `None` for identifiers that cannot safely appear
+/// in a Markdown fence or the browser runner protocol.
+pub fn normalize_code_runner_language(value: &str) -> Option<String> {
+    let value = value.trim().to_ascii_lowercase();
+    let valid = (1..=32).contains(&value.len())
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || matches!(byte, b'_' | b'+' | b'#' | b'.' | b'-')
+        });
+    valid.then_some(value)
+}
+
 impl Default for CodeConfig {
     fn default() -> Self {
         Self {
@@ -776,18 +794,10 @@ impl SiteConfig {
         }
         let mut languages = Vec::new();
         for authored in &self.code_runner.languages {
-            let language = authored.trim().to_ascii_lowercase();
-            let valid = (1..=32).contains(&language.len())
-                && language
-                    .bytes()
-                    .next()
-                    .is_some_and(|byte| byte.is_ascii_lowercase())
-                && language.bytes().all(|byte| {
-                    byte.is_ascii_lowercase()
-                        || byte.is_ascii_digit()
-                        || matches!(byte, b'_' | b'+' | b'#' | b'.' | b'-')
-                });
-            if valid && language != "rust" && language != "web" && !languages.contains(&language) {
+            let Some(language) = normalize_code_runner_language(authored) else {
+                continue;
+            };
+            if language != "rust" && language != "web" && !languages.contains(&language) {
                 languages.push(language);
             }
         }
@@ -940,6 +950,26 @@ mod tests {
             "https://runner.example/execute"
         );
         assert_eq!(config.code_runner.languages, ["python", "go"]);
+    }
+
+    #[test]
+    fn code_runner_language_normalizer_owns_the_shared_grammar() {
+        for (authored, expected) in [
+            (" Python ", Some("python")),
+            ("c++", Some("c++")),
+            ("f#", Some("f#")),
+            ("shell script", None),
+            ("9python", None),
+            ("python!", None),
+            ("", None),
+            ("abcdefghijklmnopqrstuvwxyzabcdefg", None),
+        ] {
+            assert_eq!(
+                normalize_code_runner_language(authored).as_deref(),
+                expected,
+                "{authored:?}"
+            );
+        }
     }
 
     #[test]

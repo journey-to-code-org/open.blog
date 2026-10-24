@@ -66,11 +66,7 @@ test("runs, resets, and copies configured-language lessons", async () => {
   let request;
   globalThis.fetch = async (url, options) => {
     request = { url, options };
-    return {
-      ok: true,
-      headers: { get: () => "100" },
-      json: async () => ({ success: true, stdout: "hello\n", stderr: "", exitCode: 0 }),
-    };
+    return new Response(JSON.stringify({ success: true, stdout: "hello\n", stderr: "", exitCode: 0 }));
   };
   const { runner, editor } = fixture();
   editor.value = "print('changed')";
