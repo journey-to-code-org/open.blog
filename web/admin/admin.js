@@ -455,6 +455,25 @@ export function assistantReviewSourceChanged(submitted = {}, current = {}) {
   return submitted.title !== current.title || submitted.markdown !== current.markdown || JSON.stringify(submitted.metadata) !== JSON.stringify(current.metadata);
 }
 
+export function applyAssistantSuggestion(markdown, finding = {}) {
+  const source = Array.from(String(markdown ?? ""));
+  const evidence = typeof finding.evidence === "string" ? Array.from(finding.evidence) : [];
+  const suggestion = typeof finding.suggestion === "string" ? Array.from(finding.suggestion) : null;
+  if (!evidence.length || suggestion === null) return { ok: false, error: "This finding does not include an applicable replacement." };
+  const matchesAt = (start) => start >= 0 && start + evidence.length <= source.length && evidence.every((character, index) => source[start + index] === character);
+  const requestedStart = finding.range?.start;
+  const requestedEnd = finding.range?.end;
+  let start = Number.isInteger(requestedStart) && Number.isInteger(requestedEnd) && requestedEnd - requestedStart === evidence.length && matchesAt(requestedStart) ? requestedStart : -1;
+  if (start < 0) {
+    const matches = [];
+    for (let index = 0; index <= source.length - evidence.length; index += 1) if (matchesAt(index)) matches.push(index);
+    if (matches.length !== 1) return { ok: false, error: matches.length ? "The reviewed text now appears more than once. Nothing was changed." : "The reviewed text has changed. Nothing was changed." };
+    [start] = matches;
+  }
+  const updated = [...source.slice(0, start), ...suggestion, ...source.slice(start + evidence.length)].join("");
+  return { ok: true, markdown: updated, start, sourceEnd: start + evidence.length, end: start + suggestion.length };
+}
+
 export function assistantReviewGroups(review = {}, skills = []) {
   const findings = Array.isArray(review.findings) ? review.findings : [];
   const order = [...new Set(findings.map((finding) => finding.skillId))];
@@ -2511,6 +2530,7 @@ export class Editor {
     ui.assistantReviewDisclosure = h("div", { class: "oba-assistant-disclosure" });
     ui.assistantReviewResults = h("section", { class: "oba-assistant-review-results", tabindex: "-1", role: "region", "aria-label": "Review results" });
     ui.assistantReviewRun = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.runAssistantReview() }, "Run document review");
+    ui.assistantReviewUndo = h("button", { class: "oba-btn", type: "button", hidden: true, onClick: () => this.undoAssistantSuggestion() }, "Undo applied suggestion");
     ui.assistantCatalog = h("div", { class: "oba-skill-list", "aria-label": "Assistant skill catalog" });
     ui.assistantSkillEditorStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     ui.assistantSkillEditor = h("textarea", { rows: 16, "aria-label": "Project skill Markdown", spellcheck: false });
@@ -2541,7 +2561,7 @@ export class Editor {
         ui.assistantSkillsStatus,
         ui.assistantReviewSkills,
         h("aside", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-review-disclosure-title" }, h("h4", { id: "oba-review-disclosure-title" }, "Review disclosure"), ui.assistantReviewDisclosure),
-        h("div", { class: "oba-toolbar" }, ui.assistantReviewRun),
+        h("div", { class: "oba-toolbar" }, ui.assistantReviewRun, ui.assistantReviewUndo),
         ui.assistantReviewStatus,
         ui.assistantReviewResults,
       ),
@@ -3657,7 +3677,14 @@ export class Editor {
               h("h5", {}, finding.title),
               h("blockquote", {}, finding.evidence),
               h("p", {}, finding.explanation),
-              finding.suggestion == null ? null : h("details", {}, h("summary", {}, "Suggested replacement"), h("pre", {}, finding.suggestion)),
+              finding.suggestion == null
+                ? null
+                : h(
+                    "div",
+                    { class: "oba-review-suggestion" },
+                    h("details", {}, h("summary", {}, "Suggested replacement"), h("pre", {}, finding.suggestion)),
+                    h("button", { class: "oba-btn", type: "button", onClick: (event) => this.applyAssistantReviewFinding(finding, event.currentTarget) }, "Apply suggestion"),
+                  ),
               h("p", { class: "oba-small" }, finding.verification === "supplied-context" ? "Based on supplied context" : "Unverified review advice"),
             ),
           ),
@@ -3668,6 +3695,67 @@ export class Editor {
       ? `Review finished for an older draft with ${review.findings.length} AI-generated finding${review.findings.length === 1 ? "" : "s"}. Your current draft is unchanged.`
       : `${review.findings.length} AI-generated finding${review.findings.length === 1 ? "" : "s"}. Your draft is unchanged.`;
     this.ui.assistantReviewResults.focus();
+  }
+
+  applyAssistantReviewFinding(finding, button = null) {
+    this.syncRichToMarkdown();
+    const before = this.ui.body.value;
+    this.assistantAppliedReviewRanges ||= [];
+    if (this.assistantAppliedReviewRanges.length && before !== this.assistantAppliedDraft) {
+      this.ui.assistantReviewStatus.textContent = "The draft changed after a suggestion was applied. Run a new review before applying another finding.";
+      return false;
+    }
+    this.assistantAppliedFindingIds ||= new Set();
+    if (this.assistantAppliedFindingIds.has(finding.id)) {
+      this.ui.assistantReviewStatus.textContent = "That suggestion was already applied. Nothing was changed.";
+      return false;
+    }
+    const result = applyAssistantSuggestion(before, finding);
+    if (!result.ok) {
+      this.ui.assistantReviewStatus.textContent = result.error;
+      return false;
+    }
+    const reviewRange = finding.range;
+    const hasReviewRange = Number.isInteger(reviewRange?.start) && Number.isInteger(reviewRange?.end) && reviewRange.start < reviewRange.end;
+    const overlaps =
+      !hasReviewRange || this.assistantAppliedReviewRanges.some((range) => reviewRange.start < range.end && reviewRange.end > range.start);
+    if (overlaps) {
+      this.ui.assistantReviewStatus.textContent = "That suggestion overlaps text changed by an earlier finding. Run a new review before applying it.";
+      return false;
+    }
+    const priorReviewRanges = this.assistantAppliedReviewRanges.map((range) => ({ ...range }));
+    const priorFindingIds = new Set(this.assistantAppliedFindingIds);
+    this.assistantAppliedReviewRanges.push({ start: reviewRange.start, end: reviewRange.end });
+    this.assistantAppliedFindingIds.add(finding.id);
+    this.ui.body.value = result.markdown;
+    this.assistantAppliedDraft = result.markdown;
+    this.assistantSuggestionUndo = { before, after: result.markdown, priorReviewRanges, priorFindingIds, button };
+    this.ui.body.dispatchEvent(new Event("input", { bubbles: true }));
+    if (this.editorMode === "visual") this.renderRichEditor();
+    if (button) button.disabled = true;
+    if (this.ui.assistantReviewUndo) this.ui.assistantReviewUndo.hidden = false;
+    this.ui.assistantReviewStatus.textContent = "Suggestion applied to your unsaved draft. Review it before saving. You can undo this change.";
+    return true;
+  }
+
+  undoAssistantSuggestion() {
+    this.syncRichToMarkdown();
+    const undo = this.assistantSuggestionUndo;
+    if (!undo || this.ui.body.value !== undo.after) {
+      this.ui.assistantReviewStatus.textContent = "Undo is unavailable because the draft changed after the suggestion was applied.";
+      return false;
+    }
+    this.ui.body.value = undo.before;
+    this.ui.body.dispatchEvent(new Event("input", { bubbles: true }));
+    if (this.editorMode === "visual") this.renderRichEditor();
+    this.assistantAppliedReviewRanges = undo.priorReviewRanges;
+    this.assistantAppliedFindingIds = undo.priorFindingIds;
+    this.assistantAppliedDraft = undo.priorReviewRanges.length ? undo.before : null;
+    if (undo.button) undo.button.disabled = false;
+    this.assistantSuggestionUndo = null;
+    if (this.ui.assistantReviewUndo) this.ui.assistantReviewUndo.hidden = true;
+    this.ui.assistantReviewStatus.textContent = "Applied suggestion undone. Your draft remains unsaved.";
+    return true;
   }
 
   async runAssistantReview() {
@@ -3703,6 +3791,11 @@ export class Editor {
       });
       this.syncRichToMarkdown();
       const currentSource = { title: this.ui.title.value, metadata: this.collect(), markdown: this.ui.body.value };
+      this.assistantAppliedFindingIds = new Set();
+      this.assistantAppliedReviewRanges = [];
+      this.assistantAppliedDraft = null;
+      this.assistantSuggestionUndo = null;
+      if (this.ui.assistantReviewUndo) this.ui.assistantReviewUndo.hidden = true;
       this.renderAssistantReviewResult(review, assistantReviewSourceChanged(source, currentSource));
     } catch (error) {
       this.ui.assistantReviewStatus.textContent = `Document review failed. Your draft is unchanged. ${error.message}`;
