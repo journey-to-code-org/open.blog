@@ -75,7 +75,8 @@ syndicationId: 01JAZ8M7Y64Q9Z8P6ACZHQN5KC
 
 Private state defaults to `.openblog/syndication.json`. Records are keyed by source identity
 plus configured target name and contain source path, remote ID, remote URL when supplied,
-source revision, remote publication state, and update time. A source-ID collision with a
+provider concurrency revision when required, source revision, remote publication state, and
+update time. A source-ID collision with a
 different source path fails closed. State is saved after each successful target, so partial
 success is retained without attempting a remote rollback.
 

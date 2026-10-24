@@ -129,6 +129,7 @@ struct StateRecord {
     target: String,
     remote_id: String,
     remote_url: String,
+    remote_revision: String,
     revision: String,
     publication_state: String,
     updated_at_unix: u64,
@@ -237,8 +238,9 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
                 source_id: article.source_id.clone(),
                 source_path: article.source_path.clone(),
                 target: name.clone(),
-                remote_id: outcome.0,
-                remote_url: outcome.1,
+                remote_id: outcome.id,
+                remote_url: outcome.url,
+                remote_revision: outcome.remote_revision,
                 revision: article.revision.clone(),
                 publication_state: if public { "published" } else { "draft" }.into(),
                 updated_at_unix: SystemTime::now()
@@ -539,11 +541,18 @@ fn ghost_request(
             base.trim_end_matches('/')
         ),
     };
+    let mut post = json!({"title": article.title, "slug": article.slug, "html": article.html, "custom_excerpt": article.description, "canonical_url": article.canonical_url, "status": if publish {"published"} else {"draft"}});
+    if let Some(record) = existing {
+        if record.remote_revision.is_empty() {
+            return Err("saved Ghost state has no updated_at revision; create a fresh draft state before updating".into());
+        }
+        post["updated_at"] = Json::String(record.remote_revision.clone());
+    }
     Ok(Request {
         method: if existing.is_some() { "PUT" } else { "POST" },
         url,
         headers: common_headers(("Authorization", format!("Ghost {token}"))),
-        body: json!({"posts": [{"title": article.title, "slug": article.slug, "html": article.html, "custom_excerpt": article.description, "canonical_url": article.canonical_url, "status": if publish {"published"} else {"draft"}}]}),
+        body: json!({"posts": [post]}),
     })
 }
 
@@ -631,11 +640,17 @@ fn slug(value: &str) -> String {
     openblog_core::slug::slugify(value)
 }
 
+struct Outcome {
+    id: String,
+    url: String,
+    remote_revision: String,
+}
+
 fn execute(
     provider: SyndicationProvider,
     transport: &dyn Transport,
     request: &Request,
-) -> Result<(String, String), String> {
+) -> Result<Outcome, String> {
     let response = transport.send(request)?;
     if !(200..300).contains(&response.status) {
         return Err(status_error(response.status));
@@ -645,18 +660,22 @@ fn execute(
     if let Some(message) = body["errors"][0]["message"].as_str() {
         return Err(format!("Hashnode rejected the request: {message}"));
     }
-    let (id, url) = match provider {
-        SyndicationProvider::Dev => (&body["id"], &body["url"]),
+    let (id, url, remote_revision) = match provider {
+        SyndicationProvider::Dev => (&body["id"], &body["url"], ""),
         SyndicationProvider::Hashnode => {
             let draft = if body["data"]["createDraft"]["draft"].is_object() {
                 &body["data"]["createDraft"]["draft"]
             } else {
                 &body["data"]["updateDraft"]["draft"]
             };
-            (&draft["id"], &draft["slug"])
+            (&draft["id"], &draft["slug"], "")
         }
-        SyndicationProvider::Ghost => (&body["posts"][0]["id"], &body["posts"][0]["url"]),
-        SyndicationProvider::Wordpress => (&body["id"], &body["link"]),
+        SyndicationProvider::Ghost => (
+            &body["posts"][0]["id"],
+            &body["posts"][0]["url"],
+            body["posts"][0]["updated_at"].as_str().unwrap_or_default(),
+        ),
+        SyndicationProvider::Wordpress => (&body["id"], &body["link"], ""),
         SyndicationProvider::Medium => return Err("Medium is manual-only".into()),
     };
     let id = id
@@ -669,7 +688,11 @@ fn execute(
                 provider_name(provider)
             )
         })?;
-    Ok((id, url.as_str().unwrap_or_default().to_string()))
+    Ok(Outcome {
+        id,
+        url: url.as_str().unwrap_or_default().to_string(),
+        remote_revision: remote_revision.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -742,6 +765,48 @@ mod tests {
             request.body["posts"][0]["canonical_url"],
             article.canonical_url
         );
+        let state = StateRecord {
+            remote_id: "post-id".into(),
+            remote_revision: "2026-10-24T12:00:00.000Z".into(),
+            ..Default::default()
+        };
+        let update = ghost_request(
+            &ghost,
+            &article,
+            Some(&state),
+            false,
+            "abc:00112233445566778899aabbccddeeff",
+        )
+        .unwrap();
+        assert_eq!(update.method, "PUT");
+        assert_eq!(update.body["posts"][0]["updated_at"], state.remote_revision);
+    }
+
+    #[test]
+    fn hashnode_request_is_draft_only_and_updates_by_saved_id() {
+        let article = article_fixture();
+        let target = SyndicationTargetConfig {
+            provider: SyndicationProvider::Hashnode,
+            publication_id: "pub-id".into(),
+            ..Default::default()
+        };
+        let create = hashnode_request(&target, &article, None, false, "pat").unwrap();
+        assert!(create.body["query"]
+            .as_str()
+            .unwrap()
+            .contains("createDraft"));
+        assert_eq!(create.body["variables"]["input"]["publicationId"], "pub-id");
+        let state = StateRecord {
+            remote_id: "draft-id".into(),
+            ..Default::default()
+        };
+        let update = hashnode_request(&target, &article, Some(&state), false, "pat").unwrap();
+        assert!(update.body["query"]
+            .as_str()
+            .unwrap()
+            .contains("updateDraft"));
+        assert_eq!(update.body["variables"]["input"]["draftId"], "draft-id");
+        assert!(hashnode_request(&target, &article, None, true, "pat").is_err());
     }
 
     #[test]
@@ -773,6 +838,41 @@ mod tests {
         let request = dev_request(&article_fixture(), None, false, "x").unwrap();
         let outcome =
             execute(SyndicationProvider::Dev, &FakeTransport(response), &request).unwrap();
-        assert_eq!(outcome.0, "42");
+        assert_eq!(outcome.id, "42");
+    }
+
+    #[test]
+    fn dry_run_is_secretless_and_does_not_create_private_state() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("openblog-syndication-{unique}"));
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::write(
+            root.join("openblog.json"),
+            r#"{
+              "url":"https://blog.openblog.dev",
+              "syndication":{"targets":{"medium":{"provider":"medium"}}}
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/posts/post.md"),
+            "---\ntitle: Post\nslug: post\ndate: 2026-10-24\nsyndicationId: durable-post\n---\n\nBody\n",
+        )
+        .unwrap();
+        run(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: false,
+                publish: false,
+            },
+        )
+        .unwrap();
+        assert!(!root.join(".openblog/syndication.json").exists());
+        fs::remove_dir_all(root).unwrap();
     }
 }
