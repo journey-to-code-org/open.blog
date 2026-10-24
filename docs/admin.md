@@ -347,6 +347,26 @@ in `openblog.json`:
 ```jsonc
 // openblog.json
 "knowledgeChecks": {
+  "provider": "anthropic",
+  "generationEndpoint": "",
+  "model": "claude-sonnet-5-5"
+}
+```
+
+Choose **Anthropic Claude** in the panel to use Claude directly. open.blog sends requests to
+Anthropic's Messages API with the required `x-api-key` and API-version headers, so you should not
+paste the Anthropic URL into the Custom HTTPS field.
+
+```sh
+export ANTHROPIC_API_KEY="your Anthropic key"
+openblog serve --admin
+```
+
+For an existing compatible service, choose **Custom HTTPS** instead:
+
+```jsonc
+"knowledgeChecks": {
+  "provider": "custom-https",
   "generationEndpoint": "https://lessons.example.com/generate",
   "model": "your-model-name"
 }
@@ -360,10 +380,14 @@ openblog serve --admin
 The credential can instead be added, replaced, or cleared in the Assistant provider panel. It is
 write-only and stored under `.openblog/private/assistant/`, never in `openblog.json`. An environment
 credential takes precedence when present. Admin reports only whether a credential exists and where
-it comes from; it never returns the saved value.
+it comes from; it never returns the saved value. Saved private credentials are bound to the provider
+and destination active when they are entered. If you switch providers or change a Custom HTTPS
+endpoint, enter the appropriate key for the new destination rather than reusing the hidden value.
+Credentials saved by an older open.blog version have no destination binding and are not reused;
+enter them once in the current panel to bind them safely.
 
-The endpoint receives JSON with `context`, `count`, `model`, task instructions, and the
-expected response shape. It returns one to three questions:
+Custom HTTPS endpoints receive JSON with `context`, `count`, `model`, task instructions, and the
+expected response shape. They return one to three questions:
 
 ```json
 {

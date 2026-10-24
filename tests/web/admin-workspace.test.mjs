@@ -43,7 +43,7 @@ test("Assistant provider settings can be configured without revealing a saved cr
   assert.match(admin, /api\.call\("PUT", "assistant\/settings"/);
   assert.match(admin, /Generation endpoint/);
   assert.match(admin, /Model/);
-  assert.match(admin, /API credential \(write-only\)/);
+  assert.match(admin, /API key \(write-only\)/);
   assert.match(admin, /Remove saved credential/);
   assert.match(admin, /Environment credential takes precedence/);
   assert.doesNotMatch(admin, /assistantSettingsCredential\.value\s*=\s*settings/);

@@ -389,7 +389,11 @@ export function assistantStatusPresentation(status = {}) {
     .filter(([, supported]) => supported)
     .map(([name]) => labels[name] || name);
   return {
-    providerType: status.providerType === "generic-https" ? "Generic HTTPS" : status.providerType || "Unavailable",
+    providerType: status.providerType === "generic-https"
+      ? "Custom HTTPS"
+      : status.providerType === "anthropic"
+        ? "Anthropic Claude"
+        : status.providerType || "Unavailable",
     model: status.model || "Provider default",
     destination: status.destination || "Not configured",
     configured: status.configured ? "Configured" : "Not configured",
@@ -2474,6 +2478,16 @@ export class Editor {
     ui.assistantDestination = h("dd", {}, "Loading…");
     ui.assistantConfigured = h("dd", {}, "Checking…");
     ui.assistantCapabilities = h("dd", {}, "Checking…");
+    ui.assistantSettingsProvider = h(
+      "select",
+      {
+        onChange: () => {
+          this.updateAssistantProviderFields(true);
+        },
+      },
+      h("option", { value: "anthropic" }, "Anthropic Claude"),
+      h("option", { value: "custom-https" }, "Custom HTTPS"),
+    );
     ui.assistantSettingsEndpoint = h("input", { type: "url", placeholder: "https://provider.example/generate", autocomplete: "off" });
     ui.assistantSettingsModel = h("input", { type: "text", placeholder: "Provider model", autocomplete: "off" });
     ui.assistantSettingsCredential = h("input", { type: "password", placeholder: "Leave blank to keep the saved credential", autocomplete: "new-password" });
@@ -2751,10 +2765,11 @@ export class Editor {
                       h(
                         "div",
                         { class: "oba-assistant-provider-settings-body" },
-                        h("p", { class: "oba-small" }, "Connect an HTTPS provider for AI review and draft generation. This is optional; your other writing tools keep working without it."),
-                        this.field("oba-assistant-endpoint", "Generation endpoint URL", ui.assistantSettingsEndpoint, "The HTTPS address that receives generation requests."),
-                        this.field("oba-assistant-model", "Model", ui.assistantSettingsModel, "Optional. Leave blank to use the provider default."),
-                        this.field("oba-assistant-credential", "API credential (write-only)", ui.assistantSettingsCredential, "Leave blank to keep the saved credential. Its value is never displayed."),
+                        h("p", { class: "oba-small" }, "Connect Anthropic directly or use a compatible custom HTTPS service. This is optional; your other writing tools keep working without it."),
+                        this.field("oba-assistant-provider-choice", "Provider", ui.assistantSettingsProvider, "Choose Anthropic for Claude, or Custom HTTPS for an existing compatible endpoint."),
+                        (ui.assistantEndpointField = this.field("oba-assistant-endpoint", "Generation endpoint URL", ui.assistantSettingsEndpoint, "The HTTPS address that receives generation requests.")),
+                        this.field("oba-assistant-model", "Model", ui.assistantSettingsModel, "Required for Anthropic; optional for custom providers."),
+                        this.field("oba-assistant-credential", "API key (write-only)", ui.assistantSettingsCredential, "Leave blank to keep the saved key. Its value is never displayed."),
                         ui.assistantSettingsStatus,
                         h("p", { class: "oba-assistant-settings-note" }, "A server environment credential overrides a saved credential."),
                         h("div", { class: "oba-assistant-settings-actions" }, ui.assistantSettingsSave, ui.assistantSettingsClear),
@@ -3727,19 +3742,32 @@ export class Editor {
     try {
       const settings = await this.app.api.call("GET", "assistant/settings");
       this.assistantSettingsEtag = settings.etag;
+      this.ui.assistantSettingsProvider.value = settings.provider || "custom-https";
       this.ui.assistantSettingsEndpoint.value = settings.generationEndpoint || "";
       this.ui.assistantSettingsModel.value = settings.model || "";
+      this.updateAssistantProviderFields(false);
       const source = settings.credential?.source || "none";
       this.assistantCredentialSource = source;
       this.assistantPrivateCredentialConfigured = settings.credential?.privateConfigured === true || source === "private";
       this.ui.assistantSettingsClear.disabled = !this.assistantPrivateCredentialConfigured;
       this.ui.assistantSettingsStatus.textContent = source === "environment"
-        ? "Configured by the server environment. Environment credential takes precedence; a saved private credential is never displayed."
+        ? `Configured by ${settings.credential.environmentName || "the server environment"}. Environment credential takes precedence; a saved private credential is never displayed.`
         : source === "private"
           ? "A private credential is saved. Enter a new value only to replace it."
-          : "No credential is configured. Non-AI authoring remains available.";
+          : settings.credential?.targetMismatch
+            ? "The saved key belongs to another provider or destination. Enter the correct key for this connection."
+            : "No credential is configured. Non-AI authoring remains available.";
     } catch (error) {
       this.ui.assistantSettingsStatus.textContent = `Provider settings could not be loaded. ${error.message}`;
+    }
+  }
+
+  updateAssistantProviderFields(providerChanged = true) {
+    const anthropic = this.ui.assistantSettingsProvider.value === "anthropic";
+    this.ui.assistantEndpointField.hidden = anthropic;
+    this.ui.assistantSettingsEndpoint.disabled = anthropic;
+    if (anthropic && (providerChanged || !this.ui.assistantSettingsModel.value.trim())) {
+      this.ui.assistantSettingsModel.value = "claude-sonnet-5-5";
     }
   }
 
@@ -3760,6 +3788,7 @@ export class Editor {
     try {
       const settings = await this.app.api.call("PUT", "assistant/settings", {
         json: {
+          provider: this.ui.assistantSettingsProvider.value,
           generationEndpoint: this.ui.assistantSettingsEndpoint.value.trim(),
           model: this.ui.assistantSettingsModel.value.trim(),
           etag: this.assistantSettingsEtag,

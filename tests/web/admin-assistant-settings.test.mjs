@@ -13,6 +13,7 @@ test("provider settings load and replace a write-only credential without reveali
         if (method === "GET") {
           reads += 1;
           return {
+            provider: "custom-https",
             generationEndpoint: "https://assistant.example/generate",
             model: "writer-v1",
             etag: `revision-${reads}`,
@@ -20,6 +21,7 @@ test("provider settings load and replace a write-only credential without reveali
           };
         }
         return {
+          provider: request.json.provider,
           generationEndpoint: request.json.generationEndpoint,
           model: request.json.model,
           etag: "revision-2",
@@ -30,6 +32,8 @@ test("provider settings load and replace a write-only credential without reveali
   };
   const editor = new Editor(app, { kind: "posts", fields: {} });
   editor.ui = {
+    assistantSettingsProvider: { value: "custom-https" },
+    assistantEndpointField: { hidden: false },
     assistantSettingsStatus: { textContent: "" },
     assistantSettingsEndpoint: { value: "" },
     assistantSettingsModel: { value: "" },
@@ -53,6 +57,7 @@ test("provider settings load and replace a write-only credential without reveali
     path: "assistant/settings",
     request: {
       json: {
+        provider: "custom-https",
         generationEndpoint: "https://assistant.example/generate",
         model: "writer-v1",
         etag: "revision-1",
@@ -66,6 +71,36 @@ test("provider settings load and replace a write-only credential without reveali
   assert.equal(editor.ui.assistantSettingsClear.disabled, false);
 });
 
+test("selecting Anthropic hides the custom endpoint and supplies a useful model default", () => {
+  const editor = new Editor({ api: {} }, { kind: "posts", fields: {} });
+  editor.ui = {
+    assistantSettingsProvider: { value: "anthropic" },
+    assistantSettingsEndpoint: { disabled: false },
+    assistantEndpointField: { hidden: false },
+    assistantSettingsModel: { value: "" },
+  };
+
+  editor.updateAssistantProviderFields();
+
+  assert.equal(editor.ui.assistantEndpointField.hidden, true);
+  assert.equal(editor.ui.assistantSettingsEndpoint.disabled, true);
+  assert.equal(editor.ui.assistantSettingsModel.value, "claude-sonnet-5-5");
+});
+
+test("switching from a custom provider replaces its model with the Claude default", () => {
+  const editor = new Editor({ api: {} }, { kind: "posts", fields: {} });
+  editor.ui = {
+    assistantSettingsProvider: { value: "anthropic" },
+    assistantSettingsEndpoint: { disabled: false },
+    assistantEndpointField: { hidden: false },
+    assistantSettingsModel: { value: "writer-v1" },
+  };
+
+  editor.updateAssistantProviderFields(true);
+
+  assert.equal(editor.ui.assistantSettingsModel.value, "claude-sonnet-5-5");
+});
+
 test("environment precedence is announced and clearing never submits a credential", async () => {
   let submitted;
   const editor = new Editor(
@@ -74,7 +109,7 @@ test("environment precedence is announced and clearing never submits a credentia
         call: async (method, path, request) => {
           if (method === "PUT") submitted = request.json;
           return method === "GET"
-            ? { generationEndpoint: "", model: "", etag: "revision-1", credential: { configured: true, source: "environment" } }
+            ? { provider: "custom-https", generationEndpoint: "", model: "", etag: "revision-1", credential: { configured: true, source: "environment" } }
             : { etag: "revision-2", credential: { configured: true, source: "environment" } };
         },
       },
@@ -82,6 +117,8 @@ test("environment precedence is announced and clearing never submits a credentia
     { kind: "posts", fields: {} },
   );
   editor.ui = {
+    assistantSettingsProvider: { value: "custom-https" },
+    assistantEndpointField: { hidden: false },
     assistantSettingsStatus: { textContent: "" },
     assistantSettingsEndpoint: { value: "" },
     assistantSettingsModel: { value: "" },

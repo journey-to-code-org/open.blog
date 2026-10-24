@@ -102,7 +102,7 @@ test("assistant provider status presents configured and unconfigured states with
       capabilities: { review: false, interactions: true, context: false, knowledgeChecks: true },
     }),
     {
-      providerType: "Generic HTTPS",
+      providerType: "Custom HTTPS",
       model: "story-model",
       destination: "https://assistant.example",
       configured: "Configured",
@@ -116,7 +116,7 @@ test("assistant provider status presents configured and unconfigured states with
   assert.deepEqual(
     assistantStatusPresentation({ providerType: "generic-https", model: "", configured: false, destination: null, capabilities: {} }),
     {
-      providerType: "Generic HTTPS",
+      providerType: "Custom HTTPS",
       model: "Provider default",
       destination: "Not configured",
       configured: "Not configured",

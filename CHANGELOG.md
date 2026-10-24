@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added native Anthropic Claude support with the correct Messages API authentication and response
+  adapter, plus an author-friendly provider choice that keeps custom HTTPS integrations compatible.
 - Added an Assistant provider settings panel for endpoint and model configuration plus write-only
   private credential replacement and clearing, with environment credentials taking precedence.
 - Refined Assistant provider setup into a compact connection card with clear status, progressive

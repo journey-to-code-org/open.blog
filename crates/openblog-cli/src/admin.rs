@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
+use openblog_core::config::AssistantProviderKind;
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::markdown::RenderOptions;
 use openblog_core::slug::slugify;
@@ -29,10 +30,10 @@ use openblog_core::{
 use serde_json::{json, Map, Value as Json};
 
 use crate::assistant::{
-    parse_skill, AssistantConcurrency, AssistantDocument, AssistantErrorKind, AssistantProvider,
-    AssistantProviderStatus, AssistantRequest, AssistantResult, AssistantSource, AssistantTask,
-    GenericHttpsProvider, KnowledgeCheckCount, ReviewContext, ReviewSkill, SkillDefinition,
-    SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
+    parse_skill, AnthropicProvider, AssistantConcurrency, AssistantDocument, AssistantErrorKind,
+    AssistantProvider, AssistantProviderStatus, AssistantRequest, AssistantResult, AssistantSource,
+    AssistantTask, GenericHttpsProvider, KnowledgeCheckCount, ReviewContext, ReviewSkill,
+    SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
 };
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
@@ -994,8 +995,13 @@ fn meta(state: &AppState) -> Response {
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
-            "quizGeneration": !config.knowledge_checks.generation_endpoint.trim().is_empty()
-                && assistant_credential(&state.root).ok().flatten().is_some(),
+            "quizGeneration": assistant_configuration_ready(
+                &config,
+                assistant_credential(&state.root, &config)
+                    .ok()
+                    .flatten()
+                    .is_some(),
+            ),
             "now": clock::now().rfc3339(),
         }),
     )
@@ -1009,12 +1015,65 @@ fn assistant_status(state: &AppState) -> Response {
     let credential_configured = credential.is_some();
     Response::json(
         200,
-        &json!(AssistantProviderStatus::legacy_quiz(
-            &config.knowledge_checks.generation_endpoint,
-            &config.knowledge_checks.model,
-            credential_configured,
-        )),
+        &json!(if assistant_provider_kind(&config) == "anthropic" {
+            AssistantProviderStatus::anthropic(
+                &config.knowledge_checks.model,
+                credential_configured,
+            )
+        } else {
+            AssistantProviderStatus::legacy_quiz(
+                &config.knowledge_checks.generation_endpoint,
+                &config.knowledge_checks.model,
+                credential_configured,
+            )
+        }),
     )
+}
+
+fn assistant_provider_kind(config: &SiteConfig) -> &str {
+    config.knowledge_checks.provider.as_str()
+}
+
+fn assistant_credential_target(config: &SiteConfig) -> String {
+    match config.knowledge_checks.provider {
+        AssistantProviderKind::Anthropic => "anthropic".into(),
+        AssistantProviderKind::CustomHttps => format!(
+            "custom-https:{}",
+            config.knowledge_checks.generation_endpoint.trim()
+        ),
+    }
+}
+
+fn assistant_configuration_ready(config: &SiteConfig, credential_configured: bool) -> bool {
+    credential_configured
+        && if assistant_provider_kind(config) == "anthropic" {
+            !config.knowledge_checks.model.trim().is_empty()
+        } else {
+            !config
+                .knowledge_checks
+                .generation_endpoint
+                .trim()
+                .is_empty()
+        }
+}
+
+fn configured_assistant_provider(
+    config: &SiteConfig,
+    credential: Option<String>,
+    timeout: Duration,
+) -> Result<Box<dyn AssistantProvider>, crate::assistant::AssistantError> {
+    if assistant_provider_kind(config) == "anthropic" {
+        AnthropicProvider::new(credential, timeout)
+            .map(|provider| Box::new(provider) as Box<dyn AssistantProvider>)
+    } else {
+        GenericHttpsProvider::new(
+            &config.knowledge_checks.generation_endpoint,
+            credential,
+            timeout,
+            cfg!(test),
+        )
+        .map(|provider| Box::new(provider) as Box<dyn AssistantProvider>)
+    }
 }
 
 const ASSISTANT_CREDENTIAL_FILE: &str = ".openblog/private/assistant/api-key";
@@ -1023,11 +1082,21 @@ fn assistant_credential_path(root: &Path) -> Result<PathBuf, String> {
     crate::assistant_storage::contained_target(root, Path::new(ASSISTANT_CREDENTIAL_FILE))
 }
 
-fn private_assistant_credential(root: &Path) -> Result<Option<String>, String> {
-    Ok(private_assistant_credential_envelope(root)?.map(|(credential, _)| credential))
+fn private_assistant_credential(
+    root: &Path,
+    config: &SiteConfig,
+) -> Result<Option<String>, String> {
+    let target = assistant_credential_target(config);
+    Ok(
+        private_assistant_credential_envelope(root)?.and_then(|(credential, _, stored_target)| {
+            (stored_target.as_deref() == Some(target.as_str())).then_some(credential)
+        }),
+    )
 }
 
-fn private_assistant_credential_envelope(root: &Path) -> Result<Option<(String, String)>, String> {
+fn private_assistant_credential_envelope(
+    root: &Path,
+) -> Result<Option<(String, String, Option<String>)>, String> {
     let path = assistant_credential_path(root)?;
     match fs::read(&path) {
         Ok(bytes) if bytes.len() > 32 * 1024 => {
@@ -1054,21 +1123,30 @@ fn private_assistant_credential_envelope(root: &Path) -> Result<Option<(String, 
             if credential.len() > 16 * 1024 {
                 return Err("private Assistant credential is too large".into());
             }
-            Ok(Some((credential.to_string(), revision.to_string())))
+            let target = envelope["target"]
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            Ok(Some((credential.to_string(), revision.to_string(), target)))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(format!("cannot read private Assistant credential: {error}")),
     }
 }
 
-fn assistant_credential(root: &Path) -> Result<Option<String>, String> {
-    if let Ok(value) = std::env::var("OPENBLOG_LESSONS_API_KEY") {
+fn assistant_credential(root: &Path, config: &SiteConfig) -> Result<Option<String>, String> {
+    let environment_name = match config.knowledge_checks.provider {
+        AssistantProviderKind::Anthropic => "ANTHROPIC_API_KEY",
+        AssistantProviderKind::CustomHttps => "OPENBLOG_LESSONS_API_KEY",
+    };
+    if let Ok(value) = std::env::var(environment_name) {
         let value = value.trim();
         if !value.is_empty() {
             return Ok(Some(value.to_string()));
         }
     }
-    private_assistant_credential(root)
+    private_assistant_credential(root, config)
 }
 
 fn assistant_provider_snapshot(state: &AppState) -> Result<(SiteConfig, Option<String>), Response> {
@@ -1080,15 +1158,20 @@ fn assistant_provider_snapshot(state: &AppState) -> Result<(SiteConfig, Option<S
         )
     })?;
     let credential =
-        assistant_credential(&state.root).map_err(|error| Response::error(500, &error))?;
+        assistant_credential(&state.root, &config).map_err(|error| Response::error(500, &error))?;
     Ok((config, credential))
 }
 
-fn write_private_assistant_credential(path: &Path, credential: &str) -> Result<(), String> {
+fn write_private_assistant_credential(
+    path: &Path,
+    credential: &str,
+    target: &str,
+) -> Result<(), String> {
     let revision = auth::random_token()?;
     let envelope = serde_json::to_vec(&json!({
         "credential": credential,
         "revision": revision,
+        "target": target,
     }))
     .map_err(|error| format!("cannot encode private Assistant credential: {error}"))?;
     let protected = protect_private_credential(&envelope)?;
@@ -1233,10 +1316,14 @@ fn mutation_with_rollback_error(mutation: &str, rollback: Result<(), String>) ->
     }
 }
 
-fn assistant_credential_summary(root: &Path) -> Result<Json, String> {
-    let environment =
-        std::env::var("OPENBLOG_LESSONS_API_KEY").is_ok_and(|value| !value.trim().is_empty());
-    let private = private_assistant_credential(root)?.is_some();
+fn assistant_credential_summary(root: &Path, config: &SiteConfig) -> Result<Json, String> {
+    let environment_name = match config.knowledge_checks.provider {
+        AssistantProviderKind::Anthropic => "ANTHROPIC_API_KEY",
+        AssistantProviderKind::CustomHttps => "OPENBLOG_LESSONS_API_KEY",
+    };
+    let environment = std::env::var(environment_name).is_ok_and(|value| !value.trim().is_empty());
+    let private_configured = private_assistant_credential_envelope(root)?.is_some();
+    let private = private_assistant_credential(root, config)?.is_some();
     let source = if environment {
         "environment"
     } else if private {
@@ -1247,14 +1334,16 @@ fn assistant_credential_summary(root: &Path) -> Result<Json, String> {
     Ok(json!({
         "configured": environment || private,
         "source": source,
-        "privateConfigured": private,
+        "privateConfigured": private_configured,
         "environmentOverride": environment,
+        "environmentName": environment_name,
+        "targetMismatch": private_configured && !private,
     }))
 }
 
 fn assistant_settings_etag(root: &Path, config: &[u8]) -> Result<String, String> {
     let credential_revision = private_assistant_credential_envelope(root)?
-        .map(|(_, revision)| revision)
+        .map(|(_, revision, _)| revision)
         .unwrap_or_default();
     let mut digest = Blake2s256::new();
     digest.update(config);
@@ -1284,13 +1373,14 @@ fn assistant_settings(state: &AppState) -> Response {
         Ok(config) => config,
         Err(error) => return Response::error(500, &error),
     };
-    let credential = match assistant_credential_summary(&state.root) {
+    let credential = match assistant_credential_summary(&state.root, &config) {
         Ok(summary) => summary,
         Err(error) => return Response::error(500, &error),
     };
     Response::json(
         200,
         &json!({
+            "provider": assistant_provider_kind(&config),
             "generationEndpoint": config.knowledge_checks.generation_endpoint,
             "model": config.knowledge_checks.model,
         "etag": match assistant_settings_etag(&state.root, &bytes) {
@@ -1310,12 +1400,16 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
         Ok(body) => body,
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
+    let provider = body["provider"].as_str().unwrap_or("custom-https").trim();
     let endpoint = body["generationEndpoint"].as_str().unwrap_or("").trim();
     let model = body["model"].as_str().unwrap_or("").trim();
     if endpoint.len() > 2048 || model.len() > 200 {
         return Response::error(422, "Assistant endpoint or model is too long");
     }
-    if !endpoint.is_empty() {
+    if !matches!(provider, "custom-https" | "anthropic") {
+        return Response::error(422, "Assistant provider must be anthropic or custom-https");
+    }
+    if provider == "custom-https" && !endpoint.is_empty() {
         let valid = url::Url::parse(endpoint).is_ok_and(|url| {
             url.scheme() == "https"
                 && url.host_str().is_some()
@@ -1363,6 +1457,7 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
         Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
     };
     value["knowledgeChecks"] = json!({
+        "provider": provider,
         "generationEndpoint": endpoint,
         "model": model,
     });
@@ -1372,9 +1467,10 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
             return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
         }
     };
-    if let Err(error) = SiteConfig::from_json(&candidate) {
-        return Response::error(422, &error);
-    }
+    let candidate_config = match SiteConfig::from_json(&candidate) {
+        Ok(config) => config,
+        Err(error) => return Response::error(422, &error),
+    };
     let credential_path = match assistant_credential_path(&state.root) {
         Ok(path) => path,
         Err(error) => return Response::error(500, &error),
@@ -1384,7 +1480,11 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
         Err(error) => return Response::error(500, &error),
     };
     let credential_result = match action {
-        "replace" => write_private_assistant_credential(&credential_path, replacement),
+        "replace" => write_private_assistant_credential(
+            &credential_path,
+            replacement,
+            &assistant_credential_target(&candidate_config),
+        ),
         "clear" if credential_path.exists() => fs::remove_file(&credential_path)
             .map_err(|error| format!("cannot clear private Assistant credential: {error}")),
         "clear" | "keep" => Ok(()),
@@ -1400,13 +1500,14 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
             restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
         return Response::error(500, &mutation_with_rollback_error(&error, rollback));
     }
-    let credential = match assistant_credential_summary(&state.root) {
+    let credential = match assistant_credential_summary(&state.root, &candidate_config) {
         Ok(summary) => summary,
         Err(error) => return Response::error(500, &error),
     };
     Response::json(
         200,
         &json!({
+            "provider": provider,
             "generationEndpoint": endpoint,
             "model": model,
         "etag": match assistant_settings_etag(&state.root, candidate.as_bytes()) {
@@ -2553,15 +2654,14 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Ok(snapshot) => snapshot,
         Err(response) => return response,
     };
-    let provider = match GenericHttpsProvider::new(
-        &config.knowledge_checks.generation_endpoint,
+    let provider = match configured_assistant_provider(
+        &config,
         credential,
         if cfg!(test) {
             Duration::from_millis(300)
         } else {
             Duration::from_secs(30)
         },
-        cfg!(test),
     ) {
         Ok(provider) => provider,
         Err(error) => return review_error(error),
@@ -2830,15 +2930,14 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         Ok(snapshot) => snapshot,
         Err(response) => return response,
     };
-    let provider = match GenericHttpsProvider::new(
-        &config.knowledge_checks.generation_endpoint,
+    let provider = match configured_assistant_provider(
+        &config,
         credential,
         if cfg!(test) {
             Duration::from_millis(300)
         } else {
             Duration::from_secs(30)
         },
-        cfg!(test),
     ) {
         Ok(provider) => provider,
         Err(error) => {
@@ -5360,6 +5459,180 @@ mod tests {
         assert_eq!(cleared.status, 200);
         assert_eq!(body_json(&cleared)["credential"]["configured"], false);
         assert!(!f.dir.join(ASSISTANT_CREDENTIAL_FILE).exists());
+    }
+
+    #[test]
+    fn anthropic_provider_settings_use_the_native_adapter_without_a_custom_endpoint() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let _anthropic_key = EnvRestore::capture("ANTHROPIC_API_KEY");
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        let f = fixture("anthropic-provider-settings");
+        let session = login_ok(&f);
+        let loaded = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/settings"), &session, false),
+        );
+
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "provider": "anthropic",
+                        "generationEndpoint": "",
+                        "model": "claude-sonnet-5-5",
+                        "etag": body_json(&loaded)["etag"],
+                        "credentialAction": "replace",
+                        "credential": "anthropic-secret"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(saved.status, 200);
+        assert_eq!(body_json(&saved)["provider"], "anthropic");
+        let config: Json =
+            serde_json::from_str(&fs::read_to_string(f.dir.join("openblog.json")).unwrap())
+                .unwrap();
+        assert_eq!(config["knowledgeChecks"]["provider"], "anthropic");
+        assert_eq!(config["knowledgeChecks"]["generationEndpoint"], "");
+
+        let status = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        let status = body_json(&status);
+        assert_eq!(status["providerType"], "anthropic");
+        assert_eq!(status["destination"], "https://api.anthropic.com");
+        assert_eq!(status["configured"], true);
+
+        let switched = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "provider": "custom-https",
+                        "generationEndpoint": "https://assistant.example/generate",
+                        "model": "custom-model",
+                        "etag": body_json(&saved)["etag"],
+                        "credentialAction": "keep"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(switched.status, 200);
+        assert_eq!(body_json(&switched)["credential"]["configured"], false);
+        assert_eq!(
+            body_json(&switched)["credential"]["privateConfigured"],
+            true
+        );
+        let switched_status = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(body_json(&switched_status)["configured"], false);
+    }
+
+    #[test]
+    fn legacy_targetless_private_credentials_are_never_sent_to_a_provider() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("legacy-assistant-credential-target");
+        set_quiz_endpoint(&f, "https://old.example/generate");
+        let credential_path = assistant_credential_path(&f.dir).unwrap();
+        let legacy = serde_json::to_vec(&json!({
+            "credential": "legacy-secret",
+            "revision": "a".repeat(64),
+        }))
+        .unwrap();
+        write_private_bytes_atomic(
+            &credential_path,
+            &protect_private_credential(&legacy).unwrap(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let loaded = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/settings"), &session, false),
+        );
+        assert_eq!(body_json(&loaded)["credential"]["configured"], false);
+        assert_eq!(body_json(&loaded)["credential"]["targetMismatch"], true);
+
+        let switched = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "provider": "custom-https",
+                        "generationEndpoint": "https://new.example/generate",
+                        "model": "custom-model",
+                        "etag": body_json(&loaded)["etag"],
+                        "credentialAction": "keep"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(switched.status, 200);
+        assert_eq!(body_json(&switched)["credential"]["configured"], false);
+        assert_eq!(
+            private_assistant_credential_envelope(&f.dir)
+                .unwrap()
+                .unwrap()
+                .2,
+            None
+        );
+    }
+
+    #[test]
+    fn environment_credentials_are_scoped_to_the_selected_provider() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _custom_key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let _anthropic_key = EnvRestore::capture("ANTHROPIC_API_KEY");
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "custom-secret");
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        let f = fixture("assistant-provider-environment-target");
+        let path = f.dir.join("openblog.json");
+        let mut config: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        config["knowledgeChecks"] = json!({
+            "provider": "anthropic",
+            "generationEndpoint": "",
+            "model": "claude-sonnet-5-5",
+        });
+        fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string_pretty(&config).unwrap()),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+
+        let wrong_environment = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(body_json(&wrong_environment)["configured"], false);
+
+        std::env::set_var("ANTHROPIC_API_KEY", "anthropic-secret");
+        let matching_environment = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(body_json(&matching_environment)["configured"], true);
     }
 
     #[test]

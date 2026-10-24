@@ -180,10 +180,29 @@ impl Default for RecipesConfig {
 }
 
 /// An owner-supplied service that drafts questions for the admin editor.
-/// The API key is intentionally read from the environment, never this file.
+/// API keys are stored separately and are never serialized into this configuration.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssistantProviderKind {
+    #[default]
+    CustomHttps,
+    Anthropic,
+}
+
+impl AssistantProviderKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CustomHttps => "custom-https",
+            Self::Anthropic => "anthropic",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct KnowledgeChecksConfig {
+    /// Missing values preserve the original custom HTTPS behavior.
+    pub provider: AssistantProviderKind,
     pub generation_endpoint: String,
     pub model: String,
 }
@@ -764,5 +783,13 @@ mod tests {
         assert_eq!(c.absolute("/rss.xml"), "https://x.dev/rss.xml");
         assert!(c.feeds.rss);
         assert_eq!(c.theme, "base");
+        assert_eq!(
+            c.knowledge_checks.provider,
+            AssistantProviderKind::CustomHttps
+        );
+        assert!(
+            SiteConfig::from_json(r#"{"knowledgeChecks":{"provider":"unknown-provider"}}"#)
+                .is_err()
+        );
     }
 }
