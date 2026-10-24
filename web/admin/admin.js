@@ -1636,9 +1636,12 @@ export class ObAdmin extends AdminElement {
       ...Object.entries(KINDS).map(([kind, info]) =>
         h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
+      h("a", { class: "oba-tab", "aria-current": active === "appearance" ? "page" : null, href: "#/appearance" }, "Appearance"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
+      : active === "appearance"
+        ? { title: "Appearance", detail: "Control the public blog's color-scheme button." }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "overview"
@@ -1841,6 +1844,7 @@ export class ObAdmin extends AdminElement {
     const go = (hash) => (location.hash = hash);
     const commands = [
       { label: "Overview", category: "Workspace", keywords: "home dashboard status", run: () => go("#/overview") },
+      { label: "Appearance", category: "Site", keywords: "theme light dark mode button system preference", run: () => go("#/appearance") },
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
       { label: "New series", category: "Create", keywords: "collection", run: () => go("#/new/series") },
@@ -2005,6 +2009,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "contributors") await this.showContributors();
+      else if (head === "appearance") await this.showAppearance();
       else if (head === "overview" || !head) await this.showOverview(params.get("focus"));
       else await this.showList(KINDS[head] ? head : "posts", params.get("status"));
     } catch (err) {
@@ -2012,6 +2017,53 @@ export class ObAdmin extends AdminElement {
       else this.showFatal(err);
     }
     this.currentHash = location.hash || "#/overview";
+  }
+
+  async showAppearance() {
+    const settings = await this.api.call("GET", "appearance");
+    const select = h("select", { id: "oba-color-scheme-toggle" },
+      h("option", { value: "inherit" }, `Follow theme (site theme: ${settings.themeColorSchemeToggle ? "shown" : "hidden"})`),
+      h("option", { value: "show" }, "Show light/dark button"),
+      h("option", { value: "hide" }, "Hide button; follow system preference"),
+    );
+    select.value = settings.colorSchemeToggle === null ? "inherit" : settings.colorSchemeToggle ? "show" : "hide";
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, "Save appearance");
+    const ui = { select, status, save, etag: settings.etag };
+    const form = h("form", { class: "oba-side-fields", onSubmit: async (event) => {
+      event.preventDefault();
+      await this.saveAppearanceSettings(ui);
+    } },
+      h("div", { class: "oba-field" }, h("label", { for: select.id }, "Public light/dark button"), select),
+      h("p", { class: "oba-help" }, "Hiding the button also ignores saved manual choices, so the public blog follows the visitor's system preference. This does not change the Admin color scheme. Follow theme allows each page's theme to decide."),
+      h("p", { class: "oba-help" }, "Saved in openblog.json. Publish afterward to update a separately hosted static site."),
+      status, save,
+    );
+    this.mount(this.shell("appearance", form));
+  }
+
+  async saveAppearanceSettings(ui) {
+    ui.save.disabled = true;
+    ui.status.setAttribute("role", "status");
+    ui.status.textContent = "Saving appearance...";
+    try {
+      const result = await this.api.call("PUT", "appearance", { json: {
+        colorSchemeToggle: ui.select.value === "inherit" ? null : ui.select.value === "show",
+        etag: ui.etag,
+      } });
+      ui.etag = result.etag;
+      if (result.buildError) {
+        ui.status.setAttribute("role", "alert");
+        ui.status.textContent = `Settings saved, but rebuilding failed: ${result.buildError}. Fix the build before publishing.`;
+      } else {
+        ui.status.textContent = "Appearance saved and rebuilt. Publish to update your hosted site.";
+      }
+    } catch (error) {
+      ui.status.setAttribute("role", "alert");
+      ui.status.textContent = `Appearance was not saved: ${error.message}`;
+    } finally {
+      ui.save.disabled = false;
+    }
   }
 
   // ---- list

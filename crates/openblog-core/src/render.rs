@@ -575,7 +575,7 @@ impl<'a> Renderer<'a> {
             ));
         }
         // Restore a visitor's saved color scheme before first paint.
-        if theme.color_scheme_toggle {
+        if c.color_scheme_toggle.unwrap_or(theme.color_scheme_toggle) {
             h.push_str("<script>try{var s=localStorage.getItem(\"ob-scheme\");if(s===\"light\"||s===\"dark\")document.documentElement.dataset.theme=s}catch(e){}</script>\n");
         }
         // Order matters: structure, then tokens, then the theme's own rules.
@@ -677,7 +677,7 @@ impl<'a> Renderer<'a> {
             ));
         }
         h.push_str("</ul>\n</nav>\n");
-        if theme.color_scheme_toggle {
+        if c.color_scheme_toggle.unwrap_or(theme.color_scheme_toggle) {
             h.push_str("<ob-theme-toggle hidden><button type=\"button\" class=\"ob-icon-button\" aria-label=\"Toggle light and dark mode\"><span aria-hidden=\"true\">◐</span></button></ob-theme-toggle>\n");
         }
         h.push_str("</div>\n</header>\n");
@@ -2103,6 +2103,39 @@ mod tests {
     }
 
     #[test]
+    fn site_color_scheme_toggle_overrides_every_page_theme() {
+        for enabled in [false, true] {
+            let (site, mut themes) = model(
+                &format!(
+                    r#"{{"theme":"system","postPath":"/{{slug}}/","colorSchemeToggle":{enabled}}}"#
+                ),
+                true,
+            );
+            themes.insert(
+                "system",
+                ThemeFile::from_json(r#"{"extends":"base","options":{"colorSchemeToggle":false}}"#)
+                    .unwrap(),
+            );
+            let files = generate(&site, &themes).unwrap();
+            for path in [
+                "index.html",
+                "solo/index.html",
+                "series/s/index.html",
+                "search/index.html",
+                "404.html",
+            ] {
+                let html = file(&files, path);
+                assert_eq!(html.contains("<ob-theme-toggle"), enabled, "{path}");
+                assert_eq!(
+                    html.contains("localStorage.getItem(\"ob-scheme\")"),
+                    enabled,
+                    "{path}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn system_color_scheme_omits_toggle_and_saved_override_on_every_page() {
         let (site, mut themes) = model(
             r#"{"theme":"system","postsPerPage":2,"postPath":"/{slug}/"}"#,
@@ -2139,13 +2172,13 @@ mod tests {
     #[test]
     fn home_uses_configured_primary_heading_on_every_page() {
         let files = build(
-            r#"{"home":{"heading":"Journey to Code"},"postsPerPage":2}"#,
+            r#"{"home":{"heading":"Field Notes"},"postsPerPage":2}"#,
             true,
         );
         for path in ["index.html", "page/2/index.html"] {
             let html = file(&files, path);
             assert!(html.contains("<h1 id=\"latest\" class=\"ob-title\">"));
-            assert!(html.contains("Journey to Code"));
+            assert!(html.contains("Field Notes"));
             assert!(!html.contains("<h2 id=\"latest\""));
             assert_eq!(html.matches("<h1 ").count(), 1);
         }
