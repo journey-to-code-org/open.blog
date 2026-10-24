@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Web sandbox HTML, CSS, and JavaScript editors and configured-runner lessons now use the same
+  editable-code surface as Rust playgrounds: a labelled editor bar, syntax colouring and optional
+  line numbers from the static code blocks, the same focus ring, and matching Run, Reset, and note
+  styling. Existing `ob-rust-*`, `ob-code-runner-*`, and `ob-web-sandbox-*` classes remain on the
+  elements for theme overrides; shared styles now live on `ob-code-editor-*` classes.
 - Fixed sites built without a local `web/` folder missing the configured code-runner scripts;
   the absent module stopped every enhanced component on the page from loading. A test now
   checks that every relative script import is embedded.

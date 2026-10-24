@@ -827,7 +827,7 @@ h2.ob-title {
   overflow-wrap: anywhere;
 }
 
-/* ---------- Editable Rust lessons: ```rust runnable ---------- */
+/* ---------- Editable code: runnable fences and web sandboxes ---------- */
 
 ob-rust-playground {
   display: block;
@@ -843,7 +843,6 @@ ob-code-runner {
 
 ob-code-runner[data-enhanced="true"] > pre.ob-code-runner-source { display: none; }
 
-.ob-code-runner-editor,
 .ob-code-runner-stdin,
 .ob-code-runner-output {
   box-sizing: border-box;
@@ -859,13 +858,8 @@ ob-code-runner[data-enhanced="true"] > pre.ob-code-runner-source { display: none
   tab-size: 4;
 }
 
-.ob-code-runner-editor { min-height: 10rem; resize: vertical; white-space: pre; }
 .ob-code-runner-stdin { min-height: 4.5rem; margin-top: 0.65rem; resize: vertical; }
-.ob-code-runner-controls { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 0.65rem; }
-.ob-code-runner-notice,
-.ob-code-runner-status { color: var(--ob-color-muted); font-size: 0.85rem; }
-.ob-code-runner-output { overflow: auto; max-height: 28rem; white-space: pre-wrap; }
-.ob-code-runner-controls button[aria-disabled="true"] { opacity: 0.65; cursor: progress; }
+.ob-code-runner-output { margin-top: 0.65rem; overflow: auto; max-height: 28rem; white-space: pre-wrap; }
 
 .ob-code-block ob-rust-playground {
   margin: 0;
@@ -877,7 +871,7 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   display: none;
 }
 
-.ob-rust-editor-shell {
+.ob-code-editor-shell {
   overflow: hidden;
   border: var(--ob-border-width) solid var(--ob-color-border);
   border-radius: var(--ob-radius-sm);
@@ -885,18 +879,18 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ob-color-code-text) 5%, transparent);
 }
 
-.ob-code-block .ob-rust-editor-shell {
+.ob-code-block .ob-code-editor-shell {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
 
-.ob-rust-editor-shell:focus-within {
+.ob-code-editor-shell:focus-within {
   border-color: var(--ob-color-accent);
   outline: 2px solid color-mix(in srgb, var(--ob-color-accent) 35%, transparent);
   outline-offset: 2px;
 }
 
-.ob-rust-editor-bar {
+.ob-code-editor-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -911,7 +905,7 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   text-transform: uppercase;
 }
 
-.ob-rust-editor-live {
+.ob-code-editor-live {
   display: inline-flex;
   gap: 0.25rem;
   align-items: center;
@@ -919,24 +913,24 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   font-weight: 700;
 }
 
-.ob-rust-cursor {
+.ob-code-cursor {
   display: inline-block;
   font-size: 1rem;
   line-height: 0.7;
-  animation: ob-rust-cursor-blink 1s steps(1, end) infinite;
+  animation: ob-code-cursor-blink 1s steps(1, end) infinite;
 }
 
-@keyframes ob-rust-cursor-blink {
+@keyframes ob-code-cursor-blink {
   50% { opacity: 0; }
 }
 
-.ob-rust-editor-stack {
+.ob-code-editor-stack {
   position: relative;
   min-height: 10rem;
 }
 
-.ob-prose .ob-rust-editor-decoration,
-.ob-rust-editor {
+.ob-prose .ob-code-editor-decoration,
+.ob-code-editor {
   box-sizing: border-box;
   width: 100%;
   min-height: 10rem;
@@ -952,7 +946,7 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   white-space: pre;
 }
 
-.ob-prose .ob-rust-editor-decoration {
+.ob-prose .ob-code-editor-decoration {
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -960,7 +954,7 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   scrollbar-width: none;
 }
 
-.ob-rust-editor {
+.ob-code-editor {
   position: relative;
   display: block;
   resize: vertical;
@@ -974,15 +968,15 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   cursor: text;
 }
 
-.ob-rust-editor-shell[data-line-numbers="true"] .ob-rust-editor {
-  padding-left: calc(1.2rem + var(--ob-rust-line-digits, 2) * 1ch + 1.6ch);
+.ob-code-editor-shell[data-line-numbers="true"] .ob-code-editor {
+  padding-left: calc(1.2rem + var(--ob-code-line-digits, 2) * 1ch + 1.6ch);
 }
 
-.ob-rust-editor::selection {
+.ob-code-editor::selection {
   background: color-mix(in srgb, var(--ob-color-accent) 35%, transparent);
 }
 
-.ob-rust-controls {
+.ob-code-editor-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -990,7 +984,8 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   margin-top: 0.65rem;
 }
 
-.ob-rust-controls button,
+.ob-code-editor-controls button,
+.ob-web-sandbox-tab,
 .ob-rust-external {
   display: inline-flex;
   align-items: center;
@@ -1007,25 +1002,25 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
   cursor: pointer;
 }
 
-.ob-rust-controls .ob-rust-run {
+.ob-code-editor-controls .ob-code-editor-run {
   border-color: var(--ob-color-accent);
   background: var(--ob-color-accent);
   color: var(--ob-color-accent-text, #fff);
 }
 
-.ob-rust-controls button[aria-disabled="true"] {
+.ob-code-editor-controls button[aria-disabled="true"] {
   cursor: wait;
   opacity: 0.65;
 }
 
-.ob-rust-notice,
-.ob-rust-status {
+.ob-code-editor-note,
+.ob-code-editor-status {
   margin: 0.55rem 0 0;
   color: var(--ob-color-muted);
   font-size: 0.8rem;
 }
 
-.ob-rust-status {
+.ob-code-editor-status {
   font-weight: 600;
 }
 
@@ -1057,19 +1052,16 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ob-rust-cursor { animation: none; }
+  .ob-code-cursor { animation: none; }
 }
 
 ob-web-sandbox { display: block; margin: 1.5em 0; }
 .ob-code-block ob-web-sandbox { margin: 0; }
-.ob-web-sandbox-shell { overflow: hidden; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-md); background: var(--ob-color-surface); }
-.ob-web-sandbox-tabs, .ob-web-sandbox-controls { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.6rem; border-bottom: var(--ob-border-width) solid var(--ob-color-border); }
-.ob-web-sandbox-tab, .ob-web-sandbox-controls button { padding: 0.4rem 0.75rem; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-sm); background: var(--ob-color-surface-raised); color: var(--ob-color-text); font: inherit; cursor: pointer; }
-.ob-web-sandbox-tab[aria-pressed="true"], .ob-web-sandbox-controls button:first-child { border-color: var(--ob-color-accent); background: var(--ob-color-accent); color: var(--ob-color-accent-text, #fff); }
-.ob-web-sandbox-editor { box-sizing: border-box; width: 100%; min-height: 15rem; margin: 0; padding: 1rem; resize: vertical; border: 0; background: var(--ob-color-code-bg); color: var(--ob-color-code-text); font: 0.875rem/1.55 var(--ob-font-mono); tab-size: 2; }
-.ob-web-sandbox-warning, .ob-web-sandbox-status { margin: 0; padding: 0.55rem 0.75rem; color: var(--ob-color-muted); font-size: 0.8rem; }
-.ob-web-sandbox-warning { padding-bottom: 0; }
-.ob-web-sandbox-preview { display: block; box-sizing: border-box; width: 100%; min-height: 18rem; border: 0; border-top: var(--ob-border-width) solid var(--ob-color-border); background: #fff; }
+/* The HTML, CSS, and JavaScript editors use the shared editable-code styles above;
+   only the source tabs and the preview frame are sandbox-specific. */
+.ob-web-sandbox-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+.ob-web-sandbox-tab[aria-pressed="true"] { border-color: var(--ob-color-accent); color: var(--ob-color-accent); font-weight: 700; }
+.ob-web-sandbox-preview { display: block; box-sizing: border-box; width: 100%; min-height: 18rem; margin-top: 0.65rem; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-sm); background: #fff; }
 
 
 /* ---------- Callouts: > [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION] ---------- */
