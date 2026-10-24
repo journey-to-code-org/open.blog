@@ -10,6 +10,20 @@ use serde_json::json;
 use crate::git::Git;
 use crate::site;
 
+fn is_private_assistant_path(path: &str) -> bool {
+    let path = path.trim_start_matches("./").replace('\\', "/");
+    path == ".openblog/private" || path.starts_with(".openblog/private/")
+}
+
+fn staged_private_assistant_paths(git: &Git) -> Result<Vec<String>, String> {
+    Ok(git
+        .run(&["diff", "--cached", "--name-only", "--", ".openblog/private"])?
+        .lines()
+        .filter(|path| is_private_assistant_path(path))
+        .map(str::to_string)
+        .collect())
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Outcome {
     pub committed: Vec<String>,
@@ -55,9 +69,13 @@ pub fn status(root: &Path, config: &SiteConfig) -> Result<serde_json::Value, Str
         &config.publish.paths,
     )?;
     let drafts = draft_files(root, config);
-    let (publishable, held): (Vec<&String>, Vec<&String>) = st
+    let visible_changes: Vec<&String> = st
         .changed
         .iter()
+        .filter(|path| !is_private_assistant_path(path))
+        .collect();
+    let (publishable, held): (Vec<&String>, Vec<&String>) = visible_changes
+        .into_iter()
         .partition(|p| config.publish.include_drafts || !drafts.contains(p));
     Ok(json!({
         "repo": true,
@@ -79,9 +97,16 @@ pub fn publish(root: &Path, config: &SiteConfig, summary: Option<&str>) -> Resul
     if !git.is_repo() {
         return Err("this blog is not a git repository yet; run `git init` and add a remote, or `openblog publish setup`".into());
     }
+    if !staged_private_assistant_paths(&git)?.is_empty() {
+        return Err("private assistant files are staged in Git; unstage .openblog/private/ before publishing".into());
+    }
     let p = &config.publish;
     let drafts = draft_files(root, config);
-    let changed = git.changed_paths(&p.paths)?;
+    let changed: Vec<String> = git
+        .changed_paths(&p.paths)?
+        .into_iter()
+        .filter(|path| !is_private_assistant_path(path))
+        .collect();
     let (to_commit, skipped): (Vec<String>, Vec<String>) = changed
         .into_iter()
         .partition(|path| p.include_drafts || !drafts.contains(path));
@@ -230,6 +255,52 @@ mod tests {
         let notes = setup(&dir, &config).unwrap();
         assert!(dir.join(".github/workflows/pages.yml").exists());
         assert!(notes.iter().any(|n| n.contains("no remote")));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn publishing_never_stages_or_commits_private_assistant_context() {
+        let dir = std::env::temp_dir().join(format!(
+            "ob-publish-private-assistant-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        crate::scaffold::init(&dir, Some("P"), false).unwrap();
+        let git = Git::new(&dir);
+        git.init().unwrap();
+        git.run(&["config", "user.email", "t@example.com"]).unwrap();
+        git.run(&["config", "user.name", "T"]).unwrap();
+        git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+        fs::write(dir.join(".gitignore"), "/dist\n").unwrap();
+        fs::create_dir_all(dir.join("assistant/context")).unwrap();
+        fs::write(dir.join("assistant/context/author.md"), "Portable voice").unwrap();
+        fs::create_dir_all(dir.join(".openblog/private/context")).unwrap();
+        fs::write(
+            dir.join(".openblog/private/context/author.md"),
+            "Private voice",
+        )
+        .unwrap();
+        let mut config = site::load_config(&dir).unwrap();
+        config.publish.paths = vec!["assistant".into(), ".openblog".into()];
+
+        let out = publish(&dir, &config, Some("Context")).unwrap();
+        assert!(out
+            .committed
+            .iter()
+            .any(|path| path == "assistant/context/author.md"));
+        assert!(!out
+            .committed
+            .iter()
+            .any(|path| path.starts_with(".openblog/private/")));
+        assert!(!git
+            .run(&["ls-files", "--", ".openblog/private"])
+            .unwrap()
+            .contains("private"));
+
+        git.run(&["add", "-f", ".openblog/private/context/author.md"])
+            .unwrap();
+        let error = publish(&dir, &config, Some("Must refuse staged private context")).unwrap_err();
+        assert!(error.contains("private assistant"));
         let _ = fs::remove_dir_all(&dir);
     }
 }

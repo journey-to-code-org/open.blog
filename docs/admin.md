@@ -31,7 +31,7 @@ immediately.
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
 | **Video release kit** | Validate authored YouTube chapters and copy a description assembled from the current summary, chapters, and AI-assistance disclosure. |
 | **Field Review** | Analyze GPX locally, derive route facts, and choose hidden, trimmed, approximate, or exact location publication. |
-| **Assistant** | Inspect the configured author-time provider and its capabilities, then move between clearly labelled Review, Interactions, and Context work areas. Provider credentials remain on the server. |
+| **Assistant** | Inspect the configured author-time provider, manage portable or private author/site context, and preview exactly which context is selected. Provider credentials remain on the server. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
@@ -61,8 +61,28 @@ in the browser and does not change the published theme.
 For posts, press `Alt+0` to open **Assistant**. Its provider card reports the provider type,
 model, configured state, and supported capabilities without returning the credential or
 configured endpoint to the browser. Review, Interactions, and Context remain useful labelled
-empty states until their later workflows are available; provider failures do not disable
+work areas; Review and Interactions remain empty until their later workflows are available,
+while Context manages the current author and site notes. Provider failures do not disable
 ordinary non-AI authoring.
+
+### Manage Assistant context
+
+Open **Assistant → Context** to create or edit Markdown notes about the author or the site's
+audience and goals. **Portable** notes live at `assistant/context/author.md` and
+`assistant/context/site.md`; they can be reviewed and deliberately included in normal Git
+publishing paths. **Private** mirrors live below `.openblog/private/context/`, are visually
+distinguished, and are always excluded from open.blog publish staging.
+
+Each file is limited to 64 KiB of UTF-8 text. Invalid or oversized files remain visible with
+repair guidance instead of being silently selected. Saves and removals use revision checks, so
+an edit made elsewhere is not overwritten. The Context view warns if Git does not ignore the
+private directory or if a private file is already tracked. `openblog init` adds
+`/.openblog/private/` to `.gitignore` for Git projects while preserving existing rules.
+
+Select context explicitly with the checkbox on each valid file. The **Context disclosure**
+preview lists every selected filename, whether it is Portable or Private, its character count,
+and the total size. Selection alone does not contact a provider; a later explicit Assistant
+request will use this disclosure before anything is sent.
 
 ### Write visually or in Markdown
 

@@ -38,6 +38,19 @@ test("Assistant workspace exposes safe provider status and labelled empty views"
   assert.doesNotMatch(admin, /OPENBLOG_LESSONS_API_KEY[^"'`]*(?:value|credential|secret)/i);
 });
 
+test("Assistant Context manages portable and private files with a disclosure preview", () => {
+  assert.match(admin, /api\.call\("GET", "assistant\/context"\)/);
+  assert.match(admin, /api\.call\("PUT", "assistant\/context"/);
+  assert.match(admin, /api\.call\("DELETE", "assistant\/context"/);
+  assert.match(admin, /Portable/);
+  assert.match(admin, /Private/);
+  assert.match(admin, /Context disclosure/);
+  assert.match(admin, /Selected context/);
+  assert.match(admin, /privateSafety/);
+  assert.match(admin, /role: "status", "aria-live": "polite"/);
+  assert.match(styles, /\.oba-assistant-context-card\[data-visibility="private"\]/);
+});
+
 test("editors expose one explicitly selected view at every width", () => {
   assert.match(admin, /applyPaneSelection\(this\.root, paneButtons, pane\)/);
   assert.match(admin, /aria-pressed/);
