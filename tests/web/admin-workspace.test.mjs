@@ -185,5 +185,6 @@ test("Analytics configures hosted Supabase engagement without exposing service c
   assert.match(admin, /field\.kind === "production-status"/);
   assert.match(admin, /Moderation API token \(write-only\)/);
   assert.match(admin, /SUPABASE_SERVICE_ROLE_KEY/);
-  assert.doesNotMatch(admin, /SUPABASE_SERVICE_ROLE_KEY[^\n]*(?:value|credentialAction)/);
+  assert.match(admin, /SUPABASE_SECRET_KEY/);
+  assert.doesNotMatch(admin, /SUPABASE_(?:SECRET_KEY|SERVICE_ROLE_KEY)[^\n]*(?:value|credentialAction)/);
 });

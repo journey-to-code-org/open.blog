@@ -37,8 +37,10 @@ function. Admin stores the public endpoint in `openblog.json` and a write-only m
   through DOM text nodes, bounds input client-side, and works without cookies or local identifiers.
 - Add a dependency-free Netlify Function with `/comments`, `/hit`, `/views`, `/admin/comments`, and
   `/admin/analytics` operations. It validates origin, site id, paths, sizes, status values, and JSON.
-- Supabase access uses REST/RPC calls authenticated with `SUPABASE_SERVICE_ROLE_KEY`. Required
-  environment values are `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENBLOG_SITE_ID`,
+- Supabase access uses REST/RPC calls authenticated with `SUPABASE_SECRET_KEY` in the `apikey`
+  header, without treating the secret key as a bearer JWT. `SUPABASE_SERVICE_ROLE_KEY` remains a
+  legacy fallback with JWT bearer authentication; the new variable takes precedence.
+  Required environment values are `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (or the legacy fallback), `OPENBLOG_SITE_ID`,
   `OPENBLOG_SITE_ORIGIN`, `OPENBLOG_ADMIN_API_KEY`, and `OPENBLOG_ANALYTICS_SALT`.
   `OPENBLOG_SITE_BASE_PATH` is optional for sites published below the origin root.
 - Comment moderation and hosted Admin analytics require `Authorization: Bearer <token>` and compare

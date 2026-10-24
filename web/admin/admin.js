@@ -2511,7 +2511,7 @@ export class ObAdmin extends AdminElement {
         { class: "oba-assistant-provider-settings-body", "aria-labelledby": "oba-hosted-engagement-title" },
         h("h2", { id: "oba-hosted-engagement-title" }, "Hosted comments and analytics"),
         h("p", {}, "Netlify Functions can persist comments and view counts in Supabase. The public site receives only this function endpoint; Supabase URL and service-role credentials stay in Netlify environment variables."),
-        h("p", { class: "oba-notice" }, "Required Netlify variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ADMIN_API_KEY, and OPENBLOG_ANALYTICS_SALT."),
+        h("p", { class: "oba-notice" }, "Required Netlify variables: SUPABASE_URL, SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY), OPENBLOG_SITE_ID, OPENBLOG_SITE_ORIGIN, OPENBLOG_ADMIN_API_KEY, and OPENBLOG_ANALYTICS_SALT."),
         h("label", {}, enabled, " Enable hosted engagement"),
         h("label", {}, comments, " Enable moderated comments"),
         h("label", {}, hostedAnalytics, " Store analytics in Supabase"),
