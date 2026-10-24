@@ -62,7 +62,7 @@ For posts, press `Alt+0` to open **Assistant**. Its provider card reports the pr
 model, configured state, and supported capabilities without returning the credential or
 configured endpoint to the browser. Review, Interactions, and Context remain useful labelled
 work areas; Review and Interactions remain empty until their later workflows are available,
-while Context manages the current author and site notes. Provider failures do not disable
+while Context manages author, site, and post notes plus selected sources. Provider failures do not disable
 ordinary non-AI authoring.
 
 ### Manage Assistant context
@@ -83,6 +83,23 @@ Select context explicitly with the checkbox on each valid file. The **Context di
 preview lists every selected filename, whether it is Portable or Private, its character count,
 and the total size. Selection alone does not contact a provider; a later explicit Assistant
 request will use this disclosure before anything is sent.
+
+Saved posts also offer **Post brief** context in portable and private forms. The brief has separate
+fields for the post's goal, audience, learning outcomes, sources, and free-form constraints; it is
+stored at `assistant/context/posts/<post-filename>.md` or the matching private path. Renaming or
+moving a post to trash moves its brief in the same filesystem transaction, and restores the whole
+bundle if any move fails.
+
+The **Text references** area accepts only `.md` and `.txt` UTF-8 sources up to 64 KiB. It shows the
+stored text before selection and rejects unsupported filenames, binary text, duplicates, and
+oversized input without a partial file. **Existing post snapshots** shows only Markdown posts from
+the configured content directory. Selecting one uses the exact bounded source currently on disk;
+it does not copy images, sidecars, or other repository files. Invalid or oversized snapshots remain
+unselectable with guidance.
+
+The disclosure preview includes every selected post brief, reference, and existing-post snapshot,
+with its visibility and character count. These selections remain local until a later explicit
+Assistant request.
 
 ### Write visually or in Markdown
 

@@ -5,6 +5,7 @@ import {
   ObAdmin,
   accessibilityReview,
   assistantContextDisclosure,
+  postContextFields,
   assistantStatusPresentation,
   evidenceReview,
   evidenceStudioState,
@@ -51,6 +52,42 @@ test("assistant context disclosure names selected documents, visibility, and cha
       ],
       totalCharacters: 168,
     },
+  );
+});
+
+test("assistant disclosure includes selected references and immutable post snapshots", () => {
+  assert.deepEqual(
+    assistantContextDisclosure(
+      [
+        { id: "portable:reference:notes.md", name: "notes.md", visibility: "portable", kind: "reference", characters: 18, exists: true, valid: true },
+        { id: "post:posts/lesson.md", name: "lesson.md", path: "posts/lesson.md", visibility: "source", kind: "postSnapshot", characters: 42, exists: true, valid: true },
+      ],
+      new Set(["portable:reference:notes.md", "post:posts/lesson.md"]),
+    ),
+    {
+      documents: [
+        { name: "notes.md", visibility: "portable", characters: 18, kind: "reference", path: undefined },
+        { name: "lesson.md", visibility: "source", characters: 42, kind: "postSnapshot", path: "posts/lesson.md" },
+      ],
+      totalCharacters: 60,
+    },
+  );
+});
+
+test("post context fields round-trip from the spec-defined Markdown headings", () => {
+  assert.deepEqual(
+    postContextFields("## Goal\n\nTeach context.\n\n## Audience\n\nAuthors\n\n## Learning outcomes\n\nSelect sources.\n\n## Sources\n\nSpec\n\n## Constraints\n\nStay bounded.\n"),
+    {
+      goal: "Teach context.",
+      audience: "Authors",
+      learningOutcomes: "Select sources.",
+      sources: "Spec",
+      constraints: "Stay bounded.",
+    },
+  );
+  assert.equal(
+    postContextFields("<!-- openblog:constraints:start -->\n## Constraints\n\nKeep this heading:\n\n## Required examples\n\nTwo.\n<!-- openblog:constraints:end -->\n").constraints,
+    "Keep this heading:\n\n## Required examples\n\nTwo.",
   );
 });
 

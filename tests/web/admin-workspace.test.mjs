@@ -39,7 +39,7 @@ test("Assistant workspace exposes safe provider status and labelled empty views"
 });
 
 test("Assistant Context manages portable and private files with a disclosure preview", () => {
-  assert.match(admin, /api\.call\("GET", "assistant\/context"\)/);
+  assert.match(admin, /api\.call\("GET", endpoint\)/);
   assert.match(admin, /api\.call\("PUT", "assistant\/context"/);
   assert.match(admin, /api\.call\("DELETE", "assistant\/context"/);
   assert.match(admin, /Portable/);
@@ -49,6 +49,17 @@ test("Assistant Context manages portable and private files with a disclosure pre
   assert.match(admin, /privateSafety/);
   assert.match(admin, /role: "status", "aria-live": "polite"/);
   assert.match(styles, /\.oba-assistant-context-card\[data-visibility="private"\]/);
+});
+
+test("Assistant Context manages post briefs, text references, and existing-post snapshots", () => {
+  assert.match(admin, /assistant\/context\?path=/);
+  assert.match(admin, /api\.call\("POST", "assistant\/reference"/);
+  assert.match(admin, /api\.call\("DELETE", "assistant\/reference"/);
+  assert.match(admin, /Learning outcomes/);
+  assert.match(admin, /Free-form constraints/);
+  assert.match(admin, /Existing post snapshots/);
+  assert.match(admin, /postSnapshots/);
+  assert.match(admin, /references/);
 });
 
 test("editors expose one explicitly selected view at every width", () => {

@@ -424,9 +424,11 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
         ("PUT", "assistant/skill") => update_assistant_skill(state, req),
-        ("GET", "assistant/context") => assistant_context_catalog(state),
+        ("GET", "assistant/context") => assistant_context_catalog(state, req),
         ("PUT", "assistant/context") => save_assistant_context(state, req),
         ("DELETE", "assistant/context") => delete_assistant_context(state, req),
+        ("POST", "assistant/reference") => create_assistant_reference(state, req),
+        ("DELETE", "assistant/reference") => delete_assistant_reference(state, req),
         ("GET", "contributors") => get_contributors(state),
         ("PUT", "contributors") => save_contributors(state, req),
         ("GET", "status") => status(state),
@@ -452,6 +454,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
                 None => Response::error(400, "Missing ?path="),
             }
         }
+        ("POST", "document/rename") => rename_document(state, req),
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "upload") => upload(state, req),
         ("POST", "track-upload") => upload_track(state, req),
@@ -1368,11 +1371,33 @@ fn assistant_context_target(
     root: &Path,
     context_type: &str,
     visibility: &str,
+    document_path: Option<&str>,
 ) -> Result<(PathBuf, &'static str, &'static str), Response> {
-    let (context_type, file_name) = match context_type {
-        "author" => ("author", "author.md"),
-        "site" => ("site", "site.md"),
-        _ => return Err(Response::error(400, "Context type must be author or site")),
+    let (context_type, relative) = match context_type {
+        "author" => ("author", PathBuf::from("author.md")),
+        "site" => ("site", PathBuf::from("site.md")),
+        "post" => {
+            let document_path = document_path
+                .ok_or_else(|| Response::error(400, "Post context requires documentPath"))?;
+            if check_rel_path(document_path).ok() != Some("posts") {
+                return Err(Response::error(
+                    400,
+                    "Post context requires a valid post path",
+                ));
+            }
+            let file_name = Path::new(document_path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .filter(|name| name.ends_with(".md"))
+                .ok_or_else(|| Response::error(400, "Post context requires a Markdown post"))?;
+            ("post", PathBuf::from("posts").join(file_name))
+        }
+        _ => {
+            return Err(Response::error(
+                400,
+                "Context type must be author, site, or post",
+            ))
+        }
     };
     let (visibility, base) = match visibility {
         "portable" => ("portable", root.join("assistant/context")),
@@ -1384,7 +1409,7 @@ fn assistant_context_target(
             ))
         }
     };
-    let target = base.join(file_name);
+    let target = base.join(relative);
     let mut cursor = root.to_path_buf();
     for component in target
         .strip_prefix(root)
@@ -1406,13 +1431,23 @@ fn assistant_context_document(
     root: &Path,
     context_type: &str,
     visibility: &str,
+    document_path: Option<&str>,
 ) -> Result<Json, Response> {
     let (path, context_type, visibility) =
-        assistant_context_target(root, context_type, visibility)?;
+        assistant_context_target(root, context_type, visibility, document_path)?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("context.md");
+    let id = if context_type == "post" {
+        format!("{visibility}:post:{name}")
+    } else {
+        format!("{visibility}:{context_type}")
+    };
     match fs::read(&path) {
         Ok(bytes) if bytes.len() > MAX_ASSISTANT_CONTEXT_BYTES => Ok(json!({
-            "id": format!("{visibility}:{context_type}"),
-            "name": format!("{context_type}.md"),
+            "id": id,
+            "name": name,
             "contextType": context_type,
             "visibility": visibility,
             "exists": true,
@@ -1424,8 +1459,8 @@ fn assistant_context_document(
         })),
         Ok(bytes) => match String::from_utf8(bytes.clone()) {
             Ok(content) => Ok(json!({
-                "id": format!("{visibility}:{context_type}"),
-                "name": format!("{context_type}.md"),
+                "id": id,
+                "name": name,
                 "contextType": context_type,
                 "visibility": visibility,
                 "exists": true,
@@ -1435,8 +1470,8 @@ fn assistant_context_document(
                 "etag": etag_bytes(&bytes),
             })),
             Err(_) => Ok(json!({
-                "id": format!("{visibility}:{context_type}"),
-                "name": format!("{context_type}.md"),
+                "id": id,
+                "name": name,
                 "contextType": context_type,
                 "visibility": visibility,
                 "exists": true,
@@ -1448,8 +1483,8 @@ fn assistant_context_document(
             })),
         },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(json!({
-            "id": format!("{visibility}:{context_type}"),
-            "name": format!("{context_type}.md"),
+            "id": id,
+            "name": name,
             "contextType": context_type,
             "visibility": visibility,
             "exists": false,
@@ -1465,7 +1500,183 @@ fn assistant_context_document(
     }
 }
 
-fn assistant_context_catalog(state: &AppState) -> Response {
+fn assistant_reference_target(
+    root: &Path,
+    visibility: &str,
+    name: &str,
+) -> Result<(PathBuf, &'static str), Response> {
+    let valid_name = !name.is_empty()
+        && name.len() <= 160
+        && Path::new(name).file_name().and_then(|value| value.to_str()) == Some(name)
+        && !name.chars().any(char::is_control)
+        && matches!(
+            Path::new(name).extension().and_then(|value| value.to_str()),
+            Some("md" | "txt")
+        );
+    if !valid_name {
+        return Err(Response::error(
+            422,
+            "References require a safe .md or .txt filename",
+        ));
+    }
+    let (visibility, base) = match visibility {
+        "portable" => ("portable", root.join("assistant/context/references")),
+        "private" => ("private", root.join(".openblog/private/context/references")),
+        _ => {
+            return Err(Response::error(
+                400,
+                "Reference visibility must be portable or private",
+            ))
+        }
+    };
+    let target = base.join(name);
+    let mut cursor = root.to_path_buf();
+    for component in target
+        .strip_prefix(root)
+        .map_err(|_| Response::error(400, "Reference path escaped the project"))?
+        .components()
+    {
+        cursor.push(component);
+        if fs::symlink_metadata(&cursor).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            return Err(Response::error(
+                400,
+                "Assistant reference paths cannot contain symbolic links",
+            ));
+        }
+    }
+    Ok((target, visibility))
+}
+
+fn assistant_text_descriptor(id: String, name: &str, visibility: &str, bytes: Vec<u8>) -> Json {
+    if bytes.len() > MAX_ASSISTANT_CONTEXT_BYTES {
+        return json!({
+            "id": id, "name": name, "visibility": visibility,
+            "exists": true, "valid": false, "content": "", "characters": 0,
+            "etag": etag_bytes(&bytes),
+            "guidance": "This source exceeds the 64 KiB Assistant context limit."
+        });
+    }
+    match String::from_utf8(bytes.clone()) {
+        Ok(content) => json!({
+            "id": id, "name": name, "visibility": visibility,
+            "exists": true, "valid": true, "content": content,
+            "characters": content.chars().count(), "etag": etag_bytes(&bytes)
+        }),
+        Err(_) => json!({
+            "id": id, "name": name, "visibility": visibility,
+            "exists": true, "valid": false, "content": "", "characters": 0,
+            "etag": etag_bytes(&bytes),
+            "guidance": "This source is not valid UTF-8 text and cannot be selected."
+        }),
+    }
+}
+
+fn assistant_references(root: &Path) -> Result<Vec<Json>, Response> {
+    let mut references = Vec::new();
+    for (visibility, directory) in [
+        ("portable", root.join("assistant/context/references")),
+        ("private", root.join(".openblog/private/context/references")),
+    ] {
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(Response::error(
+                    500,
+                    &format!("Cannot read Assistant references: {error}"),
+                ))
+            }
+        };
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                Response::error(500, &format!("Cannot inspect Assistant reference: {error}"))
+            })?;
+            let metadata = entry.file_type().map_err(|error| {
+                Response::error(500, &format!("Cannot inspect Assistant reference: {error}"))
+            })?;
+            if !metadata.is_file() || metadata.is_symlink() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if assistant_reference_target(root, visibility, &name).is_err() {
+                continue;
+            }
+            let bytes = fs::read(entry.path()).map_err(|error| {
+                Response::error(500, &format!("Cannot read Assistant reference: {error}"))
+            })?;
+            references.push(assistant_text_descriptor(
+                format!("{visibility}:reference:{name}"),
+                &name,
+                visibility,
+                bytes,
+            ));
+        }
+    }
+    references.sort_by(|left, right| left["id"].as_str().cmp(&right["id"].as_str()));
+    Ok(references)
+}
+
+fn assistant_post_snapshots(root: &Path) -> Result<Vec<Json>, Response> {
+    let config = site::load_config(root).map_err(|error| Response::error(500, &error))?;
+    let content_root = root.join(&config.paths.content);
+    let posts_root = content_root.join("posts");
+    let mut snapshots = Vec::new();
+    if !posts_root.is_dir() {
+        return Ok(snapshots);
+    }
+    fn collect_markdown(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Response> {
+        let entries = fs::read_dir(directory).map_err(|error| {
+            Response::error(500, &format!("Cannot inspect post snapshots: {error}"))
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                Response::error(500, &format!("Cannot inspect post snapshot: {error}"))
+            })?;
+            let file_type = entry.file_type().map_err(|error| {
+                Response::error(500, &format!("Cannot inspect post snapshot: {error}"))
+            })?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                collect_markdown(&entry.path(), paths)?;
+            } else if file_type.is_file()
+                && entry.path().extension().and_then(|value| value.to_str()) == Some("md")
+            {
+                paths.push(entry.path());
+            }
+        }
+        Ok(())
+    }
+    let mut paths = Vec::new();
+    collect_markdown(&posts_root, &mut paths)?;
+    paths.sort();
+    for path in paths {
+        let relative = path
+            .strip_prefix(&content_root)
+            .map_err(|_| Response::error(500, "Post snapshot escaped the content directory"))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let bytes = fs::read(&path).map_err(|error| {
+            Response::error(500, &format!("Cannot read post snapshot: {error}"))
+        })?;
+        let mut descriptor = assistant_text_descriptor(
+            format!("post:{relative}"),
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("post.md"),
+            "source",
+            bytes,
+        );
+        descriptor["path"] = json!(relative);
+        descriptor["kind"] = json!("postSnapshot");
+        snapshots.push(descriptor);
+    }
+    snapshots.sort_by(|left, right| left["path"].as_str().cmp(&right["path"].as_str()));
+    Ok(snapshots)
+}
+
+fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
     let mut documents = Vec::new();
     for (visibility, context_type) in [
         ("portable", "author"),
@@ -1473,9 +1684,17 @@ fn assistant_context_catalog(state: &AppState) -> Response {
         ("private", "author"),
         ("private", "site"),
     ] {
-        match assistant_context_document(&state.root, context_type, visibility) {
+        match assistant_context_document(&state.root, context_type, visibility, None) {
             Ok(document) => documents.push(document),
             Err(response) => return response,
+        }
+    }
+    if let Some(document_path) = req.query.get("path") {
+        for visibility in ["portable", "private"] {
+            match assistant_context_document(&state.root, "post", visibility, Some(document_path)) {
+                Ok(document) => documents.push(document),
+                Err(response) => return response,
+            }
         }
     }
     let git = crate::git::Git::new(&state.root);
@@ -1483,6 +1702,8 @@ fn assistant_context_catalog(state: &AppState) -> Response {
         let ignored = [
             ".openblog/private/context/author.md",
             ".openblog/private/context/site.md",
+            ".openblog/private/context/posts/.openblog-ignore-probe.md",
+            ".openblog/private/context/references/.openblog-ignore-probe.txt",
         ]
         .iter()
         .all(|path| git.run(&["check-ignore", "-q", "--no-index", path]).is_ok());
@@ -1504,12 +1725,22 @@ fn assistant_context_catalog(state: &AppState) -> Response {
         200,
         &json!({
             "documents": documents,
+            "references": match assistant_references(&state.root) {
+                Ok(references) => references,
+                Err(response) => return response,
+            },
+            "postSnapshots": match assistant_post_snapshots(&state.root) {
+                Ok(posts) => posts,
+                Err(response) => return response,
+            },
             "privateSafety": private_safety
         }),
     )
 }
 
-fn assistant_context_mutation(req: &Request) -> Result<(Json, String, String), Response> {
+fn assistant_context_mutation(
+    req: &Request,
+) -> Result<(Json, String, String, Option<String>), Response> {
     require_json(req)?;
     let body: Json = serde_json::from_slice(&req.body)
         .map_err(|_| Response::error(400, "Invalid context request"))?;
@@ -1521,21 +1752,60 @@ fn assistant_context_mutation(req: &Request) -> Result<(Json, String, String), R
         .as_str()
         .ok_or_else(|| Response::error(400, "Missing visibility"))?
         .to_string();
-    Ok((body, context_type, visibility))
+    let document_path = body["documentPath"].as_str().map(str::to_string);
+    Ok((body, context_type, visibility, document_path))
+}
+
+fn post_context_source(fields: &Json) -> Result<String, Response> {
+    let fields = fields
+        .as_object()
+        .ok_or_else(|| Response::error(400, "Post context requires fields"))?;
+    let mut source = String::new();
+    for (key, heading) in [
+        ("goal", "Goal"),
+        ("audience", "Audience"),
+        ("learningOutcomes", "Learning outcomes"),
+        ("sources", "Sources"),
+        ("constraints", "Constraints"),
+    ] {
+        let value = fields.get(key).and_then(Json::as_str).unwrap_or("").trim();
+        if value.contains('\0') {
+            return Err(Response::error(422, "Post context must be UTF-8 text"));
+        }
+        source.push_str(&format!("<!-- openblog:{key}:start -->\n"));
+        source.push_str("## ");
+        source.push_str(heading);
+        source.push_str("\n\n");
+        source.push_str(value);
+        source.push_str(&format!("\n<!-- openblog:{key}:end -->\n\n"));
+    }
+    Ok(source)
 }
 
 fn save_assistant_context(state: &AppState, req: &Request) -> Response {
-    let (body, context_type, visibility) = match assistant_context_mutation(req) {
+    let (body, context_type, visibility, document_path) = match assistant_context_mutation(req) {
         Ok(value) => value,
         Err(response) => return response,
     };
-    let (path, _, _) = match assistant_context_target(&state.root, &context_type, &visibility) {
+    let (path, _, _) = match assistant_context_target(
+        &state.root,
+        &context_type,
+        &visibility,
+        document_path.as_deref(),
+    ) {
         Ok(value) => value,
         Err(response) => return response,
     };
-    let content = match body["content"].as_str() {
-        Some(content) => content,
-        None => return Response::error(400, "Context content must be UTF-8 text"),
+    let content = if context_type == "post" {
+        match post_context_source(&body["fields"]) {
+            Ok(content) => content,
+            Err(response) => return response,
+        }
+    } else {
+        match body["content"].as_str() {
+            Some(content) if !content.contains('\0') => content.to_string(),
+            _ => return Response::error(400, "Context content must be UTF-8 text"),
+        }
     };
     if content.len() > MAX_ASSISTANT_CONTEXT_BYTES {
         return Response::error(413, "Context files are limited to 64 KiB of UTF-8 text");
@@ -1545,6 +1815,22 @@ fn save_assistant_context(state: &AppState, req: &Request) -> Response {
         Ok(value) => value,
         Err(response) => return response,
     };
+    if context_type == "post" {
+        let config = match site::load_config(&state.root) {
+            Ok(config) => config,
+            Err(error) => return Response::error(500, &error),
+        };
+        let document_path = document_path
+            .as_deref()
+            .expect("validated post context path");
+        let document = match resolve_content_path(&state.root, &config, document_path) {
+            Ok(document) => document,
+            Err(error) => return Response::error(400, &error),
+        };
+        if !document.is_file() {
+            return Response::error(404, "The associated post does not exist");
+        }
+    }
     let current = match fs::read(&path) {
         Ok(bytes) => Some(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -1558,21 +1844,31 @@ fn save_assistant_context(state: &AppState, req: &Request) -> Response {
     if !matches {
         return Response::error(409, "Context changed since it was opened; reload and retry");
     }
-    if let Err(error) = write_atomic(&path, content) {
+    if let Err(error) = write_atomic(&path, &content) {
         return Response::error(500, &error);
     }
-    match assistant_context_document(&state.root, &context_type, &visibility) {
+    match assistant_context_document(
+        &state.root,
+        &context_type,
+        &visibility,
+        document_path.as_deref(),
+    ) {
         Ok(document) => Response::json(200, &json!({ "document": document })),
         Err(response) => response,
     }
 }
 
 fn delete_assistant_context(state: &AppState, req: &Request) -> Response {
-    let (body, context_type, visibility) = match assistant_context_mutation(req) {
+    let (body, context_type, visibility, document_path) = match assistant_context_mutation(req) {
         Ok(value) => value,
         Err(response) => return response,
     };
-    let (path, _, _) = match assistant_context_target(&state.root, &context_type, &visibility) {
+    let (path, _, _) = match assistant_context_target(
+        &state.root,
+        &context_type,
+        &visibility,
+        document_path.as_deref(),
+    ) {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -1594,6 +1890,95 @@ fn delete_assistant_context(state: &AppState, req: &Request) -> Response {
     match fs::remove_file(&path) {
         Ok(()) => Response::json(200, &json!({ "deleted": true })),
         Err(error) => Response::error(500, &format!("Cannot remove context: {error}")),
+    }
+}
+
+fn assistant_reference_request(req: &Request) -> Result<(Json, String, String), Response> {
+    require_json(req)?;
+    let body: Json = serde_json::from_slice(&req.body)
+        .map_err(|_| Response::error(400, "Invalid reference request"))?;
+    let name = body["name"]
+        .as_str()
+        .ok_or_else(|| Response::error(400, "Missing reference name"))?
+        .to_string();
+    let visibility = body["visibility"]
+        .as_str()
+        .ok_or_else(|| Response::error(400, "Missing reference visibility"))?
+        .to_string();
+    Ok((body, name, visibility))
+}
+
+fn create_assistant_reference(state: &AppState, req: &Request) -> Response {
+    let (body, name, visibility) = match assistant_reference_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let (path, visibility) = match assistant_reference_target(&state.root, &visibility, &name) {
+        Ok(target) => target,
+        Err(response) => return response,
+    };
+    let content = match body["content"].as_str() {
+        Some(content) if !content.contains('\0') => content,
+        _ => return Response::error(422, "References must be UTF-8 text"),
+    };
+    if content.len() > MAX_ASSISTANT_CONTEXT_BYTES {
+        return Response::error(413, "References are limited to 64 KiB of UTF-8 text");
+    }
+    let _content_lock = lock(&state.build);
+    let _filesystem_lock = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    if path.exists() {
+        return Response::error(409, "A reference with that name already exists");
+    }
+    if let Err(error) = write_atomic(&path, content) {
+        return Response::error(500, &error);
+    }
+    let bytes = content.as_bytes().to_vec();
+    Response::json(
+        201,
+        &json!({
+            "reference": assistant_text_descriptor(
+                format!("{visibility}:reference:{name}"),
+                &name,
+                visibility,
+                bytes,
+            )
+        }),
+    )
+}
+
+fn delete_assistant_reference(state: &AppState, req: &Request) -> Response {
+    let (body, name, visibility) = match assistant_reference_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let (path, _) = match assistant_reference_target(&state.root, &visibility, &name) {
+        Ok(target) => target,
+        Err(response) => return response,
+    };
+    let _content_lock = lock(&state.build);
+    let _filesystem_lock = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Response::error(404, "Reference does not exist")
+        }
+        Err(error) => return Response::error(500, &format!("Cannot read reference: {error}")),
+    };
+    if body["etag"].as_str() != Some(etag_bytes(&bytes).as_str()) {
+        return Response::error(
+            409,
+            "Reference changed since it was opened; reload and retry",
+        );
+    }
+    match fs::remove_file(&path) {
+        Ok(()) => Response::json(200, &json!({ "deleted": true })),
+        Err(error) => Response::error(500, &format!("Cannot remove reference: {error}")),
     }
 }
 
@@ -2677,6 +3062,154 @@ fn unique_trash_target(trash: &Path, stamp: &str, name: &str) -> PathBuf {
     target
 }
 
+fn post_context_path_pairs(
+    root: &Path,
+    old_document: &str,
+    new_document: &str,
+) -> Result<Vec<(PathBuf, PathBuf)>, Response> {
+    let mut pairs = Vec::new();
+    for visibility in ["portable", "private"] {
+        let (old, _, _) = assistant_context_target(root, "post", visibility, Some(old_document))?;
+        let (new, _, _) = assistant_context_target(root, "post", visibility, Some(new_document))?;
+        if old.exists() {
+            if !old.is_file() {
+                return Err(Response::error(
+                    409,
+                    "Associated post context is not a file",
+                ));
+            }
+            pairs.push((old, new));
+        }
+    }
+    Ok(pairs)
+}
+
+fn move_files_transactionally(moves: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+    for (from, to) in moves {
+        if !from.is_file() {
+            return Err(format!("source file does not exist: {}", from.display()));
+        }
+        if to.exists() {
+            return Err(format!("destination already exists: {}", to.display()));
+        }
+    }
+    for (_, to) in moves {
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+        }
+    }
+    let mut moved = Vec::new();
+    for (from, to) in moves {
+        if let Err(error) = fs::rename(from, to) {
+            let mut rollback_errors = Vec::new();
+            for (moved_from, moved_to) in moved.iter().rev() {
+                if let Err(rollback) = fs::rename(moved_to, moved_from) {
+                    rollback_errors.push(rollback.to_string());
+                }
+            }
+            return Err(format!(
+                "cannot move {}: {error}; rollback: {}",
+                from.display(),
+                if rollback_errors.is_empty() {
+                    "ok".into()
+                } else {
+                    rollback_errors.join("; ")
+                }
+            ));
+        }
+        moved.push((from.clone(), to.clone()));
+    }
+    Ok(())
+}
+
+fn rename_document(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid rename request"),
+    };
+    let Some(old_rel) = body["path"].as_str() else {
+        return Response::error(400, "Missing path");
+    };
+    let Some(new_rel) = body["newPath"].as_str() else {
+        return Response::error(400, "Missing newPath");
+    };
+    if old_rel == new_rel {
+        return Response::error(422, "The new document path is unchanged");
+    }
+    if check_rel_path(old_rel).ok() != Some("posts")
+        || check_rel_path(new_rel).ok() != Some("posts")
+    {
+        return Response::error(422, "Only post Markdown paths can be renamed here");
+    }
+    let mut status = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let old_path = match resolve_content_path(&state.root, &config, old_rel) {
+        Ok(path) => path,
+        Err(error) => return Response::error(400, &error),
+    };
+    let new_path = match resolve_content_path(&state.root, &config, new_rel) {
+        Ok(path) => path,
+        Err(error) => return Response::error(400, &error),
+    };
+    let source = match fs::read_to_string(&old_path) {
+        Ok(source) => source,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Response::error(404, "No such document")
+        }
+        Err(error) => return Response::error(500, &format!("Cannot read document: {error}")),
+    };
+    if body["etag"].as_str() != Some(etag(&source).as_str()) {
+        return Response::error(
+            409,
+            "Document changed since it was opened; reload and retry",
+        );
+    }
+    let mut moves = vec![(old_path, new_path)];
+    let old_credit = match resolve_credit_path(&state.root, &config, old_rel) {
+        Ok(path) => path,
+        Err(error) => return Response::error(400, &error),
+    };
+    if old_credit.is_file() {
+        let new_credit = match resolve_credit_path(&state.root, &config, new_rel) {
+            Ok(path) => path,
+            Err(error) => return Response::error(400, &error),
+        };
+        moves.push((old_credit, new_credit));
+    }
+    match post_context_path_pairs(&state.root, old_rel, new_rel) {
+        Ok(context_moves) => moves.extend(context_moves),
+        Err(response) => return response,
+    }
+    if let Err(error) = move_files_transactionally(&moves) {
+        let status = if error.contains("destination already exists") {
+            409
+        } else {
+            500
+        };
+        return Response::error(status, &format!("Cannot rename document bundle: {error}"));
+    }
+    let build = state.rebuild_locked(&mut status);
+    let build_json = match build {
+        Ok(report) => json!({ "ok": true, "posts": report.posts }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
+    Response::json(
+        200,
+        &json!({ "ok": true, "path": new_rel, "etag": etag(&source), "build": build_json }),
+    )
+}
+
 fn delete_document(state: &AppState, req: &Request) -> Response {
     let Some(rel) = req.query.get("path") else {
         return Response::error(400, "Missing ?path=");
@@ -2741,42 +3274,44 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
             .unwrap_or("track.gpx");
         unique_trash_target(&trash.join("tracks"), &stamp, name)
     });
-    if let Err(e) = fs::rename(&path, &target) {
-        return Response::error(500, &format!("cannot move the file to the trash: {e}"));
-    }
-    if let Some(sidecar_target) = &sidecar_target {
-        if let Err(error) = fs::rename(sidecar.as_ref().expect("existing sidecar"), sidecar_target)
-        {
-            let rollback = fs::rename(&target, &path);
-            return Response::error(
-                500,
-                &format!(
-                    "cannot move the credit sidecar to the trash: {error}; document rollback: {}",
-                    rollback
-                        .err()
-                        .map(|error| error.to_string())
-                        .unwrap_or_else(|| "ok".into())
-                ),
-            );
+    let mut context_moves = Vec::new();
+    if check_rel_path(rel).ok() == Some("posts") {
+        for visibility in ["portable", "private"] {
+            let (context, _, _) =
+                match assistant_context_target(&state.root, "post", visibility, Some(rel)) {
+                    Ok(target) => target,
+                    Err(response) => return response,
+                };
+            if context.exists() {
+                if !context.is_file() {
+                    return Response::error(409, "Associated post context is not a file");
+                }
+                let context_name = context
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("post.md");
+                let context_target = unique_trash_target(
+                    &trash.join("context"),
+                    &stamp,
+                    &format!("{visibility}-{context_name}"),
+                );
+                context_moves.push((context, context_target));
+            }
         }
+    }
+    let mut moves = vec![(path.clone(), target.clone())];
+    if let (Some(sidecar), Some(sidecar_target)) = (&sidecar, &sidecar_target) {
+        moves.push((sidecar.clone(), sidecar_target.clone()));
     }
     if let (Some(track), Some(track_target)) = (&managed_track, &track_target) {
-        if let Some(parent) = track_target.parent() {
-            if let Err(error) = fs::create_dir_all(parent) {
-                if let (Some(sidecar), Some(sidecar_target)) = (&sidecar, &sidecar_target) {
-                    let _ = fs::rename(sidecar_target, sidecar);
-                }
-                let _ = fs::rename(&target, &path);
-                return Response::error(500, &format!("cannot create track trash: {error}"));
-            }
-        }
-        if let Err(error) = fs::rename(track, track_target) {
-            if let (Some(sidecar), Some(sidecar_target)) = (&sidecar, &sidecar_target) {
-                let _ = fs::rename(sidecar_target, sidecar);
-            }
-            let _ = fs::rename(&target, &path);
-            return Response::error(500, &format!("cannot move the track to trash: {error}"));
-        }
+        moves.push((track.clone(), track_target.clone()));
+    }
+    moves.extend(context_moves.iter().cloned());
+    if let Err(error) = move_files_transactionally(&moves) {
+        return Response::error(
+            500,
+            &format!("cannot move document bundle to trash: {error}"),
+        );
     }
     eprintln!("admin: deleted {rel} (kept in .openblog/trash)");
     let build = state.rebuild_locked(&mut status);
@@ -2791,6 +3326,7 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
             "trashedTo": target.file_name().map(|n| n.to_string_lossy().into_owned()),
             "trashedCreditsTo": sidecar_target.and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned())),
             "trashedTrackTo": track_target.and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned())),
+            "trashedContextTo": context_moves.into_iter().filter_map(|(_, path)| path.file_name().map(|name| name.to_string_lossy().into_owned())).collect::<Vec<_>>(),
             "build": build_json
         }),
     )
@@ -4137,6 +4673,355 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("already tracked"));
+    }
+
+    #[test]
+    fn assistant_post_context_references_and_post_snapshots_are_bounded_and_conflict_safe() {
+        let f = fixture("assistant-post-reference-context");
+        let session = login_ok(&f);
+        let post_path = "posts/2026-01-01-context-source.md";
+        fs::write(
+            f.dir.join("content").join(post_path),
+            "---\ntitle: Context source\ndate: 2026-01-01\n---\n\nImmutable source body.\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let outside = f.dir.join("outside-posts");
+            fs::create_dir_all(&outside).unwrap();
+            fs::write(outside.join("secret.md"), "must not become context").unwrap();
+            symlink(&outside, f.dir.join("content/posts/linked-outside")).unwrap();
+        }
+
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "post", "visibility": "portable",
+                        "documentPath": post_path,
+                        "fields": {
+                            "goal": "Explain context selection",
+                            "audience": "Blog authors",
+                            "learningOutcomes": "Choose only relevant material",
+                            "sources": "The project specification",
+                            "constraints": "Keep provider data bounded"
+                        },
+                        "etag": null
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            created.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created = body_json(&created)["document"].clone();
+        assert_eq!(created["contextType"], "post");
+        assert!(created["content"].as_str().unwrap().contains("## Goal"));
+        assert!(f
+            .dir
+            .join("assistant/context/posts/2026-01-01-context-source.md")
+            .is_file());
+
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "post", "visibility": "portable",
+                        "documentPath": post_path,
+                        "fields": { "goal": "Stale overwrite" },
+                        "etag": "stale"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+
+        let reference = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/reference",
+                    json!({
+                        "name": "style-notes.txt", "visibility": "private",
+                        "content": "Prefer concrete examples."
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            reference.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&reference.body)
+        );
+        let reference = body_json(&reference)["reference"].clone();
+        assert_eq!(reference["name"], "style-notes.txt");
+        assert_eq!(reference["visibility"], "private");
+        assert_eq!(reference["content"], "Prefer concrete examples.");
+
+        let catalog = handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    "/admin/api/assistant/context?path=posts%2F2026-01-01-context-source.md",
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(catalog.status, 200);
+        let catalog = body_json(&catalog);
+        assert_eq!(catalog["documents"].as_array().unwrap().len(), 6);
+        assert!(catalog["references"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == "private:reference:style-notes.txt"));
+        let snapshot = catalog["postSnapshots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == post_path)
+            .unwrap();
+        assert_eq!(
+            snapshot["content"]
+                .as_str()
+                .unwrap()
+                .contains("Immutable source body."),
+            true
+        );
+        assert!(!catalog["postSnapshots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["content"] == "must not become context"));
+        f.state.rebuild().unwrap();
+        for output in fsutil::walk(&f.dir.join("dist")) {
+            let output = String::from_utf8_lossy(&fs::read(output).unwrap()).into_owned();
+            assert!(!output.contains("Explain context selection"));
+            assert!(!output.contains("Prefer concrete examples."));
+        }
+
+        for (name, content, expected) in [
+            ("payload.pdf", "text", 422),
+            (
+                "too-large.md",
+                &"x".repeat(MAX_ASSISTANT_CONTEXT_BYTES + 1),
+                413,
+            ),
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/assistant/reference",
+                        json!({ "name": name, "visibility": "portable", "content": content }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, expected);
+            assert!(!f
+                .dir
+                .join("assistant/context/references")
+                .join(name)
+                .exists());
+        }
+
+        let deleted = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "DELETE",
+                    "/admin/api/assistant/reference",
+                    json!({
+                        "name": "style-notes.txt", "visibility": "private",
+                        "etag": reference["etag"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 200);
+        assert!(!f
+            .dir
+            .join(".openblog/private/context/references/style-notes.txt")
+            .exists());
+    }
+
+    #[test]
+    fn document_rename_moves_post_context_and_conflicts_without_partial_changes() {
+        let f = fixture("post-context-rename");
+        let session = login_ok(&f);
+        let old_rel = "posts/2026-01-01-old-name.md";
+        let new_rel = "posts/2026-01-01-new-name.md";
+        let source = "---\ntitle: Old name\ndate: 2026-01-01\n---\n\nBody.\n";
+        fs::write(f.dir.join("content").join(old_rel), source).unwrap();
+        for root in ["assistant/context", ".openblog/private/context"] {
+            let directory = f.dir.join(root).join("posts");
+            fs::create_dir_all(&directory).unwrap();
+            fs::write(
+                directory.join("2026-01-01-old-name.md"),
+                "## Goal\n\nKeep me.\n",
+            )
+            .unwrap();
+        }
+
+        let renamed = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document/rename",
+                    json!({ "path": old_rel, "newPath": new_rel, "etag": etag(source) }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            renamed.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&renamed.body)
+        );
+        assert!(!f.dir.join("content").join(old_rel).exists());
+        assert!(f.dir.join("content").join(new_rel).is_file());
+        for root in ["assistant/context", ".openblog/private/context"] {
+            assert!(!f
+                .dir
+                .join(root)
+                .join("posts/2026-01-01-old-name.md")
+                .exists());
+            assert_eq!(
+                fs::read_to_string(f.dir.join(root).join("posts/2026-01-01-new-name.md")).unwrap(),
+                "## Goal\n\nKeep me.\n"
+            );
+        }
+
+        let conflict_rel = "posts/2026-01-01-conflict.md";
+        fs::write(f.dir.join("content").join(conflict_rel), "occupied").unwrap();
+        let conflict = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document/rename",
+                    json!({ "path": new_rel, "newPath": conflict_rel, "etag": etag(source) }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(conflict.status, 409);
+        assert!(f.dir.join("content").join(new_rel).is_file());
+        assert!(f
+            .dir
+            .join("assistant/context/posts/2026-01-01-new-name.md")
+            .is_file());
+    }
+
+    #[test]
+    fn document_bundle_move_rolls_back_completed_moves_after_a_later_failure() {
+        let f = fixture("document-bundle-move-rollback");
+        let source = f.dir.join("source.md");
+        let first_target = f.dir.join("first.md");
+        let second_target = f.dir.join("second.md");
+        fs::write(&source, "restore me").unwrap();
+
+        let error = move_files_transactionally(&[
+            (source.clone(), first_target.clone()),
+            (source.clone(), second_target.clone()),
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("rollback: ok"));
+        assert_eq!(fs::read_to_string(&source).unwrap(), "restore me");
+        assert!(!first_target.exists());
+        assert!(!second_target.exists());
+    }
+
+    #[test]
+    fn document_delete_restores_post_when_context_cannot_be_retired() {
+        let f = fixture("post-context-delete-recovery");
+        let session = login_ok(&f);
+        let rel = "posts/2026-01-01-delete-recovery.md";
+        let post = f.dir.join("content").join(rel);
+        fs::write(
+            &post,
+            "---\ntitle: Recovery\ndate: 2026-01-01\n---\n\nBody.\n",
+        )
+        .unwrap();
+        let context = f
+            .dir
+            .join("assistant/context/posts/2026-01-01-delete-recovery.md");
+        fs::create_dir_all(context.parent().unwrap()).unwrap();
+        fs::write(&context, "## Goal\n\nRecover together.\n").unwrap();
+        let trash_context = f.dir.join(".openblog/trash/context");
+        fs::create_dir_all(trash_context.parent().unwrap()).unwrap();
+        fs::write(&trash_context, "blocks directory creation").unwrap();
+
+        let deleted = handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    "/admin/api/document?path=posts%2F2026-01-01-delete-recovery.md",
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 500);
+        assert!(
+            post.is_file(),
+            "post must be restored after context failure"
+        );
+        assert!(context.is_file(), "context must remain with restored post");
+
+        fs::remove_file(&trash_context).unwrap();
+        let deleted = handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    "/admin/api/document?path=posts%2F2026-01-01-delete-recovery.md",
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 200);
+        assert!(!post.exists());
+        assert!(!context.exists());
+        assert_eq!(
+            body_json(&deleted)["trashedContextTo"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

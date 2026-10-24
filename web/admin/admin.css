@@ -1228,6 +1228,20 @@ kbd {
   margin-top: 1rem;
 }
 
+.oba-assistant-context-tools {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-assistant-source-preview {
+  max-height: 15rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+}
+
 .oba-field-charts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
