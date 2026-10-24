@@ -11,7 +11,7 @@ pub struct EngineCapability {
     pub contract: String,
 }
 
-pub const ENGINE_GUIDE_VERSION: u32 = 1;
+pub const ENGINE_GUIDE_VERSION: u32 = 2;
 
 pub fn engine_capabilities() -> Vec<EngineCapability> {
     let capability = |id, contract: &str| EngineCapability {
@@ -26,6 +26,10 @@ pub fn engine_capabilities() -> Vec<EngineCapability> {
         capability(
             "runnable-rust-fence",
             "Fenced Rust code blocks marked `runnable` are native open.blog syntax. They render as editable interactive examples with Run, Reset, and Copy controls plus an optional Rust Playground fallback. Do not claim that the `runnable` option is unsupported merely because it is not standard Markdown. You may review the example itself and whether running remote code is appropriately framed.",
+        ),
+        capability(
+            "runnable-code-interactions",
+            "Runnable examples and small coding challenges use portable instructions followed by one self-contained `rust runnable` fence. A challenge should give readers a bounded task, visible TODO starter code, an expected result, and optionally a hint. Only Rust is executable in open.blog in this engine-guide version; do not invent executable Python, JavaScript, shell, multi-file projects, hidden tests, grading, or automatic correctness claims.",
         ),
         capability(
             "code-fence-options",

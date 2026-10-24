@@ -32,9 +32,9 @@ use serde_json::{json, Map, Value as Json};
 use crate::assistant::{
     parse_skill, AnthropicProvider, AssistantCompletionSource, AssistantConcurrency,
     AssistantDocument, AssistantErrorKind, AssistantProvider, AssistantProviderStatus,
-    AssistantRequest, AssistantResult, GenericHttpsProvider, KnowledgeCheckCount, NativeProvider,
-    NativeProviderKind, ReviewContext, ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope,
-    ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
+    AssistantRequest, AssistantResult, CodeInteractionKind, GenericHttpsProvider,
+    KnowledgeCheckCount, NativeProvider, NativeProviderKind, ReviewContext, ReviewSkill,
+    SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
 };
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
@@ -432,6 +432,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
         ("POST", "assistant/review") => generate_document_review(state, req),
         ("POST", "assistant/complete") => generate_inline_completion(state, req),
+        ("POST", "assistant/code-interaction") => generate_code_interaction(state, req),
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
         ("PUT", "assistant/skill") => update_assistant_skill(state, req),
@@ -2769,7 +2770,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
     };
     let findings = match provider.generate(&request) {
         Ok(AssistantResult::Review(findings)) => findings,
-        Ok(AssistantResult::KnowledgeChecks(_)) => {
+        Ok(AssistantResult::KnowledgeChecks(_) | AssistantResult::CodeInteraction(_)) => {
             return Response::error(502, "Assistant provider returned the wrong result type")
         }
         Ok(AssistantResult::Completion(_)) => {
@@ -2889,9 +2890,11 @@ fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
     };
     match provider.generate(&request) {
         Ok(AssistantResult::Completion(completion)) => Response::json(200, &json!(completion)),
-        Ok(AssistantResult::KnowledgeChecks(_) | AssistantResult::Review(_)) => {
-            Response::error(502, "Assistant provider returned the wrong result type")
-        }
+        Ok(
+            AssistantResult::KnowledgeChecks(_)
+            | AssistantResult::CodeInteraction(_)
+            | AssistantResult::Review(_),
+        ) => Response::error(502, "Assistant provider returned the wrong result type"),
         Err(error) => review_error(error),
     }
 }
@@ -3140,13 +3143,77 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     };
     match provider.generate(&request) {
         Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
-        Ok(AssistantResult::Review(_)) => {
+        Ok(AssistantResult::Review(_) | AssistantResult::CodeInteraction(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
         }
         Ok(AssistantResult::Completion(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
         }
         Err(error) => Response::error(502, error.public_message()),
+    }
+}
+
+fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let context = body["context"].as_str().unwrap_or("").trim();
+    if context.is_empty() || context.chars().count() > 50_000 {
+        return Response::error(
+            400,
+            "Select between 1 and 50,000 characters of article text",
+        );
+    }
+    let kind = match body["kind"].as_str().and_then(CodeInteractionKind::parse) {
+        Some(kind) => kind,
+        None => return Response::error(400, "Code interaction kind must be example or challenge"),
+    };
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
+    let provider = match configured_assistant_provider(
+        &config,
+        credential,
+        assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
+    ) {
+        Ok(provider) => provider,
+        Err(error) => return review_error(error),
+    };
+    let request = AssistantRequest::code_interaction(
+        config.knowledge_checks.model,
+        context.to_string(),
+        kind,
+    );
+    let _provider_permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => {
+            return Response::json(
+                429,
+                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
+            )
+        }
+    };
+    code_interaction_response(provider.generate(&request))
+}
+
+fn code_interaction_response(
+    result: Result<AssistantResult, crate::assistant::AssistantError>,
+) -> Response {
+    match result {
+        Ok(AssistantResult::CodeInteraction(interaction)) => {
+            Response::json(200, &json!(interaction))
+        }
+        Ok(
+            AssistantResult::KnowledgeChecks(_)
+            | AssistantResult::Review(_)
+            | AssistantResult::Completion(_),
+        ) => Response::error(502, "Assistant provider returned the wrong result type"),
+        Err(error) => review_error(error),
     }
 }
 
@@ -6310,6 +6377,123 @@ mod tests {
             ),
         );
 
+        assert_eq!(response.status, 429);
+        assert!(String::from_utf8_lossy(&response.body).contains("already running"));
+    }
+
+    #[test]
+    fn code_interaction_is_authenticated_grounded_and_strictly_validated() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-code-interaction");
+        let generated = json!({
+            "kind": "challenge",
+            "title": "Move the lantern",
+            "instructions": "Complete the ownership transfer.",
+            "code": "fn main() {\n    // TODO: move the lantern\n}",
+            "expectedOutput": "moved",
+            "hint": "Pass the String by value.",
+            "explanation": "The function takes ownership."
+        });
+        let (endpoint, captured, provider) = capturing_provider(generated.to_string());
+        set_quiz_endpoint(&f, &endpoint);
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "code-secret");
+        let request = || {
+            json_req(
+                "POST",
+                "/admin/api/assistant/code-interaction",
+                json!({ "context": "A section about Rust ownership.", "kind": "challenge" }),
+            )
+        };
+        assert_eq!(handle(&f.state, &request()).status, 401);
+        let session = login_ok(&f);
+        assert_eq!(
+            handle(&f.state, &authed(request(), &session, false)).status,
+            403
+        );
+        let response = handle(&f.state, &authed(request(), &session, true));
+        provider.join().unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(body_json(&response)["kind"], "challenge");
+        assert!(!String::from_utf8_lossy(&response.body).contains("code-secret"));
+        let outbound = captured.recv().unwrap();
+        assert_eq!(outbound["task"], "code-interaction");
+        assert_eq!(outbound["interactionKind"], "challenge");
+        assert_eq!(
+            outbound["untrustedData"]["articleExcerpt"],
+            "A section about Rust ownership."
+        );
+    }
+
+    #[test]
+    fn code_interaction_rejects_invalid_requests_before_provider_use() {
+        let f = fixture("assistant-code-interaction-bounds");
+        let session = login_ok(&f);
+        for body in [
+            json!({ "context": "", "kind": "example" }),
+            json!({ "context": "x".repeat(50_001), "kind": "challenge" }),
+            json!({ "context": "Section", "kind": "project" }),
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/assistant/code-interaction", body),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, 400);
+        }
+    }
+
+    #[test]
+    fn code_interaction_is_optional_and_rejects_the_wrong_result_type() {
+        let f = fixture("assistant-code-interaction-optional");
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/code-interaction",
+                    json!({ "context": "Section", "kind": "example" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(response.status, 404);
+        assert!(String::from_utf8_lossy(&response.body).contains("not configured"));
+
+        let wrong = code_interaction_response(Ok(AssistantResult::KnowledgeChecks(
+            crate::assistant::KnowledgeCheckSet { questions: vec![] },
+        )));
+        assert_eq!(wrong.status, 502);
+        assert!(String::from_utf8_lossy(&wrong.body).contains("wrong result type"));
+    }
+
+    #[test]
+    fn code_interaction_obeys_the_shared_assistant_concurrency_limit() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-code-interaction-concurrency");
+        set_quiz_endpoint(&f, "https://assistant.example/generate");
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "code-secret");
+        let session = login_ok(&f);
+        let _first = f.state.assistant_operations.try_acquire().unwrap();
+        let _second = f.state.assistant_operations.try_acquire().unwrap();
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/code-interaction",
+                    json!({ "context": "Section", "kind": "example" }),
+                ),
+                &session,
+                true,
+            ),
+        );
         assert_eq!(response.status, 429);
         assert!(String::from_utf8_lossy(&response.body).contains("already running"));
     }
