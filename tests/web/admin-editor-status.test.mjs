@@ -72,7 +72,8 @@ test("writer exposes source-preserving formatting controls", () => {
 });
 
 test("writer offers a remembered visual mode without replacing Markdown storage", () => {
-  assert.match(admin, /ADMIN_EDITOR_MODE_KEY/);
+  assert.match(admin, /this\.app\.preferences\.editorMode/);
+  assert.match(admin, /persistEditorMode\(mode\)/);
   assert.match(admin, /\["visual", "markdown"\]/);
   assert.match(admin, /contenteditable: "true"/);
   assert.match(admin, /Visual/);

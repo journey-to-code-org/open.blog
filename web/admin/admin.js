@@ -7,7 +7,53 @@ import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-langua
 
 const ADMIN_SCHEME_KEY = "ob-admin-scheme";
 const ADMIN_PREVIEW_WIDTH_KEY = "ob-admin-preview-width";
-const ADMIN_EDITOR_MODE_KEY = "ob-admin-editor-mode";
+
+export const ADMIN_OPTIONAL_MODULES = Object.freeze([
+  "social",
+  "release",
+  "field",
+  "optimize",
+  "accessibility",
+  "evidence",
+  "assistant",
+  "analytics",
+  "contributors",
+  "public-site",
+]);
+
+export const DEFAULT_ADMIN_PREFERENCES = Object.freeze({
+  schemaVersion: 1,
+  preset: "simple",
+  density: "comfortable",
+  editorMode: "visual",
+  moduleOrder: ADMIN_OPTIONAL_MODULES,
+  hiddenModules: [],
+});
+
+export function normalizeAdminPreferences(value) {
+  const input = value && typeof value === "object" ? value : {};
+  const preset = ["simple", "guided", "advanced", "custom"].includes(input.preset) ? input.preset : "simple";
+  const density = ["comfortable", "compact"].includes(input.density) ? input.density : "comfortable";
+  const editorMode = ["visual", "markdown"].includes(input.editorMode) ? input.editorMode : "visual";
+  const suppliedOrder = Array.isArray(input.moduleOrder) ? input.moduleOrder : [];
+  const moduleOrder = [
+    ...suppliedOrder.filter((module, index) => ADMIN_OPTIONAL_MODULES.includes(module) && suppliedOrder.indexOf(module) === index),
+    ...ADMIN_OPTIONAL_MODULES.filter((module) => !suppliedOrder.includes(module)),
+  ];
+  const hiddenModules = Array.isArray(input.hiddenModules)
+    ? input.hiddenModules.filter((module, index) => ADMIN_OPTIONAL_MODULES.includes(module) && input.hiddenModules.indexOf(module) === index)
+    : [];
+  return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules };
+}
+
+export function visibleAdminModules(preferences, available = ADMIN_OPTIONAL_MODULES) {
+  const normalized = normalizeAdminPreferences(preferences);
+  const candidates = normalized.moduleOrder.filter((module) => available.includes(module));
+  if (normalized.preset === "simple") return [];
+  if (normalized.preset === "guided") return candidates.filter((module) => ["accessibility", "evidence", "assistant"].includes(module));
+  if (normalized.preset === "custom") return candidates.filter((module) => !normalized.hiddenModules.includes(module));
+  return candidates;
+}
 
 function preferredAdminScheme() {
   try {
@@ -1205,6 +1251,9 @@ export class ObAdmin extends AdminElement {
   viewVersion = 0;
   skipRoute = false;
   currentHash = "";
+  preferences = normalizeAdminPreferences();
+  preferencesEtag = "";
+  preferencesError = "";
 
   connectedCallback() {
     this.addEventListener("input", (e) => {
@@ -1255,8 +1304,48 @@ export class ObAdmin extends AdminElement {
 
   async enter() {
     this.meta = await this.api.call("GET", "meta");
+    try {
+      const snapshot = await this.api.call("GET", "preferences");
+      this.preferences = normalizeAdminPreferences(snapshot.preferences);
+      this.preferencesEtag = snapshot.etag;
+      this.preferencesError = "";
+    } catch (error) {
+      this.preferences = normalizeAdminPreferences();
+      this.preferencesEtag = "";
+      this.preferencesError = `Workspace personalization is unavailable: ${error.message}`;
+    }
+    this.applyWorkspacePreferences();
     document.title = `Admin · ${this.meta.siteTitle}`;
     this.onHash();
+  }
+
+  applyWorkspacePreferences() {
+    document.documentElement.dataset.adminPreset = this.preferences.preset;
+    document.documentElement.dataset.adminDensity = this.preferences.density;
+    const visible = new Set(visibleAdminModules(this.preferences));
+    this.querySelectorAll?.("[data-admin-module]").forEach((element) => {
+      element.hidden = !visible.has(element.dataset.adminModule);
+    });
+    this.querySelectorAll?.("[data-admin-module-group]").forEach((element) => {
+      const modules = element.dataset.adminModuleGroup.split(" ");
+      element.hidden = !modules.some((module) => visible.has(module));
+    });
+    this.editor?.applyWorkspacePreferences(this.preferences);
+  }
+
+  async persistEditorMode(mode) {
+    this.preferences = normalizeAdminPreferences({ ...this.preferences, editorMode: mode });
+    this.applyWorkspacePreferences();
+    if (!this.preferencesEtag) return;
+    try {
+      const snapshot = await this.api.call("PUT", "preferences", { json: { etag: this.preferencesEtag, preferences: this.preferences } });
+      this.preferences = normalizeAdminPreferences(snapshot.preferences);
+      this.preferencesEtag = snapshot.etag;
+      this.preferencesError = "";
+    } catch (error) {
+      this.preferencesError = `Writing mode changed for this session but could not be saved: ${error.message}`;
+      if (this.editor?.ui?.editorModeStatus) this.editor.ui.editorModeStatus.textContent += " · preference not saved";
+    }
   }
 
   // ---- views
@@ -1340,8 +1429,11 @@ export class ObAdmin extends AdminElement {
       h("span", {}, "Search workspace"),
       h("kbd", {}, "Ctrl K"),
     );
+    const advancedTrigger = h("button", { class: "oba-btn oba-advanced-trigger", type: "button", onClick: () => this.openAdvancedTools() }, "Advanced tools");
+    const personalizeTrigger = h("button", { class: "oba-btn oba-personalize-trigger", type: "button", onClick: () => this.openWorkspacePreferences() }, "Personalize");
     const toolGroup = (label, ...tools) =>
       h("div", { class: "oba-tool-group" }, h("span", { class: "oba-tool-label" }, label), h("div", { class: "oba-tool-actions" }, tools));
+    const visibleModules = new Set(visibleAdminModules(this.preferences));
     const contentTabs = [
       h("a", { class: "oba-tab", "aria-current": active === "overview" ? "page" : null, href: "#/overview" }, "Overview"),
       ...Object.entries(KINDS).map(([kind, info]) =>
@@ -1369,6 +1461,8 @@ export class ObAdmin extends AdminElement {
         ),
         h("span", { class: "oba-spacer" }),
         commandTrigger,
+        advancedTrigger,
+        personalizeTrigger,
         h("span", { class: "oba-small oba-account-label" }, `Signed in as ${this.user}`),
         themeButton(),
         logout,
@@ -1377,12 +1471,12 @@ export class ObAdmin extends AdminElement {
         "nav",
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
-        toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics")),
-        toolGroup(
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
-          h("a", { class: "oba-tab", "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
-          h("a", { class: "oba-tab", href: "/", target: "_blank", rel: "noopener" }, "View site ↗"),
-        ),
+          h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
+          h("a", { class: "oba-tab", "data-admin-module": "public-site", hidden: !visibleModules.has("public-site"), href: "/", target: "_blank", rel: "noopener" }, "View site ↗"),
+        )),
       ),
       h(
         "section",
@@ -1392,7 +1486,122 @@ export class ObAdmin extends AdminElement {
         publishBox,
       ),
       h("main", { class: "oba-workspace-content" }, ...content),
+      this.preferencesError ? h("p", { class: "oba-preferences-warning", role: "status" }, this.preferencesError) : null,
     );
+  }
+
+  openAdvancedTools() {
+    const activeDialog = document.querySelector("dialog[open]");
+    if (activeDialog) return;
+    const trigger = document.activeElement;
+    const tool = (label, detail, action) =>
+      h("button", { class: "oba-advanced-tool", type: "button", onClick: () => { dialog.close(); dialog.remove(); action(); } }, h("strong", {}, label), h("span", {}, detail));
+    const tools = [
+      tool("Analytics", "Reader trends without individual tracking", () => (location.hash = "#/analytics")),
+      tool("Contributors", "Bylines, identities, and contribution credits", () => (location.hash = "#/contributors")),
+      tool("View site", "Open the public site in a new tab", () => open("/", "_blank", "noopener")),
+      tool("Personalize workspace", "Choose complexity, density, and writing mode", () => this.openWorkspacePreferences()),
+    ];
+    if (this.editor) {
+      for (const pane of this.editor.optionalPanes || []) {
+        tools.unshift(tool(this.editor.paneLabels[pane], "Open this document tool", () => this.editor.activatePane(pane, true)));
+      }
+    }
+    const close = h("button", { class: "oba-btn", type: "button", onClick: () => dialog.close() }, "Close");
+    const dialog = h(
+      "dialog",
+      { class: "oba-dialog oba-advanced-dialog", "aria-labelledby": "oba-advanced-title" },
+      h("p", { class: "oba-eyebrow" }, "On demand"),
+      h("h2", { id: "oba-advanced-title" }, "Advanced tools"),
+      h("p", {}, "Everything remains reachable even when your everyday workspace is simple."),
+      h("div", { class: "oba-advanced-grid" }, tools),
+      h("div", { class: "oba-dialog-actions" }, close),
+    );
+    dialog.addEventListener("close", () => { dialog.remove(); trigger?.focus?.(); }, { once: true });
+    document.body.append(dialog);
+    dialog.showModal();
+    close.focus();
+  }
+
+  openWorkspacePreferences() {
+    const activeDialog = document.querySelector("dialog[open]");
+    if (activeDialog) return;
+    const trigger = document.activeElement;
+    let draft = normalizeAdminPreferences(this.preferences);
+    const preset = h("select", { id: "oba-workspace-preset" }, [
+      ["simple", "Simple — writing essentials"],
+      ["guided", "Guided — helpful review tools"],
+      ["advanced", "Advanced — everything visible"],
+      ["custom", "Custom — choose below"],
+    ].map(([value, label]) => h("option", { value, selected: value === draft.preset }, label)));
+    const density = h("select", { id: "oba-workspace-density" }, ["comfortable", "compact"].map((value) => h("option", { value, selected: value === draft.density }, value[0].toUpperCase() + value.slice(1))));
+    const editorMode = h("select", { id: "oba-workspace-editor" }, [["visual", "Visual editor"], ["markdown", "Markdown source"]].map(([value, label]) => h("option", { value, selected: value === draft.editorMode }, label)));
+    const moduleList = h("div", { class: "oba-module-list" });
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const labels = { social: "Social preview", release: "Release kit", field: "Field notes", optimize: "Optimize", accessibility: "Accessibility", evidence: "Evidence Studio", assistant: "Assistant", analytics: "Analytics", contributors: "Contributors", "public-site": "Public site link" };
+    const renderModules = () => {
+      moduleList.replaceChildren(...draft.moduleOrder.map((module, index) => {
+        const checked = !draft.hiddenModules.includes(module);
+        const toggle = h("input", { type: "checkbox", checked, disabled: preset.value !== "custom", "aria-label": `Show ${labels[module]}` });
+        toggle.addEventListener("change", () => {
+          draft.hiddenModules = toggle.checked ? draft.hiddenModules.filter((item) => item !== module) : [...draft.hiddenModules, module];
+        });
+        const move = (offset) => {
+          const destination = index + offset;
+          if (destination < 0 || destination >= draft.moduleOrder.length) return;
+          [draft.moduleOrder[index], draft.moduleOrder[destination]] = [draft.moduleOrder[destination], draft.moduleOrder[index]];
+          renderModules();
+        };
+        return h("div", { class: "oba-module-row" }, h("label", {}, toggle, h("span", {}, labels[module])), h("span", {}, h("button", { class: "oba-btn", type: "button", disabled: index === 0, "aria-label": `Move ${labels[module]} up`, onClick: () => move(-1) }, "↑"), h("button", { class: "oba-btn", type: "button", disabled: index === draft.moduleOrder.length - 1, "aria-label": `Move ${labels[module]} down`, onClick: () => move(1) }, "↓")));
+      }));
+    };
+    preset.addEventListener("change", () => { draft.preset = preset.value; renderModules(); });
+    density.addEventListener("change", () => { draft.density = density.value; });
+    editorMode.addEventListener("change", () => { draft.editorMode = editorMode.value; });
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: async () => {
+      draft = normalizeAdminPreferences({ ...draft, preset: preset.value, density: density.value, editorMode: editorMode.value });
+      save.disabled = true;
+      status.textContent = "Saving…";
+      try {
+        const snapshot = await this.api.call("PUT", "preferences", { json: { etag: this.preferencesEtag, preferences: draft } });
+        this.preferences = normalizeAdminPreferences(snapshot.preferences);
+        this.preferencesEtag = snapshot.etag;
+        this.preferencesError = "";
+        this.applyWorkspacePreferences();
+        status.textContent = "Workspace saved.";
+      } catch (error) {
+        status.textContent = error.status === 409 ? "These settings changed in another session. Close, reload, and try again." : `Could not save: ${error.message}`;
+        save.disabled = false;
+        return;
+      }
+      save.disabled = false;
+    } }, "Save workspace");
+    const restore = h("button", { class: "oba-btn", type: "button", onClick: () => {
+      draft = normalizeAdminPreferences();
+      preset.value = draft.preset;
+      density.value = draft.density;
+      editorMode.value = draft.editorMode;
+      renderModules();
+      status.textContent = "Defaults restored in this form. Save to apply them.";
+    } }, "Restore defaults");
+    const close = h("button", { class: "oba-btn", type: "button", onClick: () => dialog.close() }, "Close");
+    const dialog = h("dialog", { class: "oba-dialog oba-preferences-dialog", "aria-labelledby": "oba-preferences-title" },
+      h("p", { class: "oba-eyebrow" }, "Your private view"),
+      h("h2", { id: "oba-preferences-title" }, "Personalize your workspace"),
+      h("p", {}, "These settings belong only to your admin account. They never change the public blog or exported content."),
+      h("div", { class: "oba-preferences-grid" },
+        h("div", { class: "oba-field" }, h("label", { for: "oba-workspace-preset" }, "Workspace complexity"), preset),
+        h("div", { class: "oba-field" }, h("label", { for: "oba-workspace-density" }, "Spacing"), density),
+        h("div", { class: "oba-field" }, h("label", { for: "oba-workspace-editor" }, "Default writing mode"), editorMode)),
+      h("aside", { class: "oba-essential-note" }, h("strong", {}, "Always available"), h("p", {}, "Write, preview, settings, save, publish status, conflicts, privacy notices, approvals, and blockers cannot be hidden.")),
+      h("fieldset", { class: "oba-module-fieldset" }, h("legend", {}, "Optional tools and order"), h("p", { class: "oba-small" }, "Choose Custom to show or hide individual tools. Advanced tools always provides a way back."), moduleList),
+      status,
+      h("div", { class: "oba-dialog-actions" }, restore, h("span", { class: "oba-spacer" }), close, save));
+    dialog.addEventListener("close", () => { dialog.remove(); trigger?.focus?.(); }, { once: true });
+    renderModules();
+    document.body.append(dialog);
+    dialog.showModal();
+    preset.focus();
   }
 
   openCommandPalette() {
@@ -2421,13 +2630,7 @@ export class Editor {
       "aria-label": "Visual editor",
       spellcheck: "true",
     });
-    let savedEditorMode = "visual";
-    try {
-      const stored = localStorage.getItem(ADMIN_EDITOR_MODE_KEY);
-      if (["visual", "markdown"].includes(stored)) savedEditorMode = stored;
-    } catch {
-      // Visual mode remains the friendly default when storage is blocked.
-    }
+    const savedEditorMode = this.app.preferences.editorMode;
     this.editorMode = savedEditorMode;
     ui.editorModeButtons = ["visual", "markdown"].map((mode) =>
       h(
@@ -2867,7 +3070,13 @@ export class Editor {
         paneLabels[pane],
       ),
     );
-    const viewNav = h("nav", { class: "oba-editor-nav", "aria-label": "Editor views" }, paneButtons);
+    this.paneLabels = paneLabels;
+    this.optionalPanes = editorPanes.filter((pane) => !["write", "preview", "settings"].includes(pane));
+    this.paneButtonMap = new Map(editorPanes.map((pane, index) => [pane, paneButtons[index]]));
+    this.primaryPaneNav = h("div", { class: "oba-editor-primary" });
+    this.advancedPaneActions = h("div", { class: "oba-editor-advanced-actions" });
+    this.advancedPaneDetails = h("details", { class: "oba-editor-advanced" }, h("summary", {}, "More tools"), this.advancedPaneActions);
+    const viewNav = h("nav", { class: "oba-editor-nav", "aria-label": "Editor views" }, this.primaryPaneNav, this.advancedPaneDetails);
     ui.socialCardPreview = h(
       "article",
       { class: "oba-social-card", tabindex: "-1", "aria-label": "Social card preview" },
@@ -3122,6 +3331,7 @@ export class Editor {
         h("footer", { class: "oba-editor-status" }, ui.saveState, h("span", { class: "oba-spacer" }), ui.documentStats, ui.editorModeStatus),
       ),
     );
+    this.applyWorkspacePreferences(this.app.preferences);
     return this.root;
   }
 
@@ -3145,12 +3355,24 @@ export class Editor {
     this.ui.editorModeButtons.forEach((button, index) => button.setAttribute("aria-pressed", String(["visual", "markdown"][index] === mode)));
     this.ui.editorModeStatus.textContent = `${mode === "visual" ? "Visual" : "Markdown"} · Markdown saved · UTF-8`;
     if (persist) {
-      try {
-        localStorage.setItem(ADMIN_EDITOR_MODE_KEY, mode);
-      } catch {
-        // The selected mode still works for this editor session.
-      }
+      void this.app.persistEditorMode(mode);
       this.writingSurface().focus();
+    }
+  }
+
+  applyWorkspacePreferences(preferences) {
+    if (!this.primaryPaneNav || !this.advancedPaneActions) return;
+    const available = this.optionalPanes;
+    const visible = visibleAdminModules(preferences, available);
+    const primary = ["write", "preview", "settings", ...visible];
+    const advanced = preferences.moduleOrder.filter((pane) => available.includes(pane) && !visible.includes(pane));
+    this.primaryPaneNav.replaceChildren(...primary.map((pane) => this.paneButtonMap.get(pane)));
+    this.advancedPaneActions.replaceChildren(...advanced.map((pane) => this.paneButtonMap.get(pane)));
+    this.advancedPaneDetails.hidden = advanced.length === 0;
+    if (this.root) {
+      this.root.dataset.workspacePreset = preferences.preset;
+      this.root.dataset.workspaceDensity = preferences.density;
+      if (this.editorMode !== preferences.editorMode) this.setEditorMode(preferences.editorMode, false);
     }
   }
 
