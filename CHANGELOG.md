@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-23
+
 ### Added
 
 - Added a post Assistant workspace with keyboard and command-palette navigation, labelled
@@ -18,6 +20,11 @@ All notable changes to open.blog are recorded here. Releases follow
 - Added explicit URL-context snapshots with inspect-before-save metadata, selectable portable or
   private storage, SSRF-safe DNS and redirect validation, and bounded textual extraction without
   implicit refetching.
+- Added seven inspectable, non-executable Markdown review skills plus validated project skills,
+  explicit built-in overrides, repair guidance, and conflict-safe editing.
+- Added document review over the current unsaved draft with selected skills and context, strict
+  all-or-nothing structured findings, source anchoring, provider disclosure, and clearly labelled
+  AI advice that never edits or saves the draft automatically.
 
 - Added Visual and Markdown writing modes in Admin, with a remembered author preference,
   Heading 2–6 selection, familiar rich-text controls, and protected advanced blocks that
