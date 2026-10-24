@@ -356,7 +356,7 @@ fn render_quiz(
             quiz_inline(&explanation)?
         ));
     }
-    html.push_str("</p><button class=\"ob-quiz-retry\" type=\"button\" hidden>Retry</button></fieldset></ob-quiz>\n");
+    html.push_str("</p><button class=\"ob-quiz-retry\" type=\"button\" hidden>Retry</button><noscript><p>Answer checking and retry need JavaScript; the question and choices remain readable.</p></noscript></fieldset></ob-quiz>\n");
     Ok(html)
 }
 
