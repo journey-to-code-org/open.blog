@@ -426,6 +426,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ),
         ("GET", "meta") => meta(state),
         ("GET", "assistant/status") => assistant_status(state),
+        ("GET", "assistant/settings") => assistant_settings(state),
+        ("PUT", "assistant/settings") => save_assistant_settings(state, req),
         ("POST", "assistant/review") => generate_document_review(state, req),
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
@@ -993,19 +995,18 @@ fn meta(state: &AppState) -> Response {
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
             "quizGeneration": !config.knowledge_checks.generation_endpoint.trim().is_empty()
-                && std::env::var("OPENBLOG_LESSONS_API_KEY").is_ok_and(|key| !key.trim().is_empty()),
+                && assistant_credential(&state.root).ok().flatten().is_some(),
             "now": clock::now().rfc3339(),
         }),
     )
 }
 
 fn assistant_status(state: &AppState) -> Response {
-    let config = match site::load_config(&state.root) {
-        Ok(config) => config,
-        Err(_) => return Response::error(500, "Cannot read assistant configuration"),
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
     };
-    let credential_configured =
-        std::env::var("OPENBLOG_LESSONS_API_KEY").is_ok_and(|value| !value.trim().is_empty());
+    let credential_configured = credential.is_some();
     Response::json(
         200,
         &json!(AssistantProviderStatus::legacy_quiz(
@@ -1013,6 +1014,407 @@ fn assistant_status(state: &AppState) -> Response {
             &config.knowledge_checks.model,
             credential_configured,
         )),
+    )
+}
+
+const ASSISTANT_CREDENTIAL_FILE: &str = ".openblog/private/assistant/api-key";
+
+fn assistant_credential_path(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(ASSISTANT_CREDENTIAL_FILE))
+}
+
+fn private_assistant_credential(root: &Path) -> Result<Option<String>, String> {
+    Ok(private_assistant_credential_envelope(root)?.map(|(credential, _)| credential))
+}
+
+fn private_assistant_credential_envelope(root: &Path) -> Result<Option<(String, String)>, String> {
+    let path = assistant_credential_path(root)?;
+    match fs::read(&path) {
+        Ok(bytes) if bytes.len() > 32 * 1024 => {
+            Err("private Assistant credential is too large".into())
+        }
+        Ok(bytes) => {
+            let bytes = unprotect_private_credential(&bytes)?;
+            if bytes.len() > 32 * 1024 {
+                return Err("private Assistant credential is too large".into());
+            }
+            let envelope: Json = serde_json::from_slice(&bytes)
+                .map_err(|_| "private Assistant credential is not valid".to_string())?;
+            let credential = envelope["credential"]
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "private Assistant credential is not valid".to_string())?;
+            let revision = envelope["revision"]
+                .as_str()
+                .filter(|value| {
+                    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+                .ok_or_else(|| "private Assistant credential is not valid".to_string())?;
+            if credential.len() > 16 * 1024 {
+                return Err("private Assistant credential is too large".into());
+            }
+            Ok(Some((credential.to_string(), revision.to_string())))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("cannot read private Assistant credential: {error}")),
+    }
+}
+
+fn assistant_credential(root: &Path) -> Result<Option<String>, String> {
+    if let Ok(value) = std::env::var("OPENBLOG_LESSONS_API_KEY") {
+        let value = value.trim();
+        if !value.is_empty() {
+            return Ok(Some(value.to_string()));
+        }
+    }
+    private_assistant_credential(root)
+}
+
+fn assistant_provider_snapshot(state: &AppState) -> Result<(SiteConfig, Option<String>), Response> {
+    let _transaction = content_transaction(state)?;
+    let config = site::load_config(&state.root).map_err(|error| {
+        Response::error(
+            500,
+            &format!("Cannot read assistant configuration: {error}"),
+        )
+    })?;
+    let credential =
+        assistant_credential(&state.root).map_err(|error| Response::error(500, &error))?;
+    Ok((config, credential))
+}
+
+fn write_private_assistant_credential(path: &Path, credential: &str) -> Result<(), String> {
+    let revision = auth::random_token()?;
+    let envelope = serde_json::to_vec(&json!({
+        "credential": credential,
+        "revision": revision,
+    }))
+    .map_err(|error| format!("cannot encode private Assistant credential: {error}"))?;
+    let protected = protect_private_credential(&envelope)?;
+    write_private_bytes_atomic(path, &protected)
+}
+
+#[cfg(windows)]
+fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+
+    let input = CRYPT_INTEGER_BLOB {
+        cbData: value.len() as u32,
+        pbData: value.as_ptr().cast_mut(),
+    };
+    let mut output = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: null_mut(),
+    };
+    let ok = unsafe {
+        CryptProtectData(
+            &input,
+            null(),
+            null(),
+            null(),
+            null(),
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut output,
+        )
+    };
+    if ok == 0 {
+        return Err("Windows could not protect the private Assistant credential".into());
+    }
+    let protected =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    unsafe { LocalFree(output.pbData.cast()) };
+    Ok(protected)
+}
+
+#[cfg(windows)]
+fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+
+    let input = CRYPT_INTEGER_BLOB {
+        cbData: value.len() as u32,
+        pbData: value.as_ptr().cast_mut(),
+    };
+    let mut output = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: null_mut(),
+    };
+    let ok = unsafe {
+        CryptUnprotectData(
+            &input,
+            null_mut(),
+            null(),
+            null(),
+            null(),
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut output,
+        )
+    };
+    if ok == 0 {
+        return Err(
+            "Windows could not decrypt the private Assistant credential for this account".into(),
+        );
+    }
+    let clear =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    unsafe { LocalFree(output.pbData.cast()) };
+    Ok(clear)
+}
+
+#[cfg(not(windows))]
+fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+    Ok(value.to_vec())
+}
+
+#[cfg(not(windows))]
+fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+    Ok(value.to_vec())
+}
+
+fn write_private_bytes_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("cannot create private Assistant directory: {error}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                .map_err(|error| format!("cannot protect private Assistant directory: {error}"))?;
+        }
+    }
+    let temporary = path.with_extension("key.tmp");
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(&temporary)
+            .map_err(|error| format!("cannot create private Assistant credential: {error}"))?;
+        file.write_all(contents)
+            .map_err(|error| format!("cannot write private Assistant credential: {error}"))?;
+    }
+    #[cfg(not(unix))]
+    fs::write(&temporary, contents)
+        .map_err(|error| format!("cannot write private Assistant credential: {error}"))?;
+    fs::rename(&temporary, path).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        format!("cannot replace private Assistant credential: {error}")
+    })
+}
+
+fn restore_private_assistant_credential(
+    path: &Path,
+    previous: Option<&[u8]>,
+) -> Result<(), String> {
+    match previous {
+        Some(contents) => write_private_bytes_atomic(path, contents),
+        None if path.exists() => fs::remove_file(path)
+            .map_err(|error| format!("cannot remove private Assistant credential: {error}")),
+        None => Ok(()),
+    }
+}
+
+fn mutation_with_rollback_error(mutation: &str, rollback: Result<(), String>) -> String {
+    match rollback {
+        Ok(()) => mutation.to_string(),
+        Err(rollback) => format!("{mutation}; rollback also failed: {rollback}"),
+    }
+}
+
+fn assistant_credential_summary(root: &Path) -> Result<Json, String> {
+    let environment =
+        std::env::var("OPENBLOG_LESSONS_API_KEY").is_ok_and(|value| !value.trim().is_empty());
+    let private = private_assistant_credential(root)?.is_some();
+    let source = if environment {
+        "environment"
+    } else if private {
+        "private"
+    } else {
+        "none"
+    };
+    Ok(json!({
+        "configured": environment || private,
+        "source": source,
+        "privateConfigured": private,
+        "environmentOverride": environment,
+    }))
+}
+
+fn assistant_settings_etag(root: &Path, config: &[u8]) -> Result<String, String> {
+    let credential_revision = private_assistant_credential_envelope(root)?
+        .map(|(_, revision)| revision)
+        .unwrap_or_default();
+    let mut digest = Blake2s256::new();
+    digest.update(config);
+    digest.update([0]);
+    digest.update(credential_revision);
+    Ok(digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+fn assistant_settings(state: &AppState) -> Response {
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = state.root.join(site::CONFIG_FILE);
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => return Response::error(500, &format!("cannot read openblog.json: {error}")),
+    };
+    let config = match std::str::from_utf8(&bytes)
+        .map_err(|error| error.to_string())
+        .and_then(SiteConfig::from_json)
+    {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let credential = match assistant_credential_summary(&state.root) {
+        Ok(summary) => summary,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(
+        200,
+        &json!({
+            "generationEndpoint": config.knowledge_checks.generation_endpoint,
+            "model": config.knowledge_checks.model,
+        "etag": match assistant_settings_etag(&state.root, &bytes) {
+            Ok(etag) => etag,
+            Err(error) => return Response::error(500, &error),
+        },
+            "credential": credential,
+        }),
+    )
+}
+
+fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let endpoint = body["generationEndpoint"].as_str().unwrap_or("").trim();
+    let model = body["model"].as_str().unwrap_or("").trim();
+    if endpoint.len() > 2048 || model.len() > 200 {
+        return Response::error(422, "Assistant endpoint or model is too long");
+    }
+    if !endpoint.is_empty() {
+        let valid = url::Url::parse(endpoint).is_ok_and(|url| {
+            url.scheme() == "https"
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none()
+        });
+        if !valid {
+            return Response::error(
+                422,
+                "Assistant endpoint must be an HTTPS URL without embedded credentials",
+            );
+        }
+    }
+    let action = body["credentialAction"].as_str().unwrap_or("keep");
+    let replacement = body["credential"].as_str().unwrap_or("").trim();
+    if !matches!(action, "keep" | "replace" | "clear") {
+        return Response::error(422, "credentialAction must be keep, replace, or clear");
+    }
+    if action == "replace" && (replacement.is_empty() || replacement.len() > 16 * 1024) {
+        return Response::error(422, "Enter a credential no larger than 16 KiB");
+    }
+
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let config_path = state.root.join(site::CONFIG_FILE);
+    let current = match fs::read(&config_path) {
+        Ok(bytes) => bytes,
+        Err(error) => return Response::error(500, &format!("cannot read openblog.json: {error}")),
+    };
+    let current_etag = match assistant_settings_etag(&state.root, &current) {
+        Ok(etag) => etag,
+        Err(error) => return Response::error(500, &error),
+    };
+    if body["etag"].as_str() != Some(current_etag.as_str()) {
+        return Response::error(
+            409,
+            "Assistant settings changed on disk; reload before saving",
+        );
+    }
+    let mut value: Json = match serde_json::from_slice(&current) {
+        Ok(Json::Object(object)) => Json::Object(object),
+        Ok(_) => return Response::error(500, "openblog.json must contain a JSON object"),
+        Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
+    };
+    value["knowledgeChecks"] = json!({
+        "generationEndpoint": endpoint,
+        "model": model,
+    });
+    let candidate = match serde_json::to_string_pretty(&value) {
+        Ok(value) => format!("{value}\n"),
+        Err(error) => {
+            return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
+        }
+    };
+    if let Err(error) = SiteConfig::from_json(&candidate) {
+        return Response::error(422, &error);
+    }
+    let credential_path = match assistant_credential_path(&state.root) {
+        Ok(path) => path,
+        Err(error) => return Response::error(500, &error),
+    };
+    let previous_credential = match read_optional_bytes(&credential_path) {
+        Ok(value) => value,
+        Err(error) => return Response::error(500, &error),
+    };
+    let credential_result = match action {
+        "replace" => write_private_assistant_credential(&credential_path, replacement),
+        "clear" if credential_path.exists() => fs::remove_file(&credential_path)
+            .map_err(|error| format!("cannot clear private Assistant credential: {error}")),
+        "clear" | "keep" => Ok(()),
+        _ => unreachable!(),
+    };
+    if let Err(error) = credential_result {
+        let rollback =
+            restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
+        return Response::error(500, &mutation_with_rollback_error(&error, rollback));
+    }
+    if let Err(error) = write_atomic(&config_path, &candidate) {
+        let rollback =
+            restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
+        return Response::error(500, &mutation_with_rollback_error(&error, rollback));
+    }
+    let credential = match assistant_credential_summary(&state.root) {
+        Ok(summary) => summary,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(
+        200,
+        &json!({
+            "generationEndpoint": endpoint,
+            "model": model,
+        "etag": match assistant_settings_etag(&state.root, candidate.as_bytes()) {
+            Ok(etag) => etag,
+            Err(error) => return Response::error(500, &error),
+        },
+            "credential": credential,
+        }),
     )
 }
 
@@ -2147,10 +2549,13 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         };
         (skills, context)
     };
-    let config = site::load_config(&state.root).unwrap_or_default();
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
     let provider = match GenericHttpsProvider::new(
         &config.knowledge_checks.generation_endpoint,
-        std::env::var("OPENBLOG_LESSONS_API_KEY").ok(),
+        credential,
         if cfg!(test) {
             Duration::from_millis(300)
         } else {
@@ -2421,10 +2826,13 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         return Response::error(400, "Question count must be between one and three");
     }
 
-    let config = site::load_config(&state.root).unwrap_or_default();
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
     let provider = match GenericHttpsProvider::new(
         &config.knowledge_checks.generation_endpoint,
-        std::env::var("OPENBLOG_LESSONS_API_KEY").ok(),
+        credential,
         if cfg!(test) {
             Duration::from_millis(300)
         } else {
@@ -4808,6 +5216,150 @@ mod tests {
         assert!(!configured_body.contains("endpoint-user"));
         assert!(!configured_body.contains("endpoint-password"));
         assert!(!configured_body.contains("query-secret"));
+    }
+
+    #[test]
+    fn assistant_provider_settings_are_editable_without_disclosing_credentials() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-provider-settings");
+        let session = login_ok(&f);
+
+        let loaded = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/settings"), &session, false),
+        );
+        assert_eq!(loaded.status, 200);
+        let loaded_json = body_json(&loaded);
+        assert_eq!(loaded_json["credential"]["configured"], false);
+        assert_eq!(loaded_json["credential"]["source"], "none");
+        let config_etag = loaded_json["etag"].as_str().unwrap();
+
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "generationEndpoint": "https://assistant.example/v1/generate",
+                        "model": "author-model",
+                        "etag": config_etag,
+                        "credentialAction": "replace",
+                        "credential": "private-provider-secret"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved_text = String::from_utf8_lossy(&saved.body);
+        assert!(!saved_text.contains("private-provider-secret"));
+        let saved_json = body_json(&saved);
+        assert_eq!(saved_json["credential"]["configured"], true);
+        assert_eq!(saved_json["credential"]["source"], "private");
+        #[cfg(windows)]
+        assert!(!fs::read(f.dir.join(ASSISTANT_CREDENTIAL_FILE))
+            .unwrap()
+            .windows("private-provider-secret".len())
+            .any(|window| window == b"private-provider-secret"));
+        let config: Json =
+            serde_json::from_str(&fs::read_to_string(f.dir.join("openblog.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            config["knowledgeChecks"]["generationEndpoint"],
+            "https://assistant.example/v1/generate"
+        );
+        assert_eq!(config["knowledgeChecks"]["model"], "author-model");
+        assert!(!fs::read_to_string(f.dir.join("openblog.json"))
+            .unwrap()
+            .contains("private-provider-secret"));
+
+        let replaced = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "generationEndpoint": "https://assistant.example/v1/generate",
+                        "model": "author-model",
+                        "etag": saved_json["etag"],
+                        "credentialAction": "replace",
+                        "credential": "new-private-secret"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(replaced.status, 200);
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "generationEndpoint": "https://assistant.example/v1/generate",
+                        "model": "author-model",
+                        "etag": saved_json["etag"],
+                        "credentialAction": "clear"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+
+        let status = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(body_json(&status)["configured"], true);
+
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "environment-secret");
+        let environment = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/settings"), &session, false),
+        );
+        assert_eq!(
+            body_json(&environment)["credential"]["source"],
+            "environment"
+        );
+        let environment_text = String::from_utf8_lossy(&environment.body);
+        assert!(!environment_text.contains("environment-secret"));
+        assert!(!environment_text.contains("private-provider-secret"));
+
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        let cleared = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "generationEndpoint": "https://assistant.example/v1/generate",
+                        "model": "author-model",
+                        "etag": body_json(&environment)["etag"],
+                        "credentialAction": "clear"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(cleared.status, 200);
+        assert_eq!(body_json(&cleared)["credential"]["configured"], false);
+        assert!(!f.dir.join(ASSISTANT_CREDENTIAL_FILE).exists());
     }
 
     #[test]

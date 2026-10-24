@@ -38,6 +38,17 @@ test("Assistant workspace exposes safe provider status and labelled empty views"
   assert.doesNotMatch(admin, /OPENBLOG_LESSONS_API_KEY[^"'`]*(?:value|credential|secret)/i);
 });
 
+test("Assistant provider settings can be configured without revealing a saved credential", () => {
+  assert.match(admin, /api\.call\("GET", "assistant\/settings"\)/);
+  assert.match(admin, /api\.call\("PUT", "assistant\/settings"/);
+  assert.match(admin, /Generation endpoint/);
+  assert.match(admin, /Model/);
+  assert.match(admin, /Replace private credential/);
+  assert.match(admin, /Clear private credential/);
+  assert.match(admin, /Environment credential takes precedence/);
+  assert.doesNotMatch(admin, /assistantSettingsCredential\.value\s*=\s*settings/);
+});
+
 test("Assistant Context manages portable and private files with a disclosure preview", () => {
   assert.match(admin, /api\.call\("GET", endpoint\)/);
   assert.match(admin, /api\.call\("PUT", "assistant\/context"/);

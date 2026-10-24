@@ -153,8 +153,10 @@ blog itself or that it did not create.
 ## Knowledge checks
 
 Knowledge checks and their local reader interactions need no configuration. Setting
-`generationEndpoint` enables optional author-time question generation in the admin editor
-when `OPENBLOG_LESSONS_API_KEY` is also present in the server environment. `model` is an
+`generationEndpoint` enables optional author-time question generation and review in the admin
+editor when a private credential is saved from the Assistant panel or
+`OPENBLOG_LESSONS_API_KEY` is present in the server environment. Environment configuration takes
+precedence. `model` is an
 optional identifier passed through to that endpoint. See [The admin editor](admin.md#optional-question-generation)
 for the endpoint contract and security boundary.
 

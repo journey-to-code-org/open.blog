@@ -340,9 +340,9 @@ sign in again. It is unrelated to stylesheet MIME errors.
 
 ## Optional question generation
 
-Knowledge checks work without an AI service. To add **Generate draft** to their editor,
-site owners can configure an HTTPS endpoint and keep its bearer token in the server
-environment:
+Knowledge checks work without an AI service. To add **Generate draft** and document review,
+site owners can configure the provider from the Assistant panel. The endpoint and model are saved
+in `openblog.json`:
 
 ```jsonc
 // openblog.json
@@ -356,6 +356,11 @@ environment:
 export OPENBLOG_LESSONS_API_KEY="your secret"
 openblog serve --admin
 ```
+
+The credential can instead be added, replaced, or cleared in the Assistant provider panel. It is
+write-only and stored under `.openblog/private/assistant/`, never in `openblog.json`. An environment
+credential takes precedence when present. Admin reports only whether a credential exists and where
+it comes from; it never returns the saved value.
 
 The endpoint receives JSON with `context`, `count`, `model`, task instructions, and the
 expected response shape. It returns one to three questions:

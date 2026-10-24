@@ -275,7 +275,7 @@ impl AssistantProviderStatus {
             (
                 false,
                 "missing",
-                "Set knowledgeChecks.generationEndpoint in openblog.json and OPENBLOG_LESSONS_API_KEY in the server environment. Non-AI authoring remains available.",
+                "Configure the Assistant provider in Admin. Non-AI authoring remains available.",
             )
         } else if !endpoint.starts_with("https://") {
             (
@@ -287,7 +287,7 @@ impl AssistantProviderStatus {
             (
                 false,
                 "missing",
-                "Set OPENBLOG_LESSONS_API_KEY in the server environment. Non-AI authoring remains available.",
+                "Add a private credential in Admin or set OPENBLOG_LESSONS_API_KEY in the server environment. Non-AI authoring remains available.",
             )
         } else {
             (true, "ready", "Assistant provider is ready.")

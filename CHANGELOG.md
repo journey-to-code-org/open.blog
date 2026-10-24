@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added an Assistant provider settings panel for endpoint and model configuration plus write-only
+  private credential replacement and clearing, with environment credentials taking precedence.
+
 ## [0.11.0] - 2026-10-23
 
 ### Added
@@ -25,7 +28,6 @@ All notable changes to open.blog are recorded here. Releases follow
 - Added document review over the current unsaved draft with selected skills and context, strict
   all-or-nothing structured findings, source anchoring, provider disclosure, and clearly labelled
   AI advice that never edits or saves the draft automatically.
-
 - Added Visual and Markdown writing modes in Admin, with a remembered author preference,
   Heading 2–6 selection, familiar rich-text controls, and protected advanced blocks that
   retain source the visual editor cannot safely represent.
