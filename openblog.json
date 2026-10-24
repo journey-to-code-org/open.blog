@@ -1,7 +1,7 @@
 {
   "title": "open.blog",
   "description": "The example site for open.blog: Markdown files in, a fast static site out. This is the starter content every new blog begins with.",
-  "url": "https://journey-to-code-org.github.io/open.blog",
+  "url": "https://open-blog-jtc.netlify.app",
   "language": "en",
   "author": {
     "name": "open.blog",
