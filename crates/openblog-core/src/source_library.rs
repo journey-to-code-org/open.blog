@@ -43,6 +43,7 @@ const LOCATION_SCHEMES: &[&str] = &[
 /// Field names that belong to contributor credit sidecars. A source record
 /// describes a researched work; it never carries or points at work credits.
 const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
+const CREDIT_FIELD_MESSAGE: &str = "contributor credits stay in `.credits.json` sidecars; describe a source's makers as `creators`";
 const RECORD_FIELDS: &[&str] = &[
     "id",
     "kind",
@@ -56,9 +57,11 @@ const RECORD_FIELDS: &[&str] = &[
     "identifiers",
 ];
 
+/// What a source-library record is. Distinct from the crate-root
+/// `SourceKind`, which classifies content files for the loader.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum SourceKind {
+pub enum ResearchSourceKind {
     Work,
     Edition,
     Translation,
@@ -66,7 +69,7 @@ pub enum SourceKind {
     Reference,
 }
 
-impl SourceKind {
+impl ResearchSourceKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Work => "work",
@@ -89,7 +92,7 @@ impl SourceKind {
     }
 
     /// Kinds an `of` relationship from this kind may point at.
-    fn of_targets(self) -> &'static [SourceKind] {
+    fn of_targets(self) -> &'static [ResearchSourceKind] {
         match self {
             Self::Work => &[],
             Self::Edition => &[Self::Work, Self::Translation],
@@ -100,7 +103,7 @@ impl SourceKind {
     }
 }
 
-impl SourceKind {
+impl ResearchSourceKind {
     fn with_article(self) -> &'static str {
         match self {
             Self::Work => "a work",
@@ -112,7 +115,7 @@ impl SourceKind {
     }
 }
 
-impl fmt::Display for SourceKind {
+impl fmt::Display for ResearchSourceKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }
@@ -154,7 +157,7 @@ pub struct SourceLocation {
 pub struct SourceRecord {
     /// Stable, author-assigned identity. It never changes with the title.
     pub id: String,
-    pub kind: SourceKind,
+    pub kind: ResearchSourceKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -278,26 +281,27 @@ impl SourceLibrary {
         text: &str,
         contributors: &BTreeMap<String, Contributor>,
     ) -> Result<Self, Vec<SourceDiagnostic>> {
-        let mut diagnostics = Vec::new();
         if text.len() > MAX_LIBRARY_BYTES {
-            diagnostics.push(library_diagnostic(
-                SourceDiagnosticCode::TooLarge,
-                None,
-                format!("the library is larger than {MAX_LIBRARY_BYTES} bytes"),
-            ));
-            return Err(diagnostics);
+            return Err(vec![too_large()]);
         }
-        let value: Value = match serde_json::from_str(text) {
-            Ok(value) => value,
-            Err(error) => {
-                diagnostics.push(library_diagnostic(
-                    SourceDiagnosticCode::InvalidJson,
-                    None,
-                    format!("invalid JSON: {error}"),
-                ));
-                return Err(diagnostics);
-            }
-        };
+        match serde_json::from_str(text) {
+            Ok(value) => Self::from_value(value, contributors),
+            Err(error) => Err(vec![library_diagnostic(
+                SourceDiagnosticCode::InvalidJson,
+                None,
+                format!("invalid JSON: {error}"),
+            )]),
+        }
+    }
+
+    /// Validate a parsed document. The size limit is measured on the
+    /// canonical [`Self::to_json`] form, so every library this accepts can be
+    /// written out and read back, and can always shrink.
+    fn from_value(
+        value: Value,
+        contributors: &BTreeMap<String, Contributor>,
+    ) -> Result<Self, Vec<SourceDiagnostic>> {
+        let mut diagnostics = Vec::new();
         let Value::Object(mut root) = value else {
             diagnostics.push(library_diagnostic(
                 SourceDiagnosticCode::InvalidField,
@@ -374,6 +378,15 @@ impl SourceLibrary {
             ));
             return Err(diagnostics);
         }
+        for (key, value) in &root {
+            for field in credit_paths(value, key.clone(), CREDIT_FIELDS.contains(&key.as_str())) {
+                diagnostics.push(library_diagnostic(
+                    SourceDiagnosticCode::ContributorCredit,
+                    Some(&field),
+                    CREDIT_FIELD_MESSAGE.into(),
+                ));
+            }
+        }
 
         let mut identities = Vec::new();
         let mut parsed = Vec::with_capacity(raw_sources.len());
@@ -391,11 +404,15 @@ impl SourceLibrary {
             diagnostics.sort_by_key(|diagnostic| diagnostic.index);
             return Err(diagnostics);
         }
-        Ok(Self {
+        let library = Self {
             version,
             sources: parsed.into_iter().map(|(_, record)| record).collect(),
             extra: root.into_iter().collect(),
-        })
+        };
+        if library.written_len() > MAX_LIBRARY_BYTES {
+            return Err(vec![too_large()]);
+        }
+        Ok(library)
     }
 
     /// Deterministic, pretty-printed JSON with a trailing newline.
@@ -403,6 +420,35 @@ impl SourceLibrary {
         let mut text = serde_json::to_string_pretty(self).unwrap_or_default();
         text.push('\n');
         text
+    }
+
+    /// The byte length of [`Self::to_json`], without building the string.
+    fn written_len(&self) -> usize {
+        let mut counter = ByteCounter(1);
+        match serde_json::to_writer_pretty(&mut counter, self) {
+            Ok(()) => counter.0,
+            Err(_) => usize::MAX,
+        }
+    }
+
+    /// Validate an edited copy of this library the same way a file is read,
+    /// without a text round trip.
+    fn validated(
+        candidate: &Self,
+        contributors: &BTreeMap<String, Contributor>,
+    ) -> Result<Self, Vec<SourceDiagnostic>> {
+        let shadowed = shadowed_fields(candidate);
+        if !shadowed.is_empty() {
+            return Err(shadowed);
+        }
+        match serde_json::to_value(candidate) {
+            Ok(value) => Self::from_value(value, contributors),
+            Err(error) => Err(vec![library_diagnostic(
+                SourceDiagnosticCode::InvalidJson,
+                None,
+                format!("the library could not be serialized: {error}"),
+            )]),
+        }
     }
 
     /// Add a record, or replace the record with the same identifier in place.
@@ -418,20 +464,6 @@ impl SourceLibrary {
             .sources
             .iter()
             .position(|existing| existing.id == record.id);
-        let index = position.unwrap_or(candidate.sources.len());
-        if let Some(shadowed) = record
-            .extra
-            .keys()
-            .find(|key| RECORD_FIELDS.contains(&key.as_str()))
-        {
-            return Err(vec![record_diagnostic(
-                SourceDiagnosticCode::InvalidField,
-                index,
-                &record.id,
-                shadowed,
-                "an unknown field cannot shadow a defined field".into(),
-            )]);
-        }
         match position {
             Some(index) => {
                 let existing = candidate.sources[index].kind;
@@ -451,7 +483,7 @@ impl SourceLibrary {
             }
             None => candidate.sources.push(record),
         }
-        *self = Self::parse(&candidate.to_json(), contributors)?;
+        *self = Self::validated(&candidate, contributors)?;
         Ok(())
     }
 
@@ -473,9 +505,129 @@ impl SourceLibrary {
         };
         let mut candidate = self.clone();
         let removed = candidate.sources.remove(index);
-        *self = Self::parse(&candidate.to_json(), contributors)?;
-        Ok(removed)
+        match Self::validated(&candidate, contributors) {
+            Ok(library) => {
+                *self = library;
+                Ok(removed)
+            }
+            Err(mut diagnostics) => {
+                // Report positions in the library the caller holds, which
+                // still contains the record that was to be removed.
+                for position in diagnostics.iter_mut().filter_map(|d| d.index.as_mut()) {
+                    if *position >= index {
+                        *position += 1;
+                    }
+                }
+                Err(diagnostics)
+            }
+        }
     }
+}
+
+fn too_large() -> SourceDiagnostic {
+    library_diagnostic(
+        SourceDiagnosticCode::TooLarge,
+        None,
+        format!("the library is larger than {MAX_LIBRARY_BYTES} bytes as read or as written"),
+    )
+}
+
+/// Counts serialized bytes so the written size can be checked cheaply.
+struct ByteCounter(usize);
+
+impl std::io::Write for ByteCounter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 = self.0.saturating_add(buf.len());
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Unknown fields that collide with a defined field. With flattened extras the
+/// colliding key would be written twice and the unknown value would replace
+/// the typed one on the next read, so such an edit is refused instead.
+fn shadowed_fields(library: &SourceLibrary) -> Vec<SourceDiagnostic> {
+    let mut diagnostics = Vec::new();
+    let message = || "an unknown field cannot shadow a defined field".to_string();
+    for key in library.extra.keys() {
+        if ["version", "sources"].contains(&key.as_str()) {
+            diagnostics.push(library_diagnostic(
+                SourceDiagnosticCode::InvalidField,
+                Some(key),
+                message(),
+            ));
+        }
+    }
+    for (index, record) in library.sources.iter().enumerate() {
+        let mut report = |path: String| {
+            diagnostics.push(record_diagnostic(
+                SourceDiagnosticCode::InvalidField,
+                index,
+                &record.id,
+                &path,
+                message(),
+            ));
+        };
+        let mut check = |extra: &BTreeMap<String, Value>, defined: &[&str], prefix: &str| {
+            for key in extra.keys().filter(|key| defined.contains(&key.as_str())) {
+                report(if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{prefix}.{key}")
+                });
+            }
+        };
+        check(&record.extra, RECORD_FIELDS, "");
+        for (position, creator) in record.creators.iter().enumerate() {
+            check(
+                &creator.extra,
+                &["name", "role"],
+                &format!("creators[{position}]"),
+            );
+        }
+        for (position, identifier) in record.identifiers.iter().enumerate() {
+            check(
+                &identifier.extra,
+                &["scheme", "value"],
+                &format!("identifiers[{position}]"),
+            );
+        }
+        if let Some(location) = &record.location {
+            check(&location.extra, &["scheme", "value"], "location");
+        }
+    }
+    diagnostics
+}
+
+/// Paths of every credit sidecar field inside `value`, at any depth.
+fn credit_paths(value: &Value, path: String, is_credit: bool) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut pending = vec![(value, path, is_credit)];
+    while let Some((value, path, is_credit)) = pending.pop() {
+        if is_credit {
+            found.push(path);
+            continue;
+        }
+        match value {
+            Value::Object(object) => {
+                for (key, child) in object {
+                    let credit = CREDIT_FIELDS.contains(&key.as_str());
+                    pending.push((child, format!("{path}.{key}"), credit));
+                }
+            }
+            Value::Array(items) => {
+                for (position, item) in items.iter().enumerate() {
+                    pending.push((item, format!("{path}[{position}]"), false));
+                }
+            }
+            _ => {}
+        }
+    }
+    found.sort();
+    found
 }
 
 fn record_diagnostic(
@@ -495,14 +647,14 @@ fn record_diagnostic(
 }
 
 fn validate_relationships(
-    identities: &[(usize, String, Option<SourceKind>)],
+    identities: &[(usize, String, Option<ResearchSourceKind>)],
     records: &[(usize, SourceRecord)],
     contributors: &BTreeMap<String, Contributor>,
     diagnostics: &mut Vec<SourceDiagnostic>,
 ) {
     // Records that failed to parse still own their identifier, so references
     // to them are not reported a second time.
-    let mut known: BTreeMap<&str, (usize, Option<SourceKind>)> = BTreeMap::new();
+    let mut known: BTreeMap<&str, (usize, Option<ResearchSourceKind>)> = BTreeMap::new();
     for (index, id, kind) in identities {
         if let Some((first, _)) = known.get(id.as_str()) {
             diagnostics.push(record_diagnostic(
@@ -520,7 +672,7 @@ fn validate_relationships(
     }
 
     // Only edges that passed every check take part in the graph checks below.
-    let mut of_edges: BTreeMap<&str, (&str, SourceKind)> = BTreeMap::new();
+    let mut of_edges: BTreeMap<&str, (&str, ResearchSourceKind)> = BTreeMap::new();
     let mut based_on_edges: BTreeMap<&str, &str> = BTreeMap::new();
     for (index, record) in records {
         // A duplicate is reported once; its relationships are ambiguous.
@@ -533,9 +685,9 @@ fn validate_relationships(
                 "basedOn",
                 record.based_on.as_deref(),
                 &[
-                    SourceKind::Edition,
-                    SourceKind::Witness,
-                    SourceKind::Translation,
+                    ResearchSourceKind::Edition,
+                    ResearchSourceKind::Witness,
+                    ResearchSourceKind::Translation,
                 ][..],
             ),
         ];
@@ -625,10 +777,10 @@ fn validate_relationships(
             (&record.location, of_edges.get(record.id.as_str()))
         {
             let message = match location.scheme.as_str() {
-                "page" if *target_kind == SourceKind::Work => Some(format!(
+                "page" if *target_kind == ResearchSourceKind::Work => Some(format!(
                     "pages differ between editions of the work `{target}`; point this reference at the edition, translation, or witness whose pages are cited"
                 )),
-                "folio" if *target_kind != SourceKind::Witness => Some(format!(
+                "folio" if *target_kind != ResearchSourceKind::Witness => Some(format!(
                     "folios belong to one manuscript or copy, but `{target}` is a {target_kind}; point this reference at a witness"
                 )),
                 _ => None,
@@ -650,7 +802,7 @@ fn validate_relationships(
 fn depends_on(
     start: &str,
     goal: &str,
-    of_edges: &BTreeMap<&str, (&str, SourceKind)>,
+    of_edges: &BTreeMap<&str, (&str, ResearchSourceKind)>,
     based_on_edges: &BTreeMap<&str, &str>,
 ) -> bool {
     let mut pending = vec![start];
@@ -671,12 +823,12 @@ fn depends_on(
 /// The work a record ultimately realizes, following only `of` edges.
 fn root_work<'a>(
     start: &'a str,
-    of_edges: &BTreeMap<&'a str, (&'a str, SourceKind)>,
-    known: &BTreeMap<&str, (usize, Option<SourceKind>)>,
+    of_edges: &BTreeMap<&'a str, (&'a str, ResearchSourceKind)>,
+    known: &BTreeMap<&str, (usize, Option<ResearchSourceKind>)>,
 ) -> Option<&'a str> {
     let mut current = start;
-    for _ in 0..=SourceKind::Reference as usize {
-        if known.get(current).and_then(|(_, kind)| *kind) == Some(SourceKind::Work) {
+    for _ in 0..=ResearchSourceKind::Reference as usize {
+        if known.get(current).and_then(|(_, kind)| *kind) == Some(ResearchSourceKind::Work) {
             return Some(current);
         }
         current = of_edges.get(current)?.0;
@@ -684,7 +836,7 @@ fn root_work<'a>(
     None
 }
 
-fn kind_list(kinds: &[SourceKind]) -> String {
+fn kind_list(kinds: &[ResearchSourceKind]) -> String {
     let names: Vec<&str> = kinds.iter().map(|kind| kind.with_article()).collect();
     match names.as_slice() {
         [] => "nothing".into(),
@@ -840,20 +992,22 @@ impl RecordReader<'_> {
         }
     }
 
-    /// Credit sidecar fields never belong in a source record.
-    fn reject_credit_fields(&mut self, object: &Map<String, Value>, path: Option<&str>) {
-        for field in CREDIT_FIELDS {
-            if object.contains_key(*field) {
-                let full = match path {
-                    Some(path) => format!("{path}.{field}"),
-                    None => (*field).to_string(),
-                };
-                self.report(
-                    SourceDiagnosticCode::ContributorCredit,
-                    Some(full),
-                    "contributor credits stay in `.credits.json` sidecars; describe a source's makers as `creators`".into(),
-                );
-            }
+    /// Credit sidecar fields never belong in a source record, at any depth.
+    fn reject_credit_fields(&mut self) {
+        let mut found = Vec::new();
+        for (key, value) in &self.fields {
+            found.extend(credit_paths(
+                value,
+                key.clone(),
+                CREDIT_FIELDS.contains(&key.as_str()),
+            ));
+        }
+        for field in found {
+            self.report(
+                SourceDiagnosticCode::ContributorCredit,
+                Some(field),
+                CREDIT_FIELD_MESSAGE.into(),
+            );
         }
     }
 }
@@ -897,9 +1051,10 @@ fn parse_record(
             "every source needs a stable `id`".into(),
         );
     }
+    reader.reject_credit_fields();
 
     let kind = match reader.fields.remove("kind") {
-        Some(Value::String(kind)) => match SourceKind::parse(&kind) {
+        Some(Value::String(kind)) => match ResearchSourceKind::parse(&kind) {
             Some(kind) => Some(kind),
             None if CREDIT_FIELDS.contains(&kind.as_str()) => {
                 reader.report(
@@ -959,7 +1114,6 @@ fn parse_record(
                 format!("use one of: {}", CREATOR_ROLES.join(", ")),
             );
         }
-        reader.reject_credit_fields(&object, Some(&path));
         if let Some(name) = name {
             creators.push(SourceCreator {
                 name,
@@ -1026,7 +1180,6 @@ fn parse_record(
         None => None,
     };
     let fields = std::mem::take(&mut reader.fields);
-    reader.reject_credit_fields(&fields, None);
 
     if let Some(kind) = kind {
         check_kind_fields(
@@ -1070,15 +1223,19 @@ struct KindFields<'a> {
     location: bool,
 }
 
-fn check_kind_fields(reader: &mut RecordReader<'_>, kind: SourceKind, fields: KindFields<'_>) {
-    if kind == SourceKind::Work && fields.of {
+fn check_kind_fields(
+    reader: &mut RecordReader<'_>,
+    kind: ResearchSourceKind,
+    fields: KindFields<'_>,
+) {
+    if kind == ResearchSourceKind::Work && fields.of {
         reader.report(
             SourceDiagnosticCode::InvalidRelationship,
             Some("of".into()),
             "a work stands alone; record each edition, translation, or witness as its own source that points at the work".into(),
         );
     }
-    if kind != SourceKind::Work && !fields.of {
+    if kind != ResearchSourceKind::Work && !fields.of {
         reader.report(
             SourceDiagnosticCode::MissingField,
             Some("of".into()),
@@ -1089,21 +1246,21 @@ fn check_kind_fields(reader: &mut RecordReader<'_>, kind: SourceKind, fields: Ki
             ),
         );
     }
-    if kind != SourceKind::Translation && fields.based_on {
+    if kind != ResearchSourceKind::Translation && fields.based_on {
         reader.report(
             SourceDiagnosticCode::InvalidRelationship,
             Some("basedOn".into()),
             "only a translation is based on another text".into(),
         );
     }
-    if kind != SourceKind::Reference && !fields.title {
+    if kind != ResearchSourceKind::Reference && !fields.title {
         reader.report(
             SourceDiagnosticCode::MissingField,
             Some("title".into()),
             format!("{} needs a title", kind.with_article()),
         );
     }
-    if kind != SourceKind::Reference && fields.location {
+    if kind != ResearchSourceKind::Reference && fields.location {
         reader.report(
             SourceDiagnosticCode::InvalidField,
             Some("location".into()),
@@ -1116,7 +1273,7 @@ fn check_kind_fields(reader: &mut RecordReader<'_>, kind: SourceKind, fields: Ki
             Some("language".into()),
             format!("`{language}` is not a language tag such as `en` or `grc`"),
         ),
-        None if kind == SourceKind::Translation => reader.report(
+        None if kind == ResearchSourceKind::Translation => reader.report(
             SourceDiagnosticCode::MissingField,
             Some("language".into()),
             "a translation needs the language tag it was translated into".into(),
@@ -1156,6 +1313,9 @@ fn valid_timestamp(value: &str) -> bool {
 /// Offline structural checks for known schemes; other schemes are kept as
 /// authored once their name is a lowercase slug.
 fn check_identifier(scheme: &str, value: &str) -> Result<(), String> {
+    if value.trim() != value {
+        return Err("must not start or end with whitespace".into());
+    }
     match scheme {
         "doi" if normalize_doi_url(value).is_none() => {
             Err("not a DOI such as `10.1234/example` or its `https://doi.org/` URL".into())

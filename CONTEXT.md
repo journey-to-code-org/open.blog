@@ -114,8 +114,9 @@ through an explicit projection.
 _Avoid_: Bibliography when the public reference list of one work is meant; database
 
 **Source identifier**:
-A stable, author-assigned slug naming one source-library record for its whole life,
-independent of its title and never reused for a different kind.
+A stable, author-assigned slug naming one source-library record, independent of its title.
+Editing a record never changes its kind; the library does not remember removed ids, so
+reusing one after removal is the author's responsibility.
 _Avoid_: Work identifier, bibliographic identifier, contributor identifier, URL
 
 **Work**:

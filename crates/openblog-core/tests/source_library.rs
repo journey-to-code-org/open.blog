@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use openblog_core::source_library::{
-    SourceDiagnostic, SourceDiagnosticCode, SourceKind, SourceLibrary, MAX_LIBRARY_BYTES,
-    MAX_SOURCES,
+    ResearchSourceKind, SourceDiagnostic, SourceDiagnosticCode, SourceLibrary, SourceRecord,
+    MAX_LIBRARY_BYTES, MAX_SOURCES,
 };
 use openblog_core::{classify_source, contributor, SiteConfig};
 
@@ -63,7 +63,7 @@ fn no_contributors() -> BTreeMap<String, openblog_core::contributor::Contributor
 #[test]
 fn round_trip_preserves_entity_identity_kind_order_and_unknown_fields() {
     let library = SourceLibrary::parse(LIBRARY, &no_contributors()).unwrap();
-    let ids: Vec<(&str, SourceKind)> = library
+    let ids: Vec<(&str, ResearchSourceKind)> = library
         .sources
         .iter()
         .map(|source| (source.id.as_str(), source.kind))
@@ -71,11 +71,11 @@ fn round_trip_preserves_entity_identity_kind_order_and_unknown_fields() {
     assert_eq!(
         ids,
         [
-            ("plato-republic", SourceKind::Work),
-            ("republic-slings-2003", SourceKind::Edition),
-            ("republic-bloom", SourceKind::Translation),
-            ("paris-gr-1807", SourceKind::Witness),
-            ("cave-allegory", SourceKind::Reference),
+            ("plato-republic", ResearchSourceKind::Work),
+            ("republic-slings-2003", ResearchSourceKind::Edition),
+            ("republic-bloom", ResearchSourceKind::Translation),
+            ("paris-gr-1807", ResearchSourceKind::Witness),
+            ("cave-allegory", ResearchSourceKind::Reference),
         ]
     );
 
@@ -95,6 +95,19 @@ fn round_trip_preserves_entity_identity_kind_order_and_unknown_fields() {
         "no authored field is lost or added"
     );
     assert!(written.contains("Πολιτεία") && written.ends_with("}\n"));
+
+    // Empty creator and identifier lists carry no data and are written as
+    // absent fields; the spec documents this normalization.
+    let empty = SourceLibrary::parse(
+        r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W","creators":[],"identifiers":[]}]}"#,
+        &no_contributors(),
+    )
+    .unwrap();
+    let written: serde_json::Value = serde_json::from_str(&empty.to_json()).unwrap();
+    assert_eq!(
+        written["sources"][0],
+        serde_json::json!({"id": "w", "kind": "work", "title": "W"})
+    );
 }
 
 fn library(sources: &str) -> String {
@@ -372,6 +385,8 @@ fn bibliographic_identifiers_are_checked_offline_and_unsafe_urls_rejected() {
         ("url", "data:text/html,boom"),
         ("url", "//evil.example/x"),
         ("url", "https://user@example.com/x"),
+        ("url", " https://example.com/ "),
+        ("doi", "10.1234/x "),
         ("doi", "11.1234/x"),
         ("isbn", "9780199248491"),
         ("isbn", "12345"),
@@ -407,11 +422,32 @@ fn contributor_credits_cannot_be_used_as_bibliographic_references() {
     assert_eq!(pointing[0].field.as_deref(), Some("of"));
     assert!(pointing[0].message.contains("contributor"));
 
-    for record in [
-        r#"{"id":"w","kind":"work","title":"W","contributor":"ada"}"#,
-        r#"{"id":"w","kind":"work","title":"W","credits":[]}"#,
-        r#"{"id":"w","kind":"contributor","title":"Ada"}"#,
-        r#"{"id":"w","kind":"work","title":"W","creators":[{"name":"Ada","contributor":"ada"}]}"#,
+    for (record, field) in [
+        (
+            r#"{"id":"w","kind":"work","title":"W","contributor":"ada"}"#,
+            "contributor",
+        ),
+        (
+            r#"{"id":"w","kind":"work","title":"W","credits":[]}"#,
+            "credits",
+        ),
+        (r#"{"id":"w","kind":"contributor","title":"Ada"}"#, "kind"),
+        (
+            r#"{"id":"w","kind":"work","title":"W","creators":[{"name":"Ada","contributor":"ada"}]}"#,
+            "creators[0].contributor",
+        ),
+        (
+            r#"{"id":"w","kind":"work","title":"W","identifiers":[{"scheme":"oclc","value":"1","contributor":"ada"}]}"#,
+            "identifiers[0].contributor",
+        ),
+        (
+            r#"{"id":"w","kind":"work","title":"W","publisher":{"contributor":"ada"}}"#,
+            "publisher.contributor",
+        ),
+        (
+            r#"{"id":"w","kind":"work","title":"W","notes":[{"contributors":["ada"]}]}"#,
+            "notes[0].contributors",
+        ),
     ] {
         let found = parse(&library(record));
         assert_eq!(found.len(), 1, "{record}: {found:#?}");
@@ -420,7 +456,23 @@ fn contributor_credits_cannot_be_used_as_bibliographic_references() {
             SourceDiagnosticCode::ContributorCredit,
             "{record}"
         );
+        assert_eq!(found[0].index, Some(0), "{record}");
+        assert_eq!(found[0].field.as_deref(), Some(field), "{record}");
     }
+
+    let located = parse(&library(
+        r#"{"id":"w","kind":"work","title":"W"},{"id":"r","kind":"reference","of":"w","location":{"scheme":"line","value":"1","credits":["ada"]}}"#,
+    ));
+    assert_eq!(located.len(), 1, "{located:#?}");
+    assert_eq!(located[0].code, SourceDiagnosticCode::ContributorCredit);
+    assert_eq!(located[0].index, Some(1));
+    assert_eq!(located[0].field.as_deref(), Some("location.credits"));
+
+    let beside = parse(r#"{"version":1,"credits":[{"contributor":"ada"}],"sources":[]}"#);
+    assert_eq!(beside.len(), 1, "{beside:#?}");
+    assert_eq!(beside[0].code, SourceDiagnosticCode::ContributorCredit);
+    assert_eq!(beside[0].index, None);
+    assert_eq!(beside[0].field.as_deref(), Some("credits"));
 
     // The boundary holds in the other direction: credit sidecars stay closed.
     let error = contributor::resolve(
@@ -577,7 +629,7 @@ fn failed_changes_leave_the_library_unchanged() {
     let contributors = no_contributors();
 
     let mut collapsed = library.sources[1].clone();
-    collapsed.kind = SourceKind::Work;
+    collapsed.kind = ResearchSourceKind::Work;
     collapsed.of = None;
     let error = library.upsert(collapsed, &contributors).unwrap_err();
     assert_eq!(error[0].code, SourceDiagnosticCode::KindChanged);
@@ -601,6 +653,43 @@ fn failed_changes_leave_the_library_unchanged() {
     assert_eq!(error[0].field.as_deref(), Some("kind"));
     assert_eq!(library.to_json(), before);
 
+    // Unknown fields can never shadow a defined field at any level, so a
+    // write can never silently replace a typed value.
+    let mut creator = library.sources[0].clone();
+    creator.creators[0]
+        .extra
+        .insert("name".into(), "Other".into());
+    let error = library.upsert(creator, &contributors).unwrap_err();
+    assert_eq!(error.len(), 1, "{error:#?}");
+    assert_eq!(error[0].code, SourceDiagnosticCode::InvalidField);
+    assert_eq!(error[0].index, Some(0));
+    assert_eq!(error[0].field.as_deref(), Some("creators[0].name"));
+    assert_eq!(library.to_json(), before);
+
+    let mut identifier = library.sources[1].clone();
+    identifier.identifiers[0]
+        .extra
+        .insert("value".into(), "0-8044-2957-X".into());
+    let error = library.upsert(identifier, &contributors).unwrap_err();
+    assert_eq!(error[0].field.as_deref(), Some("identifiers[0].value"));
+    assert_eq!(library.to_json(), before);
+
+    let mut location = library.sources[4].clone();
+    if let Some(location) = location.location.as_mut() {
+        location.extra.insert("scheme".into(), "page".into());
+    }
+    let error = library.upsert(location, &contributors).unwrap_err();
+    assert_eq!(error[0].field.as_deref(), Some("location.scheme"));
+    assert_eq!(library.to_json(), before);
+
+    let mut versioned = library.clone();
+    versioned.extra.insert("version".into(), 2.into());
+    let error = versioned
+        .upsert(library.sources[0].clone(), &contributors)
+        .unwrap_err();
+    assert_eq!(error[0].index, None);
+    assert_eq!(error[0].field.as_deref(), Some("version"));
+
     let error = library.remove("plato-republic", &contributors).unwrap_err();
     assert!(!error.is_empty());
     assert!(error
@@ -622,8 +711,89 @@ fn failed_changes_leave_the_library_unchanged() {
     );
 
     let removed = library.remove("cave-allegory", &contributors).unwrap();
-    assert_eq!(removed.kind, SourceKind::Reference);
+    assert_eq!(removed.kind, ResearchSourceKind::Reference);
     assert_eq!(library.sources.len(), 4);
+}
+
+#[test]
+fn failed_removal_diagnostics_point_at_the_dependent_in_the_callers_library() {
+    let mut library = SourceLibrary::parse(
+        &library(
+            r#"{"id":"w","kind":"work","title":"W"},{"id":"w2","kind":"work","title":"W2"},{"id":"e","kind":"edition","title":"E","of":"w"}"#,
+        ),
+        &no_contributors(),
+    )
+    .unwrap();
+    let error = library.remove("w", &no_contributors()).unwrap_err();
+    assert_eq!(error.len(), 1, "{error:#?}");
+    assert_eq!(error[0].code, SourceDiagnosticCode::UnresolvedRelationship);
+    assert_eq!(error[0].index, Some(2));
+    assert_eq!(error[0].source_id.as_deref(), Some("e"));
+    assert_eq!(library.sources[2].id, "e");
+    assert_eq!(
+        error[0].to_string(),
+        "sources[2] `e` of: no source has the id `w` (unresolved-relationship)"
+    );
+}
+
+fn padded_work(n: usize) -> SourceRecord {
+    let mut library = SourceLibrary::parse(
+        &library(&format!(
+            r#"{{"id":"w{n:05}","kind":"work","title":"{}"}}"#,
+            "x".repeat(1_000)
+        )),
+        &no_contributors(),
+    )
+    .unwrap();
+    library.sources.remove(0)
+}
+
+#[test]
+fn the_size_limit_applies_to_the_written_library_so_every_valid_library_stays_editable() {
+    let contributors = no_contributors();
+    let mut full = SourceLibrary::default();
+    full.sources.push(padded_work(0));
+    let base = full.to_json().len();
+    full.sources.push(padded_work(1));
+    let per_record = full.to_json().len() - base;
+    let capacity = (MAX_LIBRARY_BYTES - base) / per_record + 1;
+    full.sources = (0..capacity).map(padded_work).collect();
+    let written = full.to_json();
+    assert!(written.len() <= MAX_LIBRARY_BYTES);
+    assert!(written.len() + per_record > MAX_LIBRARY_BYTES);
+
+    // Compact and canonical forms of a library within the limit both parse.
+    let mut library = SourceLibrary::parse(&written, &contributors).unwrap();
+    assert_eq!(library, full);
+    let compact = serde_json::to_string(&full).unwrap();
+    assert_eq!(SourceLibrary::parse(&compact, &contributors).unwrap(), full);
+
+    // Growing past the limit is refused and leaves the library unchanged.
+    let error = library
+        .upsert(padded_work(capacity), &contributors)
+        .unwrap_err();
+    assert_eq!(error.len(), 1, "{error:#?}");
+    assert_eq!(error[0].code, SourceDiagnosticCode::TooLarge);
+    assert_eq!(library.to_json(), written);
+
+    // A library at the limit can always shrink, and what it writes re-parses.
+    library.remove("w00000", &contributors).unwrap();
+    let shrunk = library.to_json();
+    assert_eq!(
+        SourceLibrary::parse(&shrunk, &contributors).unwrap(),
+        library
+    );
+    library.upsert(padded_work(0), &contributors).unwrap();
+
+    // Compact input that would be written out larger than the limit is
+    // refused up front instead of producing a library that cannot be saved.
+    let mut over = full.clone();
+    over.sources.push(padded_work(capacity));
+    let compact = serde_json::to_string(&over).unwrap();
+    assert!(compact.len() <= MAX_LIBRARY_BYTES);
+    let found = only(&compact);
+    assert_eq!(found.code, SourceDiagnosticCode::TooLarge);
+    assert_eq!(found.index, None);
 }
 
 #[test]

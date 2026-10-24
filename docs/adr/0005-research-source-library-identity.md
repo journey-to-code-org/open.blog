@@ -39,20 +39,24 @@ author-assigned **source identifier** and exactly one **kind**: `work`, `edition
   folios need a witness.
 
 Source identifiers are lowercase ASCII slugs of at most 64 bytes, unique across all kinds.
-They do not derive from titles, and an identifier never changes kind: changing what a
-record is means creating a new record. DOIs, ISBNs, ISSNs, URLs, and other
+They do not derive from titles, and editing a record never changes its kind: changing what
+a record is means creating a new record. The library does not remember identifiers of
+removed records, so reusing one after removal is the caller's responsibility; retired-id
+tracking can arrive with storage (#33) without changing this format. DOIs, ISBNs, ISSNs, URLs, and other
 scheme-qualified **bibliographic identifiers** describe a record but never replace its
 source identifier. Known schemes are checked offline; URLs must be absolute HTTP(S)
 without credentials.
 
 Creators on a record are descriptive names with an optional bibliographic role. A record
-can never name a contributor, carry credit fields, or point `of` at a contributor key,
-and a credit sidecar is rejected as a library. Credit sidecars stay closed to source
+can never name a contributor, carry credit fields at any depth, or point `of` at a
+contributor key, and a credit sidecar is rejected as a library. Credit sidecars stay closed to source
 fields in the other direction.
 
 The file is `{ "version": 1, "sources": [...] }`. Fields this release does not understand
 are preserved verbatim at the library, record, creator, identifier, and location levels,
-and serialization is deterministic. A newer version is refused rather than reinterpreted.
+but may not reuse a defined field's name, and serialization is deterministic. The 4 MiB
+limit applies to the canonical written form as well as to the text read, so every accepted
+library can be saved, re-read, and shrunk. A newer version is refused rather than reinterpreted.
 Parsing reports every problem at once as diagnostics scoped to the library, a record
 index and identifier, and a field path. Validation is all-or-nothing: `upsert` and
 `remove` change the in-memory library only when the result is valid, so a failed change
