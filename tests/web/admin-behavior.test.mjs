@@ -96,6 +96,7 @@ test("assistant provider status presents configured and unconfigured states with
     assistantStatusPresentation({
       providerType: "generic-https",
       model: "story-model",
+      destination: "https://assistant.example",
       configured: true,
       message: "Assistant provider is ready.",
       capabilities: { review: false, interactions: true, context: false, knowledgeChecks: true },
@@ -103,6 +104,7 @@ test("assistant provider status presents configured and unconfigured states with
     {
       providerType: "Generic HTTPS",
       model: "story-model",
+      destination: "https://assistant.example",
       configured: "Configured",
       capabilities: "Interactions, Knowledge checks",
       message: "Assistant provider is ready.",
@@ -110,10 +112,11 @@ test("assistant provider status presents configured and unconfigured states with
   );
 
   assert.deepEqual(
-    assistantStatusPresentation({ providerType: "generic-https", model: "", configured: false, capabilities: {} }),
+    assistantStatusPresentation({ providerType: "generic-https", model: "", configured: false, destination: null, capabilities: {} }),
     {
       providerType: "Generic HTTPS",
       model: "Provider default",
+      destination: "Not configured",
       configured: "Not configured",
       capabilities: "No generation capabilities",
       message: "Assistant provider is not configured. Non-AI authoring remains available.",

@@ -391,6 +391,7 @@ export function assistantStatusPresentation(status = {}) {
   return {
     providerType: status.providerType === "generic-https" ? "Generic HTTPS" : status.providerType || "Unavailable",
     model: status.model || "Provider default",
+    destination: status.destination || "Not configured",
     configured: status.configured ? "Configured" : "Not configured",
     capabilities: capabilities.length ? capabilities.join(", ") : "No generation capabilities",
     message: status.message || (status.configured ? "Assistant provider is ready." : "Assistant provider is not configured. Non-AI authoring remains available."),
@@ -427,7 +428,7 @@ export function assistantReviewSummary({ title = "", markdown = "", skills = [],
     sourceCharacters: `${title}\n${markdown}`.length,
     skills: chosenSkills.map((skill) => `${skill.name || skill.id} · ${skill.version}`),
     context: chosenContext.map((document) => `${document.path || document.name} · ${document.kind === "postSnapshot" ? "Post snapshot" : document.visibility === "private" ? "Private" : "Portable"} · ${document.characters} characters`),
-    provider: `${providerName} · ${provider.model || "Provider default"}`,
+    provider: `${providerName} · ${provider.model || "Provider default"} · ${provider.destination || "Destination not configured"}`,
     research: "Off",
   };
 }
@@ -1950,7 +1951,7 @@ export class ObAdmin extends AdminElement {
 
 // ---------------------------------------------------------------- editor
 
-class Editor {
+export class Editor {
   constructor(app, doc) {
     this.app = app;
     this.doc = doc;
@@ -2467,6 +2468,7 @@ class Editor {
     ui.assistantStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "Loading assistant configuration…");
     ui.assistantProviderType = h("dd", {}, "Loading…");
     ui.assistantModel = h("dd", {}, "Loading…");
+    ui.assistantDestination = h("dd", {}, "Loading…");
     ui.assistantConfigured = h("dd", {}, "Checking…");
     ui.assistantCapabilities = h("dd", {}, "Checking…");
     ui.assistantSkillsStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Skills load when the Assistant opens.");
@@ -2723,6 +2725,7 @@ class Editor {
                       { class: "oba-social-meta" },
                       h("div", {}, h("dt", {}, "Type"), ui.assistantProviderType),
                       h("div", {}, h("dt", {}, "Model"), ui.assistantModel),
+                      h("div", {}, h("dt", {}, "Destination"), ui.assistantDestination),
                       h("div", {}, h("dt", {}, "Credential"), ui.assistantConfigured),
                       h("div", {}, h("dt", {}, "Capabilities"), ui.assistantCapabilities),
                     ),
@@ -3617,8 +3620,15 @@ class Editor {
       this.ui.assistantReviewStatus.textContent = "Select at least one document review skill.";
       return;
     }
-    this.renderAssistantReviewSummary();
     this.ui.assistantReviewRun.disabled = true;
+    this.ui.assistantReviewStatus.textContent = "Preparing provider disclosure…";
+    await this.loadAssistantStatus();
+    if (!this.assistantProviderStatus?.destination) {
+      this.ui.assistantReviewStatus.textContent = "Document review did not run because the provider destination is unavailable. Your draft is unchanged.";
+      this.ui.assistantReviewRun.disabled = false;
+      return;
+    }
+    this.renderAssistantReviewSummary();
     this.ui.assistantReviewStatus.textContent = "Running document review…";
     this.ui.assistantReviewResults.replaceChildren();
     const source = {
@@ -3647,25 +3657,33 @@ class Editor {
   }
 
   async loadAssistantStatus() {
-    if (this.assistantStatusLoaded || this.assistantStatusLoading) return;
+    if (this.assistantStatusLoaded) return this.assistantProviderStatus;
+    if (this.assistantStatusPromise) return this.assistantStatusPromise;
     this.assistantStatusLoading = true;
-    this.ui.assistantStatus.textContent = "Loading assistant configuration…";
-    try {
-      const status = await this.app.api.call("GET", "assistant/status");
-      this.assistantProviderStatus = status;
-      const presentation = assistantStatusPresentation(status);
-      this.ui.assistantProviderType.textContent = presentation.providerType;
-      this.ui.assistantModel.textContent = presentation.model;
-      this.ui.assistantConfigured.textContent = presentation.configured;
-      this.ui.assistantCapabilities.textContent = presentation.capabilities;
-      this.ui.assistantStatus.textContent = presentation.message;
-      this.assistantStatusLoaded = true;
-      this.renderAssistantReviewSummary();
-    } catch (error) {
-      this.ui.assistantStatus.textContent = `Assistant configuration could not be loaded. Non-AI authoring remains available. ${error.message}`;
-    } finally {
-      this.assistantStatusLoading = false;
-    }
+    this.assistantStatusPromise = (async () => {
+      this.ui.assistantStatus.textContent = "Loading assistant configuration…";
+      try {
+        const status = await this.app.api.call("GET", "assistant/status");
+        this.assistantProviderStatus = status;
+        const presentation = assistantStatusPresentation(status);
+        this.ui.assistantProviderType.textContent = presentation.providerType;
+        this.ui.assistantModel.textContent = presentation.model;
+        this.ui.assistantDestination.textContent = presentation.destination;
+        this.ui.assistantConfigured.textContent = presentation.configured;
+        this.ui.assistantCapabilities.textContent = presentation.capabilities;
+        this.ui.assistantStatus.textContent = presentation.message;
+        this.assistantStatusLoaded = true;
+        this.renderAssistantReviewSummary();
+        return status;
+      } catch (error) {
+        this.ui.assistantStatus.textContent = `Assistant configuration could not be loaded. Non-AI authoring remains available. ${error.message}`;
+        return null;
+      } finally {
+        this.assistantStatusLoading = false;
+        this.assistantStatusPromise = null;
+      }
+    })();
+    return this.assistantStatusPromise;
   }
 
   async loadAssistantSkills(force = false) {
