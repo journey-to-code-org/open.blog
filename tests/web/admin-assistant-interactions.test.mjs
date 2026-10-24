@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { Editor, bindAssistantInteractionControl } from "../../web/admin/admin.js";
+import { Editor, bindAssistantInteractionControl, codeInteractionMarkdown } from "../../web/admin/admin.js";
 
 class DomNode {
   constructor(tag = "") {
@@ -18,6 +18,10 @@ class DomNode {
       }
     }
   }
+  replaceChildren(...children) {
+    this.children = [];
+    this.append(...children);
+  }
   setAttribute(name, value) {
     this.attributes[name] = String(value);
   }
@@ -25,7 +29,7 @@ class DomNode {
     this.listeners[name] = listener;
   }
   click() {
-    this.listeners.click?.({ type: "click", currentTarget: this });
+    return this.listeners.click?.({ type: "click", currentTarget: this });
   }
   focus() {
     this.focused = true;
@@ -45,7 +49,24 @@ class DomNode {
   get textContent() {
     return this._text + this.children.map((child) => child.textContent).join("");
   }
+  querySelector(selector) {
+    if (selector.startsWith("#") && this.attributes.id === selector.slice(1)) return this;
+    for (const child of this.children) {
+      const match = child.querySelector?.(selector);
+      if (match) return match;
+    }
+    return null;
+  }
 }
+
+const findByText = (node, tag, text) => {
+  if (node.tagName === tag.toUpperCase() && node.textContent.includes(text)) return node;
+  for (const child of node.children) {
+    const match = findByText(child, tag, text);
+    if (match) return match;
+  }
+  return null;
+};
 
 test("Assistant Interactions click opens the existing knowledge-check proposal dialog", () => {
   const previousNode = globalThis.Node;
@@ -142,4 +163,99 @@ test("Visual knowledge-check targets preserve selection and insertion returns to
     if (previousAnimationFrame === undefined) delete globalThis.requestAnimationFrame;
     else globalThis.requestAnimationFrame = previousAnimationFrame;
   }
+});
+
+test("runnable-code proposals remain editable until explicit insertion", async () => {
+  const previousNode = globalThis.Node;
+  const previousElement = globalThis.HTMLElement;
+  const previousDocument = globalThis.document;
+  const previousAnimationFrame = globalThis.requestAnimationFrame;
+  globalThis.Node = DomNode;
+  globalThis.HTMLElement = DomNode;
+  globalThis.requestAnimationFrame = (callback) => callback();
+  const bodyRoot = new DomNode("body");
+  globalThis.document = {
+    activeElement: null,
+    body: bodyRoot,
+    createElement: (tag) => new DomNode(tag),
+    createTextNode: (text) => Object.assign(new DomNode("#text"), { textContent: text }),
+  };
+  try {
+    const body = Object.assign(new DomNode("textarea"), {
+      value: "# Ownership\n\nMove values safely.",
+      selectionStart: 13,
+      selectionEnd: 13,
+      dispatchEvent() { this.inputEvents = (this.inputEvents || 0) + 1; },
+    });
+    const app = {
+      meta: { codeInteractionGeneration: true },
+      api: {
+        async call(method, path, request) {
+          assert.equal(method, "POST");
+          assert.equal(path, "assistant/code-interaction");
+          assert.equal(request.json.kind, "challenge");
+          assert.match(request.json.context, /Ownership/);
+          return {
+            kind: "challenge",
+            title: "Move the lantern",
+            instructions: "Complete the ownership transfer.",
+            code: "fn main() {\n    // TODO: move the lantern\n}",
+            expectedOutput: "moved",
+            hint: "Pass it by value.",
+            explanation: "The callee owns it.",
+          };
+        },
+      },
+    };
+    const editor = new Editor(app, { kind: "posts", fields: {}, body: body.value });
+    editor.ui = { body };
+    editor.editorMode = "markdown";
+    editor.captureVisualSelection = () => {};
+    editor.activatePane = () => {};
+    const button = new DomNode("button");
+    bindAssistantInteractionControl(editor, button, "code");
+    button.click();
+
+    const dialog = bodyRoot.children.find((child) => child.tagName === "DIALOG");
+    assert.ok(dialog);
+    assert.match(dialog.textContent, /Add runnable code/);
+    const kind = dialog.querySelector("#oba-code-interaction-kind");
+    kind.value = "challenge";
+    kind.listeners.change();
+    await findByText(dialog, "button", "Generate draft").click();
+
+    assert.equal(body.value, "# Ownership\n\nMove values safely.", "generation does not mutate the draft");
+    assert.equal(dialog.querySelector("#oba-code-interaction-name").value, "Move the lantern");
+    assert.match(dialog.querySelector("#oba-code-interaction-code").value, /\/\/ TODO/);
+
+    findByText(dialog, "button", "Insert into draft").click();
+    assert.match(body.value, /\*\*Coding challenge: Move the lantern\*\*/);
+    assert.match(body.value, /```rust runnable title="Move the lantern"/);
+    assert.match(body.value, /\*\*Expected result:\*\* moved/);
+    assert.match(body.value, /> \[!TIP\]/);
+    assert.equal(body.inputEvents, 1);
+  } finally {
+    if (previousNode === undefined) delete globalThis.Node;
+    else globalThis.Node = previousNode;
+    if (previousElement === undefined) delete globalThis.HTMLElement;
+    else globalThis.HTMLElement = previousElement;
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousAnimationFrame === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = previousAnimationFrame;
+  }
+});
+
+test("code interaction Markdown escapes authored prose but preserves runnable Rust", () => {
+  const markdown = codeInteractionMarkdown({
+    kind: "example",
+    title: "Borrow *safely*",
+    instructions: "Try [this] first.",
+    code: "fn main() { println!(\"ok\"); }",
+    explanation: "Notice _why_ it works.",
+  });
+  assert.match(markdown, /Runnable example: Borrow \\\*safely\\\*/);
+  assert.match(markdown, /Try \\\[this\\\] first\\\./);
+  assert.match(markdown, /```rust runnable/);
+  assert.match(markdown, /println!/);
 });

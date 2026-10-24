@@ -434,8 +434,23 @@ export function bindAssistantAutocompleteControls(editor, ui) {
   ui.richBody.addEventListener("keydown", shortcut);
 }
 
-export function bindAssistantInteractionControl(editor, button) {
-  button.addEventListener("click", () => editor.openKnowledgeCheck());
+export function bindAssistantInteractionControl(editor, button, interaction = "knowledge-check") {
+  button.addEventListener("click", () => {
+    if (interaction === "code") editor.openCodeInteraction();
+    else editor.openKnowledgeCheck();
+  });
+}
+
+export function codeInteractionMarkdown({ kind, title, instructions, code, expectedOutput = "", hint = "", explanation = "" }) {
+  const escapeText = (value) => String(value || "").trim().replace(/([\\`*_[\]{}<>#+\-.!|])/g, "\\$1");
+  const safeTitle = String(title || "").trim().replace(/["'\r\n]/g, "").slice(0, 120);
+  const label = kind === "challenge" ? "Coding challenge" : "Runnable example";
+  const lines = [`**${label}: ${escapeText(title)}**`, "", escapeText(instructions)];
+  if (kind === "challenge") lines.push("", `**Expected result:** ${escapeText(expectedOutput)}`);
+  lines.push("", `\`\`\`rust runnable title="${safeTitle}"`, String(code || "").trim(), "\`\`\`");
+  if (hint.trim()) lines.push("", "> [!TIP]", ...hint.trim().split(/\r?\n/).map((line) => `> ${escapeText(line)}`));
+  if (explanation.trim()) lines.push("", escapeText(explanation));
+  return lines.join("\n");
 }
 
 export function assistantSkillPresentation(skill = {}) {
@@ -2580,9 +2595,11 @@ export class Editor {
     ui.assistantReviewResults = h("section", { class: "oba-assistant-review-results", tabindex: "-1", role: "region", "aria-label": "Review results" });
     ui.assistantReviewRun = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.runAssistantReview() }, "Run document review");
     ui.assistantReviewUndo = h("button", { class: "oba-btn", type: "button", hidden: true, onClick: () => this.undoAssistantSuggestion() }, "Undo applied suggestion");
-    ui.assistantInteractionStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "Generated questions remain proposals until you review and insert them into the unsaved draft.");
+    ui.assistantInteractionStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "Generated interactions remain editable proposals until you review and insert them into the unsaved draft.");
     ui.assistantInteractionCreate = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Create knowledge-check proposal");
+    ui.assistantCodeInteractionCreate = h("button", { class: "oba-btn", type: "button" }, "Create runnable-code proposal");
     bindAssistantInteractionControl(this, ui.assistantInteractionCreate);
+    bindAssistantInteractionControl(this, ui.assistantCodeInteractionCreate, "code");
     ui.assistantCatalog = h("div", { class: "oba-skill-list", "aria-label": "Assistant skill catalog" });
     ui.assistantSkillEditorStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     ui.assistantSkillEditor = h("textarea", { rows: 16, "aria-label": "Project skill Markdown", spellcheck: false });
@@ -2621,9 +2638,9 @@ export class Editor {
         "section",
         { class: "oba-assistant-empty", "data-assistant-view": "interactions", "aria-labelledby": "oba-assistant-interactions-title", hidden: true },
         h("h3", { id: "oba-assistant-interactions-title" }, "Interactions"),
-        h("p", {}, "Draft an interactive quiz from selected text or the current post. open.blog validates the native quiz syntax, but you choose whether to insert the proposal."),
+        h("p", {}, "Draft a knowledge check, runnable Rust example, or small coding challenge from selected text or the current section. Every result stays editable until you insert it."),
         ui.assistantInteractionStatus,
-        h("div", { class: "oba-toolbar" }, ui.assistantInteractionCreate),
+        h("div", { class: "oba-toolbar" }, ui.assistantInteractionCreate, ui.assistantCodeInteractionCreate),
       ),
       context: h(
         "section",
@@ -4057,6 +4074,10 @@ export class Editor {
         this.ui.assistantStatus.textContent = presentation.message;
         this.ui.assistantStatusBadge.textContent = presentation.statusLabel;
         this.ui.assistantStatusBadge.dataset.tone = presentation.statusTone;
+        if (this.meta) {
+          this.meta.quizGeneration = status?.configured === true && status.capabilities?.knowledgeChecks === true;
+          this.meta.codeInteractionGeneration = status?.configured === true && status.capabilities?.codeInteractions === true;
+        }
         this.assistantStatusLoaded = true;
         this.renderAssistantReviewSummary();
         return status;
@@ -4140,7 +4161,10 @@ export class Editor {
       this.assistantStatusLoaded = false;
       this.assistantProviderStatus = null;
       const status = await this.loadAssistantStatus();
-      if (this.meta) this.meta.quizGeneration = status?.configured === true && status.capabilities?.knowledgeChecks === true;
+      if (this.meta) {
+        this.meta.quizGeneration = status?.configured === true && status.capabilities?.knowledgeChecks === true;
+        this.meta.codeInteractionGeneration = status?.configured === true && status.capabilities?.codeInteractions === true;
+      }
       await this.loadAssistantSettings(true);
     } catch (error) {
       this.ui.assistantSettingsStatus.textContent = `Provider settings were not saved. ${error.message}`;
@@ -4541,7 +4565,19 @@ export class Editor {
     return { markdown: marked.slice(0, at) + marked.slice(at + marker.length), at, selected };
   }
 
-  insertKnowledgeCheckBlocks(blocks, target) {
+  interactionContext(target) {
+    if (target.selected) return target.selected;
+    const cursor = target.at;
+    const before = target.markdown.slice(0, cursor);
+    const heading = [...before.matchAll(/^#{1,6}\s+.+$/gm)].pop();
+    if (!heading) return target.markdown.trim();
+    const rest = target.markdown.slice(cursor);
+    const next = rest.match(/^#{1,6}\s+.+$/m);
+    const end = next?.index === undefined ? target.markdown.length : cursor + next.index;
+    return target.markdown.slice(heading.index, end).trim();
+  }
+
+  insertInteractionBlocks(blocks, target) {
     const before = target.markdown.slice(0, target.at).replace(/\s*$/, "");
     const after = target.markdown.slice(target.at).replace(/^\s*/, "");
     const snippet = `${before ? "\n\n" : ""}${blocks.join("\n\n")}${after ? "\n\n" : ""}`;
@@ -4551,6 +4587,130 @@ export class Editor {
     if (this.editorMode === "visual") this.renderRichEditor();
     this.activatePane?.("write");
     requestAnimationFrame(() => this.writingSurface().focus());
+  }
+
+  insertKnowledgeCheckBlocks(blocks, target) {
+    this.insertInteractionBlocks(blocks, target);
+  }
+
+  openCodeInteraction() {
+    this.captureVisualSelection();
+    const target = this.knowledgeCheckTarget();
+    const trigger = document.activeElement;
+    const dialog = h("dialog", { class: "oba-dialog", "aria-labelledby": "oba-code-interaction-title" });
+    const status = h("p", { class: "oba-error", role: "alert", hidden: true });
+    const kind = h("select", { id: "oba-code-interaction-kind", value: "example" }, h("option", { value: "example" }, "Runnable example"), h("option", { value: "challenge" }, "Coding challenge"));
+    const title = h("input", { id: "oba-code-interaction-name", type: "text", maxlength: 120, placeholder: "Ownership in action" });
+    const instructions = h("textarea", { id: "oba-code-interaction-instructions", rows: 3, placeholder: "Tell the reader what to try or notice." });
+    const code = h("textarea", { id: "oba-code-interaction-code", rows: 12, spellcheck: false, value: "fn main() {\n    println!(\"Hello, open.blog!\");\n}" });
+    const expectedOutput = h("textarea", { id: "oba-code-interaction-output", rows: 2, placeholder: "What should happen when the reader succeeds?" });
+    const hint = h("textarea", { id: "oba-code-interaction-hint", rows: 2, placeholder: "Optional hint" });
+    const explanation = h("textarea", { id: "oba-code-interaction-explanation", rows: 3, placeholder: "Optional explanation after the code" });
+    const outputField = this.field("oba-code-interaction-output", "Expected result", expectedOutput, "Required for a coding challenge.");
+    const hintField = this.field("oba-code-interaction-hint", "Hint", hint);
+    const syncKind = () => {
+      const challenge = kind.value === "challenge";
+      outputField.hidden = !challenge;
+      hintField.hidden = !challenge;
+      if (challenge && !/^\s*\/\/.*\bTODO\b/im.test(code.value)) code.value = "fn main() {\n    // TODO: complete the challenge\n}";
+    };
+    kind.addEventListener("change", syncKind);
+
+    const generation = [];
+    if (this.meta.codeInteractionGeneration || this.meta.quizGeneration) {
+      const generate = h("button", {
+        class: "oba-btn oba-btn-primary",
+        type: "button",
+        onClick: async () => {
+          generate.disabled = true;
+          status.hidden = true;
+          try {
+            const result = await this.app.api.call("POST", "assistant/code-interaction", {
+              json: { context: this.interactionContext(target), kind: kind.value },
+            });
+            title.value = result.title;
+            instructions.value = result.instructions;
+            code.value = result.code;
+            expectedOutput.value = result.expectedOutput;
+            hint.value = result.hint;
+            explanation.value = result.explanation;
+            status.textContent = "Draft interaction generated. Review and edit it before inserting.";
+            status.className = "oba-ok";
+            status.hidden = false;
+          } catch (error) {
+            status.textContent = error.message;
+            status.className = "oba-error";
+            status.hidden = false;
+          } finally {
+            generate.disabled = false;
+          }
+        },
+      }, "Generate draft");
+      generation.push(h("div", { class: "oba-generation" }, h("span", {}, "Use the selected text or current section:"), generate));
+    }
+    const close = () => {
+      dialog.close();
+      dialog.remove();
+      if (trigger instanceof HTMLElement) trigger.focus();
+    };
+    const insert = h("button", {
+      class: "oba-btn oba-btn-primary",
+      type: "button",
+      onClick: () => {
+        const fields = [title, instructions, code];
+        if (fields.some((field) => !field.value.trim()) || (kind.value === "challenge" && !expectedOutput.value.trim())) {
+          status.textContent = "Title, instructions, code, and the challenge expected result are required.";
+          status.className = "oba-error";
+          status.hidden = false;
+          return;
+        }
+        if ([title, instructions, code, expectedOutput, hint, explanation].some((field) => field.value.includes("```"))) {
+          status.textContent = "Interaction fields cannot contain a triple backtick.";
+          status.className = "oba-error";
+          status.hidden = false;
+          return;
+        }
+        if (kind.value === "challenge" && !/^\s*\/\/.*\bTODO\b/im.test(code.value)) {
+          status.textContent = "Challenge starter code needs a visible // TODO comment.";
+          status.className = "oba-error";
+          status.hidden = false;
+          return;
+        }
+        const markdown = codeInteractionMarkdown({
+          kind: kind.value,
+          title: title.value,
+          instructions: instructions.value,
+          code: code.value,
+          expectedOutput: expectedOutput.value,
+          hint: kind.value === "challenge" ? hint.value : "",
+          explanation: explanation.value,
+        });
+        this.insertInteractionBlocks([markdown], target);
+        close();
+      },
+    }, "Insert into draft");
+    dialog.append(
+      h("h2", { id: "oba-code-interaction-title" }, "Add runnable code"),
+      h("p", { class: "oba-help" }, "Create one self-contained Rust example or a small challenge. Readers can edit and run it in the published post."),
+      ...generation,
+      this.field("oba-code-interaction-kind", "Interaction type", kind),
+      this.field("oba-code-interaction-name", "Title", title),
+      this.field("oba-code-interaction-instructions", "Instructions", instructions),
+      this.field("oba-code-interaction-code", "Rust code", code, "Only Rust runnable blocks are supported."),
+      outputField,
+      hintField,
+      this.field("oba-code-interaction-explanation", "Explanation", explanation),
+      status,
+      h("div", { class: "oba-toolbar" }, h("span", { class: "oba-spacer" }), h("button", { class: "oba-btn", type: "button", onClick: close }, "Cancel"), insert),
+    );
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      close();
+    });
+    syncKind();
+    document.body.append(dialog);
+    dialog.showModal();
+    title.focus();
   }
 
   openKnowledgeCheck() {
@@ -4600,20 +4760,7 @@ export class Editor {
         class: "oba-btn oba-btn-primary",
         type: "button",
         onClick: async () => {
-          let context = target.selected;
-          if (!context) {
-            const cursor = target.at;
-            const before = target.markdown.slice(0, cursor);
-            const heading = [...before.matchAll(/^#{1,6}\s+.+$/gm)].pop();
-            if (heading) {
-              const rest = target.markdown.slice(cursor);
-              const next = rest.match(/^#{1,6}\s+.+$/m);
-              const end = next?.index === undefined ? target.markdown.length : cursor + next.index;
-              context = target.markdown.slice(heading.index, end).trim();
-            } else {
-              context = target.markdown.trim();
-            }
-          }
+          const context = this.interactionContext(target);
           generate.disabled = true;
           status.hidden = true;
           try {

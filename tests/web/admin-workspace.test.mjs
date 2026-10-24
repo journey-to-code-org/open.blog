@@ -38,10 +38,13 @@ test("Assistant workspace exposes safe provider status and labelled empty views"
   assert.doesNotMatch(admin, /OPENBLOG_LESSONS_API_KEY[^"'`]*(?:value|credential|secret)/i);
 });
 
-test("Assistant Interactions opens the reviewed knowledge-check proposal flow", () => {
+test("Assistant Interactions exposes reviewed quiz and runnable-code proposal flows", () => {
   assert.match(admin, /Create knowledge-check proposal/);
   assert.match(admin, /bindAssistantInteractionControl\(this, ui\.assistantInteractionCreate\)/);
-  assert.match(admin, /remain proposals until you review and insert them/);
+  assert.match(admin, /bindAssistantInteractionControl\(this, ui\.assistantCodeInteractionCreate, "code"\)/);
+  assert.match(admin, /remain editable proposals until you review and insert them/);
+  assert.match(admin, /Create runnable-code proposal/);
+  assert.match(admin, /assistant\/code-interaction/);
   assert.doesNotMatch(admin, /Proposal workflows will appear here in a later delivery/);
 });
 
