@@ -183,6 +183,15 @@ How the Publish button and `openblog publish` commit and push; see
 keeps drafts out of public history unless set, `auto` publishes after every save, and
 `pullFirst` rebases on changes made elsewhere before pushing.
 
+## Syndication
+
+`syndication.targets` is a map of user-chosen destination names to DEV, Hashnode, Ghost,
+WordPress, or manual Medium settings. `stateFile` points to private remote-ID state and
+defaults to `.openblog/syndication.json`. Credentials are environment-only and never belong
+in this file. See [Cross-posting](cross-posting.md#built-in-command) for setup and the
+[automated syndication specification](specs/automated-syndication.md) for the exact fields,
+credential names, and safety behavior.
+
 ## Themes
 
 Themes are not configured here beyond `theme`; each theme has its own `theme.json`. See

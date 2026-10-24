@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added `openblog syndicate <slug>` with dry-run planning, draft-first DEV, Hashnode,
+  Ghost, and WordPress adapters, guided Medium import, private remote-ID state, and
+  explicit two-step publication safety.
+
 - Added dependency-free `web runnable` HTML/CSS/JavaScript sandboxes with editable tabs and a
   CSP-restricted opaque-origin preview.
 - Added structured video production stages, season/episode numbers, credits, an Admin workflow,
