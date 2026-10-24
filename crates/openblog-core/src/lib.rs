@@ -14,6 +14,7 @@
 
 pub mod accessibility;
 pub mod assistant_guide;
+pub mod capability;
 pub mod collaboration;
 pub mod config;
 pub mod contributor;
