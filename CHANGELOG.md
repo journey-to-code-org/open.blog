@@ -13,6 +13,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - Added portable and private author/site Assistant context management with bounded UTF-8 files,
   atomic conflict-safe saves, Git safety warnings, publish exclusions, and a selected-context
   disclosure preview.
+- Added portable and private post briefs, bounded Markdown/text references, and immutable existing-
+  post snapshots to Assistant context, including transactional post rename and deletion handling.
 
 - Added Visual and Markdown writing modes in Admin, with a remembered author preference,
   Heading 2–6 selection, familiar rich-text controls, and protected advanced blocks that
