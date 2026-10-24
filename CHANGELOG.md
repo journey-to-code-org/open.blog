@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Grounded Assistant reviews in trusted open.blog renderer capabilities so native quiz and
+  runnable Rust fences are reviewed for authoring quality without being misreported as unsupported.
+
 ## [0.11.1] - 2026-10-23
 
 - Made review verification labels context-aware and conservatively downgraded unsupported
