@@ -7898,6 +7898,8 @@ mod tests {
             .unwrap()
             .iter()
             .any(|item| item["content"] == "must not become context"));
+        #[cfg(unix)]
+        fs::remove_file(f.dir.join("content/posts/linked-outside")).unwrap();
         f.state.rebuild().unwrap();
         for output in fsutil::walk(&f.dir.join("dist")) {
             let output = String::from_utf8_lossy(&fs::read(output).unwrap()).into_owned();
