@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-10-24
+
 - Added modern Supabase secret API key support for Netlify comments and analytics via
   `SUPABASE_SECRET_KEY`, while preserving legacy service-role authentication and documenting
   the server-only setup without a database migration.
