@@ -4,6 +4,43 @@ pub const MAX_CAPABILITY_ID_LENGTH: usize = 64;
 pub const MAX_DIAGNOSTIC_MESSAGE_LENGTH: usize = 240;
 pub const MAX_CAPABILITY_DIAGNOSTICS: usize = 8;
 
+/// Capabilities the portable projection renders with their own static fallback.
+const PORTABLE_FALLBACKS: &[&str] = &[
+    "knowledge-check",
+    "runnable-code",
+    "web-sandbox",
+    "comments",
+    "raw-html",
+];
+
+/// Planned capabilities registered in `docs/portability/planned-capability-contracts.json`,
+/// with the label a portable copy shows until the owning story ships a fallback.
+/// `None` marks private state that has no public representation at all.
+const PLANNED_CAPABILITIES: &[(&str, Option<&str>)] = &[
+    (
+        "edition-translation-comparisons",
+        Some("Edition and translation comparison"),
+    ),
+    ("historical-timelines", Some("Timeline")),
+    (
+        "research-workspace-publication-boundary",
+        Some("Research context"),
+    ),
+    ("citation-source-previews", Some("Source previews")),
+    ("guided-reading-supplements", Some("Guided explanations")),
+    ("knowledge-relationships", Some("Knowledge relationships")),
+    ("curated-reading-paths", Some("Reading path")),
+    (
+        "passage-questions-and-corrections",
+        Some("Questions and corrections"),
+    ),
+    ("local-reader-annotations", None),
+    ("scholarly-interpretations", Some("Interpretations")),
+    ("shared-source-led-reflections", Some("Shared reflections")),
+    ("protected-reflection-drafts", None),
+    ("diagrams", Some("Diagram")),
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PortabilityLevel {
     FullyPortable,
@@ -16,6 +53,9 @@ pub enum CapabilityDiagnosticCode {
     UnknownCapability,
     MalformedIdentifier,
     MalformedContent,
+    /// The portable projection removed, unwrapped, replaced, renamed, or
+    /// repaired authored markup.
+    RemovedMarkup,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,18 +98,41 @@ impl CapabilityDescriptor {
             return descriptor;
         }
 
-        let (semantics, fallback_renderer) = match identifier {
+        let (semantics, fallback_renderer, portability) = match identifier {
             "knowledge-check" => (
                 "A question with answer choices and an author-designated correct answer.",
                 Some("static-question-and-choices"),
+                PortabilityLevel::GracefullyTransformed,
             ),
             "runnable-code" => (
                 "Source code with an explicit reader execution affordance.",
                 Some("pre-code"),
+                PortabilityLevel::GracefullyTransformed,
             ),
             "web-sandbox" => (
                 "An HTML, CSS, and JavaScript exercise with an isolated preview.",
                 Some("source-code"),
+                PortabilityLevel::GracefullyTransformed,
+            ),
+            "comments" => (
+                "Reader discussion hosted with the canonical article.",
+                Some("canonical-link"),
+                PortabilityLevel::CanonicalOnlyInteraction,
+            ),
+            "raw-html" => (
+                "Markup the author wrote as raw HTML or Markdown attributes.",
+                Some("allowlisted-html"),
+                PortabilityLevel::GracefullyTransformed,
+            ),
+            planned if matches!(planned_entry(planned), Some(Some(_))) => (
+                "A planned capability: its authored content stays visible and the canonical article carries the rest.",
+                Some("labeled-canonical-link"),
+                PortabilityLevel::CanonicalOnlyInteraction,
+            ),
+            private if planned_entry(private) == Some(None) => (
+                "Private state with no public representation.",
+                None,
+                PortabilityLevel::CanonicalOnlyInteraction,
             ),
             _ => {
                 let mut descriptor = Self {
@@ -93,9 +156,22 @@ impl CapabilityDescriptor {
             authored_semantics: semantics,
             native_renderer,
             fallback_renderer,
-            portability: PortabilityLevel::GracefullyTransformed,
+            portability,
             diagnostics: Vec::new(),
         }
+    }
+
+    /// Whether the portable projection renders this capability's own fallback.
+    pub fn has_portable_fallback(&self) -> bool {
+        PORTABLE_FALLBACKS.contains(&self.id.as_str())
+    }
+
+    /// How a portable copy without this capability's own fallback names it next
+    /// to the canonical link: the planned capability's label, a generic label for
+    /// unknown or invalid capabilities, and `None` for private state, which adds
+    /// nothing to public output.
+    pub fn portable_label(&self) -> Option<&'static str> {
+        planned_entry(&self.id).unwrap_or(Some("Interactive content"))
     }
 
     pub fn add_diagnostic(&mut self, code: CapabilityDiagnosticCode, message: &str) {
@@ -107,6 +183,13 @@ impl CapabilityDescriptor {
             message: bounded_message(message),
         });
     }
+}
+
+fn planned_entry(identifier: &str) -> Option<Option<&'static str>> {
+    PLANNED_CAPABILITIES
+        .iter()
+        .find(|(id, _)| *id == identifier)
+        .map(|(_, label)| *label)
 }
 
 fn bounded_message(message: &str) -> String {
@@ -151,6 +234,71 @@ mod tests {
             PortabilityLevel::GracefullyTransformed
         );
         assert!(descriptor.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn comments_are_a_canonical_only_interaction() {
+        let descriptor = CapabilityDescriptor::describe("comments", Some("ob-comments"));
+        assert_eq!(
+            descriptor.portability,
+            PortabilityLevel::CanonicalOnlyInteraction
+        );
+        assert_eq!(descriptor.fallback_renderer, Some("canonical-link"));
+        assert!(descriptor.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn planned_capabilities_follow_the_contract_registry_and_fail_closed() {
+        let registry: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../docs/portability/planned-capability-contracts.json"
+        ))
+        .unwrap();
+        let ids = registry["contracts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|contract| contract["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            PLANNED_CAPABILITIES
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>(),
+            ids
+        );
+        for id in ids {
+            let descriptor = CapabilityDescriptor::describe(id, None);
+            assert_eq!(descriptor.id, id);
+            assert!(descriptor.diagnostics.is_empty(), "{id}");
+            assert!(!descriptor.has_portable_fallback(), "{id}");
+            assert_eq!(
+                descriptor.portability,
+                PortabilityLevel::CanonicalOnlyInteraction,
+                "{id}"
+            );
+            assert_eq!(
+                descriptor.fallback_renderer,
+                descriptor
+                    .portable_label()
+                    .map(|_| "labeled-canonical-link"),
+                "{id}"
+            );
+        }
+        for private in ["local-reader-annotations", "protected-reflection-drafts"] {
+            assert_eq!(
+                CapabilityDescriptor::describe(private, None).portable_label(),
+                None
+            );
+        }
+        assert_eq!(
+            CapabilityDescriptor::describe("historical-timelines", None).portable_label(),
+            Some("Timeline")
+        );
+        assert_eq!(
+            CapabilityDescriptor::describe("future-capability", None).portable_label(),
+            Some("Interactive content")
+        );
+        assert!(CapabilityDescriptor::describe("comments", None).has_portable_fallback());
     }
 
     #[test]

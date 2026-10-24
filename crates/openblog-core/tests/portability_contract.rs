@@ -309,6 +309,25 @@ fn portability_fixtures_preserve_semantics_and_native_views() {
             assert!(error.contains(path), "{name}: {error}");
         }
 
+        let portable = projection
+            .portable_html()
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert!(
+            !portable.html.contains("<ob-") && !portable.html.contains("<script"),
+            "{name}: portable HTML needs the open.blog runtime"
+        );
+        for fragment in expected["portableHtmlContains"]
+            .as_array()
+            .unwrap_or(&Vec::new())
+        {
+            assert!(
+                portable.html.contains(fragment.as_str().unwrap()),
+                "{name} portable HTML: {fragment}\n{}",
+                portable.html
+            );
+        }
+        assert_eq!(projection.portable_html().unwrap(), portable, "{name}");
+
         let repeated = PortableProjection::from_post(post, &config).unwrap();
         assert_eq!(
             repeated.canonical_url(),

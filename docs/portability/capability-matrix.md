@@ -33,18 +33,22 @@ below only where a `CapabilityDescriptor` or fixture already records one:
 
 - `PortableProjection::representation(RepresentationFormat::Html)` returns `post.html` unchanged —
   the same authored/native HTML string used for the native page
-(`crates/openblog-core/src/portability.rs:133-139`, confirmed by
-`crates/openblog-core/src/portability.rs:269-274` asserting
+(`crates/openblog-core/src/portability.rs:158-164`, confirmed by
+`crates/openblog-core/src/portability.rs:346-349` asserting
   `projection.representation(RepresentationFormat::Html) == post.html`). The separate
   `PortableProjection::portable_html()` API re-renders retained authored Markdown and resolves
   Markdown link and image destinations without parsing native HTML; it is an opt-in body projection,
-  not yet consumed by feeds, Admin preview, or syndication. It preserves authored raw HTML and
-  current custom-element markup, so sanitization and capability-specific fallbacks remain future
-  work under [#112](https://github.com/journey-to-code-org/open.blog/issues/112) and
-  [#114](https://github.com/journey-to-code-org/open.blog/issues/114). See the
+  not yet consumed by feeds, Admin preview, or syndication. It renders static fallbacks for
+  quizzes, runnable code, web sandboxes, embeds, video chapters, recipes, callouts, and comment
+  participation ([#112](https://github.com/journey-to-code-org/open.blog/issues/112)), keeps
+  credits, DOI/license, footnote citations, and source provenance, and fails closed for planned
+  capabilities ([#113](https://github.com/journey-to-code-org/open.blog/issues/113)). Authored
+  raw HTML passes through an allowlist that removes active and destination-hostile markup,
+  reports the loss, resolves its URLs, keeps ids unique, and bounds size and nesting
+  ([#114](https://github.com/journey-to-code-org/open.blog/issues/114)). See the
   [portable HTML pipeline](./portable-html-pipeline.md) for its exact boundaries. Story
-  [#95](https://github.com/journey-to-code-org/open.blog/issues/95) remains in progress until the
-  planned capability-specific work is complete; [#96](https://github.com/journey-to-code-org/open.blog/issues/96)
+  [#95](https://github.com/journey-to-code-org/open.blog/issues/95) delivers this body projection;
+  no consumer uses it yet, and [#96](https://github.com/journey-to-code-org/open.blog/issues/96)
   (portable Markdown export) is still unimplemented.
 - RSS (`crates/openblog-core/src/feeds.rs:13-101`) and JSON Feed
   (`crates/openblog-core/src/feeds.rs:106-181`) both call
@@ -112,8 +116,9 @@ below only where a `CapabilityDescriptor` or fixture already records one:
   distinct, narrower capability from the planned passage-specific questions/corrections workstream.
 - **Feeds and Admin preview currently reuse native HTML rather than a distinct portable
   representation.** This is expected per #105/#106 (which defined the projection seam and
-  fixtures) and is not a defect of this audit; the distinct portable-HTML/Markdown transforms are
-  scoped to the still-open stories #95, #96, #97, and #100.
+  fixtures) and is not a defect of this audit. Story #95 added the portable HTML body transform;
+  portable Markdown and switching consumers to the portable transforms are scoped to the
+  still-open stories #96, #97, and #100.
 - **Ambiguity:** the parent epic (#92) lists "#103/#107" first in its MVP sequence, but #107's own
   body states it is unblocked ("Blocked by: None") and scoped only to publishing this audit
   document; this document does not depend on or anticipate #103's outcome.
