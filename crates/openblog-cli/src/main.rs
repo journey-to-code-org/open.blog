@@ -20,6 +20,7 @@ mod site;
 mod syndication;
 mod transaction;
 mod url_context;
+mod workspace;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -156,6 +157,14 @@ fn run(raw: &[String]) -> Result<(), String> {
     }
     let root = PathBuf::from(args.options.get("root").map(String::as_str).unwrap_or("."));
     let drafts = args.switches.contains("drafts");
+    if workspace::configured()
+        && matches!(
+            command.as_str(),
+            "init" | "new" | "import" | "publish" | "contributors"
+        )
+    {
+        return Err("durable workspace mode requires content mutations and publishing through the admin API; CLI mutations are disabled to avoid unacknowledged writes".into());
+    }
 
     match command.as_str() {
         "help" | "-h" | "--help" => {

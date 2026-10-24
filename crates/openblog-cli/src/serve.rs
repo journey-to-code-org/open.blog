@@ -82,12 +82,16 @@ pub struct ServeOptions {
 }
 
 pub fn run(root: &Path, options: &ServeOptions) -> Result<(), String> {
-    let state = Arc::new(AppState::new(
+    let workspace = crate::workspace::Workspace::restore_from_env(root)?;
+    let mut state = AppState::new(
         root.to_path_buf(),
         None,
         options.include_drafts,
         options.admin,
-    ));
+    );
+    state.workspace_enabled = workspace.is_some();
+    state.workspace = Mutex::new(workspace);
+    let state = Arc::new(state);
     admin::register(&state);
     let report = state.rebuild()?;
     print_report(&report);

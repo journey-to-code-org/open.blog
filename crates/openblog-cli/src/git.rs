@@ -64,7 +64,20 @@ impl Git {
     pub fn remote_url(&self, remote: &str) -> Option<String> {
         self.run(&["remote", "get-url", remote])
             .ok()
-            .map(|s| s.trim().to_string())
+            .map(|s| Self::redact_remote_url(s.trim()))
+    }
+
+    fn redact_remote_url(remote: &str) -> String {
+        match url::Url::parse(remote) {
+            Ok(mut url) if matches!(url.scheme(), "http" | "https") => {
+                let _ = url.set_password(None);
+                let _ = url.set_username("");
+                url.set_query(None);
+                url.set_fragment(None);
+                url.to_string()
+            }
+            _ => remote.to_string(),
+        }
     }
 
     /// Changed paths (staged, unstaged, untracked) under the given prefixes.
@@ -288,6 +301,20 @@ impl Git {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn remote_status_never_exposes_http_credentials() {
+        assert_eq!(
+            Git::redact_remote_url(
+                "https://user:private-token@github.com/example/blog.git?token=secret"
+            ),
+            "https://github.com/example/blog.git"
+        );
+        assert_eq!(
+            Git::redact_remote_url("git@github.com:example/blog.git"),
+            "git@github.com:example/blog.git"
+        );
+    }
 
     fn temp_repo(tag: &str) -> (PathBuf, Git) {
         let dir = std::env::temp_dir().join(format!("ob-git-{tag}-{}", std::process::id()));
