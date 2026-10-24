@@ -289,7 +289,7 @@ test("code interaction Markdown emits native web and configured-runner fences", 
 
   const python = codeInteractionMarkdown({
     kind: "example",
-    language: "python",
+    language: " Python ",
     title: "Echo",
     instructions: "Enter text.",
     code: "print(input())",

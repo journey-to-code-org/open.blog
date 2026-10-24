@@ -291,7 +291,10 @@ fn handle(stream: &TcpStream, state: &AppState, out_dir: &Path) -> std::io::Resu
 }
 
 pub(crate) fn route(state: &AppState, req: &Request, out_dir: &Path) -> Response {
-    if req.path == "/admin" || req.path.starts_with("/admin/") {
+    if req.path == "/admin"
+        || req.path.starts_with("/admin/")
+        || req.path == admin::CODE_RUNNER_LANGUAGE_PATH
+    {
         return admin::handle(state, req);
     }
     // For load balancers, container health checks, and keep-awake pings.

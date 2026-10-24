@@ -44,6 +44,8 @@ use crate::http::{Request, Response};
 use crate::site::{self, BuildOptions, BuildReport};
 
 pub const SESSION_COOKIE: &str = "ob_session";
+pub(crate) const CODE_RUNNER_LANGUAGE_PATH: &str = "/components/ob-code-runner-language.js";
+const CODE_RUNNER_LANGUAGE_ASSET: &str = "components/ob-code-runner-language.js";
 const MAX_JSON_BODY: usize = 2 * 1024 * 1024 + 64 * 1024;
 const MAX_LOGIN_BODY: usize = 4 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
@@ -358,6 +360,13 @@ fn route(state: &AppState, req: &Request) -> Response {
     }
     if !req.is_read_only() {
         return Response::error(405, "Method not allowed");
+    }
+    if path == CODE_RUNNER_LANGUAGE_PATH {
+        let config = site::load_config(&state.root).unwrap_or_default();
+        return match site::web_file(&state.root, &config, CODE_RUNNER_LANGUAGE_ASSET) {
+            Some(bytes) => Response::new(200, "text/javascript; charset=utf-8", bytes),
+            None => Response::error(404, "Not found"),
+        };
     }
     let file = match path {
         "/admin" | "/admin/" => "index.html",
@@ -10103,6 +10112,14 @@ mod tests {
         let script = String::from_utf8_lossy(&script.body);
         assert!(script.contains("ob-admin-scheme"));
         assert!(script.contains("Dark mode"));
+        let language_contract = crate::serve::route(
+            &f.state,
+            &req("GET", CODE_RUNNER_LANGUAGE_PATH),
+            &f.dir.join("dist"),
+        );
+        assert_eq!(language_contract.status, 200);
+        assert!(String::from_utf8_lossy(&language_contract.body)
+            .contains("normalizeCodeRunnerLanguage"));
         let styles = handle(&f.state, &req("GET", "/admin/admin.css"));
         assert_eq!(styles.status, 200);
         assert!(String::from_utf8_lossy(&styles.body).contains(".oba-theme-toggle"));

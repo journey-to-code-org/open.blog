@@ -78,5 +78,6 @@ test("runs, resets, and copies configured-language lessons", async () => {
   assert.equal(copied, "print('changed')");
   find(runner, "ob-code-runner-reset").click();
   assert.equal(editor.value, "print(input())\n");
+  assert.equal(find(runner, "ob-code-runner-status").textContent, "Reset to the post's example.");
   assert.equal(editor.focused, true);
 });

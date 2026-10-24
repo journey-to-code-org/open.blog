@@ -1,6 +1,8 @@
 // Provider-neutral browser client for an independently hosted execution
 // gateway. This module never accepts credentials or executes code locally.
 
+import { normalizeCodeRunnerLanguage } from "./ob-code-runner-language.js";
+
 export const MAX_RUNNER_SOURCE_BYTES = 20_000;
 export const MAX_RUNNER_STDIN_BYTES = 8_000;
 export const MAX_RUNNER_OUTPUT_BYTES = 64_000;
@@ -17,10 +19,6 @@ function publicEndpoint(value) {
   } catch {
     return null;
   }
-}
-
-function validLanguage(value) {
-  return /^[a-z][a-z0-9_+#.-]{0,31}$/.test(String(value || ""));
 }
 
 async function responseJson(response) {
@@ -74,11 +72,11 @@ function boundedOutput(stdout, stderr) {
 
 export async function runCode({ endpoint, language, source = "", stdin = "" }, { fetcher = fetch, signal } = {}) {
   endpoint = publicEndpoint(endpoint);
-  language = String(language || "").toLowerCase();
+  language = normalizeCodeRunnerLanguage(language);
   source = String(source);
   stdin = String(stdin);
   if (!endpoint) throw new Error("The code runner must use a public HTTPS endpoint without credentials.");
-  if (!validLanguage(language)) throw new Error("The code runner language is invalid.");
+  if (!language) throw new Error("The code runner language is invalid.");
   if (encoder.encode(source).byteLength > MAX_RUNNER_SOURCE_BYTES) {
     throw new Error("Runnable source is limited to 20,000 bytes.");
   }

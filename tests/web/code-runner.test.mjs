@@ -30,7 +30,7 @@ function streamingResponse(value, contentLength = null) {
 test("posts a bounded provider-neutral execution request without credentials", async () => {
   let request;
   const result = await runCode(
-    { endpoint: "https://runner.example/v1/execute", language: "python", source: "print(input())", stdin: "hello\n" },
+    { endpoint: "https://runner.example/v1/execute", language: " Python ", source: "print(input())", stdin: "hello\n" },
     {
       fetcher: async (url, options) => {
         request = { url, options };

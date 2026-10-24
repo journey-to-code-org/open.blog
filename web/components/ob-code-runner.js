@@ -71,7 +71,7 @@ class ObCodeRunner extends HTMLElement {
       stdin.value = "";
       output.textContent = "";
       output.hidden = true;
-      status.textContent = "Reset to the article's example.";
+      status.textContent = "Reset to the post's example.";
       editor.focus();
     });
     copy.addEventListener("click", async () => {

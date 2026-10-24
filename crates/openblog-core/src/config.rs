@@ -160,7 +160,9 @@ pub struct CodeRunnerConfig {
 /// authoring tools. Returns `None` for identifiers that cannot safely appear
 /// in a Markdown fence or the browser runner protocol.
 pub fn normalize_code_runner_language(value: &str) -> Option<String> {
-    let value = value.trim().to_ascii_lowercase();
+    let value = value
+        .trim_matches(|character: char| character.is_ascii_whitespace())
+        .to_ascii_lowercase();
     let valid = (1..=32).contains(&value.len())
         && value
             .bytes()
@@ -954,16 +956,13 @@ mod tests {
 
     #[test]
     fn code_runner_language_normalizer_owns_the_shared_grammar() {
-        for (authored, expected) in [
-            (" Python ", Some("python")),
-            ("c++", Some("c++")),
-            ("f#", Some("f#")),
-            ("shell script", None),
-            ("9python", None),
-            ("python!", None),
-            ("", None),
-            ("abcdefghijklmnopqrstuvwxyzabcdefg", None),
-        ] {
+        let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/code-runner-languages.json"
+        ))
+        .unwrap();
+        for fixture in fixtures {
+            let authored = fixture["authored"].as_str().unwrap();
+            let expected = fixture["normalized"].as_str();
             assert_eq!(
                 normalize_code_runner_language(authored).as_deref(),
                 expected,

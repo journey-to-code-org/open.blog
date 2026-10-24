@@ -3,6 +3,8 @@
 // Nothing user-controlled is ever assigned through innerHTML. Publishing-engine
 // previews are served from an authenticated URL into an opaque-origin sandbox.
 
+import { normalizeCodeRunnerLanguage } from "../components/ob-code-runner-language.js";
+
 const ADMIN_SCHEME_KEY = "ob-admin-scheme";
 const ADMIN_PREVIEW_WIDTH_KEY = "ob-admin-preview-width";
 const ADMIN_EDITOR_MODE_KEY = "ob-admin-editor-mode";
@@ -450,7 +452,7 @@ export function bindAssistantInteractionControl(editor, button, interaction = "k
 export function codeInteractionMarkdown({ kind, language = "rust", title, instructions, code, expectedOutput = "", hint = "", explanation = "" }) {
   const escapeText = (value) => String(value || "").trim().replace(/([\\`*_[\]{}<>#+\-.!|])/g, "\\$1");
   const safeTitle = String(title || "").trim().replace(/["'\r\n]/g, "").slice(0, 120);
-  const safeLanguage = /^[a-z][a-z0-9_+#.-]{0,31}$/.test(String(language || "")) ? String(language).toLowerCase() : "rust";
+  const safeLanguage = normalizeCodeRunnerLanguage(language) || "rust";
   const label = kind === "challenge" ? "Coding challenge" : "Runnable example";
   const lines = [`**${label}: ${escapeText(title)}**`, "", escapeText(instructions)];
   if (kind === "challenge") lines.push("", `**Expected result:** ${escapeText(expectedOutput)}`);
@@ -4762,8 +4764,11 @@ export class Editor {
     const dialog = h("dialog", { class: "oba-dialog", "aria-labelledby": "oba-code-interaction-title" });
     const status = h("p", { class: "oba-error", role: "alert", hidden: true });
     const kind = h("select", { id: "oba-code-interaction-kind", value: "example" }, h("option", { value: "example" }, "Runnable example"), h("option", { value: "challenge" }, "Coding challenge"));
-    const availableLanguages = [...new Set(["rust", "web", ...(this.meta.codeRunnerLanguages || [])])]
-      .filter((value) => /^[a-z][a-z0-9_+#.-]{0,31}$/.test(value));
+    const availableLanguages = [...new Set(
+      ["rust", "web", ...(this.meta.codeRunnerLanguages || [])]
+        .map(normalizeCodeRunnerLanguage)
+        .filter(Boolean),
+    )];
     const language = h("select", { id: "oba-code-interaction-language", value: "rust" },
       ...availableLanguages.map((value) => h("option", { value }, value === "web" ? "Web (HTML/CSS/JavaScript)" : value[0].toUpperCase() + value.slice(1))));
     const title = h("input", { id: "oba-code-interaction-name", type: "text", maxlength: 120, placeholder: "Ownership in action" });
