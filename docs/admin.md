@@ -28,6 +28,7 @@ immediately.
 | **Evidence Studio** | Research-profile structure and metadata findings from the publishing engine, plus authored DOI (normalized to a resolver URL when valid), valid absolute license URL, and linked-reference inspection without truth or authority scoring. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
 | **Formatting** | Write in a word-processor-style Visual mode or switch to Markdown. Choose Paragraph or Heading 2–6, then apply bold, italic, links, quotes, numbered or bulleted lists, images, and code. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in either mode. |
+| **Personal workspace** | Start with a calm writing-focused workspace, choose Guided or Advanced, or customize optional tools, their order, spacing, and default writing mode. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
 | **Video release kit** | Validate authored YouTube chapters and copy a description assembled from the current summary, chapters, and AI-assistance disclosure. |
 | **Field Review** | Analyze GPX locally, derive route facts, and choose hidden, trimmed, approximate, or exact location publication. |
@@ -40,11 +41,23 @@ immediately.
 
 ## Workspace layout
 
-The admin is organized like a writing studio. The tool groups at the top move between
-content, analytics, and the public site; the status bar keeps unpublished changes and
-the publish action visible. Inside the editor, **Write**, **Site preview**, **Social**,
-**Optimize**, **Settings**, **Accessibility**, **Evidence**, and **Assistant** are separate full-width
-views, so writing is not squeezed beside a permanent preview.
+The admin is organized like a writing studio. New accounts start in **Simple**, which keeps
+the main navigation focused on content and the essential **Write**, **Site preview**, and
+**Settings** views. **Advanced tools** keeps analytics, contributors, the public site, and
+every document tool reachable without crowding the everyday workspace. Choose
+**Personalize** to switch to Guided or Advanced, or use Custom to show, hide, and reorder
+optional tools. You can also choose comfortable or compact spacing and a default Visual or
+Markdown writing mode.
+
+Personalization is private to each admin login. It is stored under
+`.openblog/private/admin-preferences/`, is protected by the same login and CSRF checks as
+content editing, and never enters `openblog.json`, a post, an export, or the generated site.
+Write, preview, settings, save state, publish status, conflicts, privacy notices, approvals,
+and blockers cannot be hidden. If private preference storage is unavailable, authoring falls
+back to the Simple workspace and remains usable.
+
+Inside the editor, Social, Release kit, Field Review, Optimize, Accessibility, Evidence, and
+Assistant are separate full-width views, so writing is not squeezed beside a permanent preview.
 Switching views never loses edits, and opening Site preview refreshes it from the current draft.
 
 Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace

@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added private per-admin workspace personalization with Simple, Guided, Advanced, and Custom
+  layouts, optional-tool ordering, density and writing-mode preferences, and an always-available
+  Advanced tools drawer that keeps essential authoring and publishing controls visible.
+
 ## [0.14.0] - 2026-10-24
 
 - Defined the semantic portability invariant and domain language for derived output,
