@@ -22,13 +22,17 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
 - **Publishing studio.** `openblog serve --admin` adds a login-protected, writing-first
   editor with publishing-faithful themed previews, Open Graph cards, transparent SEO and
   answer-readiness guidance, structured accessibility and research-evidence review,
-  source-preserving formatting, uploads, drafts, and scheduling. It edits the same Markdown
-  files; front matter stays in Settings and is never rendered in the preview.
+  source-preserving formatting, uploads, drafts, and scheduling. An optional author-time
+  Assistant can review drafts, apply exact suggestions with undo, propose knowledge checks,
+  runnable Rust/web examples, configured-runner language lessons, and small coding challenges, and provide opt-in autocomplete through a
+  provider you configure. It edits the same
+  Markdown files; front matter stays in Settings and is never rendered in the preview.
 - **Publish from home.** A Publish button commits and pushes with git, a GitHub Pages
   workflow deploys, and the repository is the backup. Drafts stay out of commits.
 - **Privacy-respecting analytics.** A cookie-free view counter with a dashboard, counts
   backed up to a git branch and baked into static builds, and two counters you can host
-  yourself when the site is static: a Cloudflare Worker or a Node service with MongoDB.
+  yourself when the site is static: a Cloudflare Worker, a Node service with MongoDB, or a
+  Supabase-backed Netlify Function that also provides moderated comments.
 - **Import from Hashnode** without a paid plan.
 - **Few dependencies.** The engine needs a Markdown parser and JSON support; only the
   command-line tool adds an HTTP client, an HTML-to-Markdown converter, and password hashing.
@@ -129,11 +133,14 @@ Start with [the docs index](docs/README.md). The main guides:
 - [Configuration](docs/configuration.md): every setting in `openblog.json`
 - [Themes and the design system](docs/themes.md) and
   [adding web components to a theme](docs/theme-components.md)
-- [The admin editor](docs/admin.md): login, editing, scheduling, running it safely
+- [The admin editor](docs/admin.md): login, editing, scheduling, optional AI assistance,
+  and running it safely
 - [Sharing, views, analytics, and embeds](docs/features.md)
 - [SEO and answer discovery](docs/seo.md)
 - [Accessibility checks and manual review](docs/accessibility.md)
 - [Research posts and Evidence Studio](docs/research-profile.md)
+- [Video productions and release kits](docs/video-production.md)
+- [Field journals and private-by-default tracks](docs/field-journal.md), with a complete example hike
 - [Deploying](docs/deploy.md): GitHub Pages, other hosts, self-hosting, moving URLs
 - [Publishing from home, backups, and view counts without a server](docs/publishing.md)
 - [Cross-posting to Hashnode, DEV, Medium, Ghost, and WordPress](docs/cross-posting.md)
@@ -156,9 +163,11 @@ themes/                base theme and examples
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
+node scripts/check-doc-links.mjs
 ```
 
-Continuous integration runs the same three on every push.
+Continuous integration runs the same checks on every push, including local documentation files
+and section anchors so a renamed guide or heading cannot silently leave a dead link.
 
 ## License
 

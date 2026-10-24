@@ -17,7 +17,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
+use openblog_core::config::AssistantProviderKind;
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::markdown::RenderOptions;
 use openblog_core::slug::slugify;
@@ -27,6 +29,14 @@ use openblog_core::{
 };
 use serde_json::{json, Map, Value as Json};
 
+use crate::assistant::{
+    parse_skill, AnthropicProvider, AssistantCompletionSource, AssistantConcurrency,
+    AssistantDocument, AssistantErrorKind, AssistantProvider, AssistantProviderStatus,
+    AssistantRequest, AssistantResult, CodeInteractionKind, CodeInteractionLanguage,
+    GenericHttpsProvider, KnowledgeCheckCount, NativeProvider, NativeProviderKind, ReviewContext,
+    ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION,
+    BUILTIN_SKILL_SOURCES,
+};
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
 use crate::fsutil;
@@ -34,9 +44,13 @@ use crate::http::{Request, Response};
 use crate::site::{self, BuildOptions, BuildReport};
 
 pub const SESSION_COOKIE: &str = "ob_session";
+pub(crate) const CODE_RUNNER_LANGUAGE_PATH: &str = "/components/ob-code-runner-language.js";
+const CODE_RUNNER_LANGUAGE_ASSET: &str = "components/ob-code-runner-language.js";
 const MAX_JSON_BODY: usize = 2 * 1024 * 1024 + 64 * 1024;
 const MAX_LOGIN_BODY: usize = 4 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_SKILL_BYTES: usize = 256 * 1024;
+const MAX_ASSISTANT_CONTEXT_BYTES: usize = 64 * 1024;
 
 #[derive(Default)]
 pub struct BuildStatus {
@@ -74,6 +88,8 @@ pub struct AppState {
     pub trusted_proxies: Vec<String>,
     /// Serialises publishes so two saves never run git at the same time.
     pub publish_lock: Mutex<()>,
+    /// Bounds simultaneous paid provider calls across quiz and review APIs.
+    assistant_operations: AssistantConcurrency,
     /// Last analytics backup to the branch, as a unix time.
     pub last_backup: Mutex<i64>,
     /// Small, bounded cache of generated documents served into sandboxed previews.
@@ -138,6 +154,7 @@ impl AppState {
             base_path,
             trusted_proxies,
             publish_lock: Mutex::new(()),
+            assistant_operations: AssistantConcurrency::new(2),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
         }
@@ -344,6 +361,13 @@ fn route(state: &AppState, req: &Request) -> Response {
     if !req.is_read_only() {
         return Response::error(405, "Method not allowed");
     }
+    if path == CODE_RUNNER_LANGUAGE_PATH {
+        let config = site::load_config(&state.root).unwrap_or_default();
+        return match site::web_file(&state.root, &config, CODE_RUNNER_LANGUAGE_ASSET) {
+            Some(bytes) => Response::new(200, "text/javascript; charset=utf-8", bytes),
+            None => Response::error(404, "Not found"),
+        };
+    }
     let file = match path {
         "/admin" | "/admin/" => "index.html",
         "/admin/admin.js" => "admin.js",
@@ -413,6 +437,27 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             &json!({ "user": session.user, "csrf": session.csrf, "now": clock::now().rfc3339() }),
         ),
         ("GET", "meta") => meta(state),
+        ("GET", "assistant/status") => assistant_status(state),
+        ("GET", "assistant/settings") => assistant_settings(state),
+        ("PUT", "assistant/settings") => save_assistant_settings(state, req),
+        ("GET", "engagement/settings") => engagement_settings(state),
+        ("PUT", "engagement/settings") => save_engagement_settings(state, req),
+        ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
+        ("GET", "engagement/comments") => hosted_engagement_request(state, req, "admin/comments"),
+        ("PATCH", "engagement/comments") => hosted_engagement_request(state, req, "admin/comments"),
+        ("POST", "assistant/review") => generate_document_review(state, req),
+        ("POST", "assistant/complete") => generate_inline_completion(state, req),
+        ("POST", "assistant/code-interaction") => generate_code_interaction(state, req),
+        ("GET", "assistant/skills") => assistant_skills(state),
+        ("POST", "assistant/skill") => create_assistant_skill(state, req),
+        ("PUT", "assistant/skill") => update_assistant_skill(state, req),
+        ("GET", "assistant/context") => assistant_context_catalog(state, req),
+        ("PUT", "assistant/context") => save_assistant_context(state, req),
+        ("DELETE", "assistant/context") => delete_assistant_context(state, req),
+        ("POST", "assistant/reference") => create_assistant_reference(state, req),
+        ("DELETE", "assistant/reference") => delete_assistant_reference(state, req),
+        ("POST", "assistant/context/url/retrieve") => retrieve_url_context(req),
+        ("POST", "assistant/context/url/save") => save_url_context(state, req),
         ("GET", "contributors") => get_contributors(state),
         ("PUT", "contributors") => save_contributors(state, req),
         ("GET", "status") => status(state),
@@ -438,8 +483,11 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
                 None => Response::error(400, "Missing ?path="),
             }
         }
+        ("POST", "document/rename") => rename_document(state, req),
         ("DELETE", "document") => delete_document(state, req),
         ("POST", "upload") => upload(state, req),
+        ("POST", "track-upload") => upload_track(state, req),
+        ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
         ("POST", "quiz/generate") => generate_quiz(state, req),
         ("POST", "rebuild") => rebuild(state),
@@ -949,6 +997,17 @@ fn meta(state: &AppState) -> Response {
             })
         })
         .collect::<Vec<_>>();
+    let assistant_ready = assistant_configuration_ready(
+        &config,
+        assistant_credential(&state.root, &config)
+            .ok()
+            .flatten()
+            .is_some(),
+    );
+    let mut code_runner_languages = vec!["rust".to_string(), "web".to_string()];
+    if !config.code_runner.endpoint.is_empty() {
+        code_runner_languages.extend(config.code_runner.languages.iter().cloned());
+    }
     Response::json(
         200,
         &json!({
@@ -965,62 +1024,2562 @@ fn meta(state: &AppState) -> Response {
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
-            "quizGeneration": !config.knowledge_checks.generation_endpoint.trim().is_empty()
-                && std::env::var("OPENBLOG_LESSONS_API_KEY").is_ok_and(|key| !key.trim().is_empty()),
+            "quizGeneration": assistant_ready,
+            "codeInteractionGeneration": assistant_ready,
+            "codeRunnerLanguages": code_runner_languages,
             "now": clock::now().rfc3339(),
         }),
     )
 }
 
-fn validated_questions(value: &Json) -> Result<Json, String> {
-    let questions = value["questions"]
-        .as_array()
-        .ok_or("generation response needs a `questions` array")?;
-    if !(1..=3).contains(&questions.len()) {
-        return Err("generation response needs between one and three questions".into());
+fn assistant_status(state: &AppState) -> Response {
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
+    let credential_configured = credential.is_some();
+    let status = match config.knowledge_checks.provider {
+        AssistantProviderKind::CustomHttps => AssistantProviderStatus::legacy_quiz(
+            &config.knowledge_checks.generation_endpoint,
+            &config.knowledge_checks.model,
+            credential_configured,
+        ),
+        AssistantProviderKind::Anthropic => AssistantProviderStatus::anthropic(
+            &config.knowledge_checks.model,
+            credential_configured,
+        ),
+        provider => AssistantProviderStatus::native(
+            provider.as_str(),
+            &config.knowledge_checks.model,
+            assistant_provider_destination(provider),
+            credential_configured,
+        ),
+    };
+    Response::json(200, &json!(status))
+}
+
+fn assistant_provider_kind(config: &SiteConfig) -> &str {
+    config.knowledge_checks.provider.as_str()
+}
+
+fn assistant_credential_target(config: &SiteConfig) -> String {
+    match config.knowledge_checks.provider {
+        AssistantProviderKind::CustomHttps => format!(
+            "custom-https:{}",
+            config.knowledge_checks.generation_endpoint.trim()
+        ),
+        provider => provider.as_str().into(),
     }
-    let mut clean = Vec::with_capacity(questions.len());
-    for (number, question) in questions.iter().enumerate() {
-        let prompt = question["prompt"].as_str().unwrap_or("").trim();
-        let choices = question["choices"]
-            .as_array()
-            .ok_or_else(|| format!("question {} needs a choices array", number + 1))?;
-        let correct = question["correctIndex"]
-            .as_u64()
-            .ok_or_else(|| format!("question {} needs a correctIndex", number + 1))?
-            as usize;
-        let explanation = question["explanation"].as_str().unwrap_or("").trim();
-        if prompt.is_empty() || prompt.chars().count() > 500 {
-            return Err(format!("question {} has an invalid prompt", number + 1));
+}
+
+#[derive(Clone, Copy)]
+struct AssistantProviderDescriptor {
+    environment_name: &'static str,
+    destination: &'static str,
+    native_kind: Option<NativeProviderKind>,
+}
+
+fn assistant_provider_descriptor(provider: AssistantProviderKind) -> AssistantProviderDescriptor {
+    let descriptor = |environment_name, kind: NativeProviderKind| AssistantProviderDescriptor {
+        environment_name,
+        destination: kind.destination(),
+        native_kind: Some(kind),
+    };
+    match provider {
+        AssistantProviderKind::CustomHttps => AssistantProviderDescriptor {
+            environment_name: "OPENBLOG_LESSONS_API_KEY",
+            destination: "",
+            native_kind: None,
+        },
+        AssistantProviderKind::Anthropic => AssistantProviderDescriptor {
+            environment_name: "ANTHROPIC_API_KEY",
+            destination: "https://api.anthropic.com",
+            native_kind: None,
+        },
+        AssistantProviderKind::OpenAi => descriptor("OPENAI_API_KEY", NativeProviderKind::OpenAi),
+        AssistantProviderKind::Gemini => descriptor("GEMINI_API_KEY", NativeProviderKind::Gemini),
+        AssistantProviderKind::Xai => descriptor("XAI_API_KEY", NativeProviderKind::Xai),
+        AssistantProviderKind::DeepSeek => {
+            descriptor("DEEPSEEK_API_KEY", NativeProviderKind::DeepSeek)
         }
-        if !(2..=4).contains(&choices.len()) || correct >= choices.len() {
-            return Err(format!(
-                "question {} needs two to four choices and a valid correctIndex",
-                number + 1
-            ));
+        AssistantProviderKind::Mistral => {
+            descriptor("MISTRAL_API_KEY", NativeProviderKind::Mistral)
         }
-        let mut clean_choices = Vec::with_capacity(choices.len());
-        for choice in choices {
-            let text = choice.as_str().unwrap_or("").trim();
-            if text.is_empty() || text.chars().count() > 300 {
-                return Err(format!("question {} has an invalid choice", number + 1));
+        AssistantProviderKind::OpenRouter => {
+            descriptor("OPENROUTER_API_KEY", NativeProviderKind::OpenRouter)
+        }
+    }
+}
+
+fn assistant_environment_name(provider: AssistantProviderKind) -> &'static str {
+    assistant_provider_descriptor(provider).environment_name
+}
+
+fn assistant_provider_destination(provider: AssistantProviderKind) -> &'static str {
+    assistant_provider_descriptor(provider).destination
+}
+
+fn assistant_configuration_ready(config: &SiteConfig, credential_configured: bool) -> bool {
+    credential_configured
+        && match config.knowledge_checks.provider {
+            AssistantProviderKind::CustomHttps => !config
+                .knowledge_checks
+                .generation_endpoint
+                .trim()
+                .is_empty(),
+            _ => !config.knowledge_checks.model.trim().is_empty(),
+        }
+}
+
+fn assistant_provider_timeout(provider: AssistantProviderKind, test_mode: bool) -> Duration {
+    if test_mode {
+        return Duration::from_millis(300);
+    }
+    match provider {
+        // Structured-output grammars can take additional time to compile on first use.
+        AssistantProviderKind::Anthropic => Duration::from_secs(240),
+        AssistantProviderKind::OpenAi
+        | AssistantProviderKind::Gemini
+        | AssistantProviderKind::Xai
+        | AssistantProviderKind::DeepSeek
+        | AssistantProviderKind::Mistral
+        | AssistantProviderKind::OpenRouter => Duration::from_secs(120),
+        AssistantProviderKind::CustomHttps => Duration::from_secs(30),
+    }
+}
+
+fn configured_assistant_provider(
+    config: &SiteConfig,
+    credential: Option<String>,
+    timeout: Duration,
+) -> Result<Box<dyn AssistantProvider>, crate::assistant::AssistantError> {
+    match config.knowledge_checks.provider {
+        AssistantProviderKind::CustomHttps => GenericHttpsProvider::new(
+            &config.knowledge_checks.generation_endpoint,
+            credential,
+            timeout,
+            cfg!(test),
+        )
+        .map(|provider| Box::new(provider) as Box<dyn AssistantProvider>),
+        AssistantProviderKind::Anthropic => AnthropicProvider::new(credential, timeout)
+            .map(|provider| Box::new(provider) as Box<dyn AssistantProvider>),
+        provider => NativeProvider::new(
+            assistant_provider_descriptor(provider)
+                .native_kind
+                .expect("native providers have an adapter kind"),
+            credential,
+            timeout,
+        )
+        .map(|provider| Box::new(provider) as Box<dyn AssistantProvider>),
+    }
+}
+
+const ASSISTANT_CREDENTIAL_FILE: &str = ".openblog/private/assistant/api-key";
+
+fn assistant_credential_path(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(ASSISTANT_CREDENTIAL_FILE))
+}
+
+fn private_assistant_credential(
+    root: &Path,
+    config: &SiteConfig,
+) -> Result<Option<String>, String> {
+    let target = assistant_credential_target(config);
+    Ok(
+        private_assistant_credential_envelope(root)?.and_then(|(credential, _, stored_target)| {
+            (stored_target.as_deref() == Some(target.as_str())).then_some(credential)
+        }),
+    )
+}
+
+fn private_assistant_credential_envelope(
+    root: &Path,
+) -> Result<Option<(String, String, Option<String>)>, String> {
+    let path = assistant_credential_path(root)?;
+    match fs::read(&path) {
+        Ok(bytes) if bytes.len() > 32 * 1024 => {
+            Err("private Assistant credential is too large".into())
+        }
+        Ok(bytes) => {
+            let bytes = unprotect_private_credential(&bytes)?;
+            if bytes.len() > 32 * 1024 {
+                return Err("private Assistant credential is too large".into());
             }
-            clean_choices.push(text);
+            let envelope: Json = serde_json::from_slice(&bytes)
+                .map_err(|_| "private Assistant credential is not valid".to_string())?;
+            let credential = envelope["credential"]
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "private Assistant credential is not valid".to_string())?;
+            let revision = envelope["revision"]
+                .as_str()
+                .filter(|value| {
+                    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+                .ok_or_else(|| "private Assistant credential is not valid".to_string())?;
+            if credential.len() > 16 * 1024 {
+                return Err("private Assistant credential is too large".into());
+            }
+            let target = envelope["target"]
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            Ok(Some((credential.to_string(), revision.to_string(), target)))
         }
-        if explanation.chars().count() > 1000 {
-            return Err(format!(
-                "question {} has an explanation that is too long",
-                number + 1
-            ));
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!("cannot read private Assistant credential: {error}")),
+    }
+}
+
+fn assistant_credential(root: &Path, config: &SiteConfig) -> Result<Option<String>, String> {
+    let environment_name = assistant_environment_name(config.knowledge_checks.provider);
+    if let Ok(value) = std::env::var(environment_name) {
+        let value = value.trim();
+        if !value.is_empty() {
+            return Ok(Some(value.to_string()));
         }
-        clean.push(json!({
-            "prompt": prompt,
-            "choices": clean_choices,
-            "correctIndex": correct,
-            "explanation": explanation,
+    }
+    private_assistant_credential(root, config)
+}
+
+fn assistant_provider_snapshot(state: &AppState) -> Result<(SiteConfig, Option<String>), Response> {
+    let _transaction = content_transaction(state)?;
+    let config = site::load_config(&state.root).map_err(|error| {
+        Response::error(
+            500,
+            &format!("Cannot read assistant configuration: {error}"),
+        )
+    })?;
+    let credential =
+        assistant_credential(&state.root, &config).map_err(|error| Response::error(500, &error))?;
+    Ok((config, credential))
+}
+
+fn write_private_assistant_credential(
+    path: &Path,
+    credential: &str,
+    target: &str,
+) -> Result<(), String> {
+    let revision = auth::random_token()?;
+    let envelope = serde_json::to_vec(&json!({
+        "credential": credential,
+        "revision": revision,
+        "target": target,
+    }))
+    .map_err(|error| format!("cannot encode private Assistant credential: {error}"))?;
+    let protected = protect_private_credential(&envelope)?;
+    write_private_bytes_atomic(path, &protected)
+}
+
+#[cfg(windows)]
+fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+
+    let input = CRYPT_INTEGER_BLOB {
+        cbData: value.len() as u32,
+        pbData: value.as_ptr().cast_mut(),
+    };
+    let mut output = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: null_mut(),
+    };
+    let ok = unsafe {
+        CryptProtectData(
+            &input,
+            null(),
+            null(),
+            null(),
+            null(),
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut output,
+        )
+    };
+    if ok == 0 {
+        return Err("Windows could not protect the private Assistant credential".into());
+    }
+    let protected =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    unsafe { LocalFree(output.pbData.cast()) };
+    Ok(protected)
+}
+
+#[cfg(windows)]
+fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+
+    let input = CRYPT_INTEGER_BLOB {
+        cbData: value.len() as u32,
+        pbData: value.as_ptr().cast_mut(),
+    };
+    let mut output = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: null_mut(),
+    };
+    let ok = unsafe {
+        CryptUnprotectData(
+            &input,
+            null_mut(),
+            null(),
+            null(),
+            null(),
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut output,
+        )
+    };
+    if ok == 0 {
+        return Err(
+            "Windows could not decrypt the private Assistant credential for this account".into(),
+        );
+    }
+    let clear =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    unsafe { LocalFree(output.pbData.cast()) };
+    Ok(clear)
+}
+
+#[cfg(not(windows))]
+fn protect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+    Ok(value.to_vec())
+}
+
+#[cfg(not(windows))]
+fn unprotect_private_credential(value: &[u8]) -> Result<Vec<u8>, String> {
+    Ok(value.to_vec())
+}
+
+fn write_private_bytes_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("cannot create private Assistant directory: {error}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                .map_err(|error| format!("cannot protect private Assistant directory: {error}"))?;
+        }
+    }
+    let temporary = path.with_extension("key.tmp");
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(&temporary)
+            .map_err(|error| format!("cannot create private Assistant credential: {error}"))?;
+        file.write_all(contents)
+            .map_err(|error| format!("cannot write private Assistant credential: {error}"))?;
+    }
+    #[cfg(not(unix))]
+    fs::write(&temporary, contents)
+        .map_err(|error| format!("cannot write private Assistant credential: {error}"))?;
+    fs::rename(&temporary, path).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        format!("cannot replace private Assistant credential: {error}")
+    })
+}
+
+fn restore_private_assistant_credential(
+    path: &Path,
+    previous: Option<&[u8]>,
+) -> Result<(), String> {
+    match previous {
+        Some(contents) => write_private_bytes_atomic(path, contents),
+        None if path.exists() => fs::remove_file(path)
+            .map_err(|error| format!("cannot remove private Assistant credential: {error}")),
+        None => Ok(()),
+    }
+}
+
+fn mutation_with_rollback_error(mutation: &str, rollback: Result<(), String>) -> String {
+    match rollback {
+        Ok(()) => mutation.to_string(),
+        Err(rollback) => format!("{mutation}; rollback also failed: {rollback}"),
+    }
+}
+
+fn assistant_credential_summary(root: &Path, config: &SiteConfig) -> Result<Json, String> {
+    let environment_name = assistant_environment_name(config.knowledge_checks.provider);
+    let environment = std::env::var(environment_name).is_ok_and(|value| !value.trim().is_empty());
+    let private_configured = private_assistant_credential_envelope(root)?.is_some();
+    let private = private_assistant_credential(root, config)?.is_some();
+    let source = if environment {
+        "environment"
+    } else if private {
+        "private"
+    } else {
+        "none"
+    };
+    Ok(json!({
+        "configured": environment || private,
+        "source": source,
+        "privateConfigured": private_configured,
+        "environmentOverride": environment,
+        "environmentName": environment_name,
+        "targetMismatch": private_configured && !private,
+    }))
+}
+
+fn assistant_settings_etag(root: &Path, config: &[u8]) -> Result<String, String> {
+    let credential_revision = private_assistant_credential_envelope(root)?
+        .map(|(_, revision, _)| revision)
+        .unwrap_or_default();
+    let mut digest = Blake2s256::new();
+    digest.update(config);
+    digest.update([0]);
+    digest.update(credential_revision);
+    Ok(digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+fn assistant_settings(state: &AppState) -> Response {
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = state.root.join(site::CONFIG_FILE);
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => return Response::error(500, &format!("cannot read openblog.json: {error}")),
+    };
+    let config = match std::str::from_utf8(&bytes)
+        .map_err(|error| error.to_string())
+        .and_then(SiteConfig::from_json)
+    {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let credential = match assistant_credential_summary(&state.root, &config) {
+        Ok(summary) => summary,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(
+        200,
+        &json!({
+            "provider": assistant_provider_kind(&config),
+            "generationEndpoint": config.knowledge_checks.generation_endpoint,
+            "model": config.knowledge_checks.model,
+        "etag": match assistant_settings_etag(&state.root, &bytes) {
+            Ok(etag) => etag,
+            Err(error) => return Response::error(500, &error),
+        },
+            "credential": credential,
+        }),
+    )
+}
+
+fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let provider = body["provider"].as_str().unwrap_or("custom-https").trim();
+    let endpoint = body["generationEndpoint"].as_str().unwrap_or("").trim();
+    let model = body["model"].as_str().unwrap_or("").trim();
+    if endpoint.len() > 2048 || model.len() > 200 {
+        return Response::error(422, "Assistant endpoint or model is too long");
+    }
+    if !matches!(
+        provider,
+        "custom-https"
+            | "anthropic"
+            | "open-ai"
+            | "gemini"
+            | "xai"
+            | "deep-seek"
+            | "mistral"
+            | "open-router"
+    ) {
+        return Response::error(422, "Assistant provider is not supported");
+    }
+    if provider == "custom-https" && !endpoint.is_empty() {
+        let valid = url::Url::parse(endpoint).is_ok_and(|url| {
+            url.scheme() == "https"
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none()
+        });
+        if !valid {
+            return Response::error(
+                422,
+                "Assistant endpoint must be an HTTPS URL without embedded credentials",
+            );
+        }
+    }
+    let action = body["credentialAction"].as_str().unwrap_or("keep");
+    let replacement = body["credential"].as_str().unwrap_or("").trim();
+    if !matches!(action, "keep" | "replace" | "clear") {
+        return Response::error(422, "credentialAction must be keep, replace, or clear");
+    }
+    if action == "replace" && (replacement.is_empty() || replacement.len() > 16 * 1024) {
+        return Response::error(422, "Enter a credential no larger than 16 KiB");
+    }
+
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let config_path = state.root.join(site::CONFIG_FILE);
+    let current = match fs::read(&config_path) {
+        Ok(bytes) => bytes,
+        Err(error) => return Response::error(500, &format!("cannot read openblog.json: {error}")),
+    };
+    let current_etag = match assistant_settings_etag(&state.root, &current) {
+        Ok(etag) => etag,
+        Err(error) => return Response::error(500, &error),
+    };
+    if body["etag"].as_str() != Some(current_etag.as_str()) {
+        return Response::error(
+            409,
+            "Assistant settings changed on disk; reload before saving",
+        );
+    }
+    let mut value: Json = match serde_json::from_slice(&current) {
+        Ok(Json::Object(object)) => Json::Object(object),
+        Ok(_) => return Response::error(500, "openblog.json must contain a JSON object"),
+        Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
+    };
+    let stored_endpoint = if provider == "custom-https" {
+        endpoint
+    } else {
+        ""
+    };
+    value["knowledgeChecks"] = json!({
+        "provider": provider,
+        "generationEndpoint": stored_endpoint,
+        "model": model,
+    });
+    let candidate = match serde_json::to_string_pretty(&value) {
+        Ok(value) => format!("{value}\n"),
+        Err(error) => {
+            return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
+        }
+    };
+    let candidate_config = match SiteConfig::from_json(&candidate) {
+        Ok(config) => config,
+        Err(error) => return Response::error(422, &error),
+    };
+    let credential_path = match assistant_credential_path(&state.root) {
+        Ok(path) => path,
+        Err(error) => return Response::error(500, &error),
+    };
+    let previous_credential = match read_optional_bytes(&credential_path) {
+        Ok(value) => value,
+        Err(error) => return Response::error(500, &error),
+    };
+    let credential_result = match action {
+        "replace" => write_private_assistant_credential(
+            &credential_path,
+            replacement,
+            &assistant_credential_target(&candidate_config),
+        ),
+        "clear" if credential_path.exists() => fs::remove_file(&credential_path)
+            .map_err(|error| format!("cannot clear private Assistant credential: {error}")),
+        "clear" | "keep" => Ok(()),
+        _ => unreachable!(),
+    };
+    if let Err(error) = credential_result {
+        let rollback =
+            restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
+        return Response::error(500, &mutation_with_rollback_error(&error, rollback));
+    }
+    if let Err(error) = write_atomic(&config_path, &candidate) {
+        let rollback =
+            restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
+        return Response::error(500, &mutation_with_rollback_error(&error, rollback));
+    }
+    let credential = match assistant_credential_summary(&state.root, &candidate_config) {
+        Ok(summary) => summary,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(
+        200,
+        &json!({
+            "provider": provider,
+            "generationEndpoint": stored_endpoint,
+            "model": model,
+        "etag": match assistant_settings_etag(&state.root, candidate.as_bytes()) {
+            Ok(etag) => etag,
+            Err(error) => return Response::error(500, &error),
+        },
+            "credential": credential,
+        }),
+    )
+}
+
+const ENGAGEMENT_CREDENTIAL_FILE: &str = ".openblog/private/engagement/api-key";
+const ENGAGEMENT_ENVIRONMENT_NAME: &str = "OPENBLOG_ENGAGEMENT_API_KEY";
+const ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME: &str = "OPENBLOG_ENGAGEMENT_API_ORIGIN";
+
+fn engagement_credential_path(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(ENGAGEMENT_CREDENTIAL_FILE))
+}
+
+fn engagement_endpoint_origin(endpoint: &str) -> Option<String> {
+    let url = url::Url::parse(endpoint).ok()?;
+    (url.scheme() == "https" && url.host_str().is_some())
+        .then(|| url.origin().ascii_serialization())
+}
+
+fn private_engagement_credential(root: &Path) -> Result<Option<(String, String)>, String> {
+    let path = engagement_credential_path(root)?;
+    match fs::read(path) {
+        Ok(bytes) if bytes.len() > 32 * 1024 => {
+            Err("private engagement credential is too large".into())
+        }
+        Ok(bytes) => {
+            let bytes = unprotect_private_credential(&bytes)?;
+            let envelope: Json = serde_json::from_slice(&bytes)
+                .map_err(|_| "private engagement credential envelope is invalid".to_string())?;
+            let credential = envelope["credential"].as_str().unwrap_or("").trim();
+            let target_origin = envelope["targetOrigin"].as_str().unwrap_or("").trim();
+            if credential.is_empty()
+                || engagement_endpoint_origin(target_origin).as_deref() != Some(target_origin)
+            {
+                return Err("private engagement credential envelope is invalid".into());
+            }
+            Ok(Some((credential.to_string(), target_origin.to_string())))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(format!(
+            "cannot read private engagement credential: {error}"
+        )),
+    }
+}
+
+fn engagement_credential(root: &Path, endpoint: &str) -> Result<Option<String>, String> {
+    let target_origin = engagement_endpoint_origin(endpoint)
+        .ok_or_else(|| "hosted engagement endpoint is invalid".to_string())?;
+    if let Ok(value) = std::env::var(ENGAGEMENT_ENVIRONMENT_NAME) {
+        if !value.trim().is_empty() {
+            let bound_origin = std::env::var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME)
+                .unwrap_or_default()
+                .trim_end_matches('/')
+                .to_string();
+            if bound_origin != target_origin {
+                return Err(format!(
+                    "{ENGAGEMENT_ENVIRONMENT_NAME} is not bound to this endpoint; set {ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME} to {target_origin}"
+                ));
+            }
+            return Ok(Some(value.trim().to_string()));
+        }
+    }
+    match private_engagement_credential(root)? {
+        Some((credential, bound_origin)) if bound_origin == target_origin => Ok(Some(credential)),
+        Some(_) => Err("The saved hosted engagement token belongs to a different origin. Replace it explicitly before connecting to this endpoint.".into()),
+        None => Ok(None),
+    }
+}
+
+fn engagement_credential_summary(root: &Path, endpoint: &str) -> Result<Json, String> {
+    let environment =
+        std::env::var(ENGAGEMENT_ENVIRONMENT_NAME).is_ok_and(|value| !value.trim().is_empty());
+    let private_credential = private_engagement_credential(root)?;
+    let private = private_credential.is_some();
+    let target_origin = engagement_endpoint_origin(endpoint).unwrap_or_default();
+    let environment_bound = environment
+        && std::env::var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME)
+            .is_ok_and(|value| value.trim_end_matches('/') == target_origin);
+    let private_bound = private_credential
+        .as_ref()
+        .is_some_and(|(_, origin)| origin == &target_origin);
+    Ok(json!({
+        "configured": environment_bound || (!environment && private_bound),
+        "source": if environment { "environment" } else if private { "private" } else { "none" },
+        "privateConfigured": private,
+        "environmentOverride": environment,
+        "environmentName": ENGAGEMENT_ENVIRONMENT_NAME,
+        "originEnvironmentName": ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME,
+        "boundToEndpoint": environment_bound || (!environment && private_bound),
+    }))
+}
+
+fn engagement_settings_etag(root: &Path, config: &[u8]) -> Result<String, String> {
+    let credential = read_optional_bytes(&engagement_credential_path(root)?)?.unwrap_or_default();
+    let mut digest = Blake2s256::new();
+    digest.update(config);
+    digest.update([0]);
+    digest.update(credential);
+    Ok(digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+fn engagement_settings(state: &AppState) -> Response {
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let bytes = match fs::read(state.root.join(site::CONFIG_FILE)) {
+        Ok(bytes) => bytes,
+        Err(error) => return Response::error(500, &format!("cannot read openblog.json: {error}")),
+    };
+    let config = match std::str::from_utf8(&bytes)
+        .map_err(|error| error.to_string())
+        .and_then(SiteConfig::from_json)
+    {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let credential = match engagement_credential_summary(&state.root, &config.engagement.endpoint) {
+        Ok(summary) => summary,
+        Err(error) => return Response::error(500, &error),
+    };
+    let etag = match engagement_settings_etag(&state.root, &bytes) {
+        Ok(etag) => etag,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(
+        200,
+        &json!({
+            "enabled": config.engagement.enabled,
+            "comments": config.engagement.comments,
+            "analytics": config.engagement.analytics,
+            "endpoint": config.engagement.endpoint,
+            "etag": etag,
+            "credential": credential,
+        }),
+    )
+}
+
+fn valid_engagement_endpoint(endpoint: &str) -> bool {
+    url::Url::parse(endpoint).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+    })
+}
+
+fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let enabled = body["enabled"].as_bool().unwrap_or(false);
+    let comments = body["comments"].as_bool().unwrap_or(true);
+    let analytics = body["analytics"].as_bool().unwrap_or(true);
+    let endpoint = body["endpoint"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches('/');
+    if endpoint.len() > 2048 || (enabled && !valid_engagement_endpoint(endpoint)) {
+        return Response::error(
+            422,
+            "Hosted endpoint must be an HTTPS URL without credentials, query, or fragment",
+        );
+    }
+    let action = body["credentialAction"].as_str().unwrap_or("keep");
+    let replacement = body["credential"].as_str().unwrap_or("").trim();
+    if !matches!(action, "keep" | "replace" | "clear")
+        || (action == "replace" && (replacement.is_empty() || replacement.len() > 16 * 1024))
+    {
+        return Response::error(
+            422,
+            "Choose keep, replace, or clear and provide a bounded credential when replacing",
+        );
+    }
+    let target_origin = engagement_endpoint_origin(endpoint);
+    if action == "replace" && target_origin.is_none() {
+        return Response::error(422, "Enter a valid HTTPS endpoint before saving a token");
+    }
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let config_path = state.root.join(site::CONFIG_FILE);
+    let current = match fs::read(&config_path) {
+        Ok(bytes) => bytes,
+        Err(error) => return Response::error(500, &format!("cannot read openblog.json: {error}")),
+    };
+    let current_etag = match engagement_settings_etag(&state.root, &current) {
+        Ok(etag) => etag,
+        Err(error) => return Response::error(500, &error),
+    };
+    if body["etag"].as_str() != Some(current_etag.as_str()) {
+        return Response::error(
+            409,
+            "Hosted engagement settings changed on disk; reload before saving",
+        );
+    }
+    let mut value: Json = match serde_json::from_slice(&current) {
+        Ok(Json::Object(object)) => Json::Object(object),
+        Ok(_) => return Response::error(500, "openblog.json must contain a JSON object"),
+        Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
+    };
+    value["engagement"] = json!({ "enabled": enabled, "comments": comments, "analytics": analytics, "endpoint": endpoint });
+    let candidate = match serde_json::to_string_pretty(&value) {
+        Ok(value) => format!("{value}\n"),
+        Err(error) => {
+            return Response::error(500, &format!("cannot serialize openblog.json: {error}"))
+        }
+    };
+    if let Err(error) = SiteConfig::from_json(&candidate) {
+        return Response::error(422, &error);
+    }
+    let credential_path = match engagement_credential_path(&state.root) {
+        Ok(path) => path,
+        Err(error) => return Response::error(500, &error),
+    };
+    let previous_credential = match read_optional_bytes(&credential_path) {
+        Ok(value) => value,
+        Err(error) => return Response::error(500, &error),
+    };
+    let credential_result = match action {
+        "replace" => serde_json::to_vec(&json!({
+            "credential": replacement,
+            "targetOrigin": target_origin.expect("validated above"),
+        }))
+        .map_err(|error| format!("cannot serialize private engagement credential: {error}"))
+        .and_then(|envelope| protect_private_credential(&envelope))
+        .and_then(|bytes| write_private_bytes_atomic(&credential_path, &bytes)),
+        "clear" if credential_path.exists() => fs::remove_file(&credential_path)
+            .map_err(|error| format!("cannot clear private engagement credential: {error}")),
+        "clear" | "keep" => Ok(()),
+        _ => unreachable!(),
+    };
+    if let Err(error) = credential_result {
+        let rollback =
+            restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
+        return Response::error(500, &mutation_with_rollback_error(&error, rollback));
+    }
+    if let Err(error) = write_atomic(&config_path, &candidate) {
+        let rollback =
+            restore_private_assistant_credential(&credential_path, previous_credential.as_deref());
+        return Response::error(500, &mutation_with_rollback_error(&error, rollback));
+    }
+    let credential = match engagement_credential_summary(&state.root, endpoint) {
+        Ok(summary) => summary,
+        Err(error) => return Response::error(500, &error),
+    };
+    let etag = match engagement_settings_etag(&state.root, candidate.as_bytes()) {
+        Ok(etag) => etag,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(
+        200,
+        &json!({
+            "enabled": enabled, "comments": comments, "analytics": analytics,
+            "endpoint": endpoint, "etag": etag, "credential": credential,
+        }),
+    )
+}
+
+fn hosted_text<'a>(object: &'a Json, key: &str, max: usize) -> Result<&'a str, String> {
+    object[key]
+        .as_str()
+        .filter(|value| value.len() <= max && !value.chars().any(char::is_control))
+        .ok_or_else(|| format!("hosted engagement returned an invalid {key}"))
+}
+
+fn hosted_count(object: &Json, key: &str) -> Result<u64, String> {
+    object[key]
+        .as_u64()
+        .ok_or_else(|| format!("hosted engagement returned an invalid {key}"))
+}
+
+fn hosted_site_path(value: &str) -> bool {
+    (2..=500).contains(&value.len())
+        && value.starts_with('/')
+        && !value.starts_with("//")
+        && value.ends_with('/')
+        && !value.contains(['\\', '?', '#'])
+        && !value.chars().any(char::is_control)
+        && !value.split('/').any(|part| matches!(part, "." | ".."))
+}
+
+fn validate_hosted_comments(value: &Json) -> Result<Json, String> {
+    let rows = value["comments"]
+        .as_array()
+        .filter(|rows| rows.len() <= 200)
+        .ok_or_else(|| "hosted engagement returned invalid comments".to_string())?;
+    let mut comments = Vec::with_capacity(rows.len());
+    for row in rows {
+        let id = hosted_text(row, "id", 64)?;
+        let path = hosted_text(row, "path", 500)?;
+        let author = hosted_text(row, "authorName", 80)?;
+        let body = hosted_text(row, "body", 4_000)?;
+        let status = hosted_text(row, "status", 16)?;
+        let created = hosted_text(row, "createdAt", 64)?;
+        if !hosted_site_path(path) || !matches!(status, "pending" | "approved" | "rejected") {
+            return Err("hosted engagement returned an invalid comment".into());
+        }
+        comments.push(json!({
+            "id": id, "path": path, "authorName": author, "body": body,
+            "status": status, "createdAt": created,
         }));
     }
-    Ok(json!({ "questions": clean }))
+    Ok(json!({ "comments": comments }))
+}
+
+fn validate_hosted_analytics(value: &Json) -> Result<Json, String> {
+    let days = hosted_count(value, "days")?;
+    if !matches!(days, 7 | 30 | 90 | 365) {
+        return Err("hosted engagement returned an invalid days value".into());
+    }
+    let series = value["series"]
+        .as_array()
+        .filter(|rows| rows.len() <= 365)
+        .ok_or_else(|| "hosted engagement returned an invalid series".to_string())?;
+    let mut safe_series = Vec::with_capacity(series.len());
+    for row in series {
+        safe_series.push(json!({
+            "day": hosted_text(row, "day", 16)?,
+            "views": hosted_count(row, "views")?,
+            "uniques": hosted_count(row, "uniques")?,
+        }));
+    }
+    let posts = value["topPosts"]
+        .as_array()
+        .filter(|rows| rows.len() <= 50)
+        .ok_or_else(|| "hosted engagement returned invalid topPosts".to_string())?;
+    let mut safe_posts = Vec::with_capacity(posts.len());
+    for row in posts {
+        let path = hosted_text(row, "path", 500)?;
+        if !hosted_site_path(path) {
+            return Err("hosted engagement returned an invalid post path".into());
+        }
+        safe_posts.push(json!({
+            "path": path, "views": hosted_count(row, "views")?,
+            "uniques": hosted_count(row, "uniques")?, "allTime": hosted_count(row, "allTime")?,
+        }));
+    }
+    let referrers = value["referrers"]
+        .as_array()
+        .filter(|rows| rows.len() <= 50)
+        .ok_or_else(|| "hosted engagement returned invalid referrers".to_string())?;
+    let mut safe_referrers = Vec::with_capacity(referrers.len());
+    for row in referrers {
+        safe_referrers.push(json!({
+            "host": hosted_text(row, "host", 253)?, "views": hosted_count(row, "views")?,
+        }));
+    }
+    Ok(json!({
+        "days": days,
+        "from": hosted_text(value, "from", 16)?,
+        "to": hosted_text(value, "to", 16)?,
+        "views": hosted_count(value, "views")?,
+        "uniques": hosted_count(value, "uniques")?,
+        "allTimeViews": hosted_count(value, "allTimeViews")?,
+        "firstDay": value["firstDay"].as_str().filter(|text| text.len() <= 16).unwrap_or(""),
+        "series": safe_series,
+        "topPosts": safe_posts,
+        "referrers": safe_referrers,
+        "agentRequests": 0,
+        "agents": [],
+        "agentPages": [],
+    }))
+}
+
+fn validate_hosted_engagement_response(
+    method: &str,
+    operation: &str,
+    value: &Json,
+) -> Result<Json, String> {
+    match (method, operation) {
+        ("GET", "admin/comments") => validate_hosted_comments(value),
+        ("PATCH", "admin/comments") => {
+            let status = hosted_text(value, "status", 16)?;
+            if value["ok"].as_bool() == Some(true) && matches!(status, "approved" | "rejected") {
+                Ok(json!({ "ok": true, "status": status }))
+            } else {
+                Err("hosted engagement returned an invalid moderation response".into())
+            }
+        }
+        ("GET", "admin/analytics") => validate_hosted_analytics(value),
+        _ => Err("unsupported hosted engagement operation".into()),
+    }
+}
+
+fn hosted_engagement_request(state: &AppState, req: &Request, operation: &str) -> Response {
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    if !config.engagement.enabled || !valid_engagement_endpoint(&config.engagement.endpoint) {
+        return Response::error(404, "Hosted engagement is not configured");
+    }
+    let credential = match engagement_credential(&state.root, &config.engagement.endpoint) {
+        Ok(Some(credential)) => credential,
+        Ok(None) => {
+            return Response::error(503, "Hosted engagement admin credential is not configured")
+        }
+        Err(error) => return Response::error(500, &error),
+    };
+    let mut url = format!(
+        "{}/{}",
+        config.engagement.endpoint.trim_end_matches('/'),
+        operation
+    );
+    if !req.query.is_empty() {
+        let query = req
+            .query
+            .iter()
+            .map(|(key, value)| {
+                format!(
+                    "{}={}",
+                    url::form_urlencoded::byte_serialize(key.as_bytes()).collect::<String>(),
+                    url::form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("&");
+        url.push('?');
+        url.push_str(&query);
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(20)))
+        .max_redirects(0)
+        .user_agent(concat!("open.blog-admin/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into();
+    let authorization = format!("Bearer {credential}");
+    let response = if req.method == "PATCH" {
+        agent
+            .patch(&url)
+            .header("Authorization", &authorization)
+            .header("Content-Type", "application/json")
+            .send(&req.body)
+    } else {
+        agent
+            .get(&url)
+            .header("Authorization", &authorization)
+            .call()
+    };
+    let mut response = match response {
+        Ok(response) => response,
+        Err(ureq::Error::StatusCode(status)) => {
+            return Response::error(502, &format!("Hosted engagement returned HTTP {status}"))
+        }
+        Err(ureq::Error::Timeout(_)) => return Response::error(504, "Hosted engagement timed out"),
+        Err(_) => return Response::error(502, "Hosted engagement request failed"),
+    };
+    let bytes = match response
+        .body_mut()
+        .with_config()
+        .limit(2 * 1024 * 1024)
+        .read_to_vec()
+    {
+        Ok(bytes) => bytes,
+        Err(_) => return Response::error(502, "Cannot read hosted engagement response"),
+    };
+    match serde_json::from_slice::<Json>(&bytes)
+        .map_err(|_| "Hosted engagement returned invalid JSON".to_string())
+        .and_then(|value| validate_hosted_engagement_response(&req.method, operation, &value))
+    {
+        Ok(value) => Response::json(200, &value),
+        Err(error) => Response::error(502, &error),
+    }
+}
+
+struct ProjectSkillFile {
+    filename: String,
+    source: String,
+    etag: String,
+    parsed: Result<SkillDefinition, Vec<String>>,
+}
+
+fn assistant_skills_dir(root: &Path, create: bool) -> Result<PathBuf, String> {
+    let skills = crate::assistant_storage::contained_target(root, Path::new("assistant/skills"))?;
+    if create {
+        fs::create_dir_all(&skills)
+            .map_err(|error| format!("cannot create {}: {error}", skills.display()))?;
+    }
+    Ok(skills)
+}
+
+fn read_project_skills(root: &Path) -> Result<Vec<ProjectSkillFile>, String> {
+    let directory = assistant_skills_dir(root, false)?;
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut paths = fs::read_dir(&directory)
+        .map_err(|error| format!("cannot read {}: {error}", directory.display()))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("md"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut files = Vec::new();
+    for path in paths {
+        let filename = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("invalid.md")
+            .to_string();
+        if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            files.push(ProjectSkillFile {
+                filename,
+                source: String::new(),
+                etag: String::new(),
+                parsed: Err(vec![
+                    "Replace this symlink with a regular Markdown skill file.".into(),
+                ]),
+            });
+            continue;
+        }
+        let bytes =
+            fs::read(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        if bytes.len() > MAX_SKILL_BYTES {
+            files.push(ProjectSkillFile {
+                filename,
+                source: String::new(),
+                etag: etag_bytes(&bytes),
+                parsed: Err(vec![format!(
+                    "Reduce this skill below {MAX_SKILL_BYTES} bytes."
+                )]),
+            });
+            continue;
+        }
+        let source = match String::from_utf8(bytes.clone()) {
+            Ok(source) => source,
+            Err(_) => {
+                files.push(ProjectSkillFile {
+                    filename,
+                    source: String::new(),
+                    etag: etag_bytes(&bytes),
+                    parsed: Err(vec!["Save this skill as UTF-8 Markdown.".into()]),
+                });
+                continue;
+            }
+        };
+        files.push(ProjectSkillFile {
+            filename,
+            etag: etag(&source),
+            parsed: parse_skill(&source),
+            source,
+        });
+    }
+    Ok(files)
+}
+
+struct SkillSummaryState<'a> {
+    source: &'a str,
+    selectable: bool,
+    override_state: &'a str,
+    errors: Vec<String>,
+    raw: Option<&'a str>,
+    etag: Option<&'a str>,
+    file_id: Option<&'a str>,
+}
+
+fn skill_summary(definition: &SkillDefinition, state: SkillSummaryState<'_>) -> Json {
+    json!({
+        "id": definition.id,
+        "name": definition.name,
+        "description": definition.description,
+        "version": definition.version,
+        "scopes": definition.scopes,
+        "output": definition.output,
+        "source": state.source,
+        "valid": state.errors.is_empty(),
+        "selectable": state.selectable && state.errors.is_empty(),
+        "overrideState": state.override_state,
+        "errors": state.errors,
+        "raw": state.raw,
+        "etag": state.etag,
+        "fileId": state.file_id,
+    })
+}
+
+fn builtin_skills() -> Vec<SkillDefinition> {
+    BUILTIN_SKILL_SOURCES
+        .iter()
+        .map(|(id, source)| {
+            let definition = parse_skill(source).expect("built-in assistant skills are valid");
+            debug_assert_eq!(*id, definition.id);
+            definition
+        })
+        .collect()
+}
+
+fn project_skill_id_counts(projects: &[ProjectSkillFile]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for project in projects {
+        if let Ok(skill) = &project.parsed {
+            *counts.entry(skill.id.clone()).or_default() += 1;
+        }
+    }
+    counts
+}
+
+fn active_project_skill<'a>(
+    projects: &'a [ProjectSkillFile],
+    id_counts: &BTreeMap<String, usize>,
+    id: &str,
+    overrides_builtin: bool,
+) -> Result<Option<&'a SkillDefinition>, &'static str> {
+    if id_counts.get(id).copied().unwrap_or_default() > 1 {
+        return Err("A selected project skill ID is duplicated");
+    }
+    let Some((project, skill)) = projects.iter().find_map(|project| {
+        let skill = project.parsed.as_ref().ok()?;
+        (skill.id == id).then_some((project, skill))
+    }) else {
+        return Ok(None);
+    };
+    if project.filename.trim_end_matches(".md") != skill.id {
+        return Ok(None);
+    }
+    if overrides_builtin && skill.override_builtin.as_deref() != Some(id) {
+        return Err("A selected project skill does not explicitly override its built-in");
+    }
+    Ok(Some(skill))
+}
+
+fn assistant_skills(state: &AppState) -> Response {
+    let builtins = builtin_skills();
+    let projects = match read_project_skills(&state.root) {
+        Ok(projects) => projects,
+        Err(error) => return Response::error(500, &error),
+    };
+    let id_counts = project_skill_id_counts(&projects);
+    let builtin_ids = builtins
+        .iter()
+        .map(|skill| skill.id.as_str())
+        .collect::<Vec<_>>();
+    let active_overrides = builtin_ids
+        .iter()
+        .filter_map(|id| {
+            active_project_skill(&projects, &id_counts, id, true)
+                .ok()
+                .flatten()
+        })
+        .map(|skill| skill.id.as_str())
+        .collect::<Vec<_>>();
+    let mut items = builtins
+        .iter()
+        .map(|skill| {
+            let overridden = active_overrides.contains(&skill.id.as_str());
+            skill_summary(
+                skill,
+                SkillSummaryState {
+                    source: "built-in",
+                    selectable: !overridden,
+                    override_state: if overridden { "overridden" } else { "none" },
+                    errors: Vec::new(),
+                    raw: None,
+                    etag: None,
+                    file_id: None,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    for project in projects {
+        match project.parsed {
+            Ok(skill) => {
+                let mut errors = Vec::new();
+                let file_id = project.filename.trim_end_matches(".md");
+                if file_id != skill.id {
+                    errors.push(format!(
+                        "Change `id` to `{file_id}` so it matches the project skill filename."
+                    ));
+                }
+                if id_counts.get(&skill.id).copied().unwrap_or_default() > 1 {
+                    errors.push(format!(
+                        "Project skill ID `{}` is declared more than once.",
+                        skill.id
+                    ));
+                }
+                let overrides_builtin = builtin_ids.contains(&skill.id.as_str());
+                if overrides_builtin && skill.override_builtin.as_deref() != Some(skill.id.as_str())
+                {
+                    errors.push(format!(
+                        "Add `override: {}` to explicitly replace the built-in skill.",
+                        skill.id
+                    ));
+                }
+                let active = overrides_builtin && errors.is_empty();
+                items.push(skill_summary(
+                    &skill,
+                    SkillSummaryState {
+                        source: "project",
+                        selectable: true,
+                        override_state: if active { "active" } else { "none" },
+                        errors,
+                        raw: Some(&project.source),
+                        etag: Some(&project.etag),
+                        file_id: Some(file_id),
+                    },
+                ));
+            }
+            Err(errors) => {
+                let id = frontmatter::parse(&project.source)
+                    .ok()
+                    .and_then(|document| document.front_matter.get("id").map(str::to_string))
+                    .unwrap_or_else(|| project.filename.trim_end_matches(".md").to_string());
+                items.push(json!({
+                    "id": id,
+                    "name": project.filename,
+                    "description": "Invalid project skill",
+                    "version": "",
+                    "scopes": [],
+                    "output": null,
+                    "source": "project",
+                    "valid": false,
+                    "selectable": false,
+                    "overrideState": "none",
+                    "errors": errors,
+                    "raw": project.source,
+                    "etag": project.etag,
+                    "fileId": project.filename.trim_end_matches(".md"),
+                }));
+            }
+        }
+    }
+    Response::json(200, &json!({ "skills": items }))
+}
+
+fn valid_skill_path_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 80
+        && id.as_bytes()[0].is_ascii_lowercase()
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn validate_skill_write(
+    source: &str,
+    expected_id: Option<&str>,
+) -> Result<SkillDefinition, Response> {
+    if source.len() > MAX_SKILL_BYTES || source.contains('\0') {
+        return Err(Response::error(
+            413,
+            "Skill Markdown is too large or contains invalid data",
+        ));
+    }
+    let skill = parse_skill(source).map_err(|errors| {
+        Response::json(422, &json!({ "error": "Invalid skill", "errors": errors }))
+    })?;
+    if expected_id.is_some_and(|id| id != skill.id) {
+        return Err(Response::error(
+            400,
+            "A skill ID cannot change during an edit",
+        ));
+    }
+    let builtin = BUILTIN_SKILL_SOURCES.iter().any(|(id, _)| *id == skill.id);
+    if builtin && skill.override_builtin.as_deref() != Some(skill.id.as_str()) {
+        return Err(Response::error(
+            409,
+            "A project skill can replace a built-in only with a matching `override` declaration",
+        ));
+    }
+    Ok(skill)
+}
+
+fn skill_request_body(req: &Request) -> Result<(Json, String), Response> {
+    require_json(req)?;
+    let body: Json =
+        serde_json::from_slice(&req.body).map_err(|_| Response::error(400, "Invalid JSON"))?;
+    let source = body["source"]
+        .as_str()
+        .ok_or_else(|| Response::error(400, "Missing skill Markdown in `source`"))?
+        .to_string();
+    Ok((body, source))
+}
+
+fn create_assistant_skill(state: &AppState, req: &Request) -> Response {
+    let (_, source) = match skill_request_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let skill = match validate_skill_write(&source, None) {
+        Ok(skill) => skill,
+        Err(response) => return response,
+    };
+    let _transaction = lock(&state.build);
+    let directory = match assistant_skills_dir(&state.root, true) {
+        Ok(directory) => directory,
+        Err(error) => return Response::error(500, &error),
+    };
+    let path = directory.join(format!("{}.md", skill.id));
+    if path.exists() {
+        return Response::error(409, "A project skill with this ID already exists");
+    }
+    if let Err(error) = write_atomic(&path, &source) {
+        return Response::error(500, &error);
+    }
+    Response::json(201, &json!({ "id": skill.id, "etag": etag(&source) }))
+}
+
+fn update_assistant_skill(state: &AppState, req: &Request) -> Response {
+    let id = req.query.get("id").map(String::as_str).unwrap_or("");
+    if !valid_skill_path_id(id) {
+        return Response::error(400, "Invalid skill ID");
+    }
+    let (body, source) = match skill_request_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let skill = match validate_skill_write(&source, Some(id)) {
+        Ok(skill) => skill,
+        Err(response) => return response,
+    };
+    let _transaction = lock(&state.build);
+    let directory = match assistant_skills_dir(&state.root, false) {
+        Ok(directory) => directory,
+        Err(error) => return Response::error(500, &error),
+    };
+    let path = directory.join(format!("{id}.md"));
+    if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Response::error(400, "Project skill symlinks cannot be edited");
+    }
+    let current = match fs::read_to_string(&path) {
+        Ok(source) => source,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Response::error(404, "Project skill not found")
+        }
+        Err(error) => return Response::error(500, &format!("Cannot read project skill: {error}")),
+    };
+    if body["etag"].as_str() != Some(etag(&current).as_str()) {
+        return Response::error(
+            409,
+            "Skill changed since it was opened; reload before saving",
+        );
+    }
+    if let Err(error) = write_atomic(&path, &source) {
+        return Response::error(500, &error);
+    }
+    Response::json(200, &json!({ "id": skill.id, "etag": etag(&source) }))
+}
+
+fn assistant_context_target(
+    root: &Path,
+    context_type: &str,
+    visibility: &str,
+    document_path: Option<&str>,
+) -> Result<(PathBuf, &'static str, &'static str), Response> {
+    let (context_type, relative) = match context_type {
+        "author" => ("author", PathBuf::from("author.md")),
+        "site" => ("site", PathBuf::from("site.md")),
+        "post" => {
+            let document_path = document_path
+                .ok_or_else(|| Response::error(400, "Post context requires documentPath"))?;
+            if check_rel_path(document_path).ok() != Some("posts") {
+                return Err(Response::error(
+                    400,
+                    "Post context requires a valid post path",
+                ));
+            }
+            let file_name = Path::new(document_path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .filter(|name| name.ends_with(".md"))
+                .ok_or_else(|| Response::error(400, "Post context requires a Markdown post"))?;
+            ("post", PathBuf::from("posts").join(file_name))
+        }
+        _ => {
+            return Err(Response::error(
+                400,
+                "Context type must be author, site, or post",
+            ))
+        }
+    };
+    let (visibility, base) = match visibility {
+        "portable" => ("portable", PathBuf::from("assistant/context")),
+        "private" => ("private", PathBuf::from(".openblog/private/context")),
+        _ => {
+            return Err(Response::error(
+                400,
+                "Context visibility must be portable or private",
+            ))
+        }
+    };
+    let target = crate::assistant_storage::contained_target(root, &base.join(relative))
+        .map_err(|error| Response::error(400, &error))?;
+    Ok((target, context_type, visibility))
+}
+
+fn assistant_context_document(
+    root: &Path,
+    context_type: &str,
+    visibility: &str,
+    document_path: Option<&str>,
+) -> Result<Json, Response> {
+    let (path, context_type, visibility) =
+        assistant_context_target(root, context_type, visibility, document_path)?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("context.md");
+    let id = if context_type == "post" {
+        format!("{visibility}:post:{name}")
+    } else {
+        format!("{visibility}:{context_type}")
+    };
+    match fs::read(&path) {
+        Ok(bytes) if bytes.len() > MAX_ASSISTANT_CONTEXT_BYTES => Ok(json!({
+            "id": id,
+            "name": name,
+            "contextType": context_type,
+            "visibility": visibility,
+            "exists": true,
+            "valid": false,
+            "content": "",
+            "characters": 0,
+            "etag": etag_bytes(&bytes),
+            "guidance": format!("This context file exceeds the {} KiB limit. Shorten it before selecting it.", MAX_ASSISTANT_CONTEXT_BYTES / 1024),
+        })),
+        Ok(bytes) => match String::from_utf8(bytes.clone()) {
+            Ok(content) => Ok(json!({
+                "id": id,
+                "name": name,
+                "contextType": context_type,
+                "visibility": visibility,
+                "exists": true,
+                "valid": true,
+                "content": content,
+                "characters": content.chars().count(),
+                "etag": etag_bytes(&bytes),
+            })),
+            Err(_) => Ok(json!({
+                "id": id,
+                "name": name,
+                "contextType": context_type,
+                "visibility": visibility,
+                "exists": true,
+                "valid": false,
+                "content": "",
+                "characters": 0,
+                "etag": etag_bytes(&bytes),
+                "guidance": "This context file is not valid UTF-8. Replace it here or remove it, then save UTF-8 Markdown.",
+            })),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(json!({
+            "id": id,
+            "name": name,
+            "contextType": context_type,
+            "visibility": visibility,
+            "exists": false,
+            "valid": true,
+            "content": "",
+            "characters": 0,
+            "etag": null,
+        })),
+        Err(error) => Err(Response::error(
+            500,
+            &format!("Cannot read assistant context: {error}"),
+        )),
+    }
+}
+
+fn assistant_reference_target(
+    root: &Path,
+    visibility: &str,
+    name: &str,
+) -> Result<(PathBuf, &'static str), Response> {
+    let valid_name = !name.is_empty()
+        && name.len() <= 160
+        && Path::new(name).file_name().and_then(|value| value.to_str()) == Some(name)
+        && !name.chars().any(char::is_control)
+        && matches!(
+            Path::new(name).extension().and_then(|value| value.to_str()),
+            Some("md" | "txt")
+        );
+    if !valid_name {
+        return Err(Response::error(
+            422,
+            "References require a safe .md or .txt filename",
+        ));
+    }
+    let (visibility, base) = match visibility {
+        "portable" => ("portable", PathBuf::from("assistant/context/references")),
+        "private" => (
+            "private",
+            PathBuf::from(".openblog/private/context/references"),
+        ),
+        _ => {
+            return Err(Response::error(
+                400,
+                "Reference visibility must be portable or private",
+            ))
+        }
+    };
+    let target = crate::assistant_storage::contained_target(root, &base.join(name))
+        .map_err(|error| Response::error(400, &error))?;
+    Ok((target, visibility))
+}
+
+fn assistant_text_descriptor(id: String, name: &str, visibility: &str, bytes: Vec<u8>) -> Json {
+    if bytes.len() > MAX_ASSISTANT_CONTEXT_BYTES {
+        return json!({
+            "id": id, "name": name, "visibility": visibility,
+            "exists": true, "valid": false, "content": "", "characters": 0,
+            "etag": etag_bytes(&bytes),
+            "guidance": "This source exceeds the 64 KiB Assistant context limit."
+        });
+    }
+    match String::from_utf8(bytes.clone()) {
+        Ok(content) => json!({
+            "id": id, "name": name, "visibility": visibility,
+            "exists": true, "valid": true, "content": content,
+            "characters": content.chars().count(), "etag": etag_bytes(&bytes)
+        }),
+        Err(_) => json!({
+            "id": id, "name": name, "visibility": visibility,
+            "exists": true, "valid": false, "content": "", "characters": 0,
+            "etag": etag_bytes(&bytes),
+            "guidance": "This source is not valid UTF-8 text and cannot be selected."
+        }),
+    }
+}
+
+fn assistant_references(root: &Path) -> Result<Vec<Json>, Response> {
+    let mut references = Vec::new();
+    for (visibility, directory) in [
+        ("portable", root.join("assistant/context/references")),
+        ("private", root.join(".openblog/private/context/references")),
+    ] {
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(Response::error(
+                    500,
+                    &format!("Cannot read Assistant references: {error}"),
+                ))
+            }
+        };
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                Response::error(500, &format!("Cannot inspect Assistant reference: {error}"))
+            })?;
+            let metadata = entry.file_type().map_err(|error| {
+                Response::error(500, &format!("Cannot inspect Assistant reference: {error}"))
+            })?;
+            if !metadata.is_file() || metadata.is_symlink() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if assistant_reference_target(root, visibility, &name).is_err() {
+                continue;
+            }
+            let bytes = fs::read(entry.path()).map_err(|error| {
+                Response::error(500, &format!("Cannot read Assistant reference: {error}"))
+            })?;
+            if String::from_utf8(bytes.clone())
+                .is_ok_and(|source| crate::url_context::is_snapshot_markdown(&source))
+            {
+                continue;
+            }
+            references.push(assistant_text_descriptor(
+                format!("{visibility}:reference:{name}"),
+                &name,
+                visibility,
+                bytes,
+            ));
+        }
+    }
+    references.sort_by(|left, right| left["id"].as_str().cmp(&right["id"].as_str()));
+    Ok(references)
+}
+
+fn assistant_post_snapshots(root: &Path) -> Result<Vec<Json>, Response> {
+    let config = site::load_config(root).map_err(|error| Response::error(500, &error))?;
+    let content_root = root.join(&config.paths.content);
+    let posts_root = content_root.join("posts");
+    let mut snapshots = Vec::new();
+    if !posts_root.is_dir() {
+        return Ok(snapshots);
+    }
+    fn collect_markdown(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Response> {
+        let entries = fs::read_dir(directory).map_err(|error| {
+            Response::error(500, &format!("Cannot inspect post snapshots: {error}"))
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                Response::error(500, &format!("Cannot inspect post snapshot: {error}"))
+            })?;
+            let file_type = entry.file_type().map_err(|error| {
+                Response::error(500, &format!("Cannot inspect post snapshot: {error}"))
+            })?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
+                collect_markdown(&entry.path(), paths)?;
+            } else if file_type.is_file()
+                && entry.path().extension().and_then(|value| value.to_str()) == Some("md")
+            {
+                paths.push(entry.path());
+            }
+        }
+        Ok(())
+    }
+    let mut paths = Vec::new();
+    collect_markdown(&posts_root, &mut paths)?;
+    paths.sort();
+    for path in paths {
+        let relative = path
+            .strip_prefix(&content_root)
+            .map_err(|_| Response::error(500, "Post snapshot escaped the content directory"))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let bytes = fs::read(&path).map_err(|error| {
+            Response::error(500, &format!("Cannot read post snapshot: {error}"))
+        })?;
+        let mut descriptor = assistant_text_descriptor(
+            format!("post:{relative}"),
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("post.md"),
+            "source",
+            bytes,
+        );
+        descriptor["path"] = json!(relative);
+        descriptor["kind"] = json!("postSnapshot");
+        snapshots.push(descriptor);
+    }
+    snapshots.sort_by(|left, right| left["path"].as_str().cmp(&right["path"].as_str()));
+    Ok(snapshots)
+}
+
+fn assistant_context_catalog(state: &AppState, req: &Request) -> Response {
+    let mut documents = Vec::new();
+    for (visibility, context_type) in [
+        ("portable", "author"),
+        ("portable", "site"),
+        ("private", "author"),
+        ("private", "site"),
+    ] {
+        match assistant_context_document(&state.root, context_type, visibility, None) {
+            Ok(document) => documents.push(document),
+            Err(response) => return response,
+        }
+    }
+    if let Some(document_path) = req.query.get("path") {
+        for visibility in ["portable", "private"] {
+            match assistant_context_document(&state.root, "post", visibility, Some(document_path)) {
+                Ok(document) => documents.push(document),
+                Err(response) => return response,
+            }
+        }
+    }
+    for visibility in ["portable", "private"] {
+        match assistant_url_context_documents(&state.root, visibility) {
+            Ok(mut references) => documents.append(&mut references),
+            Err(response) => return response,
+        }
+    }
+    let git = crate::git::Git::new(&state.root);
+    let private_safety = if git.is_repo() {
+        let ignored = [
+            ".openblog/private/context/author.md",
+            ".openblog/private/context/site.md",
+            ".openblog/private/context/posts/.openblog-ignore-probe.md",
+            ".openblog/private/context/references/.openblog-ignore-probe.txt",
+        ]
+        .iter()
+        .all(|path| git.run(&["check-ignore", "-q", "--no-index", path]).is_ok());
+        let tracked = git
+            .run(&["ls-files", "--", ".openblog/private"])
+            .is_ok_and(|paths| !paths.trim().is_empty());
+        let warning = if tracked {
+            Some("Private assistant content is already tracked by Git. Remove it from the index and rotate any exposed secrets before using it.")
+        } else if !ignored {
+            Some("Private assistant content is not ignored by Git. Add /.openblog/private/ to .gitignore before saving sensitive context.")
+        } else {
+            None
+        };
+        json!({ "gitRepository": true, "ignored": ignored, "tracked": tracked, "warning": warning })
+    } else {
+        json!({ "gitRepository": false, "ignored": null, "tracked": false, "warning": null })
+    };
+    Response::json(
+        200,
+        &json!({
+            "documents": documents,
+            "references": match assistant_references(&state.root) {
+                Ok(references) => references,
+                Err(response) => return response,
+            },
+            "postSnapshots": match assistant_post_snapshots(&state.root) {
+                Ok(posts) => posts,
+                Err(response) => return response,
+            },
+            "privateSafety": private_safety
+        }),
+    )
+}
+
+fn assistant_context_mutation(
+    req: &Request,
+) -> Result<(Json, String, String, Option<String>), Response> {
+    require_json(req)?;
+    let body: Json = serde_json::from_slice(&req.body)
+        .map_err(|_| Response::error(400, "Invalid context request"))?;
+    let context_type = body["contextType"]
+        .as_str()
+        .ok_or_else(|| Response::error(400, "Missing contextType"))?
+        .to_string();
+    let visibility = body["visibility"]
+        .as_str()
+        .ok_or_else(|| Response::error(400, "Missing visibility"))?
+        .to_string();
+    let document_path = body["documentPath"].as_str().map(str::to_string);
+    Ok((body, context_type, visibility, document_path))
+}
+
+fn post_context_source(fields: &Json) -> Result<String, Response> {
+    let fields = fields
+        .as_object()
+        .ok_or_else(|| Response::error(400, "Post context requires fields"))?;
+    let mut source = String::new();
+    for (key, heading) in [
+        ("goal", "Goal"),
+        ("audience", "Audience"),
+        ("learningOutcomes", "Learning outcomes"),
+        ("sources", "Sources"),
+        ("constraints", "Constraints"),
+    ] {
+        let value = fields.get(key).and_then(Json::as_str).unwrap_or("").trim();
+        if value.contains('\0') {
+            return Err(Response::error(422, "Post context must be UTF-8 text"));
+        }
+        source.push_str(&format!("<!-- openblog:{key}:start -->\n"));
+        source.push_str("## ");
+        source.push_str(heading);
+        source.push_str("\n\n");
+        source.push_str(value);
+        source.push_str(&format!("\n<!-- openblog:{key}:end -->\n\n"));
+    }
+    Ok(source)
+}
+
+fn save_assistant_context(state: &AppState, req: &Request) -> Response {
+    let (body, context_type, visibility, document_path) = match assistant_context_mutation(req) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let (path, _, _) = match assistant_context_target(
+        &state.root,
+        &context_type,
+        &visibility,
+        document_path.as_deref(),
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let content = if context_type == "post" {
+        match post_context_source(&body["fields"]) {
+            Ok(content) => content,
+            Err(response) => return response,
+        }
+    } else {
+        match body["content"].as_str() {
+            Some(content) if !content.contains('\0') => content.to_string(),
+            _ => return Response::error(400, "Context content must be UTF-8 text"),
+        }
+    };
+    if content.len() > MAX_ASSISTANT_CONTEXT_BYTES {
+        return Response::error(413, "Context files are limited to 64 KiB of UTF-8 text");
+    }
+    let _content_lock = lock(&state.build);
+    let _filesystem_lock = match content_transaction(state) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    if context_type == "post" {
+        let config = match site::load_config(&state.root) {
+            Ok(config) => config,
+            Err(error) => return Response::error(500, &error),
+        };
+        let document_path = document_path
+            .as_deref()
+            .expect("validated post context path");
+        let document = match resolve_content_path(&state.root, &config, document_path) {
+            Ok(document) => document,
+            Err(error) => return Response::error(400, &error),
+        };
+        if !document.is_file() {
+            return Response::error(404, "The associated post does not exist");
+        }
+    }
+    let current = match fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Response::error(500, &format!("Cannot read context: {error}")),
+    };
+    let expected = body["etag"].as_str();
+    let matches = match &current {
+        Some(bytes) => expected == Some(etag_bytes(bytes).as_str()),
+        None => body["etag"].is_null(),
+    };
+    if !matches {
+        return Response::error(409, "Context changed since it was opened; reload and retry");
+    }
+    if let Err(error) = write_atomic(&path, &content) {
+        return Response::error(500, &error);
+    }
+    match assistant_context_document(
+        &state.root,
+        &context_type,
+        &visibility,
+        document_path.as_deref(),
+    ) {
+        Ok(document) => Response::json(200, &json!({ "document": document })),
+        Err(response) => response,
+    }
+}
+
+fn delete_assistant_context(state: &AppState, req: &Request) -> Response {
+    let (body, context_type, visibility, document_path) = match assistant_context_mutation(req) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let (path, _, _) = match assistant_context_target(
+        &state.root,
+        &context_type,
+        &visibility,
+        document_path.as_deref(),
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let _content_lock = lock(&state.build);
+    let _filesystem_lock = match content_transaction(state) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let current = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Response::error(404, "Context file does not exist")
+        }
+        Err(error) => return Response::error(500, &format!("Cannot read context: {error}")),
+    };
+    if body["etag"].as_str() != Some(etag_bytes(&current).as_str()) {
+        return Response::error(409, "Context changed since it was opened; reload and retry");
+    }
+    match fs::remove_file(&path) {
+        Ok(()) => Response::json(200, &json!({ "deleted": true })),
+        Err(error) => Response::error(500, &format!("Cannot remove context: {error}")),
+    }
+}
+
+fn assistant_reference_request(req: &Request) -> Result<(Json, String, String), Response> {
+    require_json(req)?;
+    let body: Json = serde_json::from_slice(&req.body)
+        .map_err(|_| Response::error(400, "Invalid reference request"))?;
+    let name = body["name"]
+        .as_str()
+        .ok_or_else(|| Response::error(400, "Missing reference name"))?
+        .to_string();
+    let visibility = body["visibility"]
+        .as_str()
+        .ok_or_else(|| Response::error(400, "Missing reference visibility"))?
+        .to_string();
+    Ok((body, name, visibility))
+}
+
+fn create_assistant_reference(state: &AppState, req: &Request) -> Response {
+    let (body, name, visibility) = match assistant_reference_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let (path, visibility) = match assistant_reference_target(&state.root, &visibility, &name) {
+        Ok(target) => target,
+        Err(response) => return response,
+    };
+    let content = match body["content"].as_str() {
+        Some(content) if !content.contains('\0') => content,
+        _ => return Response::error(422, "References must be UTF-8 text"),
+    };
+    if content.len() > MAX_ASSISTANT_CONTEXT_BYTES {
+        return Response::error(413, "References are limited to 64 KiB of UTF-8 text");
+    }
+    let _content_lock = lock(&state.build);
+    let _filesystem_lock = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    if path.exists() {
+        return Response::error(409, "A reference with that name already exists");
+    }
+    if let Err(error) = write_atomic(&path, content) {
+        return Response::error(500, &error);
+    }
+    let bytes = content.as_bytes().to_vec();
+    Response::json(
+        201,
+        &json!({
+            "reference": assistant_text_descriptor(
+                format!("{visibility}:reference:{name}"),
+                &name,
+                visibility,
+                bytes,
+            )
+        }),
+    )
+}
+
+fn resolve_review_skills(root: &Path, ids: &[String]) -> Result<Vec<ReviewSkill>, Response> {
+    let projects = read_project_skills(root).map_err(|error| Response::error(500, &error))?;
+    let id_counts = project_skill_id_counts(&projects);
+    let builtins = builtin_skills();
+    ids.iter()
+        .map(|id| resolve_review_skill(id, &builtins, &projects, &id_counts))
+        .collect()
+}
+
+fn resolve_review_skill(
+    id: &str,
+    builtins: &[SkillDefinition],
+    projects: &[ProjectSkillFile],
+    id_counts: &BTreeMap<String, usize>,
+) -> Result<ReviewSkill, Response> {
+    if !valid_skill_path_id(id) {
+        return Err(Response::error(400, "Invalid selected skill ID"));
+    }
+    let builtin = builtins.iter().find(|skill| skill.id == id);
+    let project = active_project_skill(projects, id_counts, id, builtin.is_some())
+        .map_err(|message| Response::error(409, message))?;
+    let skill = match (builtin, project) {
+        (Some(_), Some(project)) => project.clone(),
+        (Some(builtin), None) => builtin.clone(),
+        (None, Some(project)) => project.clone(),
+        (None, None) => return Err(Response::error(400, "Selected skill is unavailable")),
+    };
+    if skill.output != SkillOutputKind::Review || !skill.scopes.contains(&SkillScope::Document) {
+        return Err(Response::error(
+            400,
+            "Selected skill does not support complete-document review",
+        ));
+    }
+    Ok(ReviewSkill {
+        id: skill.id,
+        version: skill.version,
+        instructions: skill.body,
+    })
+}
+
+fn resolve_review_context(root: &Path, id: &str) -> Result<ReviewContext, Response> {
+    let parts = id.split(':').collect::<Vec<_>>();
+    let document = match parts.as_slice() {
+        [visibility @ ("portable" | "private"), context_type @ ("author" | "site")] => {
+            assistant_context_document(root, context_type, visibility, None)?
+        }
+        [visibility @ ("portable" | "private"), "post", name] => {
+            let document_path = format!("posts/{name}");
+            assistant_context_document(root, "post", visibility, Some(&document_path))?
+        }
+        [visibility @ ("portable" | "private"), "reference", _] => {
+            let manual = assistant_references(root)?
+                .into_iter()
+                .find(|document| document["id"] == id);
+            match manual {
+                Some(document) => document,
+                None => assistant_url_context_documents(root, visibility)?
+                    .into_iter()
+                    .find(|document| document["id"] == id)
+                    .ok_or_else(|| Response::error(400, "Selected reference is unavailable"))?,
+            }
+        }
+        ["post", _] => assistant_post_snapshots(root)?
+            .into_iter()
+            .find(|document| document["id"] == id)
+            .ok_or_else(|| Response::error(400, "Selected post snapshot is unavailable"))?,
+        _ => return Err(Response::error(400, "Invalid selected context ID")),
+    };
+    if document["exists"] != true || document["valid"] != true {
+        return Err(Response::error(
+            400,
+            "Selected context is unavailable or invalid",
+        ));
+    }
+    ReviewContext::new(
+        id,
+        document["name"].as_str().unwrap_or(""),
+        document["content"].as_str().unwrap_or(""),
+    )
+    .map_err(|error| Response::error(400, error))
+}
+
+fn selected_ids(body: &Json, field: &str, maximum: usize) -> Result<Vec<String>, Response> {
+    let values = body[field]
+        .as_array()
+        .ok_or_else(|| Response::error(400, &format!("`{field}` must be an array")))?;
+    if values.is_empty() && field == "skillIds" {
+        return Err(Response::error(400, "Select at least one review skill"));
+    }
+    if values.len() > maximum {
+        return Err(Response::error(400, &format!("Too many selected {field}")));
+    }
+    let mut ids = Vec::with_capacity(values.len());
+    for value in values {
+        let id = value
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| Response::error(400, &format!("`{field}` contains an invalid ID")))?;
+        if ids.iter().any(|existing| existing == id) {
+            return Err(Response::error(
+                400,
+                &format!("`{field}` contains a duplicate ID"),
+            ));
+        }
+        ids.push(id.to_string());
+    }
+    Ok(ids)
+}
+
+fn review_source_hash(title: &str, metadata: &Json, markdown: &str) -> String {
+    let snapshot = serde_json::to_vec(&json!({
+        "title": title,
+        "metadata": metadata,
+        "markdown": markdown,
+    }))
+    .expect("JSON source snapshot is serializable");
+    let digest = Blake2s256::digest(snapshot);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn review_error(error: crate::assistant::AssistantError) -> Response {
+    let (status, code) = match error.kind {
+        AssistantErrorKind::NotConfigured => (404, "not-configured"),
+        AssistantErrorKind::InvalidConfiguration => (400, "invalid-configuration"),
+        AssistantErrorKind::MissingCredential => (503, "missing-credential"),
+        AssistantErrorKind::Timeout => (504, "timeout"),
+        AssistantErrorKind::InvalidJson | AssistantErrorKind::InvalidResult => {
+            (502, "invalid-result")
+        }
+        AssistantErrorKind::Transport
+        | AssistantErrorKind::ProviderStatus
+        | AssistantErrorKind::ResponseRead => (502, "provider-error"),
+    };
+    Response::json(
+        status,
+        &json!({ "error": error.public_message(), "code": code }),
+    )
+}
+
+fn generate_document_review(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid review request"),
+    };
+    let source = &body["source"];
+    let title = match source["title"].as_str() {
+        Some(title) if title.chars().count() <= 500 && !title.contains('\0') => title,
+        _ => return Response::error(400, "Review source needs a bounded UTF-8 title"),
+    };
+    let metadata = match source["metadata"].as_object() {
+        Some(_) => source["metadata"].clone(),
+        None => return Response::error(400, "Review source metadata must be an object"),
+    };
+    if let Err(error) = fields_from_json(&metadata) {
+        return Response::error(400, &format!("Invalid review source metadata: {error}"));
+    }
+    let markdown = match source["markdown"].as_str() {
+        Some(markdown) if markdown.len() <= MAX_DOCUMENT_BYTES && !markdown.contains('\0') => {
+            markdown
+        }
+        _ => return Response::error(400, "Review Markdown is too large or invalid"),
+    };
+    let skill_ids = match selected_ids(&body, "skillIds", 12) {
+        Ok(ids) => ids,
+        Err(response) => return response,
+    };
+    let context_ids = match selected_ids(&body, "contextIds", 16) {
+        Ok(ids) => ids,
+        Err(response) => return response,
+    };
+    let (skills, context) = {
+        let _assistant_lock = lock(&state.build);
+        let skills = match resolve_review_skills(&state.root, &skill_ids) {
+            Ok(skills) => skills,
+            Err(response) => return response,
+        };
+        let context = match context_ids
+            .iter()
+            .map(|id| resolve_review_context(&state.root, id))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(context) => context,
+            Err(response) => return response,
+        };
+        (skills, context)
+    };
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
+    let provider = match configured_assistant_provider(
+        &config,
+        credential,
+        assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
+    ) {
+        Ok(provider) => provider,
+        Err(error) => return review_error(error),
+    };
+    let hash = review_source_hash(title, &metadata, markdown);
+    let request = AssistantRequest::document_review(
+        config.knowledge_checks.model.clone(),
+        AssistantDocument {
+            title: title.to_string(),
+            metadata,
+            markdown: markdown.to_string(),
+            hash: hash.clone(),
+        },
+        skills.clone(),
+        context.clone(),
+    );
+    let _provider_permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => {
+            return Response::json(
+                429,
+                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
+            )
+        }
+    };
+    let findings = match provider.generate(&request) {
+        Ok(AssistantResult::Review(findings)) => findings,
+        Ok(AssistantResult::KnowledgeChecks(_) | AssistantResult::CodeInteraction(_)) => {
+            return Response::error(502, "Assistant provider returned the wrong result type")
+        }
+        Ok(AssistantResult::Completion(_)) => {
+            return Response::error(502, "Assistant provider returned the wrong result type")
+        }
+        Err(error) => return review_error(error),
+    };
+    let review_id = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(
+        200,
+        &json!({
+            "reviewId": review_id,
+            "schemaVersion": ASSISTANT_SCHEMA_VERSION,
+            "sourceHash": hash,
+            "scope": { "kind": "document", "start": 0, "end": markdown.chars().count(), "unit": "unicode-code-points" },
+            "skills": skills.iter().map(|skill| json!({ "id": skill.id, "version": skill.version })).collect::<Vec<_>>(),
+            "context": context.iter().map(|document| json!({ "id": document.identity(), "name": document.name(), "visibility": document.visibility().as_str() })).collect::<Vec<_>>(),
+            "provider": { "type": "generic-https", "model": config.knowledge_checks.model },
+            "research": { "enabled": false },
+            "createdAt": clock::now().rfc3339(),
+            "findings": findings.findings,
+        }),
+    )
+}
+
+fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid completion request"),
+    };
+    let source = &body["source"];
+    let title = match source["title"].as_str() {
+        Some(title) if title.chars().count() <= 500 && !title.contains('\0') => title,
+        _ => return Response::error(400, "Completion source needs a bounded UTF-8 title"),
+    };
+    let metadata = match source["metadata"].as_object() {
+        Some(_) => source["metadata"].clone(),
+        None => return Response::error(400, "Completion source metadata must be an object"),
+    };
+    if let Err(error) = fields_from_json(&metadata) {
+        return Response::error(400, &format!("Invalid completion source metadata: {error}"));
+    }
+    let bounded_text = |field: &str, maximum: usize| {
+        source[field]
+            .as_str()
+            .filter(|value| value.chars().count() <= maximum && !value.contains('\0'))
+    };
+    let markdown = match bounded_text("markdown", 100_000) {
+        Some(value) => value,
+        None => return Response::error(400, "Completion Markdown is too large or invalid"),
+    };
+    let prefix = match bounded_text("prefix", 8_000) {
+        Some(value) => value,
+        None => return Response::error(400, "Completion prefix is too large or invalid"),
+    };
+    let suffix = match bounded_text("suffix", 8_000) {
+        Some(value) => value,
+        None => return Response::error(400, "Completion suffix is too large or invalid"),
+    };
+    let editor_mode = match source["editorMode"].as_str() {
+        Some(mode @ ("visual" | "markdown")) => mode,
+        _ => return Response::error(400, "Completion editorMode must be visual or markdown"),
+    };
+    let context_ids = match selected_ids(&body, "contextIds", 16) {
+        Ok(ids) => ids,
+        Err(response) => return response,
+    };
+    let context = {
+        let _assistant_lock = lock(&state.build);
+        match context_ids
+            .iter()
+            .map(|id| resolve_review_context(&state.root, id))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(context) => context,
+            Err(response) => return response,
+        }
+    };
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
+    let provider = match configured_assistant_provider(
+        &config,
+        credential,
+        assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
+    ) {
+        Ok(provider) => provider,
+        Err(error) => return review_error(error),
+    };
+    let request = AssistantRequest::inline_completion(
+        config.knowledge_checks.model,
+        AssistantCompletionSource {
+            title: title.to_string(),
+            metadata,
+            markdown: markdown.to_string(),
+            prefix: prefix.to_string(),
+            suffix: suffix.to_string(),
+            editor_mode: editor_mode.to_string(),
+        },
+        context,
+    );
+    let _provider_permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => {
+            return Response::json(
+                429,
+                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
+            )
+        }
+    };
+    match provider.generate(&request) {
+        Ok(AssistantResult::Completion(completion)) => Response::json(200, &json!(completion)),
+        Ok(
+            AssistantResult::KnowledgeChecks(_)
+            | AssistantResult::CodeInteraction(_)
+            | AssistantResult::Review(_),
+        ) => Response::error(502, "Assistant provider returned the wrong result type"),
+        Err(error) => review_error(error),
+    }
+}
+
+fn delete_assistant_reference(state: &AppState, req: &Request) -> Response {
+    let (body, name, visibility) = match assistant_reference_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let (path, _) = match assistant_reference_target(&state.root, &visibility, &name) {
+        Ok(target) => target,
+        Err(response) => return response,
+    };
+    let _content_lock = lock(&state.build);
+    let _filesystem_lock = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Response::error(404, "Reference does not exist")
+        }
+        Err(error) => return Response::error(500, &format!("Cannot read reference: {error}")),
+    };
+    if body["etag"].as_str() != Some(etag_bytes(&bytes).as_str()) {
+        return Response::error(
+            409,
+            "Reference changed since it was opened; reload and retry",
+        );
+    }
+    match fs::remove_file(&path) {
+        Ok(()) => Response::json(200, &json!({ "deleted": true })),
+        Err(error) => Response::error(500, &format!("Cannot remove reference: {error}")),
+    }
+}
+
+// URL snapshots are retrieved only on explicit author action and saved separately
+// after inspection; review selection reads the saved snapshot without refetching.
+fn retrieve_url_context(req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid URL context request"),
+    };
+    if body["confirmed"] != true {
+        return Response::error(400, "Confirm retrieval before contacting this URL");
+    }
+    let source = match body["url"].as_str() {
+        Some(source) => source,
+        None => return Response::error(400, "Missing URL"),
+    };
+    match crate::url_context::validate_public_url(source) {
+        Ok(_) => match crate::url_context::fetch_url_snapshot(source, &clock::now().rfc3339()) {
+            Ok(snapshot) => Response::json(200, &json!({ "snapshot": snapshot })),
+            Err(error) => Response::error(502, &error),
+        },
+        Err(error) => Response::error(400, &error),
+    }
+}
+
+fn url_context_directory(root: &Path, visibility: &str) -> Result<PathBuf, Response> {
+    let relative = match visibility {
+        "portable" => Path::new("assistant/context/references"),
+        "private" => Path::new(".openblog/private/context/references"),
+        _ => {
+            return Err(Response::error(
+                400,
+                "Snapshot visibility must be portable or private",
+            ))
+        }
+    };
+    crate::assistant_storage::contained_target(root, relative)
+        .map_err(|error| Response::error(400, &error))
+}
+
+fn assistant_url_context_documents(root: &Path, visibility: &str) -> Result<Vec<Json>, Response> {
+    let directory = url_context_directory(root, visibility)?;
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut paths = fs::read_dir(&directory)
+        .map_err(|error| Response::error(500, &format!("Cannot read URL snapshots: {error}")))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("md"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut documents = Vec::new();
+    for path in paths {
+        let file_id = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("invalid");
+        if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            documents.push(json!({
+                "id": format!("{visibility}:reference:{file_id}"), "name": format!("{file_id}.md"),
+                "contextType": "reference", "visibility": visibility, "exists": true,
+                "valid": false, "selectable": false, "untrusted": true, "content": "",
+                "characters": 0, "guidance": "Replace this symlink with a regular URL snapshot file."
+            }));
+            continue;
+        }
+        let bytes = fs::read(&path)
+            .map_err(|error| Response::error(500, &format!("Cannot read URL snapshot: {error}")))?;
+        let source = match String::from_utf8(bytes.clone()) {
+            Ok(source) => source,
+            Err(_) => continue,
+        };
+        if !crate::url_context::is_snapshot_markdown(&source) {
+            continue;
+        }
+        let parsed = crate::url_context::parse_snapshot_markdown(&source);
+        match parsed {
+            Ok(snapshot) => documents.push(json!({
+                "id": format!("{visibility}:reference:{file_id}"), "name": format!("{file_id}.md"),
+                "contextType": "reference", "visibility": visibility, "exists": true,
+                "valid": true, "selectable": true, "untrusted": true,
+                "content": snapshot.text, "characters": snapshot.text.chars().count(),
+                "sourceUrl": snapshot.source_url, "canonicalUrl": snapshot.canonical_url,
+                "retrievedAt": snapshot.retrieved_at, "contentType": snapshot.content_type,
+                "etag": etag_bytes(&bytes)
+            })),
+            Err(error) => documents.push(json!({
+                "id": format!("{visibility}:reference:{file_id}"), "name": format!("{file_id}.md"),
+                "contextType": "reference", "visibility": visibility, "exists": true,
+                "valid": false, "selectable": false, "untrusted": true, "content": "",
+                "characters": 0, "etag": etag_bytes(&bytes), "guidance": error
+            })),
+        }
+    }
+    Ok(documents)
+}
+
+fn save_url_context(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid URL snapshot request"),
+    };
+    if body["confirmed"] != true {
+        return Response::error(400, "Confirm saving this inspected URL snapshot");
+    }
+    let visibility = body["visibility"].as_str().unwrap_or("");
+    let file_id = body["fileId"].as_str().unwrap_or("");
+    if !valid_skill_path_id(file_id) {
+        return Response::error(
+            400,
+            "Snapshot file ID must use lowercase letters, digits, and hyphens",
+        );
+    }
+    let snapshot: crate::url_context::UrlContextSnapshot =
+        match serde_json::from_value(body["snapshot"].clone()) {
+            Ok(snapshot) => snapshot,
+            Err(_) => return Response::error(400, "URL snapshot metadata is incomplete"),
+        };
+    let source = match crate::url_context::snapshot_markdown(&snapshot) {
+        Ok(source) => source,
+        Err(error) => return Response::error(400, &error),
+    };
+    let directory = match url_context_directory(&state.root, visibility) {
+        Ok(directory) => directory,
+        Err(response) => return response,
+    };
+    let _content_lock = lock(&state.build);
+    let _filesystem_lock = match content_transaction(state) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    if let Err(error) = fs::create_dir_all(&directory) {
+        return Response::error(
+            500,
+            &format!("Cannot create URL snapshot directory: {error}"),
+        );
+    }
+    let path = directory.join(format!("{file_id}.md"));
+    if path.exists() {
+        return Response::error(409, "A URL snapshot with this file ID already exists");
+    }
+    if let Err(error) = write_atomic(&path, &source) {
+        return Response::error(500, &error);
+    }
+    Response::json(
+        201,
+        &json!({ "id": format!("{visibility}:reference:{file_id}"), "etag": etag(&source) }),
+    )
 }
 
 fn generate_quiz(state: &AppState, req: &Request) -> Response {
@@ -1043,73 +3602,132 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
         return Response::error(400, "Question count must be between one and three");
     }
 
-    let config = site::load_config(&state.root).unwrap_or_default();
-    let endpoint = config.knowledge_checks.generation_endpoint.trim();
-    if endpoint.is_empty() {
-        return Response::error(404, "Quiz generation is not configured");
-    }
-    let test_loopback = cfg!(test) && endpoint.starts_with("http://127.0.0.1:");
-    if !endpoint.starts_with("https://") && !test_loopback {
-        return Response::error(400, "Quiz generation endpoint must use HTTPS");
-    }
-    let key = match std::env::var("OPENBLOG_LESSONS_API_KEY") {
-        Ok(key) if !key.trim().is_empty() => key,
-        _ => return Response::error(503, "OPENBLOG_LESSONS_API_KEY is not set"),
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
     };
-    let payload = json!({
-        "model": config.knowledge_checks.model,
-        "context": context,
-        "count": count,
-        "task": "Draft short multiple-choice knowledge checks grounded only in the supplied article context. Return JSON only.",
-        "responseSchema": {
-            "questions": [{
-                "prompt": "string",
-                "choices": ["string", "string"],
-                "correctIndex": 0,
-                "explanation": "string"
-            }]
-        }
-    });
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(if cfg!(test) {
-            Duration::from_millis(300)
-        } else {
-            Duration::from_secs(30)
-        }))
-        .user_agent(concat!(
-            "open.blog-admin/",
-            env!("CARGO_PKG_VERSION"),
-            " (+https://github.com/journey-to-code-org/open.blog)"
-        ))
-        .build()
-        .into();
-    let mut response = match agent
-        .post(endpoint)
-        .header("Content-Type", "application/json")
-        .header("Authorization", &format!("Bearer {}", key.trim()))
-        .send(payload.to_string())
-    {
-        Ok(response) => response,
-        Err(error) => return Response::error(502, &format!("Quiz generation failed: {error}")),
-    };
-    let bytes = match response
-        .body_mut()
-        .with_config()
-        .limit(128 * 1024)
-        .read_to_vec()
-    {
-        Ok(bytes) => bytes,
+    let provider = match configured_assistant_provider(
+        &config,
+        credential,
+        assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
+    ) {
+        Ok(provider) => provider,
         Err(error) => {
-            return Response::error(502, &format!("Cannot read generation response: {error}"))
+            let status = match error.kind {
+                AssistantErrorKind::NotConfigured => 404,
+                AssistantErrorKind::InvalidConfiguration => 400,
+                AssistantErrorKind::MissingCredential => 503,
+                _ => 500,
+            };
+            return Response::error(status, error.public_message());
         }
     };
-    let value: Json = match serde_json::from_slice(&bytes) {
-        Ok(value) => value,
-        Err(_) => return Response::error(502, "Generation endpoint returned invalid JSON"),
+    let request = AssistantRequest::knowledge_checks(
+        config.knowledge_checks.model,
+        context.to_string(),
+        KnowledgeCheckCount::new(count as u8).expect("the request count was validated above"),
+    );
+    let _provider_permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => {
+            return Response::error(
+                429,
+                "Two Assistant operations are already running; try again shortly",
+            )
+        }
     };
-    match validated_questions(&value) {
-        Ok(clean) => Response::json(200, &clean),
-        Err(error) => Response::error(502, &error),
+    match provider.generate(&request) {
+        Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
+        Ok(AssistantResult::Review(_) | AssistantResult::CodeInteraction(_)) => {
+            Response::error(502, "Assistant provider returned the wrong result type")
+        }
+        Ok(AssistantResult::Completion(_)) => {
+            Response::error(502, "Assistant provider returned the wrong result type")
+        }
+        Err(error) => Response::error(502, error.public_message()),
+    }
+}
+
+fn generate_code_interaction(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let context = body["context"].as_str().unwrap_or("").trim();
+    if context.is_empty() || context.chars().count() > 50_000 {
+        return Response::error(
+            400,
+            "Select between 1 and 50,000 characters of article text",
+        );
+    }
+    let kind = match body["kind"].as_str().and_then(CodeInteractionKind::parse) {
+        Some(kind) => kind,
+        None => return Response::error(400, "Code interaction kind must be example or challenge"),
+    };
+    let language = match CodeInteractionLanguage::parse(body["language"].as_str().unwrap_or("rust"))
+    {
+        Some(language) => language,
+        None => return Response::error(400, "Code interaction language is invalid"),
+    };
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
+    let language_allowed = matches!(language.as_str(), "rust" | "web")
+        || (!config.code_runner.endpoint.is_empty()
+            && config
+                .code_runner
+                .languages
+                .iter()
+                .any(|allowed| allowed == language.as_str()));
+    if !language_allowed {
+        return Response::error(
+            400,
+            "Code interaction language is not enabled for this site",
+        );
+    }
+    let provider = match configured_assistant_provider(
+        &config,
+        credential,
+        assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
+    ) {
+        Ok(provider) => provider,
+        Err(error) => return review_error(error),
+    };
+    let request = AssistantRequest::code_interaction(
+        config.knowledge_checks.model,
+        context.to_string(),
+        kind,
+        language,
+    );
+    let _provider_permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => {
+            return Response::json(
+                429,
+                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
+            )
+        }
+    };
+    code_interaction_response(provider.generate(&request))
+}
+
+fn code_interaction_response(
+    result: Result<AssistantResult, crate::assistant::AssistantError>,
+) -> Response {
+    match result {
+        Ok(AssistantResult::CodeInteraction(interaction)) => {
+            Response::json(200, &json!(interaction))
+        }
+        Ok(
+            AssistantResult::KnowledgeChecks(_)
+            | AssistantResult::Review(_)
+            | AssistantResult::Completion(_),
+        ) => Response::error(502, "Assistant provider returned the wrong result type"),
+        Err(error) => review_error(error),
     }
 }
 
@@ -1705,6 +4323,174 @@ fn write_document_with_credits_using(
     Ok(())
 }
 
+#[derive(Debug)]
+struct StagedTrack {
+    pending: PathBuf,
+    target: PathBuf,
+    url: String,
+    contents: Vec<u8>,
+}
+
+fn field_scalar<'a>(fields: &'a BTreeMap<String, Value>, key: &str) -> Option<&'a str> {
+    match fields.get(key) {
+        Some(Value::Scalar(value)) => Some(value.trim()),
+        _ => None,
+    }
+}
+
+fn staged_track(
+    root: &Path,
+    config: &SiteConfig,
+    body: &Json,
+    fields: &mut BTreeMap<String, Value>,
+) -> Result<Option<StagedTrack>, String> {
+    let Some(token) = body.get("trackToken").and_then(Json::as_str) else {
+        return Ok(None);
+    };
+    if field_scalar(fields, "profile") != Some("field-journal")
+        || field_scalar(fields, "locationPrivacy") != Some("exact")
+    {
+        return Err("staged tracks require the Field journal profile in Exact mode".into());
+    }
+    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("invalid staged track token".into());
+    }
+    let pending = root
+        .join(".openblog/pending-tracks")
+        .join(format!("{token}.gpx"));
+    let contents =
+        fs::read(&pending).map_err(|_| "staged track expired; import the GPX again".to_string())?;
+    let source =
+        std::str::from_utf8(&contents).map_err(|_| "staged GPX is not UTF-8".to_string())?;
+    validate_gpx(source)?;
+    let name = body
+        .get("trackName")
+        .and_then(Json::as_str)
+        .unwrap_or("track.gpx");
+    let stem = sanitize_upload_stem(name);
+    let year = clock::now().civil().year;
+    let dir_rel = format!("tracks/uploads/{year}");
+    let static_dir = root.join(&config.paths.static_dir);
+    let mut file_name = format!("{stem}.gpx");
+    let mut number = 2;
+    while static_dir.join(&dir_rel).join(&file_name).exists() {
+        file_name = format!("{stem}-{number}.gpx");
+        number += 1;
+    }
+    let relative = format!("{dir_rel}/{file_name}");
+    let url = format!("/{relative}");
+    fields.insert("route".into(), Value::Scalar(url.clone()));
+    Ok(Some(StagedTrack {
+        pending,
+        target: static_dir.join(relative),
+        url,
+        contents,
+    }))
+}
+
+fn static_track_path(root: &Path, config: &SiteConfig, route: &str) -> Option<PathBuf> {
+    let relative = route.strip_prefix("/tracks/uploads/")?;
+    if relative.is_empty()
+        || !relative.ends_with(".gpx")
+        || relative.contains("..")
+        || !relative
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'-' | b'_' | b'.'))
+    {
+        return None;
+    }
+    Some(
+        root.join(&config.paths.static_dir)
+            .join("tracks/uploads")
+            .join(relative),
+    )
+}
+
+fn track_is_referenced_elsewhere(
+    root: &Path,
+    config: &SiteConfig,
+    route: &str,
+    excluded_document: &Path,
+) -> bool {
+    fn visit(dir: &Path, route: &str, excluded_document: &Path) -> bool {
+        let Ok(entries) = fs::read_dir(dir) else {
+            // If ownership cannot be proven exclusive, preserve the asset.
+            return true;
+        };
+        for entry in entries {
+            let Ok(entry) = entry else {
+                return true;
+            };
+            let Ok(file_type) = entry.file_type() else {
+                return true;
+            };
+            let path = entry.path();
+            if file_type.is_dir() {
+                if visit(&path, route, excluded_document) {
+                    return true;
+                }
+            } else if file_type.is_file()
+                && path != excluded_document
+                && path.extension().and_then(|value| value.to_str()) == Some("md")
+            {
+                let Ok(source) = fs::read_to_string(&path) else {
+                    return true;
+                };
+                let Ok(document) = frontmatter::parse(&source) else {
+                    return true;
+                };
+                if document.front_matter.get("route") == Some(route) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    visit(&root.join(&config.paths.content), route, excluded_document)
+}
+
+fn write_document_bundle(
+    path: &Path,
+    sidecar: &Path,
+    source: &str,
+    credit_edit: &CreditEdit,
+    upload: Option<&StagedTrack>,
+    retire: Option<&(PathBuf, PathBuf)>,
+) -> Result<(), String> {
+    let previous_document = read_optional_bytes(path)?;
+    let previous_sidecar = read_optional_bytes(sidecar)?;
+    let previous_upload = match upload {
+        Some(track) => read_optional_bytes(&track.target)?,
+        None => None,
+    };
+    write_document_with_credits(path, sidecar, source, credit_edit)?;
+    let result = (|| {
+        if let Some(track) = upload {
+            write_atomic_bytes(&track.target, &track.contents)?;
+        }
+        if let Some((from, to)) = retire {
+            if let Some(parent) = to.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+            }
+            fs::rename(from, to).map_err(|error| {
+                format!("cannot retire private track {}: {error}", from.display())
+            })?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = restore_file(path, previous_document.as_deref());
+        let _ = restore_file(sidecar, previous_sidecar.as_deref());
+        if let Some(track) = upload {
+            let _ = restore_file(&track.target, previous_upload.as_deref());
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// New file path for a created document, derived from its fields.
 fn derive_new_path(kind: &str, fields: &BTreeMap<String, Value>) -> Result<String, String> {
     let get = |k: &str| match fields.get(k) {
@@ -1740,7 +4526,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         Ok(b) => b,
         Err(_) => return Response::error(400, "Invalid JSON"),
     };
-    let fields = match fields_from_json(&body["fields"]) {
+    let mut fields = match fields_from_json(&body["fields"]) {
         Ok(f) => f,
         Err(e) => return Response::error(422, &e),
     };
@@ -1748,8 +4534,6 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
         return Response::error(413, "The post body is too large");
     }
-    let source = frontmatter::compose(&fields, text_body);
-
     let mut status = lock(&state.build);
     let _filesystem_transaction = match content_transaction(state) {
         Ok(lock) => lock,
@@ -1759,6 +4543,16 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         Ok(c) => c,
         Err(e) => return Response::error(500, &e),
     };
+    let field_journal = field_scalar(&fields, "profile") == Some("field-journal");
+    let exact_location = field_journal && field_scalar(&fields, "locationPrivacy") == Some("exact");
+    if field_journal && !exact_location {
+        fields.remove("route");
+    }
+    let track_upload = match staged_track(&state.root, &config, &body, &mut fields) {
+        Ok(track) => track,
+        Err(error) => return Response::error(422, &error),
+    };
+    let mut source = frontmatter::compose(&fields, text_body);
 
     let (rel, created) = match existing_path {
         Some(rel) => (rel, false),
@@ -1788,6 +4582,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         Err(error) => return Response::error(422, &error),
     };
 
+    let mut retired_track = None;
     if created {
         if path.exists() {
             return Response::error(
@@ -1815,6 +4610,37 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
                     409,
                     "This file changed on disk since you opened it. Reload it before saving.",
                 )
+            }
+        }
+        let replacement = track_upload.as_ref().map(|track| track.url.as_str());
+        if let Ok(document) = frontmatter::parse(&current) {
+            let old_field_journal = openblog_core::profile::resolve(&document.front_matter)
+                .behavior
+                == openblog_core::profile::ProfileBehavior::FieldJournal;
+            if old_field_journal && !exact_location {
+                fields.remove("route");
+                source = frontmatter::compose(&fields, text_body);
+            }
+            if old_field_journal {
+                if let Some(old_route) = document.front_matter.get("route") {
+                    if (!exact_location || replacement.is_some_and(|url| url != old_route))
+                        && !track_is_referenced_elsewhere(&state.root, &config, old_route, &path)
+                    {
+                        if let Some(old_path) = static_track_path(&state.root, &config, old_route) {
+                            if old_path.is_file() {
+                                let trash = state.root.join(".openblog/trash/tracks");
+                                let name = old_path
+                                    .file_name()
+                                    .and_then(|name| name.to_str())
+                                    .unwrap_or("track.gpx")
+                                    .to_string();
+                                let stamp = clock::now().rfc3339().replace(':', "");
+                                let target = unique_trash_target(&trash, &stamp, &name);
+                                retired_track = Some((old_path, target));
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1848,8 +4674,18 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
         );
     }
     let sidecar = credit_path.as_deref().unwrap_or(&path);
-    if let Err(e) = write_document_with_credits(&path, sidecar, &source, &credit_edit) {
+    if let Err(e) = write_document_bundle(
+        &path,
+        sidecar,
+        &source,
+        &credit_edit,
+        track_upload.as_ref(),
+        retired_track.as_ref(),
+    ) {
         return Response::error(500, &e);
+    }
+    if let Some(track) = &track_upload {
+        let _ = fs::remove_file(&track.pending);
     }
 
     let now = clock::now();
@@ -1880,7 +4716,7 @@ fn save_document(state: &AppState, req: &Request, existing_path: Option<String>)
     };
     Response::json(
         if created { 201 } else { 200 },
-        &json!({ "path": rel, "etag": etag(&source), "creditEtag": credit_etag, "status": post_status, "url": url, "build": build_json }),
+        &json!({ "path": rel, "etag": etag(&source), "creditEtag": credit_etag, "status": post_status, "url": url, "build": build_json, "trackUrl": track_upload.as_ref().map(|track| &track.url) }),
     )
 }
 
@@ -1916,6 +4752,154 @@ fn unique_trash_target(trash: &Path, stamp: &str, name: &str) -> PathBuf {
     target
 }
 
+fn post_context_path_pairs(
+    root: &Path,
+    old_document: &str,
+    new_document: &str,
+) -> Result<Vec<(PathBuf, PathBuf)>, Response> {
+    let mut pairs = Vec::new();
+    for visibility in ["portable", "private"] {
+        let (old, _, _) = assistant_context_target(root, "post", visibility, Some(old_document))?;
+        let (new, _, _) = assistant_context_target(root, "post", visibility, Some(new_document))?;
+        if old.exists() {
+            if !old.is_file() {
+                return Err(Response::error(
+                    409,
+                    "Associated post context is not a file",
+                ));
+            }
+            pairs.push((old, new));
+        }
+    }
+    Ok(pairs)
+}
+
+fn move_files_transactionally(moves: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+    for (from, to) in moves {
+        if !from.is_file() {
+            return Err(format!("source file does not exist: {}", from.display()));
+        }
+        if to.exists() {
+            return Err(format!("destination already exists: {}", to.display()));
+        }
+    }
+    for (_, to) in moves {
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+        }
+    }
+    let mut moved = Vec::new();
+    for (from, to) in moves {
+        if let Err(error) = fs::rename(from, to) {
+            let mut rollback_errors = Vec::new();
+            for (moved_from, moved_to) in moved.iter().rev() {
+                if let Err(rollback) = fs::rename(moved_to, moved_from) {
+                    rollback_errors.push(rollback.to_string());
+                }
+            }
+            return Err(format!(
+                "cannot move {}: {error}; rollback: {}",
+                from.display(),
+                if rollback_errors.is_empty() {
+                    "ok".into()
+                } else {
+                    rollback_errors.join("; ")
+                }
+            ));
+        }
+        moved.push((from.clone(), to.clone()));
+    }
+    Ok(())
+}
+
+fn rename_document(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid rename request"),
+    };
+    let Some(old_rel) = body["path"].as_str() else {
+        return Response::error(400, "Missing path");
+    };
+    let Some(new_rel) = body["newPath"].as_str() else {
+        return Response::error(400, "Missing newPath");
+    };
+    if old_rel == new_rel {
+        return Response::error(422, "The new document path is unchanged");
+    }
+    if check_rel_path(old_rel).ok() != Some("posts")
+        || check_rel_path(new_rel).ok() != Some("posts")
+    {
+        return Response::error(422, "Only post Markdown paths can be renamed here");
+    }
+    let mut status = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let old_path = match resolve_content_path(&state.root, &config, old_rel) {
+        Ok(path) => path,
+        Err(error) => return Response::error(400, &error),
+    };
+    let new_path = match resolve_content_path(&state.root, &config, new_rel) {
+        Ok(path) => path,
+        Err(error) => return Response::error(400, &error),
+    };
+    let source = match fs::read_to_string(&old_path) {
+        Ok(source) => source,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Response::error(404, "No such document")
+        }
+        Err(error) => return Response::error(500, &format!("Cannot read document: {error}")),
+    };
+    if body["etag"].as_str() != Some(etag(&source).as_str()) {
+        return Response::error(
+            409,
+            "Document changed since it was opened; reload and retry",
+        );
+    }
+    let mut moves = vec![(old_path, new_path)];
+    let old_credit = match resolve_credit_path(&state.root, &config, old_rel) {
+        Ok(path) => path,
+        Err(error) => return Response::error(400, &error),
+    };
+    if old_credit.is_file() {
+        let new_credit = match resolve_credit_path(&state.root, &config, new_rel) {
+            Ok(path) => path,
+            Err(error) => return Response::error(400, &error),
+        };
+        moves.push((old_credit, new_credit));
+    }
+    match post_context_path_pairs(&state.root, old_rel, new_rel) {
+        Ok(context_moves) => moves.extend(context_moves),
+        Err(response) => return response,
+    }
+    if let Err(error) = move_files_transactionally(&moves) {
+        let status = if error.contains("destination already exists") {
+            409
+        } else {
+            500
+        };
+        return Response::error(status, &format!("Cannot rename document bundle: {error}"));
+    }
+    let build = state.rebuild_locked(&mut status);
+    let build_json = match build {
+        Ok(report) => json!({ "ok": true, "posts": report.posts }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
+    Response::json(
+        200,
+        &json!({ "ok": true, "path": new_rel, "etag": etag(&source), "build": build_json }),
+    )
+}
+
 fn delete_document(state: &AppState, req: &Request) -> Response {
     let Some(rel) = req.query.get("path") else {
         return Response::error(400, "Missing ?path=");
@@ -1936,6 +4920,21 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
     if !path.is_file() {
         return Response::error(404, "No such document");
     }
+    let managed_track = fs::read_to_string(&path)
+        .ok()
+        .and_then(|source| frontmatter::parse(&source).ok())
+        .filter(|document| {
+            openblog_core::profile::resolve(&document.front_matter).behavior
+                == openblog_core::profile::ProfileBehavior::FieldJournal
+        })
+        .and_then(|document| {
+            document
+                .front_matter
+                .get("route")
+                .filter(|route| !track_is_referenced_elsewhere(&state.root, &config, route, &path))
+                .and_then(|route| static_track_path(&state.root, &config, route))
+        })
+        .filter(|track| track.is_file());
     // Never destroy content: move it to a trash folder that can be restored from.
     let trash = state.root.join(".openblog").join("trash");
     if let Err(e) = fs::create_dir_all(&trash) {
@@ -1958,24 +4957,51 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
             .replace('/', "_");
         unique_trash_target(&trash, &stamp, &sidecar_name)
     });
-    if let Err(e) = fs::rename(&path, &target) {
-        return Response::error(500, &format!("cannot move the file to the trash: {e}"));
-    }
-    if let Some(sidecar_target) = &sidecar_target {
-        if let Err(error) = fs::rename(sidecar.as_ref().expect("existing sidecar"), sidecar_target)
-        {
-            let rollback = fs::rename(&target, &path);
-            return Response::error(
-                500,
-                &format!(
-                    "cannot move the credit sidecar to the trash: {error}; document rollback: {}",
-                    rollback
-                        .err()
-                        .map(|error| error.to_string())
-                        .unwrap_or_else(|| "ok".into())
-                ),
-            );
+    let track_target = managed_track.as_ref().map(|track| {
+        let name = track
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("track.gpx");
+        unique_trash_target(&trash.join("tracks"), &stamp, name)
+    });
+    let mut context_moves = Vec::new();
+    if check_rel_path(rel).ok() == Some("posts") {
+        for visibility in ["portable", "private"] {
+            let (context, _, _) =
+                match assistant_context_target(&state.root, "post", visibility, Some(rel)) {
+                    Ok(target) => target,
+                    Err(response) => return response,
+                };
+            if context.exists() {
+                if !context.is_file() {
+                    return Response::error(409, "Associated post context is not a file");
+                }
+                let context_name = context
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("post.md");
+                let context_target = unique_trash_target(
+                    &trash.join("context"),
+                    &stamp,
+                    &format!("{visibility}-{context_name}"),
+                );
+                context_moves.push((context, context_target));
+            }
         }
+    }
+    let mut moves = vec![(path.clone(), target.clone())];
+    if let (Some(sidecar), Some(sidecar_target)) = (&sidecar, &sidecar_target) {
+        moves.push((sidecar.clone(), sidecar_target.clone()));
+    }
+    if let (Some(track), Some(track_target)) = (&managed_track, &track_target) {
+        moves.push((track.clone(), track_target.clone()));
+    }
+    moves.extend(context_moves.iter().cloned());
+    if let Err(error) = move_files_transactionally(&moves) {
+        return Response::error(
+            500,
+            &format!("cannot move document bundle to trash: {error}"),
+        );
     }
     eprintln!("admin: deleted {rel} (kept in .openblog/trash)");
     let build = state.rebuild_locked(&mut status);
@@ -1989,6 +5015,8 @@ fn delete_document(state: &AppState, req: &Request) -> Response {
             "ok": true,
             "trashedTo": target.file_name().map(|n| n.to_string_lossy().into_owned()),
             "trashedCreditsTo": sidecar_target.and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned())),
+            "trashedTrackTo": track_target.and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned())),
+            "trashedContextTo": context_moves.into_iter().filter_map(|(_, path)| path.file_name().map(|name| name.to_string_lossy().into_owned())).collect::<Vec<_>>(),
             "build": build_json
         }),
     )
@@ -2072,6 +5100,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
     config.analytics.builtin = false;
     config.analytics.show_views = false;
     config.analytics.endpoint.clear();
+    config.engagement.enabled = false;
     let (preview_site, themes) = match site::load_site_from_sources(
         &state.root,
         config,
@@ -2160,10 +5189,11 @@ fn preview(state: &AppState, req: &Request) -> Response {
         .as_deref()
         .map(|origin| format!("'self' {origin}"))
         .unwrap_or_else(|| "'self'".to_string());
+    let frame_sources = openblog_core::embed::FRAME_SOURCES;
     let csp = format!(
         "default-src 'none'; script-src 'unsafe-inline' {script_sources}; style-src 'unsafe-inline' 'self' https:; \
          img-src 'self' https: data:; font-src 'self' https: data:; connect-src 'self' https://play.rust-lang.org; \
-         frame-src https://codepen.io; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+         frame-src {frame_sources}; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
     );
     let mut previews = lock(&state.previews);
     previews.push(PreviewDocument {
@@ -2335,6 +5365,191 @@ fn upload(state: &AppState, req: &Request) -> Response {
     )
 }
 
+fn upload_track(state: &AppState, req: &Request) -> Response {
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let max = config.admin.max_upload_mb as usize * 1024 * 1024;
+    if req.body.is_empty() {
+        return Response::error(400, "No GPX data");
+    }
+    if req.body.len() > max {
+        return Response::error(
+            413,
+            &format!("Tracks can be at most {} MB", config.admin.max_upload_mb),
+        );
+    }
+    let Ok(source) = std::str::from_utf8(&req.body) else {
+        return Response::error(415, "GPX tracks must be UTF-8 XML");
+    };
+    if let Err(error) = validate_gpx(source) {
+        return Response::error(415, &error);
+    }
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => return Response::error(500, &error),
+    };
+    let pending_dir = state.root.join(".openblog/pending-tracks");
+    let _guard = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    prune_staged_tracks(&pending_dir);
+    if let Err(error) = fsutil::write_file(&pending_dir.join(format!("{token}.gpx")), &req.body) {
+        return Response::error(500, &error);
+    }
+    eprintln!("admin: staged track {token} ({} bytes)", req.body.len());
+    Response::json(201, &json!({ "token": token }))
+}
+
+fn discard_track(state: &AppState, req: &Request) -> Response {
+    let Some(token) = req.query.get("token") else {
+        return Response::error(400, "Missing track token");
+    };
+    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Response::error(400, "Invalid track token");
+    }
+    let _guard = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = state
+        .root
+        .join(".openblog/pending-tracks")
+        .join(format!("{token}.gpx"));
+    match fs::remove_file(path) {
+        Ok(()) => Response::json(200, &json!({ "discarded": true })),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Response::json(200, &json!({ "discarded": false }))
+        }
+        Err(error) => Response::error(500, &format!("cannot discard staged track: {error}")),
+    }
+}
+
+fn prune_staged_tracks(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let max_age = Duration::from_secs(24 * 60 * 60);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let stale = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
+            .is_ok_and(|age| age > max_age);
+        if stale && path.extension().and_then(|value| value.to_str()) == Some("gpx") {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+fn validate_gpx(source: &str) -> Result<(), String> {
+    let lower = source.to_ascii_lowercase();
+    if lower.contains("<!doctype")
+        || lower.contains("<!entity")
+        || lower.contains("<script")
+        || lower.contains("<?xml-stylesheet")
+    {
+        return Err("Choose a GPX track without scripts or document entities".into());
+    }
+    let mut stack: Vec<String> = Vec::new();
+    let mut root_seen = false;
+    let mut closed_root = false;
+    let mut points = 0usize;
+    for tag in source
+        .split('<')
+        .skip(1)
+        .filter_map(|part| part.split_once('>').map(|pair| pair.0))
+    {
+        let tag = tag.trim();
+        if let Some(closing) = tag.strip_prefix('/') {
+            let name = closing
+                .split_ascii_whitespace()
+                .next()
+                .unwrap_or("")
+                .rsplit(':')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if stack.pop().as_deref() != Some(name.as_str()) {
+                return Err("GPX XML elements are not properly nested".into());
+            }
+            if name == "gpx" {
+                closed_root = true;
+            }
+            continue;
+        }
+        if tag.starts_with(['?', '!']) {
+            continue;
+        }
+        let name = tag
+            .split_ascii_whitespace()
+            .next()
+            .unwrap_or("")
+            .trim_end_matches('/');
+        let local_name = name.rsplit(':').next().unwrap_or(name).to_ascii_lowercase();
+        if stack.is_empty() {
+            if root_seen || closed_root {
+                return Err("GPX must contain one document root".into());
+            }
+            root_seen = true;
+            if local_name != "gpx" {
+                return Err("GPX must be the document root".into());
+            }
+        }
+        if local_name == "trkpt"
+            && stack.iter().any(|name| name == "trk")
+            && stack.iter().any(|name| name == "trkseg")
+        {
+            let lat = xml_attribute(tag, "lat").and_then(|value| value.parse::<f64>().ok());
+            let lon = xml_attribute(tag, "lon").and_then(|value| value.parse::<f64>().ok());
+            if lat.is_some_and(|value| value.is_finite() && value.abs() <= 90.0)
+                && lon.is_some_and(|value| value.is_finite() && value.abs() <= 180.0)
+            {
+                points += 1;
+            }
+        }
+        if tag.ends_with('/') {
+            if local_name == "gpx" {
+                closed_root = true;
+            }
+        } else {
+            stack.push(local_name);
+        }
+    }
+    if root_seen && closed_root && stack.is_empty() && points >= 2 {
+        Ok(())
+    } else {
+        Err("Choose a valid GPX document with at least two bounded track points".into())
+    }
+}
+
+fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
+    for (index, _) in tag.match_indices(key) {
+        if index == 0 || !tag.as_bytes()[index - 1].is_ascii_whitespace() {
+            continue;
+        }
+        let Some(candidate) = tag[index + key.len()..]
+            .trim_start()
+            .strip_prefix('=')
+            .map(str::trim_start)
+        else {
+            continue;
+        };
+        let quote = candidate.as_bytes().first().copied()?;
+        if !matches!(quote, b'\'' | b'"') {
+            continue;
+        }
+        let value = &candidate[1..];
+        return Some(&value[..value.find(quote as char)?]);
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2437,6 +5652,58 @@ mod tests {
             let _ = stream.write_all(response.as_bytes());
         });
         (format!("http://{address}/generate"), handle)
+    }
+
+    fn capturing_provider(
+        body: String,
+    ) -> (
+        String,
+        std::sync::mpsc::Receiver<Json>,
+        std::thread::JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let (header_end, content_length) = loop {
+                let read = stream.read(&mut chunk).unwrap_or(0);
+                if read == 0 {
+                    panic!("provider request ended before its body arrived");
+                }
+                request.extend_from_slice(&chunk[..read]);
+                let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n")
+                else {
+                    continue;
+                };
+                let headers = String::from_utf8_lossy(&request[..header_end]);
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                if request.len() >= header_end + 4 + content_length {
+                    break (header_end, content_length);
+                }
+            };
+            let payload =
+                serde_json::from_slice(&request[header_end + 4..header_end + 4 + content_length])
+                    .unwrap();
+            sender.send(payload).unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        (format!("http://{address}/generate"), receiver, handle)
     }
 
     fn set_quiz_endpoint(fixture: &Fixture, endpoint: &str) {
@@ -2732,28 +5999,6 @@ mod tests {
     }
 
     #[test]
-    fn quiz_generation_responses_are_strictly_validated() {
-        let good = validated_questions(&json!({
-            "questions": [{
-                "prompt": "What stays local?",
-                "choices": ["Reader attempts", "Published posts"],
-                "correctIndex": 0,
-                "explanation": "Attempts are stored in the reader's browser."
-            }]
-        }))
-        .unwrap();
-        assert_eq!(good["questions"][0]["correctIndex"], 0);
-        for bad in [
-            json!({ "questions": [] }),
-            json!({ "questions": [{ "prompt": "Q", "choices": ["A"], "correctIndex": 0 }] }),
-            json!({ "questions": [{ "prompt": "Q", "choices": ["A", "B"], "correctIndex": 2 }] }),
-            json!({ "questions": [{ "prompt": "", "choices": ["A", "B"], "correctIndex": 0 }] }),
-        ] {
-            assert!(validated_questions(&bad).is_err(), "{bad}");
-        }
-    }
-
-    #[test]
     fn admin_meta_describes_available_content_profiles() {
         let f = fixture("profile-meta");
         let response = meta(&f.state);
@@ -2768,6 +6013,2102 @@ mod tests {
         assert_eq!(profiles[2]["id"], "research");
         assert_eq!(profiles[2]["fields"][0]["key"], "doi");
         assert_eq!(profiles[2]["fields"][1]["key"], "license");
+        assert_eq!(profiles[3]["id"], "video");
+        assert_eq!(profiles[3]["fields"][0]["key"], "productionStatus");
+        assert_eq!(profiles[3]["fields"][0]["kind"], "production-status");
+        assert_eq!(profiles[3]["fields"][4]["key"], "videoUrl");
+        assert_eq!(profiles[3]["fields"][5]["kind"], "duration");
+    }
+
+    #[test]
+    fn assistant_status_is_authenticated_and_never_exposes_credentials() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-status");
+
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/assistant/status")).status,
+            401
+        );
+
+        let session = login_ok(&f);
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        let missing = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(missing.status, 200);
+        let missing_json = body_json(&missing);
+        assert_eq!(missing_json["providerType"], "generic-https");
+        assert_eq!(missing_json["configured"], false);
+        assert_eq!(missing_json["capabilities"]["knowledgeChecks"], true);
+        assert_eq!(missing_json["capabilities"]["review"], true);
+        assert_eq!(missing_json["capabilities"]["context"], true);
+        assert_eq!(missing_json["capabilities"]["interactions"], true);
+        assert_eq!(missing_json["capabilities"]["autocomplete"], true);
+        assert!(missing_json["message"]
+            .as_str()
+            .unwrap()
+            .contains("Non-AI authoring remains available"));
+
+        set_quiz_endpoint(
+            &f,
+            "https://endpoint-user:endpoint-password@assistant.example:8443/generate?api_key=query-secret",
+        );
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "provider-secret-value");
+        let configured = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(configured.status, 200);
+        let configured_json = body_json(&configured);
+        assert_eq!(configured_json["configured"], true);
+        assert_eq!(configured_json["model"], "test");
+        assert_eq!(
+            configured_json["destination"],
+            "https://assistant.example:8443"
+        );
+        let configured_body = String::from_utf8_lossy(&configured.body);
+        assert!(!configured_body.contains("provider-secret-value"));
+        assert!(!configured_body.contains("endpoint-user"));
+        assert!(!configured_body.contains("endpoint-password"));
+        assert!(!configured_body.contains("query-secret"));
+    }
+
+    #[test]
+    fn engagement_settings_are_authenticated_write_only_and_conflict_safe() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture(ENGAGEMENT_ENVIRONMENT_NAME);
+        let _origin = EnvRestore::capture(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ENVIRONMENT_NAME);
+        std::env::remove_var(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
+        let f = fixture("engagement-settings");
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/engagement/settings")).status,
+            401
+        );
+        let session = login_ok(&f);
+        let initial = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/settings"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(initial.status, 200);
+        let initial_json = body_json(&initial);
+        assert_eq!(initial_json["enabled"], false);
+        let save = json!({
+            "enabled": true,
+            "comments": true,
+            "analytics": true,
+            "endpoint": "https://blog.example/api",
+            "etag": initial_json["etag"],
+            "credentialAction": "replace",
+            "credential": "moderation-secret",
+        });
+        assert_eq!(
+            handle(
+                &f.state,
+                &authed(
+                    json_req("PUT", "/admin/api/engagement/settings", save.clone()),
+                    &session,
+                    false,
+                ),
+            )
+            .status,
+            403
+        );
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/engagement/settings", save),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(saved.status, 200);
+        assert_eq!(body_json(&saved)["credential"]["configured"], true);
+        assert!(!String::from_utf8_lossy(&saved.body).contains("moderation-secret"));
+        let config = site::load_config(&f.dir).unwrap();
+        assert!(
+            config.engagement.enabled && config.engagement.comments && config.engagement.analytics
+        );
+        assert_eq!(config.engagement.endpoint, "https://blog.example/api");
+
+        let saved_json = body_json(&saved);
+        let moved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true,
+                        "comments": true,
+                        "analytics": true,
+                        "endpoint": "https://elsewhere.example/api",
+                        "etag": saved_json["etag"],
+                        "credentialAction": "keep",
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(moved.status, 200);
+        assert_eq!(body_json(&moved)["credential"]["configured"], false);
+        assert!(
+            engagement_credential(&f.dir, "https://elsewhere.example/api")
+                .unwrap_err()
+                .contains("different origin")
+        );
+
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({ "enabled": false, "etag": initial_json["etag"] }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+    }
+
+    #[test]
+    fn hosted_engagement_responses_are_bounded_and_keep_links_site_relative() {
+        let safe = json!({
+            "days": 30, "from": "2026-09-25", "to": "2026-10-24",
+            "views": 4, "uniques": 3, "allTimeViews": 9, "firstDay": "2026-09-01",
+            "series": [{ "day": "2026-10-24", "views": 4, "uniques": 3 }],
+            "topPosts": [{ "path": "/story/", "views": 4, "uniques": 3, "allTime": 9 }],
+            "referrers": [{ "host": "search.example", "views": 2 }],
+            "agentRequests": 99, "agents": [{ "name": "ignored" }], "agentPages": [],
+        });
+        let validated =
+            validate_hosted_engagement_response("GET", "admin/analytics", &safe).unwrap();
+        assert_eq!(validated["topPosts"][0]["path"], "/story/");
+        assert_eq!(validated["agentRequests"], 0);
+
+        let unsafe_path = json!({
+            "days": 30, "from": "2026-09-25", "to": "2026-10-24",
+            "views": 1, "uniques": 1, "allTimeViews": 1, "firstDay": null,
+            "series": [],
+            "topPosts": [{ "path": "javascript:alert(1)", "views": 1, "uniques": 1, "allTime": 1 }],
+            "referrers": [],
+        });
+        assert!(
+            validate_hosted_engagement_response("GET", "admin/analytics", &unsafe_path).is_err()
+        );
+        assert!(validate_hosted_engagement_response(
+            "GET",
+            "admin/comments",
+            &json!({ "comments": [{
+                "id": "x", "path": "//evil.example/", "authorName": "Mira", "body": "Hi",
+                "status": "pending", "createdAt": "2026-10-24T12:00:00Z"
+            }] })
+        )
+        .is_err());
+        let list = json!({ "comments": [] });
+        let confirmation = json!({ "ok": true, "status": "approved" });
+        assert!(
+            validate_hosted_engagement_response("GET", "admin/comments", &confirmation).is_err()
+        );
+        assert!(validate_hosted_engagement_response("PATCH", "admin/comments", &list).is_err());
+    }
+
+    #[test]
+    fn assistant_provider_settings_are_editable_without_disclosing_credentials() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-provider-settings");
+        let session = login_ok(&f);
+
+        let loaded = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/settings"), &session, false),
+        );
+        assert_eq!(loaded.status, 200);
+        let loaded_json = body_json(&loaded);
+        assert_eq!(loaded_json["credential"]["configured"], false);
+        assert_eq!(loaded_json["credential"]["source"], "none");
+        let config_etag = loaded_json["etag"].as_str().unwrap();
+
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "generationEndpoint": "https://assistant.example/v1/generate",
+                        "model": "author-model",
+                        "etag": config_etag,
+                        "credentialAction": "replace",
+                        "credential": "private-provider-secret"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved_text = String::from_utf8_lossy(&saved.body);
+        assert!(!saved_text.contains("private-provider-secret"));
+        let saved_json = body_json(&saved);
+        assert_eq!(saved_json["credential"]["configured"], true);
+        assert_eq!(saved_json["credential"]["source"], "private");
+        #[cfg(windows)]
+        assert!(!fs::read(f.dir.join(ASSISTANT_CREDENTIAL_FILE))
+            .unwrap()
+            .windows("private-provider-secret".len())
+            .any(|window| window == b"private-provider-secret"));
+        let config: Json =
+            serde_json::from_str(&fs::read_to_string(f.dir.join("openblog.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            config["knowledgeChecks"]["generationEndpoint"],
+            "https://assistant.example/v1/generate"
+        );
+        assert_eq!(config["knowledgeChecks"]["model"], "author-model");
+        assert!(!fs::read_to_string(f.dir.join("openblog.json"))
+            .unwrap()
+            .contains("private-provider-secret"));
+
+        let replaced = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "generationEndpoint": "https://assistant.example/v1/generate",
+                        "model": "author-model",
+                        "etag": saved_json["etag"],
+                        "credentialAction": "replace",
+                        "credential": "new-private-secret"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(replaced.status, 200);
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "generationEndpoint": "https://assistant.example/v1/generate",
+                        "model": "author-model",
+                        "etag": saved_json["etag"],
+                        "credentialAction": "clear"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+
+        let status = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(body_json(&status)["configured"], true);
+
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "environment-secret");
+        let environment = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/settings"), &session, false),
+        );
+        assert_eq!(
+            body_json(&environment)["credential"]["source"],
+            "environment"
+        );
+        let environment_text = String::from_utf8_lossy(&environment.body);
+        assert!(!environment_text.contains("environment-secret"));
+        assert!(!environment_text.contains("private-provider-secret"));
+
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        let cleared = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "generationEndpoint": "https://assistant.example/v1/generate",
+                        "model": "author-model",
+                        "etag": body_json(&environment)["etag"],
+                        "credentialAction": "clear"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(cleared.status, 200);
+        assert_eq!(body_json(&cleared)["credential"]["configured"], false);
+        assert!(!f.dir.join(ASSISTANT_CREDENTIAL_FILE).exists());
+    }
+
+    #[test]
+    fn anthropic_provider_settings_use_the_native_adapter_without_a_custom_endpoint() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let _anthropic_key = EnvRestore::capture("ANTHROPIC_API_KEY");
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        let f = fixture("anthropic-provider-settings");
+        let session = login_ok(&f);
+        let loaded = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/settings"), &session, false),
+        );
+
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "provider": "anthropic",
+                        "generationEndpoint": "",
+                        "model": "claude-sonnet-5-5",
+                        "etag": body_json(&loaded)["etag"],
+                        "credentialAction": "replace",
+                        "credential": "anthropic-secret"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(saved.status, 200);
+        assert_eq!(body_json(&saved)["provider"], "anthropic");
+        let config: Json =
+            serde_json::from_str(&fs::read_to_string(f.dir.join("openblog.json")).unwrap())
+                .unwrap();
+        assert_eq!(config["knowledgeChecks"]["provider"], "anthropic");
+        assert_eq!(config["knowledgeChecks"]["generationEndpoint"], "");
+
+        let status = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        let status = body_json(&status);
+        assert_eq!(status["providerType"], "anthropic");
+        assert_eq!(status["destination"], "https://api.anthropic.com");
+        assert_eq!(status["configured"], true);
+
+        let switched = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "provider": "custom-https",
+                        "generationEndpoint": "https://assistant.example/generate",
+                        "model": "custom-model",
+                        "etag": body_json(&saved)["etag"],
+                        "credentialAction": "keep"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(switched.status, 200);
+        assert_eq!(body_json(&switched)["credential"]["configured"], false);
+        assert_eq!(
+            body_json(&switched)["credential"]["privateConfigured"],
+            true
+        );
+        let switched_status = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(body_json(&switched_status)["configured"], false);
+    }
+
+    #[test]
+    fn anthropic_provider_timeout_covers_structured_output_compilation() {
+        assert_eq!(
+            assistant_provider_timeout(AssistantProviderKind::Anthropic, false),
+            Duration::from_secs(240)
+        );
+        assert_eq!(
+            assistant_provider_timeout(AssistantProviderKind::CustomHttps, false),
+            Duration::from_secs(30)
+        );
+        assert_eq!(
+            assistant_provider_timeout(AssistantProviderKind::Anthropic, true),
+            Duration::from_millis(300)
+        );
+    }
+
+    #[test]
+    fn native_provider_metadata_keeps_credentials_and_destinations_separate() {
+        let providers = [
+            (
+                AssistantProviderKind::OpenAi,
+                "OPENAI_API_KEY",
+                "https://api.openai.com",
+            ),
+            (
+                AssistantProviderKind::Gemini,
+                "GEMINI_API_KEY",
+                "https://generativelanguage.googleapis.com",
+            ),
+            (
+                AssistantProviderKind::Xai,
+                "XAI_API_KEY",
+                "https://api.x.ai",
+            ),
+            (
+                AssistantProviderKind::DeepSeek,
+                "DEEPSEEK_API_KEY",
+                "https://api.deepseek.com",
+            ),
+            (
+                AssistantProviderKind::Mistral,
+                "MISTRAL_API_KEY",
+                "https://api.mistral.ai",
+            ),
+            (
+                AssistantProviderKind::OpenRouter,
+                "OPENROUTER_API_KEY",
+                "https://openrouter.ai",
+            ),
+        ];
+        for (provider, environment, destination) in providers {
+            assert_eq!(assistant_environment_name(provider), environment);
+            assert_eq!(assistant_provider_destination(provider), destination);
+            assert_eq!(
+                assistant_provider_timeout(provider, false),
+                Duration::from_secs(120)
+            );
+        }
+    }
+
+    #[test]
+    fn openai_provider_settings_use_a_fixed_native_destination() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENAI_API_KEY");
+        std::env::remove_var("OPENAI_API_KEY");
+        let f = fixture("openai-provider-settings");
+        let session = login_ok(&f);
+        let loaded = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/settings"), &session, false),
+        );
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "provider": "open-ai",
+                        "generationEndpoint": "https://ignored.example/",
+                        "model": "gpt-6-luna",
+                        "etag": body_json(&loaded)["etag"],
+                        "credentialAction": "replace",
+                        "credential": "openai-secret"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(saved.status, 200);
+        assert_eq!(
+            body_json(&saved)["credential"]["environmentName"],
+            "OPENAI_API_KEY"
+        );
+        assert_eq!(body_json(&saved)["generationEndpoint"], "");
+        let status = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        let status = body_json(&status);
+        assert_eq!(status["providerType"], "open-ai");
+        assert_eq!(status["destination"], "https://api.openai.com");
+        assert_eq!(status["configured"], true);
+    }
+
+    #[test]
+    fn legacy_targetless_private_credentials_are_never_sent_to_a_provider() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("legacy-assistant-credential-target");
+        set_quiz_endpoint(&f, "https://old.example/generate");
+        let credential_path = assistant_credential_path(&f.dir).unwrap();
+        let legacy = serde_json::to_vec(&json!({
+            "credential": "legacy-secret",
+            "revision": "a".repeat(64),
+        }))
+        .unwrap();
+        write_private_bytes_atomic(
+            &credential_path,
+            &protect_private_credential(&legacy).unwrap(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let loaded = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/settings"), &session, false),
+        );
+        assert_eq!(body_json(&loaded)["credential"]["configured"], false);
+        assert_eq!(body_json(&loaded)["credential"]["targetMismatch"], true);
+
+        let switched = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "provider": "custom-https",
+                        "generationEndpoint": "https://new.example/generate",
+                        "model": "custom-model",
+                        "etag": body_json(&loaded)["etag"],
+                        "credentialAction": "keep"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(switched.status, 200);
+        assert_eq!(body_json(&switched)["credential"]["configured"], false);
+        assert_eq!(
+            private_assistant_credential_envelope(&f.dir)
+                .unwrap()
+                .unwrap()
+                .2,
+            None
+        );
+    }
+
+    #[test]
+    fn environment_credentials_are_scoped_to_the_selected_provider() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _custom_key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let _anthropic_key = EnvRestore::capture("ANTHROPIC_API_KEY");
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "custom-secret");
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        let f = fixture("assistant-provider-environment-target");
+        let path = f.dir.join("openblog.json");
+        let mut config: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        config["knowledgeChecks"] = json!({
+            "provider": "anthropic",
+            "generationEndpoint": "",
+            "model": "claude-sonnet-5-5",
+        });
+        fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string_pretty(&config).unwrap()),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+
+        let wrong_environment = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(body_json(&wrong_environment)["configured"], false);
+
+        std::env::set_var("ANTHROPIC_API_KEY", "anthropic-secret");
+        let matching_environment = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        assert_eq!(body_json(&matching_environment)["configured"], true);
+    }
+
+    #[test]
+    fn assistant_generation_rejects_calls_beyond_the_server_limit() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-concurrency-limit");
+        let session = login_ok(&f);
+        set_quiz_endpoint(&f, "https://assistant.example/generate");
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "test-secret");
+        let _first = f.state.assistant_operations.try_acquire().unwrap();
+        let _second = f.state.assistant_operations.try_acquire().unwrap();
+
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/quiz/generate",
+                    json!({ "context": "Unsaved lesson", "count": 1 }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(response.status, 429);
+        assert!(String::from_utf8_lossy(&response.body).contains("already running"));
+    }
+
+    #[test]
+    fn document_review_sends_the_unsaved_snapshot_and_returns_only_validated_findings() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-document-review");
+        let saved_path = f.dir.join("content/posts/hello-world.md");
+        let saved_before = fs::read_to_string(&saved_path).unwrap();
+        fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+        fs::write(
+            f.dir.join("assistant/context/author.md"),
+            "Prefer concrete language.",
+        )
+        .unwrap();
+        fs::create_dir_all(f.dir.join("assistant/context/posts")).unwrap();
+        fs::write(
+            f.dir.join("assistant/context/posts/hello-world.md"),
+            "## Goal\n\nTeach the review workflow.",
+        )
+        .unwrap();
+        fs::create_dir_all(f.dir.join("assistant/context/references")).unwrap();
+        fs::write(
+            f.dir.join("assistant/context/references/style.txt"),
+            "Use the house terminology.",
+        )
+        .unwrap();
+        let provider_response = json!({
+            "findings": [{
+                "id": "finding-1",
+                "skillId": "copy-review",
+                "skillVersion": "1.0.0",
+                "category": "clarity",
+                "severity": "medium",
+                "title": "Name the draft's subject",
+                "explanation": "The opening is generic.",
+                "range": { "start": 0, "end": 10 },
+                "evidence": "Draft body",
+                "suggestion": "This guide",
+                "sources": [],
+                "verification": "supplied-context"
+            }]
+        });
+        let (endpoint, captured, provider) = capturing_provider(provider_response.to_string());
+        set_quiz_endpoint(&f, &endpoint);
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "review-secret");
+        let session = login_ok(&f);
+        let request_body = json!({
+            "source": {
+                "title": "Unsaved review title",
+                "metadata": { "draft": "true", "tags": ["writing"] },
+                "markdown": "Draft body needs clarity."
+            },
+            "skillIds": ["copy-review"],
+            "contextIds": [
+                "portable:author",
+                "portable:post:hello-world.md",
+                "portable:reference:style.txt",
+                "post:posts/hello-world.md"
+            ]
+        });
+        assert_eq!(
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/assistant/review", request_body.clone()),
+                    &session,
+                    false,
+                ),
+            )
+            .status,
+            403
+        );
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/assistant/review", request_body),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        provider.join().unwrap();
+        let outbound = captured.recv().unwrap();
+        assert_eq!(outbound["task"], "document-review");
+        assert_eq!(
+            outbound["untrustedData"]["source"]["title"],
+            "Unsaved review title"
+        );
+        assert_eq!(
+            outbound["untrustedData"]["source"]["markdown"],
+            "Draft body needs clarity."
+        );
+        assert_eq!(outbound["skills"][0]["id"], "copy-review");
+        assert_eq!(outbound["skills"][0]["version"], "1.0.0");
+        assert!(outbound["skills"][0]["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("copy"));
+        assert_eq!(
+            outbound["untrustedData"]["context"][0]["content"],
+            "Prefer concrete language."
+        );
+        assert_eq!(
+            outbound["untrustedData"]["context"][1]["content"],
+            "## Goal\n\nTeach the review workflow."
+        );
+        assert_eq!(
+            outbound["untrustedData"]["context"][2]["content"],
+            "Use the house terminology."
+        );
+        assert!(outbound["untrustedData"]["context"][3]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Hello"));
+        let result = body_json(&response);
+        assert_eq!(
+            result["sourceHash"],
+            outbound["untrustedData"]["source"]["hash"]
+        );
+        assert_eq!(result["sourceHash"].as_str().unwrap().len(), 64);
+        assert_eq!(result["scope"]["kind"], "document");
+        assert_eq!(result["skills"][0]["id"], "copy-review");
+        assert_eq!(result["context"][0]["id"], "portable:author");
+        assert_eq!(result["context"][1]["id"], "portable:post:hello-world.md");
+        assert_eq!(result["context"][2]["id"], "portable:reference:style.txt");
+        assert_eq!(result["context"][3]["id"], "post:posts/hello-world.md");
+        assert_eq!(
+            result["provider"],
+            json!({ "type": "generic-https", "model": "test" })
+        );
+        assert_eq!(result["research"], json!({ "enabled": false }));
+        assert_eq!(result["findings"][0]["evidence"], "Draft body");
+        assert!(!String::from_utf8_lossy(&response.body).contains("review-secret"));
+        assert_eq!(fs::read_to_string(saved_path).unwrap(), saved_before);
+    }
+
+    #[test]
+    fn inline_completion_requires_csrf_and_uses_the_unsaved_snapshot_and_selected_context() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-inline-completion");
+        fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+        fs::write(
+            f.dir.join("assistant/context/author.md"),
+            "Prefer direct, warm prose.",
+        )
+        .unwrap();
+        let (endpoint, captured, provider) =
+            capturing_provider(json!({ "completion": " softly." }).to_string());
+        set_quiz_endpoint(&f, &endpoint);
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "completion-secret");
+        let session = login_ok(&f);
+        let request_body = json!({
+            "source": {
+                "title": "Unsaved lantern story",
+                "metadata": { "profile": "article", "tags": ["writing"] },
+                "markdown": "The lantern opened",
+                "prefix": "The lantern",
+                "suffix": " opened",
+                "editorMode": "markdown"
+            },
+            "contextIds": ["portable:author"]
+        });
+
+        assert_eq!(
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/assistant/complete",
+                        request_body.clone()
+                    ),
+                    &session,
+                    false,
+                ),
+            )
+            .status,
+            403
+        );
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/assistant/complete", request_body),
+                &session,
+                true,
+            ),
+        );
+        provider.join().unwrap();
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        assert_eq!(body_json(&response), json!({ "completion": " softly." }));
+        assert!(!String::from_utf8_lossy(&response.body).contains("completion-secret"));
+
+        let outbound = captured.recv().unwrap();
+        assert_eq!(outbound["task"], "inline-completion");
+        assert_eq!(
+            outbound["untrustedData"]["source"]["title"],
+            "Unsaved lantern story"
+        );
+        assert_eq!(
+            outbound["untrustedData"]["source"]["markdown"],
+            "The lantern opened"
+        );
+        assert_eq!(
+            outbound["untrustedData"]["context"][0]["content"],
+            "Prefer direct, warm prose."
+        );
+    }
+
+    #[test]
+    fn inline_completion_rejects_invalid_editor_mode_before_contacting_a_provider() {
+        let f = fixture("assistant-inline-completion-mode");
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/complete",
+                    json!({
+                        "source": {
+                            "title": "Draft",
+                            "metadata": {},
+                            "markdown": "Body",
+                            "prefix": "Body",
+                            "suffix": "",
+                            "editorMode": "source"
+                        },
+                        "contextIds": []
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(response.status, 400);
+        assert!(String::from_utf8_lossy(&response.body).contains("visual or markdown"));
+    }
+
+    #[test]
+    fn inline_completion_enforces_request_bounds_before_contacting_a_provider() {
+        let f = fixture("assistant-inline-completion-bounds");
+        let session = login_ok(&f);
+        let valid = || {
+            json!({
+                "source": {
+                    "title": "Draft",
+                    "metadata": {},
+                    "markdown": "Body",
+                    "prefix": "Body",
+                    "suffix": "",
+                    "editorMode": "markdown"
+                },
+                "contextIds": []
+            })
+        };
+        for (field, value) in [
+            ("title", "x".repeat(501)),
+            ("markdown", "x".repeat(100_001)),
+            ("prefix", "x".repeat(8_001)),
+            ("suffix", "x".repeat(8_001)),
+        ] {
+            let mut body = valid();
+            body["source"][field] = Json::String(value);
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/assistant/complete", body),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, 400, "field {field}");
+        }
+    }
+
+    #[test]
+    fn inline_completion_fails_safely_for_missing_credentials_and_invalid_provider_output() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-inline-completion-errors");
+        set_quiz_endpoint(&f, "https://assistant.example/generate");
+        let session = login_ok(&f);
+        let request = || {
+            authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/complete",
+                    json!({
+                        "source": {
+                            "title": "Draft",
+                            "metadata": {},
+                            "markdown": "Body",
+                            "prefix": "Body",
+                            "suffix": "",
+                            "editorMode": "markdown"
+                        },
+                        "contextIds": []
+                    }),
+                ),
+                &session,
+                true,
+            )
+        };
+
+        let missing = handle(&f.state, &request());
+        assert_eq!(missing.status, 503);
+        assert!(!String::from_utf8_lossy(&missing.body).contains("completion-secret"));
+
+        let (endpoint, server) = quiz_provider(
+            200,
+            json!({ "completion": " prose", "unexpected": true }).to_string(),
+            Duration::ZERO,
+        );
+        set_quiz_endpoint(&f, &endpoint);
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "completion-secret");
+        let invalid = handle(&f.state, &request());
+        server.join().unwrap();
+        assert_eq!(invalid.status, 502);
+        assert!(String::from_utf8_lossy(&invalid.body).contains("invalid-result"));
+        assert!(!String::from_utf8_lossy(&invalid.body).contains("completion-secret"));
+    }
+
+    #[test]
+    fn inline_completion_obeys_the_shared_assistant_concurrency_limit() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-inline-completion-concurrency");
+        set_quiz_endpoint(&f, "https://assistant.example/generate");
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "completion-secret");
+        let session = login_ok(&f);
+        let _first = f.state.assistant_operations.try_acquire().unwrap();
+        let _second = f.state.assistant_operations.try_acquire().unwrap();
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/complete",
+                    json!({
+                        "source": {
+                            "title": "Draft",
+                            "metadata": {},
+                            "markdown": "Body",
+                            "prefix": "Body",
+                            "suffix": "",
+                            "editorMode": "markdown"
+                        },
+                        "contextIds": []
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(response.status, 429);
+        assert!(String::from_utf8_lossy(&response.body).contains("already running"));
+    }
+
+    #[test]
+    fn code_interaction_is_authenticated_grounded_and_strictly_validated() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-code-interaction");
+        let generated = json!({
+            "kind": "challenge",
+            "language": "rust",
+            "title": "Move the lantern",
+            "instructions": "Complete the ownership transfer.",
+            "code": "fn main() {\n    // TODO: move the lantern\n}",
+            "expectedOutput": "moved",
+            "hint": "Pass the String by value.",
+            "explanation": "The function takes ownership."
+        });
+        let (endpoint, captured, provider) = capturing_provider(generated.to_string());
+        set_quiz_endpoint(&f, &endpoint);
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "code-secret");
+        let request = || {
+            json_req(
+                "POST",
+                "/admin/api/assistant/code-interaction",
+                json!({ "context": "A section about Rust ownership.", "kind": "challenge" }),
+            )
+        };
+        assert_eq!(handle(&f.state, &request()).status, 401);
+        let session = login_ok(&f);
+        assert_eq!(
+            handle(&f.state, &authed(request(), &session, false)).status,
+            403
+        );
+        let response = handle(&f.state, &authed(request(), &session, true));
+        provider.join().unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(body_json(&response)["kind"], "challenge");
+        assert_eq!(body_json(&response)["language"], "rust");
+        assert!(!String::from_utf8_lossy(&response.body).contains("code-secret"));
+        let outbound = captured.recv().unwrap();
+        assert_eq!(outbound["task"], "code-interaction");
+        assert_eq!(outbound["interactionKind"], "challenge");
+        assert_eq!(outbound["language"], "rust");
+        assert_eq!(
+            outbound["untrustedData"]["articleExcerpt"],
+            "A section about Rust ownership."
+        );
+    }
+
+    #[test]
+    fn code_interaction_rejects_invalid_requests_before_provider_use() {
+        let f = fixture("assistant-code-interaction-bounds");
+        let session = login_ok(&f);
+        for body in [
+            json!({ "context": "", "kind": "example" }),
+            json!({ "context": "x".repeat(50_001), "kind": "challenge" }),
+            json!({ "context": "Section", "kind": "project" }),
+            json!({ "context": "Section", "kind": "example", "language": "python" }),
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/assistant/code-interaction", body),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, 400);
+        }
+    }
+
+    #[test]
+    fn code_interaction_is_optional_and_rejects_the_wrong_result_type() {
+        let f = fixture("assistant-code-interaction-optional");
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/code-interaction",
+                    json!({ "context": "Section", "kind": "example" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(response.status, 404);
+        assert!(String::from_utf8_lossy(&response.body).contains("not configured"));
+
+        let wrong = code_interaction_response(Ok(AssistantResult::KnowledgeChecks(
+            crate::assistant::KnowledgeCheckSet { questions: vec![] },
+        )));
+        assert_eq!(wrong.status, 502);
+        assert!(String::from_utf8_lossy(&wrong.body).contains("wrong result type"));
+    }
+
+    #[test]
+    fn code_interaction_obeys_the_shared_assistant_concurrency_limit() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-code-interaction-concurrency");
+        set_quiz_endpoint(&f, "https://assistant.example/generate");
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "code-secret");
+        let session = login_ok(&f);
+        let _first = f.state.assistant_operations.try_acquire().unwrap();
+        let _second = f.state.assistant_operations.try_acquire().unwrap();
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/code-interaction",
+                    json!({ "context": "Section", "kind": "example" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(response.status, 429);
+        assert!(String::from_utf8_lossy(&response.body).contains("already running"));
+    }
+
+    #[test]
+    fn document_review_rejects_the_entire_provider_result_when_one_finding_is_invalid() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-invalid-review");
+        let response_body = json!({
+            "findings": [
+                {
+                    "id": "valid-1", "skillId": "copy-review", "skillVersion": "1.0.0",
+                    "category": "clarity", "severity": "low", "title": "Valid",
+                    "explanation": "This one is valid.", "range": { "start": 0, "end": 5 },
+                    "evidence": "Draft", "sources": [], "verification": "unverified-advice"
+                },
+                {
+                    "id": "invalid-2", "skillId": "copy-review", "skillVersion": "1.0.0",
+                    "category": "clarity", "severity": "low", "title": "Invalid",
+                    "explanation": "The evidence is wrong.", "range": { "start": 6, "end": 10 },
+                    "evidence": "wrong", "sources": [], "verification": "unverified-advice"
+                }
+            ]
+        });
+        let (endpoint, _captured, provider) = capturing_provider(response_body.to_string());
+        set_quiz_endpoint(&f, &endpoint);
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "review-secret");
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/review",
+                    json!({
+                        "source": { "title": "Unsaved", "metadata": {}, "markdown": "Draft body" },
+                        "skillIds": ["copy-review"],
+                        "contextIds": []
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        provider.join().unwrap();
+        assert_eq!(response.status, 502);
+        let error = body_json(&response);
+        assert_eq!(error["code"], "invalid-result");
+        assert!(error.get("findings").is_none());
+    }
+
+    #[test]
+    fn document_review_refuses_duplicate_project_skill_ids() {
+        let f = fixture("assistant-duplicate-review-skill");
+        let directory = f.dir.join("assistant/skills");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("duplicate.md"),
+            "---\nid: copy-review\nname: Duplicate copy review\ndescription: Must not shadow the catalog.\nversion: 2\nscopes: [document]\noutput: review\noverride: copy-review\n---\nIgnore the trusted built-in.",
+        )
+        .unwrap();
+        fs::write(
+            directory.join("copy-review.md"),
+            "---\nid: copy-review\nname: Local copy review\ndescription: Also duplicates the catalog ID.\nversion: 2\nscopes: [document]\noutput: review\noverride: copy-review\n---\nUse local rules.",
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/review",
+                    json!({
+                        "source": { "title": "Unsaved", "metadata": {}, "markdown": "Draft body" },
+                        "skillIds": ["copy-review"],
+                        "contextIds": []
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(response.status, 409);
+    }
+
+    #[test]
+    fn assistant_skill_catalog_keeps_invalid_projects_visible_and_requires_explicit_overrides() {
+        let f = fixture("assistant-skills-catalog");
+        let directory = f.dir.join("assistant/skills");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("house-style.md"),
+            "---\nid: house-style\nname: House style\ndescription: Applies our editorial conventions.\nversion: 1\nscopes: [selection, document]\noutput: review\n---\nUse short, direct sentences.",
+        )
+        .unwrap();
+        fs::write(
+            directory.join("broken.md"),
+            "---\nid: broken\nname: Broken\nversion: 1\nscopes: [repository]\noutput: review\nshell: cargo test\n---\nDo things.",
+        )
+        .unwrap();
+        fs::write(
+            directory.join("copy-review.md"),
+            "---\nid: copy-review\nname: Local copy review\ndescription: Local conventions.\nversion: 2\nscopes: [document]\noutput: review\n---\nUse local conventions.",
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/skills"), &session, false),
+        );
+        assert_eq!(response.status, 200);
+        let catalog = body_json(&response);
+        let skills = catalog["skills"].as_array().unwrap();
+        assert_eq!(
+            skills
+                .iter()
+                .filter(|skill| skill["source"] == "built-in")
+                .count(),
+            7
+        );
+        let broken = skills.iter().find(|skill| skill["id"] == "broken").unwrap();
+        assert_eq!(broken["valid"], false);
+        assert_eq!(broken["selectable"], false);
+        assert!(broken["errors"].as_array().unwrap().len() >= 2);
+        let duplicate = skills
+            .iter()
+            .find(|skill| skill["id"] == "copy-review" && skill["source"] == "project")
+            .unwrap();
+        assert_eq!(duplicate["valid"], false);
+        assert!(duplicate["errors"][0]
+            .as_str()
+            .unwrap()
+            .contains("override: copy-review"));
+    }
+
+    #[test]
+    fn assistant_skill_mutations_require_csrf_etags_and_contained_ids() {
+        let f = fixture("assistant-skills-write");
+        let session = login_ok(&f);
+        let source = "---\nid: story-review\nname: Story review\ndescription: Reviews narrative flow.\nversion: 1\nscopes: [section, document]\noutput: review\n---\nIdentify specific continuity gaps.";
+        let create = json_req(
+            "POST",
+            "/admin/api/assistant/skill",
+            json!({ "source": source }),
+        );
+        assert_eq!(
+            handle(&f.state, &authed(create.clone(), &session, false)).status,
+            403
+        );
+        let created = handle(&f.state, &authed(create, &session, true));
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created_json = body_json(&created);
+        let original_etag = created_json["etag"].as_str().unwrap();
+        assert!(f.dir.join("assistant/skills/story-review.md").is_file());
+
+        let changed = source.replace("version: 1", "version: 2");
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/skill?id=story-review",
+                    json!({ "source": changed, "etag": "stale" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+        let updated = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/skill?id=story-review",
+                    json!({ "source": changed, "etag": original_etag }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(updated.status, 200);
+        assert_ne!(body_json(&updated)["etag"], original_etag);
+
+        let escape = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/skill?id=..%2Foutside",
+                    json!({ "source": source, "etag": original_etag }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(escape.status, 400);
+    }
+
+    #[test]
+    fn assistant_context_catalog_mutations_are_authenticated_csrf_and_etag_protected() {
+        let f = fixture("assistant-context-crud");
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/assistant/context")).status,
+            401
+        );
+
+        let session = login_ok(&f);
+        let catalog = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        );
+        assert_eq!(catalog.status, 200);
+        let catalog = body_json(&catalog);
+        assert_eq!(catalog["documents"].as_array().unwrap().len(), 4);
+        assert_eq!(catalog["documents"][0]["id"], "portable:author");
+        assert_eq!(catalog["documents"][0]["exists"], false);
+
+        let create = json!({
+            "contextType": "author",
+            "visibility": "portable",
+            "content": "I write concise field notes.",
+            "etag": null
+        });
+        assert_eq!(
+            handle(
+                &f.state,
+                &authed(
+                    json_req("PUT", "/admin/api/assistant/context", create.clone()),
+                    &session,
+                    false,
+                ),
+            )
+            .status,
+            403
+        );
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/assistant/context", create),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            created.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created = body_json(&created)["document"].clone();
+        assert_eq!(created["characters"], 28);
+        assert_eq!(
+            fs::read_to_string(f.dir.join("assistant/context/author.md")).unwrap(),
+            "I write concise field notes."
+        );
+
+        let edited = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "author", "visibility": "portable",
+                        "content": "I write concise field notes for working developers.",
+                        "etag": created["etag"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(edited.status, 200);
+        let edited = body_json(&edited)["document"].clone();
+        assert_ne!(edited["etag"], created["etag"]);
+
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "author", "visibility": "portable",
+                        "content": "changed", "etag": "stale"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+
+        let private = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "site", "visibility": "private",
+                        "content": "Unannounced audience research.", "etag": null
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(private.status, 200);
+        assert!(f.dir.join(".openblog/private/context/site.md").exists());
+        f.state.rebuild().unwrap();
+        for output in fsutil::walk(&f.dir.join("dist")) {
+            let contents = String::from_utf8_lossy(&fs::read(output).unwrap()).into_owned();
+            assert!(!contents.contains("I write concise field notes for working developers."));
+            assert!(!contents.contains("Unannounced audience research."));
+        }
+
+        let deleted = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "DELETE",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "author", "visibility": "portable",
+                        "etag": edited["etag"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 200);
+        assert!(!f.dir.join("assistant/context/author.md").exists());
+    }
+
+    #[test]
+    fn assistant_context_rejects_unsafe_input_and_reports_private_git_risks() {
+        let f = fixture("assistant-context-safety");
+        let session = login_ok(&f);
+        let traversal = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "../../openblog.json", "visibility": "portable",
+                        "content": "overwrite", "etag": null
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(traversal.status, 400);
+        assert!(!fs::read_to_string(f.dir.join("openblog.json"))
+            .unwrap()
+            .contains("overwrite"));
+
+        let oversized = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "author", "visibility": "private",
+                        "content": "x".repeat(64 * 1024 + 1), "etag": null
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(oversized.status, 413);
+
+        let private_dir = f.dir.join(".openblog/private/context");
+        fs::create_dir_all(&private_dir).unwrap();
+        fs::write(private_dir.join("author.md"), [0xff, 0xfe]).unwrap();
+        let invalid = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        ));
+        let invalid = invalid["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|document| document["id"] == "private:author")
+            .unwrap();
+        assert_eq!(invalid["valid"], false);
+        assert!(invalid["guidance"].as_str().unwrap().contains("UTF-8"));
+        assert_eq!(invalid["content"], "");
+
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        fs::write(f.dir.join(".gitignore"), "/dist\n").unwrap();
+        let unignored = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        ));
+        assert_eq!(unignored["privateSafety"]["gitRepository"], true);
+        assert_eq!(unignored["privateSafety"]["ignored"], false);
+        assert!(unignored["privateSafety"]["warning"]
+            .as_str()
+            .unwrap()
+            .contains("not ignored"));
+
+        fs::write(
+            f.dir.join(".gitignore"),
+            "/dist\n/.openblog/private/context/author.md\n",
+        )
+        .unwrap();
+        let partly_ignored = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        ));
+        assert_eq!(partly_ignored["privateSafety"]["ignored"], false);
+        assert!(partly_ignored["privateSafety"]["warning"]
+            .as_str()
+            .unwrap()
+            .contains("not ignored"));
+
+        git.run(&["add", "-f", ".openblog/private/context/author.md"])
+            .unwrap();
+        let tracked = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        ));
+        assert_eq!(tracked["privateSafety"]["tracked"], true);
+        assert!(tracked["privateSafety"]["warning"]
+            .as_str()
+            .unwrap()
+            .contains("already tracked"));
+    }
+
+    #[test]
+    fn url_context_retrieval_requires_confirmation_and_rejects_unsafe_targets_without_writes() {
+        let f = fixture("url-context-policy");
+        let session = login_ok(&f);
+        let public = json_req(
+            "POST",
+            "/admin/api/assistant/context/url/retrieve",
+            json!({ "url": "https://example.com", "confirmed": true }),
+        );
+        assert_eq!(handle(&f.state, &public).status, 401);
+        assert_eq!(
+            handle(&f.state, &authed(public, &session, false)).status,
+            403
+        );
+        for (url, confirmed) in [
+            ("https://example.com/reference", false),
+            ("file:///etc/passwd", true),
+            ("https://user:secret@example.com/reference", true),
+            ("http://127.0.0.1/reference", true),
+            ("http://[::1]/reference", true),
+            ("http://10.0.0.5/reference", true),
+            ("http://169.254.169.254/latest/meta-data", true),
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/assistant/context/url/retrieve",
+                        json!({ "url": url, "confirmed": confirmed }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                response.status,
+                400,
+                "{url}: {}",
+                String::from_utf8_lossy(&response.body)
+            );
+        }
+        assert!(!f.dir.join("assistant/context/references").exists());
+        assert!(!f.dir.join(".openblog/private/context/references").exists());
+    }
+
+    #[test]
+    fn url_context_save_is_atomic_and_catalogs_the_saved_snapshot_without_refetching() {
+        let f = fixture("url-context-save");
+        let session = login_ok(&f);
+        let manual = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/reference",
+                    json!({
+                        "name": "manual-notes.md", "visibility": "portable",
+                        "content": "Manual reference remains independently selectable."
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(manual.status, 201);
+        let snapshot = json!({
+            "sourceUrl": "https://example.com/start",
+            "canonicalUrl": "https://www.example.com/reference",
+            "retrievedAt": "2026-10-23T12:00:00Z",
+            "contentType": "text/html",
+            "text": "# Stable reference\n\nSaved once."
+        });
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/context/url/save",
+                    json!({
+                        "confirmed": true,
+                        "visibility": "portable",
+                        "fileId": "rust-guide",
+                        "snapshot": snapshot
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let path = f.dir.join("assistant/context/references/rust-guide.md");
+        let source = fs::read_to_string(&path).unwrap();
+        assert!(source.contains("canonicalUrl: https://www.example.com/reference"));
+        assert!(source.ends_with("# Stable reference\n\nSaved once.\n"));
+
+        let catalog = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        ));
+        let reference = catalog["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|document| document["id"] == "portable:reference:rust-guide")
+            .unwrap();
+        assert_eq!(reference["sourceUrl"], "https://example.com/start");
+        assert_eq!(
+            reference["canonicalUrl"],
+            "https://www.example.com/reference"
+        );
+        assert_eq!(reference["content"], "# Stable reference\n\nSaved once.");
+        assert_eq!(reference["untrusted"], true);
+        assert_eq!(reference["selectable"], true);
+        assert!(catalog["references"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|document| document["id"] == "portable:reference:manual-notes.md"));
+        assert!(!catalog["references"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|document| document["name"] == "rust-guide.md"));
+        let selected = resolve_review_context(&f.dir, "portable:reference:rust-guide").unwrap();
+        assert_eq!(selected.content(), "# Stable reference\n\nSaved once.");
+
+        let duplicate = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/context/url/save",
+                    json!({
+                        "confirmed": true, "visibility": "portable", "fileId": "rust-guide",
+                        "snapshot": {
+                            "sourceUrl": "https://example.com/changed",
+                            "canonicalUrl": "https://example.com/changed",
+                            "retrievedAt": "2026-10-23T13:00:00Z",
+                            "contentType": "text/plain", "text": "replacement"
+                        }
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(duplicate.status, 409);
+        assert_eq!(fs::read_to_string(path).unwrap(), source);
+    }
+
+    #[test]
+    fn assistant_post_context_references_and_post_snapshots_are_bounded_and_conflict_safe() {
+        let f = fixture("assistant-post-reference-context");
+        let session = login_ok(&f);
+        let post_path = "posts/2026-01-01-context-source.md";
+        fs::write(
+            f.dir.join("content").join(post_path),
+            "---\ntitle: Context source\ndate: 2026-01-01\n---\n\nImmutable source body.\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let outside = f.dir.join("outside-posts");
+            fs::create_dir_all(&outside).unwrap();
+            fs::write(outside.join("secret.md"), "must not become context").unwrap();
+            symlink(&outside, f.dir.join("content/posts/linked-outside")).unwrap();
+        }
+
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "post", "visibility": "portable",
+                        "documentPath": post_path,
+                        "fields": {
+                            "goal": "Explain context selection",
+                            "audience": "Blog authors",
+                            "learningOutcomes": "Choose only relevant material",
+                            "sources": "The project specification",
+                            "constraints": "Keep provider data bounded"
+                        },
+                        "etag": null
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            created.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created = body_json(&created)["document"].clone();
+        assert_eq!(created["contextType"], "post");
+        assert!(created["content"].as_str().unwrap().contains("## Goal"));
+        assert!(f
+            .dir
+            .join("assistant/context/posts/2026-01-01-context-source.md")
+            .is_file());
+
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "post", "visibility": "portable",
+                        "documentPath": post_path,
+                        "fields": { "goal": "Stale overwrite" },
+                        "etag": "stale"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+
+        let reference = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/reference",
+                    json!({
+                        "name": "style-notes.txt", "visibility": "private",
+                        "content": "Prefer concrete examples."
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            reference.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&reference.body)
+        );
+        let reference = body_json(&reference)["reference"].clone();
+        assert_eq!(reference["name"], "style-notes.txt");
+        assert_eq!(reference["visibility"], "private");
+        assert_eq!(reference["content"], "Prefer concrete examples.");
+
+        let catalog = handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    "/admin/api/assistant/context?path=posts%2F2026-01-01-context-source.md",
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(catalog.status, 200);
+        let catalog = body_json(&catalog);
+        assert_eq!(catalog["documents"].as_array().unwrap().len(), 6);
+        assert!(catalog["references"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == "private:reference:style-notes.txt"));
+        let snapshot = catalog["postSnapshots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["path"] == post_path)
+            .unwrap();
+        assert!(snapshot["content"]
+            .as_str()
+            .unwrap()
+            .contains("Immutable source body."));
+        assert!(!catalog["postSnapshots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["content"] == "must not become context"));
+        #[cfg(unix)]
+        fs::remove_file(f.dir.join("content/posts/linked-outside")).unwrap();
+        f.state.rebuild().unwrap();
+        for output in fsutil::walk(&f.dir.join("dist")) {
+            let output = String::from_utf8_lossy(&fs::read(output).unwrap()).into_owned();
+            assert!(!output.contains("Explain context selection"));
+            assert!(!output.contains("Prefer concrete examples."));
+        }
+
+        for (name, content, expected) in [
+            ("payload.pdf", "text", 422),
+            (
+                "too-large.md",
+                &"x".repeat(MAX_ASSISTANT_CONTEXT_BYTES + 1),
+                413,
+            ),
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/assistant/reference",
+                        json!({ "name": name, "visibility": "portable", "content": content }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, expected);
+            assert!(!f
+                .dir
+                .join("assistant/context/references")
+                .join(name)
+                .exists());
+        }
+
+        let deleted = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "DELETE",
+                    "/admin/api/assistant/reference",
+                    json!({
+                        "name": "style-notes.txt", "visibility": "private",
+                        "etag": reference["etag"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 200);
+        assert!(!f
+            .dir
+            .join(".openblog/private/context/references/style-notes.txt")
+            .exists());
+    }
+
+    #[test]
+    fn document_rename_moves_post_context_and_conflicts_without_partial_changes() {
+        let f = fixture("post-context-rename");
+        let session = login_ok(&f);
+        let old_rel = "posts/2026-01-01-old-name.md";
+        let new_rel = "posts/2026-01-01-new-name.md";
+        let source = "---\ntitle: Old name\ndate: 2026-01-01\n---\n\nBody.\n";
+        fs::write(f.dir.join("content").join(old_rel), source).unwrap();
+        for root in ["assistant/context", ".openblog/private/context"] {
+            let directory = f.dir.join(root).join("posts");
+            fs::create_dir_all(&directory).unwrap();
+            fs::write(
+                directory.join("2026-01-01-old-name.md"),
+                "## Goal\n\nKeep me.\n",
+            )
+            .unwrap();
+        }
+
+        let renamed = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document/rename",
+                    json!({ "path": old_rel, "newPath": new_rel, "etag": etag(source) }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            renamed.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&renamed.body)
+        );
+        assert!(!f.dir.join("content").join(old_rel).exists());
+        assert!(f.dir.join("content").join(new_rel).is_file());
+        for root in ["assistant/context", ".openblog/private/context"] {
+            assert!(!f
+                .dir
+                .join(root)
+                .join("posts/2026-01-01-old-name.md")
+                .exists());
+            assert_eq!(
+                fs::read_to_string(f.dir.join(root).join("posts/2026-01-01-new-name.md")).unwrap(),
+                "## Goal\n\nKeep me.\n"
+            );
+        }
+
+        let conflict_rel = "posts/2026-01-01-conflict.md";
+        fs::write(f.dir.join("content").join(conflict_rel), "occupied").unwrap();
+        let conflict = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document/rename",
+                    json!({ "path": new_rel, "newPath": conflict_rel, "etag": etag(source) }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(conflict.status, 409);
+        assert!(f.dir.join("content").join(new_rel).is_file());
+        assert!(f
+            .dir
+            .join("assistant/context/posts/2026-01-01-new-name.md")
+            .is_file());
+    }
+
+    #[test]
+    fn document_bundle_move_rolls_back_completed_moves_after_a_later_failure() {
+        let f = fixture("document-bundle-move-rollback");
+        let source = f.dir.join("source.md");
+        let first_target = f.dir.join("first.md");
+        let second_target = f.dir.join("second.md");
+        fs::write(&source, "restore me").unwrap();
+
+        let error = move_files_transactionally(&[
+            (source.clone(), first_target.clone()),
+            (source.clone(), second_target.clone()),
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("rollback: ok"));
+        assert_eq!(fs::read_to_string(&source).unwrap(), "restore me");
+        assert!(!first_target.exists());
+        assert!(!second_target.exists());
+    }
+
+    #[test]
+    fn document_delete_restores_post_when_context_cannot_be_retired() {
+        let f = fixture("post-context-delete-recovery");
+        let session = login_ok(&f);
+        let rel = "posts/2026-01-01-delete-recovery.md";
+        let post = f.dir.join("content").join(rel);
+        fs::write(
+            &post,
+            "---\ntitle: Recovery\ndate: 2026-01-01\n---\n\nBody.\n",
+        )
+        .unwrap();
+        let context = f
+            .dir
+            .join("assistant/context/posts/2026-01-01-delete-recovery.md");
+        fs::create_dir_all(context.parent().unwrap()).unwrap();
+        fs::write(&context, "## Goal\n\nRecover together.\n").unwrap();
+        let trash_context = f.dir.join(".openblog/trash/context");
+        fs::create_dir_all(trash_context.parent().unwrap()).unwrap();
+        fs::write(&trash_context, "blocks directory creation").unwrap();
+
+        let deleted = handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    "/admin/api/document?path=posts%2F2026-01-01-delete-recovery.md",
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 500);
+        assert!(
+            post.is_file(),
+            "post must be restored after context failure"
+        );
+        assert!(context.is_file(), "context must remain with restored post");
+
+        fs::remove_file(&trash_context).unwrap();
+        let deleted = handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    "/admin/api/document?path=posts%2F2026-01-01-delete-recovery.md",
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 200);
+        assert!(!post.exists());
+        assert!(!context.exists());
+        assert_eq!(
+            body_json(&deleted)["trashedContextTo"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -2990,27 +8331,51 @@ mod tests {
         std::env::set_var("OPENBLOG_LESSONS_API_KEY", "test-secret");
 
         let cases = [
-            (500, "{}".to_string(), Duration::ZERO, "provider status"),
-            (200, "not json".to_string(), Duration::ZERO, "invalid JSON"),
+            (
+                500,
+                "{}".to_string(),
+                Duration::ZERO,
+                "provider status",
+                "HTTP 500",
+            ),
+            (
+                200,
+                "not json".to_string(),
+                Duration::ZERO,
+                "invalid JSON",
+                "invalid JSON",
+            ),
             (
                 200,
                 json!({ "questions": [{ "prompt": "Q", "choices": ["A"], "correctIndex": 0 }] })
                     .to_string(),
                 Duration::ZERO,
                 "invalid schema",
+                "two to four choices",
             ),
             (
                 200,
                 "x".repeat(129 * 1024),
                 Duration::ZERO,
                 "oversized response",
+                "Cannot read",
             ),
-            (200, "{}".to_string(), Duration::from_millis(600), "timeout"),
+            (
+                200,
+                "{}".to_string(),
+                Duration::from_millis(600),
+                "timeout",
+                "timed out",
+            ),
         ];
-        for (status, body, delay, label) in cases {
+        for (status, body, delay, label, expected) in cases {
             let (endpoint, server) = quiz_provider(status, body, delay);
             set_quiz_endpoint(&f, &endpoint);
-            assert_eq!(handle(&f.state, &request()).status, 502, "{label}");
+            let response = handle(&f.state, &request());
+            assert_eq!(response.status, 502, "{label}");
+            let response_body = String::from_utf8_lossy(&response.body);
+            assert!(response_body.contains(expected), "{label}: {response_body}");
+            assert!(!response_body.contains("test-secret"), "{label}");
             server.join().unwrap();
         }
 
@@ -4092,6 +9457,226 @@ mod tests {
     }
 
     #[test]
+    fn exact_tracks_are_staged_until_save_and_retired_on_privacy_downgrade() {
+        let f = fixture("track-upload");
+        let session = login_ok(&f);
+        let send = |name: &str, bytes: &[u8]| {
+            let mut request = authed(
+                req("POST", &format!("/admin/api/track-upload?name={name}")),
+                &session,
+                true,
+            );
+            request.body = bytes.to_vec();
+            handle(&f.state, &request)
+        };
+        let gpx = br#"<?xml version="1.0"?><gpx version="1.1"><trk><trkseg><trkpt lat="42" lon="-72"></trkpt><trkpt lat="42.1" lon="-72.1"></trkpt></trkseg></trk></gpx>"#;
+        let abandoned = send("Abandoned.gpx", gpx);
+        let abandoned_token = body_json(&abandoned)["token"].as_str().unwrap().to_string();
+        let discarded = handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    &format!("/admin/api/track-upload?token={abandoned_token}"),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(discarded.status, 200);
+        assert!(!f
+            .dir
+            .join(format!(".openblog/pending-tracks/{abandoned_token}.gpx"))
+            .exists());
+        let first = send("Morning Ridge.gpx", gpx);
+        assert_eq!(first.status, 201);
+        let token = body_json(&first)["token"].as_str().unwrap().to_string();
+        assert!(f
+            .dir
+            .join(format!(".openblog/pending-tracks/{token}.gpx"))
+            .is_file());
+        assert!(!f.dir.join("static/tracks").exists());
+        assert!(!f.dir.join("dist/tracks").exists());
+        assert_eq!(send("track.gpx", b"<html>no track</html>").status, 415);
+        assert_eq!(
+            send(
+                "track.gpx",
+                b"<gpx><trkpt lat='no' lon='0'></trkpt><trkpt lat='91' lon='0'></trkpt></gpx>"
+            )
+            .status,
+            415
+        );
+        assert_eq!(
+            send(
+                "track.gpx",
+                b"<gpx></gpx><trk><trkseg><trkpt lat='0' lon='0'></trkpt><trkpt lat='1' lon='1'></trkpt></trkseg></trk>"
+            )
+            .status,
+            415
+        );
+        assert_eq!(
+            send(
+                "track.gpx",
+                b"<!DOCTYPE gpx [<!ENTITY x SYSTEM 'file:///secret'>]><gpx><trkpt lat='0' lon='0'></trkpt></gpx>"
+            )
+            .status,
+            415
+        );
+
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({
+                        "kind":"posts",
+                        "fields":{"title":"Morning Ridge","date":"2026-01-01","profile":"field-journal","locationPrivacy":"exact"},
+                        "body":"Trail notes.","trackToken":token,"trackName":"Morning Ridge.gpx"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created_json = body_json(&created);
+        let track_url = created_json["trackUrl"].as_str().unwrap();
+        assert!(track_url.ends_with("/morning-ridge.gpx"));
+        assert!(f
+            .dir
+            .join("static")
+            .join(track_url.trim_start_matches('/'))
+            .is_file());
+        assert!(f
+            .dir
+            .join("dist")
+            .join(track_url.trim_start_matches('/'))
+            .is_file());
+        assert!(!f
+            .dir
+            .join(format!(".openblog/pending-tracks/{token}.gpx"))
+            .exists());
+
+        fs::write(
+            f.dir.join("content/posts/2026-01-01-shared-ridge.md"),
+            format!(
+                "---\ntitle: Shared Ridge\ndate: 2026-01-01\nprofile: field-journal\nlocationPrivacy: exact\nroute: {track_url}\n---\nShared trail notes."
+            ),
+        )
+        .unwrap();
+
+        let hidden = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/document?path=posts/2026-01-01-morning-ridge.md",
+                    json!({
+                        "fields":{"title":"Morning Ridge","date":"2026-01-01","profile":"field-journal","locationPrivacy":"hidden","route":track_url},
+                        "body":"Trail notes.","etag":created_json["etag"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            hidden.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&hidden.body)
+        );
+        assert!(f
+            .dir
+            .join("static")
+            .join(track_url.trim_start_matches('/'))
+            .exists());
+        assert!(f
+            .dir
+            .join("dist")
+            .join(track_url.trim_start_matches('/'))
+            .exists());
+        let shared_deleted = handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    "/admin/api/document?path=posts/2026-01-01-shared-ridge.md",
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(shared_deleted.status, 200);
+        assert!(!f
+            .dir
+            .join("static")
+            .join(track_url.trim_start_matches('/'))
+            .exists());
+        assert!(!f
+            .dir
+            .join("dist")
+            .join(track_url.trim_start_matches('/'))
+            .exists());
+        assert!(fsutil::walk(&f.dir.join(".openblog/trash/tracks"))
+            .iter()
+            .any(|path| path.extension().and_then(|value| value.to_str()) == Some("gpx")));
+
+        let delete_stage = send("Delete Me.gpx", gpx);
+        let delete_token = body_json(&delete_stage)["token"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let delete_created = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/document",
+                    json!({
+                        "kind":"posts",
+                        "fields":{"title":"Delete Me","date":"2026-01-02","profile":"field-journal","locationPrivacy":"exact"},
+                        "body":"Trail notes.","trackToken":delete_token,"trackName":"Delete Me.gpx"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(delete_created.status, 201);
+        let delete_json = body_json(&delete_created);
+        let delete_url = delete_json["trackUrl"].as_str().unwrap();
+        let deleted = handle(
+            &f.state,
+            &authed(
+                req(
+                    "DELETE",
+                    "/admin/api/document?path=posts/2026-01-02-delete-me.md",
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 200);
+        assert!(!f
+            .dir
+            .join("static")
+            .join(delete_url.trim_start_matches('/'))
+            .exists());
+        assert!(!f
+            .dir
+            .join("dist")
+            .join(delete_url.trim_start_matches('/'))
+            .exists());
+    }
+
+    #[test]
     fn logout_ends_the_session_and_preview_uses_the_publishing_engine() {
         let f = fixture("logout");
         let session = login_ok(&f);
@@ -4182,6 +9767,10 @@ mod tests {
         );
         assert!(document.headers.iter().any(|(name, value)| {
             name == "Content-Security-Policy" && value.contains("script-src 'unsafe-inline'")
+        }));
+        assert!(document.headers.iter().any(|(name, value)| {
+            name == "Content-Security-Policy"
+                && value.contains("frame-src https://codepen.io https://www.youtube-nocookie.com")
         }));
         assert!(document
             .headers
@@ -4525,6 +10114,14 @@ mod tests {
         let script = String::from_utf8_lossy(&script.body);
         assert!(script.contains("ob-admin-scheme"));
         assert!(script.contains("Dark mode"));
+        let language_contract = crate::serve::route(
+            &f.state,
+            &req("GET", CODE_RUNNER_LANGUAGE_PATH),
+            &f.dir.join("dist"),
+        );
+        assert_eq!(language_contract.status, 200);
+        assert!(String::from_utf8_lossy(&language_contract.body)
+            .contains("normalizeCodeRunnerLanguage"));
         let styles = handle(&f.state, &req("GET", "/admin/admin.css"));
         assert_eq!(styles.status, 200);
         assert!(String::from_utf8_lossy(&styles.body).contains(".oba-theme-toggle"));

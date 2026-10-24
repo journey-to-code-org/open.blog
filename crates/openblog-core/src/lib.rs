@@ -13,12 +13,14 @@
 //! - [`search`]: a small ranked search over a JSON index
 
 pub mod accessibility;
+pub mod assistant_guide;
 pub mod config;
 pub mod contributor;
 pub mod date;
 pub mod embed;
 pub mod escape;
 pub mod feeds;
+pub mod field_journal;
 pub mod frontmatter;
 pub mod markdown;
 pub mod model;
@@ -29,6 +31,7 @@ pub mod research;
 pub mod search;
 pub mod slug;
 pub mod theme;
+pub mod video;
 
 pub use config::SiteConfig;
 pub use date::DateTime;

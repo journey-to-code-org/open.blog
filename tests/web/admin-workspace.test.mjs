@@ -13,15 +13,83 @@ test("admin shell exposes a grouped publishing workspace", () => {
   assert.match(admin, /h\("h1", \{\}, activeInfo\.title\)/);
 });
 
-test("editor has named writing, preview, optimization, accessibility, and evidence views", () => {
+test("editor has named writing, preview, release, optimization, accessibility, and evidence views", () => {
   assert.match(admin, /"data-pane": "settings"/);
   assert.match(admin, /"data-pane": "write"/);
   assert.match(admin, /"data-pane": "preview"/);
   assert.match(admin, /"data-pane": "social"/);
+  assert.match(admin, /"data-pane": "release"/);
   assert.match(admin, /"data-pane": "optimize"/);
   assert.match(admin, /"data-pane": "accessibility"/);
   assert.match(admin, /"data-pane": "evidence"/);
+  assert.match(admin, /"data-pane": "assistant"/);
   assert.match(admin, /"aria-label": "Editor views"/);
+});
+
+test("Assistant workspace exposes safe provider status and labelled empty views", () => {
+  assert.match(admin, /api\.call\("GET", "assistant\/status"\)/);
+  assert.match(admin, /"aria-label": "Assistant views"/);
+  assert.match(admin, /Review/);
+  assert.match(admin, /Interactions/);
+  assert.match(admin, /Context/);
+  assert.match(admin, /Loading assistant configuration/);
+  assert.match(admin, /role: "status", "aria-live": "polite"/);
+  assert.match(admin, /Alt\+0/);
+  assert.doesNotMatch(admin, /OPENBLOG_LESSONS_API_KEY[^"'`]*(?:value|credential|secret)/i);
+});
+
+test("Assistant Interactions exposes reviewed quiz and runnable-code proposal flows", () => {
+  assert.match(admin, /Create knowledge-check proposal/);
+  assert.match(admin, /bindAssistantInteractionControl\(this, ui\.assistantInteractionCreate\)/);
+  assert.match(admin, /bindAssistantInteractionControl\(this, ui\.assistantCodeInteractionCreate, "code"\)/);
+  assert.match(admin, /remain editable proposals until you review and insert them/);
+  assert.match(admin, /Create runnable-code proposal/);
+  assert.match(admin, /assistant\/code-interaction/);
+  assert.doesNotMatch(admin, /Proposal workflows will appear here in a later delivery/);
+});
+
+test("Visual selections are captured for keyboard and command-palette Assistant navigation", () => {
+  assert.match(admin, /const activatePane = \(pane, focus = false\) => \{\s*if \(pane !== "write"\) this\.captureVisualSelection\(\);/);
+  assert.match(admin, /openCommandPalette\(\) \{\s*this\.editor\?\.captureVisualSelection\(\);/);
+  assert.match(admin, /openKnowledgeCheck\(\) \{\s*this\.captureVisualSelection\(\);/);
+});
+
+test("Assistant provider settings can be configured without revealing a saved credential", () => {
+  assert.match(admin, /api\.call\("GET", "assistant\/settings"\)/);
+  assert.match(admin, /api\.call\("PUT", "assistant\/settings"/);
+  assert.match(admin, /Generation endpoint/);
+  assert.match(admin, /Model/);
+  assert.match(admin, /API key \(write-only\)/);
+  assert.match(admin, /Remove saved credential/);
+  assert.match(admin, /Environment credential takes precedence/);
+  assert.doesNotMatch(admin, /assistantSettingsCredential\.value\s*=\s*settings/);
+  assert.match(admin, /"details",\s*\{ class: "oba-assistant-provider-settings" \}/);
+  assert.match(admin, /"Edit provider settings"/);
+  assert.match(admin, /oba-assistant-status-badge/);
+});
+
+test("Assistant Context manages portable and private files with a disclosure preview", () => {
+  assert.match(admin, /api\.call\("GET", endpoint\)/);
+  assert.match(admin, /api\.call\("PUT", "assistant\/context"/);
+  assert.match(admin, /api\.call\("DELETE", "assistant\/context"/);
+  assert.match(admin, /Portable/);
+  assert.match(admin, /Private/);
+  assert.match(admin, /Context disclosure/);
+  assert.match(admin, /Selected context/);
+  assert.match(admin, /privateSafety/);
+  assert.match(admin, /role: "status", "aria-live": "polite"/);
+  assert.match(styles, /\.oba-assistant-context-card\[data-visibility="private"\]/);
+});
+
+test("Assistant Context manages post briefs, text references, and existing-post snapshots", () => {
+  assert.match(admin, /assistant\/context\?path=/);
+  assert.match(admin, /api\.call\("POST", "assistant\/reference"/);
+  assert.match(admin, /api\.call\("DELETE", "assistant\/reference"/);
+  assert.match(admin, /Learning outcomes/);
+  assert.match(admin, /Free-form constraints/);
+  assert.match(admin, /Existing post snapshots/);
+  assert.match(admin, /postSnapshots/);
+  assert.match(admin, /references/);
 });
 
 test("editors expose one explicitly selected view at every width", () => {
@@ -32,9 +100,21 @@ test("editors expose one explicitly selected view at every width", () => {
   assert.match(styles, /\.oba-editor\[data-editor-view="write"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="preview"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="social"\]/);
+  assert.match(styles, /\.oba-editor\[data-editor-view="release"\]/);
+  assert.match(styles, /\.oba-editor\[data-editor-view="field"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="optimize"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="accessibility"\]/);
   assert.match(styles, /\.oba-editor\[data-editor-view="evidence"\]/);
+  assert.match(styles, /\.oba-editor\[data-editor-view="assistant"\]/);
+});
+
+test("video release kit stays local and exposes decision-ready copy", () => {
+  assert.match(admin, /buildVideoReleaseKit/);
+  assert.match(admin, /Copy release description/);
+  assert.match(admin, /The first chapter must start at 00:00/);
+  assert.match(admin, /Keep every chapter at least 10 seconds long/);
+  assert.match(styles, /\.oba-release-workspace/);
+  assert.doesNotMatch(admin, /youtube.*(?:fetch|api\.call)/i);
 });
 
 test("workspace layout keeps one focused editor view and responsive controls", () => {
@@ -80,4 +160,19 @@ test("site tools expose a contributor registry workspace with manual identity pr
   assert.match(admin, /this\.mount\(this\.shell\(doc\.kind, editor\.render\(\)\)\)/);
   assert.match(styles, /\.oba-contributor-grid/);
   assert.match(styles, /\.oba-contributor-card/);
+});
+
+test("Analytics configures hosted Supabase engagement without exposing service credentials", () => {
+  assert.match(admin, /engagement\/settings/);
+  assert.match(admin, /engagement\/analytics/);
+  assert.match(admin, /engagement\/comments\?status=\$\{selectedStatus\}/);
+  assert.match(admin, /COMMENT_MODERATION_STATUSES = \["pending", "approved", "rejected"\]/);
+  assert.match(admin, /Comment moderation/);
+  assert.match(admin, /Open — show comments and submission form/);
+  assert.match(admin, /Locked — show approved comments only/);
+  assert.match(admin, /Hidden — do not show comments/);
+  assert.match(admin, /field\.kind === "production-status"/);
+  assert.match(admin, /Moderation API token \(write-only\)/);
+  assert.match(admin, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(admin, /SUPABASE_SERVICE_ROLE_KEY[^\n]*(?:value|credentialAction)/);
 });

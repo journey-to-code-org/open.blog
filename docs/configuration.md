@@ -30,6 +30,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "home": { "heading": "Latest posts", "intro": "", "showSeries": true },
   "share": { "enabled": true, "networks": ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"] },
   "analytics": { "builtin": true, "showViews": true, "retentionDays": 400, "endpoint": "", "branch": "analytics", "bakeCounts": true },
+  "engagement": { "enabled": false, "comments": true, "analytics": true, "endpoint": "" },
   "snippets": { "head": "", "postFooter": "", "bodyEnd": "" },
   "relatedPosts": 3,
   "cdn": { "url": "", "paths": ["/assets/", "/themes/", "/images/"], "version": "", "maxAge": 86400 },
@@ -37,6 +38,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "seo": { "aiSearch": true, "aiTraining": true },
   "markdown": { "smartPunctuation": false, "headingAnchors": true, "tocDepth": 3, "tocMinHeadings": 3 },
   "code": { "highlight": null, "lineNumbers": null, "copyButton": true },
+  "codeRunner": { "endpoint": "", "languages": [] },
   "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true },
   "knowledgeChecks": { "generationEndpoint": "", "model": "" },
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
@@ -81,6 +83,9 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   hosted elsewhere, `branch` names the git branch that backs the counts up, and
   `bakeCounts` writes the known counts into static builds. See
   [Publishing from home](publishing.md).
+- `engagement.enabled` adds hosted comments and analytics to static deployments;
+  `engagement.endpoint` is the public function URL. Database and moderation secrets stay in server
+  environment variables or Admin's write-only private credential store.
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.
@@ -128,6 +133,28 @@ A post can override `highlight` and `lineNumbers` in its front matter, and one c
 can override line numbers with its fence options (see [Writing content](content.md#code-blocks)).
 The order is: the fence, then the post, then this setting, then the theme.
 
+### External code runner
+
+`codeRunner` is optional. With no endpoint, `rust runnable` keeps using the official Rust
+Playground and every other configured-runner language stays a static code block. To enable an
+independently hosted execution gateway:
+
+```json
+"codeRunner": {
+  "endpoint": "https://runner.example.com/v1/execute",
+  "languages": ["python", "go"]
+}
+```
+
+The endpoint must be HTTPS without credentials, a query, or a fragment. `languages` is an explicit
+allowlist; Rust is routed through the gateway whenever an endpoint is present, and `web` always uses
+open.blog's separate browser-preview sandbox. Unknown languages marked `runnable` remain ordinary
+static fences. The endpoint is public and appears in generated HTML: never place a token, API key,
+or private runner address in it.
+
+See [Deploying an execution gateway](deploy.md#execution-gateway) for the wire contract and runner
+isolation requirements.
+
 ## Recipes
 
 What readers get on posts using `profile: recipe` (legacy `recipe: true` also works; see
@@ -153,8 +180,10 @@ blog itself or that it did not create.
 ## Knowledge checks
 
 Knowledge checks and their local reader interactions need no configuration. Setting
-`generationEndpoint` enables optional author-time question generation in the admin editor
-when `OPENBLOG_LESSONS_API_KEY` is also present in the server environment. `model` is an
+`generationEndpoint` enables optional author-time question generation and review in the admin
+editor when a private credential is saved from the Assistant panel or
+`OPENBLOG_LESSONS_API_KEY` is present in the server environment. Environment configuration takes
+precedence. `model` is an
 optional identifier passed through to that endpoint. See [The admin editor](admin.md#optional-question-generation)
 for the endpoint contract and security boundary.
 
@@ -176,6 +205,15 @@ How the Publish button and `openblog publish` commit and push; see
 [Publishing from home](publishing.md). `paths` lists what gets committed, `includeDrafts`
 keeps drafts out of public history unless set, `auto` publishes after every save, and
 `pullFirst` rebases on changes made elsewhere before pushing.
+
+## Syndication
+
+`syndication.targets` is a map of user-chosen destination names to DEV, Hashnode, Ghost,
+WordPress, or manual Medium settings. `stateFile` points to private remote-ID state and
+defaults to `.openblog/syndication.json`. Credentials are environment-only and never belong
+in this file. See [Cross-posting](cross-posting.md#built-in-command) for setup and the
+[automated syndication specification](specs/automated-syndication.md) for the exact fields,
+credential names, and safety behavior.
 
 ## Themes
 

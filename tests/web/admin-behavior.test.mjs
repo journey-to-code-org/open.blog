@@ -4,10 +4,17 @@ import test from "node:test";
 import {
   ObAdmin,
   accessibilityReview,
+  assistantContextDisclosure,
+  postContextFields,
+  assistantStatusPresentation,
   evidenceReview,
   evidenceStudioState,
+  fieldJournalReview,
   applyPaneSelection,
   applyProfileFieldDrafts,
+  analyzeGpx,
+  buildVideoReleaseKit,
+  commentModerationActions,
   creditHasAuthor,
   creditPayload,
   contributorDraftPayload,
@@ -28,6 +35,182 @@ import {
   validateCreditDraft,
   validateContributorDraft,
 } from "../../web/admin/admin.js";
+
+test("comment moderation decisions can move pending and reverse settled states", () => {
+  assert.deepEqual(commentModerationActions("pending"), ["approved", "rejected"]);
+  assert.deepEqual(commentModerationActions("approved"), ["rejected"]);
+  assert.deepEqual(commentModerationActions("rejected"), ["approved"]);
+});
+
+test("assistant context disclosure names selected documents, visibility, and character counts", () => {
+  assert.deepEqual(
+    assistantContextDisclosure(
+      [
+        { id: "portable:author", name: "author.md", visibility: "portable", characters: 120, exists: true, valid: true },
+        { id: "private:site", name: "site.md", visibility: "private", characters: 48, exists: true, valid: true },
+        { id: "private:author", name: "author.md", visibility: "private", characters: 0, exists: true, valid: false },
+      ],
+      new Set(["portable:author", "private:site", "private:author"]),
+    ),
+    {
+      documents: [
+        { name: "author.md", visibility: "portable", characters: 120 },
+        { name: "site.md", visibility: "private", characters: 48 },
+      ],
+      totalCharacters: 168,
+    },
+  );
+});
+
+test("assistant disclosure includes selected references and immutable post snapshots", () => {
+  assert.deepEqual(
+    assistantContextDisclosure(
+      [
+        { id: "portable:reference:notes.md", name: "notes.md", visibility: "portable", kind: "reference", characters: 18, exists: true, valid: true },
+        { id: "post:posts/lesson.md", name: "lesson.md", path: "posts/lesson.md", visibility: "source", kind: "postSnapshot", characters: 42, exists: true, valid: true },
+      ],
+      new Set(["portable:reference:notes.md", "post:posts/lesson.md"]),
+    ),
+    {
+      documents: [
+        { name: "notes.md", visibility: "portable", characters: 18, kind: "reference", path: undefined },
+        { name: "lesson.md", visibility: "source", characters: 42, kind: "postSnapshot", path: "posts/lesson.md" },
+      ],
+      totalCharacters: 60,
+    },
+  );
+});
+
+test("post context fields round-trip from the spec-defined Markdown headings", () => {
+  assert.deepEqual(
+    postContextFields("## Goal\n\nTeach context.\n\n## Audience\n\nAuthors\n\n## Learning outcomes\n\nSelect sources.\n\n## Sources\n\nSpec\n\n## Constraints\n\nStay bounded.\n"),
+    {
+      goal: "Teach context.",
+      audience: "Authors",
+      learningOutcomes: "Select sources.",
+      sources: "Spec",
+      constraints: "Stay bounded.",
+    },
+  );
+  assert.equal(
+    postContextFields("<!-- openblog:constraints:start -->\n## Constraints\n\nKeep this heading:\n\n## Required examples\n\nTwo.\n<!-- openblog:constraints:end -->\n").constraints,
+    "Keep this heading:\n\n## Required examples\n\nTwo.",
+  );
+});
+
+test("assistant provider status presents configured and unconfigured states without credentials", () => {
+  assert.deepEqual(
+    assistantStatusPresentation({
+      providerType: "generic-https",
+      model: "story-model",
+      destination: "https://assistant.example",
+      configured: true,
+      message: "Assistant provider is ready.",
+      capabilities: { review: false, interactions: true, context: false, knowledgeChecks: true },
+    }),
+    {
+      providerType: "Custom HTTPS",
+      model: "story-model",
+      destination: "https://assistant.example",
+      configured: "Configured",
+      statusLabel: "Ready",
+      statusTone: "ready",
+      capabilities: "Interactions, Knowledge checks",
+      message: "Assistant provider is ready.",
+    },
+  );
+
+  assert.deepEqual(
+    assistantStatusPresentation({ providerType: "generic-https", model: "", configured: false, destination: null, capabilities: {} }),
+    {
+      providerType: "Custom HTTPS",
+      model: "Provider default",
+      destination: "Not configured",
+      configured: "Not configured",
+      statusLabel: "Setup needed",
+      statusTone: "missing",
+      capabilities: "No generation capabilities",
+      message: "Assistant provider is not configured. Non-AI authoring remains available.",
+    },
+  );
+});
+
+const SAMPLE_GPX = `<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>
+  <trkpt lat="42.0000" lon="-72.0000"><ele>100</ele><time>2026-10-23T10:00:00Z</time></trkpt>
+  <trkpt lat="42.0010" lon="-72.0000"><ele>130</ele><time>2026-10-23T10:10:00Z</time></trkpt>
+  <trkpt lat="42.0020" lon="-72.0000"><ele>120</ele><time>2026-10-23T10:20:00Z</time></trkpt>
+  <trkpt lat="42.0030" lon="-72.0000"><ele>160</ele><time>2026-10-23T10:30:00Z</time></trkpt>
+</trkseg></trk></gpx>`;
+
+test("GPX analysis derives portable facts and enforces route privacy", () => {
+  const exact = analyzeGpx(SAMPLE_GPX, { privacy: "exact" });
+  assert.equal(exact.pointCount, 4);
+  assert.ok(exact.distanceKm > 0.3 && exact.distanceKm < 0.4);
+  assert.equal(exact.elevationGainM, 70);
+  assert.equal(exact.durationSeconds, 1800);
+  assert.match(exact.routeShape, /^0,/);
+  assert.doesNotMatch(exact.routeShape, /42\.|-72\./, "published SVG data is normalized, never geographic coordinates");
+
+  const trimmed = analyzeGpx(SAMPLE_GPX, { privacy: "trimmed", trimMeters: 100 });
+  assert.ok(trimmed.keptPointCount < exact.pointCount);
+  assert.ok(trimmed.routeShape);
+  assert.equal(analyzeGpx(SAMPLE_GPX, { privacy: "hidden" }).routeShape, "");
+  assert.throws(() => analyzeGpx("<html>not a track</html>"), /valid GPX track/);
+
+  const split = analyzeGpx(`<gpx><trk><trkseg><trkpt lat="0" lon="0"></trkpt><trkpt lat="0" lon="0.001"></trkpt></trkseg><trkseg><trkpt lat="40" lon="40"></trkpt><trkpt lat="40" lon="40.001"></trkpt></trkseg></trk></gpx>`, { privacy: "approximate" });
+  assert.ok(split.distanceKm < 0.3, "recording gaps between track segments are not counted");
+  assert.equal(split.routeShape.split("|").length, 2, "each track segment remains visible without an invented connection");
+
+  const trimmedSplit = analyzeGpx(`<gpx><trk><trkseg><trkpt lat="0" lon="0"></trkpt><trkpt lat="0" lon="0.001"></trkpt><trkpt lat="0" lon="0.002"></trkpt></trkseg><trkseg><trkpt lat="1" lon="1"></trkpt><trkpt lat="1" lon="1.001"></trkpt><trkpt lat="1" lon="1.002"></trkpt></trkseg></trk></gpx>`, { privacy: "trimmed", trimMeters: 50 });
+  assert.equal(trimmedSplit.keptPointCount, 4, "privacy trimming removes only the overall route endpoints, not pause boundaries");
+  assert.equal(trimmedSplit.routeShape.split("|").length, 2);
+});
+
+test("field review makes exact-location risk and missing observations explicit", () => {
+  assert.equal(fieldJournalReview({ profile: "article" }).active, false);
+  const review = fieldJournalReview({ profile: "field-journal", locationPrivacy: "exact", distanceKm: "3.4" });
+  assert.equal(review.active, true);
+  assert.match(review.issues.join(" "), /sensitive species/);
+  assert.match(review.issues.join(" "), /conditions/);
+  assert.doesNotMatch(fieldJournalReview({ profile: "field-journal", locationPrivacy: "hidden", location: "North woods", conditions: "Dry", distanceKm: "3.4" }).status, /^\d/);
+});
+
+test("video release kits compose copy and enforce YouTube chapter rules", () => {
+  const kit = buildVideoReleaseKit({
+    profile: "video",
+    description: "Seven adventurers enter a forbidden ruin.",
+    body: "## Chapters\n\n00:00 The gate opens\n00:14 A warning\n01:02 Into the ruin\n\n```text\n00:01 ignored code\n```",
+    duration: "1 min 20 sec",
+    aiDisclosure: "AI-assisted animation with human direction and editing.",
+    productionStatus: "editing",
+  });
+
+  assert.equal(kit.active, true);
+  assert.deepEqual(
+    kit.chapters.map(({ label, seconds }) => ({ label, seconds })),
+    [
+      { label: "The gate opens", seconds: 0 },
+      { label: "A warning", seconds: 14 },
+      { label: "Into the ruin", seconds: 62 },
+    ],
+  );
+  assert.deepEqual(kit.issues, []);
+  assert.equal(kit.workflow.find((stage) => stage.stage === "editing").current, true);
+  assert.equal(kit.workflow.find((stage) => stage.stage === "scheduled").complete, false);
+  assert.equal(
+    kit.description,
+    "Seven adventurers enter a forbidden ruin.\n\nChapters\n00:00 The gate opens\n00:14 A warning\n01:02 Into the ruin\n\nAI assistance: AI-assisted animation with human direction and editing.",
+  );
+
+  assert.deepEqual(
+    buildVideoReleaseKit({ profile: "video", body: "00:05 Late start\n00:10 Too close", duration: "1:15" }).issues,
+    ["The first chapter must start at 00:00.", "Add at least three chapters.", "Keep every chapter at least 10 seconds long."],
+  );
+  assert.deepEqual(buildVideoReleaseKit({ profile: "video", body: "00:00 Intro\n00:20 Story\n01:00 Credits", duration: "1:05" }).issues, [
+    "Keep every chapter at least 10 seconds long.",
+  ]);
+  assert.equal(buildVideoReleaseKit({ profile: "article", body: "00:00 Intro" }).active, false);
+});
 
 test("contributor drafts preserve stable ids and prefill editable identity fields", () => {
   const draft = normalizeContributorDraft({

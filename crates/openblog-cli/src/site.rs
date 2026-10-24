@@ -35,6 +35,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-rust-runner.js"),
     ),
     (
+        "components/ob-code-runner-language.js",
+        include_str!("../../../web/components/ob-code-runner-language.js"),
+    ),
+    (
+        "components/ob-web-sandbox.js",
+        include_str!("../../../web/components/ob-web-sandbox.js"),
+    ),
+    (
         "components/ob-highlight.js",
         include_str!("../../../web/components/ob-highlight.js"),
     ),
@@ -65,6 +73,10 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
     (
         "components/ob-views.js",
         include_str!("../../../web/components/ob-views.js"),
+    ),
+    (
+        "components/ob-comments.js",
+        include_str!("../../../web/components/ob-comments.js"),
     ),
 ];
 
@@ -473,7 +485,7 @@ pub fn admin_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>
         .map(|(_, c)| c.as_bytes().to_vec())
 }
 
-fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
+pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
     let on_disk = root.join(&config.paths.web).join(rel);
     if let Ok(bytes) = fs::read(&on_disk) {
         return Some(bytes);

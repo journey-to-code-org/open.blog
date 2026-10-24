@@ -27,8 +27,11 @@ immediately.
 | **Accessibility Studio** | Production-backed source findings grouped as detected, potential, or needs review, with exact locations and repair guidance. It also keeps rendered-site checks visible without claiming WCAG conformance. |
 | **Evidence Studio** | Research-profile structure and metadata findings from the publishing engine, plus authored DOI (normalized to a resolver URL when valid), valid absolute license URL, and linked-reference inspection without truth or authority scoring. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
-| **Formatting** | Apply H2, bold, italic, link, quote, list, and inline/fenced-code Markdown without converting or hiding the source. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in the editor. |
+| **Formatting** | Write in a word-processor-style Visual mode or switch to Markdown. Choose Paragraph or Heading 2–6, then apply bold, italic, links, quotes, numbered or bulleted lists, images, and code. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in either mode. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
+| **Video release kit** | Validate authored YouTube chapters and copy a description assembled from the current summary, chapters, and AI-assistance disclosure. |
+| **Field Review** | Analyze GPX locally, derive route facts, and choose hidden, trimmed, approximate, or exact location publication. |
+| **Assistant** | Inspect the configured author-time provider, manage portable or private author/site context, and preview exactly which context is selected. Provider credentials remain on the server. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
@@ -40,7 +43,7 @@ immediately.
 The admin is organized like a writing studio. The tool groups at the top move between
 content, analytics, and the public site; the status bar keeps unpublished changes and
 the publish action visible. Inside the editor, **Write**, **Site preview**, **Social**,
-**Optimize**, **Settings**, **Accessibility**, and **Evidence** are separate full-width
+**Optimize**, **Settings**, **Accessibility**, **Evidence**, and **Assistant** are separate full-width
 views, so writing is not squeezed beside a permanent preview.
 Switching views never loses edits, and opening Site preview refreshes it from the current draft.
 
@@ -50,10 +53,140 @@ saves the current document, changes the color scheme, and reaches account action
 the arrow keys and Enter to choose a result, or Escape to close it.
 
 The editor footer shows whether the document is saved plus its line, word, and character
-counts. Press `Alt+1` through `Alt+5` to focus Write, Site preview, Social, Optimize, or
-Settings; `Alt+6` opens Accessibility Studio and `Alt+7` opens Evidence Studio. The preview
+counts. Press `Alt+1` through `Alt+9` to focus Write, Site preview, Social, Release kit,
+Field Review, Optimize, Settings, Accessibility, or Evidence. The preview
 toolbar can constrain the canvas to wide, tablet, or mobile width; this preference is stored
 in the browser and does not change the published theme.
+
+For posts, press `Alt+0` to open **Assistant**. Its provider card reports the provider type,
+model, configured state, and supported capabilities without returning the credential or
+configured endpoint path, query, or user information to the browser. The provider card and Review
+disclosure show only the safe destination origin so authors know which service receives selected
+material. Review, Interactions, and Context are labelled work areas. Interactions creates editable
+knowledge-check, runnable-example, and coding-challenge proposals, while Context manages author,
+site, and post notes plus selected sources. Provider failures do not disable ordinary non-AI
+authoring.
+
+### Review an unsaved document
+
+Open **Assistant → Review** to review the current unsaved title, metadata, and Markdown without
+saving first. Select one or more review skills and any context the provider should receive, then
+inspect the disclosure: it lists the complete-document scope, approximate source size, every skill
+and context item, provider model and safe destination origin, and confirms external research is off.
+Nothing is sent until **Run document review** is pressed.
+
+Validated findings are grouped under their originating skill and visibly labelled **AI-generated
+advice**. Each finding shows its severity, category, exact source evidence, explanation, optional
+suggested replacement, and whether it is unverified advice or based on supplied context. Choose
+**Apply suggestion** to replace its exact reviewed passage in the unsaved draft. The editor refuses
+ambiguous, stale, repeated, or overlapping replacements and offers one-step undo. Applying or undoing
+never saves or publishes. Provider errors, invalid results, and edits made while a review is running
+leave the draft unchanged.
+
+### Use AI autocomplete while writing
+
+In **Write**, turn on **AI autocomplete** for the current editor session. It is off by default and is
+not remembered. The disclosure explains that after an 850 ms typing pause the current unsaved title,
+metadata, Markdown, nearby caret text, and explicitly selected Assistant context are sent to the
+configured provider. Only one request runs at a time. Navigating away aborts pending work.
+
+A returned continuation remains a visible proposal. Press `Tab` or choose **Accept** to insert it,
+or press `Escape` or choose **Dismiss**. Moving the caret or changing the title, metadata, context,
+writing mode, or draft makes the proposal stale and prevents insertion. Accepted text follows the
+normal unsaved-change path in Visual and Markdown modes; it is never saved or published automatically.
+
+### Draft a knowledge check
+
+Open **Assistant → Interactions** and choose **Create knowledge-check proposal**. The same proposal
+dialog available from the Write toolbar uses selected text when present, otherwise the current post.
+Generated questions are reviewed in the dialog and enter the unsaved Markdown only after explicit
+insertion. Non-AI quiz authoring remains available.
+
+### Draft a runnable example or coding challenge
+
+Open **Assistant → Interactions** and choose **Create runnable-code proposal**. Choose a complete
+example when readers should run, change, and observe working code, or a coding challenge when they
+should complete a small bounded task. With a provider configured, **Generate draft** uses selected
+text, then the current section, then the post as context. Without a provider, fill in the same form
+manually.
+
+Choose Rust, Web (HTML/CSS/JavaScript), or a language explicitly enabled by the site's external
+runner. The title, instructions, source, expected result, hint, and explanation remain editable in
+the dialog. A challenge must include a visible TODO comment and expected result. Nothing enters the
+unsaved post until **Insert into draft** is chosen. The inserted content uses portable Markdown prose
+and one native runnable fence, so it works in both Visual and Markdown authoring modes. Web results
+must preserve `---html`, `---css`, and `---js` markers. The provider must return the requested
+language; multi-file projects, hidden tests, automatic grading, and shell commands are not offered.
+
+### What the Assistant knows about open.blog
+
+Every review, interaction-generation, and autocomplete request includes a versioned engine guide generated
+from open.blog's deterministic core. It describes native quiz and Rust/web runnable fences, configured
+runner allowlists, code options,
+supported embeds, content-profile IDs, scheduling, source ownership, and the limits of evidence checks.
+These are renderer facts, not instructions found in the draft. Draft and context text remain untrusted
+data. The guide prevents an AI from treating supported engine syntax as an error, but it does not let
+the provider save, publish, certify claims, perform external research, or add unsupported syntax.
+
+### Manage Assistant context
+
+Open **Assistant → Context** to create or edit Markdown notes about the author or the site's
+audience and goals. **Portable** notes live at `assistant/context/author.md` and
+`assistant/context/site.md`; they can be reviewed and deliberately included in normal Git
+publishing paths. **Private** mirrors live below `.openblog/private/context/`, are visually
+distinguished, and are always excluded from open.blog publish staging.
+
+Each file is limited to 64 KiB of UTF-8 text. Invalid or oversized files remain visible with
+repair guidance instead of being silently selected. Saves and removals use revision checks, so
+an edit made elsewhere is not overwritten. The Context view warns if Git does not ignore the
+private directory or if a private file is already tracked. `openblog init` adds
+`/.openblog/private/` to `.gitignore` for Git projects while preserving existing rules.
+
+Select context explicitly with the checkbox on each valid file. The **Context disclosure**
+preview lists every selected filename, whether it is Portable or Private, its character count,
+and the total size. Selection alone does not contact a provider; a later explicit Assistant
+request will use this disclosure before anything is sent.
+
+Saved posts also offer **Post brief** context in portable and private forms. The brief has separate
+fields for the post's goal, audience, learning outcomes, sources, and free-form constraints; it is
+stored at `assistant/context/posts/<post-filename>.md` or the matching private path. Renaming or
+moving a post to trash moves its brief in the same filesystem transaction, and restores the whole
+bundle if any move fails.
+
+The **Text references** area accepts only `.md` and `.txt` UTF-8 sources up to 64 KiB. It shows the
+stored text before selection and rejects unsupported filenames, binary text, duplicates, and
+oversized input without a partial file. **Existing post snapshots** shows only Markdown posts from
+the configured content directory. Selecting one uses the exact bounded source currently on disk;
+it does not copy images, sidecars, or other repository files. Invalid or oversized snapshots remain
+unselectable with guidance.
+
+The disclosure preview includes every selected post brief, reference, and existing-post snapshot,
+with its visibility and character count. These selections remain local until a later explicit
+Assistant request.
+To capture a web reference, use **Add URL snapshot** and confirm the retrieval. Admin accepts
+only public HTTP(S) destinations, rechecks every bounded redirect, rejects credentials and
+local or private network addresses, and applies one total deadline plus strict response and
+extracted-text limits. Supported responses are UTF-8 HTML, Markdown, and plain text. Compressed
+responses are rejected, so an encoded body cannot expand past the extraction limit.
+
+Retrieval does not save anything. Inspect the source and final canonical URLs, retrieval time,
+content type, and extracted text, then choose portable or private storage and explicitly save.
+Saved references live under `assistant/context/references/` or the matching
+`.openblog/private/context/references/` directory. They are labelled untrusted reference data;
+selecting one uses the saved Markdown snapshot and never silently contacts the URL again.
+
+### Write visually or in Markdown
+
+The Write view defaults to **Visual**, which behaves like a word processor while keeping
+Markdown as the saved file format. Switch to **Markdown** whenever you want to inspect or
+edit the underlying text. The browser remembers the last mode selected on that device.
+
+Visual mode directly edits paragraphs, Heading 2–6, emphasis, links, quotes, simple lists,
+images, and code. Advanced constructs such as callouts, knowledge checks, embeds, task or
+nested lists, tables, footnotes, and raw HTML appear as protected blocks. Move or remove a
+protected block visually, or choose **Edit in Markdown** to change its exact source. This
+boundary prevents an ordinary visual edit from flattening syntax the visual editor cannot
+represent safely.
 
 ### Test a theme before publishing
 
@@ -106,11 +239,10 @@ The **Overview** is the admin home. It summarizes the publishing pipeline, links
 creation flows, shows the size of the content library and recent posts, and surfaces the
 next scheduled post or last build error without requiring a trip through each content list.
 
-Markdown remains the source of truth. The source-preserving formatting toolbar provides
-rich-writing ergonomics without an HTML-to-Markdown round trip, so existing custom blocks,
-embeds, quizzes, and front matter cannot be lost by switching editor modes. Saving,
-conflict detection, preview sandboxing, and publishing use the same file-based workflow
-and security checks.
+Markdown remains the source of truth. Visual mode converts only the ordinary blocks it can
+represent and carries advanced blocks through unchanged. Front matter remains in Settings,
+outside both body editors. Saving, conflict detection, preview sandboxing, and publishing
+use the same file-based workflow and security checks.
 
 In a post's **Settings** view, **Content profile** defaults to Article. Recipe posts select
 Recipe and continue through the existing recipe renderer and structured-data path. Files
@@ -119,6 +251,13 @@ field unless you explicitly change the selector. An unknown `profile` value appe
 own option with a warning; saving without changing it preserves the value.
 Research posts select Research and expose DOI and license fields. Values entered there are
 preserved when switching profiles and saved without discarding explicit clears.
+Video posts select Video production and expose YouTube URL, duration, thumbnail, and
+AI-assistance disclosure fields. The Release kit view remains inactive for other profiles.
+Field-journal posts expose activity, area, privacy, distance, elevation, duration, and
+conditions. Field Review analyzes GPX in the browser and privately stages the source track
+only in Exact mode; it becomes public as part of a successful post save. Other modes save
+privacy-filtered derived data. Downgrading a saved Exact route moves its managed GPX to
+`.openblog/trash/tracks/` so the next build retracts it without destroying the source.
 
 Every save is checked against the whole site before anything is written (duplicate slugs,
 unknown themes, bad dates), then the site is rebuilt. A save that would break the build is
@@ -249,13 +388,51 @@ sign in again. It is unrelated to stylesheet MIME errors.
 
 ## Optional question generation
 
-Knowledge checks work without an AI service. To add **Generate draft** to their editor,
-site owners can configure an HTTPS endpoint and keep its bearer token in the server
-environment:
+Knowledge checks work without an AI service. To add **Generate draft** and document review,
+site owners can configure the provider from the Assistant panel. The endpoint and model are saved
+in `openblog.json`:
 
 ```jsonc
 // openblog.json
 "knowledgeChecks": {
+  "provider": "anthropic",
+  "generationEndpoint": "",
+  "model": "claude-sonnet-5-5"
+}
+```
+
+Choose a native provider to use its official API directly. open.blog fixes the destination for
+native providers; only **Custom HTTPS** accepts an endpoint entered by the author.
+
+| Provider | Suggested model | Environment credential |
+|---|---|---|
+| Anthropic Claude | `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` |
+| OpenAI | `gpt-6-luna` | `OPENAI_API_KEY` |
+| Google Gemini | `gemini-3.8-flash` | `GEMINI_API_KEY` |
+| xAI Grok | `grok-4.7` | `XAI_API_KEY` |
+| DeepSeek | `deepseek-flash` | `DEEPSEEK_API_KEY` |
+| Mistral AI | `mistral-small-latest` | `MISTRAL_API_KEY` |
+| OpenRouter | enter a supported routed model ID | `OPENROUTER_API_KEY` |
+
+The model field remains editable because provider model catalogs change. OpenRouter restricts
+routing to upstream endpoints that accept the requested structured-output parameters, but the
+upstream service still determines exact schema support.
+
+```sh
+export ANTHROPIC_API_KEY="your Anthropic key"
+openblog serve --admin
+```
+
+An OpenAI integration uses an OpenAI API key and API billing; a ChatGPT or Codex product
+subscription is not itself an API credential. GitHub Copilot is not listed because its supported
+programmatic integration is an authenticated agent/CLI SDK rather than this API-key provider
+contract, and the separate GitHub Models inference API has been retired.
+
+For an existing compatible service, choose **Custom HTTPS** instead:
+
+```jsonc
+"knowledgeChecks": {
+  "provider": "custom-https",
   "generationEndpoint": "https://lessons.example.com/generate",
   "model": "your-model-name"
 }
@@ -266,8 +443,17 @@ export OPENBLOG_LESSONS_API_KEY="your secret"
 openblog serve --admin
 ```
 
-The endpoint receives JSON with `context`, `count`, `model`, task instructions, and the
-expected response shape. It returns one to three questions:
+The credential can instead be added, replaced, or cleared in the Assistant provider panel. It is
+write-only and stored under `.openblog/private/assistant/`, never in `openblog.json`. An environment
+credential takes precedence when present. Admin reports only whether a credential exists and where
+it comes from; it never returns the saved value. Saved private credentials are bound to the provider
+and destination active when they are entered. If you switch providers or change a Custom HTTPS
+endpoint, enter the appropriate key for the new destination rather than reusing the hidden value.
+Credentials saved by an older open.blog version have no destination binding and are not reused;
+enter them once in the current panel to bind them safely.
+
+Custom HTTPS endpoints receive JSON with `context`, `count`, `model`, task instructions, and the
+expected response shape. They return one to three questions:
 
 ```json
 {
@@ -283,6 +469,10 @@ expected response shape. It returns one to three questions:
 The key and endpoint are used only by the admin server. The browser calls the authenticated
 same-origin admin API, public builds contain only the reviewed Markdown, and readers never
 contact the generation service.
+
+Open a post's **Assistant** view to confirm whether this provider is ready. If configuration
+is incomplete, the status message identifies the server-side setting or environment variable
+to add. It never displays the endpoint or credential value.
 
 ## Security design
 

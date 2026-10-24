@@ -49,7 +49,7 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
     let profiles = profile::catalog();
     assert_eq!(
         profiles.iter().map(|item| item.id).collect::<Vec<_>>(),
-        vec!["article", "recipe", "research"]
+        vec!["article", "recipe", "research", "video", "field-journal"]
     );
     assert_eq!(profiles[0].label, "Article");
     assert!(profiles[0].fields.is_empty());
@@ -79,6 +79,133 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
             .collect::<Vec<_>>(),
         vec!["doi", "license"]
     );
+    assert_eq!(profiles[3].label, "Video production");
+    assert_eq!(
+        profiles[3]
+            .fields
+            .iter()
+            .map(|field| field.key)
+            .collect::<Vec<_>>(),
+        vec![
+            "productionStatus",
+            "seasonNumber",
+            "episodeNumber",
+            "productionCredits",
+            "videoUrl",
+            "duration",
+            "thumbnail",
+            "aiDisclosure"
+        ]
+    );
+    assert_eq!(profiles[4].label, "Field journal");
+    assert_eq!(
+        profiles[4]
+            .fields
+            .iter()
+            .map(|field| field.key)
+            .collect::<Vec<_>>(),
+        vec![
+            "activity",
+            "location",
+            "locationPrivacy",
+            "distanceKm",
+            "elevationGainM",
+            "duration",
+            "conditions"
+        ]
+    );
+}
+
+#[test]
+fn resolves_and_loads_a_privacy_safe_field_journal() {
+    let resolved = profile::resolve(&fields("---\nprofile: field-journal\n---\nBody"));
+    assert_eq!(resolved.behavior, profile::ProfileBehavior::FieldJournal);
+
+    let post = model::load_post(
+        &SourceFile {
+            path: "posts/ridge.md".into(),
+            contents: "---\ntitle: Ridge walk\ndate: 2026-10-23\nprofile: field-journal\nactivity: Hike\nlocation: Northern ridge\nlocationPrivacy: trimmed\ndistanceKm: 8.4\nelevationGainM: 420\nduration: 2 hr 15 min\nconditions: Cool and windy\nroute: /tracks/private.gpx\nrouteShape: 0,80 400,20 1000,60\nelevationProfile: 0,90 500,15 1000,55\n---\nTrail notes."
+                .into(),
+        },
+        &SiteConfig::default(),
+        Default::default(),
+    )
+    .unwrap();
+
+    let journal = post.field_journal.expect("field journal metadata");
+    assert_eq!(journal.activity, "Hike");
+    assert_eq!(journal.location.as_deref(), Some("Northern ridge"));
+    assert_eq!(journal.distance_km.as_deref(), Some("8.4"));
+    assert_eq!(journal.elevation_gain_m, Some(420));
+    assert_eq!(journal.duration_seconds, Some(8100));
+    assert!(
+        journal.route_url.is_none(),
+        "non-exact tracks are never published"
+    );
+    assert_eq!(journal.route_shape.as_deref(), Some("0,80 400,20 1000,60"));
+}
+
+#[test]
+fn field_journal_output_never_exposes_a_non_exact_source_track() {
+    let build = |privacy: &str| {
+        let site = Site::load(
+            SiteConfig::from_json(
+                r#"{"title":"Trail notes","url":"https://walk.example","postPath":"/{slug}/"}"#,
+            )
+            .unwrap(),
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/ridge.md".into(),
+                    contents: format!(
+                        "---\ntitle: Ridge walk\ndate: 2026-10-23\nprofile: field-journal\nlocationPrivacy: {privacy}\nroute: /tracks/uploads/2026/secret.gpx\nrouteShape: 0,80 400,20 1000,60\nconditions: Cool & windy\n---\nTrail notes."
+                    ),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let files = generate(&site, &ThemeSet::new()).unwrap();
+        files
+            .iter()
+            .find(|file| file.path == "ridge/index.html")
+            .unwrap()
+            .contents
+            .clone()
+    };
+
+    let trimmed = build("trimmed");
+    assert!(trimmed.contains("Privacy-filtered route outline"));
+    assert!(trimmed.contains("Cool &amp; windy"));
+    assert!(!trimmed.contains("secret.gpx"));
+
+    let hidden = build("hidden");
+    assert!(!hidden.contains("Privacy-filtered route outline"));
+    assert!(!hidden.contains("secret.gpx"));
+
+    let exact = build("exact");
+    assert!(exact.contains("href=\"/tracks/uploads/2026/secret.gpx\" download"));
+
+    let unsafe_site = Site::load(
+        SiteConfig::default(),
+        Sources {
+            posts: vec![SourceFile {
+                path: "posts/unsafe.md".into(),
+                contents: "---\ntitle: Unsafe\ndate: 2026-10-23\nprofile: field-journal\nlocationPrivacy: exact\nroute: javascript:alert(1)\n---\nNotes."
+                    .into(),
+            }],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    let unsafe_page = generate(&unsafe_site, &ThemeSet::new())
+        .unwrap()
+        .into_iter()
+        .find(|file| file.path == "posts/unsafe/index.html")
+        .unwrap()
+        .contents;
+    assert!(!unsafe_page.contains("javascript:"));
 }
 
 #[test]
@@ -90,6 +217,35 @@ fn resolves_the_research_profile_without_changing_article_or_recipe_behavior() {
     assert_eq!(resolved.id, "research");
     assert_eq!(resolved.behavior, profile::ProfileBehavior::Research);
     assert!(resolved.warnings.is_empty());
+}
+
+#[test]
+fn resolves_and_loads_the_video_profile() {
+    let resolved = profile::resolve(&fields(
+        "---\nprofile: video\nvideoUrl: https://youtu.be/dQw4w9WgXcQ\n---\nBody",
+    ));
+    assert_eq!(resolved.id, "video");
+    assert_eq!(resolved.behavior, profile::ProfileBehavior::Video);
+
+    let post = model::load_post(
+        &SourceFile {
+            path: "posts/episode.md".into(),
+            contents: "---\ntitle: Episode one\ndate: 2026-10-23\nprofile: video\nvideoUrl: https://www.youtube.com/watch?v=dQw4w9WgXcQ\nduration: 12 min 34 sec\nthumbnail: /images/episode.jpg\naiDisclosure: AI-assisted animation\n---\n## Transcript\nOpening narration."
+                .into(),
+        },
+        &SiteConfig::default(),
+        Default::default(),
+    )
+    .unwrap();
+
+    let video = post.video.expect("video metadata");
+    assert_eq!(video.youtube_id.as_deref(), Some("dQw4w9WgXcQ"));
+    assert_eq!(video.duration_seconds, Some(754));
+    assert_eq!(video.thumbnail.as_deref(), Some("/images/episode.jpg"));
+    assert_eq!(
+        video.ai_disclosure.as_deref(),
+        Some("AI-assisted animation")
+    );
 }
 
 #[test]

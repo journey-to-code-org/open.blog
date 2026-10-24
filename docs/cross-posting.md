@@ -11,11 +11,44 @@ the communities where your readers already are. The safest order is:
 That order matters. A syndicated copy should never point search engines at a canonical
 URL that does not exist yet.
 
-open.blog can supply full-content RSS at `/rss.xml` and JSON Feed at `/feed.json`. Make
-sure `feeds.rss`, `feeds.json`, and `feeds.fullContent` are all `true` in
-`openblog.json`. It does not currently ship a command that writes to third-party
-publishing APIs. You can either connect a feed automation service or add a small CI job
-for the APIs below. In both cases, begin with drafts rather than unattended publishing.
+open.blog includes a safe, draft-first command for DEV, Hashnode, Ghost, and WordPress,
+plus guided manual import for Medium. It can also supply full-content RSS and JSON Feed for
+external feed automation.
+
+## Built-in command
+
+Copy the `syndication` object from
+[`openblog.syndication.json`](../examples/cross-posting/openblog.syndication.json) into
+`openblog.json`, enable the destinations you want, and add an immutable `syndicationId` to
+posts you plan to cross-post. Keep credentials in your shell or CI secret store.
+
+Inspect the plan first; these commands do not read secrets or contact a provider:
+
+```sh
+openblog syndicate your-post-slug
+openblog syndicate your-post-slug --target dev,medium
+```
+
+After the open.blog URL is deployed and reachable, create or update remote drafts:
+
+```sh
+openblog syndicate your-post-slug --write
+```
+
+The private state file records remote IDs, so later writes update instead of duplicating.
+Public publication requires both `--publish` and `allowPublish: true`. Hashnode remains
+draft-only in this iteration. WordPress core cannot portably set an external canonical, so
+the command warns for those targets. See the complete
+[automated syndication specification](specs/automated-syndication.md).
+
+The source post must already be production-visible: drafts and future-scheduled posts are
+rejected. On `--write`, the command fetches the public open.blog URL before the first provider
+mutation and requires a successful page whose canonical link points back to that same URL.
+A dry run remains network-free, so deployment reachability is checked only when a write is
+explicitly requested.
+
+For feed automation, make sure `feeds.rss`, `feeds.json`, and `feeds.fullContent` are all
+`true`. In either route, begin with drafts rather than unattended publishing.
 
 ## Before connecting a platform
 

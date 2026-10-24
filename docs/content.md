@@ -43,16 +43,28 @@ a `#` heading, which is then used. Everything else is optional:
 | `cover` | Image shown at the top and used as the social card. Defaults to the first image in the body. |
 | `coverAlt` | Alternative text for the cover. |
 | `draft` | `true` keeps the post out of every build and feed. |
+| `comments` | `open` (default), `locked` (read-only), or `hidden` when hosted comments are enabled. |
 | `theme` | A theme name, to render this post differently from the rest. |
 | `canonical` | If the post was first published elsewhere, that address. Search engines then credit the original. |
 | `sourceUrl` | Shown as "Originally published at" under the post. The Hashnode importer fills this in. |
 | `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`. Also accepted as `redirectFrom`. |
 | `highlight` | `false` turns off code colouring for this post; `true` turns it on. Overrides the site and theme. |
 | `lineNumbers` | `false` or `true`: line numbers on this post's code blocks. Overrides the site and theme. |
-| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; use `recipe` for recipe cards or `research` for scholarly work metadata and evidence guidance. |
+| `profile` | Authoring and publishing behavior for this post. Defaults to `article`; built-ins also include `recipe`, `research`, `video`, and `field-journal`. |
 | `recipe` | Legacy recipe marker. `true` remains supported; new posts should use `profile: recipe`. |
 | `doi` | Research profile only. A DOI name or `https://doi.org/` URL for this work. |
 | `license` | Research profile only. An absolute HTTP or HTTPS URL for the work's license. |
+| `videoUrl` | Video profile only. A YouTube watch, short-link, or Shorts URL. |
+| `duration` | Video profile only. A duration such as `12 min 34 sec`, `12:34`, or `PT12M34S`. |
+| `thumbnail` | Video profile only. A site-relative or absolute video thumbnail URL. A `cover` is used as the fallback. |
+| `aiDisclosure` | Video profile only. Creator-authored disclosure of meaningful AI assistance. |
+| `productionStatus` | Video profile only. `idea`, `scripting`, `storyboarding`, `generating`, `editing`, `scheduled`, or `released`. |
+| `seasonNumber`, `episodeNumber` | Video profile only. Optional production sequence numbers. |
+| `productionCredits` | Video profile only. Concise writing, direction, animation, or editing credits. |
+| `activity`, `location` | Field-journal profile only. The activity and a deliberately publishable area name. |
+| `locationPrivacy` | Field-journal profile only. `hidden`, `trimmed`, `approximate`, or `exact`; defaults to `hidden`. |
+| `distanceKm`, `elevationGainM` | Field-journal profile only. Route measurements, entered manually or derived from GPX. |
+| `conditions` | Field-journal profile only. Creator-observed trail, water, weather, or habitat conditions. |
 
 Unknown fields are kept and ignored, so you can store your own notes in the front matter.
 
@@ -66,7 +78,7 @@ profile in the admin's **Settings** view or write it directly:
 profile: recipe
 ```
 
-The built-in profiles are `article`, `recipe`, and `research`. Existing `recipe: true`,
+The built-in profiles are `article`, `recipe`, `research`, `video`, and `field-journal`. Existing `recipe: true`,
 `type: recipe`, `layout: recipe`, and `kind: recipe` files continue to work. When both a
 canonical `profile` and a legacy recipe marker exist, `profile` wins and the build warns
 if they disagree.
@@ -80,6 +92,14 @@ data, conservative scholarly HTML metadata, and deterministic evidence checks. C
 remain ordinary Markdown links and footnotes under a visible `References` or `Bibliography`
 section. See [Research posts and Evidence Studio](research-profile.md) for the complete
 authoring contract and limits.
+
+The `video` profile turns a YouTube production into a creator-owned companion page with a
+privacy-enhanced embed, `VideoObject` structured data, transcript-friendly Markdown, and an
+Admin release kit for validating chapters and composing reusable YouTube copy. See
+[Video productions and release kits](video-production.md).
+
+The `field-journal` profile adds field facts and offline GPX analysis with private-by-default
+route publication. See [Field journals and private-by-default tracks](field-journal.md).
 
 The admin editor's **Search & answer readiness** checklist updates while you write. The
 same conservative checks run during a build and warn about weak descriptions, unusually
@@ -237,13 +257,35 @@ fn main() {}
 | `showLineNumbers` | Number this block even when numbering is off, or when it has one line. |
 | `showLineNumbers=10` | Number this block starting at 10. |
 | `showLineNumbers=false` | No numbers on this block. |
-| `runnable` | For Rust blocks, give readers an editor and a Run button backed by the official Rust Playground. |
+| `runnable` | Make Rust, web, or an explicitly configured runner language editable and runnable. Unsupported languages stay static. |
 | `playgroundLink=false` | On a runnable Rust block, hide the separate **Open in Rust Playground** link. |
 
 Colours can be turned off for a post (`highlight: false`) or the whole blog, but not for
 one block; mark a block `text` to leave it plain. Copying a block, with the button or by
 selecting it, never includes the line numbers.
 For the whole blog, see `code` in [Configuration](configuration.md#code-blocks).
+
+#### HTML, CSS, and JavaScript sandboxes
+
+Use a `web runnable` fence with explicit section markers. Readers get three editable tabs, Run and
+Reset controls, and a live preview:
+
+````markdown
+```web runnable title="Try the card"
+---html
+<button id="reveal">Reveal</button>
+---css
+button { color: rebeccapurple; }
+---js
+document.querySelector("#reveal").onclick = () => { document.body.textContent = "Revealed"; };
+```
+````
+
+The preview runs locally in an opaque-origin iframe. Its content-security policy blocks external
+resources, network APIs, forms, frames, plugins, fonts, and navigation bases, while the iframe
+sandbox prevents access to the host page. Browser sandboxes still let authored code navigate its own
+preview, so never enter secrets there. No source is uploaded or persisted by open.blog. These are
+dependency-free single-document lessons, not package-manager or multi-file projects.
 
 #### Runnable Rust examples
 
@@ -272,10 +314,54 @@ the source. A separate link opens the same code on the Playground if inline exec
 is unavailable; add `playgroundLink=false` to that fence to omit the link. Without
 JavaScript, the original code block remains readable.
 
-Runnable blocks are intentionally limited to Rust and 20,000 bytes, and displayed output
-is capped at 64,000 bytes. They use stable Rust 2021 in debug mode and are best for
+Without `codeRunner`, runnable remote execution is intentionally limited to Rust and 20,000 bytes,
+and displayed output is capped at 64,000 bytes. Rust uses stable 2021 in debug mode and is best for
 self-contained lessons. The Playground offers popular preinstalled crates, but an
 arbitrary local Cargo project, custom manifest, stdin, and local files are not available.
+
+When the site owner configures `codeRunner.endpoint`, Rust uses that external gateway instead.
+Languages in `codeRunner.languages` use the same author syntax:
+
+````markdown
+```python runnable title="Try changing the greeting"
+name = input().strip() or "traveler"
+print(f"Welcome, {name}!")
+```
+````
+
+Readers get source and optional standard-input editors, Run, Reset, Copy, status, and plain-text
+output. A disclosure explains that source and standard input leave the page. The browser sends no
+credentials. If Python is not explicitly allowed, the example remains a normal static code block.
+See [Execution gateway](deploy.md#execution-gateway) before enabling a language.
+
+#### Small coding challenges
+
+A coding challenge is ordinary instructional Markdown around a runnable block. Give the reader
+one bounded task, keep a visible comment-form `TODO` in the starter source, state the expected result, and add a
+hint only when it helps without giving away the whole solution:
+
+````markdown
+**Coding challenge: Finish the greeting**
+
+Replace the placeholder with the adventurer's name.
+
+**Expected result:** The program prints `Hello, Mira!`
+
+```rust runnable title="Finish the greeting"
+fn main() {
+    // TODO: print "Hello, Mira!"
+}
+```
+
+> [!TIP]
+> Use `println!` with a string literal.
+````
+
+The Admin's **Assistant → Interactions → Create runnable-code proposal** dialog can draft either a
+complete example or this challenge pattern from selected text or the current section. Every field is
+editable, insertion is explicit, and the form also works without an AI provider. These challenges do
+not add hidden tests or grading: the reader runs the visible source and compares its behavior with the
+authored expected result.
 
 ### Images
 
