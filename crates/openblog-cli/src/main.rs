@@ -639,6 +639,15 @@ fn read_password(args: &Args, confirm: bool) -> Result<String, String> {
 }
 
 fn user_command(root: &std::path::Path, args: &Args) -> Result<(), String> {
+    user_command_with(root, args, || read_password(args, true))
+}
+
+/// `user_command` with the password source supplied, so tests need no terminal or environment.
+fn user_command_with(
+    root: &std::path::Path,
+    args: &Args,
+    password: impl FnOnce() -> Result<String, String>,
+) -> Result<(), String> {
     let config = site::load_config(root)?;
     let path = root.join(&config.admin.users_file);
     let action = args.positional.first().map(String::as_str).unwrap_or("");
@@ -667,7 +676,7 @@ fn user_command(root: &std::path::Path, args: &Args) -> Result<(), String> {
             if action == "passwd" && !exists {
                 return Err(format!("no user named `{name}`"));
             }
-            let password = read_password(args, true)?;
+            let password = password()?;
             if action == "add" {
                 // A new account under a reused name must not inherit an old binding.
                 revoke_shared_publication_bindings(root, name)?;
@@ -778,6 +787,55 @@ mod tests {
             .unwrap()
             .find("ada")
             .is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn adding_a_reused_admin_username_revokes_bindings_left_by_the_old_account() {
+        use openblog_core::collaboration::{
+            NewParticipant, NewSharedPublication, NewSourceReference,
+        };
+
+        let root = std::env::temp_dir().join(format!("ob-user-reuse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        scaffold::init(&root, Some("Reuse"), false).unwrap();
+        let users_path = root.join(".openblog/users.json");
+        // `ada` was dropped from users.json by hand, so her binding outlived the account.
+        auth::Users::default().save(&users_path).unwrap();
+        let record = shared_publications::create(
+            &root,
+            NewSharedPublication {
+                title: "Shared".into(),
+                sources: vec![NewSourceReference {
+                    title: "Talk".into(),
+                    ..NewSourceReference::default()
+                }],
+                creator: NewParticipant {
+                    admin_user: "ada".into(),
+                    contributor_id: "ada".into(),
+                    display_name: "Ada".into(),
+                },
+                ..NewSharedPublication::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(record.authorization.bindings.len(), 1);
+
+        user_command_with(
+            &root,
+            &parse_args(&strings(&["add", "ada"])).unwrap(),
+            || Ok("correct horse battery".into()),
+        )
+        .unwrap();
+
+        let loaded = shared_publications::load_all(&root).unwrap();
+        assert_eq!(loaded[0].1.publication_id, record.publication_id);
+        assert!(loaded[0].1.authorization.bindings.is_empty());
+        assert!(loaded[0].1.authorization.revision > record.authorization.revision);
+        assert!(auth::Users::load(&users_path)
+            .unwrap()
+            .find("ada")
+            .is_some());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

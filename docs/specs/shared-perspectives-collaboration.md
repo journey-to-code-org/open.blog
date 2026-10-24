@@ -339,7 +339,9 @@ request, and `Content-Type: application/json`.
 - `POST /admin/api/collaboration/publications` takes `title`, `guidingQuestion`,
   `contributorId`, and ordered `sources`, each with `kind`, `title`, `url`, `creator`,
   `publisher`, `published`, and `isbn`. Any other field is refused, so a body cannot name an Admin
-  user, participant, role, or binding. `contributorId` must be a current registry key. It returns
+  user, participant, role, or binding. `contributorId` must be a current registry key; it is the
+  creator's unverified choice, because no link from Admin users to registry keys exists yet (see
+  [ADR 0007](../adr/0007-private-shared-publication-records.md)). It returns
   `201` with the summary below, or `422` with `error` and `field` (for example `title` or
   `sources.1.url`).
 - `GET /admin/api/collaboration/publications` lists the summaries of records where the signed-in
@@ -432,6 +434,12 @@ after denials; it holds by construction, and the first collaboration-to-publicat
 and #158) owns the real unchanged-output assertion. The Admin tests for creation compare the
 content directory before and after every accepted and refused request and scan a full build for
 the record's title, question, sources, IDs, and contributor key.
+
+Duplicate IDs, rollback of a failed write, and refused or spoofed bodies are covered by the core
+record fixtures, `crates/openblog-cli/src/shared_publications.rs`, and the Admin API tests. The
+browser tests in `tests/web/admin-shared-reflection.test.mjs` cover the client side of a failure:
+a `422` or `500` maps to a field or to the status message without discarding the draft, and an
+error without a known field focuses the status alert.
 
 ## Out of scope
 

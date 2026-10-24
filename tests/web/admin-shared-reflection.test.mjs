@@ -3,11 +3,16 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  MAX_SHARED_SOURCES,
   SHARED_SOURCE_KINDS,
+  contributorSaveRefusalDetail,
   emptySharedSource,
   sharedReflectionFieldId,
   sharedReflectionPayload,
+  sharedReflectionProblemFromError,
   sharedSourceHref,
+  showSharedReflectionProblem,
+  submitSharedReflection,
   validateSharedReflectionDraft,
 } from "../../web/admin/admin.js";
 
@@ -152,4 +157,107 @@ test("the shared reflection flow is labelled, announced, and reachable from navi
   assert.match(admin, /setAttribute\("aria-describedby", `\$\{id\}-help`\)/);
   assert.match(admin, /class: "oba-error", role: "alert", tabindex: "-1"/);
   assert.match(admin, /category: "Create", keywords: "shared reflection collaborate source video book"/);
+});
+
+const fakeElement = (id = "") => {
+  const element = {
+    id,
+    attributes: {},
+    focused: false,
+    hidden: true,
+    textContent: "",
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+    focus() {
+      this.focused = true;
+    },
+  };
+  return element;
+};
+
+// Mirrors the DOM: a bare "#" is an invalid selector and throws.
+const fakeRoot = (controls) => ({
+  queried: [],
+  querySelector(selector) {
+    this.queried.push(selector);
+    if (!/^#[A-Za-z][\w-]*$/.test(selector)) throw new SyntaxError(`'${selector}' is not a valid selector`);
+    return controls.find((control) => `#${control.id}` === selector) || null;
+  },
+});
+
+test("a problem without a known field is announced and focuses the alert", () => {
+  for (const field of ["", undefined, "participants", '"><img src=x>']) {
+    const status = fakeElement();
+    const root = fakeRoot([fakeElement("oba-shared-title")]);
+    const focused = showSharedReflectionProblem(root, status, { field, message: "The shared reflection could not be saved" });
+    assert.equal(focused, status, String(field));
+    assert.equal(status.focused, true);
+    assert.equal(status.hidden, false);
+    assert.equal(status.textContent, "The shared reflection could not be saved");
+    assert.deepEqual(root.queried, []);
+  }
+});
+
+test("a problem with a known field marks and focuses that control", () => {
+  const status = fakeElement();
+  const url = fakeElement("oba-shared-source-1-url");
+  const root = fakeRoot([fakeElement("oba-shared-title"), url]);
+  assert.equal(showSharedReflectionProblem(root, status, { field: "sources.1.url", message: "Source 2: paste a full web address." }), url);
+  assert.equal(url.attributes["aria-invalid"], "true");
+  assert.equal(url.focused, true);
+  assert.equal(status.focused, false);
+  assert.equal(status.textContent, "Source 2: paste a full web address.");
+});
+
+test("a refused or failed creation keeps the draft and maps the server problem", async () => {
+  const cases = [
+    [{ status: 422, data: { field: "sources.0.url", error: "Source 1: paste a full web address." } }, { field: "sources.0.url", message: "Source 1: paste a full web address." }],
+    [{ status: 500, data: { error: "The shared reflection could not be saved" } }, { field: "", message: "The shared reflection could not be saved" }],
+    [Object.assign(new Error("Failed to fetch"), { status: 0 }), { field: "", message: "Failed to fetch" }],
+  ];
+  for (const [error, expected] of cases) {
+    const current = draft({ guidingQuestion: "What changed?" });
+    const before = structuredClone(current);
+    const calls = [];
+    await submitSharedReflection(current, {
+      post: async (json) => {
+        calls.push(["post", json]);
+        throw error;
+      },
+      created: async () => calls.push(["created"]),
+      failed: (received, problem) => calls.push(["failed", received, problem]),
+    });
+    assert.deepEqual(current, before);
+    assert.deepEqual(calls.map(([name]) => name), ["post", "failed"]);
+    assert.deepEqual(calls[0][1], sharedReflectionPayload(before));
+    assert.equal(calls[1][1], error);
+    assert.deepEqual(calls[1][2], expected);
+  }
+  assert.deepEqual(sharedReflectionProblemFromError(undefined), { field: "", message: "The shared reflection could not be saved." });
+});
+
+test("a successful creation runs only the created step", async () => {
+  const calls = [];
+  await submitSharedReflection(draft(), {
+    post: async () => calls.push("post"),
+    created: async () => calls.push("created"),
+    failed: () => calls.push("failed"),
+  });
+  assert.deepEqual(calls, ["post", "created"]);
+});
+
+test("the source limit matches the record and is explained when reached", () => {
+  assert.equal(MAX_SHARED_SOURCES, 20);
+  assert.match(admin, /addSource\.disabled = full/);
+  assert.match(admin, /You can add up to \$\{MAX_SHARED_SOURCES\} sources\./);
+  assert.match(admin, /addSource\.setAttribute\("aria-describedby", sourceLimit\.id\)/);
+});
+
+test("a refused Contributors save names the blocking posts or registry keys", () => {
+  assert.equal(contributorSaveRefusalDetail({ contributors: ["grace", "linus"] }), " grace, linus");
+  assert.equal(contributorSaveRefusalDetail({ paths: ["content/posts/a.md"] }), " content/posts/a.md");
+  assert.equal(contributorSaveRefusalDetail({ error: "x" }), "");
+  assert.equal(contributorSaveRefusalDetail(undefined), "");
+  assert.equal(contributorSaveRefusalDetail({ contributors: [1, "", "ada"] }), " ada");
 });

@@ -411,6 +411,26 @@ mod tests {
         let _ = fs::remove_dir_all(outside);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_record_stored_as_a_symlink_grants_nothing() {
+        let root = root("symlink-record");
+        let elsewhere = root.0.with_extension("elsewhere");
+        let _ = fs::remove_dir_all(&elsewhere);
+        fs::create_dir_all(&elsewhere).unwrap();
+        let other = create(&elsewhere, request("ada-admin")).unwrap();
+        fs::create_dir_all(root.0.join(DIRECTORY)).unwrap();
+        let name = format!("{}.json", other.publication_id);
+        std::os::unix::fs::symlink(
+            elsewhere.join(DIRECTORY).join(&name),
+            root.0.join(DIRECTORY).join(&name),
+        )
+        .unwrap();
+        assert!(load_all(&root.0).unwrap().is_empty());
+        assert!(bound_contributor_ids(&root.0).unwrap().is_empty());
+        let _ = fs::remove_dir_all(elsewhere);
+    }
+
     #[test]
     fn revoking_an_admin_user_removes_only_their_bindings() {
         let root = root("revoke");

@@ -47,6 +47,15 @@ The creator becomes the only participant, bound as `siteOwner` and `contributor`
 contributor profile they choose. The Admin user always comes from the session, and the display
 name always comes from the registry entry, never from the request body.
 
+Nothing yet links an Admin user to a registry key, so the creator's choice of contributor profile
+is not verified: any signed-in Admin user may pick any current key. This is accepted for now
+because a registry entry grants no login or access ([ADR 0006](0006-collaborator-identity-binding.md)),
+every decision is made for the session's Admin user, and the chosen key only labels the creator in
+a record that only bound participants can see. The cost is that a key picked this way cannot be
+bound again in that publication and cannot be removed from the registry while the record binds
+it; the Contributors editor names the blocking keys when it refuses. A later user-to-registry link
+can narrow the choice without changing the record shape.
+
 ADR 0006 left the persisted policy to enforce that a binding cannot follow a reused name. Removing
 an Admin account with `openblog user remove`, and adding one with `openblog user add`, now remove
 that username from every record's bindings and advance the policy revision. The Admin

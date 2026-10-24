@@ -323,6 +323,9 @@ export const SHARED_SOURCE_KINDS = Object.freeze([
   { value: "other", label: "Other", example: "e.g. A conversation at the river" },
 ]);
 
+/** Matches the record's source limit, so the form never offers a source the server would refuse. */
+export const MAX_SHARED_SOURCES = 20;
+
 export function emptySharedSource(kind = "video") {
   return { kind, title: "", url: "", creator: "", publisher: "", published: "", isbn: "" };
 }
@@ -381,11 +384,55 @@ export function sharedReflectionPayload(draft = {}) {
   };
 }
 
+/** The post paths or registry keys that blocked a Contributors save, ready to append to its message. */
+export function contributorSaveRefusalDetail(data) {
+  const named = [data?.paths, data?.contributors].filter(Array.isArray).flat().filter((item) => typeof item === "string" && item);
+  return named.length ? ` ${named.join(", ")}` : "";
+}
+
 export function sharedReflectionFieldId(field) {
   const fixed = { title: "oba-shared-title", guidingQuestion: "oba-shared-question", contributorId: "oba-shared-contributor", sources: "oba-shared-add-source" };
   if (Object.hasOwn(fixed, field)) return fixed[field];
   const match = /^sources\.(\d{1,2})\.(title|url|creator|publisher|published|isbn)$/.exec(String(field ?? ""));
   return match ? `oba-shared-source-${match[1]}-${match[2]}` : "";
+}
+
+/** The field and message to show for a failed creation request; the field may be "". */
+export function sharedReflectionProblemFromError(error) {
+  const field = typeof error?.data?.field === "string" ? error.data.field : "";
+  const message = typeof error?.data?.error === "string" && error.data.error ? error.data.error : error?.message || "The shared reflection could not be saved.";
+  return { field, message };
+}
+
+/**
+ * Show a problem in the form's alert and move focus to the field it names, or to the alert when the
+ * field is missing or unknown. Returns the element that received focus.
+ */
+export function showSharedReflectionProblem(root, status, problem) {
+  status.textContent = problem.message;
+  status.hidden = false;
+  const id = sharedReflectionFieldId(problem.field);
+  const control = id ? root.querySelector(`#${id}`) : null;
+  if (control) {
+    control.setAttribute("aria-invalid", "true");
+    control.focus();
+    return control;
+  }
+  status.focus?.();
+  return status;
+}
+
+/**
+ * Send a validated draft. On failure the draft is left as it is so the writer can correct and
+ * resend it; `failed` receives the error and the problem to show.
+ */
+export async function submitSharedReflection(draft, { post, created, failed }) {
+  try {
+    await post(sharedReflectionPayload(draft));
+    await created();
+  } catch (error) {
+    await failed(error, sharedReflectionProblemFromError(error));
+  }
 }
 
 export function sharedSourceHref(value) {
@@ -2012,8 +2059,7 @@ export class ObAdmin extends AdminElement {
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         status.className = "oba-error";
-        const paths = Array.isArray(error.data?.paths) ? ` ${error.data.paths.join(", ")}` : "";
-        status.textContent = `${error.data?.error || error.message}${paths}`;
+        status.textContent = `${error.data?.error || error.message}${contributorSaveRefusalDetail(error.data)}`;
       } finally {
         save.disabled = false;
       }
@@ -2118,6 +2164,14 @@ export class ObAdmin extends AdminElement {
       contributors.map(([id, entry]) => h("option", { value: id, selected: id === this.user }, `${entry.name || id} (${id})`)),
     );
     const addSource = h("button", { class: "oba-btn", type: "button", id: "oba-shared-add-source" }, "Add another source");
+    const sourceLimit = h("small", { class: "oba-small", id: "oba-shared-source-limit", hidden: true }, `You can add up to ${MAX_SHARED_SOURCES} sources.`);
+    const updateSourceLimit = () => {
+      const full = sources.length >= MAX_SHARED_SOURCES;
+      addSource.disabled = full;
+      sourceLimit.hidden = !full;
+      if (full) addSource.setAttribute("aria-describedby", sourceLimit.id);
+      else addSource.removeAttribute("aria-describedby");
+    };
     const submit = h("button", { class: "oba-btn oba-btn-primary", type: "submit", disabled: !contributors.length }, "Create shared reflection");
 
     const renderSources = (focusIndex = -1) => {
@@ -2176,25 +2230,18 @@ export class ObAdmin extends AdminElement {
           );
         }),
       );
+      updateSourceLimit();
       if (focusIndex >= 0) requestAnimationFrame(() => sourceList.querySelector(`#oba-shared-source-${focusIndex}-title`)?.focus());
     };
 
     addSource.addEventListener("click", () => {
-      if (sources.length >= 20) return;
+      if (sources.length >= MAX_SHARED_SOURCES) return;
       sources.push(emptySharedSource(sources.at(-1)?.kind));
       markDirty();
       renderSources(sources.length - 1);
     });
 
-    const showProblem = (problem) => {
-      status.textContent = problem.message;
-      status.hidden = false;
-      const control = this.querySelector(`#${sharedReflectionFieldId(problem.field)}`);
-      if (control) {
-        control.setAttribute("aria-invalid", "true");
-        control.focus();
-      } else status.focus?.();
-    };
+    const showProblem = (problem) => showSharedReflectionProblem(this, status, problem);
 
     const form = h(
       "form",
@@ -2210,14 +2257,17 @@ export class ObAdmin extends AdminElement {
           if (problem) return showProblem(problem);
           submit.disabled = true;
           try {
-            await this.api.call("POST", "collaboration/publications", { json: sharedReflectionPayload(draft) });
-            this.dirty = false;
-            this.skipRoute = true;
-            location.hash = "#/shared";
-            await this.showSharedReflections("Shared reflection created. It is private to you until you invite others.");
-          } catch (error) {
-            if (error instanceof ApiError && error.status === 401) return this.showLogin("Your session ended. Sign in again.");
-            showProblem({ field: error.data?.field || "", message: error.data?.error || error.message });
+            await submitSharedReflection(draft, {
+              post: (json) => this.api.call("POST", "collaboration/publications", { json }),
+              created: async () => {
+                this.dirty = false;
+                this.skipRoute = true;
+                location.hash = "#/shared";
+                await this.showSharedReflections("Shared reflection created. It is private to you until you invite others.");
+              },
+              failed: (error, problem) =>
+                error instanceof ApiError && error.status === 401 ? this.showLogin("Your session ended. Sign in again.") : showProblem(problem),
+            });
           } finally {
             submit.disabled = !contributors.length;
           }
@@ -2228,7 +2278,7 @@ export class ObAdmin extends AdminElement {
       h("p", { class: "oba-small" }, "Nothing is published. The reflection is kept in private server files and does not change your posts."),
       h("h3", {}, "What prompted it"),
       sourceList,
-      h("div", { class: "oba-toolbar" }, addSource),
+      h("div", { class: "oba-toolbar" }, addSource, sourceLimit),
       h(
         "fieldset",
         { class: "oba-contributor-card" },
