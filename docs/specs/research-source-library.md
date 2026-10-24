@@ -70,14 +70,16 @@ already failed is not reported again through records that point at it.
 
 The library is stored at `.openblog/private/research/sources.json`, which new projects
 ignore in Git. No existing component of that path may be a symlink or junction. Builds never
-read it, and nothing inside `.openblog/` is copied into a build even when `paths.static` or
-`paths.themes` contains it.
+read it, and nothing inside `.openblog/` is copied into a build or feeds its asset version
+even when `paths.static` or `paths.themes` contains it.
 
 Every read returns a **library revision**, the lowercase hexadecimal SHA-256 of the stored
 bytes (or of the canonical empty library while no file exists). Create, update, and remove
 each name the revision they were based on; any other revision, including one changed by a
-hand edit, is a conflict and nothing is written. Create refuses an identifier in use
-(`duplicate-id`), and update refuses one that is not (`unknown-source`).
+hand edit, is a conflict and nothing is written, not even the private directories of a
+library that is not stored yet. Create refuses an identifier in use (`duplicate-id`, scoped
+to the existing source), and update refuses one that is not (`unknown-source`, scoped to the
+requested identifier).
 
 Changes hold `sources.json.lock` beside the library, write the canonical form to a new
 `sources.json.<process>-<time>.tmp` file, flush it, and rename it over the library, so the
@@ -85,6 +87,8 @@ stored file is always either the previous or the next complete library. Temporar
 left by an interrupted write are ignored and removed by the next successful write. A lock
 left by a crashed process blocks changes until it is removed; reads never wait for it.
 
-A stored file that is malformed, not UTF-8, larger than 4 MiB, invalid, or of a newer
-version is reported with the diagnostics above and is never overwritten. Lookups by id,
+A leading UTF-8 byte-order mark, as some editors save, is ignored when reading; the
+revision still covers the stored bytes, and the next change writes the canonical form
+without it. A stored file that is malformed, not UTF-8, larger than 4 MiB, invalid, or of a
+newer version is reported with the diagnostics above and is never overwritten. Lookups by id,
 kind, and dependent record are derived in memory from the file and never stored.

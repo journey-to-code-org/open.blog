@@ -290,7 +290,8 @@ impl fmt::Display for SourceDiagnostic {
         match (self.index, &self.source_id) {
             (Some(index), Some(id)) => write!(formatter, "sources[{index}] `{id}`")?,
             (Some(index), None) => write!(formatter, "sources[{index}]")?,
-            (None, _) => formatter.write_str("source library")?,
+            (None, Some(id)) => write!(formatter, "source `{id}`")?,
+            (None, None) => formatter.write_str("source library")?,
         }
         if let Some(field) = &self.field {
             write!(formatter, " {field}")?;
@@ -310,6 +311,8 @@ impl SourceLibrary {
         if text.len() > MAX_LIBRARY_BYTES {
             return Err(vec![too_large()]);
         }
+        // Editors on Windows may save a byte-order mark, which is not JSON.
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         match serde_json::from_str(text) {
             Ok(value) => Self::from_value(value, contributors),
             Err(error) => Err(vec![library_diagnostic(

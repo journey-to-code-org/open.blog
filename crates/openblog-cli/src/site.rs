@@ -369,6 +369,9 @@ pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
             h = h.wrapping_mul(0x0100_0000_01b3);
         }
     };
+    // Private project state never feeds the public version, or a private edit
+    // would change every public asset URL.
+    let private = fsutil::PrivateState::of(root);
     for dir in [
         &config.paths.web,
         &config.paths.themes,
@@ -376,6 +379,9 @@ pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
     ] {
         let base = root.join(dir);
         for file in fsutil::walk(&base) {
+            if private.contains(&file) {
+                continue;
+            }
             mix(fsutil::relative(&base, &file).as_bytes());
             // Text assets by content; everything else (images, fonts) by size, which is
             // cheap and changes whenever the file is replaced.
@@ -740,6 +746,27 @@ mod tests {
         assert!(
             root.join("dist/public-note.txt").exists(),
             "other static files still copy"
+        );
+        fs::remove_dir_all(root).unwrap();
+
+        // Nor do private bytes feed the public asset version: editing the
+        // library must not change a single `?v=` asset URL.
+        let root =
+            project_with_private_library("private-static-version", r#"{"paths":{"static":"."}}"#);
+        let version = |root: &Path| {
+            let config = load_config(root).unwrap();
+            with_asset_version(root, config).cdn.version
+        };
+        let before = version(&root);
+        fs::write(
+            root.join(crate::source_store::LIBRARY_FILE),
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"B"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            version(&root),
+            before,
+            "private edits changed the asset version"
         );
         fs::remove_dir_all(root).unwrap();
 

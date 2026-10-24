@@ -23,8 +23,12 @@ impl FileLock {
                 .open(&path)
             {
                 Ok(file) => break file,
+                // On Windows a lock file the previous owner is still deleting
+                // refuses creation with "access denied" for a moment.
                 Err(error)
-                    if error.kind() == std::io::ErrorKind::AlreadyExists
+                    if (error.kind() == std::io::ErrorKind::AlreadyExists
+                        || (cfg!(windows)
+                            && error.kind() == std::io::ErrorKind::PermissionDenied))
                         && started.elapsed() < max_wait =>
                 {
                     std::thread::sleep(Duration::from_millis(100));

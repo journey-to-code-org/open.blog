@@ -89,18 +89,19 @@ pub fn create(
 ) -> Result<Snapshot, StoreError> {
     change(root, expected_revision, contributors, |library| {
         if let Some(index) = library.index().position(&record.id) {
+            // Scoped to the existing record, so a caller can point at it.
             return Err(vec![SourceDiagnostic {
                 code: SourceDiagnosticCode::DuplicateId,
-                index: None,
+                index: Some(index),
                 source_id: Some(record.id.clone()),
                 field: Some("id".into()),
                 message: format!(
-                    "sources[{index}] already uses `{}`; edit that source or choose another id",
+                    "`{}` is already used by this source; edit it or choose another id",
                     record.id
                 ),
             }]);
         }
-        library.upsert(record, contributors)
+        library.upsert(record.clone(), contributors)
     })
     .map(|(snapshot, ())| snapshot)
 }
@@ -123,7 +124,7 @@ pub fn update(
                 message: format!("no source has the id `{}`", record.id),
             }]);
         }
-        library.upsert(record, contributors)
+        library.upsert(record.clone(), contributors)
     })
     .map(|(snapshot, ())| snapshot)
 }
@@ -143,13 +144,15 @@ pub fn remove(
 
 /// Apply one edit while holding the library lock. The edit sees the library
 /// as stored, and nothing is written unless the stored revision matches, the
-/// stored library is valid, and the edited library is valid.
+/// stored library is valid, and the edited library is valid. While nothing is
+/// stored the edit is first tried without the lock, so a refused change never
+/// creates private directories either.
 #[cfg_attr(not(test), allow(dead_code))]
 fn change<T>(
     root: &Path,
     expected_revision: &str,
     contributors: &BTreeMap<String, Contributor>,
-    edit: impl FnOnce(&mut SourceLibrary) -> Result<T, Vec<SourceDiagnostic>>,
+    edit: impl Fn(&mut SourceLibrary) -> Result<T, Vec<SourceDiagnostic>>,
 ) -> Result<(Snapshot, T), StoreError> {
     change_using(root, expected_revision, contributors, edit, |from, to| {
         fs::rename(from, to)
@@ -161,24 +164,24 @@ fn change_using<T>(
     root: &Path,
     expected_revision: &str,
     contributors: &BTreeMap<String, Contributor>,
-    edit: impl FnOnce(&mut SourceLibrary) -> Result<T, Vec<SourceDiagnostic>>,
+    edit: impl Fn(&mut SourceLibrary) -> Result<T, Vec<SourceDiagnostic>>,
     rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
 ) -> Result<(Snapshot, T), StoreError> {
     let path = library_path(root)?;
     let directory = path
         .parent()
         .ok_or_else(|| StoreError::Storage("the source library has no directory".into()))?;
-    create_private_directory(directory)?;
+    if !directory.is_dir() {
+        let mut library = checked(read(&path, contributors)?, expected_revision)?;
+        edit(&mut library).map_err(StoreError::Invalid)?;
+        create_private_directory(directory)?;
+    }
     // Check again now that every directory exists.
     let path = library_path(root)?;
     let _lock = FileLock::acquire(lock_path(&path), "source library write", LOCK_WAIT)
         .map_err(StoreError::Storage)?;
 
-    let current = read(&path, contributors)?;
-    if current.revision != expected_revision {
-        return Err(StoreError::Conflict);
-    }
-    let mut library = current.library;
+    let mut library = checked(read(&path, contributors)?, expected_revision)?;
     let outcome = edit(&mut library).map_err(StoreError::Invalid)?;
     let text = library.to_json();
     commit(&path, text.as_bytes(), rename)?;
@@ -191,6 +194,15 @@ fn change_using<T>(
         },
         outcome,
     ))
+}
+
+/// The library a change may edit: the one read, if it is the revision named.
+#[cfg_attr(not(test), allow(dead_code))]
+fn checked(current: Snapshot, expected_revision: &str) -> Result<SourceLibrary, StoreError> {
+    if current.revision != expected_revision {
+        return Err(StoreError::Conflict);
+    }
+    Ok(current.library)
 }
 
 fn read(path: &Path, contributors: &BTreeMap<String, Contributor>) -> Result<Snapshot, StoreError> {
@@ -603,6 +615,45 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_first_change_creates_no_private_directories() {
+        let root = temp_root("refused-first");
+        let empty = load(&root, &none()).unwrap();
+        let stale = remove(&root, "x", "bogus", &none()).unwrap_err();
+        assert_eq!(stale, StoreError::Conflict);
+        let invalid = record("e", ResearchSourceKind::Edition, Some("missing"));
+        assert!(matches!(
+            create(&root, &empty.revision, invalid, &none()),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(matches!(
+            update(&root, &empty.revision, work("absent"), &none()),
+            Err(StoreError::Invalid(_))
+        ));
+        assert!(!root.join(".openblog").exists());
+        // An accepted first change still creates them.
+        create(&root, &empty.revision, work("w"), &none()).unwrap();
+        assert!(library_file(&root).is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_byte_order_mark_from_a_windows_editor_is_accepted() {
+        let root = temp_root("bom");
+        let contents = b"\xEF\xBB\xBF{\"version\":1,\"sources\":[{\"id\":\"w\",\"kind\":\"work\",\"title\":\"A\"}]}";
+        store(&root, contents);
+        let current = load(&root, &none()).unwrap();
+        assert!(current.library.get("w").is_some());
+        assert_eq!(
+            current.revision,
+            revision(contents),
+            "revision covers the raw bytes"
+        );
+        let next = create(&root, &current.revision, work("x"), &none()).unwrap();
+        assert_eq!(next.library.sources.len(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn oversized_libraries_are_rejected_before_they_are_read() {
         let root = temp_root("oversized");
         let mut contents = br#"{"version":1,"sources":[],"padding":""#.to_vec();
@@ -672,8 +723,24 @@ mod tests {
 
         let duplicate = create(&root, &second.revision, work("w"), &none()).unwrap_err();
         assert_eq!(codes(&duplicate), [SourceDiagnosticCode::DuplicateId]);
+        let StoreError::Invalid(diagnostics) = &duplicate else {
+            unreachable!()
+        };
+        assert_eq!(
+            diagnostics[0].index,
+            Some(0),
+            "points at the existing source"
+        );
+        assert!(
+            duplicate.to_string().contains("sources[0] `w` id:"),
+            "{duplicate}"
+        );
         let missing = update(&root, &second.revision, work("absent"), &none()).unwrap_err();
         assert_eq!(codes(&missing), [SourceDiagnosticCode::UnknownSource]);
+        assert!(
+            missing.to_string().contains("source `absent`:"),
+            "{missing}"
+        );
         let kind = update(
             &root,
             &second.revision,
@@ -757,6 +824,10 @@ mod tests {
         }
         assert!(!library_file(&root).exists());
         assert!(!root.join("escape").exists() && !root.parent().unwrap().join("b").exists());
+        assert!(
+            !root.join(".openblog").exists(),
+            "a refused change creates no private directories"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -817,6 +888,40 @@ mod tests {
 
         assert_eq!(fs::read(outside.join("sources.json")).unwrap(), planted);
         assert_eq!(fs::read_dir(&outside).unwrap().count(), 1);
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    /// Junctions need no special privilege on Windows, so this always runs there.
+    #[cfg(windows)]
+    #[test]
+    fn junctions_cannot_redirect_the_library_outside_private_storage() {
+        let base = temp_root("junction");
+        let outside = base.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let planted = br#"{"version":1,"sources":[{"id":"w","kind":"work","title":"Outside"}]}"#;
+        fs::write(outside.join("sources.json"), planted).unwrap();
+        let root = base.join("project");
+        fs::create_dir_all(root.join(".openblog/private")).unwrap();
+        // cmd reads a forward slash as a switch, so the path uses backslashes.
+        let link = root.join(".openblog").join("private").join("research");
+        let status = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(&link)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(status.status.success(), "mklink /J failed: {status:?}");
+
+        assert!(matches!(load(&root, &none()), Err(StoreError::Storage(_))));
+        assert!(matches!(
+            create(&root, &revision(planted), work("x"), &none()),
+            Err(StoreError::Storage(_))
+        ));
+        assert_eq!(fs::read(outside.join("sources.json")).unwrap(), planted);
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 1);
+        fs::remove_dir(&link).unwrap();
         fs::remove_dir_all(base).unwrap();
     }
 

@@ -108,6 +108,16 @@ fn round_trip_preserves_entity_identity_kind_order_and_unknown_fields() {
         written["sources"][0],
         serde_json::json!({"id": "w", "kind": "work", "title": "W"})
     );
+
+    // A byte-order mark saved by an editor is not part of the JSON, and the
+    // canonical form is written without one.
+    let marked = SourceLibrary::parse(
+        "\u{feff}{\"version\":1,\"sources\":[{\"id\":\"w\",\"kind\":\"work\",\"title\":\"W\"}]}",
+        &no_contributors(),
+    )
+    .unwrap();
+    assert!(marked.get("w").is_some());
+    assert!(!marked.to_json().starts_with('\u{feff}'));
 }
 
 fn library(sources: &str) -> String {
