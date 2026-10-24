@@ -2,6 +2,16 @@
 # Starts open.blog inside the container. See the Dockerfile for the variables.
 set -e
 
+# Provision credentials before recovering Git metadata omitted by Docker hosts.
+if [ -n "$OPENBLOG_GIT_TOKEN" ]; then
+  git config --global --replace-all credential.https://github.com.helper ""
+  git config --global --add credential.https://github.com.helper \
+    '!f() { if [ "$1" = get ]; then printf "username=x-access-token\npassword=%s\n" "$OPENBLOG_GIT_TOKEN"; fi; }; f'
+fi
+if [ -n "$RENDER_GIT_COMMIT" ] && ! git rev-parse --verify HEAD >/dev/null 2>&1; then
+  sh /blog/scripts/container-git.sh
+fi
+
 if [ -n "$OPENBLOG_ADMIN_USER" ] || [ -n "$OPENBLOG_ADMIN_PASSWORD" ]; then
   if [ -z "$OPENBLOG_ADMIN_USER" ] || [ -z "$OPENBLOG_ADMIN_PASSWORD" ]; then
     echo "Set both OPENBLOG_ADMIN_USER and OPENBLOG_ADMIN_PASSWORD." >&2
@@ -37,9 +47,6 @@ if [ -n "$OPENBLOG_GIT_TOKEN" ]; then
       exit 1
       ;;
   esac
-  git config --global --replace-all credential.https://github.com.helper ""
-  git config --global --add credential.https://github.com.helper \
-    '!f() { if [ "$1" = get ]; then printf "username=x-access-token\npassword=%s\n" "$OPENBLOG_GIT_TOKEN"; fi; }; f'
 fi
 
 exec openblog serve --admin --host 0.0.0.0 --port "${PORT:-8080}" "$@"

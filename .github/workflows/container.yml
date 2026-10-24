@@ -1,0 +1,32 @@
+name: Container
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build runtime image without inherited Git metadata
+        run: |
+          tar --exclude=.git --exclude=target --exclude=dist -czf - . | docker build -t openblog-smoke -
+      - name: Check runtime libc compatibility and recover exact shipped Git metadata
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SLUG: ${{ github.repository }}
+          SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          docker run --rm --entrypoint openblog openblog-smoke help
+          docker run --rm --entrypoint sh \
+            -e RENDER_GIT_COMMIT="$SOURCE_SHA" \
+            -e RENDER_GIT_REPO_SLUG="$SOURCE_SLUG" \
+            -e RENDER_GIT_BRANCH="$SOURCE_BRANCH" \
+            openblog-smoke -c 'sh scripts/container-git.sh && test "$(git rev-parse HEAD)" = "$RENDER_GIT_COMMIT" && git diff --exit-code HEAD'
