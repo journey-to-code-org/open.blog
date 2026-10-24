@@ -43,7 +43,8 @@ Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
 The [semantic portability decision](adr/0004-semantic-portability.md) defines how one canonical
 domain representation becomes destination-specific output without creating a duplicate document
-model.
+model. The [shared-publication language decision](adr/0005-shared-publication-language.md) separates
+private collaboration, source material, and draft approval from canonical posts and public credit.
 
 Current design frontiers include
 [contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),

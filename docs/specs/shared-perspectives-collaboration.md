@@ -10,6 +10,10 @@ ordered collection keyed by opaque participant or contribution IDs. No persisted
 represents “left/right,” “author A/B,” or another fixed pair. A two-person experience is a projection
 of an otherwise unchanged group contract.
 
+The surrounding domain terms are defined by
+[ADR 0005](../adr/0005-shared-publication-language.md). In particular, private participation and
+contribution ownership never imply public authorship or work credit.
+
 The contract is intentionally isolated from the document model and renderer. Invalid collaboration
 state cannot change source Markdown, canonical content, feeds, or public output.
 
