@@ -58,18 +58,26 @@ impl CapabilityDescriptor {
             return descriptor;
         }
 
-        let (semantics, fallback_renderer) = match identifier {
+        let (semantics, fallback_renderer, portability) = match identifier {
             "knowledge-check" => (
                 "A question with answer choices and an author-designated correct answer.",
                 Some("static-question-and-choices"),
+                PortabilityLevel::GracefullyTransformed,
             ),
             "runnable-code" => (
                 "Source code with an explicit reader execution affordance.",
                 Some("pre-code"),
+                PortabilityLevel::GracefullyTransformed,
             ),
             "web-sandbox" => (
                 "An HTML, CSS, and JavaScript exercise with an isolated preview.",
                 Some("source-code"),
+                PortabilityLevel::GracefullyTransformed,
+            ),
+            "comments" => (
+                "Reader discussion hosted with the canonical article.",
+                Some("canonical-link"),
+                PortabilityLevel::CanonicalOnlyInteraction,
             ),
             _ => {
                 let mut descriptor = Self {
@@ -93,7 +101,7 @@ impl CapabilityDescriptor {
             authored_semantics: semantics,
             native_renderer,
             fallback_renderer,
-            portability: PortabilityLevel::GracefullyTransformed,
+            portability,
             diagnostics: Vec::new(),
         }
     }
@@ -150,6 +158,17 @@ mod tests {
             descriptor.portability,
             PortabilityLevel::GracefullyTransformed
         );
+        assert!(descriptor.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn comments_are_a_canonical_only_interaction() {
+        let descriptor = CapabilityDescriptor::describe("comments", Some("ob-comments"));
+        assert_eq!(
+            descriptor.portability,
+            PortabilityLevel::CanonicalOnlyInteraction
+        );
+        assert_eq!(descriptor.fallback_renderer, Some("canonical-link"));
         assert!(descriptor.diagnostics.is_empty());
     }
 

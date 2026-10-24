@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added static fallbacks to the portable HTML projection: quizzes keep their prompt, choices,
+  and answer behind a native disclosure; runnable code and web sandboxes keep their labelled
+  source with a link to run them on the canonical article; embeds become titled provider
+  links; video chapters become a linked list; and comments become a link to the canonical
+  discussion. The output needs no open.blog script, custom element, form, or iframe.
+- Fixed quizzes and web sandboxes failing to build when nested in a callout, quote, or list item.
+
 ## [0.15.0] - 2026-10-24
 
 - Added private per-admin workspace personalization to Admin Studio: Simple (the new default),

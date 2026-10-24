@@ -77,6 +77,17 @@ impl Default for RenderOptions<'_> {
     }
 }
 
+/// What [`render_portable`] adds to [`RenderOptions`]: the canonical article that
+/// static fallbacks point readers to, and public post metadata they may use.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PortableContext<'a> {
+    pub canonical_url: &'a str,
+    /// Set for video posts: timestamp lines become a chapter list.
+    pub chapters: bool,
+    /// The post's YouTube video, so chapters can link to their moment.
+    pub video_id: Option<&'a str>,
+}
+
 /// Options written after a fence's language, in the style other site
 /// generators use: ```` ```rust title="src/main.rs" {2,4-6} showLineNumbers=10 ````.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -364,6 +375,126 @@ fn render_quiz(
     Ok(html)
 }
 
+/// A knowledge check without controls: the prompt, lettered choices, and the
+/// author's answer and explanation behind a native disclosure.
+fn render_portable_quiz(source: &str) -> Result<String, String> {
+    let quiz = parse_quiz(source)?;
+    let mut html = format!(
+        "<div class=\"ob-quiz\">
+<p class=\"ob-quiz-prompt\"><strong>{}</strong></p>
+<ol class=\"ob-quiz-choices\" type=\"A\">
+",
+        quiz_inline(&quiz.prompt)?
+    );
+    let mut answer = String::new();
+    for (index, choice) in quiz.choices.iter().enumerate() {
+        let text = quiz_inline(&choice.text)?;
+        if choice.correct {
+            // Parsing allows at most four choices, so the letter stays in A-D.
+            answer = format!("{}. {text}", char::from(b'A' + index as u8));
+        }
+        html.push_str(&format!(
+            "<li>{text}</li>
+"
+        ));
+    }
+    html.push_str(&format!(
+        "</ol>
+<details class=\"ob-quiz-answer\"><summary>Show answer</summary>
+<p>Answer: {answer}</p>
+"
+    ));
+    if let Some(explanation) = quiz.explanation {
+        html.push_str(&format!(
+            "<p>{}</p>
+",
+            quiz_inline(&explanation)?
+        ));
+    }
+    html.push_str(
+        "</details>
+</div>
+",
+    );
+    Ok(html)
+}
+
+/// A runnable fence without its runtime: the authored source stays visible as code
+/// and the live interaction is pointed at the canonical article.
+fn portable_code_html(
+    fence: &FenceInfo,
+    source: &str,
+    web_sandbox: bool,
+    canonical_url: &str,
+) -> String {
+    let code = |lang: &str, source: &str| {
+        let class = if lang.is_empty() {
+            String::new()
+        } else {
+            format!(" class=\"language-{}\"", escape::attr(lang))
+        };
+        format!("<pre><code{class}>{}</code></pre>", escape::text(source))
+    };
+    let kind = if web_sandbox {
+        "ob-web-sandbox"
+    } else {
+        "ob-runnable-code"
+    };
+    let mut html = format!("<figure class=\"ob-code-block {kind}\">");
+    if let Some(title) = &fence.title {
+        html.push_str(&format!(
+            "<figcaption class=\"ob-code-title\">{}</figcaption>",
+            escape::text(title)
+        ));
+    }
+    let action = if web_sandbox {
+        // Mirror the sandbox's own split, keeping any text before the first
+        // marker visible instead of silently dropping it.
+        let mut preamble = String::new();
+        let mut files = [
+            ("html", "HTML", String::new()),
+            ("css", "CSS", String::new()),
+            ("js", "JavaScript", String::new()),
+        ];
+        let mut active: Option<usize> = None;
+        for line in source.lines() {
+            let marker = line
+                .trim()
+                .strip_prefix("---")
+                .and_then(|name| files.iter().position(|(file, _, _)| *file == name));
+            if marker.is_some() {
+                active = marker;
+                continue;
+            }
+            let buffer = match active {
+                Some(index) => &mut files[index].2,
+                None => &mut preamble,
+            };
+            buffer.push_str(line);
+            buffer.push('\n');
+        }
+        if !preamble.trim().is_empty() {
+            html.push_str(&code("", &preamble));
+        }
+        for (lang, label, source) in &files {
+            if !source.trim().is_empty() {
+                html.push_str(&format!("<p class=\"ob-web-sandbox-label\">{label}</p>"));
+                html.push_str(&code(lang, source));
+            }
+        }
+        "Open the live preview on"
+    } else {
+        html.push_str(&code(&fence.lang, source));
+        "Run and edit this example on"
+    };
+    html.push_str(&format!(
+        "<p class=\"ob-portable-note\">{action} <a href=\"{}\">the original article</a>.</p></figure>
+",
+        escape::attr(canonical_url)
+    ));
+    html
+}
+
 /// How a line of raw block HTML changes the element depth: `+1` for an
 /// opening tag left open, `-1` for a closing tag, `0` otherwise (void and
 /// self-closing tags, elements closed on the same line, comments).
@@ -405,6 +536,7 @@ fn transform_blocks<'a>(
     events: Vec<Event<'a>>,
     recipe: bool,
     code_runner: Option<CodeRunnerRenderOptions<'_>>,
+    portable: Option<PortableContext<'_>>,
 ) -> (Vec<Event<'a>>, BlockData) {
     let mut out = Vec::with_capacity(events.len());
     let mut data = BlockData::default();
@@ -421,7 +553,12 @@ fn transform_blocks<'a>(
     let mut item: Option<String> = None;
     // Raw HTML elements opened (and not yet closed) since the section began.
     let mut html_depth = 0i32;
-    let mut in_quiz = false;
+    // A fence the canonical page can run, collected for its static fallback.
+    let mut portable_code: Option<(FenceInfo, String)> = None;
+    // Fence text arrives line by line inside containers, so each capability
+    // fence is collected whole before it is validated or rendered.
+    let mut quiz: Option<String> = None;
+    let mut sandbox_source = String::new();
     let mut quiz_group_open = false;
     let mut quiz_occurrences = std::collections::HashMap::new();
     // The section a deeper heading switched away from ("### Ingredients for the
@@ -446,29 +583,34 @@ fn transform_blocks<'a>(
                 )));
                 quiz_group_open = true;
             }
-            in_quiz = true;
+            quiz = Some(String::new());
             continue;
         }
-        if in_quiz {
+        if let Some(source) = quiz.as_mut() {
             match event {
-                Event::Text(source) => match render_quiz(source, &mut quiz_occurrences) {
-                    Ok(html) => out.push(Event::Html(CowStr::from(html))),
-                    Err(error) => {
-                        data.errors.push(error.clone());
-                        if let Some(capability) = data.capabilities.last_mut() {
-                            capability.add_diagnostic(
-                                CapabilityDiagnosticCode::MalformedContent,
-                                "Malformed knowledge check; see the source-scoped Markdown error.",
-                            );
-                        }
-                        out.push(Event::Html(CowStr::from(format!(
-                            "<aside class=\"ob-quiz-error\" role=\"alert\">Invalid knowledge check: {}</aside>\n",
-                            escape::text(&error)
-                        ))));
-                    }
-                },
+                Event::Text(text) => source.push_str(text),
                 Event::End(TagEnd::CodeBlock) => {
-                    in_quiz = false;
+                    let source = quiz.take().unwrap_or_default();
+                    match if portable.is_some() {
+                        render_portable_quiz(&source)
+                    } else {
+                        render_quiz(&source, &mut quiz_occurrences)
+                    } {
+                        Ok(html) => out.push(Event::Html(CowStr::from(html))),
+                        Err(error) => {
+                            data.errors.push(error.clone());
+                            if let Some(capability) = data.capabilities.last_mut() {
+                                capability.add_diagnostic(
+                                    CapabilityDiagnosticCode::MalformedContent,
+                                    "Malformed knowledge check; see the source-scoped Markdown error.",
+                                );
+                            }
+                            out.push(Event::Html(CowStr::from(format!(
+                                "<aside class=\"ob-quiz-error\" role=\"alert\">Invalid knowledge check: {}</aside>\n",
+                                escape::text(&error)
+                            ))));
+                        }
+                    }
                     let next_is_quiz = matches!(
                         events.get(i + 1),
                         Some(Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))))
@@ -483,7 +625,14 @@ fn transform_blocks<'a>(
             }
             continue;
         }
-        if web_sandbox && matches!(event, Event::Text(source) if !valid_web_sandbox_source(source))
+        if web_sandbox {
+            if let Event::Text(text) = event {
+                sandbox_source.push_str(text);
+            }
+        }
+        if web_sandbox
+            && matches!(event, Event::End(TagEnd::CodeBlock))
+            && !valid_web_sandbox_source(&std::mem::take(&mut sandbox_source))
         {
             data.errors.push(
                 "a `web runnable` fence needs a non-empty `---html`, `---css`, or `---js` section and must stay under 100,000 bytes"
@@ -495,6 +644,25 @@ fn transform_blocks<'a>(
                     "Malformed web sandbox; see the source-scoped Markdown error.",
                 );
             }
+        }
+        if let (Some((fence, source)), Some(context)) = (portable_code.as_mut(), portable) {
+            match event {
+                Event::Text(text) => source.push_str(text),
+                Event::End(TagEnd::CodeBlock) => {
+                    out.push(Event::Html(CowStr::from(portable_code_html(
+                        fence,
+                        source,
+                        web_sandbox,
+                        context.canonical_url,
+                    ))));
+                    portable_code = None;
+                    runnable_code = false;
+                    configured_runner = false;
+                    web_sandbox = false;
+                }
+                _ => {}
+            }
+            continue;
         }
         // What this event becomes in the output.
         let rendered = match event {
@@ -530,6 +698,10 @@ fn transform_blocks<'a>(
                     };
                     data.capabilities
                         .push(CapabilityDescriptor::describe(id, renderer));
+                    if portable.is_some() && renderer.is_some() {
+                        portable_code = Some((fence, String::new()));
+                        continue;
+                    }
                 }
                 if configured_runner {
                     let runner = runner.expect("configured runner was checked");
@@ -599,6 +771,12 @@ fn transform_blocks<'a>(
             }
             Event::Start(Tag::BlockQuote(Some(kind))) => {
                 let (class, label) = callout_label(*kind);
+                // Portable output has no stylesheet, so the title needs its own emphasis.
+                let label = if portable.is_some() {
+                    format!("<strong>{label}</strong>")
+                } else {
+                    label.to_string()
+                };
                 Event::Html(CowStr::from(format!(
                     "<aside class=\"ob-callout ob-callout-{class}\" role=\"note\"><p class=\"ob-callout-title\">{label}</p>\n"
                 )))
@@ -812,6 +990,155 @@ fn apply_embeds(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
     out
 }
 
+/// Replace standalone embeddable links with a titled link to the provider, and,
+/// for video posts, a paragraph of timestamp lines with a chapter list.
+fn apply_portable_paragraphs<'a>(
+    events: Vec<Event<'a>>,
+    context: PortableContext<'_>,
+) -> Vec<Event<'a>> {
+    let mut out = Vec::with_capacity(events.len());
+    let mut i = 0;
+    while i < events.len() {
+        if matches!(events[i], Event::Start(Tag::Paragraph)) {
+            if let Some(len) = events[i + 1..]
+                .iter()
+                .position(|e| matches!(e, Event::End(TagEnd::Paragraph)))
+            {
+                let inner = &events[i + 1..i + 1 + len];
+                let replacement = standalone_embed(inner)
+                    .map(|embed| portable_embed_html(inner, &embed))
+                    .or_else(|| {
+                        context
+                            .chapters
+                            .then(|| chapters_html(inner, context.video_id))
+                            .flatten()
+                    });
+                if let Some(html) = replacement {
+                    out.push(Event::Html(CowStr::from(html)));
+                    i += len + 2;
+                    continue;
+                }
+            }
+        }
+        out.push(events[i].clone());
+        i += 1;
+    }
+    out
+}
+
+/// A provider link in place of an embedded frame. An authored link keeps its
+/// own (already resolved) address and text; bare URLs use the rebuilt address.
+fn portable_embed_html(inner: &[Event<'_>], embed: &crate::embed::Embed) -> String {
+    let (href, title) = match inner {
+        [Event::Start(Tag::Link { dest_url, .. }), middle @ .., Event::End(TagEnd::Link)] => {
+            let title: String = middle
+                .iter()
+                .filter_map(|e| match e {
+                    Event::Text(t) | Event::Code(t) => Some(t.as_ref()),
+                    _ => None,
+                })
+                .collect();
+            let title = title.trim();
+            let authored = !title.is_empty() && title != dest_url.as_ref();
+            (dest_url.to_string(), authored.then(|| title.to_string()))
+        }
+        _ => (embed.link.clone(), None),
+    };
+    let (label, suffix) = match title {
+        Some(title) => (title, format!(" ({})", escape::text(&embed.link_label))),
+        None => (embed.link_label.clone(), String::new()),
+    };
+    format!(
+        "<p class=\"ob-embed-link ob-embed-{}\"><a href=\"{}\">{}</a>{suffix}</p>\n",
+        embed.provider,
+        escape::attr(&href),
+        escape::text(&label)
+    )
+}
+
+/// Seconds for a chapter timestamp (`MM:SS` or `H:MM:SS`), read as the Admin
+/// release kit reads them.
+fn chapter_seconds(timestamp: &str) -> Option<u32> {
+    let parts: Vec<&str> = timestamp.split(':').collect();
+    if !parts
+        .iter()
+        .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return None;
+    }
+    let value = |part: &str| part.parse::<u32>().ok();
+    match parts.as_slice() {
+        [minutes, seconds] if minutes.len() <= 3 && seconds.len() == 2 => {
+            let (minutes, seconds) = (value(minutes)?, value(seconds)?);
+            (seconds < 60).then(|| minutes * 60 + seconds)
+        }
+        [hours, minutes, seconds]
+            if hours.len() <= 2 && minutes.len() == 2 && seconds.len() == 2 =>
+        {
+            let (hours, minutes, seconds) = (value(hours)?, value(minutes)?, value(seconds)?);
+            (minutes < 60 && seconds < 60).then(|| hours * 3600 + minutes * 60 + seconds)
+        }
+        _ => None,
+    }
+}
+
+/// A chapter list when every line of a paragraph (at least two) starts with a
+/// timestamp and holds only text, inline code, or emphasis.
+fn chapters_html(inner: &[Event<'_>], video_id: Option<&str>) -> Option<String> {
+    let lines: Vec<&[Event<'_>]> = inner
+        .split(|e| matches!(e, Event::SoftBreak | Event::HardBreak))
+        .collect();
+    if lines.len() < 2 {
+        return None;
+    }
+    let mut html = String::from("<ol class=\"ob-chapters\" aria-label=\"Video chapters\">\n");
+    for line in lines {
+        let mut depth = 0i32;
+        for event in line {
+            match event {
+                Event::Start(Tag::Emphasis | Tag::Strong | Tag::Strikethrough) => depth += 1,
+                Event::End(TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough) => depth -= 1,
+                Event::Text(_) | Event::Code(_) => {}
+                _ => return None,
+            }
+            if depth < 0 {
+                return None;
+            }
+        }
+        let (Event::Text(first), rest) = line.split_first()? else {
+            return None;
+        };
+        if depth != 0 {
+            return None;
+        }
+        let (timestamp, label) = first.split_once(char::is_whitespace)?;
+        let seconds = chapter_seconds(timestamp)?;
+        let label = label.trim_start();
+        if label.is_empty() && rest.is_empty() {
+            return None;
+        }
+        let mut label_html = String::new();
+        pulldown_cmark::html::push_html(
+            &mut label_html,
+            std::iter::once(Event::Text(CowStr::from(label.to_string())))
+                .chain(rest.iter().cloned()),
+        );
+        let time = format!("<time datetime=\"PT{seconds}S\">{timestamp}</time>");
+        let time = match video_id {
+            Some(id) => format!(
+                "<a href=\"{}\">{time}</a>",
+                escape::attr(&format!(
+                    "https://www.youtube.com/watch?v={id}&t={seconds}s"
+                ))
+            ),
+            None => time,
+        };
+        html.push_str(&format!("<li>{time} {}</li>\n", label_html.trim_end()));
+    }
+    html.push_str("</ol>\n");
+    Some(html)
+}
+
 pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
     let mut options = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
@@ -852,7 +1179,7 @@ pub fn render_portable(
         parsed_events,
         markdown.len(),
         options,
-        Some(projection.canonical_url()),
+        Some(projection.markdown_context()),
     ))
 }
 
@@ -860,7 +1187,7 @@ fn render_events<'a>(
     parsed_events: Vec<Event<'a>>,
     source_length: usize,
     options: RenderOptions<'_>,
-    anchor_base: Option<&str>,
+    portable: Option<PortableContext<'_>>,
 ) -> Rendered {
     let mut events: Vec<Event> = Vec::new();
     let mut headings = Vec::new();
@@ -935,8 +1262,8 @@ fn render_events<'a>(
                 }
                 let level_num = heading_level(level);
                 if options.heading_anchors && level_num >= 2 {
-                    let href = anchor_base
-                        .map(|base| format!("{base}#{id}"))
+                    let href = portable
+                        .map(|context| format!("{}#{id}", context.canonical_url))
                         .unwrap_or_else(|| format!("#{id}"));
                     let anchor = format!(
                         "<a class=\"ob-heading-anchor\" href=\"{}\" aria-label=\"Link to this section\">#</a>",
@@ -956,12 +1283,14 @@ fn render_events<'a>(
         events.push(event);
     }
 
-    let events = if options.embeds {
+    let events = if let Some(context) = portable {
+        apply_portable_paragraphs(events, context)
+    } else if options.embeds {
         apply_embeds(events)
     } else {
         events
     };
-    let (events, blocks) = transform_blocks(events, options.recipe, options.code_runner);
+    let (events, blocks) = transform_blocks(events, options.recipe, options.code_runner, portable);
     let mut html = String::with_capacity(source_length * 2);
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
     if options.lazy_images {
@@ -1205,6 +1534,21 @@ mod tests {
         assert!(r.html.contains("<blockquote>"));
         assert!(r.html.contains("<ob-rust-playground>"));
         assert!(r.html.contains("<ob-quiz"));
+    }
+
+    #[test]
+    fn quizzes_and_web_sandboxes_render_inside_callouts() {
+        let r = render(
+            "> [!TIP]\n> ```quiz\n> Question?\n> - [x] Yes\n> - [ ] No\n> ```\n>\n> ```web runnable\n> ---html\n> <p>Hi</p>\n> ```\n",
+            RenderOptions::default(),
+        );
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert_eq!(r.html.matches("type=\"radio\"").count(), 2, "{}", r.html);
+        assert!(r.html.contains("<ob-web-sandbox>"));
+        assert!(r
+            .capabilities
+            .iter()
+            .all(|capability| capability.diagnostics.is_empty()));
     }
 
     #[test]

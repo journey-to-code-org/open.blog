@@ -33,14 +33,15 @@ below only where a `CapabilityDescriptor` or fixture already records one:
 
 - `PortableProjection::representation(RepresentationFormat::Html)` returns `post.html` unchanged —
   the same authored/native HTML string used for the native page
-(`crates/openblog-core/src/portability.rs:133-139`, confirmed by
-`crates/openblog-core/src/portability.rs:269-274` asserting
+(`crates/openblog-core/src/portability.rs:158-164`, confirmed by
+`crates/openblog-core/src/portability.rs:346-349` asserting
   `projection.representation(RepresentationFormat::Html) == post.html`). The separate
   `PortableProjection::portable_html()` API re-renders retained authored Markdown and resolves
   Markdown link and image destinations without parsing native HTML; it is an opt-in body projection,
-  not yet consumed by feeds, Admin preview, or syndication. It preserves authored raw HTML and
-  current custom-element markup, so sanitization and capability-specific fallbacks remain future
-  work under [#112](https://github.com/journey-to-code-org/open.blog/issues/112) and
+  not yet consumed by feeds, Admin preview, or syndication. It renders static fallbacks for
+  quizzes, runnable code, web sandboxes, embeds, video chapters, recipes, callouts, and comment
+  participation ([#112](https://github.com/journey-to-code-org/open.blog/issues/112)) but
+  preserves authored raw HTML, so sanitization remains future work under
   [#114](https://github.com/journey-to-code-org/open.blog/issues/114). See the
   [portable HTML pipeline](./portable-html-pipeline.md) for its exact boundaries. Story
   [#95](https://github.com/journey-to-code-org/open.blog/issues/95) remains in progress until the

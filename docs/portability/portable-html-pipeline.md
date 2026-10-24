@@ -13,13 +13,44 @@ links fail with a source-scoped error instead of silently producing a successful
 
 This is a body projection, not a complete page or a consumer migration. `representation(Html)`
 continues to return the existing native `post.html`; feeds, Admin preview, and syndication are not
-switched to `portable_html()` by this task. Authored raw HTML remains untouched, and native
-custom-element wrappers may remain in the output. The static children do not require an
-open.blog custom-element definition, but the pipeline does not yet provide capability-specific
-fallbacks. Those fallbacks and their semantic-loss reporting are scoped to [#112](https://github.com/journey-to-code-org/open.blog/issues/112); raw-HTML policy and sanitization are scoped to [#114](https://github.com/journey-to-code-org/open.blog/issues/114).
+switched to `portable_html()` yet. Authored raw HTML remains untouched; raw-HTML policy and
+sanitization are scoped to [#114](https://github.com/journey-to-code-org/open.blog/issues/114).
+
+## Static fallbacks for interactive capabilities
+
+Generated markup in the projection needs no open.blog script, custom element, form control,
+iframe, `hidden` attribute, or stylesheet. Each current capability renders as ordinary HTML
+([#112](https://github.com/journey-to-code-org/open.blog/issues/112)):
+
+| Capability | Portable fallback | What moves to the canonical article |
+| --- | --- | --- |
+| Knowledge check (`quiz` fence) | The prompt, choices as a lettered list, and the author's answer and explanation inside a native `<details>` disclosure, so the answer stays on request. | Scoring, retry, and remembered answers. |
+| Runnable code (`rust runnable`, configured runner languages) | The authored source in `<pre><code>` with its title, plus a link to run and edit it on the canonical article. Fences the canonical page cannot run stay ordinary code. The runner endpoint is never included. | Editing, execution, and output. |
+| Web sandbox (`web runnable`) | The HTML, CSS, and JavaScript as separate, labelled, escaped code blocks (text before the first marker is kept), plus a link to the live preview. | The isolated live preview. |
+| CodePen and YouTube embeds | A titled link to the provider: the authored link text and address when present, otherwise the rebuilt provider address. Hashnode `%[url]` syntax never reaches the output. A video post's `videoUrl` becomes a link at the top unless the body already links that video. | The embedded frame. |
+| Video chapters | In video posts, a paragraph whose lines (two or more) all start with a timestamp becomes an ordered chapter list with `<time>` values, linked to that moment when the post has a YouTube video. | Nothing. |
+| Recipes and callouts | Ingredient and step sections keep their headings and lists; callout titles are bold so they read without styles. | Scaling, timers, checklists, and cook mode. |
+| Comments | When the canonical page offers comments, a link to join (or, when locked, read) the discussion there, reported as a `comments` capability with the canonical-only portability level. Hidden comments or an unconfigured backend add nothing, and the hosted endpoint never appears. | Reading and posting comments. |
+
+open.blog has no authored expected-output field for runnable code: output an author writes as
+ordinary Markdown next to the fence stays visible like any other content. A closed `<details>`
+disclosure may print collapsed, so a reader who wants the answer on paper opens it first.
+
+Fallbacks stay inside their container, so a quiz or runnable example in a callout, quote, or
+list item keeps its position. A malformed capability fails the projection with the source path
+and that capability's error and diagnostic; the canonical Markdown, the native HTML, and any
+remote state are left untouched.
+
+## Tests
 
 The focused contract is tested in
 [portability.rs](../../crates/openblog-core/src/portability.rs) and
-[markdown.rs](../../crates/openblog-core/src/markdown.rs). It checks URL resolution, deterministic
-results, scoped errors, preserved raw HTML boundaries, and that rendering the portable projection
-does not mutate the native HTML.
+[markdown.rs](../../crates/openblog-core/src/markdown.rs). The golden suite in
+[portable_html.rs](../../crates/openblog-core/tests/portable_html.rs) renders the
+[video lesson](../../tests/fixtures/portable-html/video-lesson.md) and
+[recipe](../../tests/fixtures/portable-html/recipe.md) fixtures and compares them with their
+expected `.html` files. It also checks that the output has no runtime-only elements or
+attributes, uses only absolute URLs, has a target for every anchor, gives every link an
+accessible name and every image alternative text, and leaks neither the comments nor the runner
+endpoint. The shared [portability fixtures](../../tests/fixtures/portability-contract.json)
+also render through `portable_html()`.

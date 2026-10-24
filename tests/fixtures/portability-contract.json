@@ -101,7 +101,11 @@
           "Bake."
         ],
         "textContains": ["Use fresh basil", "1 cup flour", "Bake"],
-        "markdownContains": ["[!TIP]", "## Ingredients", "## Steps"]
+        "markdownContains": ["[!TIP]", "## Ingredients", "## Steps"],
+        "portableHtmlContains": [
+          "<p class=\"ob-callout-title\"><strong>Tip</strong></p>",
+          "<ol class=\"ob-recipe-list ob-steps\">"
+        ]
       }
     },
     {
@@ -133,7 +137,11 @@
         "textContains": [],
         "textExcludes": ["What does a draft do"],
         "semanticLoss": "The current text view omits fenced quiz content; later conversion work must add a static text fallback.",
-        "markdownContains": ["```quiz"]
+        "markdownContains": ["```quiz"],
+        "portableHtmlContains": [
+          "<p class=\"ob-quiz-prompt\"><strong>What does a draft do?</strong></p>",
+          "Answer: A. Keeps a post out of public feeds"
+        ]
       }
     },
     {
@@ -169,7 +177,12 @@
         ],
         "htmlContains": ["<ob-rust-playground>", "<ob-web-sandbox>", "&lt;button&gt;Hi&lt;/button&gt;"],
         "textContains": [],
-        "markdownContains": ["```rust runnable", "```web runnable"]
+        "markdownContains": ["```rust runnable", "```web runnable"],
+        "portableHtmlContains": [
+          "Run and edit this example on",
+          "<p class=\"ob-web-sandbox-label\">HTML</p>",
+          "Open the live preview on"
+        ]
       }
     },
     {
