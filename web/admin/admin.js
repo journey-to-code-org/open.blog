@@ -400,6 +400,7 @@ export function assistantStatusPresentation(status = {}) {
     interactions: "Interactions",
     context: "Context",
     knowledgeChecks: "Knowledge checks",
+    autocomplete: "Autocomplete",
   };
   const capabilities = Object.entries(status.capabilities || {})
     .filter(([, supported]) => supported)
@@ -414,6 +415,23 @@ export function assistantStatusPresentation(status = {}) {
     capabilities: capabilities.length ? capabilities.join(", ") : "No generation capabilities",
     message: status.message || (status.configured ? "Assistant provider is ready." : "Assistant provider is not configured. Non-AI authoring remains available."),
   };
+}
+
+export function bindAssistantAutocompleteControls(editor, ui) {
+  ui.body.addEventListener("input", () => editor.scheduleAssistantAutocomplete());
+  ui.assistantAutocompleteToggle.addEventListener("change", () => editor.setAssistantAutocomplete(ui.assistantAutocompleteToggle.checked));
+  const shortcut = (event) => {
+    if (ui.assistantCompletion.hidden) return;
+    if (event.key === "Tab") {
+      event.preventDefault();
+      editor.acceptAssistantCompletion();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      editor.dismissAssistantCompletion();
+    }
+  };
+  ui.body.addEventListener("keydown", shortcut);
+  ui.richBody.addEventListener("keydown", shortcut);
 }
 
 export function assistantSkillPresentation(skill = {}) {
@@ -1112,7 +1130,7 @@ class ApiError extends Error {
 class Api {
   csrf = "";
 
-  async call(method, path, { json, body, headers } = {}) {
+  async call(method, path, { json, body, headers, signal } = {}) {
     const init = {
       method,
       credentials: "same-origin",
@@ -1122,6 +1140,7 @@ class Api {
         ...headers,
       },
       body: json !== undefined ? JSON.stringify(json) : body,
+      signal,
     };
     const res = await fetch(`/admin/api/${path}`, init);
     let data = null;
@@ -1211,6 +1230,7 @@ export class ObAdmin extends AdminElement {
   // ---- views
 
   mount(...nodes) {
+    this.editor?.dispose();
     this.editor = null;
     this.viewVersion += 1;
     this.replaceChildren(...nodes);
@@ -2255,6 +2275,30 @@ export class Editor {
     );
     ui.editorModeSwitch = h("div", { class: "oba-mode-switch", role: "group", "aria-label": "Writing mode" }, ui.editorModeButtons);
     ui.editorModeStatus = h("span", { class: "oba-small" });
+    ui.assistantAutocompleteToggle = h("input", { type: "checkbox" });
+    ui.assistantAutocompleteStatus = h(
+      "p",
+      { class: "oba-small oba-autocomplete-status", role: "status", "aria-live": "polite" },
+      "AI autocomplete is off. Your draft is not sent while you type.",
+    );
+    ui.assistantCompletionText = h("p", { class: "oba-autocomplete-text" });
+    ui.assistantCompletionAccept = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.acceptAssistantCompletion() }, "Accept (Tab)");
+    ui.assistantCompletionDismiss = h("button", { class: "oba-btn", type: "button", onClick: () => this.dismissAssistantCompletion("Suggestion dismissed.") }, "Dismiss (Esc)");
+    ui.assistantCompletion = h(
+      "aside",
+      { class: "oba-autocomplete-suggestion", hidden: true, role: "region", "aria-label": "AI autocomplete suggestion" },
+      h("strong", {}, "Suggested continuation"),
+      ui.assistantCompletionText,
+      h("div", { class: "oba-toolbar" }, ui.assistantCompletionAccept, ui.assistantCompletionDismiss),
+    );
+    ui.assistantAutocomplete = h(
+      "section",
+      { class: "oba-autocomplete-controls", "aria-label": "AI autocomplete" },
+      h("label", { class: "oba-autocomplete-toggle" }, ui.assistantAutocompleteToggle, " AI autocomplete"),
+      h("p", { class: "oba-help" }, "Off by default. When enabled, typing pauses send the current unsaved draft and your selected Assistant context to the configured provider."),
+      ui.assistantAutocompleteStatus,
+      ui.assistantCompletion,
+    );
     ui.preview = h("iframe", { class: "oba-preview", title: "Preview", sandbox: "allow-scripts" });
     ui.previewTheme = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Rendering site…");
     ui.previewWarnings = h("div", { class: "oba-notice", role: "status", "aria-live": "polite", hidden: true });
@@ -2707,6 +2751,7 @@ export class Editor {
             ui.formatToolbar,
             ui.richBody,
             ui.body,
+            ui.assistantAutocomplete,
           ),
           h(
             "section",
@@ -3096,6 +3141,177 @@ export class Editor {
     this.visualChanged();
   }
 
+  async setAssistantAutocomplete(enabled) {
+    this.assistantAutocompleteEnabled = Boolean(enabled);
+    this.assistantAutocompleteGeneration = (this.assistantAutocompleteGeneration || 0) + 1;
+    clearTimeout(this.assistantAutocompleteTimer);
+    this.dismissAssistantCompletion("", false);
+    if (!enabled) {
+      this.ui.assistantAutocompleteStatus.textContent = "AI autocomplete is off. Your draft is not sent while you type.";
+      return;
+    }
+    this.ui.assistantAutocompleteStatus.textContent = "Checking the Assistant provider…";
+    const status = await this.loadAssistantStatus();
+    if (!this.assistantAutocompleteEnabled) return;
+    if (!status?.configured || status.capabilities?.autocomplete !== true) {
+      this.assistantAutocompleteEnabled = false;
+      this.ui.assistantAutocompleteToggle.checked = false;
+      this.ui.assistantAutocompleteStatus.textContent = "AI autocomplete is unavailable. Configure a provider in Assistant; non-AI writing remains available.";
+      return;
+    }
+    this.ui.assistantAutocompleteStatus.textContent = "AI autocomplete is on. Suggestions appear after you pause typing; nothing is inserted automatically.";
+  }
+
+  scheduleAssistantAutocomplete() {
+    this.assistantAutocompleteGeneration = (this.assistantAutocompleteGeneration || 0) + 1;
+    clearTimeout(this.assistantAutocompleteTimer);
+    this.dismissAssistantCompletion("", false);
+    if (!this.assistantAutocompleteEnabled) return;
+    const generation = this.assistantAutocompleteGeneration;
+    this.assistantAutocompleteTimer = setTimeout(() => this.requestAssistantAutocomplete(generation), 850);
+  }
+
+  captureAssistantAutocomplete() {
+    this.syncRichToMarkdown();
+    const markdown = this.ui.body.value;
+    const requestInputs = {
+      title: this.ui.title.value,
+      metadata: this.collect(),
+      contextIds: [...(this.assistantContextSelected || [])],
+    };
+    if (this.editorMode === "markdown") {
+      const start = this.ui.body.selectionStart;
+      const end = this.ui.body.selectionEnd;
+      if (!Number.isInteger(start) || !Number.isInteger(end)) return null;
+      return { mode: "markdown", markdown, prefix: Array.from(markdown.slice(0, start)).slice(-8_000).join(""), suffix: Array.from(markdown.slice(end)).slice(0, 8_000).join(""), start, end, ...requestInputs };
+    }
+    const selection = globalThis.getSelection?.();
+    if (!selection?.rangeCount) return null;
+    const range = selection.getRangeAt(0);
+    if (!this.ui.richBody.contains(range.commonAncestorContainer)) return null;
+    const parent = range.commonAncestorContainer.nodeType === 1 ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+    if (!parent || parent.closest?.(".oba-protected-block")) return null;
+    const block = parent.closest?.("[data-visual-block]");
+    if (!block) return null;
+    const before = document.createRange();
+    before.selectNodeContents(block);
+    before.setEnd(range.startContainer, range.startOffset);
+    const after = document.createRange();
+    after.selectNodeContents(block);
+    after.setStart(range.endContainer, range.endOffset);
+    return {
+      mode: "visual",
+      markdown,
+      prefix: Array.from(before.toString()).slice(-8_000).join(""),
+      suffix: Array.from(after.toString()).slice(0, 8_000).join(""),
+      range: range.cloneRange(),
+      ...requestInputs,
+    };
+  }
+
+  assistantAutocompleteCaptureIsCurrent(capture) {
+    if (!capture || this.editorMode !== capture.mode || this.ui.body.value !== capture.markdown) return false;
+    if (this.ui.title.value !== capture.title || JSON.stringify(this.collect()) !== JSON.stringify(capture.metadata)) return false;
+    if (JSON.stringify([...(this.assistantContextSelected || [])]) !== JSON.stringify(capture.contextIds)) return false;
+    if (capture.mode === "markdown") return this.ui.body.selectionStart === capture.start && this.ui.body.selectionEnd === capture.end;
+    const selection = globalThis.getSelection?.();
+    if (!selection?.rangeCount) return false;
+    const current = selection.getRangeAt(0);
+    return current.startContainer === capture.range.startContainer && current.startOffset === capture.range.startOffset && current.endContainer === capture.range.endContainer && current.endOffset === capture.range.endOffset;
+  }
+
+  async requestAssistantAutocomplete(generation) {
+    if (this.disposed || !this.assistantAutocompleteEnabled || generation !== this.assistantAutocompleteGeneration) return;
+    if (this.assistantAutocompleteActive) {
+      this.assistantAutocompleteQueued = true;
+      return;
+    }
+    const capture = this.captureAssistantAutocomplete();
+    if (!capture || capture.prefix.trim().length < 12) {
+      this.ui.assistantAutocompleteStatus.textContent = "Keep typing a little more to request a suggestion.";
+      return;
+    }
+    this.assistantAutocompleteActive = true;
+    this.assistantAutocompleteQueued = false;
+    this.ui.assistantAutocompleteStatus.textContent = "Requesting an AI suggestion…";
+    this.assistantAutocompleteAbort = typeof AbortController === "undefined" ? null : new AbortController();
+    try {
+      const result = await this.app.api.call("POST", "assistant/complete", {
+        json: {
+          source: { title: capture.title, metadata: capture.metadata, markdown: capture.markdown, prefix: capture.prefix, suffix: capture.suffix, editorMode: capture.mode },
+          contextIds: capture.contextIds,
+        },
+        signal: this.assistantAutocompleteAbort?.signal,
+      });
+      if (generation !== this.assistantAutocompleteGeneration || !this.assistantAutocompleteCaptureIsCurrent(capture)) return;
+      const completion = typeof result?.completion === "string" ? result.completion : "";
+      if (!completion) {
+        this.ui.assistantAutocompleteStatus.textContent = "No useful suggestion was returned. Keep writing normally.";
+        return;
+      }
+      this.assistantCompletionCapture = capture;
+      this.assistantCompletionText = completion;
+      this.ui.assistantCompletionText.textContent = completion;
+      this.ui.assistantCompletion.hidden = false;
+      this.ui.assistantAutocompleteStatus.textContent = "AI suggestion ready. Press Tab to accept or Escape to dismiss.";
+    } catch (error) {
+      if (generation === this.assistantAutocompleteGeneration) this.ui.assistantAutocompleteStatus.textContent = `Autocomplete request failed. Your draft is unchanged. ${error.message}`;
+    } finally {
+      this.assistantAutocompleteActive = false;
+      this.assistantAutocompleteAbort = null;
+      if (this.assistantAutocompleteQueued && this.assistantAutocompleteEnabled) this.scheduleAssistantAutocomplete();
+    }
+  }
+
+  acceptAssistantCompletion() {
+    const capture = this.assistantCompletionCapture;
+    const completion = this.assistantCompletionText;
+    if (!completion || !this.assistantAutocompleteCaptureIsCurrent(capture)) {
+      this.dismissAssistantCompletion("The caret or draft changed, so the stale suggestion was dismissed.");
+      return false;
+    }
+    if (capture.mode === "markdown") {
+      this.ui.body.setRangeText(completion, capture.start, capture.end, "end");
+      this.ui.body.dispatchEvent(new Event("input", { bubbles: true }));
+      this.ui.body.focus();
+    } else {
+      const selection = globalThis.getSelection();
+      const range = capture.range;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      range.deleteContents();
+      const node = document.createTextNode(completion);
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      this.visualChanged();
+      this.ui.richBody.focus();
+    }
+    this.dismissAssistantCompletion("Suggestion accepted into your unsaved draft.");
+    return true;
+  }
+
+  dismissAssistantCompletion(message = "Suggestion dismissed.", invalidate = true) {
+    if (invalidate) this.assistantAutocompleteGeneration = (this.assistantAutocompleteGeneration || 0) + 1;
+    this.assistantCompletionCapture = null;
+    this.assistantCompletionText = "";
+    if (this.ui?.assistantCompletion) this.ui.assistantCompletion.hidden = true;
+    if (this.ui?.assistantCompletionText) this.ui.assistantCompletionText.textContent = "";
+    if (message && this.ui?.assistantAutocompleteStatus) this.ui.assistantAutocompleteStatus.textContent = message;
+  }
+
+  dispose() {
+    this.disposed = true;
+    this.assistantAutocompleteEnabled = false;
+    this.assistantAutocompleteGeneration = (this.assistantAutocompleteGeneration || 0) + 1;
+    this.assistantAutocompleteQueued = false;
+    clearTimeout(this.assistantAutocompleteTimer);
+    this.assistantAutocompleteAbort?.abort();
+    this.dismissAssistantCompletion("", false);
+  }
+
   afterMount() {
     const ui = this.ui;
     this.setEditorMode(this.editorMode, false);
@@ -3113,6 +3329,7 @@ export class Editor {
     };
     ui.body.addEventListener("keydown", writingShortcut);
     ui.richBody.addEventListener("keydown", writingShortcut);
+    bindAssistantAutocompleteControls(this, ui);
     ui.richBody.addEventListener("input", (event) => {
       event.stopPropagation();
       this.visualChanged();

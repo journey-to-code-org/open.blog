@@ -1436,6 +1436,40 @@ kbd {
   display: none;
 }
 
+.oba-autocomplete-controls {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface);
+}
+
+.oba-autocomplete-toggle {
+  width: fit-content;
+  font-weight: 700;
+}
+
+.oba-autocomplete-controls p {
+  margin: 0;
+}
+
+.oba-autocomplete-suggestion {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+}
+
+.oba-autocomplete-suggestion[hidden] {
+  display: none;
+}
+
+.oba-autocomplete-text {
+  white-space: pre-wrap;
+}
+
 .oba-rich-body {
   min-height: 60vh;
   padding: clamp(1rem, 3vw, 2.5rem);

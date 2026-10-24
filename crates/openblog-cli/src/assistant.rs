@@ -263,6 +263,7 @@ pub struct AssistantCapabilities {
     pub interactions: bool,
     pub context: bool,
     pub knowledge_checks: bool,
+    pub autocomplete: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -316,6 +317,7 @@ impl AssistantProviderStatus {
                 interactions: false,
                 context: true,
                 knowledge_checks: true,
+                autocomplete: true,
             },
         }
     }
@@ -349,6 +351,7 @@ impl AssistantProviderStatus {
                 interactions: false,
                 context: true,
                 knowledge_checks: true,
+                autocomplete: true,
             },
         }
     }
@@ -383,6 +386,7 @@ impl AssistantProviderStatus {
                 interactions: false,
                 context: true,
                 knowledge_checks: true,
+                autocomplete: true,
             },
         }
     }
