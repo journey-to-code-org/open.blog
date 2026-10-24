@@ -575,7 +575,9 @@ impl<'a> Renderer<'a> {
             ));
         }
         // Restore a visitor's saved color scheme before first paint.
-        h.push_str("<script>try{var s=localStorage.getItem(\"ob-scheme\");if(s===\"light\"||s===\"dark\")document.documentElement.dataset.theme=s}catch(e){}</script>\n");
+        if theme.color_scheme_toggle {
+            h.push_str("<script>try{var s=localStorage.getItem(\"ob-scheme\");if(s===\"light\"||s===\"dark\")document.documentElement.dataset.theme=s}catch(e){}</script>\n");
+        }
         // Order matters: structure, then tokens, then the theme's own rules.
         h.push_str("<link rel=\"stylesheet\" href=\"/assets/base.css\">\n");
         h.push_str(&format!(
@@ -675,7 +677,9 @@ impl<'a> Renderer<'a> {
             ));
         }
         h.push_str("</ul>\n</nav>\n");
-        h.push_str("<ob-theme-toggle hidden><button type=\"button\" class=\"ob-icon-button\" aria-label=\"Toggle light and dark mode\"><span aria-hidden=\"true\">◐</span></button></ob-theme-toggle>\n");
+        if theme.color_scheme_toggle {
+            h.push_str("<ob-theme-toggle hidden><button type=\"button\" class=\"ob-icon-button\" aria-label=\"Toggle light and dark mode\"><span aria-hidden=\"true\">◐</span></button></ob-theme-toggle>\n");
+        }
         h.push_str("</div>\n</header>\n");
         h
     }
@@ -888,10 +892,10 @@ impl<'a> Renderer<'a> {
         body.push_str("<section class=\"ob-section\" aria-labelledby=\"latest\">\n");
         body.push_str(
             &self
-                .heading(theme, 2, &c.home.heading, "ob-section-heading")
+                .heading(theme, 1, &c.home.heading, "ob-section-heading")
                 .replace(
-                    "<h2 class=\"ob-title\"",
-                    "<h2 id=\"latest\" class=\"ob-title\"",
+                    "<h1 class=\"ob-title\"",
+                    "<h1 id=\"latest\" class=\"ob-title\"",
                 ),
         );
         body.push_str(&self.post_list(theme, &indices));
@@ -2096,6 +2100,56 @@ mod tests {
             .find(|f| f.path == path)
             .unwrap_or_else(|| panic!("missing {path}"))
             .contents
+    }
+
+    #[test]
+    fn system_color_scheme_omits_toggle_and_saved_override_on_every_page() {
+        let (site, mut themes) = model(
+            r#"{"theme":"system","postsPerPage":2,"postPath":"/{slug}/"}"#,
+            true,
+        );
+        themes.insert(
+            "system",
+            ThemeFile::from_json(r#"{"extends":"base","options":{"colorSchemeToggle":false}}"#)
+                .unwrap(),
+        );
+        let files = generate(&site, &themes).unwrap();
+        for path in [
+            "index.html",
+            "page/2/index.html",
+            "solo/index.html",
+            "series/index.html",
+            "search/index.html",
+            "about/index.html",
+            "404.html",
+        ] {
+            let html = file(&files, path);
+            assert!(!html.contains("<ob-theme-toggle"), "{path}");
+            assert!(
+                !html.contains("localStorage.getItem(\"ob-scheme\")"),
+                "{path}"
+            );
+        }
+        // Per-series themes keep their existing manual override by default.
+        let series = file(&files, "series/s/index.html");
+        assert!(series.contains("<ob-theme-toggle"));
+        assert!(series.contains("localStorage.getItem(\"ob-scheme\")"));
+    }
+
+    #[test]
+    fn home_uses_configured_primary_heading_on_every_page() {
+        let files = build(
+            r#"{"home":{"heading":"Journey to Code"},"postsPerPage":2}"#,
+            true,
+        );
+        for path in ["index.html", "page/2/index.html"] {
+            let html = file(&files, path);
+            assert!(html.contains("<h1 id=\"latest\" class=\"ob-title\">"));
+            assert!(html.contains("Journey to Code"));
+            assert!(!html.contains("<h2 id=\"latest\""));
+            assert_eq!(html.matches("<h1 ").count(), 1);
+        }
+        assert!(file(&files, "index.html").contains("<h2 id=\"series\""));
     }
 
     #[test]

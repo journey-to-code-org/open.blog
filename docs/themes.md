@@ -81,6 +81,7 @@ text colour, `codeNumber`, and `codeString`. Callouts use `calloutNote`, `callou
 
 | Option | Effect |
 | --- | --- |
+| `colorSchemeToggle` | Show the header light/dark toggle and restore its saved choice (default `true`). Set `false` to follow the system preference without a manual override |
 | `headingCodeLabels` | Wrap page and section titles in dim `<h1>` / `</h1>` (or `<h2>` / `</h2>`) labels, a code-themed look |
 | `headingWrapper` | Custom element name to wrap page and section titles in, for a theme's own effect (see [theme-components.md](theme-components.md)) |
 | `navLabel` | Template for nav text; `{index}` is 01, 02, ... and `{label}` the link text |
@@ -94,6 +95,11 @@ text colour, `codeNumber`, and `codeString`. Callouts use `calloutNote`, `callou
 Both schemes are compiled. The theme's `colorScheme` is the default, the other scheme
 applies through `prefers-color-scheme`, and the header toggle (`<ob-theme-toggle>`)
 overrides both and remembers the choice.
+
+Set `options.colorSchemeToggle` to `false` to omit the toggle and ignore previously
+saved overrides before first paint. The CSS follows system preference changes live,
+including without JavaScript. This option is inherited and can be re-enabled by a
+child theme.
 
 ## Different themes for different series
 
