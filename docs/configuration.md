@@ -38,6 +38,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "seo": { "aiSearch": true, "aiTraining": true },
   "markdown": { "smartPunctuation": false, "headingAnchors": true, "tocDepth": 3, "tocMinHeadings": 3 },
   "code": { "highlight": null, "lineNumbers": null, "copyButton": true },
+  "codeRunner": { "endpoint": "", "languages": [] },
   "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true },
   "knowledgeChecks": { "generationEndpoint": "", "model": "" },
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
@@ -131,6 +132,28 @@ for the publishing checklist and analytics limitations.
 A post can override `highlight` and `lineNumbers` in its front matter, and one code block
 can override line numbers with its fence options (see [Writing content](content.md#code-blocks)).
 The order is: the fence, then the post, then this setting, then the theme.
+
+### External code runner
+
+`codeRunner` is optional. With no endpoint, `rust runnable` keeps using the official Rust
+Playground and every other configured-runner language stays a static code block. To enable an
+independently hosted execution gateway:
+
+```json
+"codeRunner": {
+  "endpoint": "https://runner.example.com/v1/execute",
+  "languages": ["python", "go"]
+}
+```
+
+The endpoint must be HTTPS without credentials, a query, or a fragment. `languages` is an explicit
+allowlist; Rust is routed through the gateway whenever an endpoint is present, and `web` always uses
+open.blog's separate browser-preview sandbox. Unknown languages marked `runnable` remain ordinary
+static fences. The endpoint is public and appears in generated HTML: never place a token, API key,
+or private runner address in it.
+
+See [Deploying an execution gateway](deploy.md#execution-gateway) for the wire contract and runner
+isolation requirements.
 
 ## Recipes
 

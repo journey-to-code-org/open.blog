@@ -8,7 +8,11 @@ All notable changes to open.blog are recorded here. Releases follow
 - Added `openblog syndicate <slug>` with dry-run planning, draft-first DEV, Hashnode,
   Ghost, and WordPress adapters, guided Medium import, private remote-ID state, and
   explicit two-step publication safety.
-
+- Added optional provider-neutral code-runner configuration for credential-free, explicitly
+  allowlisted executable lessons while preserving the official Rust Playground default and static
+  fallback for unsupported languages.
+- Expanded Assistant Interactions to propose strictly validated Rust, web, and configured-runner
+  examples or coding challenges without executing code in the blog or Admin process.
 - Added dependency-free `web runnable` HTML/CSS/JavaScript sandboxes with editable tabs and a
   CSP-restricted opaque-origin preview.
 - Added structured video production stages, season/episode numbers, credits, an Admin workflow,

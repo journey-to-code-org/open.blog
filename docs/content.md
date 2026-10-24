@@ -257,7 +257,7 @@ fn main() {}
 | `showLineNumbers` | Number this block even when numbering is off, or when it has one line. |
 | `showLineNumbers=10` | Number this block starting at 10. |
 | `showLineNumbers=false` | No numbers on this block. |
-| `runnable` | For Rust blocks, give readers an editor and a Run button backed by the official Rust Playground. |
+| `runnable` | Make Rust, web, or an explicitly configured runner language editable and runnable. Unsupported languages stay static. |
 | `playgroundLink=false` | On a runnable Rust block, hide the separate **Open in Rust Playground** link. |
 
 Colours can be turned off for a post (`highlight: false`) or the whole blog, but not for
@@ -314,15 +314,30 @@ the source. A separate link opens the same code on the Playground if inline exec
 is unavailable; add `playgroundLink=false` to that fence to omit the link. Without
 JavaScript, the original code block remains readable.
 
-Runnable blocks are intentionally limited to Rust and 20,000 bytes, and displayed output
-is capped at 64,000 bytes. They use stable Rust 2021 in debug mode and are best for
+Without `codeRunner`, runnable remote execution is intentionally limited to Rust and 20,000 bytes,
+and displayed output is capped at 64,000 bytes. Rust uses stable 2021 in debug mode and is best for
 self-contained lessons. The Playground offers popular preinstalled crates, but an
 arbitrary local Cargo project, custom manifest, stdin, and local files are not available.
 
+When the site owner configures `codeRunner.endpoint`, Rust uses that external gateway instead.
+Languages in `codeRunner.languages` use the same author syntax:
+
+````markdown
+```python runnable title="Try changing the greeting"
+name = input().strip() or "traveler"
+print(f"Welcome, {name}!")
+```
+````
+
+Readers get source and optional standard-input editors, Run, Reset, Copy, status, and plain-text
+output. A disclosure explains that source and standard input leave the page. The browser sends no
+credentials. If Python is not explicitly allowed, the example remains a normal static code block.
+See [Execution gateway](deploy.md#execution-gateway) before enabling a language.
+
 #### Small coding challenges
 
-A coding challenge is ordinary instructional Markdown around a runnable Rust block. Give the reader
-one bounded task, keep a visible `// TODO` in the starter source, state the expected result, and add a
+A coding challenge is ordinary instructional Markdown around a runnable block. Give the reader
+one bounded task, keep a visible comment-form `TODO` in the starter source, state the expected result, and add a
 hint only when it helps without giving away the whole solution:
 
 ````markdown

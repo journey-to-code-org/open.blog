@@ -110,17 +110,19 @@ should complete a small bounded task. With a provider configured, **Generate dra
 text, then the current section, then the post as context. Without a provider, fill in the same form
 manually.
 
-The title, instructions, Rust source, expected result, hint, and explanation remain editable in the
-dialog. A challenge must include a visible `// TODO` comment and expected result. Nothing enters the
+Choose Rust, Web (HTML/CSS/JavaScript), or a language explicitly enabled by the site's external
+runner. The title, instructions, source, expected result, hint, and explanation remain editable in
+the dialog. A challenge must include a visible TODO comment and expected result. Nothing enters the
 unsaved post until **Insert into draft** is chosen. The inserted content uses portable Markdown prose
-and one native `rust runnable` fence, so it works in both Visual and Markdown authoring modes.
-Only self-contained Rust is executable today; multi-file projects, hidden tests, automatic grading,
-and executable JavaScript, Python, or shell blocks are not offered.
+and one native runnable fence, so it works in both Visual and Markdown authoring modes. Web results
+must preserve `---html`, `---css`, and `---js` markers. The provider must return the requested
+language; multi-file projects, hidden tests, automatic grading, and shell commands are not offered.
 
 ### What the Assistant knows about open.blog
 
 Every review, interaction-generation, and autocomplete request includes a versioned engine guide generated
-from open.blog's deterministic core. It describes native quiz and runnable-Rust fences, code options,
+from open.blog's deterministic core. It describes native quiz and Rust/web runnable fences, configured
+runner allowlists, code options,
 supported embeds, content-profile IDs, scheduling, source ownership, and the limits of evidence checks.
 These are renderer facts, not instructions found in the draft. Draft and context text remain untrusted
 data. The guide prevents an AI from treating supported engine syntax as an error, but it does not let

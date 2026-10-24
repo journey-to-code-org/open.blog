@@ -24,7 +24,7 @@ and WebAssembly on native HTML and web components, with a focus on owning your c
   answer-readiness guidance, structured accessibility and research-evidence review,
   source-preserving formatting, uploads, drafts, and scheduling. An optional author-time
   Assistant can review drafts, apply exact suggestions with undo, propose knowledge checks,
-  runnable Rust examples, and small coding challenges, and provide opt-in autocomplete through a
+  runnable Rust/web examples, configured-runner language lessons, and small coding challenges, and provide opt-in autocomplete through a
   provider you configure. It edits the same
   Markdown files; front matter stays in Settings and is never rendered in the preview.
 - **Publish from home.** A Publish button commits and pushes with git, a GitHub Pages

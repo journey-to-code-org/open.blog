@@ -50,6 +50,13 @@ preview. The iframe has an opaque origin and a restrictive CSP that blocks exter
 network APIs. Authored code can navigate its own preview, so the editor explicitly warns readers not
 to enter secrets.
 
+An optional public `codeRunner` gateway adds the same progressive editor controls for explicitly
+allowed languages such as Python or Go. Rust also uses that gateway when configured; otherwise its
+official Playground behavior is unchanged. Generated pages send only `language`, `source`, and
+optional `stdin`, omit credentials and referrer information, bound responses, remove terminal
+control sequences, truncate output, and render it as text. The gateway—not the blog or Admin
+process—is responsible for executing untrusted code in a disposable, network-disabled sandbox.
+
 A fence without a language, which is common in posts imported from other platforms, is
 guessed from its content: HTML, CSS, JavaScript, TypeScript, shell commands, Rust,
 Python, Go, SQL, JSON, YAML, TOML, or the C family. When the guess is unsure the block
