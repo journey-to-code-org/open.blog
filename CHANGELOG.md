@@ -5,7 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
-- Made review verification labels context-aware and conservatively downgrade unsupported
+## [0.11.1] - 2026-10-23
+
+- Made review verification labels context-aware and conservatively downgraded unsupported
   `supplied-context` claims to unverified advice instead of discarding an otherwise valid review.
 - Extended native Anthropic Assistant requests to four minutes while preserving the existing
   30-second custom-provider deadline, allowing first-use structured-output grammar compilation.
@@ -276,7 +278,9 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.0...v0.11.1
+[0.11.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.8.0...v0.9.0
