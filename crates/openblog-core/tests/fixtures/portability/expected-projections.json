@@ -1,0 +1,42 @@
+[
+  {
+    "source": "posts/hostile-future.md",
+    "title": "Future syntax",
+    "publicationUrl": "https://fixture.example/blog/posts/hostile-future/",
+    "canonicalUrl": "https://fixture.example/blog/posts/hostile-future/",
+    "authors": ["Legacy Author"],
+    "references": []
+  },
+  {
+    "source": "posts/interactive-media.md",
+    "title": "Learn by doing",
+    "publicationUrl": "https://fixture.example/blog/posts/interactive-media/",
+    "canonicalUrl": "https://fixture.example/blog/posts/interactive-media/",
+    "authors": ["Legacy Author"],
+    "references": []
+  },
+  {
+    "source": "posts/legacy-recipe.md",
+    "title": "Legacy soup",
+    "publicationUrl": "https://fixture.example/blog/posts/legacy-recipe/",
+    "canonicalUrl": "https://fixture.example/blog/posts/legacy-recipe/",
+    "authors": ["Legacy Author"],
+    "references": []
+  },
+  {
+    "source": "posts/research-credits.md",
+    "title": "Shared evidence",
+    "publicationUrl": "https://fixture.example/blog/posts/research-credits/",
+    "canonicalUrl": "https://doi.org/10.5555/openblog.fixture",
+    "authors": ["Ada", "Grace"],
+    "references": ["Primary evidence=https://evidence.example/paper"]
+  },
+  {
+    "source": "posts/standard-unicode.md",
+    "title": "Café notes ☕",
+    "publicationUrl": "https://fixture.example/blog/posts/standard-unicode/",
+    "canonicalUrl": "https://fixture.example/blog/posts/standard-unicode/",
+    "authors": ["Legacy Author"],
+    "references": []
+  }
+]

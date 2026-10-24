@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added a shared portability compatibility corpus and golden gates for articles, research credits,
+  legacy recipes, interactions, media, comments, hostile input, unknown syntax, and explicit
+  draft/private exclusion.
 - Added one deterministic portable projection contract for HTML, Markdown, and text, and migrated
   feeds and cross-posting to its shared canonical identity, attribution, references, provenance,
   and safe absolute-link handling without reparsing source front matter.

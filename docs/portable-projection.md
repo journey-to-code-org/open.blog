@@ -32,3 +32,17 @@ Compatibility tests prove that requesting a projection does not change native ge
 Feed and syndication tests cover attribution, canonical identity, Unicode, anchors, relative URLs,
 protected code/script content, deterministic repeats, and dry-run behavior.
 
+## Compatibility fixtures
+
+The shared corpus under `crates/openblog-core/tests/fixtures/portability/` is a versioned contract,
+not example content used by production. Its manifest declares the expected authored semantics and
+portability level for standard articles, research references and credits, legacy recipes,
+callouts, quizzes, runnable code, embeds, comments, and unknown future capabilities. A checked-in
+projection golden keeps canonical identity, contributor order, reference identity, Unicode, and
+source provenance reviewable in code review.
+
+The same gate repeats native generation to prove determinism, retains unknown syntax without
+pretending to support it, and exercises hostile raw HTML and URLs without promoting them into
+trusted projection metadata. Draft and private fixtures contain unique secret markers; the gate
+proves neither marker can enter a public projection or generated file.
+
