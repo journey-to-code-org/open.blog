@@ -62,8 +62,8 @@ For posts, press `Alt+0` to open **Assistant**. Its provider card reports the pr
 model, configured state, and supported capabilities without returning the credential or
 configured endpoint path, query, or user information to the browser. The provider card and Review
 disclosure show only the safe destination origin so authors know which service receives selected
-material. Review, Interactions, and Context remain labelled work areas. Interactions remains a
-placeholder for a later delivery, while Context manages author, site, and post notes plus selected
+material. Review, Interactions, and Context are labelled work areas. Interactions opens the existing
+knowledge-check proposal workflow, while Context manages author, site, and post notes plus selected
 sources. Provider failures do not disable ordinary non-AI authoring.
 
 ### Review an unsaved document
@@ -76,9 +76,39 @@ Nothing is sent until **Run document review** is pressed.
 
 Validated findings are grouped under their originating skill and visibly labelled **AI-generated
 advice**. Each finding shows its severity, category, exact source evidence, explanation, optional
-suggested replacement, and whether it is unverified advice or based on supplied context. The current
-review workflow is non-mutating: it does not apply suggestions, save the post, or publish anything.
-Provider errors, invalid results, and edits made while a review is running leave the draft unchanged.
+suggested replacement, and whether it is unverified advice or based on supplied context. Choose
+**Apply suggestion** to replace its exact reviewed passage in the unsaved draft. The editor refuses
+ambiguous, stale, repeated, or overlapping replacements and offers one-step undo. Applying or undoing
+never saves or publishes. Provider errors, invalid results, and edits made while a review is running
+leave the draft unchanged.
+
+### Use AI autocomplete while writing
+
+In **Write**, turn on **AI autocomplete** for the current editor session. It is off by default and is
+not remembered. The disclosure explains that after an 850 ms typing pause the current unsaved title,
+metadata, Markdown, nearby caret text, and explicitly selected Assistant context are sent to the
+configured provider. Only one request runs at a time. Navigating away aborts pending work.
+
+A returned continuation remains a visible proposal. Press `Tab` or choose **Accept** to insert it,
+or press `Escape` or choose **Dismiss**. Moving the caret or changing the title, metadata, context,
+writing mode, or draft makes the proposal stale and prevents insertion. Accepted text follows the
+normal unsaved-change path in Visual and Markdown modes; it is never saved or published automatically.
+
+### Draft a knowledge check
+
+Open **Assistant → Interactions** and choose **Create knowledge-check proposal**. The same proposal
+dialog available from the Write toolbar uses selected text when present, otherwise the current post.
+Generated questions are reviewed in the dialog and enter the unsaved Markdown only after explicit
+insertion. Non-AI quiz authoring remains available.
+
+### What the Assistant knows about open.blog
+
+Every review, knowledge-check, and autocomplete request includes a versioned engine guide generated
+from open.blog's deterministic core. It describes native quiz and runnable-Rust fences, code options,
+supported embeds, content-profile IDs, scheduling, source ownership, and the limits of evidence checks.
+These are renderer facts, not instructions found in the draft. Draft and context text remain untrusted
+data. The guide prevents an AI from treating supported engine syntax as an error, but it does not let
+the provider save, publish, certify claims, perform external research, or add unsupported syntax.
 
 ### Manage Assistant context
 

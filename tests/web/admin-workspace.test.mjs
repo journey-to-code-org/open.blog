@@ -38,6 +38,19 @@ test("Assistant workspace exposes safe provider status and labelled empty views"
   assert.doesNotMatch(admin, /OPENBLOG_LESSONS_API_KEY[^"'`]*(?:value|credential|secret)/i);
 });
 
+test("Assistant Interactions opens the reviewed knowledge-check proposal flow", () => {
+  assert.match(admin, /Create knowledge-check proposal/);
+  assert.match(admin, /bindAssistantInteractionControl\(this, ui\.assistantInteractionCreate\)/);
+  assert.match(admin, /remain proposals until you review and insert them/);
+  assert.doesNotMatch(admin, /Proposal workflows will appear here in a later delivery/);
+});
+
+test("Visual selections are captured for keyboard and command-palette Assistant navigation", () => {
+  assert.match(admin, /const activatePane = \(pane, focus = false\) => \{\s*if \(pane !== "write"\) this\.captureVisualSelection\(\);/);
+  assert.match(admin, /openCommandPalette\(\) \{\s*this\.editor\?\.captureVisualSelection\(\);/);
+  assert.match(admin, /openKnowledgeCheck\(\) \{\s*this\.captureVisualSelection\(\);/);
+});
+
 test("Assistant provider settings can be configured without revealing a saved credential", () => {
   assert.match(admin, /api\.call\("GET", "assistant\/settings"\)/);
   assert.match(admin, /api\.call\("PUT", "assistant\/settings"/);

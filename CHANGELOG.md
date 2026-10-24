@@ -8,6 +8,14 @@ All notable changes to open.blog are recorded here. Releases follow
 - Added native Assistant integrations for OpenAI, Google Gemini, xAI Grok, DeepSeek, Mistral AI,
   and OpenRouter with fixed official destinations, provider-specific environment credentials,
   structured-output adapters, editable model choices, and strict local result validation.
+- Added a versioned publishing-engine guide to Assistant requests so reviews, quiz proposals, and
+  autocomplete understand native open.blog syntax, profiles, scheduling, and source boundaries.
+- Added safe local application and one-step undo for exact AI review suggestions, with Unicode range
+  handling and fail-closed stale, ambiguous, repeated, and overlapping edit detection.
+- Added session-only opt-in AI autocomplete for Visual and Markdown writing, with explicit data
+  disclosure, debouncing, selected context, stale-response suppression, abort-on-navigation, and
+  author-controlled accept or dismiss actions.
+- Completed Assistant Interactions by connecting it to the reviewed knowledge-check proposal flow.
 
 ## [0.11.2] - 2026-10-23
 

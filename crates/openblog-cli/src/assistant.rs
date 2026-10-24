@@ -314,7 +314,7 @@ impl AssistantProviderStatus {
             message,
             capabilities: AssistantCapabilities {
                 review: true,
-                interactions: false,
+                interactions: true,
                 context: true,
                 knowledge_checks: true,
                 autocomplete: true,
@@ -348,7 +348,7 @@ impl AssistantProviderStatus {
             message,
             capabilities: AssistantCapabilities {
                 review: true,
-                interactions: false,
+                interactions: true,
                 context: true,
                 knowledge_checks: true,
                 autocomplete: true,
@@ -383,7 +383,7 @@ impl AssistantProviderStatus {
             message,
             capabilities: AssistantCapabilities {
                 review: true,
-                interactions: false,
+                interactions: true,
                 context: true,
                 knowledge_checks: true,
                 autocomplete: true,

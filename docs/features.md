@@ -14,6 +14,20 @@ privacy-enhanced YouTube player, discovery metadata, and a release-kit workflow;
 Field journals add local GPX analysis and location-privacy controls; see
 [Field journals and private-by-default tracks](field-journal.md).
 
+## Authoring Assistant
+
+The authenticated Admin can connect Anthropic, OpenAI, Gemini, xAI, DeepSeek, Mistral,
+OpenRouter, or a compatible custom HTTPS provider without exposing its credential to the browser.
+Authors can review an unsaved post with inspectable Markdown skills and selected context, apply exact
+suggested replacements with safe undo, draft native knowledge checks, and opt into session-only
+autocomplete in either Visual or Markdown mode. Every output remains a proposal; nothing is saved or
+published without the normal author action.
+
+Assistant requests carry a versioned guide to the actual publishing engine, including native quiz
+and runnable-code syntax, embeds, content profiles, scheduling, and source-ownership boundaries.
+Drafts and selected context remain untrusted data, external research stays off, inputs and outputs are
+bounded, and stale or ambiguous edits fail closed. See [Using the Admin](admin.md#review-an-unsaved-document).
+
 ## Syntax highlighting
 
 Code blocks are coloured in the browser by `<ob-code highlight>`, a small tokenizer built

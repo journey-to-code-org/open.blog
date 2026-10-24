@@ -434,6 +434,10 @@ export function bindAssistantAutocompleteControls(editor, ui) {
   ui.richBody.addEventListener("keydown", shortcut);
 }
 
+export function bindAssistantInteractionControl(editor, button) {
+  button.addEventListener("click", () => editor.openKnowledgeCheck());
+}
+
 export function assistantSkillPresentation(skill = {}) {
   const scopes = Array.isArray(skill.scopes) ? skill.scopes.map((scope) => scope[0]?.toUpperCase() + scope.slice(1)) : [];
   const errors = Array.isArray(skill.errors) ? skill.errors.filter((error) => typeof error === "string") : [];
@@ -1364,6 +1368,7 @@ export class ObAdmin extends AdminElement {
   }
 
   openCommandPalette() {
+    this.editor?.captureVisualSelection();
     const trigger = document.activeElement;
     const activeDialog = document.querySelector("dialog[open]");
     if (activeDialog?.classList.contains("oba-command-dialog")) {
@@ -2575,6 +2580,9 @@ export class Editor {
     ui.assistantReviewResults = h("section", { class: "oba-assistant-review-results", tabindex: "-1", role: "region", "aria-label": "Review results" });
     ui.assistantReviewRun = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.runAssistantReview() }, "Run document review");
     ui.assistantReviewUndo = h("button", { class: "oba-btn", type: "button", hidden: true, onClick: () => this.undoAssistantSuggestion() }, "Undo applied suggestion");
+    ui.assistantInteractionStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "Generated questions remain proposals until you review and insert them into the unsaved draft.");
+    ui.assistantInteractionCreate = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Create knowledge-check proposal");
+    bindAssistantInteractionControl(this, ui.assistantInteractionCreate);
     ui.assistantCatalog = h("div", { class: "oba-skill-list", "aria-label": "Assistant skill catalog" });
     ui.assistantSkillEditorStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     ui.assistantSkillEditor = h("textarea", { rows: 16, "aria-label": "Project skill Markdown", spellcheck: false });
@@ -2609,7 +2617,14 @@ export class Editor {
         ui.assistantReviewStatus,
         ui.assistantReviewResults,
       ),
-      interactions: h("section", { class: "oba-assistant-empty", "data-assistant-view": "interactions", "aria-labelledby": "oba-assistant-interactions-title", hidden: true }, h("h3", { id: "oba-assistant-interactions-title" }, "Interactions"), h("p", {}, "Knowledge-check generation uses the configured provider. Proposal workflows will appear here in a later delivery.")),
+      interactions: h(
+        "section",
+        { class: "oba-assistant-empty", "data-assistant-view": "interactions", "aria-labelledby": "oba-assistant-interactions-title", hidden: true },
+        h("h3", { id: "oba-assistant-interactions-title" }, "Interactions"),
+        h("p", {}, "Draft an interactive quiz from selected text or the current post. open.blog validates the native quiz syntax, but you choose whether to insert the proposal."),
+        ui.assistantInteractionStatus,
+        h("div", { class: "oba-toolbar" }, ui.assistantInteractionCreate),
+      ),
       context: h(
         "section",
         { class: "oba-assistant-context", "data-assistant-view": "context", "aria-labelledby": "oba-assistant-context-title", hidden: true },
@@ -2636,6 +2651,7 @@ export class Editor {
     ui.assistantViewNav = h("nav", { class: "oba-assistant-nav", "aria-label": "Assistant views" }, ui.assistantViewButtons);
     let paneButtons = [];
     const activatePane = (pane, focus = false) => {
+      if (pane !== "write") this.captureVisualSelection();
       applyPaneSelection(this.root, paneButtons, pane);
       if (pane === "release") this.updateReleaseKit();
       else if (pane === "field") this.updateFieldReview();
@@ -4123,7 +4139,8 @@ export class Editor {
       this.ui.assistantSettingsCredential.value = "";
       this.assistantStatusLoaded = false;
       this.assistantProviderStatus = null;
-      await this.loadAssistantStatus();
+      const status = await this.loadAssistantStatus();
+      if (this.meta) this.meta.quizGeneration = status?.configured === true && status.capabilities?.knowledgeChecks === true;
       await this.loadAssistantSettings(true);
     } catch (error) {
       this.ui.assistantSettingsStatus.textContent = `Provider settings were not saved. ${error.message}`;
@@ -4499,7 +4516,46 @@ export class Editor {
     ta.focus();
   }
 
+  knowledgeCheckTarget() {
+    this.syncRichToMarkdown();
+    const markdown = this.ui.body.value;
+    if (this.editorMode !== "visual" || !this.visualSelection) {
+      const start = this.ui.body.selectionStart ?? markdown.length;
+      const end = this.ui.body.selectionEnd ?? start;
+      return { markdown, at: end, selected: markdown.slice(start, end).trim() };
+    }
+    const range = this.visualSelection.cloneRange();
+    if (!this.ui.richBody.contains(range.commonAncestorContainer)) return { markdown, at: markdown.length, selected: "" };
+    const selected = range.toString().trim();
+    range.collapse(false);
+    let marker = "OPENBLOGKNOWLEDGECHECKCURSOR";
+    while (markdown.includes(marker)) marker += "X";
+    const node = document.createTextNode(marker);
+    range.insertNode(node);
+    const marked = this.richEditorMarkdown();
+    const at = marked.indexOf(marker);
+    const parent = node.parentNode;
+    node.remove();
+    parent?.normalize();
+    if (at < 0) return { markdown, at: markdown.length, selected };
+    return { markdown: marked.slice(0, at) + marked.slice(at + marker.length), at, selected };
+  }
+
+  insertKnowledgeCheckBlocks(blocks, target) {
+    const before = target.markdown.slice(0, target.at).replace(/\s*$/, "");
+    const after = target.markdown.slice(target.at).replace(/^\s*/, "");
+    const snippet = `${before ? "\n\n" : ""}${blocks.join("\n\n")}${after ? "\n\n" : ""}`;
+    this.ui.body.value = before + snippet + after;
+    this.ui.body.selectionStart = this.ui.body.selectionEnd = (before + snippet).length;
+    this.ui.body.dispatchEvent(new Event("input", { bubbles: true }));
+    if (this.editorMode === "visual") this.renderRichEditor();
+    this.activatePane?.("write");
+    requestAnimationFrame(() => this.writingSurface().focus());
+  }
+
   openKnowledgeCheck() {
+    this.captureVisualSelection();
+    const target = this.knowledgeCheckTarget();
     const trigger = document.activeElement;
     const dialog = h("dialog", { class: "oba-dialog", "aria-labelledby": "oba-quiz-title" });
     const questions = h("div", { class: "oba-quiz-editors" });
@@ -4544,20 +4600,18 @@ export class Editor {
         class: "oba-btn oba-btn-primary",
         type: "button",
         onClick: async () => {
-          const ta = this.ui.body;
-          const selected = ta.value.slice(ta.selectionStart ?? 0, ta.selectionEnd ?? 0).trim();
-          let context = selected;
+          let context = target.selected;
           if (!context) {
-            const cursor = ta.selectionStart ?? ta.value.length;
-            const before = ta.value.slice(0, cursor);
+            const cursor = target.at;
+            const before = target.markdown.slice(0, cursor);
             const heading = [...before.matchAll(/^#{1,6}\s+.+$/gm)].pop();
             if (heading) {
-              const rest = ta.value.slice(cursor);
+              const rest = target.markdown.slice(cursor);
               const next = rest.match(/^#{1,6}\s+.+$/m);
-              const end = next?.index === undefined ? ta.value.length : cursor + next.index;
-              context = ta.value.slice(heading.index, end).trim();
+              const end = next?.index === undefined ? target.markdown.length : cursor + next.index;
+              context = target.markdown.slice(heading.index, end).trim();
             } else {
-              context = ta.value.trim();
+              context = target.markdown.trim();
             }
           }
           generate.disabled = true;
@@ -4584,7 +4638,7 @@ export class Editor {
     const close = (focusBody = false) => {
       dialog.close();
       dialog.remove();
-      if (focusBody) this.ui.body.focus();
+      if (focusBody) this.writingSurface().focus();
       else if (trigger instanceof HTMLElement) trigger.focus();
     };
     const insert = h("button", {
@@ -4616,18 +4670,8 @@ export class Editor {
           lines.push("```");
           blocks.push(lines.join("\n"));
         }
-        const ta = this.ui.body;
-        const at = ta.selectionEnd ?? ta.value.length;
-        const before = ta.value.slice(0, at).replace(/\s*$/, "");
-        const after = ta.value.slice(at).replace(/^\s*/, "");
-        const snippet = `${before ? "\n\n" : ""}${blocks.join("\n\n")}${after ? "\n\n" : ""}`;
-        ta.value = before + snippet + after;
-        ta.selectionStart = ta.selectionEnd = (before + snippet).length;
-        this.app.dirty = true;
-        this.markDirty();
-        this.schedulePreview();
-        this.updateDocumentStats();
-        close(true);
+        this.insertKnowledgeCheckBlocks(blocks, target);
+        close(false);
       },
     }, "Insert");
     dialog.append(

@@ -5460,7 +5460,8 @@ mod tests {
         assert_eq!(missing_json["capabilities"]["knowledgeChecks"], true);
         assert_eq!(missing_json["capabilities"]["review"], true);
         assert_eq!(missing_json["capabilities"]["context"], true);
-        assert_eq!(missing_json["capabilities"]["interactions"], false);
+        assert_eq!(missing_json["capabilities"]["interactions"], true);
+        assert_eq!(missing_json["capabilities"]["autocomplete"], true);
         assert!(missing_json["message"]
             .as_str()
             .unwrap()
