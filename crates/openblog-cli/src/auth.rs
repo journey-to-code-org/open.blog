@@ -77,7 +77,9 @@ impl Users {
 }
 
 /// Lowercase ASCII letters, digits, `_`, `.`, and `-`, at most 32 bytes. The rule lives in
-/// `openblog-core` so collaboration bindings accept exactly the accounts that can sign in.
+/// `openblog-core` so collaboration bindings accept exactly the accounts the CLI creates.
+/// `Users::load` does not re-check names, so a name hand-edited into the users file outside
+/// this rule can sign in but can never be bound.
 pub fn valid_username(name: &str) -> bool {
     openblog_core::collaboration::valid_admin_username(name)
 }

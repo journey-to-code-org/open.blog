@@ -30,12 +30,17 @@ publication-scoped roles: site owner, coordinator, contributor, editor, or reade
 one-to-one within a publication. Nothing else grants collaboration access. A registry entry, an
 Admin login, a participant record, and a work credit each grant nothing on their own.
 
-Every request is authorized again against current server-side facts: the session's Admin user,
-the current users file, the current registry keys, the current contract, and the current policy
-revision. A binding whose account was removed, whose contributor key was renamed, or whose
-participant left the contract stops working without a separate revocation step. The binding
+Every request is authorized again against server-side facts: the session's Admin user, the
+current users file, the current registry keys, and the policy and contract that the caller loaded
+from the publication record in the same transaction as the change. The check itself takes no
+revision and cannot tell a stale policy from a current one, so loading both in that transaction
+and letting an optimistic revision conflict fail the request is a caller obligation. A binding
+whose account was removed, whose contributor key was renamed, or whose participant left the
+contract stops working without a separate revocation step. The binding
 fields use the same identifier rules as the systems they point at. The Admin username rule now
-lives in `openblog-core` and the CLI uses it, so the two cannot drift apart.
+lives in `openblog-core` and the CLI uses it when it creates an account, so the two cannot drift
+apart. A name hand-edited into the users file outside that rule can sign in but can never be
+bound, which fails closed.
 
 Each action takes one target kind: the publication, a participant, or a contribution. The request
 names only the target ID. Ownership and reveal recipients come from the contract. A request that
@@ -47,12 +52,20 @@ grants, and every other combination is denied. The main rules are:
 - Viewing a revealed draft is checked against that draft's reveal list.
 - An editor may edit a draft revealed to them but never becomes its author or approves it.
 - Site owners and coordinators manage membership and may request scheduling and publication.
-  They cannot read unrevealed drafts. A coordinator cannot remove a site owner.
+  They cannot read unrevealed drafts. A coordinator cannot remove a site owner, and nobody can
+  remove the last site owner.
+- Changing a binding or its roles is the `ManageRoles` action on that participant. A site owner
+  may manage any binding. A coordinator may manage only bindings that neither hold nor gain
+  `siteOwner`, so a coordinator can never grant, strip, or take over the site owner role.
+
+Policy replacement is whole-policy and revision-checked, and it carries the requester: the
+requester must hold `ManageRoles` on their own binding and on every binding the replacement adds,
+changes, or removes, and a policy that has a site owner must keep one. The core check enforces
+this, so a membership route cannot escalate a coordinator by replacing the policy directly.
 
 Roles authorize requests and nothing more. A grant creates no authorship, Work credit, reveal, or
 approval, and publishing authority does not bypass exact-revision consent (#166 and #168).
-Parsing, replacement, and denial return one error that names no identity, and replacement is
-whole-policy and revision-checked.
+Parsing, replacement, and denial return one error that names no identity.
 
 ## Alternatives considered
 
@@ -67,8 +80,12 @@ whole-policy and revision-checked.
 
 ## Consequences
 
-- Invitations must create bindings explicitly, bind the account that accepts, and never grant
-  `siteOwner` unless the inviter holds it.
+- Invitations must create bindings explicitly through policy replacement on behalf of the
+  inviter, and bind the account that accepts. Replacement already refuses a `siteOwner` grant
+  from an inviter who does not hold it.
+- A first policy is loaded with `from_json`, which takes no requester. Whoever creates a
+  publication's first policy outside the Admin (for example by editing its stored record)
+  decides its first site owner; every later change goes through replacement.
 - Every Admin route for shared publications must build the context from the session and stored
   state, never from the request body, and authorize each draft it lists or delivers.
 - The version 1 contract has no publication ID of its own. The policy and the contract must be

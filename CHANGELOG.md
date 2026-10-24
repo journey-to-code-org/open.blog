@@ -15,8 +15,10 @@ All notable changes to open.blog are recorded here. Releases follow
 - Added a publication-scoped collaboration authorization policy that binds an Admin user and a
   contributor registry key to one participant. Site owner, coordinator, contributor, editor, and
   reader roles are explicit. Access is denied by default, checked against the draft's owner and
-  reveal list from the contract, and creates no authorship, credit, or approval. Admin usernames
-  and binding names now share one validation rule.
+  reveal list from the contract, and creates no authorship, credit, or approval. Changing a
+  binding or its roles is itself authorized: only a site owner can grant or revoke the site owner
+  role, and the last site owner cannot be removed. Admin usernames and binding names now share
+  one validation rule.
 
 ## [0.14.0] - 2026-10-24
 

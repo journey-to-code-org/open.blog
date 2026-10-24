@@ -8,7 +8,7 @@ use openblog_core::{
 };
 use serde_json::json;
 
-const ACTIONS: [AuthorizationAction; 11] = [
+const ACTIONS: [AuthorizationAction; 12] = [
     AuthorizationAction::ViewPublished,
     AuthorizationAction::ViewRevealed,
     AuthorizationAction::ViewContribution,
@@ -19,6 +19,7 @@ const ACTIONS: [AuthorizationAction; 11] = [
     AuthorizationAction::Schedule,
     AuthorizationAction::Publish,
     AuthorizationAction::RemoveMember,
+    AuthorizationAction::ManageRoles,
     AuthorizationAction::Export,
 ];
 
@@ -105,22 +106,42 @@ fn ada<'a>(
     collaboration: &'a CollaborationContract,
     target: AuthorizationTarget<'a>,
 ) -> AuthorizationContext<'a> {
+    signed_in("ada-admin", collaboration, target)
+}
+
+/// One of Ada, Grace, or Linus, signed in while all three accounts and registry keys exist.
+fn signed_in<'a>(
+    admin_user: &'a str,
+    collaboration: &'a CollaborationContract,
+    target: AuthorizationTarget<'a>,
+) -> AuthorizationContext<'a> {
     AuthorizationContext {
         publication_id: "shared-reflection",
-        authenticated_admin_user: "ada-admin",
-        active_admin_users: &["ada-admin", "grace-admin"],
-        contributor_ids: &["ada", "grace"],
+        authenticated_admin_user: admin_user,
+        active_admin_users: &["ada-admin", "grace-admin", "linus-admin"],
+        contributor_ids: &["ada", "grace", "linus"],
         collaboration,
         target,
     }
 }
 
-/// Every target shape a request could name against `group()`, including unknown IDs.
-fn every_target() -> [AuthorizationTarget<'static>; 7] {
+fn bound(name: &str, roles: &[&str]) -> serde_json::Value {
+    json!({
+        "adminUser": format!("{name}-admin"),
+        "contributorId": name,
+        "participantId": format!("{name}-participant"),
+        "roles": roles
+    })
+}
+
+/// Every target shape a request could name against `group()`, including unknown IDs and Linus,
+/// a participant with no binding.
+fn every_target() -> [AuthorizationTarget<'static>; 8] {
     [
         AuthorizationTarget::Publication,
         AuthorizationTarget::Participant("ada-participant"),
         AuthorizationTarget::Participant("grace-participant"),
+        AuthorizationTarget::Participant("linus-participant"),
         AuthorizationTarget::Participant("missing-participant"),
         AuthorizationTarget::Contribution("ada-draft"),
         AuthorizationTarget::Contribution("grace-draft"),
@@ -158,84 +179,107 @@ fn every_role_action_combination_is_explicit() {
     use AuthorizationTarget::{Contribution as Draft, Participant, Publication};
 
     let collaboration = group();
-    // (role, wire name, allowed (action, target) pairs); every other pair must be denied.
-    let cases: &[(AuthorizationRole, &str, &[Grant])] = &[
-        (
-            SiteOwner,
-            "siteOwner",
-            &[
-                (ViewPublished, Publication),
-                (ViewRevealed, Draft("grace-draft")),
-                (Invite, Publication),
-                (Schedule, Publication),
-                (Publish, Publication),
-                (RemoveMember, Participant("ada-participant")),
-                (RemoveMember, Participant("grace-participant")),
-                (Export, Publication),
-            ],
-        ),
-        (
-            Coordinator,
-            "coordinator",
-            &[
-                (ViewPublished, Publication),
-                (ViewRevealed, Draft("grace-draft")),
-                (Invite, Publication),
-                (Schedule, Publication),
-                (Publish, Publication),
-                (RemoveMember, Participant("ada-participant")),
-                (RemoveMember, Participant("grace-participant")),
-                (Export, Publication),
-            ],
-        ),
-        (
-            Contributor,
-            "contributor",
-            &[
-                (ViewPublished, Publication),
-                (ViewRevealed, Draft("grace-draft")),
-                (ViewContribution, Draft("ada-draft")),
-                (EditContribution, Draft("ada-draft")),
-                (RevealContribution, Draft("ada-draft")),
-                (ApproveContribution, Participant("ada-participant")),
-                (Export, Publication),
-            ],
-        ),
-        (
-            Editor,
-            "editor",
-            &[
-                (ViewPublished, Publication),
-                (ViewRevealed, Draft("grace-draft")),
-                (ViewContribution, Draft("ada-draft")),
-                (ViewContribution, Draft("grace-draft")),
-                (EditContribution, Draft("ada-draft")),
-                (EditContribution, Draft("grace-draft")),
-                (Export, Publication),
-            ],
-        ),
-        (
-            Reader,
-            "reader",
-            &[
-                (ViewPublished, Publication),
-                (ViewRevealed, Draft("grace-draft")),
-                (Export, Publication),
-            ],
-        ),
-    ];
+    let ada_target = Participant("ada-participant");
+    let grace_target = Participant("grace-participant");
+    let linus_target = Participant("linus-participant");
+    // Ada holds one role. Without a Grace binding Ada's own binding is the only possible site
+    // owner; with one, Grace holds `siteOwner` too, so the sweep pins both "Any" and "Not a site
+    // owner" for membership. Linus is a participant with no binding in either policy.
+    for grace_site_owner in [false, true] {
+        // (role, wire name, allowed (action, target) pairs); every other pair must be denied.
+        let cases: [(AuthorizationRole, &str, Vec<Grant>); 5] = [
+            (SiteOwner, "siteOwner", {
+                let mut grants = vec![
+                    (ViewPublished, Publication),
+                    (ViewRevealed, Draft("grace-draft")),
+                    (Invite, Publication),
+                    (Schedule, Publication),
+                    (Publish, Publication),
+                    (RemoveMember, grace_target),
+                    (RemoveMember, linus_target),
+                    (ManageRoles, ada_target),
+                    (ManageRoles, grace_target),
+                    (ManageRoles, linus_target),
+                    (Export, Publication),
+                ];
+                // The last site owner cannot remove themselves.
+                if grace_site_owner {
+                    grants.push((RemoveMember, ada_target));
+                }
+                grants
+            }),
+            (Coordinator, "coordinator", {
+                let mut grants = vec![
+                    (ViewPublished, Publication),
+                    (ViewRevealed, Draft("grace-draft")),
+                    (Invite, Publication),
+                    (Schedule, Publication),
+                    (Publish, Publication),
+                    (RemoveMember, ada_target),
+                    (RemoveMember, linus_target),
+                    (ManageRoles, ada_target),
+                    (ManageRoles, linus_target),
+                    (Export, Publication),
+                ];
+                if !grace_site_owner {
+                    grants.extend([(RemoveMember, grace_target), (ManageRoles, grace_target)]);
+                }
+                grants
+            }),
+            (
+                Contributor,
+                "contributor",
+                vec![
+                    (ViewPublished, Publication),
+                    (ViewRevealed, Draft("grace-draft")),
+                    (ViewContribution, Draft("ada-draft")),
+                    (EditContribution, Draft("ada-draft")),
+                    (RevealContribution, Draft("ada-draft")),
+                    (ApproveContribution, ada_target),
+                    (Export, Publication),
+                ],
+            ),
+            (
+                Editor,
+                "editor",
+                vec![
+                    (ViewPublished, Publication),
+                    (ViewRevealed, Draft("grace-draft")),
+                    (ViewContribution, Draft("ada-draft")),
+                    (ViewContribution, Draft("grace-draft")),
+                    (EditContribution, Draft("ada-draft")),
+                    (EditContribution, Draft("grace-draft")),
+                    (Export, Publication),
+                ],
+            ),
+            (
+                Reader,
+                "reader",
+                vec![
+                    (ViewPublished, Publication),
+                    (ViewRevealed, Draft("grace-draft")),
+                    (Export, Publication),
+                ],
+            ),
+        ];
 
-    for (role, wire_role, allowed) in cases {
-        let policy = policy(json!([binding(wire_role)]));
-        for action in ACTIONS {
-            for target in every_target() {
-                assert_eq!(
-                    policy
-                        .authorize(&ada(&collaboration, target), action)
-                        .is_ok(),
-                    allowed.contains(&(action, target)),
-                    "unexpected {role:?} decision for {action:?} on {target:?}"
-                );
+        for (role, wire_role, allowed) in cases {
+            let mut bindings = vec![binding(wire_role)];
+            if grace_site_owner {
+                bindings.push(bound("grace", &["siteOwner"]));
+            }
+            let policy = policy(json!(bindings));
+            for action in ACTIONS {
+                for target in every_target() {
+                    assert_eq!(
+                        policy
+                            .authorize(&ada(&collaboration, target), action)
+                            .is_ok(),
+                        allowed.contains(&(action, target)),
+                        "unexpected {role:?} decision for {action:?} on {target:?} \
+                         (grace site owner: {grace_site_owner})"
+                    );
+                }
             }
         }
     }
@@ -365,16 +409,186 @@ fn coordinators_cannot_remove_a_site_owner() {
 }
 
 #[test]
+fn the_last_site_owner_cannot_be_removed() {
+    let collaboration = group();
+    let remove = |admin_user, participant| {
+        signed_in(
+            admin_user,
+            &collaboration,
+            AuthorizationTarget::Participant(participant),
+        )
+    };
+    let sole_owner = policy(json!([
+        bound("ada", &["siteOwner"]),
+        bound("grace", &["coordinator"])
+    ]));
+    for admin_user in ["ada-admin", "grace-admin"] {
+        assert!(
+            sole_owner
+                .authorize(
+                    &remove(admin_user, "ada-participant"),
+                    AuthorizationAction::RemoveMember
+                )
+                .is_err(),
+            "{admin_user} removed the last site owner"
+        );
+    }
+
+    let two_owners = policy(json!([
+        bound("ada", &["siteOwner"]),
+        bound("grace", &["siteOwner"])
+    ]));
+    for (admin_user, participant) in [
+        ("ada-admin", "ada-participant"),
+        ("ada-admin", "grace-participant"),
+        ("grace-admin", "ada-participant"),
+    ] {
+        two_owners
+            .authorize(
+                &remove(admin_user, participant),
+                AuthorizationAction::RemoveMember,
+            )
+            .expect("a site owner may leave or remove another while one remains");
+    }
+}
+
+/// Changing a binding is the most privileged membership operation, so the replacement itself
+/// carries the requester and applies `ManageRoles` to every binding it adds, changes, or removes.
+#[test]
+fn policy_replacement_cannot_escalate_to_or_strip_site_owner() {
+    let collaboration = group();
+    let current = policy(json!([
+        bound("ada", &["siteOwner"]),
+        bound("grace", &["coordinator"]),
+        bound("linus", &["contributor"])
+    ]));
+    let replace = |admin_user: &str, bindings: serde_json::Value| {
+        let mut replacement = policy_json(bindings);
+        replacement["revision"] = json!(8);
+        current.replace_from_json(
+            &signed_in(admin_user, &collaboration, AuthorizationTarget::Publication),
+            &replacement.to_string(),
+            7,
+        )
+    };
+    let ada = bound("ada", &["siteOwner"]);
+    let grace = bound("grace", &["coordinator"]);
+    let linus = bound("linus", &["contributor"]);
+    let newcomer = json!({
+        "adminUser": "mary-admin",
+        "contributorId": "mary",
+        "participantId": "mary-participant",
+        "roles": ["siteOwner"]
+    });
+
+    // Grace, a coordinator, can never touch a site-owner binding or create one.
+    let mut ada_renamed = ada.clone();
+    ada_renamed["contributorId"] = json!("ada-renamed");
+    for bindings in [
+        json!([bound("ada", &["coordinator"]), grace, linus]),
+        json!([ada, bound("grace", &["coordinator", "siteOwner"]), linus]),
+        json!([ada, grace, bound("linus", &["siteOwner"])]),
+        json!([ada, grace, linus, newcomer]),
+        json!([grace, linus]),
+        json!([ada_renamed, grace, linus]),
+    ] {
+        let error = replace("grace-admin", bindings.clone())
+            .expect_err("a coordinator must not grant or strip siteOwner");
+        assert_eq!(
+            error.to_string(),
+            "collaboration access denied",
+            "{bindings}"
+        );
+    }
+    // She may still manage bindings that do not hold siteOwner, in any order.
+    let mut reader = newcomer.clone();
+    reader["roles"] = json!(["reader"]);
+    for bindings in [
+        json!([ada, grace, bound("linus", &["contributor", "editor"])]),
+        json!([ada, grace]),
+        json!([linus, grace, ada, reader]),
+        json!([ada, bound("grace", &["coordinator", "contributor"]), linus]),
+    ] {
+        replace("grace-admin", bindings.clone()).expect("coordinator manages non-owners");
+    }
+
+    // Roles without membership authority cannot change any binding, even to add a reader.
+    for bindings in [
+        json!([ada, grace, linus, reader]),
+        json!([ada, grace, bound("linus", &["contributor", "editor"])]),
+        json!([ada, grace, linus]),
+    ] {
+        assert!(replace("linus-admin", bindings).is_err());
+    }
+
+    // A site owner may grant and revoke siteOwner, but the policy must keep one.
+    replace(
+        "ada-admin",
+        json!([ada, bound("grace", &["coordinator", "siteOwner"]), linus]),
+    )
+    .expect("a site owner may grant siteOwner");
+    replace("ada-admin", json!([ada, linus, newcomer]))
+        .expect("a site owner may remove a coordinator and add another site owner");
+    for bindings in [
+        json!([bound("ada", &["coordinator"]), grace, linus]),
+        json!([grace, linus]),
+    ] {
+        assert!(
+            replace("ada-admin", bindings).is_err(),
+            "the last site owner cannot be revoked"
+        );
+    }
+    let two_owners = policy(json!([ada, bound("grace", &["siteOwner"])]));
+    let mut handover = policy_json(json!([bound("grace", &["siteOwner"])]));
+    handover["revision"] = json!(8);
+    two_owners
+        .replace_from_json(&ada_context(&collaboration), &handover.to_string(), 7)
+        .expect("a site owner may leave while another remains");
+
+    // A requester whose own identity is stale cannot replace anything.
+    assert!(current
+        .replace_from_json(
+            &AuthorizationContext {
+                active_admin_users: &[],
+                ..ada_context(&collaboration)
+            },
+            &json!({
+                "version": 1,
+                "revision": 8,
+                "publicationId": "shared-reflection",
+                "bindings": [ada, grace, linus]
+            })
+            .to_string(),
+            7,
+        )
+        .is_err());
+}
+
+fn ada_context(collaboration: &CollaborationContract) -> AuthorizationContext<'_> {
+    ada(collaboration, AuthorizationTarget::Publication)
+}
+
+#[test]
 fn policy_replacement_is_atomic_revision_checked_and_publication_scoped() {
-    let current = policy(json!([binding("reader")]));
-    let mut replacement = policy_json(json!([binding("contributor")]));
+    let collaboration = group();
+    let requester = ada_context(&collaboration);
+    let current = policy(json!([binding("siteOwner")]));
+    let mut replacement = policy_json(json!([{
+        "adminUser": "ada-admin",
+        "contributorId": "ada",
+        "participantId": "ada-participant",
+        "roles": ["siteOwner", "contributor"]
+    }]));
     replacement["revision"] = json!(8);
 
     let updated = current
-        .replace_from_json(&replacement.to_string(), 7)
+        .replace_from_json(&requester, &replacement.to_string(), 7)
         .expect("matching revision and publication replace the whole policy");
     assert_eq!(updated.revision, 8);
-    assert_eq!(updated.bindings[0].roles, [AuthorizationRole::Contributor]);
+    assert_eq!(
+        updated.bindings[0].roles,
+        [AuthorizationRole::SiteOwner, AuthorizationRole::Contributor]
+    );
 
     // Stale observers, replays of the current revision, skipped revisions, a different
     // publication, and a malformed body all fail without touching the current policy.
@@ -395,11 +609,11 @@ fn policy_replacement_is_atomic_revision_checked_and_publication_scoped() {
         ("{\"version\":1,".to_string(), 7),
     ] {
         let error = current
-            .replace_from_json(&source, observed)
+            .replace_from_json(&requester, &source, observed)
             .expect_err("unsafe replacement must fail");
         assert_eq!(error.to_string(), "collaboration access denied");
     }
-    assert_eq!(current, policy(json!([binding("reader")])));
+    assert_eq!(current, policy(json!([binding("siteOwner")])));
 
     let exhausted = AuthorizationPolicy {
         revision: u64::MAX,
@@ -408,7 +622,7 @@ fn policy_replacement_is_atomic_revision_checked_and_publication_scoped() {
     let mut overflow = replacement;
     overflow["revision"] = json!(0);
     assert!(exhausted
-        .replace_from_json(&overflow.to_string(), u64::MAX)
+        .replace_from_json(&requester, &overflow.to_string(), u64::MAX)
         .is_err());
 }
 
@@ -574,14 +788,22 @@ fn policy_shape_is_bounded_group_safe_and_rejects_untrusted_fields() {
     assert_eq!(MAX_AUTHORIZATION_BINDINGS, 100);
     assert_eq!(MAX_AUTHORIZATION_POLICY_BYTES, 64 * 1024);
 
+    // The first binding coordinates, the last is the only site owner, and the rest read.
     let bindings = |count: usize| {
         (0..count)
             .map(|index| {
+                let role = if index + 1 == count {
+                    "siteOwner"
+                } else if index == 0 {
+                    "coordinator"
+                } else {
+                    "reader"
+                };
                 json!({
                     "adminUser": format!("admin-{index}"),
                     "contributorId": format!("contributor-{index}"),
                     "participantId": format!("participant-{index}"),
-                    "roles": ["reader"]
+                    "roles": [role]
                 })
             })
             .collect::<Vec<_>>()
@@ -589,6 +811,58 @@ fn policy_shape_is_bounded_group_safe_and_rejects_untrusted_fields() {
     for count in [1, 2, 3, 10, MAX_AUTHORIZATION_BINDINGS] {
         let parsed = policy(json!(bindings(count)));
         assert_eq!(parsed.bindings.len(), count);
+
+        // Every binding's account and registry key exist, plus one account with a login and a
+        // registry key but no binding.
+        let names = |prefix: &str, unbound: bool| {
+            (0..count)
+                .map(|index| format!("{prefix}-{index}"))
+                .chain(unbound.then(|| format!("{prefix}-unbound")))
+                .collect::<Vec<_>>()
+        };
+        let admins = names("admin", true);
+        let contributors = names("contributor", true);
+        let participants = names("participant", false);
+        let [admins, contributors, participants] = [&admins, &contributors, &participants]
+            .map(|names| names.iter().map(String::as_str).collect::<Vec<_>>());
+        let collaboration = contract(&participants);
+        let request = |admin_user: &str, action, target| {
+            parsed.authorize(
+                &AuthorizationContext {
+                    publication_id: "shared-reflection",
+                    authenticated_admin_user: admin_user,
+                    active_admin_users: &admins,
+                    contributor_ids: &contributors,
+                    collaboration: &collaboration,
+                    target,
+                },
+                action,
+            )
+        };
+        use AuthorizationAction::{Publish, RemoveMember};
+        let owner = admins[count - 1];
+        let owner_target = AuthorizationTarget::Participant(participants[count - 1]);
+
+        // The last binding resolves to its own participant and site-owner role.
+        let grant = request(owner, Publish, AuthorizationTarget::Publication)
+            .expect("the last binding is found in a large group");
+        assert_eq!(grant.participant_id, participants[count - 1]);
+        assert!(request("admin-unbound", Publish, AuthorizationTarget::Publication).is_err());
+        // The site-owner scan finds the last binding: neither it nor the coordinator can remove
+        // the only site owner, while the coordinator may remove a non-owner.
+        assert!(
+            request(owner, RemoveMember, owner_target).is_err(),
+            "{count}"
+        );
+        if count > 1 {
+            assert!(
+                request("admin-0", RemoveMember, owner_target).is_err(),
+                "{count}"
+            );
+            let first = AuthorizationTarget::Participant(participants[0]);
+            request("admin-0", RemoveMember, first).expect("coordinator removes a non-owner");
+            request(owner, RemoveMember, first).expect("site owner removes a non-owner");
+        }
     }
     assert!(AuthorizationPolicy::from_json(
         &policy_json(json!(bindings(MAX_AUTHORIZATION_BINDINGS + 1))).to_string()
@@ -655,11 +929,13 @@ fn policy_shape_is_bounded_group_safe_and_rejects_untrusted_fields() {
     }
 }
 
-/// Pins the isolation: authorization reads the policy and contract by reference and has no
-/// document, renderer, feed, or filesystem seam, so hostile input and denials cannot change
-/// canonical content or generated output.
+/// An isolation pin, not evidence about a publication seam: the site below never
+/// receives collaboration or policy input, because none exists yet, so equal output is true by
+/// construction. The test fails only if authorization gains a side effect it can observe here.
+/// The real unchanged-output assertion belongs to the first collaboration-to-publication seam
+/// (#156 and #158), which must route the policy through site loading and compare its output.
 #[test]
-fn denied_requests_leave_canonical_content_and_public_output_unchanged() {
+fn authorization_has_no_publication_seam_to_change_output() {
     let build = || {
         let site = Site::load(
             SiteConfig::from_json(r#"{"author":{"name":"Site Author"}}"#).unwrap(),
@@ -703,7 +979,9 @@ Published body."
     let mut hostile = policy_json(json!([binding("contributor")]));
     hostile["revision"] = json!(8);
     hostile["bindings"][0]["markdown"] = json!("<script>Private grace-draft</script>");
-    assert!(current.replace_from_json(&hostile.to_string(), 7).is_err());
+    assert!(current
+        .replace_from_json(&ada_context(&collaboration), &hostile.to_string(), 7)
+        .is_err());
     assert!(AuthorizationPolicy::from_json(&hostile.to_string()).is_err());
 
     assert_eq!((collaboration, current), snapshot);

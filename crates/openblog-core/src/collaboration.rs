@@ -135,8 +135,13 @@ pub enum AuthorizationAction {
     Schedule,
     /// Request publication. Targets the publication.
     Publish,
-    /// Remove a participant from the publication. Targets a participant.
+    /// Remove a participant from the publication. Targets a participant. The last site owner
+    /// cannot be removed.
     RemoveMember,
+    /// Grant, change, or revoke the roles or binding of one participant. Targets a participant.
+    /// [`AuthorizationPolicy::replace_from_json`] applies this grant to every binding a
+    /// replacement adds, changes, or removes.
+    ManageRoles,
     /// Export the published projection, never private collaboration state. Targets the
     /// publication.
     Export,
@@ -189,6 +194,7 @@ enum ResolvedTarget<'a> {
     Participant {
         id: &'a str,
         site_owner: bool,
+        last_site_owner: bool,
     },
     Contribution {
         owner: &'a str,
@@ -201,7 +207,7 @@ impl AuthorizationAction {
         use AuthorizationAction::*;
         match self {
             ViewPublished | Invite | Schedule | Publish | Export => TargetKind::Publication,
-            ApproveContribution | RemoveMember => TargetKind::Participant,
+            ApproveContribution | RemoveMember | ManageRoles => TargetKind::Participant,
             ViewRevealed | ViewContribution | EditContribution | RevealContribution => {
                 TargetKind::Contribution
             }
@@ -241,19 +247,41 @@ impl AuthorizationPolicy {
         Ok(policy)
     }
 
-    /// Replace the complete publication policy after an optimistic revision check.
-    /// Returning a new value keeps malformed, stale, or cross-publication input atomic.
+    /// Replace the complete publication policy on behalf of the requester in `context`, after an
+    /// optimistic revision check. The requester must be allowed [`AuthorizationAction::ManageRoles`]
+    /// on their own binding and on every binding the replacement adds, changes, or removes, so
+    /// only a site owner can touch a binding that holds or gains `siteOwner`. A policy that has a
+    /// site owner must keep one. Returning a new value keeps malformed, stale, unauthorized, or
+    /// cross-publication input atomic. The context's target is ignored.
     pub fn replace_from_json(
         &self,
+        context: &AuthorizationContext<'_>,
         source: &str,
         expected_revision: u64,
     ) -> Result<Self, AuthorizationError> {
         if self.revision != expected_revision {
             return Err(AuthorizationError);
         }
+        let requester = self.requester(context)?;
         let replacement = Self::from_json(source)?;
         if replacement.publication_id != self.publication_id
             || expected_revision.checked_add(1) != Some(replacement.revision)
+        {
+            return Err(AuthorizationError);
+        }
+        let removed = self
+            .bindings
+            .iter()
+            .filter(|binding| !replacement.bindings.contains(binding));
+        let added = replacement
+            .bindings
+            .iter()
+            .filter(|binding| !self.bindings.contains(binding));
+        if !may_manage(requester, requester)
+            || removed
+                .chain(added)
+                .any(|binding| !may_manage(requester, binding))
+            || (self.site_owner_count() > 0 && replacement.site_owner_count() == 0)
         {
             return Err(AuthorizationError);
         }
@@ -263,36 +291,16 @@ impl AuthorizationPolicy {
     /// Deny by default: the request must come from an active Admin user whose binding in this
     /// publication still resolves to a registry key and a current participant, and one of the
     /// binding's roles must allow `action` on the resolved target. A grant permits the request;
-    /// it never records authorship, credit, a reveal, or an approval.
+    /// it never records authorship, credit, a reveal, or an approval. The check takes no
+    /// revision: the caller must pass the policy and contract it loaded in the same transaction
+    /// as the change the grant permits.
     pub fn authorize<'a>(
         &'a self,
         context: &AuthorizationContext<'_>,
         action: AuthorizationAction,
     ) -> Result<&'a IdentityBinding, AuthorizationError> {
-        if self.publication_id != context.publication_id
-            || !context
-                .active_admin_users
-                .contains(&context.authenticated_admin_user)
-        {
-            return Err(AuthorizationError);
-        }
-        let binding = self
-            .bindings
-            .iter()
-            .find(|binding| binding.admin_user == context.authenticated_admin_user)
-            .ok_or(AuthorizationError)?;
+        let binding = self.requester(context)?;
         let collaboration = context.collaboration;
-        if !context
-            .contributor_ids
-            .contains(&binding.contributor_id.as_str())
-            || !collaboration
-                .participants
-                .iter()
-                .any(|participant| participant.id == binding.participant_id)
-        {
-            return Err(AuthorizationError);
-        }
-
         let own = binding.participant_id.as_str();
         let target = match (action.target_kind(), context.target) {
             (TargetKind::Publication, AuthorizationTarget::Publication) => {
@@ -304,12 +312,14 @@ impl AuthorizationPolicy {
                     .iter()
                     .find(|participant| participant.id == id)
                     .ok_or(AuthorizationError)?;
+                let site_owner = self
+                    .bindings
+                    .iter()
+                    .any(|other| other.participant_id == participant.id && holds_site_owner(other));
                 ResolvedTarget::Participant {
                     id: participant.id.as_str(),
-                    site_owner: self.bindings.iter().any(|other| {
-                        other.participant_id == participant.id
-                            && other.roles.contains(&AuthorizationRole::SiteOwner)
-                    }),
+                    site_owner,
+                    last_site_owner: site_owner && self.site_owner_count() == 1,
                 }
             }
             (TargetKind::Contribution, AuthorizationTarget::Contribution(id)) => {
@@ -338,6 +348,69 @@ impl AuthorizationPolicy {
             Err(AuthorizationError)
         }
     }
+
+    fn site_owner_count(&self) -> usize {
+        self.bindings
+            .iter()
+            .filter(|binding| holds_site_owner(binding))
+            .count()
+    }
+
+    /// The requester's binding, when the policy belongs to the requested publication and the
+    /// signed-in account, its contributor key, and its participant are all still current.
+    fn requester<'a>(
+        &'a self,
+        context: &AuthorizationContext<'_>,
+    ) -> Result<&'a IdentityBinding, AuthorizationError> {
+        if self.publication_id != context.publication_id
+            || !context
+                .active_admin_users
+                .contains(&context.authenticated_admin_user)
+        {
+            return Err(AuthorizationError);
+        }
+        let binding = self
+            .bindings
+            .iter()
+            .find(|binding| binding.admin_user == context.authenticated_admin_user)
+            .ok_or(AuthorizationError)?;
+        let collaboration = context.collaboration;
+        if !context
+            .contributor_ids
+            .contains(&binding.contributor_id.as_str())
+            || !collaboration
+                .participants
+                .iter()
+                .any(|participant| participant.id == binding.participant_id)
+        {
+            return Err(AuthorizationError);
+        }
+        Ok(binding)
+    }
+}
+
+fn holds_site_owner(binding: &IdentityBinding) -> bool {
+    binding.roles.contains(&AuthorizationRole::SiteOwner)
+}
+
+/// Whether `requester` may manage `binding`. The binding's own `siteOwner` role decides, so a
+/// replacement that grants or strips `siteOwner` needs a site owner either way. A binding in a
+/// replacement need not resolve in the contract yet, because an accepted invitation adds the
+/// participant and the binding in one transaction.
+fn may_manage(requester: &IdentityBinding, binding: &IdentityBinding) -> bool {
+    let target = ResolvedTarget::Participant {
+        id: binding.participant_id.as_str(),
+        site_owner: holds_site_owner(binding),
+        last_site_owner: false,
+    };
+    requester.roles.iter().any(|role| {
+        role_allows(
+            *role,
+            AuthorizationAction::ManageRoles,
+            &target,
+            &requester.participant_id,
+        )
+    })
 }
 
 /// The complete role matrix. Anything not listed is denied, so a new role or action starts with
@@ -364,8 +437,19 @@ fn role_allows(
             },
         ) => *revealed_to_requester,
         (SiteOwner | Coordinator, Invite | Schedule | Publish, _) => true,
-        (SiteOwner, RemoveMember, ResolvedTarget::Participant { .. }) => true,
-        (Coordinator, RemoveMember, ResolvedTarget::Participant { site_owner, .. }) => !site_owner,
+        (
+            SiteOwner,
+            RemoveMember,
+            ResolvedTarget::Participant {
+                last_site_owner, ..
+            },
+        ) => !last_site_owner,
+        (SiteOwner, ManageRoles, ResolvedTarget::Participant { .. }) => true,
+        (
+            Coordinator,
+            RemoveMember | ManageRoles,
+            ResolvedTarget::Participant { site_owner, .. },
+        ) => !site_owner,
         (
             Contributor,
             ViewContribution | EditContribution | RevealContribution,
@@ -510,9 +594,10 @@ fn valid_id(value: &str) -> bool {
     valid_slug(value, MAX_IDENTIFIER_BYTES)
 }
 
-/// The Admin sign-in username rule, owned here so the CLI's users file and a binding's
-/// `adminUser` cannot drift apart: every account that can sign in can be bound, and a binding
-/// can never name an account that could not exist.
+/// The Admin sign-in username rule, owned here so CLI account creation and a binding's
+/// `adminUser` cannot drift apart: every account the CLI creates can be bound, and a binding can
+/// never name an account the CLI could not create. A name hand-edited into the users file outside
+/// this rule can still sign in but can never be bound, so it fails closed.
 pub fn valid_admin_username(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= MAX_ADMIN_USERNAME_BYTES

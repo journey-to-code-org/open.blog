@@ -74,7 +74,9 @@ A publication-scoped responsibility, such as site owner, coordinator, contributo
 reader, that a publication authorization binding gives a participant. It permits only the actions
 that policy lists for that one shared publication. The `contributor` role means writing one's own
 contribution draft, not holding a public Contributor credit, and no role is promoted to a Work
-credit role implicitly.
+credit role implicitly. Changing a binding or its roles is itself a role-limited action: only a
+site owner can grant, revoke, or touch the site owner role, and a publication that has a site
+owner always keeps one.
 _Avoid_: Work credit, global job title, site-wide Admin permission
 
 **Contribution draft**:

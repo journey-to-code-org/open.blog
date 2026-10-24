@@ -111,8 +111,10 @@ The version 1 policy is group-safe and contains no pair-specific fields:
 ```
 
 - `adminUser` follows the Admin sign-in username rule (lowercase ASCII letters, digits, `_`, `.`,
-  and `-`, at most 32 bytes). The rule lives in `openblog-core` and the CLI users file uses it,
-  so every account that can sign in can be bound and no binding can name an impossible account.
+  and `-`, at most 32 bytes). The rule lives in `openblog-core` and the CLI uses it when it
+  creates an account, so every account the CLI creates can be bound and no binding can name an
+  account the CLI could not create. Loading the users file does not re-check names, so a name
+  hand-edited outside the rule can sign in but can never be bound.
 - `contributorId` follows the contributor registry key rule (a lowercase ASCII slug), capped at
   128 bytes.
 - `participantId` follows the contract identifier rule above.
@@ -137,8 +139,9 @@ the same non-identifying error unless all of these hold:
 4. The target has the kind the action takes and resolves in the contract.
 5. One of the binding's roles allows the action on that resolved target.
 
-Missing, removed, renamed, stale, cross-publication, or unbound identities therefore receive no
-access, whatever roles the policy lists. A registry entry, a login, or a participant record alone
+The check takes no policy or contract revision, so it cannot tell a stale policy from a current
+one; see the caller obligations below. Missing, removed, renamed, cross-publication, or unbound
+identities receive no access, whatever roles the policy lists. A registry entry, a login, or a participant record alone
 grants nothing.
 
 Targets are `Publication`, `Participant(id)`, or `Contribution(id)`. The request supplies only the
@@ -157,7 +160,8 @@ wrong kind is denied rather than ignored.
 | Approve | Participant | No | No | Self | No | No |
 | Schedule | Publication | Yes | Yes | No | No | No |
 | Publish | Publication | Yes | Yes | No | No | No |
-| Remove member | Participant | Any | Not a site owner | No | No | No |
+| Remove member | Participant | Any but the last site owner | Not a site owner | No | No | No |
+| Manage roles | Participant | Any | Not a site owner | No | No | No |
 | Export | Publication | Yes | Yes | Yes | Yes | Yes |
 
 - **Own** means the contract lists the bound participant as the contribution's owner.
@@ -167,7 +171,13 @@ wrong kind is denied rather than ignored.
 - **Self** means the target is the bound participant. An approval is recorded only for the
   requester's own participant.
 - **Any** and **Not a site owner** refer to the target participant. A coordinator cannot remove a
-  participant whose binding holds `siteOwner`.
+  participant whose binding holds `siteOwner`, or grant, change, or revoke that binding. A
+  participant with no binding is not a site owner.
+- **Any but the last site owner** means a site owner may remove anyone, including themselves,
+  while another binding still holds `siteOwner`.
+- **Manage roles** grants, changes, or revokes one participant's binding or roles. Policy
+  replacement applies it to every binding a replacement adds, changes, or removes; for a binding
+  that holds `siteOwner` before or after the change, the target counts as a site owner.
 - View published and Export cover only the published projection. Neither exposes private
   collaboration state, which reaches public output only through a Published assembly under
   [ADR 0004](../adr/0004-portable-projections-from-canonical-work.md).
@@ -188,15 +198,35 @@ publication gate remain separate contracts.
   no publication ID of its own, so the record that stores both is what ties them together.
 - Authorize inside the same transaction as the change the grant permits, against the current
   policy and contract revisions, and let an optimistic revision conflict fail the request.
-- Invitations ([#159](https://github.com/journey-to-code-org/open.blog/issues/159)) must not grant
-  `siteOwner` unless the inviter holds it, and must bind the account that accepts.
+- Change bindings only through `AuthorizationPolicy::replace_from_json` with the requester's
+  context. Invitations ([#159](https://github.com/journey-to-code-org/open.blog/issues/159)) and
+  member management ([#161](https://github.com/journey-to-code-org/open.blog/issues/161)) add,
+  change, and remove bindings this way, and invitations must bind the account that accepts.
+  `from_json` loads a stored policy and takes no requester, so it is not a change path.
+
+### Policy replacement
+
+`AuthorizationPolicy::replace_from_json` takes the requester's context (its target is ignored),
+the replacement, and the observed revision. Beyond the parse, publication, and revision checks, it
+refuses the replacement unless all of these hold:
+
+1. The requester passes the identity checks above and may Manage roles on their own binding, so
+   only site owners and coordinators can change the policy.
+2. The requester may Manage roles on every binding the replacement removes, adds, or changes.
+   Bindings compare whole and in any order, and need not resolve in the contract yet, because an
+   accepted invitation adds the participant and the binding in one transaction.
+3. A policy that has a site owner keeps at least one.
+
+A coordinator therefore cannot grant `siteOwner`, including to themselves, strip it from anyone,
+or rebind a site owner's account, registry key, or participant.
 
 ### Limits and failure
 
 The policy is capped at 64 KiB and 100 bindings. Unknown fields are rejected, so Markdown, URLs,
 credentials, tokens, provider claims, and arbitrary metadata cannot enter it. Parsing,
 authorization, and optimistic whole-policy replacement return the same non-identifying denial;
-replacement must keep the publication ID and advance the observed revision by exactly one.
+replacement must keep the publication ID, advance the observed revision by exactly one, and pass
+the replacement rules above.
 Because the policy has no document, renderer, feed, export, filesystem, or network integration,
 denial cannot mutate canonical content or public output.
 
@@ -258,14 +288,20 @@ many ordered sources with stable IDs, and rejection of zero sources) arrive with
 collection in #156.
 
 Authorization matrix fixtures in `crates/openblog-core/tests/collaboration_authorization.rs`
-check every role against every action and target kind, including unknown IDs. Further fixtures
-cover registry entries and logins without a binding, confused-deputy requests (another
-participant's draft, an unrevealed draft, a wrong target kind, and approving for someone else),
-coordinators removing a site owner, removed Admin users, renamed contributors, removed
+check every role against every action and target kind, including unknown IDs and an unbound
+participant, both when the requester is the only site owner and when another participant holds
+`siteOwner`. Further fixtures cover registry entries and logins without a binding,
+confused-deputy requests (another participant's draft, an unrevealed draft, a wrong target kind,
+and approving for someone else), coordinators removing a site owner, removing the last site
+owner, coordinators granting, stripping, or rebinding `siteOwner` through replacement, members
+without membership roles changing any binding, removed Admin users, renamed contributors, removed
 participants, another account claiming a binding, cross-publication use, Admin username and
 registry key rules (including homoglyph, bidi, and NUL identities), unknown roles, hostile fields,
-group sizes up to the binding limit, stale, replayed, skipped, and exhausted policy revisions, and
-unchanged generated output after denials.
+authorization in groups of 1, 2, 3, 10, and the binding limit (the last binding is found, its
+site-owner role is honoured, and an unbound account is denied), and stale, replayed, skipped, and
+exhausted policy revisions. An isolation pin builds a site with no collaboration input before and
+after denials; it holds by construction, and the first collaboration-to-publication seam (#156
+and #158) owns the real unchanged-output assertion.
 
 ## Out of scope
 
