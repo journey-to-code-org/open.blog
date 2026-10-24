@@ -40,6 +40,7 @@ function. Admin stores the public endpoint in `openblog.json` and a write-only m
 - Supabase access uses REST/RPC calls authenticated with `SUPABASE_SERVICE_ROLE_KEY`. Required
   environment values are `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENBLOG_SITE_ID`,
   `OPENBLOG_SITE_ORIGIN`, `OPENBLOG_ADMIN_API_KEY`, and `OPENBLOG_ANALYTICS_SALT`.
+  `OPENBLOG_SITE_BASE_PATH` is optional for sites published below the origin root.
 - Comment moderation and hosted Admin analytics require `Authorization: Bearer <token>` and compare
   against `OPENBLOG_ADMIN_API_KEY` without returning either token or database credentials.
 - New comments have `pending` status. Public reads return only `approved` rows.

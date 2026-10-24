@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added dependency-free `web runnable` HTML/CSS/JavaScript sandboxes with editable tabs and a
+  CSP-restricted opaque-origin preview.
+- Added structured video production stages, season/episode numbers, credits, an Admin workflow,
+  and a complete fictional Zhalendor example production post.
+- Added per-post open, locked, and hidden comment policies plus pending, approved, and rejected
+  Admin moderation queues.
+
 - Added optional Supabase-backed Netlify Functions for moderated comments and persistent,
   privacy-respecting view analytics, with a checked-in SQL schema and deployment guide.
 - Added hosted engagement settings and pending-comment moderation to Admin Analytics. Public

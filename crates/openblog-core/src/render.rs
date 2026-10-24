@@ -6,14 +6,14 @@
 //! Appearance comes entirely from CSS custom properties (`--ob-*`) written by
 //! the theme, so the same markup can look like any theme.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::config::SiteConfig;
 use crate::contributor::{CreditProvenance, ResolvedCredit};
 use crate::escape::{attr, cdata, text};
 use crate::feeds;
 use crate::markdown::{self, RenderOptions};
-use crate::model::{Post, Series, Site};
+use crate::model::{CommentsPolicy, Post, Series, Site};
 use crate::theme::{Theme, ThemeSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -318,6 +318,28 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     out.add(
         "search.json".into(),
         c.apply_base_path(&feeds::search_index(site)),
+    )?;
+    let hosted_comments =
+        c.engagement.enabled && c.engagement.comments && !c.engagement.endpoint.trim().is_empty();
+    let comment_policies: BTreeMap<&str, &str> = site
+        .posts
+        .iter()
+        .map(|post| {
+            let policy = if !hosted_comments {
+                "hidden"
+            } else {
+                match post.comments {
+                    CommentsPolicy::Open => "open",
+                    CommentsPolicy::Locked => "locked",
+                    CommentsPolicy::Hidden => "hidden",
+                }
+            };
+            (post.url.as_str(), policy)
+        })
+        .collect();
+    out.add(
+        "openblog-comments.json".into(),
+        serde_json::to_string(&comment_policies).expect("comment policy map is serializable"),
     )?;
 
     Ok(out.files)
@@ -1044,6 +1066,9 @@ impl<'a> Renderer<'a> {
         if let Some(journal) = &post.field_journal {
             body.push_str(&self.field_journal_card(journal));
         }
+        if let Some(video) = &post.video {
+            body.push_str(&self.video_production_card(video));
+        }
         if c.markdown.embeds {
             if let Some(video) = &post.video {
                 if let Some(url) = &video.url {
@@ -1116,12 +1141,21 @@ impl<'a> Renderer<'a> {
             body.push_str("\n</section>\n");
         }
         body.push_str(&self.chronological_nav(index));
-        if c.engagement.enabled && c.engagement.comments && !c.engagement.endpoint.trim().is_empty()
+        if c.engagement.enabled
+            && c.engagement.comments
+            && post.comments != crate::model::CommentsPolicy::Hidden
+            && !c.engagement.endpoint.trim().is_empty()
         {
+            let mode = if post.comments == crate::model::CommentsPolicy::Locked {
+                " mode=\"locked\""
+            } else {
+                ""
+            };
             body.push_str(&format!(
-                "<ob-comments path=\"{}\" endpoint=\"{}\"><p>Comments require JavaScript.</p></ob-comments>\n",
+                "<ob-comments path=\"{}\" endpoint=\"{}\"{}><p>Comments require JavaScript.</p></ob-comments>\n",
                 attr(&post.url),
                 attr(c.engagement.endpoint.trim().trim_end_matches('/')),
+                mode,
             ));
         }
         if !c.snippets.post_footer.trim().is_empty() {
@@ -1498,6 +1532,32 @@ impl<'a> Renderer<'a> {
         }
         out.push_str("</aside>\n");
         out
+    }
+
+    fn video_production_card(&self, video: &crate::video::VideoMetadata) -> String {
+        let mut facts = Vec::new();
+        if let Some(label) = video.production_label() {
+            facts.push(format!(
+                "<div><dt>Production</dt><dd>{}</dd></div>",
+                text(&label)
+            ));
+        }
+        if let Some(status) = &video.production_status {
+            facts.push(format!(
+                "<div><dt>Status</dt><dd>{}</dd></div>",
+                text(status)
+            ));
+        }
+        if let Some(credits) = &video.production_credits {
+            facts.push(format!(
+                "<div><dt>Credits</dt><dd>{}</dd></div>",
+                text(credits)
+            ));
+        }
+        if facts.is_empty() {
+            return String::new();
+        }
+        format!("<aside class=\"ob-video-production\" aria-label=\"Video production summary\"><h2>Production notes</h2><dl>{}</dl></aside>\n", facts.join(""))
     }
 
     fn recipe_card(&self, recipe: &crate::recipe::Recipe) -> String {
@@ -2184,6 +2244,7 @@ mod tests {
             "llms-full.txt",
             "api/blog.json",
             "search.json",
+            "openblog-comments.json",
             "themes/base/tokens.css",
             "themes/loud/tokens.css",
         ] {
@@ -2660,13 +2721,17 @@ mod tests {
 
     #[test]
     fn video_posts_emit_video_object_metadata_and_privacy_enhanced_embeds() {
-        let post = "---\ntitle: Episode one\ndate: 2026-10-23\nprofile: video\nvideoUrl: https://youtu.be/dQw4w9WgXcQ\nduration: 12 min 34 sec\nthumbnail: /images/episode.jpg\naiDisclosure: AI-assisted animation\n---\n## Transcript\nOpening narration.";
+        let post = "---\ntitle: Episode one\ndate: 2026-10-23\nprofile: video\nproductionStatus: editing\nseasonNumber: 2\nepisodeNumber: 4\nproductionCredits: Writing and direction by Mira; animation by Lantern Team\nvideoUrl: https://youtu.be/dQw4w9WgXcQ\nduration: 12 min 34 sec\nthumbnail: /images/episode.jpg\naiDisclosure: AI-assisted animation\n---\n## Transcript\nOpening narration.";
         let files = build_posts(
             r#"{"title":"Studio","url":"https://studio.example","postPath":"/{slug}/"}"#,
             &[("posts/episode.md", post)],
         );
         let page = file(&files, "episode/index.html");
         assert!(page.contains("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"));
+        assert!(page.contains("Video production summary"));
+        assert!(page.contains("Season 2, episode 4"));
+        assert!(page.contains("<dt>Status</dt><dd>editing</dd>"));
+        assert!(page.contains("Writing and direction by Mira; animation by Lantern Team"));
 
         let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
         let end = start + page[start..].find("</script>").unwrap();
@@ -2860,11 +2925,38 @@ mod tests {
         assert!(one.contains("<ob-views path=\"/one/\" endpoint=\"https://t.dev/api\">"));
         assert!(one.contains("<ob-comments path=\"/one/\" endpoint=\"https://t.dev/api\">"));
 
+        let policies = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"comments":true,"endpoint":"https://t.dev/api"}}"#,
+            &[
+                (
+                    "posts/locked.md",
+                    "---\ntitle: Locked\ndate: 2026-01-01\ncomments: locked\n---\nText",
+                ),
+                (
+                    "posts/hidden.md",
+                    "---\ntitle: Hidden\ndate: 2026-01-01\ncomments: hidden\n---\nText",
+                ),
+            ],
+        );
+        assert!(file(&policies, "locked/index.html").contains("mode=\"locked\""));
+        assert!(!file(&policies, "hidden/index.html").contains("<ob-comments"));
+        assert_eq!(
+            file(&policies, "openblog-comments.json"),
+            r#"{"/hidden/":"hidden","/locked/":"locked"}"#
+        );
+
         let disabled = build(
             r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":false,"endpoint":"https://t.dev/api"}}"#,
             true,
         );
         assert!(!file(&disabled, "one/index.html").contains("<ob-comments"));
+        let disabled_policies: serde_json::Value =
+            serde_json::from_str(file(&disabled, "openblog-comments.json")).unwrap();
+        assert!(disabled_policies
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|policy| policy == "hidden"));
     }
 
     #[test]

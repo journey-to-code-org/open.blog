@@ -165,7 +165,13 @@ test("site tools expose a contributor registry workspace with manual identity pr
 test("Analytics configures hosted Supabase engagement without exposing service credentials", () => {
   assert.match(admin, /engagement\/settings/);
   assert.match(admin, /engagement\/analytics/);
-  assert.match(admin, /engagement\/comments\?status=pending/);
+  assert.match(admin, /engagement\/comments\?status=\$\{selectedStatus\}/);
+  assert.match(admin, /COMMENT_MODERATION_STATUSES = \["pending", "approved", "rejected"\]/);
+  assert.match(admin, /Comment moderation/);
+  assert.match(admin, /Open — show comments and submission form/);
+  assert.match(admin, /Locked — show approved comments only/);
+  assert.match(admin, /Hidden — do not show comments/);
+  assert.match(admin, /field\.kind === "production-status"/);
   assert.match(admin, /Moderation API token \(write-only\)/);
   assert.match(admin, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.doesNotMatch(admin, /SUPABASE_SERVICE_ROLE_KEY[^\n]*(?:value|credentialAction)/);

@@ -13,26 +13,30 @@
   box-sizing: border-box;
 }
 
-.ob-field-journal {
+.ob-field-journal,
+.ob-video-production {
   margin-block: var(--ob-space-6, 2rem);
   padding: var(--ob-space-5, 1.5rem);
   border: 1px solid var(--ob-color-border, currentColor);
   border-radius: var(--ob-radius, 0.5rem);
 }
 
-.ob-field-journal dl {
+.ob-field-journal dl,
+.ob-video-production dl {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
   gap: 1rem;
 }
 
 .ob-field-journal dt,
+.ob-video-production dt,
 .ob-field-journal figcaption {
   font-size: 0.85em;
   color: var(--ob-color-muted, inherit);
 }
 
-.ob-field-journal dd {
+.ob-field-journal dd,
+.ob-video-production dd {
   margin: 0.2rem 0 0;
   font-weight: 650;
 }
@@ -1013,6 +1017,18 @@ ob-rust-playground[data-enhanced="true"] > pre.ob-rust-source {
 @media (prefers-reduced-motion: reduce) {
   .ob-rust-cursor { animation: none; }
 }
+
+ob-web-sandbox { display: block; margin: 1.5em 0; }
+.ob-code-block ob-web-sandbox { margin: 0; }
+.ob-web-sandbox-shell { overflow: hidden; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-md); background: var(--ob-color-surface); }
+.ob-web-sandbox-tabs, .ob-web-sandbox-controls { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.6rem; border-bottom: var(--ob-border-width) solid var(--ob-color-border); }
+.ob-web-sandbox-tab, .ob-web-sandbox-controls button { padding: 0.4rem 0.75rem; border: var(--ob-border-width) solid var(--ob-color-border); border-radius: var(--ob-radius-sm); background: var(--ob-color-surface-raised); color: var(--ob-color-text); font: inherit; cursor: pointer; }
+.ob-web-sandbox-tab[aria-pressed="true"], .ob-web-sandbox-controls button:first-child { border-color: var(--ob-color-accent); background: var(--ob-color-accent); color: var(--ob-color-accent-text, #fff); }
+.ob-web-sandbox-editor { box-sizing: border-box; width: 100%; min-height: 15rem; margin: 0; padding: 1rem; resize: vertical; border: 0; background: var(--ob-color-code-bg); color: var(--ob-color-code-text); font: 0.875rem/1.55 var(--ob-font-mono); tab-size: 2; }
+.ob-web-sandbox-warning, .ob-web-sandbox-status { margin: 0; padding: 0.55rem 0.75rem; color: var(--ob-color-muted); font-size: 0.8rem; }
+.ob-web-sandbox-warning { padding-bottom: 0; }
+.ob-web-sandbox-preview { display: block; box-sizing: border-box; width: 100%; min-height: 18rem; border: 0; border-top: var(--ob-border-width) solid var(--ob-color-border); background: #fff; }
+
 
 /* ---------- Callouts: > [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION] ---------- */
 

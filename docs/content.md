@@ -43,6 +43,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `cover` | Image shown at the top and used as the social card. Defaults to the first image in the body. |
 | `coverAlt` | Alternative text for the cover. |
 | `draft` | `true` keeps the post out of every build and feed. |
+| `comments` | `open` (default), `locked` (read-only), or `hidden` when hosted comments are enabled. |
 | `theme` | A theme name, to render this post differently from the rest. |
 | `canonical` | If the post was first published elsewhere, that address. Search engines then credit the original. |
 | `sourceUrl` | Shown as "Originally published at" under the post. The Hashnode importer fills this in. |
@@ -57,6 +58,9 @@ a `#` heading, which is then used. Everything else is optional:
 | `duration` | Video profile only. A duration such as `12 min 34 sec`, `12:34`, or `PT12M34S`. |
 | `thumbnail` | Video profile only. A site-relative or absolute video thumbnail URL. A `cover` is used as the fallback. |
 | `aiDisclosure` | Video profile only. Creator-authored disclosure of meaningful AI assistance. |
+| `productionStatus` | Video profile only. `idea`, `scripting`, `storyboarding`, `generating`, `editing`, `scheduled`, or `released`. |
+| `seasonNumber`, `episodeNumber` | Video profile only. Optional production sequence numbers. |
+| `productionCredits` | Video profile only. Concise writing, direction, animation, or editing credits. |
 | `activity`, `location` | Field-journal profile only. The activity and a deliberately publishable area name. |
 | `locationPrivacy` | Field-journal profile only. `hidden`, `trimmed`, `approximate`, or `exact`; defaults to `hidden`. |
 | `distanceKm`, `elevationGainM` | Field-journal profile only. Route measurements, entered manually or derived from GPX. |
@@ -260,6 +264,28 @@ Colours can be turned off for a post (`highlight: false`) or the whole blog, but
 one block; mark a block `text` to leave it plain. Copying a block, with the button or by
 selecting it, never includes the line numbers.
 For the whole blog, see `code` in [Configuration](configuration.md#code-blocks).
+
+#### HTML, CSS, and JavaScript sandboxes
+
+Use a `web runnable` fence with explicit section markers. Readers get three editable tabs, Run and
+Reset controls, and a live preview:
+
+````markdown
+```web runnable title="Try the card"
+---html
+<button id="reveal">Reveal</button>
+---css
+button { color: rebeccapurple; }
+---js
+document.querySelector("#reveal").onclick = () => { document.body.textContent = "Revealed"; };
+```
+````
+
+The preview runs locally in an opaque-origin iframe. Its content-security policy blocks external
+resources, network APIs, forms, frames, plugins, fonts, and navigation bases, while the iframe
+sandbox prevents access to the host page. Browser sandboxes still let authored code navigate its own
+preview, so never enter secrets there. No source is uploaded or persisted by open.blog. These are
+dependency-free single-document lessons, not package-manager or multi-file projects.
 
 #### Runnable Rust examples
 

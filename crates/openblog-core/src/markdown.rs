@@ -153,6 +153,20 @@ fn parse_fence_info(info: &str) -> FenceInfo {
     out
 }
 
+fn valid_web_sandbox_source(source: &str) -> bool {
+    source.len() <= 100_000
+        && source
+            .lines()
+            .any(|line| matches!(line.trim(), "---html" | "---css" | "---js"))
+        && source
+            .lines()
+            .skip_while(|line| !matches!(line.trim(), "---html" | "---css" | "---js"))
+            .skip(1)
+            .any(|line| {
+                !line.trim().is_empty() && !matches!(line.trim(), "---html" | "---css" | "---js")
+            })
+}
+
 fn callout_label(kind: BlockQuoteKind) -> (&'static str, &'static str) {
     match kind {
         BlockQuoteKind::Note => ("note", "Note"),
@@ -379,6 +393,7 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
     let mut data = BlockData::default();
     let mut titled_code = false;
     let mut runnable_code = false;
+    let mut web_sandbox = false;
     // Open containers (quotes, callouts, list items, tables, footnotes).
     let mut depth = 0usize;
     // An open recipe section: what it holds and the heading level that opened it.
@@ -440,6 +455,13 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
             }
             continue;
         }
+        if web_sandbox && matches!(event, Event::Text(source) if !valid_web_sandbox_source(source))
+        {
+            data.errors.push(
+                "a `web runnable` fence needs a non-empty `---html`, `---css`, or `---js` section and must stay under 100,000 bytes"
+                    .into(),
+            );
+        }
         // What this event becomes in the output.
         let rendered = match event {
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
@@ -453,12 +475,16 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
                 }
                 titled_code = fence.title.is_some();
                 runnable_code = fence.runnable && fence.lang.eq_ignore_ascii_case("rust");
+                web_sandbox = fence.runnable && fence.lang.eq_ignore_ascii_case("web");
                 if runnable_code {
                     html.push_str("<ob-rust-playground");
                     if fence.playground_link == Some(false) {
                         html.push_str(" data-playground-link=\"false\"");
                     }
                     html.push('>');
+                }
+                if web_sandbox {
+                    html.push_str("<ob-web-sandbox>");
                 }
                 html.push_str("<pre><code");
                 if !fence.lang.is_empty() {
@@ -469,6 +495,8 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
                 }
                 if runnable_code {
                     html.push_str(" data-runnable=\"rust\"");
+                } else if web_sandbox {
+                    html.push_str(" data-runnable=\"web\"");
                 }
                 if let Some(on) = fence.line_numbers {
                     html.push_str(&format!(" data-line-numbers=\"{on}\""));
@@ -482,10 +510,13 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
                 html.push('>');
                 Event::Html(CowStr::from(html))
             }
-            Event::End(TagEnd::CodeBlock) if titled_code || runnable_code => {
+            Event::End(TagEnd::CodeBlock) if titled_code || runnable_code || web_sandbox => {
                 let mut html = String::from("</code></pre>");
                 if runnable_code {
                     html.push_str("</ob-rust-playground>");
+                }
+                if web_sandbox {
+                    html.push_str("</ob-web-sandbox>");
                 }
                 if titled_code {
                     html.push_str("</figure>");
@@ -493,6 +524,7 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
                 html.push('\n');
                 titled_code = false;
                 runnable_code = false;
+                web_sandbox = false;
                 Event::Html(CowStr::from(html))
             }
             Event::Start(Tag::BlockQuote(Some(kind))) => {
@@ -924,6 +956,34 @@ mod tests {
         assert_eq!(r.code_languages, vec!["rust", "js"]);
         assert_eq!(r.text, "Intro");
         assert!(r.html.contains("<pre><code class=\"language-rust\">"));
+    }
+
+    #[test]
+    fn web_runnable_fences_render_as_progressively_enhanced_sandboxes() {
+        let source = "```web runnable title=\"Try it\"\n---html\n<button>Hi</button>\n---css\nbutton { color: red; }\n---js\nconsole.log('hi');\n```\n";
+        let rendered = render(source, RenderOptions::default());
+        assert!(rendered.html.contains("<ob-web-sandbox>"));
+        assert!(rendered.html.contains("data-runnable=\"web\""));
+        assert!(rendered.html.contains("&lt;button&gt;Hi&lt;/button&gt;"));
+        assert!(rendered.html.contains("</ob-web-sandbox></figure>"));
+    }
+
+    #[test]
+    fn invalid_web_runnable_fences_report_validation_errors() {
+        for source in [
+            "```web runnable\n<button>Missing marker</button>\n```\n",
+            "```web runnable\n---html\n\n```\n",
+        ] {
+            let rendered = render(source, RenderOptions::default());
+            assert!(
+                rendered
+                    .errors
+                    .iter()
+                    .any(|error| error.contains("needs a non-empty")),
+                "{:?}",
+                rendered.errors
+            );
+        }
     }
 
     #[test]

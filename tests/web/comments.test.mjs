@@ -58,6 +58,14 @@ test("comments render untrusted values as text and submit for moderation", async
     await form.listeners.submit({ preventDefault() {} });
     assert.deepEqual(JSON.parse(calls[1].options.body), { path: "/story/", authorName: "Mira", body: "Useful post." });
     assert.ok(comments.querySelectorAll("p").some((node) => node.textContent === "Comment submitted for moderation."));
+
+    const locked = new ObComments("ob-comments");
+    locked.setAttribute("path", "/story/");
+    locked.setAttribute("endpoint", "https://blog.example/api");
+    locked.setAttribute("mode", "locked");
+    await locked.connectedCallback();
+    assert.equal(locked.querySelectorAll("form").length, 0);
+    assert.ok(locked.querySelectorAll("p").some((node) => node.textContent === "This discussion is read-only."));
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete globalThis[key];

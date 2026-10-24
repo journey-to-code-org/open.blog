@@ -13,6 +13,10 @@ Select **Video production** under **Settings → Content profile**, or write the
 title: Zhalendor — Episode 1
 date: 2026-10-23
 profile: video
+productionStatus: editing
+seasonNumber: 1
+episodeNumber: 1
+productionCredits: Writing and direction by the Lantern Gate team; animation and edit by the episode crew
 videoUrl: https://www.youtube.com/watch?v=dQw4w9WgXcQ
 duration: 12 min 34 sec
 thumbnail: /images/zhalendor-episode-1.jpg
@@ -20,6 +24,14 @@ aiDisclosure: AI-assisted animation with human writing, direction, and editing.
 series: zhalendor
 ---
 ```
+
+`productionStatus` follows the workflow shown in Admin's Release kit: `idea`, `scripting`,
+`storyboarding`, `generating`, `editing`, `scheduled`, and `released`. Season and episode numbers
+and concise production credits appear in a visible production summary. They remain ordinary,
+portable front matter rather than service-specific project records.
+
+The example site includes a [complete fictional Zhalendor episode](../content/posts/2026-10-24-zhalendor-gate-of-embers.md)
+with chapters, a production checklist, shot notes, transcript, credits, and disclosure.
 
 `videoUrl` accepts `youtube.com/watch`, `youtu.be`, and `youtube.com/shorts` addresses. The
 published page rebuilds the address into a `youtube-nocookie.com` player rather than copying

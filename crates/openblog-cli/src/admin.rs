@@ -5980,8 +5980,10 @@ mod tests {
         assert_eq!(profiles[2]["fields"][0]["key"], "doi");
         assert_eq!(profiles[2]["fields"][1]["key"], "license");
         assert_eq!(profiles[3]["id"], "video");
-        assert_eq!(profiles[3]["fields"][0]["key"], "videoUrl");
-        assert_eq!(profiles[3]["fields"][1]["kind"], "duration");
+        assert_eq!(profiles[3]["fields"][0]["key"], "productionStatus");
+        assert_eq!(profiles[3]["fields"][0]["kind"], "production-status");
+        assert_eq!(profiles[3]["fields"][4]["key"], "videoUrl");
+        assert_eq!(profiles[3]["fields"][5]["kind"], "duration");
     }
 
     #[test]

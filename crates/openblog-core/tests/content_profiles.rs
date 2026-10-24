@@ -86,7 +86,16 @@ fn catalog_describes_profiles_and_their_authoring_fields() {
             .iter()
             .map(|field| field.key)
             .collect::<Vec<_>>(),
-        vec!["videoUrl", "duration", "thumbnail", "aiDisclosure"]
+        vec![
+            "productionStatus",
+            "seasonNumber",
+            "episodeNumber",
+            "productionCredits",
+            "videoUrl",
+            "duration",
+            "thumbnail",
+            "aiDisclosure"
+        ]
     );
     assert_eq!(profiles[4].label, "Field journal");
     assert_eq!(

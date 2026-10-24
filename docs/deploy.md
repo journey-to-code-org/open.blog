@@ -82,8 +82,11 @@ Supabase service-role key remains in Netlify and is never an Admin or public-sit
 After deployment, open **Admin → Analytics**, enable hosted engagement, enter the public `/api`
 endpoint, and save the matching write-only moderation token. New comments remain pending until an
 Admin user approves them. Tokens saved by Admin are bound to the endpoint origin, redirects are not
-followed, and Supabase-backed quotas limit public writes. The existing local counter stays the
-default when hosted engagement is off.
+followed, and Supabase-backed quotas limit public writes. The function also reads the generated
+comment-policy manifest from `OPENBLOG_SITE_ORIGIN` before comment access, so locked and hidden
+policies are enforced on the server as well as in the page UI. Set `OPENBLOG_SITE_BASE_PATH` when
+the published site lives below `/`. The existing local counter stays the default when hosted
+engagement is off.
 
 For a blog made with `openblog init` (no engine source in the repository), use this
 build command instead, with `dist` as the publish directory:

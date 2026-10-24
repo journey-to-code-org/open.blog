@@ -14,6 +14,7 @@ import {
   applyProfileFieldDrafts,
   analyzeGpx,
   buildVideoReleaseKit,
+  commentModerationActions,
   creditHasAuthor,
   creditPayload,
   contributorDraftPayload,
@@ -34,6 +35,12 @@ import {
   validateCreditDraft,
   validateContributorDraft,
 } from "../../web/admin/admin.js";
+
+test("comment moderation decisions can move pending and reverse settled states", () => {
+  assert.deepEqual(commentModerationActions("pending"), ["approved", "rejected"]);
+  assert.deepEqual(commentModerationActions("approved"), ["rejected"]);
+  assert.deepEqual(commentModerationActions("rejected"), ["approved"]);
+});
 
 test("assistant context disclosure names selected documents, visibility, and character counts", () => {
   assert.deepEqual(
@@ -175,6 +182,7 @@ test("video release kits compose copy and enforce YouTube chapter rules", () => 
     body: "## Chapters\n\n00:00 The gate opens\n00:14 A warning\n01:02 Into the ruin\n\n```text\n00:01 ignored code\n```",
     duration: "1 min 20 sec",
     aiDisclosure: "AI-assisted animation with human direction and editing.",
+    productionStatus: "editing",
   });
 
   assert.equal(kit.active, true);
@@ -187,6 +195,8 @@ test("video release kits compose copy and enforce YouTube chapter rules", () => 
     ],
   );
   assert.deepEqual(kit.issues, []);
+  assert.equal(kit.workflow.find((stage) => stage.stage === "editing").current, true);
+  assert.equal(kit.workflow.find((stage) => stage.stage === "scheduled").complete, false);
   assert.equal(
     kit.description,
     "Seven adventurers enter a forbidden ruin.\n\nChapters\n00:00 The gate opens\n00:14 A warning\n01:02 Into the ruin\n\nAI assistance: AI-assisted animation with human direction and editing.",

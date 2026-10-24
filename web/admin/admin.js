@@ -131,6 +131,12 @@ export function normalizeStatusFilter(value) {
   return ["published", "scheduled", "draft", "error"].includes(value) ? value : "all";
 }
 
+export const COMMENT_MODERATION_STATUSES = ["pending", "approved", "rejected"];
+
+export function commentModerationActions(status) {
+  return ["approved", "rejected"].filter((decision) => decision !== status);
+}
+
 export function saveStateForVersions(saveVersion, editVersion) {
   return saveVersion === editVersion
     ? { dirty: false, label: "Saved", messageIsCurrent: true }
@@ -644,8 +650,8 @@ function videoDurationSeconds(value) {
 }
 
 /** Build creator-owned release copy while enforcing YouTube's authored chapter rules. */
-export function buildVideoReleaseKit({ profile, description = "", body = "", duration = "", aiDisclosure = "" }) {
-  if (String(profile).toLowerCase() !== "video") return { active: false, chapters: [], issues: [], description: "" };
+export function buildVideoReleaseKit({ profile, description = "", body = "", duration = "", aiDisclosure = "", productionStatus = "" }) {
+  if (String(profile).toLowerCase() !== "video") return { active: false, chapters: [], issues: [], description: "", workflow: [] };
   const chapters = markdownOutsideCode(String(body)).split("\n").flatMap((line) => {
     const match = line.trim().match(/^(?:[-*+]\s+)?((?:\d{1,2}:)?\d{1,3}:\d{2})\s+(.+)$/u);
     if (!match) return [];
@@ -675,7 +681,11 @@ export function buildVideoReleaseKit({ profile, description = "", body = "", dur
   if (chapters.length) sections.push(`Chapters\n${chapters.map((chapter) => `${chapter.timestamp} ${chapter.label}`).join("\n")}`);
   const disclosure = String(aiDisclosure).trim();
   if (disclosure) sections.push(`AI assistance: ${disclosure}`);
-  return { active: true, chapters, issues, description: sections.join("\n\n") };
+  const status = String(productionStatus || "idea").trim().toLowerCase();
+  const stages = ["idea", "scripting", "storyboarding", "generating", "editing", "scheduled", "released"];
+  const stageIndex = stages.indexOf(status);
+  const workflow = stages.map((stage, index) => ({ stage, complete: stageIndex >= 0 && index <= stageIndex, current: index === stageIndex }));
+  return { active: true, chapters, issues, description: sections.join("\n\n"), productionStatus: status, workflow };
 }
 
 function trackDistanceMeters(a, b) {
@@ -2074,35 +2084,47 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-toolbar" }, save, clear),
       );
       if (engagement.enabled && engagement.comments && engagement.credential?.configured) {
-        const moderationStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Loading pending comments…");
+        const moderationStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Loading comments…");
         const cards = h("div", { class: "oba-assistant-context-cards" });
-        moderation = h("section", { "aria-labelledby": "oba-comment-moderation-title" }, h("h2", { id: "oba-comment-moderation-title" }, "Pending comments"), moderationStatus, cards);
-        try {
-          const result = await this.api.call("GET", "engagement/comments?status=pending");
-          const pending = Array.isArray(result.comments) ? result.comments : [];
-          moderationStatus.textContent = pending.length ? `${pending.length} comment${pending.length === 1 ? "" : "s"} awaiting review.` : "No comments awaiting review.";
+        const filters = h("div", { class: "oba-tabs", "aria-label": "Comment moderation status" });
+        moderation = h("section", { "aria-labelledby": "oba-comment-moderation-title" }, h("h2", { id: "oba-comment-moderation-title" }, "Comment moderation"), filters, moderationStatus, cards);
+        const loadComments = async (selectedStatus) => {
+          moderationStatus.textContent = `Loading ${selectedStatus} comments…`;
+          cards.replaceChildren();
+          filters.querySelectorAll("button").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.status === selectedStatus)));
+          const result = await this.api.call("GET", `engagement/comments?status=${selectedStatus}`);
+          const commentsForStatus = Array.isArray(result.comments) ? result.comments : [];
+          moderationStatus.textContent = commentsForStatus.length ? `${commentsForStatus.length} ${selectedStatus} comment${commentsForStatus.length === 1 ? "" : "s"}.` : `No ${selectedStatus} comments.`;
           const decide = async (comment, decision, card) => {
             card.querySelectorAll("button").forEach((button) => { button.disabled = true; });
             try {
               await this.api.call("PATCH", "engagement/comments", { json: { id: comment.id, status: decision } });
-              card.remove();
-              moderationStatus.textContent = `Comment ${decision}.`;
+              await loadComments(selectedStatus);
             } catch (error) {
               moderationStatus.textContent = error.message;
             }
           };
-          cards.append(...pending.map((comment) => {
+          cards.append(...commentsForStatus.map((comment) => {
             const card = h("article", { class: "oba-context-card" },
               h("h3", {}, comment.authorName),
               h("p", { class: "oba-small" }, `${comment.path} · ${formatWhen(comment.createdAt)}`),
               h("p", {}, comment.body),
             );
-            card.append(h("div", { class: "oba-toolbar" },
-              h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => decide(comment, "approved", card) }, "Approve"),
-              h("button", { class: "oba-btn oba-btn-danger", type: "button", onClick: () => decide(comment, "rejected", card) }, "Reject"),
-            ));
+            card.append(h("div", { class: "oba-toolbar" }, ...commentModerationActions(selectedStatus).map((decision) =>
+              h("button", {
+                class: decision === "approved" ? "oba-btn oba-btn-primary" : "oba-btn oba-btn-danger",
+                type: "button",
+                onClick: () => decide(comment, decision, card),
+              }, decision === "approved" ? "Approve" : "Reject"),
+            )));
             return card;
           }));
+        };
+        for (const commentStatus of COMMENT_MODERATION_STATUSES) {
+          filters.append(h("button", { class: "oba-tab", type: "button", "data-status": commentStatus, "aria-selected": String(commentStatus === "pending"), onClick: () => loadComments(commentStatus) }, `${commentStatus[0].toUpperCase()}${commentStatus.slice(1)}`));
+        }
+        try {
+          await loadComments("pending");
         } catch (error) {
           moderationStatus.className = "oba-error";
           moderationStatus.textContent = `Comments could not be loaded. ${error.message}`;
@@ -2518,13 +2540,19 @@ export class Editor {
         ui.profileFieldControls = new Map();
         ui.profileFields.replaceChildren(
           ...(selected?.fields || []).map((field) => {
-            const control = h("input", {
-              id: `oba-profile-${field.key}`,
-              type: field.kind === "number" ? "number" : "text",
-              value: this.profileFieldDrafts.has(field.key) ? this.profileFieldDrafts.get(field.key) : "",
-              inputmode: field.kind === "number" ? "numeric" : null,
-              step: field.kind === "number" ? "any" : null,
-            });
+            const value = this.profileFieldDrafts.has(field.key) ? this.profileFieldDrafts.get(field.key) : "";
+            const control = field.kind === "production-status"
+              ? h("select", { id: `oba-profile-${field.key}` },
+                  ...["idea", "scripting", "storyboarding", "generating", "editing", "scheduled", "released"]
+                    .map((stage) => h("option", { value: stage, selected: stage === String(value || "idea").toLowerCase() }, `${stage[0].toUpperCase()}${stage.slice(1)}`)),
+                )
+              : h("input", {
+                  id: `oba-profile-${field.key}`,
+                  type: field.kind === "number" ? "number" : "text",
+                  value,
+                  inputmode: field.kind === "number" ? "numeric" : null,
+                  step: field.kind === "number" ? "any" : null,
+                });
             control.addEventListener("input", () => {
               this.profileFieldDrafts.set(field.key, control.value);
               this.updateSeoAudit();
@@ -2555,6 +2583,12 @@ export class Editor {
       side.push(h("div", { class: "oba-field" }, h("label", { for: "oba-profile" }, "Content profile"), ui.profile, ui.profileHelp), ui.profileFields);
       ui.description = h("textarea", { id: "oba-desc", rows: 3, value: f.description || "" });
       side.push(this.field("oba-desc", "Description", ui.description, "Shown in search results and feeds. Leave empty to use an excerpt."));
+      ui.commentPolicy = h("select", { id: "oba-comments" },
+        h("option", { value: "open", selected: !f.comments || f.comments === "open" || f.comments === "true" }, "Open — show comments and submission form"),
+        h("option", { value: "locked", selected: f.comments === "locked" }, "Locked — show approved comments only"),
+        h("option", { value: "hidden", selected: f.comments === "hidden" || f.comments === "false" }, "Hidden — do not show comments"),
+      );
+      side.push(this.field("oba-comments", "Comments", ui.commentPolicy, "Applied when hosted comments are enabled for the site."));
       ui.tags = h("input", { id: "oba-tags", type: "text", list: "oba-taglist", value: (Array.isArray(f.tags) ? f.tags : f.tags ? [f.tags] : []).join(", ") });
       side.push(
         this.field("oba-tags", "Tags", ui.tags, "Comma separated."),
@@ -2839,6 +2873,7 @@ export class Editor {
     );
     ui.releaseStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     ui.releaseIssues = h("ul", { class: "oba-release-issues" });
+    ui.releaseWorkflow = h("ol", { class: "oba-release-workflow", "aria-label": "Production workflow" });
     ui.releaseOutput = h("textarea", { class: "oba-release-output", rows: 14, readonly: true, "aria-label": "YouTube release description" });
     ui.releaseCopy = h(
       "button",
@@ -2941,6 +2976,7 @@ export class Editor {
               "div",
               { class: "oba-release-workspace" },
               h("p", {}, "Write timestamp lines in the Markdown draft. OpenBlog validates them and composes a YouTube-ready description from the current summary, chapters, and AI-assistance disclosure."),
+              ui.releaseWorkflow,
               ui.releaseIssues,
               ui.releaseOutput,
               h("div", { class: "oba-toolbar" }, ui.releaseCopy),
@@ -3718,10 +3754,12 @@ export class Editor {
       body: this.ui.body.value,
       duration: fields.duration || "",
       aiDisclosure: fields.aiDisclosure || "",
+      productionStatus: fields.productionStatus || "",
     });
     this.ui.releaseOutput.value = kit.description;
     this.ui.releaseCopy.disabled = !kit.active || !kit.description;
     this.ui.releaseIssues.replaceChildren(...kit.issues.map((issue) => h("li", {}, issue)));
+    this.ui.releaseWorkflow.replaceChildren(...kit.workflow.map((stage) => h("li", { "aria-current": stage.current ? "step" : null }, `${stage.complete ? "✓ " : "○ "}${stage.stage}`)));
     if (!kit.active) this.ui.releaseStatus.textContent = "Choose the Video production content profile to build a release kit.";
     else if (kit.issues.length) this.ui.releaseStatus.textContent = `${kit.issues.length} chapter issue${kit.issues.length === 1 ? "" : "s"} to resolve.`;
     else this.ui.releaseStatus.textContent = `${kit.chapters.length} valid chapters · ready to copy.`;
@@ -4994,6 +5032,7 @@ export class Editor {
     if (this.kind === "posts") {
       if (this.profileTouched) set("profile", ui.profile.value);
       set("description", ui.description.value.trim());
+      set("comments", ui.commentPolicy.value === "open" ? "" : ui.commentPolicy.value);
       set("tags", ui.tags.value.split(",").map((t) => t.trim()).filter(Boolean));
       set("series", ui.series.value);
       set("seriesOrder", ui.order.value);

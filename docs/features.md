@@ -19,8 +19,8 @@ Field journals add local GPX analysis and location-privacy controls; see
 The authenticated Admin can connect Anthropic, OpenAI, Gemini, xAI, DeepSeek, Mistral,
 OpenRouter, or a compatible custom HTTPS provider without exposing its credential to the browser.
 Authors can review an unsaved post with inspectable Markdown skills and selected context, apply exact
-suggested replacements with safe undo, draft native knowledge checks, propose runnable Rust examples
-and small coding challenges, and opt into session-only autocomplete in either Visual or Markdown
+suggested replacements with safe undo, draft native knowledge checks, propose runnable examples
+and small coding challenges, recognize native HTML/CSS/JavaScript sandboxes, and opt into session-only autocomplete in either Visual or Markdown
 mode. Every output remains editable and proposed; nothing is saved or published without the normal
 author action.
 
@@ -44,6 +44,11 @@ with optional line numbers and highlighted lines, Reset, Copy, Run, compiler out
 an optional fallback link to the official Rust Playground.
 The original block remains visible without JavaScript. Source is sent directly to the
 Playground without cookies or referrer information and is never stored by open.blog.
+
+`web runnable` fences provide dependency-free HTML, CSS, and JavaScript tabs with a local live
+preview. The iframe has an opaque origin and a restrictive CSP that blocks external resources and
+network APIs. Authored code can navigate its own preview, so the editor explicitly warns readers not
+to enter secrets.
 
 A fence without a language, which is common in posts imported from other platforms, is
 guessed from its content: HTML, CSS, JavaScript, TypeScript, shell commands, Rust,
@@ -162,6 +167,11 @@ For first-party, text-only moderated comments on Netlify, enable hosted engageme
 pending by default and only approved comments are public. Comment content is rendered as text rather
 than HTML. Supabase credentials remain in the function environment; Admin stores only a write-only
 moderation token.
+
+Set `comments: locked` on a post to keep approved discussion visible without accepting submissions,
+or `comments: hidden` to omit the discussion entirely. Admin moderation includes pending, approved,
+and rejected queues so decisions can be reversed. The Netlify function checks the generated,
+deployed comment-policy manifest before comment access, so direct requests cannot bypass locked or hidden policies.
 
 The raw HTML slots below remain available for third-party systems such as giscus or utterances.
 

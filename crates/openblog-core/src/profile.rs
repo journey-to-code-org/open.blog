@@ -14,6 +14,7 @@ pub enum ProfileFieldKind {
     Text,
     Number,
     Duration,
+    ProductionStatus,
 }
 
 impl ProfileFieldKind {
@@ -22,6 +23,7 @@ impl ProfileFieldKind {
             Self::Text => "text",
             Self::Number => "number",
             Self::Duration => "duration",
+            Self::ProductionStatus => "production-status",
         }
     }
 }
@@ -109,6 +111,30 @@ const RESEARCH_FIELDS: &[ProfileField] = &[
 ];
 
 const VIDEO_FIELDS: &[ProfileField] = &[
+    ProfileField {
+        key: "productionStatus",
+        label: "Production status",
+        kind: ProfileFieldKind::ProductionStatus,
+        help: "Idea, scripting, storyboarding, generating, editing, scheduled, or released.",
+    },
+    ProfileField {
+        key: "seasonNumber",
+        label: "Season number",
+        kind: ProfileFieldKind::Number,
+        help: "Optional season number used in the production summary.",
+    },
+    ProfileField {
+        key: "episodeNumber",
+        label: "Episode number",
+        kind: ProfileFieldKind::Number,
+        help: "Optional episode number used in the production summary.",
+    },
+    ProfileField {
+        key: "productionCredits",
+        label: "Production credits",
+        kind: ProfileFieldKind::Text,
+        help: "Concise creator, direction, animation, or editing credits.",
+    },
     ProfileField {
         key: "videoUrl",
         label: "YouTube URL",

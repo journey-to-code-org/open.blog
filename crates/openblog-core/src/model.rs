@@ -126,6 +126,25 @@ pub struct TagRef {
     pub slug: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CommentsPolicy {
+    #[default]
+    Open,
+    Locked,
+    Hidden,
+}
+
+impl CommentsPolicy {
+    fn parse(value: Option<&str>) -> Result<Self, String> {
+        match value.unwrap_or("open").trim().to_ascii_lowercase().as_str() {
+            "" | "open" | "true" => Ok(Self::Open),
+            "locked" => Ok(Self::Locked),
+            "hidden" | "false" => Ok(Self::Hidden),
+            _ => Err("comments must be `open`, `locked`, or `hidden`".into()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Post {
     pub title: String,
@@ -143,6 +162,7 @@ pub struct Post {
     pub cover_alt: String,
     pub description: String,
     pub draft: bool,
+    pub comments: CommentsPolicy,
     /// `<link rel="canonical">` override, for cross-posted articles.
     pub canonical: Option<String>,
     /// Where the article was first published (shown in the footer).
@@ -723,6 +743,7 @@ pub fn load_post(
     }
     let draft = fm.get_bool("draft").unwrap_or(false)
         || first(fm, &["status"]).is_some_and(|s| s.eq_ignore_ascii_case("draft"));
+    let comments = CommentsPolicy::parse(first(fm, &["comments"]))?;
     let date = match first(fm, &["date", "published", "publishedAt", "pubDate"]) {
         Some(raw) => DateTime::parse(raw)
             .ok_or_else(|| format!("unrecognised date `{raw}` (use YYYY-MM-DD or RFC 3339)"))?,
@@ -784,6 +805,12 @@ pub fn load_post(
                 "video profile needs a `thumbnail` or `cover` for discovery metadata".to_string(),
             );
         }
+        if !video.has_known_production_status() {
+            profile.warnings.push(format!(
+                "video profile `productionStatus` must be one of: {}",
+                crate::video::PRODUCTION_STATUSES.join(", ")
+            ));
+        }
     }
     let cover_alt = first(fm, &["coverAlt", "imageAlt", "cover_alt"])
         .unwrap_or("")
@@ -817,6 +844,7 @@ pub fn load_post(
         cover_alt,
         description,
         draft,
+        comments,
         canonical: optional_string(first(fm, &["canonical", "canonicalUrl", "canonical_url"])),
         source_url: optional_string(first(
             fm,
@@ -1110,6 +1138,35 @@ mod tests {
             errors[0].contains("exactly one correct choice"),
             "{errors:?}"
         );
+    }
+
+    #[test]
+    fn validates_comment_policy_and_video_production_status() {
+        let config = SiteConfig::default();
+        let invalid_comments = load_post(
+            &post(
+                "posts/comments.md",
+                "---\ntitle: Comments\ndate: 2026-01-01\ncomments: sometimes\n---\nText",
+            ),
+            &config,
+            RenderOptions::default(),
+        )
+        .unwrap_err();
+        assert!(invalid_comments.contains("comments must be"));
+
+        let video = load_post(
+            &post(
+                "posts/video.md",
+                "---\ntitle: Video\ndate: 2026-01-01\nprofile: video\nproductionStatus: waiting-on-magic\n---\nText",
+            ),
+            &config,
+            RenderOptions::default(),
+        )
+        .unwrap();
+        assert!(video
+            .profile_warnings
+            .iter()
+            .any(|warning| warning.contains("productionStatus")));
     }
 
     #[test]

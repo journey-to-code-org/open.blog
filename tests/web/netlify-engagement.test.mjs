@@ -19,6 +19,12 @@ const event = (path, method = "GET", body, extra = {}) => ({
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
+const openPost = async () => ({
+  ok: true,
+  status: 200,
+  json: async () => ({ "/story/": "open" }),
+});
+
 test("comments are pending, public reads are approved-only, and secrets never cross the seam", async () => {
   const requests = [];
   const fetchImpl = async (url, options = {}) => {
@@ -29,7 +35,7 @@ test("comments are pending, public reads are approved-only, and secrets never cr
     else value = [{ id: "approved", author_name: "Mira", body: "A useful thought.", created_at: "2026-10-24T12:00:00Z" }];
     return { ok: true, status: 200, json: async () => value };
   };
-  const handler = createHandler({ env: environment, fetchImpl });
+  const handler = createHandler({ env: environment, fetchImpl, siteFetchImpl: openPost });
   const created = await handler(event("comments", "POST", { path: "/story/", authorName: "Mira", body: "A useful thought." }));
   assert.equal(created.statusCode, 202);
   assert.equal(JSON.parse(created.body).status, "pending");
@@ -45,7 +51,15 @@ test("comments are pending, public reads are approved-only, and secrets never cr
 });
 
 test("mutations enforce origin and moderation enforces a bearer token", async () => {
-  const handler = createHandler({ env: environment, fetchImpl: async () => ({ ok: true, status: 200, json: async () => [] }) });
+  const requests = [];
+  const handler = createHandler({
+    env: environment,
+    fetchImpl: async (url, options = {}) => {
+      requests.push({ url, options });
+      return { ok: true, status: 200, json: async () => [] };
+    },
+    siteFetchImpl: openPost,
+  });
   const foreign = await handler({ ...event("comments", "POST", { path: "/story/", authorName: "Mira", body: "Hi" }), headers: { origin: "https://evil.example" } });
   assert.equal(foreign.statusCode, 403);
   const denied = await handler(event("admin/comments", "GET", undefined, { query: { status: "pending" } }));
@@ -54,12 +68,27 @@ test("mutations enforce origin and moderation enforces a bearer token", async ()
   assert.equal(allowed.statusCode, 200);
   const analytics = await handler({ ...event("admin/analytics", "GET"), headers: { authorization: "Bearer admin-secret" } });
   assert.equal(analytics.statusCode, 200);
+  for (const status of ["pending", "approved", "rejected"]) {
+    const listed = await handler({ ...event("admin/comments", "GET", undefined, { query: { status } }), headers: { authorization: "Bearer admin-secret" } });
+    assert.equal(listed.statusCode, 200);
+    assert.match(requests.at(-1).url, new RegExp(`status=eq\\.${status}`));
+  }
+  for (const status of ["approved", "rejected"]) {
+    const changed = await handler({
+      ...event("admin/comments", "PATCH", { id: "00000000-0000-0000-0000-000000000001", status }),
+      headers: { authorization: "Bearer admin-secret" },
+    });
+    assert.equal(changed.statusCode, 200);
+    assert.equal(JSON.parse(changed.body).status, status);
+    assert.match(requests.at(-1).options.body, new RegExp(`"status":"${status}"`));
+  }
 });
 
 test("analytics uses a date-scoped hash and never sends raw client identity to Supabase", async () => {
   let request;
   const handler = createHandler({
     env: environment,
+    siteFetchImpl: openPost,
     now: () => new Date("2026-10-24T14:00:00Z"),
     fetchImpl: async (url, options) => {
       if (url.includes("openblog_consume_rate_limit")) {
@@ -89,6 +118,7 @@ test("public writes stop before content storage when the server-side quota is ex
   const requests = [];
   const handler = createHandler({
     env: environment,
+    siteFetchImpl: openPost,
     fetchImpl: async (url) => {
       requests.push(url);
       return { ok: true, status: 200, json: async () => ({ allowed: false }) };
@@ -100,11 +130,53 @@ test("public writes stop before content storage when the server-side quota is ex
   assert.match(requests[0], /openblog_consume_rate_limit/);
 });
 
+test("deployed locked and hidden policies reject direct comment submissions", async () => {
+  const databaseFetch = async () => assert.fail("closed discussions must not reach Supabase");
+  for (const [policy, message] of [
+    ["locked", "read-only"],
+    ["hidden", "not available"],
+  ]) {
+    const handler = createHandler({
+      env: environment,
+      fetchImpl: databaseFetch,
+      siteFetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ "/story/": policy }) }),
+    });
+    const response = await handler(event("comments", "POST", { path: "/story/", authorName: "Mira", body: "Hi" }));
+    assert.equal(response.statusCode, 403);
+    assert.match(JSON.parse(response.body).error, new RegExp(message));
+  }
+  const hidden = createHandler({
+    env: environment,
+    fetchImpl: async () => assert.fail("hidden reads must not reach Supabase"),
+    siteFetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ "/story/": "hidden" }) }),
+  });
+  const listed = await hidden(event("comments", "GET", undefined, { query: { path: "/story/" } }));
+  assert.equal(listed.statusCode, 200);
+  assert.deepEqual(JSON.parse(listed.body), { comments: [] });
+});
+
+test("comment policy manifest supports a trusted site base path", async () => {
+  let requested = "";
+  const handler = createHandler({
+    env: { ...environment, OPENBLOG_SITE_BASE_PATH: "/journal/" },
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ allowed: false }) }),
+    siteFetchImpl: async (url) => {
+      requested = url;
+      return { ok: true, status: 200, json: async () => ({ "/story/": "open" }) };
+    },
+  });
+  await handler(event("comments", "POST", { path: "/story/", authorName: "Mira", body: "Hi" }));
+  assert.equal(requested, "https://blog.example/journal/openblog-comments.json");
+});
+
 test("missing environment and malformed public input fail closed", async () => {
   const missing = await createHandler({ env: {}, fetchImpl: async () => assert.fail("must not fetch") })(event("comments"));
   assert.equal(missing.statusCode, 503);
+  const badBase = await createHandler({ env: { ...environment, OPENBLOG_SITE_BASE_PATH: "//internal/" }, fetchImpl: async () => assert.fail("must not fetch") })(event("comments"));
+  assert.equal(badBase.statusCode, 503);
   const handler = createHandler({ env: environment, fetchImpl: async () => assert.fail("must not fetch") });
   assert.equal((await handler(event("comments", "POST", { path: "bad", authorName: "", body: "" }))).statusCode, 422);
+  assert.equal((await handler(event("comments", "GET", undefined, { query: { path: "//169.254.169.254/" } }))).statusCode, 400);
   assert.equal((await handler(event("views", "GET", undefined, { query: { path: "../secret" } }))).statusCode, 400);
 });
 

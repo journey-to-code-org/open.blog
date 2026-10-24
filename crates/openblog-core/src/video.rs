@@ -2,8 +2,22 @@
 
 use crate::{embed, frontmatter::FrontMatter};
 
+pub const PRODUCTION_STATUSES: &[&str] = &[
+    "idea",
+    "scripting",
+    "storyboarding",
+    "generating",
+    "editing",
+    "scheduled",
+    "released",
+];
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VideoMetadata {
+    pub production_status: Option<String>,
+    pub season_number: Option<u32>,
+    pub episode_number: Option<u32>,
+    pub production_credits: Option<String>,
     pub url: Option<String>,
     pub youtube_id: Option<String>,
     pub duration_seconds: Option<u32>,
@@ -21,6 +35,10 @@ impl VideoMetadata {
         };
         let url = value("videoUrl");
         Self {
+            production_status: value("productionStatus"),
+            season_number: value("seasonNumber").and_then(|value| value.parse().ok()),
+            episode_number: value("episodeNumber").and_then(|value| value.parse().ok()),
+            production_credits: value("productionCredits"),
             youtube_id: url.as_deref().and_then(embed::youtube_video_id),
             duration_seconds: value("duration")
                 .as_deref()
@@ -29,6 +47,21 @@ impl VideoMetadata {
             ai_disclosure: value("aiDisclosure"),
             url,
         }
+    }
+
+    pub fn production_label(&self) -> Option<String> {
+        match (self.season_number, self.episode_number) {
+            (Some(season), Some(episode)) => Some(format!("Season {season}, episode {episode}")),
+            (None, Some(episode)) => Some(format!("Episode {episode}")),
+            (Some(season), None) => Some(format!("Season {season}")),
+            _ => None,
+        }
+    }
+
+    pub fn has_known_production_status(&self) -> bool {
+        self.production_status.as_deref().is_none_or(|status| {
+            PRODUCTION_STATUSES.contains(&status.to_ascii_lowercase().as_str())
+        })
     }
 
     pub fn embed_url(&self) -> Option<String> {
@@ -122,5 +155,16 @@ mod tests {
             assert_eq!(parse_duration_seconds(source), Some(seconds), "{source}");
         }
         assert_eq!(parse_duration_seconds("unknown"), None);
+    }
+
+    #[test]
+    fn validates_production_workflow_statuses_case_insensitively() {
+        let mut video = VideoMetadata {
+            production_status: Some("Editing".into()),
+            ..VideoMetadata::default()
+        };
+        assert!(video.has_known_production_status());
+        video.production_status = Some("waiting-on-magic".into());
+        assert!(!video.has_known_production_status());
     }
 }

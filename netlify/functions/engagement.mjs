@@ -18,7 +18,7 @@ const safeEqual = (left, right) => {
 
 const cleanPath = (value) => {
   const path = String(value || "").trim();
-  if (path.length < 2 || path.length > 500 || !path.startsWith("/") || !path.endsWith("/") || /[\\?#\u0000-\u001F]/.test(path)) return "";
+  if (path.length < 2 || path.length > 500 || !path.startsWith("/") || path.startsWith("//") || !path.endsWith("/") || /[\\?#\u0000-\u001F]/.test(path)) return "";
   return path.split("/").some((segment) => segment === "." || segment === "..") ? "" : path;
 };
 
@@ -30,7 +30,7 @@ const publicComment = (row) => ({
   ...(row.status ? { status: row.status } : {}),
 });
 
-export function createHandler({ env = process.env, fetchImpl = fetch, now = () => new Date() } = {}) {
+export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchImpl = fetchImpl, now = () => new Date() } = {}) {
   const configured = () => {
     const values = {
       url: String(env.SUPABASE_URL || "").replace(/\/$/, ""),
@@ -39,8 +39,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       origin: String(env.OPENBLOG_SITE_ORIGIN || "").replace(/\/$/, ""),
       adminKey: String(env.OPENBLOG_ADMIN_API_KEY || ""),
       salt: String(env.OPENBLOG_ANALYTICS_SALT || ""),
+      basePath: String(env.OPENBLOG_SITE_BASE_PATH || "/").trim(),
     };
-    return Object.values(values).every(Boolean) ? values : null;
+    const required = [values.url, values.key, values.siteId, values.origin, values.adminKey, values.salt];
+    if (!required.every(Boolean) || !/^\/(?:[^\\?#\u0000-\u001F]*\/)?$/.test(values.basePath) || values.basePath.includes("//") || values.basePath.split("/").some((segment) => segment === "." || segment === "..")) return null;
+    return values;
   };
 
   const database = async (settings, path, options = {}) => {
@@ -56,6 +59,19 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
     const value = await response.json().catch(() => null);
     if (!response.ok) throw new Error(`Supabase request failed (${response.status})`);
     return value;
+  };
+
+  const commentPolicy = async (settings, path) => {
+    const target = new URL(`${settings.basePath}openblog-comments.json`, `${settings.origin}/`);
+    if (target.origin !== new URL(settings.origin).origin) return "hidden";
+    const response = await siteFetchImpl(target.href, {
+      headers: { Accept: "application/json" },
+      redirect: "error",
+    });
+    if (!response.ok) return "hidden";
+    const policies = await response.json();
+    const policy = policies && typeof policies === "object" ? policies[path] : "";
+    return ["open", "locked", "hidden"].includes(policy) ? policy : "hidden";
   };
 
   return async (event) => {
@@ -96,6 +112,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
       if (operation === "comments" && event.httpMethod === "GET") {
         const path = cleanPath(query.path);
         if (!path) return json(400, { error: "Invalid post path." }, corsOrigin);
+        if (await commentPolicy(settings, path) === "hidden") {
+          return json(200, { comments: [] }, corsOrigin);
+        }
         const params = new URLSearchParams({
           site_id: `eq.${settings.siteId}`,
           path: `eq.${path}`,
@@ -113,6 +132,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, now = () =
         const commentBody = String(body.body || "").trim();
         if (!path || authorName.length < 1 || authorName.length > 80 || commentBody.length < 1 || commentBody.length > 4000 || /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(commentBody)) {
           return json(422, { error: "Enter a valid name and a comment no longer than 4,000 characters." }, corsOrigin);
+        }
+        const policy = await commentPolicy(settings, path);
+        if (policy !== "open") {
+          return json(403, { error: policy === "locked" ? "This discussion is read-only." : "Comments are not available for this post." }, corsOrigin);
         }
         const address = String(event.headers?.["x-nf-client-connection-ip"] || "").trim();
         const hour = now().toISOString().slice(0, 13) + ":00:00Z";

@@ -18,6 +18,7 @@ browser script.
    | `OPENBLOG_SITE_ORIGIN` | Exact public origin, such as `https://blog.example.com` |
    | `OPENBLOG_ADMIN_API_KEY` | Long random token used for moderation and Admin analytics |
    | `OPENBLOG_ANALYTICS_SALT` | Separate long random value used only to hash daily visitors |
+   | `OPENBLOG_SITE_BASE_PATH` | Optional public base path such as `/blog/`; defaults to `/` |
 
 3. Deploy. `netlify.toml` maps the public and Admin API routes to the function.
 4. Run `openblog serve --admin`, open **Analytics**, enable hosted engagement, and set the endpoint
@@ -27,6 +28,9 @@ browser script.
    machine running Admin, also set `OPENBLOG_ENGAGEMENT_API_ORIGIN` to the exact endpoint origin;
    this binding prevents the token from being sent to a changed destination.
 
-New comments remain pending until approved in **Admin → Analytics → Pending comments**. Public pages
-never receive any Supabase key or the moderation token. Supabase-backed hourly quotas limit comment
-submissions and analytics writes before content is stored.
+New comments remain pending until approved in **Admin → Analytics → Comment moderation**. For every
+public comment read or submission, the function fetches the generated `openblog-comments.json`
+manifest from `OPENBLOG_SITE_ORIGIN` and enforces its open, locked, or hidden policy before querying Supabase.
+Keep that origin current and publicly reachable. Public pages never receive any Supabase key or the
+moderation token. Supabase-backed hourly quotas limit comment submissions and analytics writes
+before content is stored.

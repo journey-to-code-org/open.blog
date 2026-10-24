@@ -5,6 +5,7 @@ export class ObComments extends HTMLElement {
   async connectedCallback() {
     const path = this.getAttribute("path");
     const endpoint = (this.getAttribute("endpoint") || "").replace(/\/$/, "");
+    const locked = this.getAttribute("mode") === "locked";
     if (!path || !endpoint) return;
     this.replaceChildren();
     const heading = document.createElement("h2");
@@ -22,7 +23,15 @@ export class ObComments extends HTMLElement {
     submit.type = "submit";
     submit.textContent = "Submit for review";
     form.append(submit);
-    this.append(heading, status, list, form);
+    this.append(heading, status, list);
+    if (locked) {
+      const notice = document.createElement("p");
+      notice.className = "ob-comments-locked";
+      notice.textContent = "This discussion is read-only.";
+      this.append(notice);
+    } else {
+      this.append(form);
+    }
 
     const render = (comments) => {
       list.replaceChildren();
@@ -53,7 +62,7 @@ export class ObComments extends HTMLElement {
     } catch (error) {
       status.textContent = error.message;
     }
-    form.addEventListener("submit", async (event) => {
+    if (!locked) form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const controls = form.querySelectorAll("input,textarea,button");
       controls.forEach((control) => { control.disabled = true; });

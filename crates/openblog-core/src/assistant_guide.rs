@@ -11,7 +11,7 @@ pub struct EngineCapability {
     pub contract: String,
 }
 
-pub const ENGINE_GUIDE_VERSION: u32 = 2;
+pub const ENGINE_GUIDE_VERSION: u32 = 3;
 
 pub fn engine_capabilities() -> Vec<EngineCapability> {
     let capability = |id, contract: &str| EngineCapability {
@@ -29,11 +29,15 @@ pub fn engine_capabilities() -> Vec<EngineCapability> {
         ),
         capability(
             "runnable-code-interactions",
-            "Runnable examples and small coding challenges use portable instructions followed by one self-contained `rust runnable` fence. A challenge should give readers a bounded task, visible TODO starter code, an expected result, and optionally a hint. Only Rust is executable in open.blog in this engine-guide version; do not invent executable Python, JavaScript, shell, multi-file projects, hidden tests, grading, or automatic correctness claims.",
+            "Runnable examples and small coding challenges use portable instructions followed by either one self-contained `rust runnable` fence or a `web runnable` fence with `---html`, `---css`, and `---js` sections. Web previews run locally in an opaque-origin iframe whose CSP blocks external resources and network APIs; authored code can still navigate its own preview and must never receive secrets. A challenge should give readers a bounded task, visible TODO starter code, an expected result, and optionally a hint. Do not invent dependencies, executable Python or shell, multi-file imports, hidden tests, grading, or automatic correctness claims.",
+        ),
+        capability(
+            "web-sandbox-fence",
+            "A `web runnable` fence with `---html`, `---css`, and `---js` section markers is native open.blog syntax. It renders editable tabs, Run and Reset controls, and a CSP-restricted opaque-origin preview. Preserve the markers, keep examples dependency-free, never include secrets, and never claim that preview output is automatically graded.",
         ),
         capability(
             "code-fence-options",
-            "Fenced code may use open.blog options for titles, line numbers, highlighted lines, and runnable Rust. Preserve valid fence info strings and do not rewrite them as prose.",
+            "Fenced code may use open.blog options for titles, line numbers, highlighted lines, runnable Rust, and runnable web sandboxes. Preserve valid fence info strings and do not rewrite them as prose.",
         ),
         capability(
             "supported-embeds",
