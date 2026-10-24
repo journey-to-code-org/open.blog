@@ -12,6 +12,7 @@ mod git;
 mod hashnode;
 mod http;
 mod publish;
+mod safe_http;
 mod scaffold;
 mod serve;
 mod site;

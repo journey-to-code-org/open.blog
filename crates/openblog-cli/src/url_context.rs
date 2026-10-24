@@ -1,15 +1,16 @@
 //! Explicit, bounded URL snapshots used as untrusted Assistant reference data.
 
-use std::fmt;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
+#[cfg(test)]
+use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use openblog_core::frontmatter::{self, Value};
 use serde::{Deserialize, Serialize};
 use ureq::config::Config;
-use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
-use ureq::unversioned::transport::{Connector, NextTimeout, RustlsConnector, TcpConnector};
 use url::{Host, Url};
+
+use crate::safe_http::{is_public_ip, public_agent, PublicResolver};
 
 const MAX_REDIRECTS: usize = 4;
 const MAX_RESPONSE_BYTES: u64 = 512 * 1024;
@@ -101,39 +102,6 @@ fn validate_snapshot(snapshot: &UrlContextSnapshot) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Clone, Default)]
-struct PublicResolver {
-    test_mapping: Option<(String, SocketAddr)>,
-}
-
-impl fmt::Debug for PublicResolver {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("PublicResolver").finish()
-    }
-}
-
-impl Resolver for PublicResolver {
-    fn resolve(
-        &self,
-        uri: &ureq::http::Uri,
-        config: &Config,
-        timeout: NextTimeout,
-    ) -> Result<ResolvedSocketAddrs, ureq::Error> {
-        if let Some((host, address)) = &self.test_mapping {
-            if uri.host() == Some(host.as_str()) {
-                let mut addresses = self.empty();
-                addresses.push(*address);
-                return Ok(addresses);
-            }
-        }
-        let addresses = DefaultResolver::default().resolve(uri, config, timeout)?;
-        if addresses.iter().any(|address| !is_public_ip(address.ip())) {
-            return Err(ureq::Error::HostNotFound);
-        }
-        Ok(addresses)
-    }
-}
-
 pub fn validate_public_url(source: &str) -> Result<Url, String> {
     let url = Url::parse(source).map_err(|_| "Enter a complete HTTP(S) URL".to_string())?;
     if !matches!(url.scheme(), "http" | "https") {
@@ -162,42 +130,6 @@ pub fn validate_public_url(source: &str) -> Result<Url, String> {
     }
 }
 
-pub fn is_public_ip(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(address) => {
-            let [a, b, c, _] = address.octets();
-            !(a == 0
-                || a == 10
-                || a == 127
-                || (a == 100 && (64..=127).contains(&b))
-                || (a == 169 && b == 254)
-                || (a == 172 && (16..=31).contains(&b))
-                || (a == 192 && b == 0 && c == 0)
-                || (a == 192 && b == 0 && c == 2)
-                || (a == 192 && b == 88 && c == 99)
-                || (a == 192 && b == 168)
-                || (a == 198 && (b == 18 || b == 19))
-                || (a == 198 && b == 51 && c == 100)
-                || (a == 203 && b == 0 && c == 113)
-                || a >= 224)
-        }
-        IpAddr::V6(address) => {
-            let octets = address.octets();
-            let segments = address.segments();
-            if let Some(mapped) = address.to_ipv4_mapped() {
-                return is_public_ip(IpAddr::V4(mapped));
-            }
-            let reserved = octets[0..4] == [0x20, 0x01, 0x0d, 0xb8]
-                || (segments[0] == 0x2001 && segments[1] == 0)
-                || (segments[0] == 0x2001 && segments[1] == 2)
-                || (segments[0] == 0x2001 && (0x10..=0x2f).contains(&segments[1]))
-                || segments[0] == 0x2002
-                || (segments[0] & 0xfff0) == 0x3ff0;
-            (octets[0] & 0xe0) == 0x20 && !reserved
-        }
-    }
-}
-
 pub fn fetch_url_snapshot(source: &str, retrieved_at: &str) -> Result<UrlContextSnapshot, String> {
     fetch_url_snapshot_with_resolver(
         source,
@@ -216,9 +148,7 @@ fn fetch_url_snapshot_for_test(
     fetch_url_snapshot_with_resolver(
         source,
         retrieved_at,
-        PublicResolver {
-            test_mapping: Some(("url-context.test".into(), address)),
-        },
+        PublicResolver::mapped_for_local_test("url-context.test", address),
         FETCH_TIMEOUT,
     )
 }
@@ -233,9 +163,7 @@ fn fetch_url_snapshot_for_test_with_timeout(
     fetch_url_snapshot_with_resolver(
         source,
         retrieved_at,
-        PublicResolver {
-            test_mapping: Some(("url-context.test".into(), address)),
-        },
+        PublicResolver::mapped_for_local_test("url-context.test", address),
         timeout,
     )
 }
@@ -255,14 +183,13 @@ fn fetch_url_snapshot_with_resolver(
             return Err("URL context retrieval timed out".into());
         }
         validate_public_url(current.as_str())?;
-        let connector = ().chain(TcpConnector::default()).chain(RustlsConnector::default());
         let config = Config::builder()
             .max_redirects(0)
             .proxy(None)
             .timeout_global(Some(remaining))
             .user_agent(concat!("open.blog-admin/", env!("CARGO_PKG_VERSION")))
             .build();
-        let agent = ureq::Agent::with_parts(config, connector, resolver.clone());
+        let agent = public_agent(config, resolver.clone());
         let mut response = agent
             .get(current.as_str())
             .header("Accept", "text/html, text/markdown, text/plain")
