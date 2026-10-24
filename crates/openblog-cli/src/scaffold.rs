@@ -34,7 +34,9 @@ fn main() {
 const ABOUT: &str = "This page is `content/pages/about.md`. Pages with `nav: true` in their front matter appear in the header.
 ";
 
-/// Create a new project in `dir`. Existing files are never overwritten.
+/// Create a new project in `dir`. Existing content is never overwritten. In a
+/// Git project, an existing `.gitignore` keeps its rules and gains the private
+/// assistant-storage rule when that boundary is missing.
 pub fn init(dir: &Path, title: Option<&str>, github_pages: bool) -> Result<Vec<String>, String> {
     let mut created = Vec::new();
     let mut write = |rel: &str, contents: &str| -> Result<(), String> {
@@ -82,10 +84,28 @@ pub fn init(dir: &Path, title: Option<&str>, github_pages: bool) -> Result<Vec<S
     for (rel, contents) in EMBEDDED_WEB {
         write(&format!("web/{rel}"), contents)?;
     }
-    write(".gitignore", "/dist\n/.openblog\n")?;
+    write(".gitignore", "/dist\n/.openblog\n/.openblog/private/\n")?;
     if github_pages {
         let workflow = site::PAGES_WORKFLOW.replace("OPENBLOG_VERSION", env!("CARGO_PKG_VERSION"));
         write(".github/workflows/pages.yml", &workflow)?;
+    }
+    if dir.join(".git").exists() {
+        let ignore_path = dir.join(".gitignore");
+        let mut ignored = fs::read_to_string(&ignore_path)
+            .map_err(|error| format!("cannot read {}: {error}", ignore_path.display()))?;
+        if !ignored
+            .lines()
+            .any(|line| line.trim() == "/.openblog/private/")
+        {
+            if !ignored.is_empty() && !ignored.ends_with('\n') {
+                ignored.push('\n');
+            }
+            ignored.push_str("/.openblog/private/\n");
+            fsutil::write_file(&ignore_path, ignored.as_bytes())?;
+            if !created.iter().any(|path| path == ".gitignore") {
+                created.push(".gitignore".into());
+            }
+        }
     }
     // Binary files (the WebAssembly search engine) go last, after the text closure is done.
     for (rel, bytes) in site::EMBEDDED_WEB_BINARY {
@@ -178,6 +198,22 @@ pub fn new_post(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn init_adds_private_assistant_storage_to_an_existing_gitignore() {
+        let dir =
+            std::env::temp_dir().join(format!("ob-init-private-ignore-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join(".git")).unwrap();
+        fs::write(dir.join(".gitignore"), "/dist\n/custom-cache\n").unwrap();
+
+        init(&dir, Some("Private Context"), false).unwrap();
+
+        let ignored = fs::read_to_string(dir.join(".gitignore")).unwrap();
+        assert!(ignored.contains("/custom-cache"));
+        assert!(ignored.lines().any(|line| line == "/.openblog/private/"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn init_creates_a_buildable_project_and_never_overwrites() {

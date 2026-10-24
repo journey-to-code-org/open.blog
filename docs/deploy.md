@@ -71,6 +71,23 @@ it is the natural choice when the repository is private. A clone of the engine r
 The file also sets cache headers for assets and CORS headers for the feeds and the
 latest-posts JSON. Aliases are plain redirect pages, so they need no Netlify redirects.
 
+### Comments and persistent analytics on Netlify
+
+The repository includes an optional Netlify Function backed by Supabase. It adds moderated comments
+and lets the existing privacy-respecting view counter retain analytics across deploys. Run
+[`supabase/openblog.sql`](../supabase/openblog.sql) in a Supabase project, then follow the
+[function setup guide](../netlify/functions/README.md) to configure the server environment. The
+Supabase service-role key remains in Netlify and is never an Admin or public-site setting.
+
+After deployment, open **Admin → Analytics**, enable hosted engagement, enter the public `/api`
+endpoint, and save the matching write-only moderation token. New comments remain pending until an
+Admin user approves them. Tokens saved by Admin are bound to the endpoint origin, redirects are not
+followed, and Supabase-backed quotas limit public writes. The function also reads the generated
+comment-policy manifest from `OPENBLOG_SITE_ORIGIN` before comment access, so locked and hidden
+policies are enforced on the server as well as in the page UI. Set `OPENBLOG_SITE_BASE_PATH` when
+the published site lives below `/`. The existing local counter stays the default when hosted
+engagement is off.
+
 For a blog made with `openblog init` (no engine source in the repository), use this
 build command instead, with `dist` as the publish directory:
 
@@ -79,6 +96,47 @@ curl https://sh.rustup.rs -sSf | sh -s -- -y && . "$HOME/.cargo/env" \
   && cargo install --git https://github.com/journey-to-code-org/open.blog openblog-cli \
   && openblog build
 ```
+
+## Execution gateway
+
+`codeRunner` is a browser-to-runner integration, not a code executor inside open.blog. Deploy the
+gateway on infrastructure isolated from the blog repository, Admin service, databases, deployment
+credentials, and private networks. The generated page makes this credential-free request:
+
+```http
+POST /v1/execute
+Content-Type: application/json
+
+{"language":"python","source":"print(input())","stdin":"hello\n"}
+```
+
+Return JSON with exactly the useful execution outcome:
+
+```json
+{"success":true,"stdout":"hello\n","stderr":"","exitCode":0}
+```
+
+`success` is a Boolean, `stdout` and `stderr` are strings, and `exitCode` is an integer or `null`.
+The browser caps source at 20,000 bytes, standard input at 8,000 bytes, the response body at 512,000
+bytes, and displayed output at 64,000 bytes. It times out after 20 seconds, strips terminal control
+sequences, truncates output, and renders text rather than HTML. Those client checks are defense in
+depth, not server controls: independently enforce smaller source/output limits, compile and run
+deadlines, CPU, memory, PID, file, and disk quotas, per-client rate limits, a global concurrency cap,
+and an emergency disable switch.
+
+Run every request in a fresh unprivileged workspace with no network, secrets, host mounts, Docker
+socket, package installation, or writable runtime image. Pin and patch the executor. Suitable gateway
+implementations include:
+
+- a self-hosted Piston deployment for a multi-language API;
+- a patched self-hosted Judge0 deployment behind an adapter that exposes only this narrow contract;
+- a pinned self-hosted Pyodide worker on a dedicated runner origin for Python. Pyodide and Web
+  Workers still expose browser networking APIs unless the runner origin applies its own restrictive
+  CSP, so WebAssembly is not an isolation boundary by itself.
+
+Do not put Piston/Judge0 credentials in `openblog.json` or generated HTML. Keep them between the
+public gateway and executor. Configure only the public gateway URL and the exact languages it
+supports; a `runnable` fence for any other language remains static.
 
 ## Cloudflare Pages, Vercel, and others
 

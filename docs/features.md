@@ -3,12 +3,31 @@
 ## Content profiles
 
 Posts can opt into field-specific authoring and publishing behavior with `profile` in front
-matter. The shared catalog currently provides `article`, `recipe`, and `research`; the admin reads the
+matter. The shared catalog currently provides `article`, `recipe`, `research`, `video`, and `field-journal`; the admin reads the
 same definitions as the native and WebAssembly-capable core. Unknown ids are preserved and
 fall back to article output with a warning, so content remains portable while future
 journalism, education, media, and dataset profiles are added incrementally. Research posts
 add work metadata and evidence guidance while retaining ordinary Markdown as their source;
-see [Research posts and Evidence Studio](research-profile.md).
+see [Research posts and Evidence Studio](research-profile.md). Video posts add a
+privacy-enhanced YouTube player, discovery metadata, and a release-kit workflow; see
+[Video productions and release kits](video-production.md).
+Field journals add local GPX analysis and location-privacy controls; see
+[Field journals and private-by-default tracks](field-journal.md).
+
+## Authoring Assistant
+
+The authenticated Admin can connect Anthropic, OpenAI, Gemini, xAI, DeepSeek, Mistral,
+OpenRouter, or a compatible custom HTTPS provider without exposing its credential to the browser.
+Authors can review an unsaved post with inspectable Markdown skills and selected context, apply exact
+suggested replacements with safe undo, draft native knowledge checks, propose runnable examples
+and small coding challenges, recognize native HTML/CSS/JavaScript sandboxes, and opt into session-only autocomplete in either Visual or Markdown
+mode. Every output remains editable and proposed; nothing is saved or published without the normal
+author action.
+
+Assistant requests carry a versioned guide to the actual publishing engine, including native quiz
+and runnable-code syntax, embeds, content profiles, scheduling, and source-ownership boundaries.
+Drafts and selected context remain untrusted data, external research stays off, inputs and outputs are
+bounded, and stale or ambiguous edits fail closed. See [Using the Admin](admin.md#review-an-unsaved-document).
 
 ## Syntax highlighting
 
@@ -25,6 +44,18 @@ with optional line numbers and highlighted lines, Reset, Copy, Run, compiler out
 an optional fallback link to the official Rust Playground.
 The original block remains visible without JavaScript. Source is sent directly to the
 Playground without cookies or referrer information and is never stored by open.blog.
+
+`web runnable` fences provide dependency-free HTML, CSS, and JavaScript tabs with a local live
+preview. The iframe has an opaque origin and a restrictive CSP that blocks external resources and
+network APIs. Authored code can navigate its own preview, so the editor explicitly warns readers not
+to enter secrets.
+
+An optional public `codeRunner` gateway adds the same progressive editor controls for explicitly
+allowed languages such as Python or Go. Rust also uses that gateway when configured; otherwise its
+official Playground behavior is unchanged. Generated pages send only `language`, `source`, and
+optional `stdin`, omit credentials and referrer information, bound responses, remove terminal
+control sequences, truncate output, and render it as text. The gateway—not the blog or Admin
+process—is responsible for executing untrusted code in a disposable, network-disabled sandbox.
 
 A fence without a language, which is common in posts imported from other platforms, is
 guessed from its content: HTML, CSS, JavaScript, TypeScript, shell commands, Rust,
@@ -107,6 +138,10 @@ The counts are backed up to a git branch, baked into pages at build time so a st
 shows them, and can be recorded by a dependency-free Cloudflare Worker when there is no
 server. All of that is in [Publishing from home](publishing.md).
 
+Netlify deployments can instead use the included Supabase-backed function for analytics and
+moderated comments. It preserves the `/hit` and `/views` contract, so `<ob-views>` needs no
+provider-specific code. See [Netlify deployment](deploy.md#comments-and-persistent-analytics-on-netlify).
+
 ### What it records, and what it never records
 
 Per day and page: views, unique visitors, a count per referring site, and aggregate AI
@@ -133,6 +168,19 @@ Paste the provider's tag into `snippets.head` (see below) and set `analytics.bui
 `false` if you do not want both. Plausible, Umami, GoatCounter, and Fathom all work this way.
 
 ## Embeds: comments, newsletters, any tag
+
+For first-party, text-only moderated comments on Netlify, enable hosted engagement in
+**Admin → Analytics**. Each post then receives an accessible comment list and form. Submissions are
+pending by default and only approved comments are public. Comment content is rendered as text rather
+than HTML. Supabase credentials remain in the function environment; Admin stores only a write-only
+moderation token.
+
+Set `comments: locked` on a post to keep approved discussion visible without accepting submissions,
+or `comments: hidden` to omit the discussion entirely. Admin moderation includes pending, approved,
+and rejected queues so decisions can be reversed. The Netlify function checks the generated,
+deployed comment-policy manifest before comment access, so direct requests cannot bypass locked or hidden policies.
+
+The raw HTML slots below remain available for third-party systems such as giscus or utterances.
 
 Three places accept raw HTML from `openblog.json`. It is inserted as-is on every page, so
 only put there what you would put in a template yourself.

@@ -43,6 +43,8 @@ pub struct SiteConfig {
     pub home: HomeConfig,
     pub share: ShareConfig,
     pub analytics: AnalyticsConfig,
+    /// Optional hosted comments and analytics endpoint for static deployments.
+    pub engagement: EngagementConfig,
     /// Raw HTML the owner wants on every page: third-party analytics, comments, forms.
     pub snippets: Snippets,
     /// How many related posts to show under each post. `0` disables the section.
@@ -55,6 +57,8 @@ pub struct SiteConfig {
     pub markdown: MarkdownConfig,
     /// Code blocks: colours, line numbers, copy buttons.
     pub code: CodeConfig,
+    /// Optional public gateway for executing explicitly opted-in code lessons.
+    pub code_runner: CodeRunnerConfig,
     /// Interactive extras on posts with `recipe: true`.
     pub recipes: RecipesConfig,
     /// Optional author-time generation for interactive knowledge checks.
@@ -62,6 +66,9 @@ pub struct SiteConfig {
     pub paths: PathsConfig,
     pub admin: AdminConfig,
     pub publish: PublishConfig,
+    /// Optional server-side cross-posting destinations. Credentials are read from
+    /// environment variables and are never serialized here.
+    pub syndication: SyndicationConfig,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -138,6 +145,37 @@ pub struct CodeConfig {
     pub copy_button: bool,
 }
 
+/// Browser-facing code execution gateway. The endpoint is public configuration;
+/// provider credentials belong only on the independently hosted runner.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CodeRunnerConfig {
+    pub endpoint: String,
+    /// Additional runnable fence languages. Rust is always enabled when an
+    /// endpoint is configured; `web` keeps its dedicated local sandbox.
+    pub languages: Vec<String>,
+}
+
+/// Normalize one code-runner language identifier shared by configuration and
+/// authoring tools. Returns `None` for identifiers that cannot safely appear
+/// in a Markdown fence or the browser runner protocol.
+pub fn normalize_code_runner_language(value: &str) -> Option<String> {
+    let value = value
+        .trim_matches(|character: char| character.is_ascii_whitespace())
+        .to_ascii_lowercase();
+    let valid = (1..=32).contains(&value.len())
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || matches!(byte, b'_' | b'+' | b'#' | b'.' | b'-')
+        });
+    valid.then_some(value)
+}
+
 impl Default for CodeConfig {
     fn default() -> Self {
         Self {
@@ -180,10 +218,41 @@ impl Default for RecipesConfig {
 }
 
 /// An owner-supplied service that drafts questions for the admin editor.
-/// The API key is intentionally read from the environment, never this file.
+/// API keys are stored separately and are never serialized into this configuration.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AssistantProviderKind {
+    #[default]
+    CustomHttps,
+    Anthropic,
+    OpenAi,
+    Gemini,
+    Xai,
+    DeepSeek,
+    Mistral,
+    OpenRouter,
+}
+
+impl AssistantProviderKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CustomHttps => "custom-https",
+            Self::Anthropic => "anthropic",
+            Self::OpenAi => "open-ai",
+            Self::Gemini => "gemini",
+            Self::Xai => "xai",
+            Self::DeepSeek => "deep-seek",
+            Self::Mistral => "mistral",
+            Self::OpenRouter => "open-router",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct KnowledgeChecksConfig {
+    /// Missing values preserve the original custom HTTPS behavior.
+    pub provider: AssistantProviderKind,
     pub generation_endpoint: String,
     pub model: String,
 }
@@ -239,6 +308,7 @@ impl Default for SiteConfig {
             home: HomeConfig::default(),
             share: ShareConfig::default(),
             analytics: AnalyticsConfig::default(),
+            engagement: EngagementConfig::default(),
             snippets: Snippets::default(),
             related_posts: 3,
             cdn: CdnConfig::default(),
@@ -246,11 +316,66 @@ impl Default for SiteConfig {
             seo: SeoConfig::default(),
             markdown: MarkdownConfig::default(),
             code: CodeConfig::default(),
+            code_runner: CodeRunnerConfig::default(),
             recipes: RecipesConfig::default(),
             knowledge_checks: KnowledgeChecksConfig::default(),
             paths: PathsConfig::default(),
             admin: AdminConfig::default(),
             publish: PublishConfig::default(),
+            syndication: SyndicationConfig::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SyndicationProvider {
+    Dev,
+    Hashnode,
+    Ghost,
+    Wordpress,
+    Medium,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SyndicationTargetConfig {
+    pub provider: SyndicationProvider,
+    pub enabled: bool,
+    /// Permit public publication when the CLI also receives `--publish`.
+    pub allow_publish: bool,
+    /// Provider base URL. Required for Ghost and self-hosted WordPress.
+    pub endpoint: String,
+    /// Hashnode publication ID or WordPress.com numeric site ID.
+    pub publication_id: String,
+}
+
+impl Default for SyndicationTargetConfig {
+    fn default() -> Self {
+        Self {
+            provider: SyndicationProvider::Dev,
+            enabled: true,
+            allow_publish: false,
+            endpoint: String::new(),
+            publication_id: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SyndicationConfig {
+    /// Private state, relative to the project root.
+    pub state_file: String,
+    /// User-chosen target names permit multiple sites using the same provider.
+    pub targets: BTreeMap<String, SyndicationTargetConfig>,
+}
+
+impl Default for SyndicationConfig {
+    fn default() -> Self {
+        Self {
+            state_file: ".openblog/syndication.json".into(),
+            targets: BTreeMap::new(),
         }
     }
 }
@@ -358,6 +483,28 @@ impl Default for AnalyticsConfig {
             endpoint: String::new(),
             branch: "analytics".to_string(),
             bake_counts: true,
+        }
+    }
+}
+
+/// Hosted comments and analytics for static deployments such as Netlify.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EngagementConfig {
+    pub enabled: bool,
+    pub comments: bool,
+    pub analytics: bool,
+    /// Public function base URL. Secrets are never stored here.
+    pub endpoint: String,
+}
+
+impl Default for EngagementConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            comments: true,
+            analytics: true,
+            endpoint: String::new(),
         }
     }
 }
@@ -604,6 +751,59 @@ impl SiteConfig {
         if self.theme.is_empty() {
             self.theme = "base".to_string();
         }
+        if self.engagement.enabled {
+            let endpoint = self
+                .engagement
+                .endpoint
+                .parse::<http::Uri>()
+                .map_err(|_| "engagement.endpoint must be a valid HTTPS URL")?;
+            let authority = endpoint
+                .authority()
+                .ok_or("engagement.endpoint must include a host")?;
+            if endpoint.scheme_str() != Some("https")
+                || authority.as_str().contains('@')
+                || endpoint.query().is_some()
+                || self.engagement.endpoint.contains('#')
+            {
+                return Err(
+                    "engagement.endpoint must be HTTPS without credentials, query, or fragment"
+                        .into(),
+                );
+            }
+        }
+        while self.code_runner.endpoint.ends_with('/') {
+            self.code_runner.endpoint.pop();
+        }
+        if !self.code_runner.endpoint.is_empty() {
+            let endpoint = self
+                .code_runner
+                .endpoint
+                .parse::<http::Uri>()
+                .map_err(|_| "codeRunner.endpoint must be a valid HTTPS URL")?;
+            let authority = endpoint
+                .authority()
+                .ok_or("codeRunner.endpoint must include a host")?;
+            if endpoint.scheme_str() != Some("https")
+                || authority.as_str().contains('@')
+                || endpoint.query().is_some()
+                || self.code_runner.endpoint.contains('#')
+            {
+                return Err(
+                    "codeRunner.endpoint must be HTTPS without credentials, query, or fragment"
+                        .into(),
+                );
+            }
+        }
+        let mut languages = Vec::new();
+        for authored in &self.code_runner.languages {
+            let Some(language) = normalize_code_runner_language(authored) else {
+                continue;
+            };
+            if language != "rust" && language != "web" && !languages.contains(&language) {
+                languages.push(language);
+            }
+        }
+        self.code_runner.languages = languages;
         contributor::normalize_registry(&mut self.contributors)?;
         Ok(())
     }
@@ -706,6 +906,72 @@ mod tests {
     }
 
     #[test]
+    fn hosted_engagement_requires_a_public_https_style_endpoint_when_enabled() {
+        for endpoint in [
+            "http://blog.example/api",
+            "https://user:secret@blog.example/api",
+            "https://blog.example/api?token=secret",
+            "https://blog.example/api#fragment",
+        ] {
+            let source = serde_json::json!({
+                "engagement": { "enabled": true, "endpoint": endpoint }
+            });
+            assert!(
+                SiteConfig::from_json(&source.to_string()).is_err(),
+                "{endpoint}"
+            );
+        }
+        assert!(SiteConfig::from_json(
+            r#"{"engagement":{"enabled":true,"endpoint":"https://blog.example/api"}}"#
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn code_runner_requires_a_public_https_endpoint_and_normalizes_languages() {
+        for endpoint in [
+            "http://runner.example/execute",
+            "https://user:secret@runner.example/execute",
+            "https://runner.example/execute?token=secret",
+            "https://runner.example/execute#secret",
+        ] {
+            let source =
+                format!(r#"{{"codeRunner":{{"endpoint":"{endpoint}","languages":["python"]}}}}"#);
+            assert!(
+                SiteConfig::from_json(&source).is_err(),
+                "accepted {endpoint}"
+            );
+        }
+
+        let config = SiteConfig::from_json(
+            r#"{"codeRunner":{"endpoint":"https://runner.example/execute/","languages":[" Python ","python","go","web","rust","shell script"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.code_runner.endpoint,
+            "https://runner.example/execute"
+        );
+        assert_eq!(config.code_runner.languages, ["python", "go"]);
+    }
+
+    #[test]
+    fn code_runner_language_normalizer_owns_the_shared_grammar() {
+        let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/code-runner-languages.json"
+        ))
+        .unwrap();
+        for fixture in fixtures {
+            let authored = fixture["authored"].as_str().unwrap();
+            let expected = fixture["normalized"].as_str();
+            assert_eq!(
+                normalize_code_runner_language(authored).as_deref(),
+                expected,
+                "{authored:?}"
+            );
+        }
+    }
+
+    #[test]
     fn cdn_rewrites_only_asset_urls() {
         let cdn = CdnConfig {
             url: "https://cdn.example.com/".into(),
@@ -764,5 +1030,37 @@ mod tests {
         assert_eq!(c.absolute("/rss.xml"), "https://x.dev/rss.xml");
         assert!(c.feeds.rss);
         assert_eq!(c.theme, "base");
+        assert!(!c.engagement.enabled);
+        assert!(c.engagement.comments && c.engagement.analytics);
+        assert_eq!(
+            c.knowledge_checks.provider,
+            AssistantProviderKind::CustomHttps
+        );
+        for (name, expected) in [
+            ("anthropic", AssistantProviderKind::Anthropic),
+            ("open-ai", AssistantProviderKind::OpenAi),
+            ("gemini", AssistantProviderKind::Gemini),
+            ("xai", AssistantProviderKind::Xai),
+            ("deep-seek", AssistantProviderKind::DeepSeek),
+            ("mistral", AssistantProviderKind::Mistral),
+            ("open-router", AssistantProviderKind::OpenRouter),
+        ] {
+            let value = format!(r#"{{"knowledgeChecks":{{"provider":"{name}"}}}}"#);
+            let parsed = SiteConfig::from_json(&value).unwrap();
+            assert_eq!(parsed.knowledge_checks.provider, expected);
+            assert_eq!(parsed.knowledge_checks.provider.as_str(), name);
+        }
+        assert!(
+            SiteConfig::from_json(r#"{"knowledgeChecks":{"provider":"unknown-provider"}}"#)
+                .is_err()
+        );
+        let syndication = SiteConfig::from_json(
+            r#"{"syndication":{"stateFile":".private/s.json","targets":{"dev":{"provider":"dev","allowPublish":true}}}}"#,
+        )
+        .unwrap();
+        let dev = &syndication.syndication.targets["dev"];
+        assert_eq!(dev.provider, SyndicationProvider::Dev);
+        assert!(dev.enabled && dev.allow_publish);
+        assert_eq!(syndication.syndication.state_file, ".private/s.json");
     }
 }

@@ -6,14 +6,14 @@
 //! Appearance comes entirely from CSS custom properties (`--ob-*`) written by
 //! the theme, so the same markup can look like any theme.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::config::SiteConfig;
 use crate::contributor::{CreditProvenance, ResolvedCredit};
 use crate::escape::{attr, cdata, text};
 use crate::feeds;
 use crate::markdown::{self, RenderOptions};
-use crate::model::{Post, Series, Site};
+use crate::model::{CommentsPolicy, Post, Series, Site};
 use crate::theme::{Theme, ThemeSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -318,6 +318,28 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     out.add(
         "search.json".into(),
         c.apply_base_path(&feeds::search_index(site)),
+    )?;
+    let hosted_comments =
+        c.engagement.enabled && c.engagement.comments && !c.engagement.endpoint.trim().is_empty();
+    let comment_policies: BTreeMap<&str, &str> = site
+        .posts
+        .iter()
+        .map(|post| {
+            let policy = if !hosted_comments {
+                "hidden"
+            } else {
+                match post.comments {
+                    CommentsPolicy::Open => "open",
+                    CommentsPolicy::Locked => "locked",
+                    CommentsPolicy::Hidden => "hidden",
+                }
+            };
+            (post.url.as_str(), policy)
+        })
+        .collect();
+    out.add(
+        "openblog-comments.json".into(),
+        serde_json::to_string(&comment_policies).expect("comment policy map is serializable"),
     )?;
 
     Ok(out.files)
@@ -1002,13 +1024,23 @@ impl<'a> Renderer<'a> {
             }
         }
         body.push_str(&format!(" · {} min read", post.reading_minutes));
-        if c.analytics.show_views && (c.analytics.builtin || !c.analytics.endpoint.is_empty()) {
+        let hosted_engagement_endpoint = c
+            .engagement
+            .enabled
+            .then_some(c.engagement.endpoint.trim())
+            .filter(|endpoint| c.engagement.analytics && !endpoint.is_empty());
+        let analytics_endpoint = if c.analytics.endpoint.trim().is_empty() {
+            hosted_engagement_endpoint.unwrap_or("")
+        } else {
+            c.analytics.endpoint.trim()
+        };
+        if c.analytics.show_views && (c.analytics.builtin || !analytics_endpoint.is_empty()) {
             // A live counter updates this; a baked count shows until then, or forever on a static host.
             let baked = site_views_text(self.site, &post.url);
             body.push_str(&format!(
                 "<ob-views path=\"{}\" endpoint=\"{}\">{}</ob-views>",
                 attr(&post.url),
-                attr(c.analytics.endpoint.trim().trim_end_matches('/')),
+                attr(analytics_endpoint.trim_end_matches('/')),
                 text(&baked)
             ));
         }
@@ -1030,6 +1062,24 @@ impl<'a> Renderer<'a> {
         }
         if let Some(research) = &post.research {
             body.push_str(&self.research_work_meta(research));
+        }
+        if let Some(journal) = &post.field_journal {
+            body.push_str(&self.field_journal_card(journal));
+        }
+        if let Some(video) = &post.video {
+            body.push_str(&self.video_production_card(video));
+        }
+        if c.markdown.embeds {
+            if let Some(video) = &post.video {
+                if let Some(url) = &video.url {
+                    if let Some(mut embed) = crate::embed::detect(url) {
+                        embed.title = format!("{} on YouTube", post.title);
+                        if !post.html.contains(&embed.frame_src) {
+                            body.push_str(&crate::embed::html(&embed));
+                        }
+                    }
+                }
+            }
         }
         if theme.post_covers {
             if let Some(cover) = &post.cover {
@@ -1091,6 +1141,23 @@ impl<'a> Renderer<'a> {
             body.push_str("\n</section>\n");
         }
         body.push_str(&self.chronological_nav(index));
+        if c.engagement.enabled
+            && c.engagement.comments
+            && post.comments != crate::model::CommentsPolicy::Hidden
+            && !c.engagement.endpoint.trim().is_empty()
+        {
+            let mode = if post.comments == crate::model::CommentsPolicy::Locked {
+                " mode=\"locked\""
+            } else {
+                ""
+            };
+            body.push_str(&format!(
+                "<ob-comments path=\"{}\" endpoint=\"{}\"{}><p>Comments require JavaScript.</p></ob-comments>\n",
+                attr(&post.url),
+                attr(c.engagement.endpoint.trim().trim_end_matches('/')),
+                mode,
+            ));
+        }
         if !c.snippets.post_footer.trim().is_empty() {
             body.push_str("<div class=\"ob-post-extra\">\n");
             body.push_str(c.snippets.post_footer.trim());
@@ -1104,7 +1171,11 @@ impl<'a> Renderer<'a> {
             path: post.url.clone(),
             canonical,
             kind: "article",
-            image: post.cover.clone(),
+            image: post.cover.clone().or_else(|| {
+                post.video
+                    .as_ref()
+                    .and_then(|video| video.thumbnail.clone())
+            }),
             image_alt: (!post.cover_alt.is_empty()).then(|| post.cover_alt.clone()),
             json_ld: Some({
                 let mut posting = serde_json::json!({
@@ -1150,6 +1221,29 @@ impl<'a> Renderer<'a> {
                         }
                     }
                 }
+                if let Some((video, embed_url, thumbnail)) = post.video.as_ref().and_then(|video| {
+                    Some((
+                        video,
+                        video.embed_url()?,
+                        video.thumbnail.as_ref().or(post.cover.as_ref())?,
+                    ))
+                }) {
+                    posting["@type"] = serde_json::json!("VideoObject");
+                    posting["name"] = serde_json::json!(post.title);
+                    posting["uploadDate"] = serde_json::json!(post.date.rfc3339());
+                    if let Some(object) = posting.as_object_mut() {
+                        object.remove("headline");
+                        object.remove("wordCount");
+                    }
+                    posting["thumbnailUrl"] = serde_json::json!(c.absolute(thumbnail));
+                    posting["embedUrl"] = serde_json::json!(embed_url);
+                    if let Some(duration) = video.iso_duration() {
+                        posting["duration"] = serde_json::json!(duration);
+                    }
+                    if let Some(disclosure) = &video.ai_disclosure {
+                        posting["creditText"] = serde_json::json!(disclosure);
+                    }
+                }
                 if let Some(research) = &post.research {
                     posting["@type"] = serde_json::json!("ScholarlyArticle");
                     if let Some(object) = posting.as_object_mut() {
@@ -1167,6 +1261,18 @@ impl<'a> Renderer<'a> {
                             .iter()
                             .map(|reference| &reference.url)
                             .collect::<Vec<_>>());
+                    }
+                }
+                if let Some(journal) = &post.field_journal {
+                    posting["about"] = serde_json::json!({
+                        "@type": "Thing",
+                        "name": journal.activity,
+                    });
+                    if let Some(location) = &journal.location {
+                        posting["contentLocation"] = serde_json::json!({
+                            "@type": "Place",
+                            "name": location,
+                        });
                     }
                 }
                 match &post.recipe {
@@ -1356,6 +1462,104 @@ impl<'a> Renderer<'a> {
 
     /// The summary card at the top of a recipe: times, servings, and the
     /// "Jump to recipe" link. `<ob-recipe>` adds the interactive controls.
+    fn field_journal_card(&self, journal: &crate::field_journal::FieldJournalMetadata) -> String {
+        let mut facts = Vec::new();
+        let mut fact = |label: &str, value: String| {
+            facts.push(format!(
+                "<div><dt>{}</dt><dd>{}</dd></div>",
+                text(label),
+                text(&value)
+            ));
+        };
+        fact("Activity", journal.activity.clone());
+        if let Some(location) = &journal.location {
+            fact("Area", location.clone());
+        }
+        if let Some(distance) = &journal.distance_km {
+            fact("Distance", format!("{distance} km"));
+        }
+        if let Some(gain) = journal.elevation_gain_m {
+            fact("Elevation gain", format!("{gain} m"));
+        }
+        if let Some(seconds) = journal.duration_seconds {
+            let hours = seconds / 3600;
+            let minutes = seconds % 3600 / 60;
+            let value = if hours > 0 {
+                format!("{hours} hr {minutes} min")
+            } else {
+                format!("{minutes} min")
+            };
+            fact("Duration", value);
+        }
+        fact("Location privacy", journal.privacy.label().to_string());
+
+        let mut out = String::from(
+            "<aside class=\"ob-field-journal\" aria-label=\"Field journal summary\">\n<h2>Field notes</h2>\n",
+        );
+        out.push_str(&format!("<dl>{}</dl>\n", facts.join("")));
+        if let Some(conditions) = &journal.conditions {
+            out.push_str(&format!(
+                "<p><strong>Conditions:</strong> {}</p>\n",
+                text(conditions)
+            ));
+        }
+        if let Some(points) = &journal.route_shape {
+            let lines = points
+                .split('|')
+                .map(|segment| format!("<polyline points=\"{}\"></polyline>", attr(segment.trim())))
+                .collect::<String>();
+            out.push_str(&format!(
+                "<figure><svg class=\"ob-field-route\" viewBox=\"0 0 1000 100\" role=\"img\" aria-label=\"Privacy-filtered route outline\">{}</svg><figcaption>{}</figcaption></figure>\n",
+                lines,
+                text(journal.privacy.label())
+            ));
+        }
+        if let Some(points) = &journal.elevation_profile {
+            let lines = points
+                .split('|')
+                .map(|segment| format!("<polyline points=\"{}\"></polyline>", attr(segment.trim())))
+                .collect::<String>();
+            out.push_str(&format!(
+                "<figure><svg class=\"ob-field-elevation\" viewBox=\"0 0 1000 100\" role=\"img\" aria-label=\"Elevation profile\">{}</svg><figcaption>Elevation profile</figcaption></figure>\n",
+                lines
+            ));
+        }
+        if let Some(route) = &journal.route_url {
+            out.push_str(&format!(
+                "<p><a href=\"{}\" download>Download GPX track</a></p>\n",
+                attr(route)
+            ));
+        }
+        out.push_str("</aside>\n");
+        out
+    }
+
+    fn video_production_card(&self, video: &crate::video::VideoMetadata) -> String {
+        let mut facts = Vec::new();
+        if let Some(label) = video.production_label() {
+            facts.push(format!(
+                "<div><dt>Production</dt><dd>{}</dd></div>",
+                text(&label)
+            ));
+        }
+        if let Some(status) = &video.production_status {
+            facts.push(format!(
+                "<div><dt>Status</dt><dd>{}</dd></div>",
+                text(status)
+            ));
+        }
+        if let Some(credits) = &video.production_credits {
+            facts.push(format!(
+                "<div><dt>Credits</dt><dd>{}</dd></div>",
+                text(credits)
+            ));
+        }
+        if facts.is_empty() {
+            return String::new();
+        }
+        format!("<aside class=\"ob-video-production\" aria-label=\"Video production summary\"><h2>Production notes</h2><dl>{}</dl></aside>\n", facts.join(""))
+    }
+
     fn recipe_card(&self, recipe: &crate::recipe::Recipe) -> String {
         use crate::recipe::{format_minutes, iso_duration};
         let rc = &self.site.config.recipes;
@@ -1724,7 +1928,7 @@ impl<'a> Renderer<'a> {
             String::from("<div class=\"ob-container\">\n<section class=\"ob-section\">\n");
         body.push_str(&self.heading(theme, 1, "Search", "ob-section-heading"));
         body.push_str(
-            "\n<ob-search index=\"/search.json\" wasm=\"/assets/wasm/openblog_wasm.js\">\n<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\"><label for=\"q\">Search posts</label><input id=\"q\" name=\"q\" type=\"search\" autocomplete=\"off\" placeholder=\"Rust, web components, …\"></form>\n<p class=\"ob-search-status\" role=\"status\" aria-live=\"polite\"></p>\n<ol class=\"ob-search-results\"></ol>\n</ob-search>\n<noscript><p>Search needs JavaScript. You can also browse the <a href=\"/archive/\">archive</a> or <a href=\"/tags/\">tags</a>.</p></noscript>\n",
+            "\n<ob-search index=\"/search.json\" wasm=\"/assets/wasm/openblog_wasm.js\">\n<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\" hidden><label for=\"q\">Search posts</label><input id=\"q\" name=\"q\" type=\"search\" autocomplete=\"off\" placeholder=\"Rust, web components, …\"></form>\n<p class=\"ob-search-status\" role=\"status\" aria-live=\"polite\"></p>\n<ol class=\"ob-search-results\"></ol>\n</ob-search>\n<noscript><p>Search needs JavaScript. You can also browse the <a href=\"/archive/\">archive</a> or <a href=\"/tags/\">tags</a>.</p></noscript>\n",
         );
         body.push_str("</section>\n</div>");
         let mut meta = self.meta_simple(theme, "Search", "Search every post.", "/search/");
@@ -2040,6 +2244,7 @@ mod tests {
             "llms-full.txt",
             "api/blog.json",
             "search.json",
+            "openblog-comments.json",
             "themes/base/tokens.css",
             "themes/loud/tokens.css",
         ] {
@@ -2200,6 +2405,47 @@ mod tests {
         assert!(page.contains("<fieldset><legend>What stays local?</legend>"));
         assert!(page.contains("data-correct=\"true\""));
         assert!(page.contains("Attempts remain in the browser."));
+    }
+
+    #[test]
+    fn native_fallbacks_keep_content_labels_links_and_controls_understandable() {
+        let files = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#,
+            &[(
+                "posts/cafe.md",
+                "---\ntitle: Café fallback\ndate: 2026-01-01\n---\nBefore the check.\n\n```quiz\nChoose the linked word.\n- [x] Café\n- [ ] Tea\n```\n\nAfter the check with [a relative link](/résumé/#work).\n",
+            )],
+        );
+        let page = file(&files, "cafe/index.html");
+        let prose = &page[page
+            .find("<div class=\"ob-prose e-content\">")
+            .expect("post body")..];
+
+        let before = prose.find("Before the check.").expect("leading prose");
+        let legend = prose
+            .find("<fieldset><legend>Choose the linked word.</legend>")
+            .expect("labelled static question");
+        let choices = prose
+            .find("<label class=\"ob-quiz-choice\"><input type=\"radio\"")
+            .expect("native selectable choices");
+        let after = prose.find("After the check").expect("trailing prose");
+        assert!(
+            before < legend && legend < choices && choices < after,
+            "content order changed: before={before}, legend={legend}, choices={choices}, after={after}"
+        );
+        assert!(page.contains(
+            "<noscript><p>Answer checking and retry need JavaScript; the question and choices remain readable.</p></noscript>"
+        ));
+        assert!(page.contains("href=\"/r%C3%A9sum%C3%A9/#work\""));
+
+        let search = file(&files, "search/index.html");
+        assert!(search.contains(
+            "<form class=\"ob-search-form\" role=\"search\" action=\"/search/\" method=\"get\" hidden>"
+        ));
+        assert!(search.contains("<label for=\"q\">Search posts</label>"));
+        assert!(search.contains("<noscript><p>Search needs JavaScript."));
+        assert!(search.contains("<a href=\"/archive/\">archive</a>"));
+        assert!(search.contains("<a href=\"/tags/\">tags</a>"));
     }
 
     #[test]
@@ -2515,6 +2761,54 @@ mod tests {
     }
 
     #[test]
+    fn video_posts_emit_video_object_metadata_and_privacy_enhanced_embeds() {
+        let post = "---\ntitle: Episode one\ndate: 2026-10-23\nprofile: video\nproductionStatus: editing\nseasonNumber: 2\nepisodeNumber: 4\nproductionCredits: Writing and direction by Mira; animation by Lantern Team\nvideoUrl: https://youtu.be/dQw4w9WgXcQ\nduration: 12 min 34 sec\nthumbnail: /images/episode.jpg\naiDisclosure: AI-assisted animation\n---\n## Transcript\nOpening narration.";
+        let files = build_posts(
+            r#"{"title":"Studio","url":"https://studio.example","postPath":"/{slug}/"}"#,
+            &[("posts/episode.md", post)],
+        );
+        let page = file(&files, "episode/index.html");
+        assert!(page.contains("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"));
+        assert!(page.contains("Video production summary"));
+        assert!(page.contains("Season 2, episode 4"));
+        assert!(page.contains("<dt>Status</dt><dd>editing</dd>"));
+        assert!(page.contains("Writing and direction by Mira; animation by Lantern Team"));
+
+        let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
+        let end = start + page[start..].find("</script>").unwrap();
+        let ld: serde_json::Value = serde_json::from_str(&page[start..end]).unwrap();
+        assert_eq!(ld["@type"], "VideoObject");
+        assert_eq!(ld["name"], "Episode one");
+        assert_eq!(
+            ld["embedUrl"],
+            "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"
+        );
+        assert_eq!(ld["duration"], "PT12M34S");
+        assert_eq!(
+            ld["thumbnailUrl"],
+            "https://studio.example/images/episode.jpg"
+        );
+        assert_eq!(ld["creditText"], "AI-assisted animation");
+    }
+
+    #[test]
+    fn incomplete_video_profiles_fall_back_to_article_metadata() {
+        let files = build_posts(
+            r#"{"title":"Studio","url":"https://studio.example","postPath":"/{slug}/"}"#,
+            &[(
+                "posts/episode.md",
+                "---\ntitle: Episode one\ndate: 2026-10-23\nprofile: video\n---\nProduction notes.",
+            )],
+        );
+        let page = file(&files, "episode/index.html");
+        let start = page.find("application/ld+json\">").unwrap() + "application/ld+json\">".len();
+        let end = start + page[start..].find("</script>").unwrap();
+        let ld: serde_json::Value = serde_json::from_str(&page[start..end]).unwrap();
+        assert_eq!(ld["@type"], "BlogPosting");
+        assert!(ld.get("embedUrl").is_none());
+    }
+
+    #[test]
     fn recipes_without_lists_warn() {
         let config = SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev"}"#).unwrap();
         let sources = Sources {
@@ -2660,6 +2954,50 @@ mod tests {
                 && !one.contains("ob-views")
                 && !one.contains("Related posts")
         );
+    }
+
+    #[test]
+    fn hosted_engagement_renders_comments_and_reuses_the_endpoint_for_views() {
+        let files = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","analytics":{"builtin":false,"showViews":true},"engagement":{"enabled":true,"comments":true,"analytics":true,"endpoint":"https://t.dev/api/"}}"#,
+            true,
+        );
+        let one = file(&files, "one/index.html");
+        assert!(one.contains("<ob-views path=\"/one/\" endpoint=\"https://t.dev/api\">"));
+        assert!(one.contains("<ob-comments path=\"/one/\" endpoint=\"https://t.dev/api\">"));
+
+        let policies = build_posts(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":true,"comments":true,"endpoint":"https://t.dev/api"}}"#,
+            &[
+                (
+                    "posts/locked.md",
+                    "---\ntitle: Locked\ndate: 2026-01-01\ncomments: locked\n---\nText",
+                ),
+                (
+                    "posts/hidden.md",
+                    "---\ntitle: Hidden\ndate: 2026-01-01\ncomments: hidden\n---\nText",
+                ),
+            ],
+        );
+        assert!(file(&policies, "locked/index.html").contains("mode=\"locked\""));
+        assert!(!file(&policies, "hidden/index.html").contains("<ob-comments"));
+        assert_eq!(
+            file(&policies, "openblog-comments.json"),
+            r#"{"/hidden/":"hidden","/locked/":"locked"}"#
+        );
+
+        let disabled = build(
+            r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","engagement":{"enabled":false,"endpoint":"https://t.dev/api"}}"#,
+            true,
+        );
+        assert!(!file(&disabled, "one/index.html").contains("<ob-comments"));
+        let disabled_policies: serde_json::Value =
+            serde_json::from_str(file(&disabled, "openblog-comments.json")).unwrap();
+        assert!(disabled_policies
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|policy| policy == "hidden"));
     }
 
     #[test]

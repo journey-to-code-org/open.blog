@@ -151,7 +151,7 @@ kbd {
 
 .oba-tab,
 .oba-btn {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0.45rem 1rem;
   border: var(--ob-border-width) solid var(--ob-color-border);
   border-radius: var(--ob-radius-sm);
@@ -369,6 +369,118 @@ kbd {
 
 .oba-dialog h2 {
   margin-top: 0;
+}
+
+.oba-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.oba-advanced-grid,
+.oba-module-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.oba-advanced-tool {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  min-height: 56px;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.oba-advanced-tool:hover,
+.oba-advanced-tool:focus-visible {
+  border-color: var(--ob-color-accent);
+}
+
+.oba-advanced-tool span {
+  color: var(--ob-color-subtle);
+  font-size: 0.85rem;
+}
+
+.oba-preferences-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.oba-essential-note,
+.oba-module-fieldset {
+  margin-top: 1rem;
+  padding: 0.85rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+}
+
+.oba-essential-note p {
+  margin-bottom: 0;
+}
+
+.oba-module-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0.35rem 0.5rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+}
+
+.oba-module-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.oba-module-row > span {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.oba-module-row .oba-btn {
+  min-width: 44px;
+  padding-inline: 0.6rem;
+}
+
+.oba-preferences-warning {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 5;
+  max-width: 30rem;
+  padding: 0.75rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+  box-shadow: var(--oba-shadow-lg);
+}
+
+html[data-admin-preset="simple"] .oba-progressive-tools {
+  display: none;
+}
+
+html[data-admin-preset="simple"] .oba-toolbelt {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-admin-density="compact"] .oba-workspace-content,
+html[data-admin-density="compact"] .oba-context-bar,
+html[data-admin-density="compact"] .oba-pane {
+  padding-block: 0.55rem;
 }
 
 .oba-command-dialog {
@@ -1093,14 +1205,325 @@ kbd {
 .oba-editor[data-editor-view="write"] .oba-markdown-pane,
 .oba-editor[data-editor-view="preview"] .oba-preview-pane,
 .oba-editor[data-editor-view="social"] .oba-social-pane,
+.oba-editor[data-editor-view="release"] .oba-release-pane,
+.oba-editor[data-editor-view="field"] .oba-field-pane,
 .oba-editor[data-editor-view="optimize"] .oba-optimize-pane,
 .oba-editor[data-editor-view="settings"] .oba-settings-pane,
 .oba-editor[data-editor-view="accessibility"] .oba-accessibility-pane,
-.oba-editor[data-editor-view="evidence"] .oba-evidence-pane {
+.oba-editor[data-editor-view="evidence"] .oba-evidence-pane,
+.oba-editor[data-editor-view="assistant"] .oba-assistant-pane {
   display: block;
 }
 
+.oba-assistant-workspace {
+  display: grid;
+  grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr);
+  gap: clamp(1rem, 3vw, 2.5rem);
+  align-items: start;
+  padding: clamp(1rem, 3vw, 2.5rem);
+}
+
+.oba-assistant-provider,
+.oba-assistant-empty {
+  padding: 1rem 1.1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-assistant-provider h3,
+.oba-assistant-empty h3,
+.oba-assistant-empty p {
+  margin-top: 0;
+}
+
+.oba-assistant-provider-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.oba-assistant-provider-heading h3 {
+  margin-bottom: 0;
+}
+
+.oba-assistant-status-badge {
+  padding: 0.25rem 0.55rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: 999px;
+  color: var(--ob-color-subtle);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.oba-assistant-status-badge[data-tone="ready"] {
+  border-color: color-mix(in srgb, var(--oba-success) 45%, transparent);
+  color: var(--oba-success);
+  background: color-mix(in srgb, var(--oba-success) 9%, transparent);
+}
+
+.oba-assistant-status-badge[data-tone="invalid"] {
+  border-color: color-mix(in srgb, var(--oba-danger) 45%, transparent);
+  color: var(--oba-danger);
+}
+
+.oba-assistant-status-copy {
+  margin: 0.7rem 0 1rem;
+  color: var(--ob-color-subtle);
+  line-height: 1.5;
+}
+
+.oba-assistant-provider details {
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-assistant-provider details > summary {
+  padding: 0.8rem 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.oba-assistant-provider-details .oba-social-meta {
+  margin: 0 0 0.9rem;
+}
+
+.oba-assistant-provider-settings-body {
+  padding: 0.15rem 0 0.25rem;
+}
+
+.oba-assistant-provider-settings-body > .oba-small:first-child {
+  margin-top: 0;
+}
+
+.oba-assistant-settings-note {
+  margin: 0.8rem 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--ob-radius-sm);
+  color: var(--ob-color-subtle);
+  background: var(--ob-color-surface);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.oba-assistant-settings-actions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.oba-assistant-settings-actions .oba-btn {
+  width: 100%;
+}
+
+.oba-btn-link {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.oba-assistant-main {
+  min-width: 0;
+}
+
+.oba-assistant-nav {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 1rem;
+}
+
+.oba-skill-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.oba-skill-card,
+.oba-skill-catalog-card {
+  display: flex;
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.85rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-skill-card > span,
+.oba-skill-card > span > span {
+  display: block;
+}
+
+.oba-skill-catalog-card {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.oba-skill-catalog-card h4,
+.oba-skill-catalog-card p {
+  margin: 0 0 0.35rem;
+}
+
+.oba-skill-card.is-invalid,
+.oba-skill-catalog-card.is-invalid {
+  border-style: dashed;
+  opacity: 0.82;
+}
+
+.oba-skill-errors {
+  flex-basis: 100%;
+  color: var(--oba-danger);
+}
+
+.oba-skill-errors ul {
+  margin-bottom: 0;
+}
+
+.oba-skill-editor {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-skill-editor textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--ob-font-mono);
+}
+
+.oba-review-group {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.oba-review-finding {
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-review-finding h5,
+.oba-review-finding p {
+  margin-top: 0;
+}
+
+.oba-review-finding blockquote,
+.oba-review-finding pre {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.oba-assistant-context-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: 1rem;
+}
+
+.oba-assistant-context-card,
+.oba-assistant-disclosure-panel {
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-assistant-context-card[data-visibility="private"] {
+  border-color: color-mix(in srgb, var(--oba-danger) 55%, var(--oba-panel-border));
+  background: color-mix(in srgb, var(--oba-danger) 6%, var(--ob-color-surface-raised));
+}
+
+.oba-assistant-context-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.oba-assistant-context-heading h4,
+.oba-assistant-disclosure-panel h4 {
+  margin: 0;
+}
+
+.oba-assistant-disclosure-panel {
+  margin-top: 1rem;
+}
+
+.oba-assistant-context-tools {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-assistant-source-preview {
+  max-height: 15rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+}
+
+.oba-url-context-preview {
+  margin-top: 1rem;
+}
+
+.oba-url-context-preview:empty {
+  display: none;
+}
+
+.oba-url-context-preview textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.oba-field-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+}
+
+.oba-field-chart {
+  margin: 0;
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-field-chart svg {
+  display: block;
+  width: 100%;
+}
+
+.oba-field-chart polyline {
+  fill: none;
+  stroke: var(--ob-color-accent);
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.oba-release-workspace {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 52rem);
+  margin-inline: auto;
+  padding: 1rem;
+}
+
+.oba-release-workspace > p,
+.oba-release-issues {
+  margin: 0;
+}
+
+.oba-release-output {
+  width: 100%;
+  min-height: 18rem;
+  resize: vertical;
+  font-family: var(--ob-font-mono);
+}
+
 .oba-body,
+.oba-rich-body,
 .oba-preview {
   display: block;
   width: 100%;
@@ -1120,6 +1543,155 @@ kbd {
   tab-size: 4;
 }
 
+.oba-body[hidden],
+.oba-rich-body[hidden] {
+  display: none;
+}
+
+.oba-autocomplete-controls {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface);
+}
+
+.oba-autocomplete-toggle {
+  width: fit-content;
+  font-weight: 700;
+}
+
+.oba-autocomplete-controls p {
+  margin: 0;
+}
+
+.oba-autocomplete-suggestion {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+}
+
+.oba-autocomplete-suggestion[hidden] {
+  display: none;
+}
+
+.oba-autocomplete-text {
+  white-space: pre-wrap;
+}
+
+.oba-rich-body {
+  min-height: 60vh;
+  padding: clamp(1rem, 3vw, 2.5rem);
+  overflow-wrap: anywhere;
+  color: var(--ob-color-text);
+  font-family: var(--ob-font-body);
+  font-size: var(--ob-body-size);
+  line-height: var(--ob-body-leading);
+  outline: none;
+}
+
+.oba-rich-body:focus-visible {
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--ob-color-accent) 35%, transparent);
+}
+
+.oba-rich-body > :first-child {
+  margin-top: 0;
+}
+
+.oba-rich-body > :last-child {
+  margin-bottom: 0;
+}
+
+.oba-rich-body h1,
+.oba-rich-body h2,
+.oba-rich-body h3,
+.oba-rich-body h4,
+.oba-rich-body h5,
+.oba-rich-body h6 {
+  font-family: var(--ob-font-heading);
+  line-height: var(--ob-heading-leading);
+}
+
+.oba-rich-body pre {
+  padding: 1rem;
+  overflow: auto;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-code-bg);
+  color: var(--ob-color-code-text);
+  font-family: var(--ob-font-mono);
+  white-space: pre-wrap;
+}
+
+.oba-rich-body blockquote {
+  margin-inline: 0;
+  padding-inline-start: 1rem;
+  border-inline-start: 0.25rem solid var(--ob-color-accent-border);
+  color: var(--ob-color-muted);
+}
+
+.oba-rich-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-block: 1rem;
+  border-radius: var(--ob-radius);
+}
+
+.oba-protected-block {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-block: 1rem;
+  padding: 0.85rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-protected-block > div:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.oba-protected-block span {
+  color: var(--ob-color-muted);
+  font-size: 0.82rem;
+}
+
+.oba-protected-actions,
+.oba-mode-switch {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.oba-protected-actions button,
+.oba-mode-button {
+  padding: 0.35rem 0.55rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.oba-mode-button[aria-pressed="true"] {
+  border-color: var(--ob-color-accent);
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+}
+
+.oba-editor-mode {
+  display: flex;
+  align-items: center;
+}
+
 .oba-format-toolbar {
   display: flex;
   gap: 0.25rem;
@@ -1127,6 +1699,16 @@ kbd {
   overflow-x: auto;
   border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
   background: var(--ob-color-surface-raised);
+}
+
+.oba-block-style {
+  min-width: 7.5rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  font-size: 0.82rem;
 }
 
 .oba-format-button {
@@ -1485,9 +2067,44 @@ kbd {
 
 .oba-editor-nav {
   display: flex;
+  align-items: flex-start;
   gap: 0.3rem;
   margin-bottom: 0.75rem;
   overflow-x: auto;
+}
+
+.oba-editor-primary,
+.oba-editor-advanced-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.oba-editor-advanced {
+  flex: none;
+}
+
+.oba-editor-advanced > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.45rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  cursor: pointer;
+}
+
+.oba-editor-advanced-actions {
+  position: absolute;
+  z-index: 4;
+  max-width: min(32rem, calc(100vw - 2rem));
+  margin-top: 0.35rem;
+  padding: 0.4rem;
+  flex-wrap: wrap;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+  box-shadow: var(--oba-shadow-lg);
 }
 
 .oba-small {
@@ -1591,6 +2208,10 @@ kbd {
   .oba-accessibility-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .oba-assistant-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 44rem) {
@@ -1605,6 +2226,7 @@ kbd {
   .oba-brand-copy,
   .oba-account-label,
   .oba-command-trigger > span,
+  .oba-personalize-trigger,
   .oba-tool-label {
     display: none;
   }
@@ -1623,6 +2245,18 @@ kbd {
     gap: 0.75rem;
     padding-block: 0.6rem;
     overflow-x: auto;
+  }
+
+  .oba-preferences-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-dialog-actions {
+    flex-wrap: wrap;
+  }
+
+  .oba-editor-primary {
+    min-width: max-content;
   }
 
   .oba-tool-group,

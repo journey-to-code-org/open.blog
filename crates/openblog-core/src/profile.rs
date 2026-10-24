@@ -6,12 +6,15 @@ use crate::frontmatter::FrontMatter;
 pub const ARTICLE_ID: &str = "article";
 pub const RECIPE_ID: &str = "recipe";
 pub const RESEARCH_ID: &str = "research";
+pub const VIDEO_ID: &str = "video";
+pub const FIELD_JOURNAL_ID: &str = "field-journal";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileFieldKind {
     Text,
     Number,
     Duration,
+    ProductionStatus,
 }
 
 impl ProfileFieldKind {
@@ -20,6 +23,7 @@ impl ProfileFieldKind {
             Self::Text => "text",
             Self::Number => "number",
             Self::Duration => "duration",
+            Self::ProductionStatus => "production-status",
         }
     }
 }
@@ -106,6 +110,102 @@ const RESEARCH_FIELDS: &[ProfileField] = &[
     },
 ];
 
+const VIDEO_FIELDS: &[ProfileField] = &[
+    ProfileField {
+        key: "productionStatus",
+        label: "Production status",
+        kind: ProfileFieldKind::ProductionStatus,
+        help: "Idea, scripting, storyboarding, generating, editing, scheduled, or released.",
+    },
+    ProfileField {
+        key: "seasonNumber",
+        label: "Season number",
+        kind: ProfileFieldKind::Number,
+        help: "Optional season number used in the production summary.",
+    },
+    ProfileField {
+        key: "episodeNumber",
+        label: "Episode number",
+        kind: ProfileFieldKind::Number,
+        help: "Optional episode number used in the production summary.",
+    },
+    ProfileField {
+        key: "productionCredits",
+        label: "Production credits",
+        kind: ProfileFieldKind::Text,
+        help: "Concise creator, direction, animation, or editing credits.",
+    },
+    ProfileField {
+        key: "videoUrl",
+        label: "YouTube URL",
+        kind: ProfileFieldKind::Text,
+        help: "Public YouTube watch, short, or Shorts URL.",
+    },
+    ProfileField {
+        key: "duration",
+        label: "Duration",
+        kind: ProfileFieldKind::Duration,
+        help: "Readable duration such as 12 min 34 sec.",
+    },
+    ProfileField {
+        key: "thumbnail",
+        label: "Video thumbnail",
+        kind: ProfileFieldKind::Text,
+        help: "Site-relative or absolute thumbnail URL for video discovery.",
+    },
+    ProfileField {
+        key: "aiDisclosure",
+        label: "AI assistance disclosure",
+        kind: ProfileFieldKind::Text,
+        help: "A concise, creator-authored note describing meaningful AI assistance.",
+    },
+];
+
+const FIELD_JOURNAL_FIELDS: &[ProfileField] = &[
+    ProfileField {
+        key: "activity",
+        label: "Activity",
+        kind: ProfileFieldKind::Text,
+        help: "Activity type, such as Hike, Paddle, or Field survey.",
+    },
+    ProfileField {
+        key: "location",
+        label: "Location",
+        kind: ProfileFieldKind::Text,
+        help: "A publishable place name; avoid sensitive or private locations.",
+    },
+    ProfileField {
+        key: "locationPrivacy",
+        label: "Location privacy",
+        kind: ProfileFieldKind::Text,
+        help: "exact, trimmed, approximate, or hidden. Hidden is the safe default.",
+    },
+    ProfileField {
+        key: "distanceKm",
+        label: "Distance (km)",
+        kind: ProfileFieldKind::Number,
+        help: "Route distance in kilometres.",
+    },
+    ProfileField {
+        key: "elevationGainM",
+        label: "Elevation gain (m)",
+        kind: ProfileFieldKind::Number,
+        help: "Accumulated elevation gain in metres.",
+    },
+    ProfileField {
+        key: "duration",
+        label: "Duration",
+        kind: ProfileFieldKind::Duration,
+        help: "Readable duration such as 2 hr 15 min.",
+    },
+    ProfileField {
+        key: "conditions",
+        label: "Conditions",
+        kind: ProfileFieldKind::Text,
+        help: "Creator-observed weather, trail, water, or habitat conditions.",
+    },
+];
+
 const PROFILES: &[ContentProfile] = &[
     ContentProfile {
         id: ARTICLE_ID,
@@ -125,6 +225,19 @@ const PROFILES: &[ContentProfile] = &[
         description: "A research article with portable references and scholarly metadata.",
         fields: RESEARCH_FIELDS,
     },
+    ContentProfile {
+        id: VIDEO_ID,
+        label: "Video production",
+        description: "A video companion page with production metadata and discovery markup.",
+        fields: VIDEO_FIELDS,
+    },
+    ContentProfile {
+        id: FIELD_JOURNAL_ID,
+        label: "Field journal",
+        description:
+            "An outdoor field note with route, conditions, observations, and location privacy.",
+        fields: FIELD_JOURNAL_FIELDS,
+    },
 ];
 
 pub fn catalog() -> &'static [ContentProfile] {
@@ -136,6 +249,8 @@ pub enum ProfileBehavior {
     Article,
     Recipe,
     Research,
+    Video,
+    FieldJournal,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -159,6 +274,8 @@ pub fn resolve(front_matter: &FrontMatter) -> ProfileResolution {
         let behavior = match normalized_id.as_str() {
             RECIPE_ID => ProfileBehavior::Recipe,
             RESEARCH_ID => ProfileBehavior::Research,
+            VIDEO_ID => ProfileBehavior::Video,
+            FIELD_JOURNAL_ID => ProfileBehavior::FieldJournal,
             _ => ProfileBehavior::Article,
         };
         let mut warnings = Vec::new();

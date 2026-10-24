@@ -5,6 +5,121 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added a checked custom-element and no-JavaScript contract, honest search and quiz fallback
+  messaging, and source-located accessibility findings for empty or unsafe authored fallbacks.
+- Added a shared portability compatibility corpus and golden gates for articles, research credits,
+  legacy recipes, interactions, media, comments, hostile input, unknown syntax, and explicit
+  draft/private exclusion.
+- Added one deterministic portable projection contract for HTML, Markdown, and text, and migrated
+  feeds and cross-posting to its shared canonical identity, attribution, references, provenance,
+  and safe absolute-link handling without reparsing source front matter.
+- Added private per-admin workspace personalization with Simple, Guided, Advanced, and Custom
+  layouts, optional-tool ordering, density and writing-mode preferences, and an always-available
+  Advanced tools drawer that keeps essential authoring and publishing controls visible.
+- Added `openblog syndicate <slug>` with dry-run planning, draft-first DEV, Hashnode,
+  Ghost, and WordPress adapters, guided Medium import, private remote-ID state, and
+  explicit two-step publication safety.
+- Added optional provider-neutral code-runner configuration for credential-free, explicitly
+  allowlisted executable lessons while preserving the official Rust Playground default and static
+  fallback for unsupported languages.
+- Expanded Assistant Interactions to propose strictly validated Rust, web, and configured-runner
+  examples or coding challenges without executing code in the blog or Admin process.
+- Added dependency-free `web runnable` HTML/CSS/JavaScript sandboxes with editable tabs and a
+  CSP-restricted opaque-origin preview.
+- Added structured video production stages, season/episode numbers, credits, an Admin workflow,
+  and a complete fictional Zhalendor example production post.
+- Added per-post open, locked, and hidden comment policies plus pending, approved, and rejected
+  Admin moderation queues.
+
+- Added optional Supabase-backed Netlify Functions for moderated comments and persistent,
+  privacy-respecting view analytics, with a checked-in SQL schema and deployment guide.
+- Added hosted engagement settings and pending-comment moderation to Admin Analytics. Public
+  endpoints live in `openblog.json`; the matching Admin token is write-only, privately protected,
+  bound to its endpoint origin, and can be overridden with `OPENBLOG_ENGAGEMENT_API_KEY` plus
+  `OPENBLOG_ENGAGEMENT_API_ORIGIN`. Admin requests reject redirects and public writes use
+  Supabase-backed per-client and per-site quotas.
+- Expanded Assistant Interactions with editable runnable Rust examples and bounded coding challenges,
+  including selected-section grounding, visible TODO and expected-result requirements, explicit
+  insertion in Visual or Markdown mode, and a non-AI authoring path.
+- Updated the Learning design review skill and versioned publishing-engine guide so recommendations
+  distinguish recall checks, exploratory examples, and guided coding practice without inventing
+  unsupported languages, multi-file projects, hidden tests, or automatic grading.
+
+## [0.12.0] - 2026-10-24
+
+- Added native Assistant integrations for OpenAI, Google Gemini, xAI Grok, DeepSeek, Mistral AI,
+  and OpenRouter with fixed official destinations, provider-specific environment credentials,
+  structured-output adapters, editable model choices, and strict local result validation.
+- Added a versioned publishing-engine guide to Assistant requests so reviews, quiz proposals, and
+  autocomplete understand native open.blog syntax, profiles, scheduling, and source boundaries.
+- Added safe local application and one-step undo for exact AI review suggestions, with Unicode range
+  handling and fail-closed stale, ambiguous, repeated, and overlapping edit detection.
+- Added session-only opt-in AI autocomplete for Visual and Markdown writing, with explicit data
+  disclosure, debouncing, selected context, stale-response suppression, abort-on-navigation, and
+  author-controlled accept or dismiss actions.
+- Completed Assistant Interactions by connecting it to the reviewed knowledge-check proposal flow.
+- Added a CI-enforced documentation link and heading-anchor check, and expanded the documentation
+  index and project overview to cover the completed author-time Assistant workflows.
+
+## [0.11.2] - 2026-10-23
+
+- Grounded Assistant reviews in trusted open.blog renderer capabilities so native quiz and
+  runnable Rust fences are reviewed for authoring quality without being misreported as unsupported.
+
+## [0.11.1] - 2026-10-23
+
+- Made review verification labels context-aware and conservatively downgraded unsupported
+  `supplied-context` claims to unverified advice instead of discarding an otherwise valid review.
+- Extended native Anthropic Assistant requests to four minutes while preserving the existing
+  30-second custom-provider deadline, allowing first-use structured-output grammar compilation.
+- Constrained native Anthropic Assistant replies with task-specific JSON schemas so every review
+  finding includes its required source range, and safely re-anchors incorrect provider offsets
+  when their exact evidence occurs only once in the reviewed Markdown.
+- Fixed Anthropic reviews that could spend the entire output budget on adaptive thinking before
+  returning JSON, and now report safe, actionable stop-reason errors for empty responses.
+- Added native Anthropic Claude support with the correct Messages API authentication and response
+  adapter, plus an author-friendly provider choice that keeps custom HTTPS integrations compatible.
+- Added an Assistant provider settings panel for endpoint and model configuration plus write-only
+  private credential replacement and clearing, with environment credentials taking precedence.
+- Refined Assistant provider setup into a compact connection card with clear status, progressive
+  disclosure, author-friendly guidance, and confirmed credential removal.
+
+## [0.11.0] - 2026-10-23
+
+### Added
+
+- Added a post Assistant workspace with keyboard and command-palette navigation, labelled
+  Review, Interactions, and Context areas, and an authenticated credential-safe provider
+  capability summary that leaves non-AI authoring available when configuration is missing.
+- Added portable and private author/site Assistant context management with bounded UTF-8 files,
+  atomic conflict-safe saves, Git safety warnings, publish exclusions, and a selected-context
+  disclosure preview.
+- Added portable and private post briefs, bounded Markdown/text references, and immutable existing-
+  post snapshots to Assistant context, including transactional post rename and deletion handling.
+- Added explicit URL-context snapshots with inspect-before-save metadata, selectable portable or
+  private storage, SSRF-safe DNS and redirect validation, and bounded textual extraction without
+  implicit refetching.
+- Added seven inspectable, non-executable Markdown review skills plus validated project skills,
+  explicit built-in overrides, repair guidance, and conflict-safe editing.
+- Added document review over the current unsaved draft with selected skills and context, strict
+  all-or-nothing structured findings, source anchoring, provider disclosure, and clearly labelled
+  AI advice that never edits or saves the draft automatically.
+- Added Visual and Markdown writing modes in Admin, with a remembered author preference,
+  Heading 2–6 selection, familiar rich-text controls, and protected advanced blocks that
+  retain source the visual editor cannot safely represent.
+
+- Added a Field journal content profile for hikes and other place-based notes, with field
+  facts, route and elevation drawings, structured place metadata, and hidden-by-default
+  location handling.
+- Added an Admin Field Review workflow that analyzes GPX locally, derives deterministic
+  measurements, trims endpoints, and uploads source tracks only when Exact mode is chosen.
+
+- Added a Video production content profile with privacy-enhanced YouTube embeds, duration
+  and thumbnail metadata, creator-authored AI-assistance disclosure, and `VideoObject`
+  structured data.
+- Added an Admin release kit that extracts timestamp lines from Markdown, validates YouTube
+  chapter rules, and composes a copy-ready description from the current draft.
+
 ## [0.10.1] - 2026-10-23
 
 ### Added
@@ -224,7 +339,11 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.2...v0.12.0
+[0.11.2]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.1...v0.11.2
+[0.11.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.0...v0.11.1
+[0.11.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.8.0...v0.9.0

@@ -11,32 +11,51 @@ If you are new, read these in order; each one stands alone otherwise.
    counts on a static host, and a counter you can host for free.
 5. [Cross-posting](cross-posting.md): safely syndicate articles to Hashnode, DEV, Medium,
    Ghost, and WordPress without leaking credentials or creating duplicate originals.
-6. [Themes and the design system](themes.md): how a theme is built from design tokens,
+6. [Content capability portability](content-portability.md): the evidence-backed matrix of
+   implemented, partial, and planned behavior across native pages, feeds, preview, and syndication.
+7. [Portable projection contract](portable-projection.md): how the parsed post becomes
+   destination-neutral HTML, Markdown, and text with shared identity, attribution, references,
+   provenance, and link resolution.
+8. [Native HTML and no-JavaScript behavior](no-javascript.md): the checked
+   progressive-enhancement contract for every built-in custom element.
+9. [Themes and the design system](themes.md): how a theme is built from design tokens,
    light and dark, per-series themes, and making your own.
-7. [Adding web components to a theme](theme-components.md): scripts, heading effects,
+10. [Adding web components to a theme](theme-components.md): scripts, heading effects,
    and the demo theme to copy from.
-8. [The admin editor](admin.md): the writing workspace, production-faithful theme and
-   social previews, search, answer-readiness and accessibility guidance, scheduling, and
-   safe operation.
-9. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
-   syntax highlighting, related posts, a CDN, and slots for comments or newsletters.
-10. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
+11. [The admin editor](admin.md): the writing workspace, production-faithful theme and
+   social previews, search, answer-readiness and accessibility guidance, optional AI review,
+   safe suggestion application, knowledge-check proposals, opt-in autocomplete, provider
+   configuration, scheduling, and safe operation.
+12. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
+   Supabase-backed Netlify comments and analytics, syntax highlighting, related posts, a CDN, and
+   slots for comments or newsletters.
+13. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
    and machine-access analytics.
-11. [Accessibility checks and manual review](accessibility.md): source findings, outcome
+14. [Accessibility checks and manual review](accessibility.md): source findings, outcome
    meanings, known limits, and a rendered-site review workflow.
-12. [Research posts and Evidence Studio](research-profile.md): DOI and license fields,
+15. [Research posts and Evidence Studio](research-profile.md): DOI and license fields,
    visible references, contributor-credit demonstration, scholarly metadata, deterministic
    evidence checks, and their limits.
-13. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-14. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
-15. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
+16. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
+   chapter validation, structured data, and reusable release copy.
+17. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,
+   trail facts, route drawings, and enforceable location-privacy modes.
+18. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+19. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+20. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
+The [semantic portability decision](adr/0004-semantic-portability.md) defines how one canonical
+domain representation becomes destination-specific output without creating a duplicate document
+model. The [shared-publication language decision](adr/0005-shared-publication-language.md) separates
+private collaboration, source material, and draft approval from canonical posts and public credit.
 
 Current design frontiers include
 [contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),
-which defines the incremental path from one site author to ordered, work-specific credit.
+which defines the incremental path from one site author to ordered, work-specific credit, and
+[Assistant provider APIs](research/assistant-provider-apis.md), which records the native-provider
+contracts and why GitHub Copilot is not exposed as a generic API provider.
 
 ## Command reference
 

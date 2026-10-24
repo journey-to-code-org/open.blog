@@ -27,6 +27,94 @@ The public intellectual or creative work represented by a document, independent 
 or presentation.
 _Avoid_: Page when identity rather than location is meant
 
+## Shared publication collaboration
+
+These terms describe private collaboration before publication. They do not replace the public
+attribution terms under [Evidence and identity](#evidence-and-identity), and they do not make
+collaboration state part of a document or post.
+
+**Shared publication**:
+A collaboration effort that brings one or more ordered source references and one or more ordered
+participants toward a possible published work. It is pre-publication state, not another kind of
+Post or Published work.
+_Avoid_: Pair, co-authored post, published work before publication
+
+**Source reference**:
+A bounded, ordered description of material that prompted or informs a shared publication. It is
+not automatically evidence cited by the resulting work and does not replace a Citation, Reference,
+canonical URL, or Work identifier.
+_Avoid_: Citation when there is no in-text pointer, canonical source, provider response
+
+**Participant**:
+A person represented by a stable opaque ID within one shared publication. Participation grants no
+site administration authority and implies neither public credit nor authorship.
+_Avoid_: Contributor, Author, Admin user, left participant, right participant
+
+**Collaboration role**:
+A responsibility held by a participant within the collaboration workflow, such as coordinating or
+reviewing. It is not a public Work credit role and must not be promoted to one implicitly.
+_Avoid_: Work credit, global job title, authorization claim
+
+**Contribution draft**:
+Untrusted, participant-associated draft material offered to a shared publication. It remains
+collaboration state until an explicit assembly and publication path incorporates it into the
+author-owned Document.
+_Avoid_: Post, canonical content, public contribution disclosure
+
+**Reveal**:
+Permission for an ordered collection of participants to receive one contribution draft. A reveal
+does not publish the draft, approve an assembly, or imply a two-person exchange.
+_Avoid_: Publication, approval, left-to-right handoff
+
+**Approval**:
+One participant's consent to exactly one revision of collaboration state. Approval alone does not
+define quorum, authorize publication, or assign public credit.
+_Avoid_: Publication, Work credit, timeless consent
+
+**Published assembly**:
+The result of explicitly selecting and ordering source references and contribution drafts for
+incorporation into canonical content. It names the publication-time assembly, not a second stored
+Post or Published work, and participant order does not determine public credit; publication
+resolves credit through the existing Work credit model.
+_Avoid_: Collaboration transcript, automatic byline, second canonical document
+
+## Semantic portability
+
+These terms implement the invariant adopted in
+[ADR 0004](docs/adr/0004-semantic-portability.md): open.blog has one semantic model of a
+document and derives destination-specific output from it.
+
+**Semantic representation**:
+The destination-independent meaning loaded from a document, including its content, metadata,
+identity, attribution, references, and publishing capabilities.
+_Avoid_: Presentation widget, destination payload, a second editable document model
+
+**Portable representation**:
+A destination-ready projection derived from the semantic representation without changing the
+canonical document. It may use destination-specific syntax while preserving the same meaning.
+_Avoid_: Canonical source, independent copy, provider object
+
+**Portable fallback**:
+An explicit substitute used when a destination cannot carry a publishing capability directly,
+chosen to preserve useful meaning, attribution, reference identity, canonical URL, and source
+provenance as far as that destination allows.
+_Avoid_: Silent downgrade, best-effort copy with unreported loss
+
+**Portability level**:
+The destination policy's declared outcome for one capability: Fully portable, Gracefully
+transformed, or Canonical-only interaction.
+_Avoid_: Quality score, destination support badge, presentation mode
+
+**Semantic loss**:
+Meaning, identity, attribution, provenance, or interaction that a portable representation cannot
+preserve and therefore reports explicitly.
+_Avoid_: Formatting difference with no change in meaning, unreported omission
+
+**Destination policy**:
+The rules that map publishing capabilities to a portability level, allowed portable fallback,
+and required semantic-loss report for one destination.
+_Avoid_: Destination payload schema, UI component configuration, remote state
+
 ## Evidence and identity
 
 **Citation**:

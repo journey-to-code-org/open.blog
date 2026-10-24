@@ -8,12 +8,14 @@ use crate::accessibility::{self, AccessibilityFinding, DocumentAuditInput};
 use crate::config::SiteConfig;
 use crate::contributor::{self, CreditProvenance, ResolvedCredit};
 use crate::date::DateTime;
+use crate::field_journal::FieldJournalMetadata;
 use crate::frontmatter::{self, FrontMatter};
-use crate::markdown::{self, Heading, RenderOptions};
+use crate::markdown::{self, CodeRunnerRenderOptions, Heading, RenderOptions};
 use crate::profile::{self, ProfileBehavior};
 use crate::recipe::Recipe;
 use crate::research::{self, EvidenceFinding, ResearchMetadata};
 use crate::slug::{from_file_stem, slugify};
+use crate::video::VideoMetadata;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceFile {
@@ -124,6 +126,25 @@ pub struct TagRef {
     pub slug: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CommentsPolicy {
+    #[default]
+    Open,
+    Locked,
+    Hidden,
+}
+
+impl CommentsPolicy {
+    fn parse(value: Option<&str>) -> Result<Self, String> {
+        match value.unwrap_or("open").trim().to_ascii_lowercase().as_str() {
+            "" | "open" | "true" => Ok(Self::Open),
+            "locked" => Ok(Self::Locked),
+            "hidden" | "false" => Ok(Self::Hidden),
+            _ => Err("comments must be `open`, `locked`, or `hidden`".into()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Post {
     pub title: String,
@@ -141,6 +162,7 @@ pub struct Post {
     pub cover_alt: String,
     pub description: String,
     pub draft: bool,
+    pub comments: CommentsPolicy,
     /// `<link rel="canonical">` override, for cross-posted articles.
     pub canonical: Option<String>,
     /// Where the article was first published (shown in the footer).
@@ -149,6 +171,8 @@ pub struct Post {
     pub theme: Option<String>,
     /// Old addresses that redirect here (`/old-slug/`), for moved or renamed posts.
     pub aliases: Vec<String>,
+    /// Canonical authored Markdown body retained from the one source parse.
+    pub markdown: String,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -169,11 +193,17 @@ pub struct Post {
     pub recipe: Option<Recipe>,
     /// Set for posts using the research profile: identifiers and evidence metadata.
     pub research: Option<ResearchMetadata>,
+    /// Set for posts using the video-production profile.
+    pub video: Option<VideoMetadata>,
+    /// Set for outdoor logs using the field-journal profile.
+    pub field_journal: Option<FieldJournalMetadata>,
     /// Per-post code-block overrides from front matter (`highlight`, `lineNumbers`).
     pub code_highlight: Option<bool>,
     pub code_line_numbers: Option<bool>,
     /// The source file this post came from.
     pub source: String,
+    /// Stable cross-publishing identity, when explicitly authored.
+    pub syndication_id: Option<String>,
 }
 
 impl Post {
@@ -268,6 +298,12 @@ impl Site {
             heading_anchors: config.markdown.heading_anchors,
             embeds: config.markdown.embeds,
             recipe: false,
+            code_runner: (!config.code_runner.endpoint.is_empty()).then_some(
+                CodeRunnerRenderOptions {
+                    endpoint: &config.code_runner.endpoint,
+                    languages: &config.code_runner.languages,
+                },
+            ),
         };
         let credit_sidecars = associate_credit_sidecars(&sources);
         errors.extend(credit_sidecars.errors.iter().cloned());
@@ -666,11 +702,11 @@ fn optional_string(value: Option<&str>) -> Option<String> {
 pub fn load_post(
     file: &SourceFile,
     config: &SiteConfig,
-    options: RenderOptions,
+    options: RenderOptions<'_>,
 ) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
-    let profile = profile::resolve(fm);
+    let mut profile = profile::resolve(fm);
     let is_recipe = profile.behavior == ProfileBehavior::Recipe;
     let rendered = markdown::render(
         &doc.body,
@@ -695,6 +731,10 @@ pub fn load_post(
     };
     let research = (profile.behavior == ProfileBehavior::Research)
         .then(|| ResearchMetadata::from_source(fm, &doc.body, doc.body_line));
+    let video =
+        (profile.behavior == ProfileBehavior::Video).then(|| VideoMetadata::from_front_matter(fm));
+    let field_journal = (profile.behavior == ProfileBehavior::FieldJournal)
+        .then(|| FieldJournalMetadata::from_front_matter(fm));
 
     let title = match first(fm, &["title"]) {
         Some(t) => t.to_string(),
@@ -713,6 +753,7 @@ pub fn load_post(
     }
     let draft = fm.get_bool("draft").unwrap_or(false)
         || first(fm, &["status"]).is_some_and(|s| s.eq_ignore_ascii_case("draft"));
+    let comments = CommentsPolicy::parse(first(fm, &["comments"]))?;
     let date = match first(fm, &["date", "published", "publishedAt", "pubDate"]) {
         Some(raw) => DateTime::parse(raw)
             .ok_or_else(|| format!("unrecognised date `{raw}` (use YYYY-MM-DD or RFC 3339)"))?,
@@ -758,6 +799,29 @@ pub fn load_post(
         .unwrap_or_else(|| markdown::excerpt(&rendered.text, 180));
     let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]));
     let cover = authored_cover.clone().or(rendered.first_image.clone());
+    if let Some(video) = &video {
+        if video.url.is_none() {
+            profile
+                .warnings
+                .push("video profile needs a `videoUrl`".to_string());
+        } else if video.youtube_id.is_none() {
+            profile.warnings.push(
+                "video profile `videoUrl` must be a supported YouTube watch, short, or Shorts URL"
+                    .to_string(),
+            );
+        }
+        if video.thumbnail.is_none() && cover.is_none() {
+            profile.warnings.push(
+                "video profile needs a `thumbnail` or `cover` for discovery metadata".to_string(),
+            );
+        }
+        if !video.has_known_production_status() {
+            profile.warnings.push(format!(
+                "video profile `productionStatus` must be one of: {}",
+                crate::video::PRODUCTION_STATUSES.join(", ")
+            ));
+        }
+    }
     let cover_alt = first(fm, &["coverAlt", "imageAlt", "cover_alt"])
         .unwrap_or("")
         .to_string();
@@ -790,6 +854,7 @@ pub fn load_post(
         cover_alt,
         description,
         draft,
+        comments,
         canonical: optional_string(first(fm, &["canonical", "canonicalUrl", "canonical_url"])),
         source_url: optional_string(first(
             fm,
@@ -797,6 +862,7 @@ pub fn load_post(
         )),
         theme: optional_string(first(fm, &["theme"])),
         aliases: aliases(fm)?,
+        markdown: doc.body.clone(),
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
@@ -811,6 +877,8 @@ pub fn load_post(
         evidence,
         recipe,
         research,
+        video,
+        field_journal,
         code_highlight: fm
             .get_bool("highlight")
             .or_else(|| fm.get_bool("codeHighlighting")),
@@ -818,6 +886,7 @@ pub fn load_post(
             .get_bool("lineNumbers")
             .or_else(|| fm.get_bool("showLineNumbers")),
         source: file.path.clone(),
+        syndication_id: optional_string(first(fm, &["syndicationId", "syndication_id"])),
     })
 }
 
@@ -826,7 +895,7 @@ pub fn load_post(
 pub fn load_post_with_credits(
     file: &SourceFile,
     config: &SiteConfig,
-    options: RenderOptions,
+    options: RenderOptions<'_>,
     sidecar: Option<&SourceFile>,
 ) -> Result<Post, String> {
     if let Some(sidecar) = sidecar {
@@ -864,7 +933,7 @@ fn apply_credits(
     Ok(())
 }
 
-fn load_series(file: &SourceFile, options: RenderOptions) -> Result<Series, String> {
+fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
     let rendered = markdown::render(&doc.body, options);
@@ -902,7 +971,7 @@ fn load_series(file: &SourceFile, options: RenderOptions) -> Result<Series, Stri
     })
 }
 
-fn load_page(file: &SourceFile, options: RenderOptions) -> Result<Page, String> {
+fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
     let rendered = markdown::render(&doc.body, options);
@@ -1081,6 +1150,35 @@ mod tests {
             errors[0].contains("exactly one correct choice"),
             "{errors:?}"
         );
+    }
+
+    #[test]
+    fn validates_comment_policy_and_video_production_status() {
+        let config = SiteConfig::default();
+        let invalid_comments = load_post(
+            &post(
+                "posts/comments.md",
+                "---\ntitle: Comments\ndate: 2026-01-01\ncomments: sometimes\n---\nText",
+            ),
+            &config,
+            RenderOptions::default(),
+        )
+        .unwrap_err();
+        assert!(invalid_comments.contains("comments must be"));
+
+        let video = load_post(
+            &post(
+                "posts/video.md",
+                "---\ntitle: Video\ndate: 2026-01-01\nprofile: video\nproductionStatus: waiting-on-magic\n---\nText",
+            ),
+            &config,
+            RenderOptions::default(),
+        )
+        .unwrap();
+        assert!(video
+            .profile_warnings
+            .iter()
+            .any(|warning| warning.contains("productionStatus")));
     }
 
     #[test]

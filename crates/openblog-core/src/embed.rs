@@ -10,6 +10,10 @@
 
 use crate::escape::{attr, text};
 
+/// Origins used by frames produced by this module. Preview security policies
+/// consume the same allowlist so adding a provider cannot silently break them.
+pub const FRAME_SOURCES: &str = "https://codepen.io https://www.youtube-nocookie.com";
+
 /// A recognised embed: the frame address and what to call it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Embed {
@@ -25,6 +29,46 @@ fn safe_segment(s: &str) -> bool {
         && s.len() <= 64
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Return the canonical id from a supported YouTube URL. Requiring the exact
+/// host and the platform's 11-character id keeps the rebuilt embed URL safe.
+pub fn youtube_video_id(url: &str) -> Option<String> {
+    let rest = url
+        .trim()
+        .strip_prefix("https://")
+        .or_else(|| url.trim().strip_prefix("http://"))?;
+    let (host, path) = rest.split_once('/')?;
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    let candidate = match host {
+        "youtu.be" => path.split(['?', '#', '/']).next()?,
+        "youtube.com" | "m.youtube.com" => {
+            if let Some(path) = path.strip_prefix("watch?") {
+                path.split('&').find_map(|part| part.strip_prefix("v="))?
+            } else if let Some(path) = path.strip_prefix("shorts/") {
+                path.split(['?', '#', '/']).next()?
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+    (candidate.len() == 11
+        && candidate
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+    .then(|| candidate.to_string())
+}
+
+fn youtube(url: &str) -> Option<Embed> {
+    let id = youtube_video_id(url)?;
+    Some(Embed {
+        provider: "youtube",
+        frame_src: format!("https://www.youtube-nocookie.com/embed/{id}"),
+        title: format!("YouTube video {id}"),
+        link: format!("https://www.youtube.com/watch?v={id}"),
+        link_label: "Watch on YouTube".to_string(),
+    })
 }
 
 /// `https://codepen.io/<user>/pen/<id>` (also `/full/`, `/details/`, `/embed/`,
@@ -72,7 +116,7 @@ pub fn detect(url: &str) -> Option<Embed> {
         .and_then(|u| u.strip_suffix(']'))
         .unwrap_or(url)
         .trim();
-    codepen(url)
+    youtube(url).or_else(|| codepen(url))
 }
 
 pub fn html(embed: &Embed) -> String {
@@ -115,6 +159,23 @@ mod tests {
                 .frame_src,
             "https://codepen.io/team/acme/embed/xyz?default-tab=result"
         );
+    }
+
+    #[test]
+    fn recognises_youtube_watch_short_and_shorts_urls() {
+        for url in [
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s",
+            "https://youtu.be/dQw4w9WgXcQ?si=example",
+            "https://youtube.com/shorts/dQw4w9WgXcQ",
+        ] {
+            let embed = detect(url).unwrap();
+            assert_eq!(embed.provider, "youtube");
+            assert_eq!(
+                embed.frame_src,
+                "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"
+            );
+            assert_eq!(embed.link, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        }
     }
 
     #[test]

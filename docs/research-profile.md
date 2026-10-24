@@ -66,7 +66,7 @@ an AI citation, or verification of the work.
 
 ## Evidence Studio and command-line checks
 
-Open **Evidence** in the admin or press `Alt+7`. The view uses the publishing engine's audit
+Open **Evidence** in the admin or press `Alt+9`. The view uses the publishing engine's audit
 of the current unsaved document and groups findings as Detected, Potential, or Needs review.
 It also shows the authored DOI (normalized to a resolver URL when valid), valid absolute
 license URL, and number of linked references. The
