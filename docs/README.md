@@ -39,6 +39,8 @@ If you are new, read these in order; each one stands alone otherwise.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
+The [shared-publication language decision](adr/0005-shared-publication-language.md) separates
+private collaboration, source material, and draft approval from canonical posts and public credit.
 
 Current design frontiers include
 [contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),
