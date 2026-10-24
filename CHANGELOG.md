@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added a versioned, group-safe collaboration contract in `openblog-core` with ordered
+  participant, contribution, reveal, layout, and approval collections, explicit size limits, a
+  derived two-person projection, revision-checked replacement, and one non-identifying error for
+  unsafe identifiers, spoofed names, profile URLs, Markdown, or unknown fields.
+
 ## [0.14.0] - 2026-10-24
 
 - Defined the semantic portability invariant and domain language for derived output,

@@ -5,6 +5,8 @@ use std::{collections::HashSet, fmt};
 
 use http::Uri;
 
+use crate::contributor;
+
 pub const COLLABORATION_CONTRACT_VERSION: u8 = 1;
 pub const MAX_CONTRACT_BYTES: usize = 256 * 1024;
 pub const MAX_PARTICIPANTS: usize = 100;
@@ -404,39 +406,53 @@ fn valid_id(value: &str) -> bool {
     valid_slug(value, MAX_IDENTIFIER_BYTES)
 }
 
+/// Opaque ASCII identifiers may later key files or URLs, so `.` is only a separator:
+/// dot segments such as `.` and `..` can never be expressed.
 fn valid_slug(value: &str, max_bytes: usize) -> bool {
     !value.is_empty()
         && value.len() <= max_bytes
-        && !value.starts_with(['-', '_'])
-        && !value.ends_with(['-', '_'])
+        && !value.starts_with(['-', '_', '.'])
+        && !value.ends_with(['-', '_', '.'])
+        && !value.contains("..")
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
+/// Identity text keeps ordinary Unicode, including joiners used by scripts and emoji, but
+/// rejects controls that could reorder another participant's name or make it invisible.
 fn valid_text(value: &str, max_bytes: usize) -> bool {
-    !value.trim().is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control)
+    value.len() <= max_bytes
+        && !value
+            .chars()
+            .any(|character| character.is_control() || is_bidi_control(character))
+        && value
+            .chars()
+            .any(|character| !character.is_whitespace() && !is_invisible(character))
 }
 
+fn is_bidi_control(character: char) -> bool {
+    matches!(
+        character,
+        '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+    )
+}
+
+fn is_invisible(character: char) -> bool {
+    matches!(
+        character,
+        '\u{200B}'..='\u{200D}' | '\u{2060}'..='\u{2064}' | '\u{FEFF}'
+    )
+}
+
+/// Reuse the contributor profile-link rules, narrowed to absolute HTTPS because a
+/// collaboration contract has no site context against which a relative link could resolve.
+/// Non-ASCII must be percent-encoded, which keeps bidi controls out of displayed links.
 fn valid_profile_url(value: &str) -> bool {
-    if value.len() > MAX_PROFILE_URL_BYTES
-        || value
-            .chars()
-            .any(|character| character.is_control() || character.is_whitespace())
-    {
-        return false;
-    }
-    let Ok(uri) = value.parse::<Uri>() else {
-        return false;
-    };
-    let Some(authority) = uri.authority() else {
-        return false;
-    };
-    uri.scheme_str() == Some("https")
-        && !authority.as_str().contains('@')
-        && !authority.host().is_empty()
-        && authority.host() != "."
-        && !authority.host().starts_with('.')
-        && !authority.host().ends_with('.')
-        && !authority.host().split('.').any(str::is_empty)
+    value.len() <= MAX_PROFILE_URL_BYTES
+        && value.is_ascii()
+        && value
+            .parse::<Uri>()
+            .is_ok_and(|uri| uri.scheme_str() == Some("https"))
+        && contributor::safe_profile_url(value)
 }

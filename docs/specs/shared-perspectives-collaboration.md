@@ -70,6 +70,11 @@ state cannot change source Markdown, canonical content, feeds, or public output.
 | Markdown per contribution | 64 KiB |
 | Layout region | 64 bytes |
 
+Byte limits count UTF-8 bytes, not characters. Each reveal and layout entry must name a distinct
+contribution, so those collections can never outgrow the contribution collection. The encoded
+contract limit also bounds the combined size of every contribution; validation is a single linear
+pass with set lookups, so cost grows only with the bounded input.
+
 ## Authorization policy
 
 Authentication, public attribution, and publication access remain three separate relationships:
@@ -132,8 +137,15 @@ denial cannot mutate canonical content or public output.
   identity claims therefore cannot enter this persisted/API shape.
 - IDs must be unique in their collection. Every participant or contribution reference must resolve,
   including after removals and reorders. Reveal recipients and approvals cannot repeat.
-- Profile URLs must be absolute HTTPS URLs without credentials, control characters, or whitespace.
-- Display names reject control characters. Contribution Markdown is retained as untrusted source,
+- Identifiers and layout regions are opaque ASCII letters, digits, `-`, `_`, and `.`; they cannot
+  start or end with a separator or contain `..`, so dot segments and path traversal cannot be
+  expressed if a later consumer keys files or URLs by them.
+- Profile URLs reuse the contributor profile-link rules, narrowed to absolute HTTPS: no
+  credentials, invalid ports, empty host labels, control characters, or whitespace. Non-ASCII must
+  be percent-encoded (hosts in punycode), which also keeps bidi controls out of displayed links.
+- Display names keep ordinary Unicode, including the joiners used by scripts and emoji, but reject
+  control characters, bidi embedding/override/isolate marks, and names made only of whitespace or
+  invisible characters, so one participant cannot render as another or as nobody. Contribution Markdown is retained as untrusted source,
   bounded, and rejected when it contains a NUL byte. A future display surface must pass it through
   open.blog's normal Markdown and HTML-safety pipeline; the contract never renders it.
 - Parsing and validation return one non-identifying error. The error does not echo Markdown, URLs,
@@ -146,9 +158,13 @@ denial cannot mutate canonical content or public output.
 
 ## Testing contract
 
-Property-style fixtures cover groups of 1, 2, 3, and 10 participants, reordered participants,
-duplicates, and references to a removed participant. Boundary fixtures cover untrusted fields,
-identities, URLs, Markdown, atomic revision replacement, and private errors. Because this module has
+Property-style fixtures cover groups of 1, 2, 3, 10, and the maximum participant count, reordered
+participants, duplicates in every collection, and removals that either purge every reference or
+leave one dangling. The pair projection is checked to exist only for two participants and to add no
+persisted state, and every serialized key of the contract and authorization policy is checked for
+pair-specific names. Boundary fixtures cover each limit, untrusted fields, dot-segment and
+lookalike identifiers, Unicode and spoofed display names, URLs, verbatim hostile Markdown, stale,
+replayed, skipped, and exhausted revisions, and private errors. Because this module has
 no renderer, Admin, filesystem, or network integration, canonical content and public output remain
 unchanged by construction.
 

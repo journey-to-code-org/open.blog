@@ -50,6 +50,12 @@ A person represented by a stable opaque ID within one shared publication. Partic
 site administration authority and implies neither public credit nor authorship.
 _Avoid_: Contributor, Author, Admin user, left participant, right participant
 
+**Pair projection**:
+A derived, unpersisted view that presents a shared publication with exactly two ordered
+participants as first and second UI slots. It reads the ordinary group collections and adds no
+state, so changing the group size never requires a migration.
+_Avoid_: Pair, couple, left/right fields, author A/B
+
 **Collaboration role**:
 A responsibility held by a participant within the collaboration workflow, such as coordinating or
 reviewing. It is not a public Work credit role and must not be promoted to one implicitly.
