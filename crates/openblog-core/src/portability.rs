@@ -1593,16 +1593,129 @@ A[^a b].
             raw_html_losses(&output),
             [
                 "Removed 1 duplicate, reserved, or invalid id.",
-                "Renamed 3 duplicate or reserved heading ids."
+                "Renamed 4 duplicate or reserved heading ids."
             ]
         );
-        // The native page gives the slugged heading its own id too.
-        let (_, site) =
-            public_post("---\ntitle: Work\ndate: 2026-10-01\n---\n## Foo {#bar}\n\n## Bar\n");
+    }
+
+    #[test]
+    fn native_heading_slugs_keep_their_existing_targets() {
+        // A slug that a later `{#id}` repeats keeps its id on the native page,
+        // so published `#bar` links still reach the first heading.
+        let source = "---\ntitle: Work\ndate: 2026-10-01\n---\n## Bar\n\n## Foo {#bar}\n\n## Foo\n";
+        let (_, site) = public_post(source);
+        let html = &site.posts[0].html;
+        assert_eq!(html.matches("<h2 id=\"bar\"").count(), 2, "{html}");
+        assert!(html.contains("<h2 id=\"foo-2\""), "{html}");
+        assert!(!html.contains("bar-2"), "{html}");
+        // The portable copy keeps the first target and renames the repeat.
+        let output = portable(source);
         assert!(
-            site.posts[0].html.contains("id=\"bar-2\""),
+            output.html.contains("<h2 id=\"bar\">Bar"),
             "{}",
-            site.posts[0].html
+            output.html
         );
+        assert!(
+            output.html.contains("<h2 id=\"bar-2\">Foo"),
+            "{}",
+            output.html
+        );
+    }
+
+    #[test]
+    fn portable_heading_ids_never_repeat_a_footnote_id() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n## Note\n\nText[^note] and more[^ob-comments].\n\n[^note]: A note.\n\n[^ob-comments]: Reserved.\n",
+        );
+        assert!(
+            output.html.contains("<h2 id=\"note-2\">"),
+            "{}",
+            output.html
+        );
+        assert_eq!(
+            output.html.matches("id=\"note\"").count(),
+            1,
+            "{}",
+            output.html
+        );
+        assert!(
+            output
+                .html
+                .contains("class=\"footnote-definition\" id=\"note\""),
+            "{}",
+            output.html
+        );
+        // A reserved footnote name loses its id in the copy; its citation
+        // still points at the note on the canonical article.
+        assert!(
+            !output.html.contains("id=\"ob-comments\""),
+            "{}",
+            output.html
+        );
+        assert!(
+            output.html.contains("/blog/work/#ob-comments"),
+            "{}",
+            output.html
+        );
+        assert_eq!(
+            raw_html_losses(&output),
+            [
+                "Removed 1 duplicate, reserved, or invalid id.",
+                "Renamed 1 duplicate or reserved heading id."
+            ]
+        );
+    }
+
+    #[test]
+    fn comments_split_by_a_blank_line_never_reach_the_portable_copy() {
+        // The blank line ends the `<div>` HTML block, so the rest of the
+        // comment arrives as a Markdown paragraph.
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n<div class=\"box\">\n<!-- TODO(private): Dana said\n\nthe source asked not to be named\n\n- *still* hidden\n\n<p>end of note --></p>\n</div>\n\nAfter <!-- inline --> text.\n",
+        );
+        assert!(!output.html.contains("Dana"), "{}", output.html);
+        assert!(!output.html.contains("source asked"), "{}", output.html);
+        assert!(!output.html.contains("hidden"), "{}", output.html);
+        assert!(!output.html.contains("end of note"), "{}", output.html);
+        assert!(!output.html.contains("&gt;"), "{}", output.html);
+        assert!(
+            output.html.contains("<div class=\"box\">"),
+            "{}",
+            output.html
+        );
+        assert!(output.html.contains("After  text."), "{}", output.html);
+        // A comment that would hide later content and is never closed fails.
+        let error = portable_error(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n<div>\n<!-- private\n\nstill private -->\n</div>\n\nPublic text.\n",
+        );
+        assert!(error.contains("comment"), "{error}");
+        assert!(!error.contains("private"), "{error}");
+    }
+
+    #[test]
+    fn a_stray_br_end_tag_still_breaks_the_line() {
+        let output = portable("---\ntitle: Work\ndate: 2026-10-01\n---\n<p>a<br/>b</br>c</p>\n");
+        assert!(
+            output.html.contains("<p>a<br>b<br>c</p>"),
+            "{}",
+            output.html
+        );
+    }
+
+    #[test]
+    fn recipe_sections_stay_well_nested_around_unclosed_raw_elements() {
+        let output = portable(
+            "---\ntitle: Tea\ndate: 2026-10-01\nprofile: recipe\n---\n## Steps\n\n<div class=\"tip\">\n\n1. Boil water.\n\n## Notes\n\nEnjoy.\n",
+        );
+        let html = &output.html;
+        let section_end = html.find("</section>").expect(html);
+        let div_end = html.find("</div>").expect(html);
+        assert!(div_end < section_end, "{html}");
+        assert_eq!(
+            html.matches("<div").count(),
+            html.matches("</div>").count(),
+            "{html}"
+        );
+        assert!(html.trim_end().ends_with("<p>Enjoy.</p>"), "{html}");
     }
 }

@@ -101,7 +101,7 @@ sanitizer API. The native page keeps passing raw HTML through, as before.
 | `<base>`, `<meta>`, `<link>`, `<input>`, `<source>`, `<track>`, `<area>` | Removed. |
 | `<iframe>`, `<frame>`, `<object>`, `<embed>`, `<video>`, `<audio>`, `<canvas>`, `<svg>`, `<math>` | Replaced with "**Video**: see it on the original article" (or Embedded frame, Embedded object, Interactive graphic, Illustration, Math), naming the element's `title` or `aria-label` when it has one. Nothing inside them is kept or checked. |
 | `<form>`, `<label>`, page landmarks (`<nav>`, `<main>`, `<header>`, `<footer>`), presentational tags (`<font>`, `<center>`), custom elements (including hand-written `<ob-…>` tags), and unknown elements | The tags (and their attributes) are removed; their content is kept. |
-| Comments, doctypes, processing instructions, and CDATA | Removed without a report, since they are never reader content and may hold private notes. An unterminated comment hides the rest of its block. |
+| Comments, doctypes, processing instructions, and CDATA | Removed without a report, since they are never reader content and may hold private notes. A comment left open at the end of its HTML block (for example one split by a blank line inside a `<div>`) keeps hiding everything after it, Markdown included, until a later raw `-->`, as in a browser; if it would hide authored content and is never closed, the projection fails for that post. |
 
 Every removal is reported once per kind as a `raw-html` capability (gracefully transformed,
 fallback `allowlisted-html`) whose `RemovedMarkup` diagnostics name the removed elements and
@@ -121,9 +121,10 @@ A `<base>` element is removed, so it cannot redirect relative URLs.
 keep their target; a legacy `<a name>` anchor becomes an `id`. An id that repeats an earlier raw
 id, a heading id, or a footnote id, that contains whitespace, or that starts with the reserved
 `ob-` prefix is removed and counted in the report; for a duplicate, the heading or first element
-keeps the anchor. A heading id (`{#id}` or a slug) that repeats an earlier heading's id or starts
-with `ob-` is renamed to a unique id without the prefix (`x-2`, `contributions-title`) and counted;
-slugs never reuse an id written elsewhere in the post. Like every fragment link, a link to a
+keeps the anchor. A heading id (`{#id}` or a slug) that repeats an earlier heading's id or a
+footnote id, or starts with `ob-`, is renamed to a unique id without the prefix (`x-2`,
+`contributions-title`) and counted, so the first heading keeps the id it has on the native page. A
+footnote named with the `ob-` prefix is written without an id and counted. Like every fragment link, a link to a
 removed or renamed id points at the canonical article, where the native page still has that id,
 so it reaches the original target there rather than a place in the portable copy.
 
@@ -134,8 +135,10 @@ report, so every portable image has alternative text; add a real `alt` to descri
 fragment, so hostile or broken markup costs time in proportion to its length.
 
 **Balance.** Kept elements are closed inside the Markdown container that opened them, a stray
-end tag is dropped, and anything still open at the end of the body is closed there, so the body
-can be embedded in any destination container without closing it early.
+end tag is dropped (a stray `</br>` is a line break, as in a browser), and anything still open at
+the end of the body is closed there. The finished body is then balanced once more as a whole, so
+an element left open in a recipe section closes before the section does, and the body can be
+embedded in any destination container without closing it early.
 
 **Bounds.** A portable body larger than `MAX_PORTABLE_HTML_BYTES` (2 MiB), or nested more than
 `MAX_PORTABLE_NESTING_DEPTH` (64) elements deep, fails the projection for that post with a

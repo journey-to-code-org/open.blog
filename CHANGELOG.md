@@ -32,8 +32,9 @@ All notable changes to open.blog are recorded here. Releases follow
   element is removed with it; a removed element opened in an HTML block that would hide later
   content and is never closed fails the projection; paragraphs left empty are dropped. Duplicate
   or `ob-` heading ids are renamed, raw images without `alt` get `alt=""`, and unterminated tags
-  no longer take quadratic time. Native heading slugs no longer reuse an explicit `{#id}`;
-  native pages are otherwise unchanged.
+  no longer take quadratic time. A comment split by a blank line inside an HTML block stays
+  hidden, heading ids never repeat a footnote id, and recipe sections stay well nested. Native
+  pages are unchanged.
 
 ## [0.15.0] - 2026-10-24
 

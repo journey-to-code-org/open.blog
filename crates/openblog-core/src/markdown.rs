@@ -1101,9 +1101,15 @@ fn apply_portable_footnotes<'a>(
                     escape::attr(&canonical_fragment(context.canonical_url, &name))
                 )
             } else {
+                // A name in the reserved `ob-` namespace is left off as an id;
+                // the projection reports it.
+                let id = if crate::raw_html::reserved_id(&name) {
+                    String::new()
+                } else {
+                    format!(" id=\"{}\"", escape::attr(&name))
+                };
                 format!(
-                    "<div class=\"footnote-definition\" id=\"{}\"><sup class=\"footnote-definition-label\">{number}</sup>\n",
-                    escape::attr(&name)
+                    "<div class=\"footnote-definition\"{id}><sup class=\"footnote-definition-label\">{number}</sup>\n"
                 )
             };
             Event::Html(CowStr::from(html))
@@ -1262,17 +1268,12 @@ pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
 }
 
 /// Give every heading its id: the `{#id}` the author wrote, or a slug of its
-/// text made unique within the post and against every written id. Done before
-/// rendering so the portable projection knows every heading anchor before it
-/// checks raw HTML ids.
+/// text made unique among the post's slugs. Written ids are not consulted, so
+/// existing native anchors keep their targets; the portable projection makes
+/// its own copy's ids unique. Done before rendering so the portable projection
+/// knows every heading anchor before it checks raw HTML ids.
 fn assign_heading_ids(events: &mut [Event<'_>]) {
-    let mut used_ids: std::collections::HashSet<String> = events
-        .iter()
-        .filter_map(|event| match event {
-            Event::Start(Tag::Heading { id: Some(id), .. }) => Some(id.to_string()),
-            _ => None,
-        })
-        .collect();
+    let mut used_ids = std::collections::HashSet::new();
     let mut heading: Option<(usize, String)> = None;
     for index in 0..events.len() {
         match &events[index] {
@@ -1337,6 +1338,9 @@ pub fn render_portable(
         options,
         Some(projection.markdown_context()),
     );
+    // Recipe sections are added after raw HTML is balanced inside its own
+    // containers, so the finished body is balanced once more as a whole.
+    rendered.html = crate::raw_html::balance(&rendered.html);
     rendered.capabilities.extend(raw_html);
     Ok(rendered)
 }

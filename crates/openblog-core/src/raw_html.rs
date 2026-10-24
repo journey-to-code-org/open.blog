@@ -148,6 +148,9 @@ enum Token<'s> {
     Text(&'s str),
     /// Comments, doctypes, processing instructions, and CDATA: never output.
     Ignored,
+    /// A comment with no `-->` in this fragment: it hides the rest of the
+    /// fragment and stays open, as in a browser, until a later fragment ends it.
+    OpenComment,
     Start {
         name: String,
         attributes: Vec<(String, String)>,
@@ -171,22 +174,17 @@ fn next_token(source: &str, at: usize) -> (Token<'_>, usize) {
         return (Token::Text(&source[at..end]), end);
     }
     if let Some(body) = rest.strip_prefix("<!--") {
-        // An unterminated comment hides the rest of the fragment, as in a browser.
         let length = if body.starts_with('>') {
-            1
+            Some(1)
         } else if body.starts_with("->") {
-            2
+            Some(2)
         } else {
-            [
-                body.find("-->").map(|index| index + 3),
-                body.find("--!>").map(|index| index + 4),
-            ]
-            .into_iter()
-            .flatten()
-            .min()
-            .unwrap_or(body.len())
+            comment_end(body)
         };
-        return (Token::Ignored, at + 4 + length);
+        return match length {
+            Some(length) => (Token::Ignored, at + 4 + length),
+            None => (Token::OpenComment, source.len()),
+        };
     }
     if rest.starts_with("<!") || rest.starts_with("<?") {
         let end = rest.find('>').map_or(source.len(), |index| at + index + 1);
@@ -213,6 +211,18 @@ fn next_token(source: &str, at: usize) -> (Token<'_>, usize) {
         // browser; it is all text, so nothing after it is scanned again.
         None => (Token::Text(rest), source.len()),
     }
+}
+
+/// Where a comment that is open at the start of `text` ends: the length
+/// through its `-->` (or `--!>`), or `None` when `text` does not end it.
+fn comment_end(text: &str) -> Option<usize> {
+    [
+        text.find("-->").map(|index| index + 3),
+        text.find("--!>").map(|index| index + 4),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
 }
 
 type ParsedTag = (String, Vec<(String, String)>, bool, usize);
@@ -530,6 +540,8 @@ impl Losses {
 struct Skip {
     name: String,
     raw_text: bool,
+    /// An unterminated comment rather than an element: it ends at `-->`.
+    comment: bool,
     nested: usize,
     /// The Markdown depth it opened at. Everything inside it is skipped,
     /// Markdown included, until its end tag or the end of that container.
@@ -561,7 +573,12 @@ struct RawHtml<'p, 'a> {
 /// Whether an id can appear in portable output: not empty, no whitespace, and
 /// not in the `ob-` namespace the projection writes its own ids in.
 fn valid_id(id: &str) -> bool {
-    !id.is_empty() && !id.bytes().any(is_space) && !id.starts_with("ob-")
+    !id.is_empty() && !id.bytes().any(is_space) && !reserved_id(id)
+}
+
+/// Whether an id is in the `ob-` namespace the projection writes its own ids in.
+pub(crate) fn reserved_id(id: &str) -> bool {
+    id.starts_with("ob-")
 }
 
 /// Whether skipping `event` loses authored content.
@@ -582,10 +599,10 @@ fn is_blank(event: &Event<'_>) -> bool {
     }
 }
 
-/// Rename each heading id that repeats an earlier heading's id or is not a
-/// [`valid_id`], so authored `{#id}` values cannot duplicate an anchor or take
-/// one the projection writes. The first heading with an id keeps it. Returns
-/// how many were renamed.
+/// Rename each heading id that repeats an earlier heading's id or a footnote
+/// id, or is not a [`valid_id`], so authored `{#id}` values cannot duplicate
+/// an anchor or take one the projection writes. The first heading with an id
+/// keeps it. Returns how many were renamed.
 fn unique_heading_ids(events: &mut [Event<'_>]) -> usize {
     let taken: HashSet<String> = events
         .iter()
@@ -595,7 +612,16 @@ fn unique_heading_ids(events: &mut [Event<'_>]) -> usize {
             _ => None,
         })
         .collect();
-    let mut used = HashSet::new();
+    // Footnote ids are written by the projection and keep their names.
+    let mut used: HashSet<String> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Start(Tag::FootnoteDefinition(name)) if !reserved_id(name) => {
+                Some(name.to_string())
+            }
+            _ => None,
+        })
+        .collect();
     let mut renamed = 0;
     for event in events {
         let Event::Start(Tag::Heading { id: Some(id), .. }) = event else {
@@ -633,6 +659,14 @@ pub(crate) fn sanitize<'e>(
     projection: &PortableProjection<'_>,
 ) -> Result<(Vec<Event<'e>>, Option<CapabilityDescriptor>), String> {
     let heading_ids = unique_heading_ids(&mut events);
+    // A footnote named in the reserved `ob-` namespace is written without an
+    // id; its citations still point at the note on the canonical article.
+    let footnote_ids = events
+        .iter()
+        .filter(|event| {
+            matches!(event, Event::Start(Tag::FootnoteDefinition(name)) if reserved_id(name))
+        })
+        .count();
     let reserved = events
         .iter()
         .filter_map(|event| match event {
@@ -651,6 +685,7 @@ pub(crate) fn sanitize<'e>(
         in_block: false,
         losses: Losses {
             heading_ids,
+            ids: footnote_ids,
             ..Losses::default()
         },
     };
@@ -768,6 +803,10 @@ impl RawHtml<'_, '_> {
     /// content after it fails the projection rather than losing it silently.
     fn end_skip(&mut self) -> Result<(), String> {
         match self.skip.take() {
+            Some(skip) if skip.outlived && skip.swallowed && skip.comment => Err(format!(
+                "{}: a raw HTML comment (<!--) is never closed, so everything after it would be hidden; close it with --> (nothing was published)",
+                self.projection.source_path()
+            )),
             Some(skip) if skip.outlived && skip.swallowed => {
                 let name = listed(&skip.name);
                 Err(format!(
@@ -814,6 +853,18 @@ impl RawHtml<'_, '_> {
             match token {
                 Token::Text(text) => push_text(&mut html, text),
                 Token::Ignored => {}
+                Token::OpenComment => {
+                    self.skip = Some(Skip {
+                        name: String::new(),
+                        raw_text: true,
+                        comment: true,
+                        nested: 0,
+                        depth: self.depth,
+                        in_block: self.in_block,
+                        outlived: false,
+                        swallowed: false,
+                    });
+                }
                 Token::Start {
                     name,
                     attributes,
@@ -830,6 +881,16 @@ impl RawHtml<'_, '_> {
         let Some(skip) = self.skip.as_mut() else {
             return at;
         };
+        if skip.comment {
+            // Nothing inside a comment is markup; only its end counts.
+            return match comment_end(&source[at..]) {
+                Some(length) => {
+                    self.skip = None;
+                    at + length
+                }
+                None => source.len(),
+            };
+        }
         if skip.raw_text {
             // Nothing inside is markup until the matching end tag, in any case.
             while let Some(found) = source[at..].find("</") {
@@ -922,6 +983,7 @@ impl RawHtml<'_, '_> {
             self.skip = Some(Skip {
                 name,
                 raw_text,
+                comment: false,
                 nested: 0,
                 depth: self.depth,
                 in_block: self.in_block,
@@ -1000,6 +1062,11 @@ impl RawHtml<'_, '_> {
     /// A kept element's end tag closes it (and anything opened inside it) when
     /// it was opened in the same Markdown container; other end tags are dropped.
     fn end(&mut self, html: &mut String, name: &str) {
+        // A browser reads a stray `</br>` as a line break.
+        if name == "br" {
+            html.push_str("<br>");
+            return;
+        }
         if !matches!(policy(name), Policy::Keep { void: false, .. }) {
             return;
         }
@@ -1014,6 +1081,77 @@ impl RawHtml<'_, '_> {
             html.push_str(&format!("</{open}>"));
         }
     }
+}
+
+/// Elements that never have content or an end tag.
+const VOID_ELEMENTS: &[&str] = &[
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
+];
+
+/// Elements whose content is text up to their end tag.
+const RAW_TEXT_ELEMENTS: &[&str] = &[
+    "script",
+    "style",
+    "textarea",
+    "title",
+    "xmp",
+    "iframe",
+    "noembed",
+    "noframes",
+    "noscript",
+    "plaintext",
+];
+
+/// Make a rendered portable body well nested, as a browser would read it. An
+/// end tag for an element that is still open closes everything opened inside
+/// it first (a raw `<div>` left open in a recipe section closes before the
+/// section's `</section>`); an end tag for an element that is not open is
+/// dropped; anything still open at the end is closed there. Everything else is
+/// copied byte for byte, so a body that is already well nested is unchanged
+/// and the destination's own container can never be closed early.
+pub(crate) fn balance(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut open: Vec<String> = Vec::new();
+    let mut at = 0;
+    while at < html.len() {
+        let (token, mut next) = next_token(html, at);
+        match token {
+            Token::Start { name, .. } => {
+                if RAW_TEXT_ELEMENTS.contains(&name.as_str()) {
+                    // Copy the text through its end tag unread.
+                    let lower = html[next..].to_ascii_lowercase();
+                    match lower.find(&format!("</{name}")) {
+                        Some(found) => {
+                            next = next_token(html, next + found).1;
+                        }
+                        None => {
+                            next = html.len();
+                            open.push(name);
+                        }
+                    }
+                } else if !VOID_ELEMENTS.contains(&name.as_str()) {
+                    open.push(name);
+                }
+                out.push_str(&html[at..next]);
+            }
+            Token::End { name } => {
+                if let Some(position) = open.iter().rposition(|element| *element == name) {
+                    for element in open.drain(position + 1..).rev() {
+                        out.push_str(&format!("</{element}>"));
+                    }
+                    open.pop();
+                    out.push_str(&html[at..next]);
+                }
+            }
+            _ => out.push_str(&html[at..next]),
+        }
+        at = next;
+    }
+    for element in open.into_iter().rev() {
+        out.push_str(&format!("</{element}>"));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1080,5 +1218,22 @@ mod tests {
         );
         assert!(!self_closing, "an unquoted value keeps its slash");
         assert_eq!(next, 28);
+    }
+
+    #[test]
+    fn balance_closes_what_an_outer_end_tag_would_close() {
+        assert_eq!(
+            balance("<section><div class=\"tip\"><p>a</p></section><p>b</p></div>"),
+            "<section><div class=\"tip\"><p>a</p></div></section><p>b</p>"
+        );
+        assert_eq!(
+            balance("<p>a<br>b<img alt=\"\"></p>"),
+            "<p>a<br>b<img alt=\"\"></p>"
+        );
+        assert_eq!(balance("<div><em>x"), "<div><em>x</em></div>");
+        assert_eq!(
+            balance("<pre><code>&lt;/div&gt;</code></pre></p>"),
+            "<pre><code>&lt;/div&gt;</code></pre>"
+        );
     }
 }
