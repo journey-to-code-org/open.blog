@@ -77,11 +77,13 @@ syndicationId: 01JAZ8M7Y64Q9Z8P6ACZHQN5KC
 ```
 
 Private state defaults to `.openblog/syndication.json`. Records are keyed by source identity
-plus configured target name and contain source path, remote ID, remote URL when supplied,
+and then configured target name in nested JSON objects; delimiter-concatenated keys are not
+used. Version 2 records contain source path, remote ID, remote URL when supplied,
 provider concurrency revision when required, source revision, remote publication state, and
 update time. A source-ID collision with a different source path fails closed across every
 target. State is saved after each successful target, so partial success is retained without
-attempting a remote rollback.
+attempting a remote rollback. Unreleased version 1 state is migrated in memory and is written
+as version 2 after the next successful provider write.
 
 The state path must be project-relative and cannot contain `..`. Keep `.openblog/` out of
 public output and commit history.
@@ -97,8 +99,10 @@ public output and commit history.
 | Self-hosted WordPress | Core WP v2 create | Core WP v2 update by ID | Rendered HTML | Core cannot set external canonical |
 | Medium | No API call | No API call | Official import flow | Medium adds source canonical |
 
-Relative root links and images are made absolute before transmission. DEV receives at most
-four tags and Hashnode receives at most fifteen.
+Root-relative inline links, images, angle-bracket destinations, reference definitions, and
+raw-HTML `href`/`src` attributes are made absolute before transmission while code, comments,
+scripts, and ordinary text are left unchanged. DEV receives at most four tags and Hashnode
+receives at most fifteen.
 
 ## Safety acceptance criteria
 
@@ -108,7 +112,9 @@ four tags and Hashnode receives at most fifteen.
 - [x] Canonicals derive from the configured open.blog URL and final post route.
 - [x] Canonicals must be public HTTPS and cannot use the scaffold `example.com` host.
 - [x] The source must be production-visible locally, and the first remote mutation is preceded
-  by a bounded GET proving the deployed page is successful and canonicalizes to itself.
+  by a bounded GET proving the deployed page is successful and has an operative canonical
+  link in its document head that resolves back to itself. DNS resolution rejects every local,
+  private, documentation, multicast, and reserved address before a connection is attempted.
 - [x] Secrets are environment-only and are not serialized into config, state, output, or logs.
 - [x] Provider endpoints are fixed except for user-owned Ghost and WordPress origins, which
   must be HTTPS without embedded credentials, query, or fragment.
