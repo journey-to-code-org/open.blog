@@ -4801,13 +4801,10 @@ mod tests {
             .iter()
             .find(|item| item["path"] == post_path)
             .unwrap();
-        assert_eq!(
-            snapshot["content"]
-                .as_str()
-                .unwrap()
-                .contains("Immutable source body."),
-            true
-        );
+        assert!(snapshot["content"]
+            .as_str()
+            .unwrap()
+            .contains("Immutable source body."));
         assert!(!catalog["postSnapshots"]
             .as_array()
             .unwrap()
