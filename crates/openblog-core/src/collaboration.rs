@@ -23,6 +23,16 @@ pub const COLLABORATION_AUTHORIZATION_VERSION: u8 = 1;
 pub const MAX_AUTHORIZATION_POLICY_BYTES: usize = 64 * 1024;
 pub const MAX_AUTHORIZATION_BINDINGS: usize = MAX_PARTICIPANTS;
 pub const MAX_ADMIN_USERNAME_BYTES: usize = 32;
+pub const SHARED_PUBLICATION_VERSION: u8 = 1;
+pub const MAX_SHARED_PUBLICATION_BYTES: usize =
+    MAX_CONTRACT_BYTES + MAX_AUTHORIZATION_POLICY_BYTES + 64 * 1024;
+pub const MAX_SOURCES: usize = 20;
+pub const MAX_PUBLICATION_TITLE_BYTES: usize = 300;
+pub const MAX_GUIDING_QUESTION_BYTES: usize = 1_000;
+pub const MAX_SOURCE_TITLE_BYTES: usize = 300;
+pub const MAX_SOURCE_DETAIL_BYTES: usize = 200;
+pub const MAX_SOURCE_DATE_BYTES: usize = 64;
+pub const MAX_SOURCE_URL_BYTES: usize = 2_048;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -117,6 +127,9 @@ pub enum AuthorizationRole {
 /// [`AuthorizationTarget`] kind; a target of any other kind is denied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthorizationAction {
+    /// Read the shared publication's title, guiding question, and source references, never a
+    /// contribution draft. Targets the publication.
+    ViewPublication,
     /// Read the published projection. Targets the publication.
     ViewPublished,
     /// Read one contribution draft whose reveal lists the requester. Targets a contribution.
@@ -206,7 +219,9 @@ impl AuthorizationAction {
     fn target_kind(self) -> TargetKind {
         use AuthorizationAction::*;
         match self {
-            ViewPublished | Invite | Schedule | Publish | Export => TargetKind::Publication,
+            ViewPublication | ViewPublished | Invite | Schedule | Publish | Export => {
+                TargetKind::Publication
+            }
             ApproveContribution | RemoveMember | ManageRoles => TargetKind::Participant,
             ViewRevealed | ViewContribution | EditContribution | RevealContribution => {
                 TargetKind::Contribution
@@ -221,30 +236,33 @@ impl AuthorizationPolicy {
             return Err(AuthorizationError);
         }
         let policy: Self = serde_json::from_str(source).map_err(|_| AuthorizationError)?;
-        if policy.version != COLLABORATION_AUTHORIZATION_VERSION
-            || !valid_id(&policy.publication_id)
-            || policy.bindings.len() > MAX_AUTHORIZATION_BINDINGS
-        {
+        if !policy.is_valid() {
             return Err(AuthorizationError);
         }
-        let mut admin_users = HashSet::with_capacity(policy.bindings.len());
-        let mut contributor_ids = HashSet::with_capacity(policy.bindings.len());
-        let mut participant_keys = HashSet::with_capacity(policy.bindings.len());
-        for binding in &policy.bindings {
-            let mut roles = HashSet::with_capacity(binding.roles.len());
-            if !valid_admin_username(&binding.admin_user)
-                || !valid_contributor_id(&binding.contributor_id)
-                || !valid_id(&binding.participant_id)
-                || binding.roles.is_empty()
-                || !admin_users.insert(binding.admin_user.as_str())
-                || !contributor_ids.insert(binding.contributor_id.as_str())
-                || !participant_keys.insert(binding.participant_id.to_ascii_lowercase())
-                || binding.roles.iter().any(|role| !roles.insert(*role))
-            {
-                return Err(AuthorizationError);
-            }
-        }
         Ok(policy)
+    }
+
+    fn is_valid(&self) -> bool {
+        if self.version != COLLABORATION_AUTHORIZATION_VERSION
+            || !valid_id(&self.publication_id)
+            || self.bindings.len() > MAX_AUTHORIZATION_BINDINGS
+        {
+            return false;
+        }
+        let mut admin_users = HashSet::with_capacity(self.bindings.len());
+        let mut contributor_ids = HashSet::with_capacity(self.bindings.len());
+        let mut participant_keys = HashSet::with_capacity(self.bindings.len());
+        self.bindings.iter().all(|binding| {
+            let mut roles = HashSet::with_capacity(binding.roles.len());
+            valid_admin_username(&binding.admin_user)
+                && valid_contributor_id(&binding.contributor_id)
+                && valid_id(&binding.participant_id)
+                && !binding.roles.is_empty()
+                && admin_users.insert(binding.admin_user.as_str())
+                && contributor_ids.insert(binding.contributor_id.as_str())
+                && participant_keys.insert(binding.participant_id.to_ascii_lowercase())
+                && binding.roles.iter().all(|role| roles.insert(*role))
+        })
     }
 
     /// Replace the complete publication policy on behalf of the requester in `context`, after an
@@ -492,9 +510,11 @@ fn role_allows(
     use AuthorizationRole::*;
 
     match (role, action, target) {
-        (SiteOwner | Coordinator | Contributor | Editor | Reader, ViewPublished | Export, _) => {
-            true
-        }
+        (
+            SiteOwner | Coordinator | Contributor | Editor | Reader,
+            ViewPublication | ViewPublished | Export,
+            _,
+        ) => true,
         (
             SiteOwner | Coordinator | Contributor | Editor | Reader,
             ViewRevealed,
@@ -654,6 +674,399 @@ impl CollaborationContract {
                 && approvers.insert(approval.participant_id.as_str())
                 && approval.revision == self.revision
         })
+    }
+}
+
+/// One shared publication's private record: its title or guiding question, its ordered source
+/// references, and the collaboration contract and authorization policy that belong to it. Keeping
+/// them in one versioned record is what ties the policy and the contract to one publication.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SharedPublication {
+    pub version: u8,
+    pub publication_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guiding_question: Option<String>,
+    pub sources: Vec<SourceReference>,
+    pub collaboration: CollaborationContract,
+    pub authorization: AuthorizationPolicy,
+}
+
+/// Author-entered attribution for material that prompted a shared publication. It is not a
+/// citation and never replaces the resulting work's canonical URL or identifier.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SourceReference {
+    pub id: String,
+    pub kind: SourceKind,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub isbn: Option<String>,
+    pub provenance: SourceProvenance,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SourceKind {
+    Video,
+    Article,
+    Podcast,
+    Book,
+    #[default]
+    Other,
+}
+
+/// Where a source reference's values came from. Version 1 records only what an author typed;
+/// optional provider suggestions would need their own provenance and never overwrite it.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SourceProvenance {
+    Author,
+}
+
+/// What an authenticated creator submits. Identity fields come from the session and the
+/// contributor registry, never from the request body.
+#[derive(Clone, Debug, Default)]
+pub struct NewSharedPublication {
+    pub publication_id: String,
+    pub title: String,
+    pub guiding_question: String,
+    pub sources: Vec<NewSourceReference>,
+    pub creator: NewParticipant,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct NewSourceReference {
+    pub kind: SourceKind,
+    pub title: String,
+    pub url: String,
+    pub creator: String,
+    pub publisher: String,
+    pub published: String,
+    pub isbn: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct NewParticipant {
+    pub admin_user: String,
+    pub contributor_id: String,
+    pub display_name: String,
+}
+
+/// Why a shared publication was refused. Errors name a field and a source position from the
+/// requester's own submission, never a submitted value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SharedPublicationError {
+    TitleOrQuestionRequired,
+    Title,
+    GuidingQuestion,
+    NoSources,
+    TooManySources,
+    Source { index: usize, field: SourceField },
+    Creator,
+    InvalidRecord,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceField {
+    Title,
+    Url,
+    Creator,
+    Publisher,
+    Published,
+    Isbn,
+}
+
+impl fmt::Display for SharedPublicationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TitleOrQuestionRequired => {
+                formatter.write_str("a shared publication needs a title or a guiding question")
+            }
+            Self::Title => formatter.write_str("invalid title"),
+            Self::GuidingQuestion => formatter.write_str("invalid guiding question"),
+            Self::NoSources => formatter.write_str("a shared publication needs a source"),
+            Self::TooManySources => formatter.write_str("too many sources"),
+            Self::Source { index, field } => {
+                let field = match field {
+                    SourceField::Title => "title",
+                    SourceField::Url => "link",
+                    SourceField::Creator => "creator",
+                    SourceField::Publisher => "publisher",
+                    SourceField::Published => "publication date",
+                    SourceField::Isbn => "ISBN",
+                };
+                write!(formatter, "source {} has an invalid {field}", index + 1)
+            }
+            Self::Creator => formatter.write_str("the creator cannot be bound"),
+            Self::InvalidRecord => formatter.write_str("invalid shared publication record"),
+        }
+    }
+}
+
+impl std::error::Error for SharedPublicationError {}
+
+/// The creator's opaque participant ID. Later participants receive their own IDs; nothing in the
+/// record treats the first participant as one half of a pair.
+const CREATOR_PARTICIPANT_ID: &str = "participant-1";
+
+impl SharedPublication {
+    /// Parse a stored record. Every failure is one non-identifying error.
+    pub fn from_json(source: &str) -> Result<Self, SharedPublicationError> {
+        if source.len() > MAX_SHARED_PUBLICATION_BYTES {
+            return Err(SharedPublicationError::InvalidRecord);
+        }
+        let record: Self =
+            serde_json::from_str(source).map_err(|_| SharedPublicationError::InvalidRecord)?;
+        record
+            .validate()
+            .map_err(|_| SharedPublicationError::InvalidRecord)?;
+        Ok(record)
+    }
+
+    /// Build the first revision of a shared publication from manual input. Text is trimmed, links
+    /// are normalized to ASCII HTTP(S), source IDs follow authored order, and the creator becomes
+    /// the only participant, bound as site owner and contributor. Nothing here touches a Post,
+    /// Document, credit, or generated output.
+    pub fn create(new: &NewSharedPublication) -> Result<Self, SharedPublicationError> {
+        let optional = |value: &str| {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.to_string())
+        };
+        let title = optional(&new.title);
+        let guiding_question = optional(&new.guiding_question);
+        if title.is_none() && guiding_question.is_none() {
+            return Err(SharedPublicationError::TitleOrQuestionRequired);
+        }
+        let creator = &new.creator;
+        let display_name = creator.display_name.trim();
+        if !valid_admin_username(&creator.admin_user)
+            || !valid_contributor_id(&creator.contributor_id)
+            || !valid_text(display_name, MAX_DISPLAY_NAME_BYTES)
+        {
+            return Err(SharedPublicationError::Creator);
+        }
+        if new.sources.is_empty() {
+            return Err(SharedPublicationError::NoSources);
+        }
+        if new.sources.len() > MAX_SOURCES {
+            return Err(SharedPublicationError::TooManySources);
+        }
+        let sources = new
+            .sources
+            .iter()
+            .enumerate()
+            .map(|(index, source)| {
+                let url = match source.url.trim() {
+                    "" => None,
+                    url => Some(normalize_source_url(url).ok_or(
+                        SharedPublicationError::Source {
+                            index,
+                            field: SourceField::Url,
+                        },
+                    )?),
+                };
+                Ok(SourceReference {
+                    id: format!("source-{}", index + 1),
+                    kind: source.kind,
+                    title: source.title.trim().to_string(),
+                    url,
+                    creator: optional(&source.creator),
+                    publisher: optional(&source.publisher),
+                    published: optional(&source.published),
+                    isbn: optional(&source.isbn),
+                    provenance: SourceProvenance::Author,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let record = Self {
+            version: SHARED_PUBLICATION_VERSION,
+            publication_id: new.publication_id.clone(),
+            title,
+            guiding_question,
+            sources,
+            collaboration: CollaborationContract {
+                version: COLLABORATION_CONTRACT_VERSION,
+                revision: 1,
+                participants: vec![Participant {
+                    id: CREATOR_PARTICIPANT_ID.into(),
+                    display_name: display_name.to_string(),
+                    profile_url: None,
+                }],
+                contributions: Vec::new(),
+                reveals: Vec::new(),
+                layout: Vec::new(),
+                approvals: Vec::new(),
+            },
+            authorization: AuthorizationPolicy {
+                version: COLLABORATION_AUTHORIZATION_VERSION,
+                revision: 1,
+                publication_id: new.publication_id.clone(),
+                bindings: vec![IdentityBinding {
+                    admin_user: creator.admin_user.clone(),
+                    contributor_id: creator.contributor_id.clone(),
+                    participant_id: CREATOR_PARTICIPANT_ID.into(),
+                    roles: vec![AuthorizationRole::SiteOwner, AuthorizationRole::Contributor],
+                }],
+            },
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
+    /// The record without any binding for `admin_user`, with the policy revision advanced, or
+    /// `None` when the account holds no binding here. Removing or adding an Admin account calls
+    /// this for every record, so a reused username can never inherit an old binding.
+    pub fn without_admin_user(&self, admin_user: &str) -> Option<Self> {
+        if !self
+            .authorization
+            .bindings
+            .iter()
+            .any(|binding| binding.admin_user == admin_user)
+        {
+            return None;
+        }
+        let mut record = self.clone();
+        record
+            .authorization
+            .bindings
+            .retain(|binding| binding.admin_user != admin_user);
+        record.authorization.revision = record.authorization.revision.saturating_add(1);
+        Some(record)
+    }
+
+    fn validate(&self) -> Result<(), SharedPublicationError> {
+        if self.version != SHARED_PUBLICATION_VERSION
+            || !valid_id(&self.publication_id)
+            || self.authorization.publication_id != self.publication_id
+            || !self.collaboration.is_valid()
+            || !self.authorization.is_valid()
+        {
+            return Err(SharedPublicationError::InvalidRecord);
+        }
+        if self.title.is_none() && self.guiding_question.is_none() {
+            return Err(SharedPublicationError::TitleOrQuestionRequired);
+        }
+        if self
+            .title
+            .as_deref()
+            .is_some_and(|title| !valid_text(title, MAX_PUBLICATION_TITLE_BYTES))
+        {
+            return Err(SharedPublicationError::Title);
+        }
+        if self
+            .guiding_question
+            .as_deref()
+            .is_some_and(|question| !valid_text(question, MAX_GUIDING_QUESTION_BYTES))
+        {
+            return Err(SharedPublicationError::GuidingQuestion);
+        }
+        if self.sources.is_empty() {
+            return Err(SharedPublicationError::NoSources);
+        }
+        if self.sources.len() > MAX_SOURCES {
+            return Err(SharedPublicationError::TooManySources);
+        }
+        let mut source_keys = HashSet::with_capacity(self.sources.len());
+        for (index, source) in self.sources.iter().enumerate() {
+            if !valid_id(&source.id) || !source_keys.insert(source.id.to_ascii_lowercase()) {
+                return Err(SharedPublicationError::InvalidRecord);
+            }
+            let invalid = |field| SharedPublicationError::Source { index, field };
+            let detail = |value: &Option<String>, max_bytes| {
+                value
+                    .as_deref()
+                    .is_some_and(|value| !valid_text(value, max_bytes))
+            };
+            if !valid_text(&source.title, MAX_SOURCE_TITLE_BYTES) {
+                return Err(invalid(SourceField::Title));
+            }
+            if source
+                .url
+                .as_deref()
+                .is_some_and(|url| !valid_source_url(url))
+            {
+                return Err(invalid(SourceField::Url));
+            }
+            if detail(&source.creator, MAX_SOURCE_DETAIL_BYTES) {
+                return Err(invalid(SourceField::Creator));
+            }
+            if detail(&source.publisher, MAX_SOURCE_DETAIL_BYTES) {
+                return Err(invalid(SourceField::Publisher));
+            }
+            if detail(&source.published, MAX_SOURCE_DATE_BYTES) {
+                return Err(invalid(SourceField::Published));
+            }
+            if source
+                .isbn
+                .as_deref()
+                .is_some_and(|isbn| source.kind != SourceKind::Book || !valid_isbn(isbn))
+            {
+                return Err(invalid(SourceField::Isbn));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Normalize a pasted source link to the stored form: an absolute HTTP(S) URL with no
+/// credentials whose host is punycode and whose path and query are percent-encoded. Control and
+/// bidi characters are refused before parsing, because the URL parser would otherwise silently
+/// drop tabs and newlines from the middle of a link.
+pub fn normalize_source_url(input: &str) -> Option<String> {
+    let input = input.trim();
+    if input
+        .chars()
+        .any(|character| character.is_control() || is_bidi_control(character))
+    {
+        return None;
+    }
+    let url = url::Url::parse(input).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.host().is_none()
+    {
+        return None;
+    }
+    let normalized = String::from(url);
+    valid_source_url(&normalized).then_some(normalized)
+}
+
+/// A stored source link: the contributor profile-link rules for absolute HTTP(S), kept ASCII so
+/// a displayed link cannot carry bidi controls or lookalike Unicode hosts.
+fn valid_source_url(value: &str) -> bool {
+    value.len() <= MAX_SOURCE_URL_BYTES
+        && value.is_ascii()
+        && value
+            .parse::<Uri>()
+            .is_ok_and(|uri| matches!(uri.scheme_str(), Some("http" | "https")))
+        && contributor::safe_profile_url(value)
+}
+
+/// ISBN-10 or ISBN-13 digits, optionally grouped by hyphens or spaces, with `X` only as an
+/// ISBN-10 check digit. The checksum is not verified, so a mistyped digit is kept, not lost.
+fn valid_isbn(value: &str) -> bool {
+    let symbols = value
+        .bytes()
+        .filter(|byte| !matches!(byte, b'-' | b' '))
+        .collect::<Vec<_>>();
+    let digits = |symbols: &[u8]| symbols.iter().all(u8::is_ascii_digit);
+    match symbols.as_slice() {
+        [body @ .., last] if symbols.len() == 10 => {
+            digits(body) && (last.is_ascii_digit() || matches!(last, b'X' | b'x'))
+        }
+        all => all.len() == 13 && digits(all),
     }
 }
 

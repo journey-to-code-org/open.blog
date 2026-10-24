@@ -64,6 +64,7 @@ fn collaboration_terms_are_defined_apart_from_public_publishing_terms() {
     // Each collaboration term names the public term it must not be confused with.
     for (term, avoided) in [
         ("Shared publication", &["post", "pair"][..]),
+        ("Shared publication record", &["post", "front matter"][..]),
         ("Source reference", &["citation"][..]),
         ("Participant", &["contributor", "admin user", "left"][..]),
         ("Collaboration role", &["work credit", "admin"][..]),

@@ -8,7 +8,8 @@ use openblog_core::{
 };
 use serde_json::json;
 
-const ACTIONS: [AuthorizationAction; 12] = [
+const ACTIONS: [AuthorizationAction; 13] = [
+    AuthorizationAction::ViewPublication,
     AuthorizationAction::ViewPublished,
     AuthorizationAction::ViewRevealed,
     AuthorizationAction::ViewContribution,
@@ -190,6 +191,7 @@ fn every_role_action_combination_is_explicit() {
         let cases: [(AuthorizationRole, &str, Vec<Grant>); 5] = [
             (SiteOwner, "siteOwner", {
                 let mut grants = vec![
+                    (ViewPublication, Publication),
                     (ViewPublished, Publication),
                     (ViewRevealed, Draft("grace-draft")),
                     (Invite, Publication),
@@ -210,6 +212,7 @@ fn every_role_action_combination_is_explicit() {
             }),
             (Coordinator, "coordinator", {
                 let mut grants = vec![
+                    (ViewPublication, Publication),
                     (ViewPublished, Publication),
                     (ViewRevealed, Draft("grace-draft")),
                     (Invite, Publication),
@@ -230,6 +233,7 @@ fn every_role_action_combination_is_explicit() {
                 Contributor,
                 "contributor",
                 vec![
+                    (ViewPublication, Publication),
                     (ViewPublished, Publication),
                     (ViewRevealed, Draft("grace-draft")),
                     (ViewContribution, Draft("ada-draft")),
@@ -243,6 +247,7 @@ fn every_role_action_combination_is_explicit() {
                 Editor,
                 "editor",
                 vec![
+                    (ViewPublication, Publication),
                     (ViewPublished, Publication),
                     (ViewRevealed, Draft("grace-draft")),
                     (ViewContribution, Draft("ada-draft")),
@@ -256,6 +261,7 @@ fn every_role_action_combination_is_explicit() {
                 Reader,
                 "reader",
                 vec![
+                    (ViewPublication, Publication),
                     (ViewPublished, Publication),
                     (ViewRevealed, Draft("grace-draft")),
                     (Export, Publication),
@@ -361,6 +367,10 @@ fn confused_deputy_requests_cannot_act_for_another_participant() {
             AuthorizationTarget::Contribution("ada-draft"),
         ),
         (Publish, AuthorizationTarget::Participant("ada-participant")),
+        (
+            ViewPublication,
+            AuthorizationTarget::Participant("ada-participant"),
+        ),
         (
             EditContribution,
             AuthorizationTarget::Participant("ada-participant"),

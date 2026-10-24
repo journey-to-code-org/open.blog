@@ -40,10 +40,20 @@ It is pre-publication state, not another kind of Post or Published work, and one
 as valid as two or many.
 _Avoid_: Pair, couple, co-authored post, published work before publication
 
+**Shared publication record**:
+The private, versioned file that holds one shared publication's title or guiding question, its
+ordered source references, its collaboration contract, and its authorization policy together,
+outside the content directory. Keeping them in one record is what ties a policy and a contract to
+the same publication. Creating, refusing, or revoking a record never changes a Post, Document,
+credit, or generated output.
+_Avoid_: Draft post, front matter, Post, published work
+
 **Source reference**:
 A bounded entry, identified by a stable ID within one shared publication's ordered source
 collection, describing material that prompted or informs it: a video, article, podcast, book, or
-other source with author-entered attribution and an optional original link. It is not
+other source with an author-entered title, an optional original HTTP(S) link, and optional
+creator, publisher, date, and (for a book) ISBN. Its provenance records who supplied those values;
+provider metadata may only suggest values and never overwrites what an author saved. It is not
 automatically evidence cited by the resulting work and does not replace a Citation, Reference,
 canonical URL, or Work identifier.
 _Avoid_: Citation when there is no in-text pointer, primary source field, provider response
