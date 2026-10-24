@@ -45,10 +45,9 @@ pub fn youtube_video_id(url: &str) -> Option<String> {
         "youtube.com" | "m.youtube.com" => {
             if let Some(path) = path.strip_prefix("watch?") {
                 path.split('&').find_map(|part| part.strip_prefix("v="))?
-            } else if let Some(path) = path.strip_prefix("shorts/") {
-                path.split(['?', '#', '/']).next()?
             } else {
-                return None;
+                let path = path.strip_prefix("shorts/")?;
+                path.split(['?', '#', '/']).next()?
             }
         }
         _ => return None,
