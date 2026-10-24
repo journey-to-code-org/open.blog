@@ -5,6 +5,29 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined the semantic portability invariant and domain language for derived output,
+  destination policies, private/public boundaries, and canonical work identity.
+- Added core descriptors for authored Markdown capabilities, including renderer,
+  fallback, portability, and bounded diagnostics, without changing authoring syntax.
+- Added a destination-neutral projection for canonical identity, existing HTML,
+  Markdown, and text views, authorship, references, capabilities, and safe links;
+  routed public feeds and syndication through it without changing authored content.
+- Added a shared portability fixture corpus covering legacy articles, research and
+  credits, recipes, callouts, media, quizzes, runnable code, unknown syntax, hostile
+  code, Unicode, duplicate anchors, and draft exclusion.
+- Published an implementation-status matrix separating shipped capabilities,
+  partial support, and planned work without assigning unverified portability levels.
+- Audited generated native HTML and optional custom elements, documenting no-JavaScript
+  and no-CSS behavior, accessibility caveats, and the raw-HTML trust boundary.
+- Audited semantic differences across Markdown, native pages, feeds, and syndication;
+  extended shared fixtures across these output surfaces and documented known losses.
+- Defined portability completion gates for planned research, reader, collaboration, and
+  discovery capabilities, with unique story/task ownership and machine-checked fallbacks,
+  privacy boundaries, and regression requirements.
+- Added an opt-in portable HTML body projection that re-renders canonical Markdown, resolves
+  authored link and image URLs against the post/site context, and leaves existing native HTML
+  unchanged; raw-HTML sanitization and capability-specific fallbacks remain separately scoped.
+
 ## [0.13.0] - 2026-10-24
 
 - Added `openblog syndicate <slug>` with dry-run planning, draft-first DEV, Hashnode,

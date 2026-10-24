@@ -15,6 +15,7 @@ use html5ever::{local_name, ns, QualName};
 use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 use openblog_core::config::{SyndicationProvider, SyndicationTargetConfig};
 use openblog_core::frontmatter;
+use openblog_core::portability::{PortableProjection, RepresentationFormat};
 use openblog_core::{Post, SiteConfig};
 use pulldown_cmark::{Event, Options as MarkdownOptions, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
@@ -549,7 +550,8 @@ fn syndication_post(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| format!("source:{}", post.source.replace('\\', "/")));
-    let canonical_url = config.absolute(&post.url);
+    let projection = PortableProjection::from_post(post, config)?;
+    let canonical_url = projection.canonical_url().to_string();
     let canonical = url_context::validate_public_url(&canonical_url)
         .map_err(|error| format!("canonical URL is not public: {error}"))?;
     if canonical.scheme() != "https" {
@@ -561,7 +563,10 @@ fn syndication_post(
     {
         return Err("set the site's real public URL before syndication".into());
     }
-    let markdown = absolutize_markdown(&document.body, config)?;
+    let markdown = absolutize_markdown(
+        projection.representation(RepresentationFormat::Markdown),
+        config,
+    )?;
     let mut hasher = Blake2b512::new();
     hasher.update(post.title.as_bytes());
     hasher.update(markdown.as_bytes());
@@ -579,7 +584,10 @@ fn syndication_post(
         title: post.title.clone(),
         description: post.description.clone(),
         markdown,
-        html: absolutize_html(&post.html, config),
+        html: absolutize_html(
+            projection.representation(RepresentationFormat::Html),
+            config,
+        ),
         tags: post.tags.iter().map(|tag| tag.name.clone()).collect(),
         canonical_url,
         revision,
@@ -1405,6 +1413,85 @@ mod tests {
             tags: vec!["Rust".into()],
             canonical_url: "https://blog.example/posts/a/".into(),
             revision: "abc".into(),
+        }
+    }
+
+    #[test]
+    fn portability_fixtures_cover_syndication_payload_surfaces() {
+        use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
+
+        let manifest: Json = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/portability-contract.json"
+        ))
+        .unwrap();
+        for fixture in manifest["fixtures"].as_array().unwrap() {
+            if fixture["expected"]["public"] == false {
+                continue;
+            }
+            let path = fixture["path"].as_str().unwrap();
+            let source = fixture["source"].as_str().unwrap();
+            let config = SiteConfig::from_json(&fixture["config"].to_string()).unwrap();
+            let credits = fixture
+                .get("credits")
+                .map(|sidecar| SourceFile {
+                    path: path
+                        .strip_suffix(".md")
+                        .map(|stem| format!("{stem}.credits.json"))
+                        .unwrap(),
+                    contents: sidecar.to_string(),
+                })
+                .into_iter()
+                .collect();
+            let site = Site::load(
+                config.clone(),
+                Sources {
+                    posts: vec![SourceFile {
+                        path: path.into(),
+                        contents: source.into(),
+                    }],
+                    credits,
+                    ..Default::default()
+                },
+                LoadOptions::default(),
+            )
+            .unwrap_or_else(|errors| panic!("{}: {errors:?}", fixture["name"]));
+            let post = syndication_post(&site.posts[0], source, &config)
+                .unwrap_or_else(|error| panic!("{}: {error}", fixture["name"]));
+
+            let dev = dev_request(&post, None, false, "test").unwrap();
+            assert_eq!(dev.body["article"]["body_markdown"], post.markdown);
+            let hashnode = hashnode_request("publication", &post, None, false, "test").unwrap();
+            assert_eq!(
+                hashnode.body["variables"]["input"]["contentMarkdown"],
+                post.markdown
+            );
+            let ghost = ghost_request(
+                "https://ghost.example",
+                &post,
+                None,
+                false,
+                "abc:00112233445566778899aabbccddeeff",
+            )
+            .unwrap();
+            assert_eq!(ghost.body["posts"][0]["html"], post.html);
+            let wordpress = wordpress_request(
+                "https://wordpress.example/wp-json/wp/v2",
+                "",
+                &post,
+                None,
+                false,
+                "test",
+            )
+            .unwrap();
+            assert_eq!(wordpress.body["content"], post.html);
+            assert!(MediumAdapter
+                .instruction(&post)
+                .contains(&post.canonical_url));
+
+            if fixture["name"] == "knowledge-check" {
+                assert!(post.markdown.contains("```quiz"));
+                assert!(post.html.contains("<ob-quiz"));
+            }
         }
     }
 
