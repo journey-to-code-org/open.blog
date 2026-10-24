@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-10-23
+
 - Grounded Assistant reviews in trusted open.blog renderer capabilities so native quiz and
   runnable Rust fences are reviewed for authoring quality without being misreported as unsupported.
 
@@ -281,7 +283,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.2...HEAD
+[0.11.2]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.0...v0.10.1
