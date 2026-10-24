@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added one deterministic portable projection contract for HTML, Markdown, and text, and migrated
+  feeds and cross-posting to its shared canonical identity, attribution, references, provenance,
+  and safe absolute-link handling without reparsing source front matter.
 - Added private per-admin workspace personalization with Simple, Guided, Advanced, and Custom
   layouts, optional-tool ordering, density and writing-mode preferences, and an always-available
   Advanced tools drawer that keeps essential authoring and publishing controls visible.
