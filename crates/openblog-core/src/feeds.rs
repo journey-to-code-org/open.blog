@@ -5,6 +5,7 @@
 use crate::contributor::CreditProvenance;
 use crate::escape;
 use crate::model::Site;
+use crate::projection::{project_post, ProjectionFormat};
 use crate::search::{Index, IndexEntry, INDEX_VERSION};
 
 /// RSS 2.0 with the `content:encoded`, `dc:creator`, and `atom:link` extensions
@@ -37,13 +38,14 @@ pub fn rss(site: &Site) -> String {
         ));
     }
     for post in site.posts.iter().take(c.feeds.limit.max(1)) {
-        let link = c.absolute(&post.url);
+        let projection = project_post(post, c).expect("a loaded site's URL is valid");
+        let link = &projection.publication_url;
         out.push_str("<item>\n");
         out.push_str(&format!("<title>{}</title>\n", escape::xml(&post.title)));
-        out.push_str(&format!("<link>{}</link>\n", escape::xml(&link)));
+        out.push_str(&format!("<link>{}</link>\n", escape::xml(link)));
         out.push_str(&format!(
             "<guid isPermaLink=\"true\">{}</guid>\n",
-            escape::xml(&link)
+            escape::xml(link)
         ));
         out.push_str(&format!("<pubDate>{}</pubDate>\n", post.date.rfc2822()));
         match post.credit_provenance {
@@ -54,10 +56,14 @@ pub fn rss(site: &Site) -> String {
                 ));
             }
             CreditProvenance::ExplicitSidecar => {
-                for author in post.authors() {
+                for author in projection
+                    .authors
+                    .iter()
+                    .filter(|author| author.roles.iter().any(|role| role.is_author()))
+                {
                     out.push_str(&format!(
                         "<dc:creator>{}</dc:creator>\n",
-                        escape::xml(&author.contributor.name)
+                        escape::xml(&author.name)
                     ));
                 }
             }
@@ -83,7 +89,7 @@ pub fn rss(site: &Site) -> String {
         if c.feeds.full_content {
             out.push_str(&format!(
                 "<content:encoded>{}</content:encoded>\n",
-                escape::cdata(&absolutize_html(&post.html, &c.url))
+                escape::cdata(&projection.representation(ProjectionFormat::Html).body)
             ));
         }
         out.push_str("</item>\n");
@@ -100,7 +106,8 @@ pub fn json_feed(site: &Site) -> String {
         .iter()
         .take(c.feeds.limit.max(1))
         .map(|post| {
-            let url = c.absolute(&post.url);
+            let projection = project_post(post, c).expect("a loaded site's URL is valid");
+            let url = projection.publication_url.clone();
             let mut item = serde_json::json!({
                 "id": url,
                 "url": url,
@@ -116,23 +123,27 @@ pub fn json_feed(site: &Site) -> String {
                 item["image"] = serde_json::Value::String(c.absolute(cover));
             }
             if c.feeds.full_content {
-                item["content_html"] =
-                    serde_json::Value::String(absolutize_html(&post.html, &c.url));
+                item["content_html"] = serde_json::Value::String(
+                    projection
+                        .representation(ProjectionFormat::Html)
+                        .body
+                        .clone(),
+                );
             }
-            if let Some(canonical) = &post.canonical {
-                item["external_url"] = serde_json::Value::String(canonical.clone());
+            if projection.canonical_url != projection.publication_url {
+                item["external_url"] = serde_json::Value::String(projection.canonical_url.clone());
             }
             if post.credit_provenance == CreditProvenance::ExplicitSidecar {
-                let authors = post
-                    .authors()
+                let authors = projection
+                    .authors
+                    .iter()
+                    .filter(|author| author.roles.iter().any(|role| role.is_author()))
                     .map(|credit| {
                         let mut author = serde_json::json!({
-                            "name": credit.contributor.name,
+                            "name": credit.name,
                         });
-                        if !credit.contributor.url.trim().is_empty() {
-                            author["url"] = serde_json::Value::String(
-                                c.absolute(credit.contributor.url.trim()),
-                            );
+                        if let Some(url) = &credit.url {
+                            author["url"] = serde_json::Value::String(url.clone());
                         }
                         author
                     })
@@ -361,12 +372,6 @@ pub fn search_index(site: &Site) -> String {
         entries,
     })
     .unwrap_or_default()
-}
-
-/// Feed readers need absolute URLs. Rewrite root-relative `src`/`href` values.
-fn absolutize_html(html: &str, origin: &str) -> String {
-    html.replace("src=\"/", &format!("src=\"{origin}/"))
-        .replace("href=\"/", &format!("href=\"{origin}/"))
 }
 
 fn mime_for(path: &str) -> &'static str {

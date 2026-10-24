@@ -27,6 +27,7 @@ pub mod frontmatter;
 pub mod markdown;
 pub mod model;
 pub mod profile;
+pub mod projection;
 pub mod recipe;
 pub mod render;
 pub mod research;
@@ -38,6 +39,9 @@ pub mod video;
 pub use config::SiteConfig;
 pub use date::DateTime;
 pub use model::{LoadOptions, Page, Post, Scheduled, Series, Site, SourceFile, Sources, Tag};
+pub use projection::{
+    project_post, PortableProjection, ProjectionFormat, ProjectionRepresentation,
+};
 pub use render::{generate, generate_document, social_metadata, OutputFile, SocialMetadata};
 pub use theme::{Theme, ThemeFile, ThemeSet};
 

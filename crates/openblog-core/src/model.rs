@@ -171,6 +171,8 @@ pub struct Post {
     pub theme: Option<String>,
     /// Old addresses that redirect here (`/old-slug/`), for moved or renamed posts.
     pub aliases: Vec<String>,
+    /// Canonical authored Markdown body retained from the one source parse.
+    pub markdown: String,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -200,6 +202,8 @@ pub struct Post {
     pub code_line_numbers: Option<bool>,
     /// The source file this post came from.
     pub source: String,
+    /// Stable cross-publishing identity, when explicitly authored.
+    pub syndication_id: Option<String>,
 }
 
 impl Post {
@@ -858,6 +862,7 @@ pub fn load_post(
         )),
         theme: optional_string(first(fm, &["theme"])),
         aliases: aliases(fm)?,
+        markdown: doc.body.clone(),
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
@@ -881,6 +886,7 @@ pub fn load_post(
             .get_bool("lineNumbers")
             .or_else(|| fm.get_bool("showLineNumbers")),
         source: file.path.clone(),
+        syndication_id: optional_string(first(fm, &["syndicationId", "syndication_id"])),
     })
 }
 
