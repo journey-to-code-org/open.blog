@@ -30,10 +30,10 @@ use openblog_core::{
 use serde_json::{json, Map, Value as Json};
 
 use crate::assistant::{
-    parse_skill, AnthropicProvider, AssistantConcurrency, AssistantDocument, AssistantErrorKind,
-    AssistantProvider, AssistantProviderStatus, AssistantRequest, AssistantResult, AssistantSource,
-    AssistantTask, GenericHttpsProvider, KnowledgeCheckCount, NativeProvider, NativeProviderKind,
-    ReviewContext, ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope,
+    parse_skill, AnthropicProvider, AssistantCompletionSource, AssistantConcurrency,
+    AssistantDocument, AssistantErrorKind, AssistantProvider, AssistantProviderStatus,
+    AssistantRequest, AssistantResult, GenericHttpsProvider, KnowledgeCheckCount, NativeProvider,
+    NativeProviderKind, ReviewContext, ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope,
     ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
 };
 use crate::auth::{self, Sessions, Throttle, Users};
@@ -431,6 +431,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
         ("POST", "assistant/review") => generate_document_review(state, req),
+        ("POST", "assistant/complete") => generate_inline_completion(state, req),
         ("GET", "assistant/skills") => assistant_skills(state),
         ("POST", "assistant/skill") => create_assistant_skill(state, req),
         ("PUT", "assistant/skill") => update_assistant_skill(state, req),
@@ -2746,20 +2747,17 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
         Err(error) => return review_error(error),
     };
     let hash = review_source_hash(title, &metadata, markdown);
-    let request = AssistantRequest {
-        schema_version: ASSISTANT_SCHEMA_VERSION,
-        task: AssistantTask::DocumentReview {
-            skills: skills.clone(),
-            context: context.clone(),
-        },
-        model: config.knowledge_checks.model.clone(),
-        source: AssistantSource::Document(AssistantDocument {
+    let request = AssistantRequest::document_review(
+        config.knowledge_checks.model.clone(),
+        AssistantDocument {
             title: title.to_string(),
             metadata,
             markdown: markdown.to_string(),
             hash: hash.clone(),
-        }),
-    };
+        },
+        skills.clone(),
+        context.clone(),
+    );
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
         None => {
@@ -2772,6 +2770,9 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
     let findings = match provider.generate(&request) {
         Ok(AssistantResult::Review(findings)) => findings,
         Ok(AssistantResult::KnowledgeChecks(_)) => {
+            return Response::error(502, "Assistant provider returned the wrong result type")
+        }
+        Ok(AssistantResult::Completion(_)) => {
             return Response::error(502, "Assistant provider returned the wrong result type")
         }
         Err(error) => return review_error(error),
@@ -2795,6 +2796,104 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
             "findings": findings.findings,
         }),
     )
+}
+
+fn generate_inline_completion(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid completion request"),
+    };
+    let source = &body["source"];
+    let title = match source["title"].as_str() {
+        Some(title) if title.chars().count() <= 500 && !title.contains('\0') => title,
+        _ => return Response::error(400, "Completion source needs a bounded UTF-8 title"),
+    };
+    let metadata = match source["metadata"].as_object() {
+        Some(_) => source["metadata"].clone(),
+        None => return Response::error(400, "Completion source metadata must be an object"),
+    };
+    if let Err(error) = fields_from_json(&metadata) {
+        return Response::error(400, &format!("Invalid completion source metadata: {error}"));
+    }
+    let bounded_text = |field: &str, maximum: usize| {
+        source[field]
+            .as_str()
+            .filter(|value| value.chars().count() <= maximum && !value.contains('\0'))
+    };
+    let markdown = match bounded_text("markdown", 100_000) {
+        Some(value) => value,
+        None => return Response::error(400, "Completion Markdown is too large or invalid"),
+    };
+    let prefix = match bounded_text("prefix", 8_000) {
+        Some(value) => value,
+        None => return Response::error(400, "Completion prefix is too large or invalid"),
+    };
+    let suffix = match bounded_text("suffix", 8_000) {
+        Some(value) => value,
+        None => return Response::error(400, "Completion suffix is too large or invalid"),
+    };
+    let editor_mode = match source["editorMode"].as_str() {
+        Some(mode @ ("visual" | "markdown")) => mode,
+        _ => return Response::error(400, "Completion editorMode must be visual or markdown"),
+    };
+    let context_ids = match selected_ids(&body, "contextIds", 16) {
+        Ok(ids) => ids,
+        Err(response) => return response,
+    };
+    let context = {
+        let _assistant_lock = lock(&state.build);
+        match context_ids
+            .iter()
+            .map(|id| resolve_review_context(&state.root, id))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(context) => context,
+            Err(response) => return response,
+        }
+    };
+    let (config, credential) = match assistant_provider_snapshot(state) {
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
+    let provider = match configured_assistant_provider(
+        &config,
+        credential,
+        assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
+    ) {
+        Ok(provider) => provider,
+        Err(error) => return review_error(error),
+    };
+    let request = AssistantRequest::inline_completion(
+        config.knowledge_checks.model,
+        AssistantCompletionSource {
+            title: title.to_string(),
+            metadata,
+            markdown: markdown.to_string(),
+            prefix: prefix.to_string(),
+            suffix: suffix.to_string(),
+            editor_mode: editor_mode.to_string(),
+        },
+        context,
+    );
+    let _provider_permit = match state.assistant_operations.try_acquire() {
+        Some(permit) => permit,
+        None => {
+            return Response::json(
+                429,
+                &json!({ "error": "Two Assistant operations are already running; try again shortly", "code": "concurrency-limit" }),
+            )
+        }
+    };
+    match provider.generate(&request) {
+        Ok(AssistantResult::Completion(completion)) => Response::json(200, &json!(completion)),
+        Ok(AssistantResult::KnowledgeChecks(_) | AssistantResult::Review(_)) => {
+            Response::error(502, "Assistant provider returned the wrong result type")
+        }
+        Err(error) => review_error(error),
+    }
 }
 
 fn delete_assistant_reference(state: &AppState, req: &Request) -> Response {
@@ -3025,15 +3124,11 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
             return Response::error(status, error.public_message());
         }
     };
-    let request = AssistantRequest {
-        schema_version: ASSISTANT_SCHEMA_VERSION,
-        task: AssistantTask::KnowledgeChecks {
-            count: KnowledgeCheckCount::new(count as u8)
-                .expect("the request count was validated above"),
-        },
-        model: config.knowledge_checks.model,
-        source: AssistantSource::Excerpt(context.to_string()),
-    };
+    let request = AssistantRequest::knowledge_checks(
+        config.knowledge_checks.model,
+        context.to_string(),
+        KnowledgeCheckCount::new(count as u8).expect("the request count was validated above"),
+    );
     let _provider_permit = match state.assistant_operations.try_acquire() {
         Some(permit) => permit,
         None => {
@@ -3046,6 +3141,9 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     match provider.generate(&request) {
         Ok(AssistantResult::KnowledgeChecks(result)) => Response::json(200, &json!(result)),
         Ok(AssistantResult::Review(_)) => {
+            Response::error(502, "Assistant provider returned the wrong result type")
+        }
+        Ok(AssistantResult::Completion(_)) => {
             Response::error(502, "Assistant provider returned the wrong result type")
         }
         Err(error) => Response::error(502, error.public_message()),
@@ -5982,6 +6080,237 @@ mod tests {
         assert_eq!(result["findings"][0]["evidence"], "Draft body");
         assert!(!String::from_utf8_lossy(&response.body).contains("review-secret"));
         assert_eq!(fs::read_to_string(saved_path).unwrap(), saved_before);
+    }
+
+    #[test]
+    fn inline_completion_requires_csrf_and_uses_the_unsaved_snapshot_and_selected_context() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-inline-completion");
+        fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
+        fs::write(
+            f.dir.join("assistant/context/author.md"),
+            "Prefer direct, warm prose.",
+        )
+        .unwrap();
+        let (endpoint, captured, provider) =
+            capturing_provider(json!({ "completion": " softly." }).to_string());
+        set_quiz_endpoint(&f, &endpoint);
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "completion-secret");
+        let session = login_ok(&f);
+        let request_body = json!({
+            "source": {
+                "title": "Unsaved lantern story",
+                "metadata": { "profile": "article", "tags": ["writing"] },
+                "markdown": "The lantern opened",
+                "prefix": "The lantern",
+                "suffix": " opened",
+                "editorMode": "markdown"
+            },
+            "contextIds": ["portable:author"]
+        });
+
+        assert_eq!(
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/assistant/complete",
+                        request_body.clone()
+                    ),
+                    &session,
+                    false,
+                ),
+            )
+            .status,
+            403
+        );
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/assistant/complete", request_body),
+                &session,
+                true,
+            ),
+        );
+        provider.join().unwrap();
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        assert_eq!(body_json(&response), json!({ "completion": " softly." }));
+        assert!(!String::from_utf8_lossy(&response.body).contains("completion-secret"));
+
+        let outbound = captured.recv().unwrap();
+        assert_eq!(outbound["task"], "inline-completion");
+        assert_eq!(
+            outbound["untrustedData"]["source"]["title"],
+            "Unsaved lantern story"
+        );
+        assert_eq!(
+            outbound["untrustedData"]["source"]["markdown"],
+            "The lantern opened"
+        );
+        assert_eq!(
+            outbound["untrustedData"]["context"][0]["content"],
+            "Prefer direct, warm prose."
+        );
+    }
+
+    #[test]
+    fn inline_completion_rejects_invalid_editor_mode_before_contacting_a_provider() {
+        let f = fixture("assistant-inline-completion-mode");
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/complete",
+                    json!({
+                        "source": {
+                            "title": "Draft",
+                            "metadata": {},
+                            "markdown": "Body",
+                            "prefix": "Body",
+                            "suffix": "",
+                            "editorMode": "source"
+                        },
+                        "contextIds": []
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(response.status, 400);
+        assert!(String::from_utf8_lossy(&response.body).contains("visual or markdown"));
+    }
+
+    #[test]
+    fn inline_completion_enforces_request_bounds_before_contacting_a_provider() {
+        let f = fixture("assistant-inline-completion-bounds");
+        let session = login_ok(&f);
+        let valid = || {
+            json!({
+                "source": {
+                    "title": "Draft",
+                    "metadata": {},
+                    "markdown": "Body",
+                    "prefix": "Body",
+                    "suffix": "",
+                    "editorMode": "markdown"
+                },
+                "contextIds": []
+            })
+        };
+        for (field, value) in [
+            ("title", "x".repeat(501)),
+            ("markdown", "x".repeat(100_001)),
+            ("prefix", "x".repeat(8_001)),
+            ("suffix", "x".repeat(8_001)),
+        ] {
+            let mut body = valid();
+            body["source"][field] = Json::String(value);
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/assistant/complete", body),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, 400, "field {field}");
+        }
+    }
+
+    #[test]
+    fn inline_completion_fails_safely_for_missing_credentials_and_invalid_provider_output() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-inline-completion-errors");
+        set_quiz_endpoint(&f, "https://assistant.example/generate");
+        let session = login_ok(&f);
+        let request = || {
+            authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/complete",
+                    json!({
+                        "source": {
+                            "title": "Draft",
+                            "metadata": {},
+                            "markdown": "Body",
+                            "prefix": "Body",
+                            "suffix": "",
+                            "editorMode": "markdown"
+                        },
+                        "contextIds": []
+                    }),
+                ),
+                &session,
+                true,
+            )
+        };
+
+        let missing = handle(&f.state, &request());
+        assert_eq!(missing.status, 503);
+        assert!(!String::from_utf8_lossy(&missing.body).contains("completion-secret"));
+
+        let (endpoint, server) = quiz_provider(
+            200,
+            json!({ "completion": " prose", "unexpected": true }).to_string(),
+            Duration::ZERO,
+        );
+        set_quiz_endpoint(&f, &endpoint);
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "completion-secret");
+        let invalid = handle(&f.state, &request());
+        server.join().unwrap();
+        assert_eq!(invalid.status, 502);
+        assert!(String::from_utf8_lossy(&invalid.body).contains("invalid-result"));
+        assert!(!String::from_utf8_lossy(&invalid.body).contains("completion-secret"));
+    }
+
+    #[test]
+    fn inline_completion_obeys_the_shared_assistant_concurrency_limit() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
+        let f = fixture("assistant-inline-completion-concurrency");
+        set_quiz_endpoint(&f, "https://assistant.example/generate");
+        std::env::set_var("OPENBLOG_LESSONS_API_KEY", "completion-secret");
+        let session = login_ok(&f);
+        let _first = f.state.assistant_operations.try_acquire().unwrap();
+        let _second = f.state.assistant_operations.try_acquire().unwrap();
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/assistant/complete",
+                    json!({
+                        "source": {
+                            "title": "Draft",
+                            "metadata": {},
+                            "markdown": "Body",
+                            "prefix": "Body",
+                            "suffix": "",
+                            "editorMode": "markdown"
+                        },
+                        "contextIds": []
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+
+        assert_eq!(response.status, 429);
+        assert!(String::from_utf8_lossy(&response.body).contains("already running"));
     }
 
     #[test]

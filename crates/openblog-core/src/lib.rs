@@ -13,6 +13,7 @@
 //! - [`search`]: a small ranked search over a JSON index
 
 pub mod accessibility;
+pub mod assistant_guide;
 pub mod config;
 pub mod contributor;
 pub mod date;
