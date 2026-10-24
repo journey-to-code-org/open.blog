@@ -6,7 +6,8 @@ All notable changes to open.blog are recorded here. Releases follow
 ## [Unreleased]
 
 - Constrained native Anthropic Assistant replies with task-specific JSON schemas so every review
-  finding includes its required source range before semantic validation.
+  finding includes its required source range, and safely re-anchors incorrect provider offsets
+  when their exact evidence occurs only once in the reviewed Markdown.
 - Fixed Anthropic reviews that could spend the entire output budget on adaptive thinking before
   returning JSON, and now report safe, actionable stop-reason errors for empty responses.
 - Added native Anthropic Claude support with the correct Messages API authentication and response
