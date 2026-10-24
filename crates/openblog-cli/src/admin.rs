@@ -982,6 +982,13 @@ fn meta(state: &AppState) -> Response {
             })
         })
         .collect::<Vec<_>>();
+    let assistant_ready = assistant_configuration_ready(
+        &config,
+        assistant_credential(&state.root, &config)
+            .ok()
+            .flatten()
+            .is_some(),
+    );
     Response::json(
         200,
         &json!({
@@ -998,13 +1005,8 @@ fn meta(state: &AppState) -> Response {
             "series": series,
             "tags": tags,
             "maxUploadMb": config.admin.max_upload_mb,
-            "quizGeneration": assistant_configuration_ready(
-                &config,
-                assistant_credential(&state.root, &config)
-                    .ok()
-                    .flatten()
-                    .is_some(),
-            ),
+            "quizGeneration": assistant_ready,
+            "codeInteractionGeneration": assistant_ready,
             "now": clock::now().rfc3339(),
         }),
     )

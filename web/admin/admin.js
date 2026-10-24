@@ -4612,22 +4612,28 @@ export class Editor {
       const challenge = kind.value === "challenge";
       outputField.hidden = !challenge;
       hintField.hidden = !challenge;
-      if (challenge && !/^\s*\/\/.*\bTODO\b/im.test(code.value)) code.value = "fn main() {\n    // TODO: complete the challenge\n}";
     };
     kind.addEventListener("change", syncKind);
 
     const generation = [];
-    if (this.meta.codeInteractionGeneration || this.meta.quizGeneration) {
+    if (this.meta.codeInteractionGeneration) {
       const generate = h("button", {
         class: "oba-btn oba-btn-primary",
         type: "button",
         onClick: async () => {
+          const generationSnapshot = JSON.stringify([kind.value, title.value, instructions.value, code.value, expectedOutput.value, hint.value, explanation.value]);
           generate.disabled = true;
           status.hidden = true;
           try {
             const result = await this.app.api.call("POST", "assistant/code-interaction", {
               json: { context: this.interactionContext(target), kind: kind.value },
             });
+            if (generationSnapshot !== JSON.stringify([kind.value, title.value, instructions.value, code.value, expectedOutput.value, hint.value, explanation.value])) {
+              status.textContent = "The proposal changed while generation was running, so the returned draft was not applied.";
+              status.className = "oba-error";
+              status.hidden = false;
+              return;
+            }
             title.value = result.title;
             instructions.value = result.instructions;
             code.value = result.code;

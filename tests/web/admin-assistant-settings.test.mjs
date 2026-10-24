@@ -42,7 +42,7 @@ test("provider settings load and replace a write-only credential without reveali
     assistantSettingsSave: { disabled: false },
     assistantSettingsClear: { disabled: false },
   };
-  editor.loadAssistantStatus = async () => ({ configured: true, capabilities: { knowledgeChecks: true } });
+  editor.loadAssistantStatus = async () => ({ configured: true, capabilities: { knowledgeChecks: true, codeInteractions: true } });
 
   await editor.loadAssistantSettings();
   assert.equal(editor.ui.assistantSettingsEndpoint.value, "https://assistant.example/generate");
@@ -71,6 +71,7 @@ test("provider settings load and replace a write-only credential without reveali
   assert.equal(editor.ui.assistantSettingsSave.disabled, false);
   assert.equal(editor.ui.assistantSettingsClear.disabled, false);
   assert.equal(app.meta.quizGeneration, true, "knowledge-check generation becomes available without reloading Admin");
+  assert.equal(app.meta.codeInteractionGeneration, true, "runnable-code generation becomes available without reloading Admin");
 });
 
 test("selecting Anthropic hides the custom endpoint and supplies a useful model default", () => {
