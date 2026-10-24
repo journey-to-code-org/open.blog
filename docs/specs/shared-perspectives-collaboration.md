@@ -1,6 +1,7 @@
 # Shared perspectives collaboration contract
 
-Status: contract established; workflow UI and quorum behavior are not implemented
+Status: contract and authorization policy established; workflow UI and quorum behavior are not
+implemented
 Date: 2026-10-24
 
 ## Outcome
@@ -80,13 +81,14 @@ pass with set lookups, so cost grows only with the bounded input.
 
 ## Authorization policy
 
-Authentication, public attribution, and publication access remain three separate relationships:
+[ADR 0006](../adr/0006-collaborator-identity-binding.md) records this decision. Authentication,
+public attribution, and publication access remain three separate relationships:
 
-- An Admin account proves who signed in. Removing the account invalidates its sessions through the
+- An Admin user proves who signed in. Removing the account invalidates its sessions through the
   existing Admin authentication boundary.
 - A contributor registry entry supplies public credit identity. It grants no login or access, and
   it makes a person a Contributor for a work only when that work's credit sidecar names it.
-- A publication policy deliberately binds one active Admin account and one current contributor ID
+- A publication policy deliberately binds one active Admin user and one current contributor ID
   to one participant ID from that publication's collaboration contract. The binding points at a
   registry entry; it never credits that entry on any work.
 
@@ -108,32 +110,88 @@ The version 1 policy is group-safe and contains no pair-specific fields:
 }
 ```
 
-Bindings are one-to-one within a publication: Admin account, contributor ID, and participant ID
-cannot repeat. A binding may carry multiple distinct roles. These are publication-scoped
-collaboration roles: the `contributor` role means writing one's own contribution, not holding a
-public contributor credit. Authorization checks the publication, currently authenticated account,
-active Admin-user set, current contributor registry, current participant collection, requested
-action, and (for participant-owned actions) target participant on every request. Missing,
-removed, renamed, stale, cross-publication, or unbound identities deny by default.
+- `adminUser` follows the Admin sign-in username rule (lowercase ASCII letters, digits, `_`, `.`,
+  and `-`, at most 32 bytes). The rule lives in `openblog-core` and the CLI users file uses it,
+  so every account that can sign in can be bound and no binding can name an impossible account.
+- `contributorId` follows the contributor registry key rule (a lowercase ASCII slug), capped at
+  128 bytes.
+- `participantId` follows the contract identifier rule above.
+- Bindings are one-to-one within a publication: Admin user, contributor ID, and participant ID
+  cannot repeat, and participant IDs are compared ASCII case-insensitively as in the contract.
+- A binding carries one or more distinct roles from `siteOwner`, `coordinator`, `contributor`,
+  `editor`, and `reader`. These are publication-scoped collaboration roles: the `contributor`
+  role means writing one's own contribution draft, not holding a public contributor credit, and
+  `siteOwner` gives no site-wide Admin authority beyond this publication.
 
-| Role | View published | View revealed | View contribution | Edit contribution | Invite | Reveal | Approve | Schedule | Publish | Remove member | Export |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Site owner | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Yes | Yes |
-| Coordinator | Yes | Yes | No | No | Yes | No | No | Yes | Yes | Yes | Yes |
-| Contributor | Yes | Yes | Own | Own | No | Own | Own | No | No | No | Yes |
-| Editor | Yes | Yes | Yes | Yes | No | No | No | No | No | No | Yes |
-| Reader | Yes | Yes | No | No | No | No | No | No | No | No | Yes |
+### Decisions
 
-`ViewRevealed` authorizes only the action class and takes no target: it is not checked against a
-reveal's `participantIds`. Any surface that delivers a revealed contribution must also confirm that
-the reveal lists the requesting participant, and must test that an unlisted participant receives
-nothing.
+`AuthorizationPolicy::authorize` takes server-side facts for one request: the publication ID, the
+authenticated Admin user from the session, the current Admin users, the current contributor
+registry keys, the current collaboration contract, and a target. It denies by default and returns
+the same non-identifying error unless all of these hold:
 
-An editor may edit without becoming the attributed author and cannot reveal or approve for a
-participant. An authorization grant for `Approve` only permits the bound participant to submit an
-approval; it does not create one. Site-owner or coordinator authority to schedule or publish does
-not manufacture or bypass participant approvals. Exact-revision consent and the transactional
+1. The policy belongs to the requested publication.
+2. The signed-in account is still an active Admin user and has a binding in this policy.
+3. The binding's contributor ID is still a registry key and its participant ID is still in the
+   contract's participant collection.
+4. The target has the kind the action takes and resolves in the contract.
+5. One of the binding's roles allows the action on that resolved target.
+
+Missing, removed, renamed, stale, cross-publication, or unbound identities therefore receive no
+access, whatever roles the policy lists. A registry entry, a login, or a participant record alone
+grants nothing.
+
+Targets are `Publication`, `Participant(id)`, or `Contribution(id)`. The request supplies only the
+ID. A contribution's owner and its reveal recipients are read from the contract, so a request
+cannot claim to act on its own draft while naming another participant's, and a target of the
+wrong kind is denied rather than ignored.
+
+| Action | Target | Site owner | Coordinator | Contributor | Editor | Reader |
+| --- | --- | --- | --- | --- | --- | --- |
+| View published | Publication | Yes | Yes | Yes | Yes | Yes |
+| View revealed | Contribution | Revealed | Revealed | Revealed | Revealed | Revealed |
+| View contribution | Contribution | No | No | Own | Own or revealed | No |
+| Edit contribution | Contribution | No | No | Own | Own or revealed | No |
+| Invite | Publication | Yes | Yes | No | No | No |
+| Reveal | Contribution | No | No | Own | No | No |
+| Approve | Participant | No | No | Self | No | No |
+| Schedule | Publication | Yes | Yes | No | No | No |
+| Publish | Publication | Yes | Yes | No | No | No |
+| Remove member | Participant | Any | Not a site owner | No | No | No |
+| Export | Publication | Yes | Yes | Yes | Yes | Yes |
+
+- **Own** means the contract lists the bound participant as the contribution's owner.
+- **Revealed** means that contribution's reveal lists the bound participant. View revealed is
+  checked per contribution, so any surface that lists or delivers revealed drafts must authorize
+  each draft and deliver nothing for a denied one.
+- **Self** means the target is the bound participant. An approval is recorded only for the
+  requester's own participant.
+- **Any** and **Not a site owner** refer to the target participant. A coordinator cannot remove a
+  participant whose binding holds `siteOwner`.
+- View published and Export cover only the published projection. Neither exposes private
+  collaboration state, which reaches public output only through a Published assembly under
+  [ADR 0004](../adr/0004-portable-projections-from-canonical-work.md).
+
+A binding's roles combine, so a coordinator who also holds `contributor` can edit and approve their
+own draft. Site owners and coordinators cannot read, edit, reveal, or approve another participant's
+private draft. An editor may view and edit their own draft or a draft revealed to them without
+becoming its author, and cannot reveal or approve for anyone. A grant for Approve only permits the
+bound participant to submit an approval; it does not create one. Authority to schedule or publish
+does not create or bypass participant approvals. Exact-revision consent and the transactional
 publication gate remain separate contracts.
+
+### Caller obligations
+
+- Fill the identity fields from the authenticated session, the users file, and the contributor
+  registry on every request, never from the request body.
+- Load the policy and the contract from the same publication record. The version 1 contract has
+  no publication ID of its own, so the record that stores both is what ties them together.
+- Authorize inside the same transaction as the change the grant permits, against the current
+  policy and contract revisions, and let an optimistic revision conflict fail the request.
+- Invitations ([#159](https://github.com/journey-to-code-org/open.blog/issues/159)) must not grant
+  `siteOwner` unless the inviter holds it, and must bind the account that accepts.
+
+### Limits and failure
 
 The policy is capped at 64 KiB and 100 bindings. Unknown fields are rejected, so Markdown, URLs,
 credentials, tokens, provider claims, and arbitrary metadata cannot enter it. Parsing,
@@ -199,9 +257,15 @@ approvals through it and assert that credits are unchanged. Source-reference fix
 many ordered sources with stable IDs, and rejection of zero sources) arrive with the source
 collection in #156.
 
-Authorization matrix fixtures cover every role and action plus confused-deputy targeting, removed
-Admin users, renamed contributors, removed participants, unbound accounts, cross-publication use,
-hostile fields, group sizes, and atomic policy replacement.
+Authorization matrix fixtures in `crates/openblog-core/tests/collaboration_authorization.rs`
+check every role against every action and target kind, including unknown IDs. Further fixtures
+cover registry entries and logins without a binding, confused-deputy requests (another
+participant's draft, an unrevealed draft, a wrong target kind, and approving for someone else),
+coordinators removing a site owner, removed Admin users, renamed contributors, removed
+participants, another account claiming a binding, cross-publication use, Admin username and
+registry key rules (including homoglyph, bidi, and NUL identities), unknown roles, hostile fields,
+group sizes up to the binding limit, stale, replayed, skipped, and exhausted policy revisions, and
+unchanged generated output after denials.
 
 ## Out of scope
 

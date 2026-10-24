@@ -41,6 +41,9 @@ Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
 The [shared-publication language decision](adr/0005-shared-publication-language.md) separates
 private collaboration, source material, and draft approval from canonical posts and public credit.
+The [collaborator identity binding decision](adr/0006-collaborator-identity-binding.md) defines
+how an Admin user explicitly becomes a publication participant and what each collaboration role
+may do.
 
 Current design frontiers include
 [contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),

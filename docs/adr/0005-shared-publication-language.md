@@ -41,7 +41,7 @@ version 1 authorization policy's `publicationId` names the Shared publication.
 Participant and Collaboration role describe private workflow involvement. A Participant reaches an
 Admin user and a contributor registry entry (by its contributor ID) only through an explicit
 binding in the publication's authorization policy. That registry entry becomes a Contributor for a
-work only when the work's Work credit names it, never through the binding. The the Collaboration roles are that policy's publication-scoped roles: site owner,
+work only when the work's Work credit names it, never through the binding. The Collaboration roles are that policy's publication-scoped roles: site owner,
 coordinator, contributor, editor, and reader. The `contributor` role means writing one's own
 Contribution draft; it is not the public Contributor relationship. No participant, binding, or
 role establishes that a person is a Contributor or Author, creates a Work credit, or grants
@@ -86,11 +86,11 @@ untrusted source; and replacement is whole-contract and revision-checked.
 Errors remain non-identifying and cannot echo another participant's content, identity, token, URL,
 or metadata.
 
-The #154 `ViewRevealed` grant authorizes only the action class "view revealed drafts" for a bound
-participant; it is not checked against any Reveal's `participantIds`. Every later delivery path,
-including the collaborative draft in #156 and the preview and publication path in #158, must also
-deliver a Contribution draft only to the participants its Reveal lists, and must test that an
-unlisted participant holding `ViewRevealed` receives nothing.
+The #154 `ViewRevealed` grant targets one Contribution draft and is allowed only when that draft's
+Reveal lists the bound participant
+([ADR 0006](0006-collaborator-identity-binding.md)). Every later delivery path, including the
+collaborative draft in #156 and the preview and publication path in #158, must authorize each
+draft it delivers and must test that an unlisted participant receives nothing.
 
 Collaboration parsing, validation, and authorization do not mutate a Document, Post, credits,
 feeds, or rendered output. Under

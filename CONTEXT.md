@@ -55,6 +55,14 @@ authorization binding; it grants no site administration authority and implies ne
 credit nor authorship, so the bound entry is not thereby a Contributor.
 _Avoid_: Contributor, Author, Admin user, left participant, right participant
 
+**Publication authorization binding**:
+An explicit entry in one shared publication's authorization policy that ties one Admin user and
+one contributor registry entry to one participant and gives that participant collaboration roles.
+It is the only source of collaboration access. It stops granting anything once its account,
+registry key, or participant no longer exists, and it creates no authorship, Work credit, reveal,
+or approval.
+_Avoid_: Contributor registry entry, login, Work credit, invitation
+
 **Pair projection**:
 A derived, unpersisted view that presents a shared publication with exactly two ordered
 participants as first and second UI slots. It reads the ordinary group collections and adds no
