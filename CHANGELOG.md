@@ -8,7 +8,14 @@ All notable changes to open.blog are recorded here. Releases follow
 - Defined the versioned research source library contract in core: distinct works, editions,
   translations, witnesses, and references with stable identifiers, source locations, lossless
   unknown fields, and source-scoped diagnostics that keep contributor credits out of
-  bibliography. Builds, the CLI, and Admin Studio do not read it yet.
+  bibliography.
+- Stored the research source library privately at `.openblog/private/research/sources.json`
+  with revision-checked, locked, atomic create, update, and remove. Stale revisions,
+  duplicate or missing ids, symlinked paths, and malformed, oversized, or newer-version
+  files are refused with source-scoped diagnostics and leave the stored file unchanged, and
+  interrupted writes are cleaned up. `openblog check` validates a stored library.
+- Builds no longer copy anything inside `.openblog/` when a static or theme directory
+  contains it or a static file links into it.
 
 ## [0.15.0] - 2026-10-24
 

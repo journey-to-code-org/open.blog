@@ -3,15 +3,14 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-pub struct ContentTransactionLock(PathBuf);
+/// An exclusive lock held by creating a file, which is removed on drop. A
+/// crashed owner leaves the file behind, and the error says how to recover.
+pub struct FileLock(PathBuf);
 
-impl ContentTransactionLock {
-    pub fn acquire(root: &Path) -> Result<Self, String> {
-        Self::acquire_with_wait(root, Duration::ZERO)
-    }
-
-    pub fn acquire_with_wait(root: &Path, max_wait: Duration) -> Result<Self, String> {
-        let path = root.join(".openblog").join("content-transaction.lock");
+impl FileLock {
+    /// Wait up to `max_wait` for `path` to be free. `action` names the write in
+    /// messages and in the ownership record, such as `content write`.
+    pub fn acquire(path: PathBuf, action: &str, max_wait: Duration) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
@@ -32,7 +31,7 @@ impl ContentTransactionLock {
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     return Err(format!(
-                        "another content write is active ({error}). If open.blog crashed and no writer is running, remove {} and retry",
+                        "another {action} is active ({error}). If open.blog crashed and no writer is running, remove {} and retry",
                         path.display()
                     ));
                 }
@@ -41,7 +40,13 @@ impl ContentTransactionLock {
                 }
             }
         };
-        writeln!(file, "pid={} action=content-write", std::process::id()).map_err(|error| {
+        writeln!(
+            file,
+            "pid={} action={}",
+            std::process::id(),
+            action.replace(' ', "-")
+        )
+        .map_err(|error| {
             let _ = fs::remove_file(&path);
             format!(
                 "cannot record transaction ownership in {}: {error}",
@@ -52,9 +57,24 @@ impl ContentTransactionLock {
     }
 }
 
-impl Drop for ContentTransactionLock {
+impl Drop for FileLock {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.0);
+    }
+}
+
+pub struct ContentTransactionLock {
+    _lock: FileLock,
+}
+
+impl ContentTransactionLock {
+    pub fn acquire(root: &Path) -> Result<Self, String> {
+        Self::acquire_with_wait(root, Duration::ZERO)
+    }
+
+    pub fn acquire_with_wait(root: &Path, max_wait: Duration) -> Result<Self, String> {
+        let path = root.join(".openblog").join("content-transaction.lock");
+        FileLock::acquire(path, "content write", max_wait).map(|lock| Self { _lock: lock })
     }
 }
 

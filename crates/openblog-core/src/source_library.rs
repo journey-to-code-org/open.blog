@@ -200,6 +200,32 @@ impl Default for SourceLibrary {
     }
 }
 
+/// In-memory lookups over one library, in library order. See
+/// [`SourceLibrary::index`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceIndex {
+    positions: BTreeMap<String, usize>,
+    kinds: BTreeMap<ResearchSourceKind, Vec<String>>,
+    dependents: BTreeMap<String, Vec<String>>,
+}
+
+impl SourceIndex {
+    /// Zero-based position of the record with this identifier.
+    pub fn position(&self, id: &str) -> Option<usize> {
+        self.positions.get(id).copied()
+    }
+
+    /// Identifiers of every record of one kind.
+    pub fn of_kind(&self, kind: ResearchSourceKind) -> &[String] {
+        self.kinds.get(&kind).map_or(&[], Vec::as_slice)
+    }
+
+    /// Identifiers of the records whose `of` or `basedOn` names this one.
+    pub fn dependents(&self, id: &str) -> &[String] {
+        self.dependents.get(id).map_or(&[], Vec::as_slice)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SourceDiagnosticCode {
@@ -413,6 +439,34 @@ impl SourceLibrary {
             return Err(vec![too_large()]);
         }
         Ok(library)
+    }
+
+    /// The record with exactly this source identifier.
+    pub fn get(&self, id: &str) -> Option<&SourceRecord> {
+        self.sources.iter().find(|record| record.id == id)
+    }
+
+    /// Lookups derived from the records. The index is never stored: it is
+    /// rebuilt from the canonical library, so it cannot drift from it or
+    /// reach any output the library itself does not.
+    pub fn index(&self) -> SourceIndex {
+        let mut index = SourceIndex::default();
+        for (position, record) in self.sources.iter().enumerate() {
+            index.positions.insert(record.id.clone(), position);
+            index
+                .kinds
+                .entry(record.kind)
+                .or_default()
+                .push(record.id.clone());
+            for target in record.of.iter().chain(&record.based_on) {
+                index
+                    .dependents
+                    .entry(target.clone())
+                    .or_default()
+                    .push(record.id.clone());
+            }
+        }
+        index
     }
 
     /// Deterministic, pretty-printed JSON with a trailing newline.

@@ -824,3 +824,44 @@ fn source_libraries_are_never_content_sources() {
         Some(openblog_core::SourceKind::PostCredits)
     );
 }
+
+#[test]
+fn the_derived_index_finds_records_by_id_kind_and_dependents_deterministically() {
+    let library = SourceLibrary::parse(LIBRARY, &no_contributors()).unwrap();
+    let index = library.index();
+
+    assert_eq!(index.position("republic-bloom"), Some(2));
+    assert_eq!(
+        library.get("republic-bloom").map(|record| record.kind),
+        Some(ResearchSourceKind::Translation)
+    );
+    assert_eq!(index.position("../plato-republic"), None);
+    assert!(library.get("Plato-Republic").is_none(), "ids are exact");
+
+    assert_eq!(
+        index.of_kind(ResearchSourceKind::Work),
+        ["plato-republic".to_string()]
+    );
+    assert!(index.of_kind(ResearchSourceKind::Reference) == ["cave-allegory".to_string()]);
+    // `of` and `basedOn` both count; dependents are listed in library order.
+    assert_eq!(
+        index.dependents("plato-republic"),
+        [
+            "republic-slings-2003".to_string(),
+            "republic-bloom".to_string(),
+            "paris-gr-1807".to_string(),
+        ]
+    );
+    assert_eq!(
+        index.dependents("republic-slings-2003"),
+        ["republic-bloom".to_string(), "cave-allegory".to_string()]
+    );
+    assert!(index.dependents("cave-allegory").is_empty());
+    assert!(index.dependents("missing").is_empty());
+
+    assert_eq!(
+        library.index(),
+        index,
+        "the index is a pure function of the library"
+    );
+}

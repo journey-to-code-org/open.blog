@@ -113,6 +113,11 @@ references reused across research. It is never content and reaches public output
 through an explicit projection.
 _Avoid_: Bibliography when the public reference list of one work is meant; database
 
+**Library revision**:
+The fingerprint of the source library as stored, which every change must name so that a
+change based on an older read is refused instead of overwriting newer work.
+_Avoid_: Version, which names the file format; edition
+
 **Source identifier**:
 A stable, author-assigned slug naming one source-library record, independent of its title.
 Editing a record never changes its kind; the library does not remember removed ids, so

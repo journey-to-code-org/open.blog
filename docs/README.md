@@ -56,7 +56,7 @@ openblog init [dir] [--title "..."] [--github-pages]
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
-openblog check                          Validate content and themes, write nothing
+openblog check                          Validate content, themes, and the private source library, write nothing
 openblog themes                         List themes and what they extend
 openblog publish [summary]              Commit changed content with git and push
 openblog publish setup                  Create the repository and Pages workflow

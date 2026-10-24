@@ -107,6 +107,25 @@ fn prune_empty(dir: &Path, is_root: bool) {
     }
 }
 
+/// The project's `.openblog` directory: logins, analytics, trash, and private
+/// research. Files inside it, or symlinks that resolve into it, are never
+/// public build input.
+pub struct PrivateState(Option<PathBuf>);
+
+impl PrivateState {
+    pub fn of(root: &Path) -> Self {
+        Self(fs::canonicalize(root.join(".openblog")).ok())
+    }
+
+    pub fn contains(&self, path: &Path) -> bool {
+        let Some(private) = &self.0 else {
+            return false;
+        };
+        // A path that cannot be resolved keeps failing where it is read.
+        fs::canonicalize(path).is_ok_and(|path| path.starts_with(private))
+    }
+}
+
 /// Marker file proving the output directory belongs to open.blog, so a
 /// misconfigured `paths.output` can never wipe an unrelated folder.
 pub const MARKER: &str = ".openblog-output";

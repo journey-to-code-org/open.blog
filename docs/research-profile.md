@@ -99,6 +99,22 @@ These checks establish source structure and syntax only. They do not test whethe
 resolves on the network, a source is authoritative, a method is sound, a citation supports a
 claim, or a work was peer reviewed. No empty finding list is presented as a quality score.
 
+## Private source library
+
+Works, editions, translations, witnesses, and references you reuse across research posts
+can be kept in a private source library at `.openblog/private/research/sources.json`. It
+is never content: builds do not read it, and nothing in `.openblog/` is copied into the
+site, feeds, search index, or exports, even if a static or theme directory is configured
+to contain it. New projects ignore `.openblog/private/` in Git, so the library stays on
+your machine unless you choose otherwise.
+
+`openblog check` validates a stored library and lists each problem with the source's
+position, identifier, and field. Changes are revision-checked and atomic: a change based on
+an outdated read, an invalid change, or an interrupted write leaves the stored file exactly
+as it was, and a damaged or newer-version file is reported rather than replaced. See the
+[format and storage contract](specs/research-source-library.md) and
+[ADR 0006](adr/0006-private-source-library-storage.md).
+
 For the product boundary and supporting standards research, see
 [Research and evidence publishing](research/research-evidence-publishing.md) and
 [ADR 0002](adr/0002-research-profile-and-evidence-capability.md).
