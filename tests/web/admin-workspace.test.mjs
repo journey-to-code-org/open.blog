@@ -16,10 +16,10 @@ test("admin shell exposes a grouped publishing workspace", () => {
 test("posts edit an optional subtitle directly under the title", () => {
   assert.match(
     admin,
-    /ui\.subtitle = kind === "posts" \? h\("input", \{ class: "oba-subtitle-input", id: "oba-subtitle", type: "text", placeholder: "Subtitle \(optional\)", value: f\.subtitle \|\| "", "aria-label": "Subtitle" \}\) : null;/,
+    /ui\.subtitle = kind === "posts" \? h\("input", \{ class: "oba-subtitle-input", id: "oba-subtitle", type: "text", placeholder: "Subtitle \(optional\)", value: f\.subtitle \|\| f\.subheading \|\| f\.dek \|\| "", "aria-label": "Subtitle" \}\) : null;/,
   );
   assert.match(admin, /ui\.title,\n\s*ui\.subtitle,\n\s*viewNav,/);
-  assert.match(admin, /set\("subtitle", ui\.subtitle\.value\.replace\(\/\\s\+\/g, " "\)\.trim\(\)\);/);
+  assert.match(admin, /set\("subtitle", ui\.subtitle\.value\.replace\(\/\\s\+\/g, " "\)\.trim\(\)\);\n\s*\/\/[^\n]*\n\s*set\("subheading", ""\);\n\s*set\("dek", ""\);/);
   assert.match(admin, /for \(const control of \[ui\.title, ui\.subtitle, ui\.slug,/);
   assert.match(styles, /\.oba-subtitle-input \{/);
 });

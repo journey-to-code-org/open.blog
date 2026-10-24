@@ -955,7 +955,7 @@ export function fieldJournalReview(fields = {}) {
   return { active, privacy, issues, status: issues.length ? `${issues.length} field review item${issues.length === 1 ? "" : "s"}.` : "Field journal is ready for a final human privacy review." };
 }
 
-export function analyzeReadiness({ kind, title, description, slug, canonical, tags = [], cover, coverAlt, body, authorReady }) {
+export function analyzeReadiness({ kind, title, subtitle = "", description, slug, canonical, tags = [], cover, coverAlt, body, authorReady }) {
   const analysisBody = markdownOutsideCode(body).replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
   const wordCount = (analysisBody.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
   const opening = analysisBody
@@ -979,6 +979,7 @@ export function analyzeReadiness({ kind, title, description, slug, canonical, ta
   if (kind === "posts") {
     const tagCount = tags.filter((tag) => tag.trim()).length;
     search.push({ ready: canonicalValid, label: "Canonical URL", detail: canonical ? (canonicalValid ? "Valid absolute HTTP(S) URL" : "Use a complete HTTP(S) URL") : "Uses this post’s generated URL" });
+    if (subtitle) search.push({ ready: subtitle.length <= 160, label: "Subtitle", detail: `${subtitle.length} characters; keep it to one short line (160 or fewer)` });
     search.push({ ready: tagCount > 0, label: "Topic signals", detail: tagCount ? `${tagCount} specific tag${tagCount === 1 ? "" : "s"}` : "Add at least one specific tag" });
   }
   const hasExternalSource = /\[[^\]]+\]\(https?:\/\//i.test(analysisBody) || /^\[\^[^\]]+\]:\s*https?:\/\//im.test(analysisBody);
@@ -2845,7 +2846,7 @@ export class Editor {
     const ui = this.ui;
 
     ui.title = h("input", { class: "oba-title-input", id: "oba-title", type: "text", placeholder: kind === "series" ? "Series name" : "Title", value: f[titleKey] || "", "aria-label": "Title" });
-    ui.subtitle = kind === "posts" ? h("input", { class: "oba-subtitle-input", id: "oba-subtitle", type: "text", placeholder: "Subtitle (optional)", value: f.subtitle || "", "aria-label": "Subtitle" }) : null;
+    ui.subtitle = kind === "posts" ? h("input", { class: "oba-subtitle-input", id: "oba-subtitle", type: "text", placeholder: "Subtitle (optional)", value: f.subtitle || f.subheading || f.dek || "", "aria-label": "Subtitle" }) : null;
     ui.body = h("textarea", { class: "oba-body", id: "oba-body", spellcheck: "true", "aria-label": "Markdown", value: this.doc.body || "" });
     ui.richBody = h("div", {
       class: "oba-rich-body",
@@ -4160,6 +4161,7 @@ export class Editor {
     const result = analyzeReadiness({
       kind: this.kind,
       title: ui.title.value.trim(),
+      subtitle: ui.subtitle?.value.replace(/\s+/g, " ").trim() || "",
       description: ui.description?.value.trim() || bodyExcerpt,
       slug: ui.slug.value.trim(),
       canonical: ui.canonical?.value.trim() || "",
@@ -5512,6 +5514,9 @@ export class Editor {
     if (this.kind === "posts") {
       if (this.profileTouched) set("profile", ui.profile.value);
       set("subtitle", ui.subtitle.value.replace(/\s+/g, " ").trim());
+      // The editor writes the canonical key; aliases would otherwise survive a cleared field.
+      set("subheading", "");
+      set("dek", "");
       set("description", ui.description.value.trim());
       set("comments", ui.commentPolicy.value === "open" ? "" : ui.commentPolicy.value);
       set("tags", ui.tags.value.split(",").map((t) => t.trim()).filter(Boolean));

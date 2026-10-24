@@ -640,14 +640,12 @@ fn extension_for(url: &str, content_type: &str) -> String {
 // ---------------------------------------------------------------------------
 
 fn render_post_file(post: &ImportedPost) -> String {
-    let mut fields: Vec<(&str, Value)> = vec![
-        ("title", Value::Scalar(post.title.clone())),
-        ("slug", Value::Scalar(post.slug.clone())),
-        ("date", Value::Scalar(post.date.clone())),
-    ];
+    let mut fields: Vec<(&str, Value)> = vec![("title", Value::Scalar(post.title.clone()))];
     if let Some(s) = &post.subtitle {
         fields.push(("subtitle", Value::Scalar(s.clone())));
     }
+    fields.push(("slug", Value::Scalar(post.slug.clone())));
+    fields.push(("date", Value::Scalar(post.date.clone())));
     if let Some(u) = &post.updated {
         fields.push(("updated", Value::Scalar(u.clone())));
     }
@@ -1272,6 +1270,12 @@ mod tests {
             ..Default::default()
         };
         let text = render_post_file(&post);
+        assert!(
+            text.contains(
+                "title: \"Hello: a `title`\"\nsubtitle: \"Why: it matters\"\nslug: hello\n"
+            ),
+            "{text}"
+        );
         let config = openblog_core::SiteConfig::default();
         let loaded = openblog_core::model::load_post(
             &openblog_core::SourceFile {

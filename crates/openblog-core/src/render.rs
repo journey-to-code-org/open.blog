@@ -1194,6 +1194,9 @@ impl<'a> Renderer<'a> {
                     "wordCount": post.word_count,
                     "isPartOf": series.map(|s| serde_json::json!({ "@type": "CreativeWorkSeries", "name": s.name, "url": c.absolute(&s.url) })),
                 });
+                if let Some(subtitle) = &post.subtitle {
+                    posting["alternativeHeadline"] = serde_json::json!(subtitle);
+                }
                 match post.credit_provenance {
                     CreditProvenance::LegacySiteAuthor => {
                         if let Some(author) = author_json_ld(c) {
@@ -2752,7 +2755,10 @@ mod tests {
             .expect("escaped subtitle under the title");
         let byline = dek.find("<p class=\"ob-meta\">").unwrap();
         assert!(title < subtitle && subtitle < byline);
-        assert!(!file(&files, "plain/index.html").contains("ob-post-subtitle"));
+        assert!(dek.contains("\"alternativeHeadline\":\"Why "));
+        let plain = file(&files, "plain/index.html");
+        assert!(!plain.contains("ob-post-subtitle"));
+        assert!(!plain.contains("alternativeHeadline"));
     }
 
     #[test]
