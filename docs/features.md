@@ -19,9 +19,10 @@ Field journals add local GPX analysis and location-privacy controls; see
 The authenticated Admin can connect Anthropic, OpenAI, Gemini, xAI, DeepSeek, Mistral,
 OpenRouter, or a compatible custom HTTPS provider without exposing its credential to the browser.
 Authors can review an unsaved post with inspectable Markdown skills and selected context, apply exact
-suggested replacements with safe undo, draft native knowledge checks, and opt into session-only
-autocomplete in either Visual or Markdown mode. Every output remains a proposal; nothing is saved or
-published without the normal author action.
+suggested replacements with safe undo, draft native knowledge checks, propose runnable Rust examples
+and small coding challenges, and opt into session-only autocomplete in either Visual or Markdown
+mode. Every output remains editable and proposed; nothing is saved or published without the normal
+author action.
 
 Assistant requests carry a versioned guide to the actual publishing engine, including native quiz
 and runnable-code syntax, embeds, content profiles, scheduling, and source-ownership boundaries.

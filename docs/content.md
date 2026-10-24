@@ -293,6 +293,35 @@ is capped at 64,000 bytes. They use stable Rust 2021 in debug mode and are best 
 self-contained lessons. The Playground offers popular preinstalled crates, but an
 arbitrary local Cargo project, custom manifest, stdin, and local files are not available.
 
+#### Small coding challenges
+
+A coding challenge is ordinary instructional Markdown around a runnable Rust block. Give the reader
+one bounded task, keep a visible `// TODO` in the starter source, state the expected result, and add a
+hint only when it helps without giving away the whole solution:
+
+````markdown
+**Coding challenge: Finish the greeting**
+
+Replace the placeholder with the adventurer's name.
+
+**Expected result:** The program prints `Hello, Mira!`
+
+```rust runnable title="Finish the greeting"
+fn main() {
+    // TODO: print "Hello, Mira!"
+}
+```
+
+> [!TIP]
+> Use `println!` with a string literal.
+````
+
+The Admin's **Assistant → Interactions → Create runnable-code proposal** dialog can draft either a
+complete example or this challenge pattern from selected text or the current section. Every field is
+editable, insertion is explicit, and the form also works without an AI provider. These challenges do
+not add hidden tests or grading: the reader runs the visible source and compares its behavior with the
+authored expected result.
+
 ### Images
 
 Put files in `static/`; they are copied to the site root unchanged. `static/images/a.png`

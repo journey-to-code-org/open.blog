@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Expanded Assistant Interactions with editable runnable Rust examples and bounded coding challenges,
+  including selected-section grounding, visible TODO and expected-result requirements, explicit
+  insertion in Visual or Markdown mode, and a non-AI authoring path.
+- Updated the Learning design review skill and versioned publishing-engine guide so recommendations
+  distinguish recall checks, exploratory examples, and guided coding practice without inventing
+  unsupported languages, multi-file projects, hidden tests, or automatic grading.
+
 ## [0.12.0] - 2026-10-24
 
 - Added native Assistant integrations for OpenAI, Google Gemini, xAI Grok, DeepSeek, Mistral AI,

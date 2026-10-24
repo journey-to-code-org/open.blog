@@ -62,9 +62,10 @@ For posts, press `Alt+0` to open **Assistant**. Its provider card reports the pr
 model, configured state, and supported capabilities without returning the credential or
 configured endpoint path, query, or user information to the browser. The provider card and Review
 disclosure show only the safe destination origin so authors know which service receives selected
-material. Review, Interactions, and Context are labelled work areas. Interactions opens the existing
-knowledge-check proposal workflow, while Context manages author, site, and post notes plus selected
-sources. Provider failures do not disable ordinary non-AI authoring.
+material. Review, Interactions, and Context are labelled work areas. Interactions creates editable
+knowledge-check, runnable-example, and coding-challenge proposals, while Context manages author,
+site, and post notes plus selected sources. Provider failures do not disable ordinary non-AI
+authoring.
 
 ### Review an unsaved document
 
@@ -101,9 +102,24 @@ dialog available from the Write toolbar uses selected text when present, otherwi
 Generated questions are reviewed in the dialog and enter the unsaved Markdown only after explicit
 insertion. Non-AI quiz authoring remains available.
 
+### Draft a runnable example or coding challenge
+
+Open **Assistant → Interactions** and choose **Create runnable-code proposal**. Choose a complete
+example when readers should run, change, and observe working code, or a coding challenge when they
+should complete a small bounded task. With a provider configured, **Generate draft** uses selected
+text, then the current section, then the post as context. Without a provider, fill in the same form
+manually.
+
+The title, instructions, Rust source, expected result, hint, and explanation remain editable in the
+dialog. A challenge must include a visible `// TODO` comment and expected result. Nothing enters the
+unsaved post until **Insert into draft** is chosen. The inserted content uses portable Markdown prose
+and one native `rust runnable` fence, so it works in both Visual and Markdown authoring modes.
+Only self-contained Rust is executable today; multi-file projects, hidden tests, automatic grading,
+and executable JavaScript, Python, or shell blocks are not offered.
+
 ### What the Assistant knows about open.blog
 
-Every review, knowledge-check, and autocomplete request includes a versioned engine guide generated
+Every review, interaction-generation, and autocomplete request includes a versioned engine guide generated
 from open.blog's deterministic core. It describes native quiz and runnable-Rust fences, code options,
 supported embeds, content-profile IDs, scheduling, source ownership, and the limits of evidence checks.
 These are renderer facts, not instructions found in the draft. Draft and context text remain untrusted
