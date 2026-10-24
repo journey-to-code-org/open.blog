@@ -275,7 +275,7 @@ impl AssistantProviderStatus {
             (
                 false,
                 "missing",
-                "Configure the Assistant provider in Admin. Non-AI authoring remains available.",
+                "Enter a generation endpoint in Provider settings below. Non-AI authoring remains available.",
             )
         } else if !endpoint.starts_with("https://") {
             (
@@ -287,7 +287,7 @@ impl AssistantProviderStatus {
             (
                 false,
                 "missing",
-                "Add a private credential in Admin or set OPENBLOG_LESSONS_API_KEY in the server environment. Non-AI authoring remains available.",
+                "Add a private credential in Provider settings below or set OPENBLOG_LESSONS_API_KEY in the server environment. Non-AI authoring remains available.",
             )
         } else {
             (true, "ready", "Assistant provider is ready.")
