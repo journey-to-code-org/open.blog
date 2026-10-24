@@ -131,6 +131,15 @@ from Git. This does not change the engagement database or expose editorial data 
    namespace, so the blog identifier must be explicitly supplied.
 3. Deploy the updated binary. The entrypoint must provision Admin login/provider/Git
    credentials **before** `openblog serve --admin`. Supabase does not back up these secrets.
+   The Docker build and runtime both use Debian bookworm; building against a newer libc
+   than the runtime supports can prevent the binary from starting. The image executes
+   `openblog help` during its build to check runtime compatibility.
+   If Render omits `.git` from its Docker context, the entrypoint recovers Git metadata
+   from Render's `RENDER_GIT_REPO_SLUG`, `RENDER_GIT_COMMIT`, and `RENDER_GIT_BRANCH`.
+   It fetches the exact shipped commit and checks the existing file contents before
+   attaching HEAD; it does not replace files or create a synthetic publishing baseline.
+   Private repositories require `OPENBLOG_GIT_TOKEN` for that fetch. Non-Render images
+   must include a valid Git checkout or explicitly provide these source identifiers.
    When opted in, Rust startup fetches `publish.remote` / `publish.branch` into its
    remote-tracking ref, verifies that `HEAD` is an ancestor, then uses a fast-forward-only
    merge with autostash disabled to prepare the published checkout. No shell JSON parsing,
