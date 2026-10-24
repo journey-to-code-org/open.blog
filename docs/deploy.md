@@ -77,7 +77,8 @@ The repository includes an optional Netlify Function backed by Supabase. It adds
 and lets the existing privacy-respecting view counter retain analytics across deploys. Run
 [`supabase/openblog.sql`](../supabase/openblog.sql) in a Supabase project, then follow the
 [function setup guide](../netlify/functions/README.md) to configure the server environment. The
-Supabase service-role key remains in Netlify and is never an Admin or public-site setting.
+Supabase secret API key (`SUPABASE_SECRET_KEY`) remains in Netlify and is never an Admin or
+public-site setting. Existing `SUPABASE_SERVICE_ROLE_KEY` deployments remain supported.
 
 After deployment, open **Admin → Analytics**, enable hosted engagement, enter the public `/api`
 endpoint, and save the matching write-only moderation token. New comments remain pending until an

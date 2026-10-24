@@ -4,7 +4,7 @@ import { createHandler } from "../../netlify/functions/engagement.mjs";
 
 const environment = {
   SUPABASE_URL: "https://database.example",
-  SUPABASE_SERVICE_ROLE_KEY: "service-secret",
+  SUPABASE_SECRET_KEY: "sb_secret_test_server_only",
   OPENBLOG_SITE_ID: "lantern",
   OPENBLOG_SITE_ORIGIN: "https://blog.example",
   OPENBLOG_ADMIN_API_KEY: "admin-secret",
@@ -25,6 +25,40 @@ const openPost = async () => ({
   json: async () => ({ "/story/": "open" }),
 });
 
+test("Supabase secret keys use apikey without bearer auth; legacy keys remain supported", async () => {
+  for (const [credentials, expectedKey, bearer] of [
+    [{ SUPABASE_SECRET_KEY: "sb_secret_modern" }, "sb_secret_modern", false],
+    [{ SUPABASE_SECRET_KEY: "sb_secret_preferred", SUPABASE_SERVICE_ROLE_KEY: "legacy-jwt" }, "sb_secret_preferred", false],
+    [{ SUPABASE_SECRET_KEY: "", SUPABASE_SERVICE_ROLE_KEY: "legacy-jwt" }, "legacy-jwt", true],
+    [{ SUPABASE_SECRET_KEY: "", SUPABASE_SERVICE_ROLE_KEY: "sb_secret_migrated" }, "sb_secret_migrated", false],
+  ]) {
+    let requests = 0;
+    const handler = createHandler({
+      env: { ...environment, ...credentials },
+      fetchImpl: async (_url, options) => {
+        requests++;
+        assert.equal(options.headers.apikey, expectedKey);
+        if (bearer) assert.equal(options.headers.Authorization, `Bearer ${expectedKey}`);
+        else assert.equal(Object.hasOwn(options.headers, "Authorization"), false);
+        return { ok: true, status: 200, json: async () => ({ views: 1 }) };
+      },
+    });
+    const response = await handler(event("views", "GET", undefined, { query: { path: "/story/" } }));
+    assert.equal(response.statusCode, 200);
+    assert.equal(requests, 1);
+    assert.ok(!response.body.includes(expectedKey));
+  }
+});
+
+test("public Supabase keys cannot substitute for a server credential", async () => {
+  const handler = createHandler({
+    env: { ...environment, SUPABASE_SECRET_KEY: "", SUPABASE_PUBLISHABLE_KEY: "sb_publishable_public", SUPABASE_JWKS_URL: "https://database.example/auth/v1/.well-known/jwks.json" },
+    fetchImpl: async () => assert.fail("missing server credentials must not reach Supabase"),
+  });
+  const response = await handler(event("views", "GET", undefined, { query: { path: "/story/" } }));
+  assert.equal(response.statusCode, 503);
+});
+
 test("comments are pending, public reads are approved-only, and secrets never cross the seam", async () => {
   const requests = [];
   const fetchImpl = async (url, options = {}) => {
@@ -40,7 +74,7 @@ test("comments are pending, public reads are approved-only, and secrets never cr
   assert.equal(created.statusCode, 202);
   assert.equal(JSON.parse(created.body).status, "pending");
   assert.match(requests.find((request) => request.url.includes("openblog_comments")).options.body, /"status":"pending"/);
-  assert.doesNotMatch(created.body, /service-secret|admin-secret/);
+  assert.doesNotMatch(created.body, /sb_secret_test_server_only|admin-secret/);
 
   const listed = await handler(event("comments", "GET", undefined, { query: { path: "/story/" } }));
   assert.equal(listed.statusCode, 200);
