@@ -36,8 +36,12 @@ from the publication record in the same transaction as the change. The check its
 revision and cannot tell a stale policy from a current one, so loading both in that transaction
 and letting an optimistic revision conflict fail the request is a caller obligation. A binding
 whose account was removed, whose contributor key was renamed, or whose participant left the
-contract stops working without a separate revocation step. The binding
-fields use the same identifier rules as the systems they point at. The Admin username rule now
+contract stops working without a separate revocation step, and it no longer counts as the site
+owner a publication must keep. Admin usernames and registry keys are names, not stable account
+identifiers, so a binding would come back to life if its name were reused. Removing an account or
+renaming a registry key must therefore also remove that name's bindings, or the name must never be
+reused. Nothing stores a binding yet, so this is a caller obligation that the first persisted
+policy (#156) must enforce. The binding fields use the same identifier rules as the systems they point at. The Admin username rule now
 lives in `openblog-core` and the CLI uses it when it creates an account, so the two cannot drift
 apart. A name hand-edited into the users file outside that rule can sign in but can never be
 bound, which fails closed.
@@ -60,8 +64,16 @@ grants, and every other combination is denied. The main rules are:
 
 Policy replacement is whole-policy and revision-checked, and it carries the requester: the
 requester must hold `ManageRoles` on their own binding and on every binding the replacement adds,
-changes, or removes, and a policy that has a site owner must keep one. The core check enforces
-this, so a membership route cannot escalate a coordinator by replacing the policy directly.
+changes, or removes, and a policy that has a current site owner must keep one.
+
+Replacement edits roles, not identities. A kept binding keeps its Admin user, registry key, and
+participant, so nobody can rebind a participant to another account or move their own binding onto
+someone else's participant. A new binding cannot reuse an account or registry key that a current
+binding holds, and cannot name a participant that the contract already links to a draft, a reveal,
+or an approval. A participant removed from the policy therefore cannot be re-bound to a different
+account later either. Without these rules a coordinator or site owner could become another
+participant and then read, reveal, and approve that person's private draft. The core check
+enforces all of this, so a membership route cannot escalate by replacing the policy directly.
 
 Roles authorize requests and nothing more. A grant creates no authorship, Work credit, reveal, or
 approval, and publishing authority does not bypass exact-revision consent (#166 and #168).
@@ -90,7 +102,8 @@ Parsing, replacement, and denial return one error that names no identity.
   state, never from the request body, and authorize each draft it lists or delivers.
 - The version 1 contract has no publication ID of its own. The policy and the contract must be
   loaded from the same publication record until the collaboration artifact (#156) carries both.
-- Site owners and coordinators may need a way to recover an abandoned draft. That would need a
-  separate, audited decision rather than a wider role.
+- Site owners and coordinators may need a way to recover an abandoned draft, or to re-bind a
+  participant whose account was removed or whose registry key was renamed. Replacement refuses
+  both, so either would need a separate, audited decision rather than a wider role.
 - The decision is reversible while no collaboration state is persisted. Adding a role or action
   starts from no access because the matrix denies anything it does not list.

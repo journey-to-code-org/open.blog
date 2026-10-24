@@ -60,7 +60,8 @@ An explicit entry in one shared publication's authorization policy that ties one
 one contributor registry entry to one participant and gives that participant collaboration roles.
 It is the only source of collaboration access. It stops granting anything once its account,
 registry key, or participant no longer exists, and it creates no authorship, Work credit, reveal,
-or approval.
+or approval. Its identity is fixed: changing a binding changes only its roles, so a binding never
+moves to another account or participant.
 _Avoid_: Contributor registry entry, login, Work credit, invitation
 
 **Pair projection**:

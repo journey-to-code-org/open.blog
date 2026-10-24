@@ -564,6 +564,391 @@ fn policy_replacement_cannot_escalate_to_or_strip_site_owner() {
         .is_err());
 }
 
+/// Only roles are editable through replacement. A binding's account, registry key, and
+/// participant stay fixed, and a new binding cannot take over a participant who already has
+/// drafts, reveals, or approvals, so neither a coordinator nor a site owner can become another
+/// participant or hand that participant to an accomplice.
+#[test]
+fn policy_replacement_cannot_take_over_another_participant() {
+    use AuthorizationAction::*;
+
+    let collaboration = contract_with(
+        &["ada-participant", "grace-participant", "linus-participant"],
+        &[
+            ("ada-draft", "ada-participant"),
+            ("grace-draft", "grace-participant"),
+            ("linus-draft", "linus-participant"),
+        ],
+        &[("grace-draft", &["ada-participant"])],
+    );
+    let admins = ["ada-admin", "grace-admin", "linus-admin", "mallory-admin"];
+    let contributors = ["ada", "grace", "linus", "mallory"];
+    let context = |admin_user| AuthorizationContext {
+        publication_id: "shared-reflection",
+        authenticated_admin_user: admin_user,
+        active_admin_users: &admins,
+        contributor_ids: &contributors,
+        collaboration: &collaboration,
+        target: AuthorizationTarget::Publication,
+    };
+    let ada = bound("ada", &["siteOwner"]);
+    let grace = bound("grace", &["coordinator"]);
+    let linus = bound("linus", &["contributor"]);
+    let current = policy(json!([ada, grace, linus]));
+    let source = |revision: u64, bindings: serde_json::Value| {
+        let mut replacement = policy_json(bindings);
+        replacement["revision"] = json!(revision);
+        replacement.to_string()
+    };
+    let identity = |admin_user: &str, contributor_id: &str, participant_id: &str, roles| {
+        json!({
+            "adminUser": admin_user,
+            "contributorId": contributor_id,
+            "participantId": participant_id,
+            "roles": roles
+        })
+    };
+    let linus_denied = |policy: &AuthorizationPolicy| {
+        for admin_user in ["ada-admin", "grace-admin", "mallory-admin"] {
+            for (action, target) in [
+                (
+                    ViewContribution,
+                    AuthorizationTarget::Contribution("linus-draft"),
+                ),
+                (
+                    EditContribution,
+                    AuthorizationTarget::Contribution("linus-draft"),
+                ),
+                (
+                    RevealContribution,
+                    AuthorizationTarget::Contribution("linus-draft"),
+                ),
+                (
+                    ApproveContribution,
+                    AuthorizationTarget::Participant("linus-participant"),
+                ),
+            ] {
+                assert!(
+                    policy
+                        .authorize(
+                            &AuthorizationContext {
+                                target,
+                                ..context(admin_user)
+                            },
+                            action
+                        )
+                        .is_err(),
+                    "{admin_user} gained {action:?} on Linus's draft"
+                );
+            }
+        }
+    };
+    linus_denied(&current);
+
+    for requester in ["grace-admin", "ada-admin"] {
+        let (own, own_roles) = if requester == "ada-admin" {
+            (ada.clone(), json!(["siteOwner", "contributor"]))
+        } else {
+            (grace.clone(), json!(["coordinator", "contributor"]))
+        };
+        let own_name = requester.trim_end_matches("-admin");
+        let others = |exclude: &serde_json::Value| {
+            [&ada, &grace]
+                .into_iter()
+                .filter(|binding| *binding != exclude)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let mut attacks = vec![
+            // In place: Linus's participant gets another account, or another registry key.
+            json!([
+                ada,
+                grace,
+                identity(
+                    "mallory-admin",
+                    "mallory",
+                    "linus-participant",
+                    json!(["contributor"])
+                )
+            ]),
+            json!([
+                ada,
+                grace,
+                identity(
+                    "mallory-admin",
+                    "linus",
+                    "linus-participant",
+                    json!(["contributor"])
+                )
+            ]),
+            json!([
+                ada,
+                grace,
+                identity(
+                    "linus-admin",
+                    "mallory",
+                    "linus-participant",
+                    json!(["contributor"])
+                )
+            ]),
+        ];
+        // Self-move: the requester drops Linus and moves their own binding onto his participant.
+        let mut moved = others(&own);
+        moved.push(identity(
+            requester,
+            own_name,
+            "linus-participant",
+            own_roles.clone(),
+        ));
+        attacks.push(json!(moved));
+        // The same move under a case variant of Linus's participant ID.
+        let mut cased = others(&own);
+        cased.push(identity(
+            requester,
+            own_name,
+            "Linus-Participant",
+            own_roles.clone(),
+        ));
+        attacks.push(json!(cased));
+        // Moving only the account or only the registry key onto a fresh participant.
+        let mut fresh_account = others(&own);
+        fresh_account.extend([
+            identity(requester, "mallory", "fresh-participant", own_roles.clone()),
+            linus.clone(),
+        ]);
+        attacks.push(json!(fresh_account));
+        let mut fresh_key = others(&own);
+        fresh_key.extend([
+            identity(
+                "mallory-admin",
+                own_name,
+                "fresh-participant",
+                own_roles.clone(),
+            ),
+            linus.clone(),
+        ]);
+        attacks.push(json!(fresh_key));
+        for bindings in attacks {
+            assert!(
+                current
+                    .replace_from_json(&context(requester), &source(8, bindings.clone()), 7)
+                    .is_err(),
+                "{requester} took over a participant with {bindings}"
+            );
+        }
+
+        // Remove, then re-add Linus's participant under another account in the next revision.
+        let without_linus = current
+            .replace_from_json(&context(requester), &source(8, json!([ada, grace])), 7)
+            .expect("a membership manager may remove a non-owner");
+        for bindings in [
+            json!([
+                ada,
+                grace,
+                identity(
+                    "mallory-admin",
+                    "mallory",
+                    "linus-participant",
+                    json!(["contributor"])
+                )
+            ]),
+            json!([
+                ada,
+                grace,
+                identity(
+                    "mallory-admin",
+                    "mallory",
+                    "LINUS-participant",
+                    json!(["contributor"])
+                )
+            ]),
+        ] {
+            assert!(
+                without_linus
+                    .replace_from_json(&context(requester), &source(9, bindings.clone()), 8)
+                    .is_err(),
+                "{requester} re-bound Linus's participant with {bindings}"
+            );
+        }
+        linus_denied(&without_linus);
+
+        // Roles stay editable, and new people join as new participants.
+        for bindings in [
+            json!([ada, grace, bound("linus", &["contributor", "editor"])]),
+            json!([linus, grace, ada]),
+            json!([ada, grace, linus, bound("mallory", &["contributor"])]),
+        ] {
+            current
+                .replace_from_json(&context(requester), &source(8, bindings.clone()), 7)
+                .unwrap_or_else(|_| panic!("{requester} may make {bindings}"));
+        }
+    }
+    linus_denied(&current);
+
+    // A participant who appears only as a reveal recipient or an approver is taken too.
+    let participant = |id: &str| json!({ "id": id, "displayName": format!("Participant {id}") });
+    for (reveals, approvals) in [
+        (
+            json!([{ "contributionId": "ada-draft", "participantIds": ["linus-participant"] }]),
+            json!([]),
+        ),
+        (
+            json!([]),
+            json!([{ "participantId": "linus-participant", "revision": 3 }]),
+        ),
+    ] {
+        let collaboration = CollaborationContract::from_json(
+            &json!({
+                "version": 1,
+                "revision": 3,
+                "participants": [
+                    participant("ada-participant"),
+                    participant("linus-participant"),
+                    participant("idle-participant")
+                ],
+                "contributions": [
+                    { "id": "ada-draft", "participantId": "ada-participant", "markdown": "Ada" }
+                ],
+                "reveals": reveals,
+                "layout": [],
+                "approvals": approvals
+            })
+            .to_string(),
+        )
+        .expect("valid collaboration contract");
+        let owner = AuthorizationContext {
+            collaboration: &collaboration,
+            ..context("ada-admin")
+        };
+        let only_ada = policy(json!([ada]));
+        assert!(only_ada
+            .replace_from_json(
+                &owner,
+                &source(
+                    8,
+                    json!([
+                        ada,
+                        identity(
+                            "mallory-admin",
+                            "mallory",
+                            "linus-participant",
+                            json!(["reader"])
+                        )
+                    ])
+                ),
+                7,
+            )
+            .is_err());
+        // A participant record with nothing attached may still be bound.
+        only_ada
+            .replace_from_json(
+                &owner,
+                &source(
+                    8,
+                    json!([
+                        ada,
+                        identity(
+                            "mallory-admin",
+                            "mallory",
+                            "idle-participant",
+                            json!(["reader"])
+                        )
+                    ]),
+                ),
+                7,
+            )
+            .expect("an idle participant may be bound");
+    }
+}
+
+/// A site-owner binding whose account, registry key, or participant is gone can authorize
+/// nothing, so it does not count as the site owner that must remain.
+#[test]
+fn stale_site_owners_do_not_count_as_the_remaining_site_owner() {
+    let collaboration = group();
+    let without_grace = contract(&["ada-participant", "linus-participant"]);
+    let two_owners = policy(json!([
+        bound("ada", &["siteOwner"]),
+        bound("grace", &["siteOwner"])
+    ]));
+    let mut demoted = policy_json(json!([
+        bound("ada", &["coordinator"]),
+        bound("grace", &["siteOwner"])
+    ]));
+    demoted["revision"] = json!(8);
+    let mut handover = policy_json(json!([bound("grace", &["siteOwner"])]));
+    handover["revision"] = json!(8);
+    let mut drop_grace = policy_json(json!([bound("ada", &["siteOwner"])]));
+    drop_grace["revision"] = json!(8);
+
+    let stale = [
+        AuthorizationContext {
+            active_admin_users: &["ada-admin", "linus-admin"],
+            ..ada_context(&collaboration)
+        },
+        AuthorizationContext {
+            contributor_ids: &["ada", "linus"],
+            ..ada_context(&collaboration)
+        },
+        ada_context(&without_grace),
+    ];
+    for context in stale {
+        assert!(two_owners
+            .authorize(
+                &AuthorizationContext {
+                    target: AuthorizationTarget::Participant("ada-participant"),
+                    ..context
+                },
+                AuthorizationAction::RemoveMember,
+            )
+            .is_err());
+        for source in [&demoted, &handover] {
+            assert!(two_owners
+                .replace_from_json(&context, &source.to_string(), 7)
+                .is_err());
+        }
+        two_owners
+            .replace_from_json(&context, &drop_grace.to_string(), 7)
+            .expect("the current site owner may drop a stale one");
+    }
+
+    // With both owners current, either may leave.
+    let context = ada_context(&collaboration);
+    for source in [&demoted, &handover] {
+        two_owners
+            .replace_from_json(&context, &source.to_string(), 7)
+            .expect("a site owner may leave while a current one remains");
+    }
+}
+
+/// Roles are a set, so a client that re-sorts them changes nothing.
+#[test]
+fn policy_replacement_compares_roles_as_a_set() {
+    let collaboration = group();
+    let current = policy(json!([
+        bound("ada", &["siteOwner", "contributor"]),
+        bound("grace", &["coordinator"]),
+        bound("linus", &["contributor"])
+    ]));
+    let mut reordered = policy_json(json!([
+        bound("ada", &["contributor", "siteOwner"]),
+        bound("grace", &["coordinator"]),
+        bound("linus", &["editor", "contributor"])
+    ]));
+    reordered["revision"] = json!(8);
+    current
+        .replace_from_json(
+            &signed_in(
+                "grace-admin",
+                &collaboration,
+                AuthorizationTarget::Publication,
+            ),
+            &reordered.to_string(),
+            7,
+        )
+        .expect("re-sorting a site owner's roles is not a change");
+}
+
 fn ada_context(collaboration: &CollaborationContract) -> AuthorizationContext<'_> {
     ada(collaboration, AuthorizationTarget::Publication)
 }

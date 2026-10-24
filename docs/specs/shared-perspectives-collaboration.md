@@ -174,10 +174,12 @@ wrong kind is denied rather than ignored.
   participant whose binding holds `siteOwner`, or grant, change, or revoke that binding. A
   participant with no binding is not a site owner.
 - **Any but the last site owner** means a site owner may remove anyone, including themselves,
-  while another binding still holds `siteOwner`.
-- **Manage roles** grants, changes, or revokes one participant's binding or roles. Policy
+  while another current binding still holds `siteOwner`. A site-owner binding whose account,
+  registry key, or participant is gone cannot act, so it does not count as the remaining one.
+- **Manage roles** grants or revokes one participant's binding, or changes its roles. Policy
   replacement applies it to every binding a replacement adds, changes, or removes; for a binding
-  that holds `siteOwner` before or after the change, the target counts as a site owner.
+  that holds `siteOwner` before or after the change, the target counts as a site owner. It never
+  changes who a binding is (see Policy replacement).
 - View published and Export cover only the published projection. Neither exposes private
   collaboration state, which reaches public output only through a Published assembly under
   [ADR 0004](../adr/0004-portable-projections-from-canonical-work.md).
@@ -203,6 +205,10 @@ publication gate remain separate contracts.
   member management ([#161](https://github.com/journey-to-code-org/open.blog/issues/161)) add,
   change, and remove bindings this way, and invitations must bind the account that accepts.
   `from_json` loads a stored policy and takes no requester, so it is not a change path.
+- Treat Admin usernames and registry keys as names that a binding would follow if reused.
+  Removing an Admin account or renaming a registry key must also remove that name's bindings in
+  every policy, or the name must never be reused. The first persisted policy (#156) owns
+  enforcing this. Until then nothing stores a binding.
 
 ### Policy replacement
 
@@ -213,12 +219,24 @@ refuses the replacement unless all of these hold:
 1. The requester passes the identity checks above and may Manage roles on their own binding, so
    only site owners and coordinators can change the policy.
 2. The requester may Manage roles on every binding the replacement removes, adds, or changes.
-   Bindings compare whole and in any order, and need not resolve in the contract yet, because an
-   accepted invitation adds the participant and the binding in one transaction.
-3. A policy that has a site owner keeps at least one.
+   Bindings match by participant ID (ASCII case-insensitively) in any order, and roles compare
+   as a set, so re-sorting roles is not a change. A new binding need not resolve in the contract
+   yet, because an accepted invitation adds the participant and the binding in one transaction.
+3. Only roles change. A binding kept for the same participant keeps exactly the same Admin user,
+   contributor ID, and participant ID. A new binding uses no Admin user or contributor ID that a
+   current binding holds, so nobody can move their own account, or anyone else's, onto a
+   different participant.
+4. A new binding does not name a participant that the current contract links to a contribution,
+   a reveal, or an approval. A participant removed from the policy therefore cannot be re-bound
+   to another account later, and invitations add new participants rather than taking over
+   existing ones.
+5. A policy that has a current site owner keeps at least one. Current means that the account,
+   the registry key, and the participant all still exist, as for the requester.
 
 A coordinator therefore cannot grant `siteOwner`, including to themselves, strip it from anyone,
-or rebind a site owner's account, registry key, or participant.
+or rebind a site owner's account, registry key, or participant. No requester, not even a site
+owner, can use replacement to rebind a participant or take over another participant's drafts,
+reveals, or approvals.
 
 ### Limits and failure
 
@@ -293,7 +311,11 @@ participant, both when the requester is the only site owner and when another par
 `siteOwner`. Further fixtures cover registry entries and logins without a binding,
 confused-deputy requests (another participant's draft, an unrevealed draft, a wrong target kind,
 and approving for someone else), coordinators removing a site owner, removing the last site
-owner, coordinators granting, stripping, or rebinding `siteOwner` through replacement, members
+owner (a stale site-owner binding does not count as the remaining one), coordinators granting,
+stripping, or rebinding `siteOwner` through replacement, coordinators and site owners swapping
+another participant's account or registry key in place, moving their own binding onto another
+participant, or removing and re-adding a participant who has drafts, reveals, or approvals, role
+re-sorting that is not a change, members
 without membership roles changing any binding, removed Admin users, renamed contributors, removed
 participants, another account claiming a binding, cross-publication use, Admin username and
 registry key rules (including homoglyph, bidi, and NUL identities), unknown roles, hostile fields,

@@ -138,9 +138,9 @@ pub enum AuthorizationAction {
     /// Remove a participant from the publication. Targets a participant. The last site owner
     /// cannot be removed.
     RemoveMember,
-    /// Grant, change, or revoke the roles or binding of one participant. Targets a participant.
+    /// Grant or revoke one participant's binding, or change its roles. Targets a participant.
     /// [`AuthorizationPolicy::replace_from_json`] applies this grant to every binding a
-    /// replacement adds, changes, or removes.
+    /// replacement adds, changes, or removes; a kept binding's identity never changes.
     ManageRoles,
     /// Export the published projection, never private collaboration state. Targets the
     /// publication.
@@ -250,8 +250,11 @@ impl AuthorizationPolicy {
     /// Replace the complete publication policy on behalf of the requester in `context`, after an
     /// optimistic revision check. The requester must be allowed [`AuthorizationAction::ManageRoles`]
     /// on their own binding and on every binding the replacement adds, changes, or removes, so
-    /// only a site owner can touch a binding that holds or gains `siteOwner`. A policy that has a
-    /// site owner must keep one. Returning a new value keeps malformed, stale, unauthorized, or
+    /// only a site owner can touch a binding that holds or gains `siteOwner`. Only roles can
+    /// change: a kept binding keeps its account, registry key, and participant; a new binding
+    /// reuses no current account or registry key and cannot take over a participant that the
+    /// contract already links to a draft, reveal, or approval. A policy that has a current site
+    /// owner must keep one. Returning a new value keeps malformed, stale, unauthorized, or
     /// cross-publication input atomic. The context's target is ignored.
     pub fn replace_from_json(
         &self,
@@ -266,26 +269,46 @@ impl AuthorizationPolicy {
         let replacement = Self::from_json(source)?;
         if replacement.publication_id != self.publication_id
             || expected_revision.checked_add(1) != Some(replacement.revision)
+            || !may_manage(requester, requester)
         {
             return Err(AuthorizationError);
         }
-        let removed = self
-            .bindings
-            .iter()
-            .filter(|binding| !replacement.bindings.contains(binding));
-        let added = replacement
-            .bindings
-            .iter()
-            .filter(|binding| !self.bindings.contains(binding));
-        if !may_manage(requester, requester)
-            || removed
-                .chain(added)
-                .any(|binding| !may_manage(requester, binding))
-            || (self.site_owner_count() > 0 && replacement.site_owner_count() == 0)
+        for current in &self.bindings {
+            let allowed = match replacement.binding_for(&current.participant_id) {
+                None => may_manage(requester, current),
+                Some(next) if !same_identity(current, next) => false,
+                Some(next) if same_roles(current, next) => true,
+                Some(next) => may_manage(requester, current) && may_manage(requester, next),
+            };
+            if !allowed {
+                return Err(AuthorizationError);
+            }
+        }
+        for next in &replacement.bindings {
+            if self.binding_for(&next.participant_id).is_none()
+                && (!may_manage(requester, next)
+                    || self.bindings.iter().any(|current| {
+                        current.admin_user == next.admin_user
+                            || current.contributor_id == next.contributor_id
+                    })
+                    || references_participant(context.collaboration, &next.participant_id))
+            {
+                return Err(AuthorizationError);
+            }
+        }
+        if self.current_site_owners(context, None) > 0
+            && replacement.current_site_owners(context, None) == 0
         {
             return Err(AuthorizationError);
         }
         Ok(replacement)
+    }
+
+    /// The binding for a participant, matched ASCII case-insensitively like the contract.
+    fn binding_for(&self, participant_id: &str) -> Option<&IdentityBinding> {
+        self.bindings
+            .iter()
+            .find(|binding| binding.participant_id.eq_ignore_ascii_case(participant_id))
     }
 
     /// Deny by default: the request must come from an active Admin user whose binding in this
@@ -319,7 +342,8 @@ impl AuthorizationPolicy {
                 ResolvedTarget::Participant {
                     id: participant.id.as_str(),
                     site_owner,
-                    last_site_owner: site_owner && self.site_owner_count() == 1,
+                    last_site_owner: site_owner
+                        && self.current_site_owners(context, Some(participant.id.as_str())) == 0,
                 }
             }
             (TargetKind::Contribution, AuthorizationTarget::Contribution(id)) => {
@@ -349,10 +373,21 @@ impl AuthorizationPolicy {
         }
     }
 
-    fn site_owner_count(&self) -> usize {
+    /// Site-owner bindings that could still authorize a request, other than `except`'s. A binding
+    /// whose account, registry key, or participant is gone cannot act, so it never counts as the
+    /// site owner a publication must keep.
+    fn current_site_owners(
+        &self,
+        context: &AuthorizationContext<'_>,
+        except: Option<&str>,
+    ) -> usize {
         self.bindings
             .iter()
-            .filter(|binding| holds_site_owner(binding))
+            .filter(|binding| {
+                holds_site_owner(binding)
+                    && except != Some(binding.participant_id.as_str())
+                    && is_current(binding, context)
+            })
             .count()
     }
 
@@ -362,35 +397,67 @@ impl AuthorizationPolicy {
         &'a self,
         context: &AuthorizationContext<'_>,
     ) -> Result<&'a IdentityBinding, AuthorizationError> {
-        if self.publication_id != context.publication_id
-            || !context
-                .active_admin_users
-                .contains(&context.authenticated_admin_user)
-        {
+        if self.publication_id != context.publication_id {
             return Err(AuthorizationError);
         }
-        let binding = self
-            .bindings
+        self.bindings
             .iter()
             .find(|binding| binding.admin_user == context.authenticated_admin_user)
-            .ok_or(AuthorizationError)?;
-        let collaboration = context.collaboration;
-        if !context
+            .filter(|binding| is_current(binding, context))
+            .ok_or(AuthorizationError)
+    }
+}
+
+/// Whether a binding's account is an active Admin user, its contributor key is in the registry,
+/// and its participant is in the contract.
+fn is_current(binding: &IdentityBinding, context: &AuthorizationContext<'_>) -> bool {
+    context
+        .active_admin_users
+        .contains(&binding.admin_user.as_str())
+        && context
             .contributor_ids
             .contains(&binding.contributor_id.as_str())
-            || !collaboration
-                .participants
-                .iter()
-                .any(|participant| participant.id == binding.participant_id)
-        {
-            return Err(AuthorizationError);
-        }
-        Ok(binding)
-    }
+        && context
+            .collaboration
+            .participants
+            .iter()
+            .any(|participant| participant.id == binding.participant_id)
 }
 
 fn holds_site_owner(binding: &IdentityBinding) -> bool {
     binding.roles.contains(&AuthorizationRole::SiteOwner)
+}
+
+/// The identity triple that replacement never changes.
+fn same_identity(current: &IdentityBinding, next: &IdentityBinding) -> bool {
+    current.admin_user == next.admin_user
+        && current.contributor_id == next.contributor_id
+        && current.participant_id == next.participant_id
+}
+
+/// Roles are a set; `from_json` already rejects repeats, so equal length and containment suffice.
+fn same_roles(current: &IdentityBinding, next: &IdentityBinding) -> bool {
+    current.roles.len() == next.roles.len()
+        && current.roles.iter().all(|role| next.roles.contains(role))
+}
+
+/// Whether the contract links a participant to a draft, a reveal, or an approval, matched ASCII
+/// case-insensitively. Binding a new account to such a participant would hand it that person's
+/// drafts and consent.
+fn references_participant(collaboration: &CollaborationContract, participant_id: &str) -> bool {
+    let matches = |id: &str| id.eq_ignore_ascii_case(participant_id);
+    collaboration
+        .contributions
+        .iter()
+        .any(|contribution| matches(&contribution.participant_id))
+        || collaboration
+            .reveals
+            .iter()
+            .any(|reveal| reveal.participant_ids.iter().any(|id| matches(id)))
+        || collaboration
+            .approvals
+            .iter()
+            .any(|approval| matches(&approval.participant_id))
 }
 
 /// Whether `requester` may manage `binding`. The binding's own `siteOwner` role decides, so a
