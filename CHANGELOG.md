@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-24
+
 - Added `openblog syndicate <slug>` with dry-run planning, draft-first DEV, Hashnode,
   Ghost, and WordPress adapters, guided Medium import, private remote-ID state, and
   explicit two-step publication safety.
@@ -19,7 +21,6 @@ All notable changes to open.blog are recorded here. Releases follow
   and a complete fictional Zhalendor example production post.
 - Added per-post open, locked, and hidden comment policies plus pending, approved, and rejected
   Admin moderation queues.
-
 - Added optional Supabase-backed Netlify Functions for moderated comments and persistent,
   privacy-respecting view analytics, with a checked-in SQL schema and deployment guide.
 - Added hosted engagement settings and pending-comment moderation to Admin Analytics. Public
@@ -328,7 +329,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.0...v0.11.1
