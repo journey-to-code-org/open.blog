@@ -11,3 +11,6 @@ Thumbs.db
 
 # Private themes that are not published with the engine. Add your own here.
 /themes/mnix/
+
+# Local Netlify folder
+.netlify
