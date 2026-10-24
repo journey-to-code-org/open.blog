@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { Editor } from "../../web/admin/admin.js";
+import { ASSISTANT_PROVIDERS, Editor, assistantStatusPresentation } from "../../web/admin/admin.js";
 
 test("provider settings load and replace a write-only credential without revealing it", async () => {
   const calls = [];
@@ -99,6 +99,32 @@ test("switching from a custom provider replaces its model with the Claude defaul
   editor.updateAssistantProviderFields(true);
 
   assert.equal(editor.ui.assistantSettingsModel.value, "claude-sonnet-5-5");
+});
+
+test("native providers expose friendly labels and provider-specific model defaults", () => {
+  const expected = {
+    "open-ai": "gpt-6-luna",
+    gemini: "gemini-3.8-flash",
+    xai: "grok-4.7",
+    "deep-seek": "deepseek-flash",
+    mistral: "mistral-small-latest",
+    "open-router": "",
+  };
+  for (const [provider, defaultModel] of Object.entries(expected)) {
+    const editor = new Editor({ api: {} }, { kind: "posts", fields: {} });
+    editor.ui = {
+      assistantSettingsProvider: { value: provider },
+      assistantSettingsEndpoint: { disabled: false },
+      assistantEndpointField: { hidden: false },
+      assistantSettingsModel: { value: "old-provider-model" },
+    };
+    editor.updateAssistantProviderFields(true);
+    assert.equal(editor.ui.assistantSettingsEndpoint.disabled, true);
+    assert.equal(editor.ui.assistantEndpointField.hidden, true);
+    assert.equal(editor.ui.assistantSettingsModel.value, defaultModel);
+  }
+  assert.equal(ASSISTANT_PROVIDERS["open-router"].label, "OpenRouter");
+  assert.equal(assistantStatusPresentation({ providerType: "open-ai" }).providerType, "OpenAI");
 });
 
 test("environment precedence is announced and clearing never submits a credential", async () => {

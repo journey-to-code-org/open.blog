@@ -19,7 +19,7 @@ test("document review disclosure names every selected input before sending", () 
       sourceCharacters: 24,
       skills: ["Copy review · 1.0.0"],
       context: ["author.md · Private · 42 characters"],
-      provider: "Generic HTTPS · writer-v1 · https://assistant.example",
+    provider: "Custom HTTPS · writer-v1 · https://assistant.example",
       research: "Off",
     },
   );

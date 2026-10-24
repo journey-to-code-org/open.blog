@@ -353,14 +353,32 @@ in `openblog.json`:
 }
 ```
 
-Choose **Anthropic Claude** in the panel to use Claude directly. open.blog sends requests to
-Anthropic's Messages API with the required `x-api-key` and API-version headers, so you should not
-paste the Anthropic URL into the Custom HTTPS field.
+Choose a native provider to use its official API directly. open.blog fixes the destination for
+native providers; only **Custom HTTPS** accepts an endpoint entered by the author.
+
+| Provider | Suggested model | Environment credential |
+|---|---|---|
+| Anthropic Claude | `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` |
+| OpenAI | `gpt-6-luna` | `OPENAI_API_KEY` |
+| Google Gemini | `gemini-3.8-flash` | `GEMINI_API_KEY` |
+| xAI Grok | `grok-4.7` | `XAI_API_KEY` |
+| DeepSeek | `deepseek-flash` | `DEEPSEEK_API_KEY` |
+| Mistral AI | `mistral-small-latest` | `MISTRAL_API_KEY` |
+| OpenRouter | enter a supported routed model ID | `OPENROUTER_API_KEY` |
+
+The model field remains editable because provider model catalogs change. OpenRouter restricts
+routing to upstream endpoints that accept the requested structured-output parameters, but the
+upstream service still determines exact schema support.
 
 ```sh
 export ANTHROPIC_API_KEY="your Anthropic key"
 openblog serve --admin
 ```
+
+An OpenAI integration uses an OpenAI API key and API billing; a ChatGPT or Codex product
+subscription is not itself an API credential. GitHub Copilot is not listed because its supported
+programmatic integration is an authenticated agent/CLI SDK rather than this API-key provider
+contract, and the separate GitHub Models inference API has been retired.
 
 For an existing compatible service, choose **Custom HTTPS** instead:
 

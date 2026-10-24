@@ -187,6 +187,12 @@ pub enum AssistantProviderKind {
     #[default]
     CustomHttps,
     Anthropic,
+    OpenAi,
+    Gemini,
+    Xai,
+    DeepSeek,
+    Mistral,
+    OpenRouter,
 }
 
 impl AssistantProviderKind {
@@ -194,6 +200,12 @@ impl AssistantProviderKind {
         match self {
             Self::CustomHttps => "custom-https",
             Self::Anthropic => "anthropic",
+            Self::OpenAi => "open-ai",
+            Self::Gemini => "gemini",
+            Self::Xai => "xai",
+            Self::DeepSeek => "deep-seek",
+            Self::Mistral => "mistral",
+            Self::OpenRouter => "open-router",
         }
     }
 }
@@ -787,6 +799,20 @@ mod tests {
             c.knowledge_checks.provider,
             AssistantProviderKind::CustomHttps
         );
+        for (name, expected) in [
+            ("anthropic", AssistantProviderKind::Anthropic),
+            ("open-ai", AssistantProviderKind::OpenAi),
+            ("gemini", AssistantProviderKind::Gemini),
+            ("xai", AssistantProviderKind::Xai),
+            ("deep-seek", AssistantProviderKind::DeepSeek),
+            ("mistral", AssistantProviderKind::Mistral),
+            ("open-router", AssistantProviderKind::OpenRouter),
+        ] {
+            let value = format!(r#"{{"knowledgeChecks":{{"provider":"{name}"}}}}"#);
+            let parsed = SiteConfig::from_json(&value).unwrap();
+            assert_eq!(parsed.knowledge_checks.provider, expected);
+            assert_eq!(parsed.knowledge_checks.provider.as_str(), name);
+        }
         assert!(
             SiteConfig::from_json(r#"{"knowledgeChecks":{"provider":"unknown-provider"}}"#)
                 .is_err()

@@ -378,6 +378,22 @@ export function applyPaneSelection(root, buttons, pane) {
   for (const button of buttons) button.setAttribute("aria-pressed", String(button.dataset.paneTarget === pane));
 }
 
+export const ASSISTANT_PROVIDERS = Object.freeze({
+  anthropic: { label: "Anthropic Claude", defaultModel: "claude-sonnet-5-5" },
+  "open-ai": { label: "OpenAI", defaultModel: "gpt-6-luna" },
+  gemini: { label: "Google Gemini", defaultModel: "gemini-3.8-flash" },
+  xai: { label: "xAI Grok", defaultModel: "grok-4.7" },
+  "deep-seek": { label: "DeepSeek", defaultModel: "deepseek-flash" },
+  mistral: { label: "Mistral AI", defaultModel: "mistral-small-latest" },
+  "open-router": { label: "OpenRouter", defaultModel: "" },
+  "custom-https": { label: "Custom HTTPS", defaultModel: "" },
+});
+
+function assistantProviderLabel(providerType) {
+  if (providerType === "generic-https") return ASSISTANT_PROVIDERS["custom-https"].label;
+  return ASSISTANT_PROVIDERS[providerType]?.label || providerType || "Unavailable";
+}
+
 export function assistantStatusPresentation(status = {}) {
   const labels = {
     review: "Review",
@@ -389,11 +405,7 @@ export function assistantStatusPresentation(status = {}) {
     .filter(([, supported]) => supported)
     .map(([name]) => labels[name] || name);
   return {
-    providerType: status.providerType === "generic-https"
-      ? "Custom HTTPS"
-      : status.providerType === "anthropic"
-        ? "Anthropic Claude"
-        : status.providerType || "Unavailable",
+    providerType: assistantProviderLabel(status.providerType),
     model: status.model || "Provider default",
     destination: status.destination || "Not configured",
     configured: status.configured ? "Configured" : "Not configured",
@@ -428,7 +440,7 @@ export function selectableAssistantSkillIds(skills = [], requested = []) {
 export function assistantReviewSummary({ title = "", markdown = "", skills = [], selectedSkillIds = new Set(), context = [], selectedContextIds = new Set(), provider = {} } = {}) {
   const chosenSkills = skills.filter((skill) => selectedSkillIds.has(skill.id));
   const chosenContext = context.filter((document) => selectedContextIds.has(document.id));
-  const providerName = provider.providerType === "generic-https" ? "Generic HTTPS" : provider.providerType || "Unavailable";
+  const providerName = assistantProviderLabel(provider.providerType);
   return {
     scope: "Complete document",
     sourceCharacters: `${title}\n${markdown}`.length,
@@ -2485,8 +2497,7 @@ export class Editor {
           this.updateAssistantProviderFields(true);
         },
       },
-      h("option", { value: "anthropic" }, "Anthropic Claude"),
-      h("option", { value: "custom-https" }, "Custom HTTPS"),
+      Object.entries(ASSISTANT_PROVIDERS).map(([value, provider]) => h("option", { value }, provider.label)),
     );
     ui.assistantSettingsEndpoint = h("input", { type: "url", placeholder: "https://provider.example/generate", autocomplete: "off" });
     ui.assistantSettingsModel = h("input", { type: "text", placeholder: "Provider model", autocomplete: "off" });
@@ -2765,10 +2776,10 @@ export class Editor {
                       h(
                         "div",
                         { class: "oba-assistant-provider-settings-body" },
-                        h("p", { class: "oba-small" }, "Connect Anthropic directly or use a compatible custom HTTPS service. This is optional; your other writing tools keep working without it."),
-                        this.field("oba-assistant-provider-choice", "Provider", ui.assistantSettingsProvider, "Choose Anthropic for Claude, or Custom HTTPS for an existing compatible endpoint."),
+                        h("p", { class: "oba-small" }, "Connect a supported AI API directly, route through OpenRouter, or use a compatible custom HTTPS service. This is optional; your other writing tools keep working without it."),
+                        this.field("oba-assistant-provider-choice", "Provider", ui.assistantSettingsProvider, "Choose a native API provider, OpenRouter, or your own compatible HTTPS endpoint."),
                         (ui.assistantEndpointField = this.field("oba-assistant-endpoint", "Generation endpoint URL", ui.assistantSettingsEndpoint, "The HTTPS address that receives generation requests.")),
-                        this.field("oba-assistant-model", "Model", ui.assistantSettingsModel, "Required for Anthropic; optional for custom providers."),
+                        this.field("oba-assistant-model", "Model", ui.assistantSettingsModel, "Required for every native provider. OpenRouter has no default; enter a routed model ID such as provider/model."),
                         this.field("oba-assistant-credential", "API key (write-only)", ui.assistantSettingsCredential, "Leave blank to keep the saved key. Its value is never displayed."),
                         ui.assistantSettingsStatus,
                         h("p", { class: "oba-assistant-settings-note" }, "A server environment credential overrides a saved credential."),
@@ -3763,11 +3774,13 @@ export class Editor {
   }
 
   updateAssistantProviderFields(providerChanged = true) {
-    const anthropic = this.ui.assistantSettingsProvider.value === "anthropic";
-    this.ui.assistantEndpointField.hidden = anthropic;
-    this.ui.assistantSettingsEndpoint.disabled = anthropic;
-    if (anthropic && (providerChanged || !this.ui.assistantSettingsModel.value.trim())) {
-      this.ui.assistantSettingsModel.value = "claude-sonnet-5-5";
+    const selected = this.ui.assistantSettingsProvider.value;
+    const custom = selected === "custom-https";
+    const provider = ASSISTANT_PROVIDERS[selected] || ASSISTANT_PROVIDERS["custom-https"];
+    this.ui.assistantEndpointField.hidden = !custom;
+    this.ui.assistantSettingsEndpoint.disabled = !custom;
+    if (providerChanged || !this.ui.assistantSettingsModel.value.trim()) {
+      this.ui.assistantSettingsModel.value = provider.defaultModel;
     }
   }
 

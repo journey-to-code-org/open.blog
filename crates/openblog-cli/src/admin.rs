@@ -32,8 +32,9 @@ use serde_json::{json, Map, Value as Json};
 use crate::assistant::{
     parse_skill, AnthropicProvider, AssistantConcurrency, AssistantDocument, AssistantErrorKind,
     AssistantProvider, AssistantProviderStatus, AssistantRequest, AssistantResult, AssistantSource,
-    AssistantTask, GenericHttpsProvider, KnowledgeCheckCount, ReviewContext, ReviewSkill,
-    SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
+    AssistantTask, GenericHttpsProvider, KnowledgeCheckCount, NativeProvider, NativeProviderKind,
+    ReviewContext, ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope,
+    ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
 };
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
@@ -1013,21 +1014,24 @@ fn assistant_status(state: &AppState) -> Response {
         Err(response) => return response,
     };
     let credential_configured = credential.is_some();
-    Response::json(
-        200,
-        &json!(if assistant_provider_kind(&config) == "anthropic" {
-            AssistantProviderStatus::anthropic(
-                &config.knowledge_checks.model,
-                credential_configured,
-            )
-        } else {
-            AssistantProviderStatus::legacy_quiz(
-                &config.knowledge_checks.generation_endpoint,
-                &config.knowledge_checks.model,
-                credential_configured,
-            )
-        }),
-    )
+    let status = match config.knowledge_checks.provider {
+        AssistantProviderKind::CustomHttps => AssistantProviderStatus::legacy_quiz(
+            &config.knowledge_checks.generation_endpoint,
+            &config.knowledge_checks.model,
+            credential_configured,
+        ),
+        AssistantProviderKind::Anthropic => AssistantProviderStatus::anthropic(
+            &config.knowledge_checks.model,
+            credential_configured,
+        ),
+        provider => AssistantProviderStatus::native(
+            provider.as_str(),
+            &config.knowledge_checks.model,
+            assistant_provider_destination(provider),
+            credential_configured,
+        ),
+    };
+    Response::json(200, &json!(status))
 }
 
 fn assistant_provider_kind(config: &SiteConfig) -> &str {
@@ -1036,24 +1040,70 @@ fn assistant_provider_kind(config: &SiteConfig) -> &str {
 
 fn assistant_credential_target(config: &SiteConfig) -> String {
     match config.knowledge_checks.provider {
-        AssistantProviderKind::Anthropic => "anthropic".into(),
         AssistantProviderKind::CustomHttps => format!(
             "custom-https:{}",
             config.knowledge_checks.generation_endpoint.trim()
         ),
+        provider => provider.as_str().into(),
     }
+}
+
+#[derive(Clone, Copy)]
+struct AssistantProviderDescriptor {
+    environment_name: &'static str,
+    destination: &'static str,
+    native_kind: Option<NativeProviderKind>,
+}
+
+fn assistant_provider_descriptor(provider: AssistantProviderKind) -> AssistantProviderDescriptor {
+    let descriptor = |environment_name, kind: NativeProviderKind| AssistantProviderDescriptor {
+        environment_name,
+        destination: kind.destination(),
+        native_kind: Some(kind),
+    };
+    match provider {
+        AssistantProviderKind::CustomHttps => AssistantProviderDescriptor {
+            environment_name: "OPENBLOG_LESSONS_API_KEY",
+            destination: "",
+            native_kind: None,
+        },
+        AssistantProviderKind::Anthropic => AssistantProviderDescriptor {
+            environment_name: "ANTHROPIC_API_KEY",
+            destination: "https://api.anthropic.com",
+            native_kind: None,
+        },
+        AssistantProviderKind::OpenAi => descriptor("OPENAI_API_KEY", NativeProviderKind::OpenAi),
+        AssistantProviderKind::Gemini => descriptor("GEMINI_API_KEY", NativeProviderKind::Gemini),
+        AssistantProviderKind::Xai => descriptor("XAI_API_KEY", NativeProviderKind::Xai),
+        AssistantProviderKind::DeepSeek => {
+            descriptor("DEEPSEEK_API_KEY", NativeProviderKind::DeepSeek)
+        }
+        AssistantProviderKind::Mistral => {
+            descriptor("MISTRAL_API_KEY", NativeProviderKind::Mistral)
+        }
+        AssistantProviderKind::OpenRouter => {
+            descriptor("OPENROUTER_API_KEY", NativeProviderKind::OpenRouter)
+        }
+    }
+}
+
+fn assistant_environment_name(provider: AssistantProviderKind) -> &'static str {
+    assistant_provider_descriptor(provider).environment_name
+}
+
+fn assistant_provider_destination(provider: AssistantProviderKind) -> &'static str {
+    assistant_provider_descriptor(provider).destination
 }
 
 fn assistant_configuration_ready(config: &SiteConfig, credential_configured: bool) -> bool {
     credential_configured
-        && if assistant_provider_kind(config) == "anthropic" {
-            !config.knowledge_checks.model.trim().is_empty()
-        } else {
-            !config
+        && match config.knowledge_checks.provider {
+            AssistantProviderKind::CustomHttps => !config
                 .knowledge_checks
                 .generation_endpoint
                 .trim()
-                .is_empty()
+                .is_empty(),
+            _ => !config.knowledge_checks.model.trim().is_empty(),
         }
 }
 
@@ -1064,6 +1114,12 @@ fn assistant_provider_timeout(provider: AssistantProviderKind, test_mode: bool) 
     match provider {
         // Structured-output grammars can take additional time to compile on first use.
         AssistantProviderKind::Anthropic => Duration::from_secs(240),
+        AssistantProviderKind::OpenAi
+        | AssistantProviderKind::Gemini
+        | AssistantProviderKind::Xai
+        | AssistantProviderKind::DeepSeek
+        | AssistantProviderKind::Mistral
+        | AssistantProviderKind::OpenRouter => Duration::from_secs(120),
         AssistantProviderKind::CustomHttps => Duration::from_secs(30),
     }
 }
@@ -1073,17 +1129,24 @@ fn configured_assistant_provider(
     credential: Option<String>,
     timeout: Duration,
 ) -> Result<Box<dyn AssistantProvider>, crate::assistant::AssistantError> {
-    if assistant_provider_kind(config) == "anthropic" {
-        AnthropicProvider::new(credential, timeout)
-            .map(|provider| Box::new(provider) as Box<dyn AssistantProvider>)
-    } else {
-        GenericHttpsProvider::new(
+    match config.knowledge_checks.provider {
+        AssistantProviderKind::CustomHttps => GenericHttpsProvider::new(
             &config.knowledge_checks.generation_endpoint,
             credential,
             timeout,
             cfg!(test),
         )
-        .map(|provider| Box::new(provider) as Box<dyn AssistantProvider>)
+        .map(|provider| Box::new(provider) as Box<dyn AssistantProvider>),
+        AssistantProviderKind::Anthropic => AnthropicProvider::new(credential, timeout)
+            .map(|provider| Box::new(provider) as Box<dyn AssistantProvider>),
+        provider => NativeProvider::new(
+            assistant_provider_descriptor(provider)
+                .native_kind
+                .expect("native providers have an adapter kind"),
+            credential,
+            timeout,
+        )
+        .map(|provider| Box::new(provider) as Box<dyn AssistantProvider>),
     }
 }
 
@@ -1147,10 +1210,7 @@ fn private_assistant_credential_envelope(
 }
 
 fn assistant_credential(root: &Path, config: &SiteConfig) -> Result<Option<String>, String> {
-    let environment_name = match config.knowledge_checks.provider {
-        AssistantProviderKind::Anthropic => "ANTHROPIC_API_KEY",
-        AssistantProviderKind::CustomHttps => "OPENBLOG_LESSONS_API_KEY",
-    };
+    let environment_name = assistant_environment_name(config.knowledge_checks.provider);
     if let Ok(value) = std::env::var(environment_name) {
         let value = value.trim();
         if !value.is_empty() {
@@ -1328,10 +1388,7 @@ fn mutation_with_rollback_error(mutation: &str, rollback: Result<(), String>) ->
 }
 
 fn assistant_credential_summary(root: &Path, config: &SiteConfig) -> Result<Json, String> {
-    let environment_name = match config.knowledge_checks.provider {
-        AssistantProviderKind::Anthropic => "ANTHROPIC_API_KEY",
-        AssistantProviderKind::CustomHttps => "OPENBLOG_LESSONS_API_KEY",
-    };
+    let environment_name = assistant_environment_name(config.knowledge_checks.provider);
     let environment = std::env::var(environment_name).is_ok_and(|value| !value.trim().is_empty());
     let private_configured = private_assistant_credential_envelope(root)?.is_some();
     let private = private_assistant_credential(root, config)?.is_some();
@@ -1417,8 +1474,18 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
     if endpoint.len() > 2048 || model.len() > 200 {
         return Response::error(422, "Assistant endpoint or model is too long");
     }
-    if !matches!(provider, "custom-https" | "anthropic") {
-        return Response::error(422, "Assistant provider must be anthropic or custom-https");
+    if !matches!(
+        provider,
+        "custom-https"
+            | "anthropic"
+            | "open-ai"
+            | "gemini"
+            | "xai"
+            | "deep-seek"
+            | "mistral"
+            | "open-router"
+    ) {
+        return Response::error(422, "Assistant provider is not supported");
     }
     if provider == "custom-https" && !endpoint.is_empty() {
         let valid = url::Url::parse(endpoint).is_ok_and(|url| {
@@ -1467,9 +1534,14 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
         Ok(_) => return Response::error(500, "openblog.json must contain a JSON object"),
         Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
     };
+    let stored_endpoint = if provider == "custom-https" {
+        endpoint
+    } else {
+        ""
+    };
     value["knowledgeChecks"] = json!({
         "provider": provider,
-        "generationEndpoint": endpoint,
+        "generationEndpoint": stored_endpoint,
         "model": model,
     });
     let candidate = match serde_json::to_string_pretty(&value) {
@@ -1519,7 +1591,7 @@ fn save_assistant_settings(state: &AppState, req: &Request) -> Response {
         200,
         &json!({
             "provider": provider,
-            "generationEndpoint": endpoint,
+            "generationEndpoint": stored_endpoint,
             "model": model,
         "etag": match assistant_settings_etag(&state.root, candidate.as_bytes()) {
             Ok(etag) => etag,
@@ -5560,6 +5632,96 @@ mod tests {
             assistant_provider_timeout(AssistantProviderKind::Anthropic, true),
             Duration::from_millis(300)
         );
+    }
+
+    #[test]
+    fn native_provider_metadata_keeps_credentials_and_destinations_separate() {
+        let providers = [
+            (
+                AssistantProviderKind::OpenAi,
+                "OPENAI_API_KEY",
+                "https://api.openai.com",
+            ),
+            (
+                AssistantProviderKind::Gemini,
+                "GEMINI_API_KEY",
+                "https://generativelanguage.googleapis.com",
+            ),
+            (
+                AssistantProviderKind::Xai,
+                "XAI_API_KEY",
+                "https://api.x.ai",
+            ),
+            (
+                AssistantProviderKind::DeepSeek,
+                "DEEPSEEK_API_KEY",
+                "https://api.deepseek.com",
+            ),
+            (
+                AssistantProviderKind::Mistral,
+                "MISTRAL_API_KEY",
+                "https://api.mistral.ai",
+            ),
+            (
+                AssistantProviderKind::OpenRouter,
+                "OPENROUTER_API_KEY",
+                "https://openrouter.ai",
+            ),
+        ];
+        for (provider, environment, destination) in providers {
+            assert_eq!(assistant_environment_name(provider), environment);
+            assert_eq!(assistant_provider_destination(provider), destination);
+            assert_eq!(
+                assistant_provider_timeout(provider, false),
+                Duration::from_secs(120)
+            );
+        }
+    }
+
+    #[test]
+    fn openai_provider_settings_use_a_fixed_native_destination() {
+        let _env = QUIZ_ENV.lock().unwrap();
+        let _key = EnvRestore::capture("OPENAI_API_KEY");
+        std::env::remove_var("OPENAI_API_KEY");
+        let f = fixture("openai-provider-settings");
+        let session = login_ok(&f);
+        let loaded = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/settings"), &session, false),
+        );
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/settings",
+                    json!({
+                        "provider": "open-ai",
+                        "generationEndpoint": "https://ignored.example/",
+                        "model": "gpt-6-luna",
+                        "etag": body_json(&loaded)["etag"],
+                        "credentialAction": "replace",
+                        "credential": "openai-secret"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(saved.status, 200);
+        assert_eq!(
+            body_json(&saved)["credential"]["environmentName"],
+            "OPENAI_API_KEY"
+        );
+        assert_eq!(body_json(&saved)["generationEndpoint"], "");
+        let status = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/status"), &session, false),
+        );
+        let status = body_json(&status);
+        assert_eq!(status["providerType"], "open-ai");
+        assert_eq!(status["destination"], "https://api.openai.com");
+        assert_eq!(status["configured"], true);
     }
 
     #[test]

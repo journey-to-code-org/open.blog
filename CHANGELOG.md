@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added native Assistant integrations for OpenAI, Google Gemini, xAI Grok, DeepSeek, Mistral AI,
+  and OpenRouter with fixed official destinations, provider-specific environment credentials,
+  structured-output adapters, editable model choices, and strict local result validation.
+
 ## [0.11.2] - 2026-10-23
 
 - Grounded Assistant reviews in trusted open.blog renderer capabilities so native quiz and
