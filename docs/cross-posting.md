@@ -41,6 +41,12 @@ draft-only in this iteration. WordPress core cannot portably set an external can
 the command warns for those targets. See the complete
 [automated syndication specification](specs/automated-syndication.md).
 
+The source post must already be production-visible: drafts and future-scheduled posts are
+rejected. On `--write`, the command fetches the public open.blog URL before the first provider
+mutation and requires a successful page whose canonical link points back to that same URL.
+A dry run remains network-free, so deployment reachability is checked only when a write is
+explicitly requested.
+
 For feed automation, make sure `feeds.rss`, `feeds.json`, and `feeds.fullContent` are all
 `true`. In either route, begin with drafts rather than unattended publishing.
 

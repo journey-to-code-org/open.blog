@@ -68,22 +68,34 @@ impl Transport for NetworkTransport {
     fn send(&self, request: &Request) -> Result<Response, String> {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(REQUEST_TIMEOUT))
+            .http_status_as_error(false)
+            .max_redirects(0)
             .user_agent(concat!("open.blog-syndication/", env!("CARGO_PKG_VERSION")))
             .build()
             .into();
-        let mut builder = match request.method {
-            "POST" => agent.post(&request.url),
-            "PUT" => agent.put(&request.url),
+        let result = match request.method {
+            "GET" => {
+                let mut builder = agent.get(&request.url);
+                for (name, value) in &request.headers {
+                    builder = builder.header(name, value);
+                }
+                builder.call()
+            }
+            "POST" | "PUT" => {
+                let mut builder = if request.method == "POST" {
+                    agent.post(&request.url)
+                } else {
+                    agent.put(&request.url)
+                };
+                for (name, value) in &request.headers {
+                    builder = builder.header(name, value);
+                }
+                builder.send(request.body.to_string())
+            }
             _ => return Err("unsupported syndication HTTP method".into()),
         };
-        for (name, value) in &request.headers {
-            builder = builder.header(name, value);
-        }
-        let mut response = match builder.send(request.body.to_string()) {
+        let mut response = match result {
             Ok(response) => response,
-            Err(ureq::Error::StatusCode(status)) => {
-                return Err(status_error(status));
-            }
             Err(ureq::Error::Timeout(_)) => return Err("request timed out after 30 seconds".into()),
             Err(_) => return Err("request failed before the provider returned a response".into()),
         };
@@ -159,14 +171,22 @@ fn state_key(source_id: &str, target: &str) -> String {
 }
 
 pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
+    run_with_transport(root, slug, options, &NetworkTransport)
+}
+
+fn run_with_transport(
+    root: &Path,
+    slug: &str,
+    options: Options,
+    transport: &dyn Transport,
+) -> Result<(), String> {
     let config = site::load_config(root)?;
     let sources = site::read_sources(root, &config)?;
-    let (loaded, _) = site::load_site(root, true, None)?;
-    let post = loaded
-        .posts
-        .iter()
-        .find(|post| post.slug == slug)
-        .ok_or_else(|| format!("no post has slug `{slug}`"))?;
+    let (loaded, _) = site::load_site(root, false, Some(crate::clock::now()))?;
+    let post = match loaded.posts.iter().find(|post| post.slug == slug) {
+        Some(post) => post,
+        None => return Err(unavailable_post_error(root, slug)?),
+    };
     let source = sources
         .posts
         .iter()
@@ -177,29 +197,19 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
     let selected = select_targets(&config, &options.target_names)?;
     let state_path = private_state_path(root, &config.syndication.state_file)?;
     let mut state = State::load(&state_path)?;
+    validate_source_identity(&state, &article)?;
+    validate_plan(&selected, options.publish)?;
     println!(
         "Syndication {} for `{}` ({})",
         if options.write { "write" } else { "dry run" },
         article.title,
         article.canonical_url
     );
+    let mut canonical_verified = false;
     for (name, target) in selected {
         let key = state_key(&article.source_id, name);
         let existing = state.records.get(&key);
-        if let Some(record) = existing {
-            if record.source_path != article.source_path {
-                return Err(format!(
-                    "syndicationId `{}` is already used by `{}` for target `{name}`",
-                    article.source_id, record.source_path
-                ));
-            }
-        }
         let public = options.publish && target.allow_publish;
-        if options.publish && !target.allow_publish {
-            return Err(format!(
-                "target `{name}` does not permit publishing; set allowPublish to true as a second explicit opt-in"
-            ));
-        }
         if target.provider == SyndicationProvider::Medium {
             println!(
                 "- {name}: manual import only — open Medium's Import a story and paste {}",
@@ -207,7 +217,6 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
             );
             continue;
         }
-        validate_target(target)?;
         let action = if existing.is_some() {
             "update"
         } else {
@@ -229,9 +238,13 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
         if !options.write {
             continue;
         }
+        if !canonical_verified {
+            verify_live_canonical(transport, &article.canonical_url)?;
+            canonical_verified = true;
+        }
         let credential = credential(target)?;
         let request = build_request(name, target, &article, existing, public, &credential)?;
-        let outcome = execute(target.provider, &NetworkTransport, &request)?;
+        let outcome = execute(target.provider, transport, &request)?;
         state.records.insert(
             key,
             StateRecord {
@@ -255,6 +268,160 @@ pub fn run(root: &Path, slug: &str, options: Options) -> Result<(), String> {
         println!("No remote content or private state was changed. Re-run with --write after reviewing this plan.");
     }
     Ok(())
+}
+
+fn validate_plan(
+    selected: &[(&String, &SyndicationTargetConfig)],
+    publish: bool,
+) -> Result<(), String> {
+    for (name, target) in selected {
+        validate_target(target)?;
+        if publish && !target.allow_publish {
+            return Err(format!(
+                "target `{name}` does not permit publishing; set allowPublish to true as a second explicit opt-in"
+            ));
+        }
+        if publish && target.provider == SyndicationProvider::Hashnode {
+            return Err(format!(
+                "target `{name}` uses Hashnode, whose adapter is draft-only; omit --publish and publish the saved draft in Hashnode"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn unavailable_post_error(root: &Path, slug: &str) -> Result<String, String> {
+    let (preview, _) = site::load_site(root, true, None)?;
+    if preview.posts.iter().any(|post| post.slug == slug) {
+        Ok(format!(
+            "post `{slug}` is not production-visible; publish the draft or wait for its scheduled date and deploy open.blog before syndicating"
+        ))
+    } else {
+        Ok(format!("no post has slug `{slug}`"))
+    }
+}
+
+fn validate_source_identity(state: &State, article: &Article) -> Result<(), String> {
+    if let Some(record) = state.records.values().find(|record| {
+        record.source_id == article.source_id && record.source_path != article.source_path
+    }) {
+        return Err(format!(
+            "syndicationId `{}` is already used by `{}` for target `{}`",
+            article.source_id, record.source_path, record.target
+        ));
+    }
+    Ok(())
+}
+
+fn verify_live_canonical(transport: &dyn Transport, canonical_url: &str) -> Result<(), String> {
+    let request = Request {
+        method: "GET",
+        url: canonical_url.to_string(),
+        headers: vec![("Accept".into(), "text/html".into())],
+        body: Json::Null,
+    };
+    let response = transport
+        .send(&request)
+        .map_err(|error| format!("canonical preflight failed: {error}"))?;
+    if !(200..300).contains(&response.status) {
+        return Err(format!(
+            "canonical preflight failed: {} returned HTTP {}",
+            canonical_url, response.status
+        ));
+    }
+    let html = String::from_utf8_lossy(&response.body);
+    let expected = Url::parse(canonical_url)
+        .map_err(|_| "canonical preflight received an invalid source URL".to_string())?;
+    let matches = canonical_hrefs(&html).into_iter().any(|href| {
+        expected
+            .join(&href)
+            .map(|mut actual| {
+                actual.set_fragment(None);
+                let mut expected = expected.clone();
+                expected.set_fragment(None);
+                actual == expected
+            })
+            .unwrap_or(false)
+    });
+    if !matches {
+        return Err(format!(
+            "canonical preflight failed: {canonical_url} is reachable but does not declare itself in a <link rel=\"canonical\">"
+        ));
+    }
+    Ok(())
+}
+
+fn canonical_hrefs(html: &str) -> Vec<String> {
+    let lowercase = html.to_ascii_lowercase();
+    let mut hrefs = Vec::new();
+    let mut offset = 0;
+    while let Some(start) = lowercase[offset..].find("<link") {
+        let start = offset + start;
+        if lowercase
+            .as_bytes()
+            .get(start + 5)
+            .is_some_and(|byte| !byte.is_ascii_whitespace() && *byte != b'>')
+        {
+            offset = start + 5;
+            continue;
+        }
+        let Some(length) = lowercase[start..].find('>') else {
+            break;
+        };
+        let end = start + length + 1;
+        let tag = &html[start..end];
+        if attribute(tag, "rel").is_some_and(|rel| {
+            rel.split_ascii_whitespace()
+                .any(|value| value.eq_ignore_ascii_case("canonical"))
+        }) {
+            if let Some(href) = attribute(tag, "href") {
+                hrefs.push(href);
+            }
+        }
+        offset = end;
+    }
+    hrefs
+}
+
+fn attribute(tag: &str, name: &str) -> Option<String> {
+    let bytes = tag.as_bytes();
+    let lowercase = tag.to_ascii_lowercase();
+    let mut offset = 0;
+    while let Some(found) = lowercase[offset..].find(name) {
+        let start = offset + found;
+        let before_ok = start > 0 && bytes[start - 1].is_ascii_whitespace();
+        let mut cursor = start + name.len();
+        let after_ok =
+            cursor < bytes.len() && (bytes[cursor].is_ascii_whitespace() || bytes[cursor] == b'=');
+        if before_ok && after_ok {
+            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            if bytes.get(cursor) == Some(&b'=') {
+                cursor += 1;
+                while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                    cursor += 1;
+                }
+                let quote = bytes.get(cursor).copied();
+                if matches!(quote, Some(b'\'' | b'"')) {
+                    cursor += 1;
+                    let end = bytes[cursor..]
+                        .iter()
+                        .position(|byte| Some(*byte) == quote)?
+                        + cursor;
+                    return Some(tag[cursor..end].to_string());
+                }
+                let end = bytes[cursor..]
+                    .iter()
+                    .position(|byte| byte.is_ascii_whitespace() || *byte == b'>')
+                    .unwrap_or(bytes.len() - cursor)
+                    + cursor;
+                return Some(tag[cursor..end].to_string());
+            }
+        }
+        offset = start + name.len();
+    }
+    None
 }
 
 fn select_targets<'a>(
@@ -578,7 +745,7 @@ fn ghost_token(key: &str) -> Result<String, String> {
 }
 
 fn decode_hex(value: &str) -> Option<Vec<u8>> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return None;
     }
     (0..value.len())
@@ -816,6 +983,37 @@ mod tests {
     }
 
     #[test]
+    fn source_identity_collision_is_rejected_across_different_targets() {
+        let article = article_fixture();
+        let mut state = State::default();
+        state.records.insert(
+            state_key(&article.source_id, "old-target"),
+            StateRecord {
+                source_id: article.source_id.clone(),
+                source_path: "posts/a-renamed.md".into(),
+                target: "old-target".into(),
+                ..Default::default()
+            },
+        );
+        let error = validate_source_identity(&state, &article).unwrap_err();
+        assert!(error.contains("old-target"));
+        assert!(error.contains("posts/a-renamed.md"));
+    }
+
+    #[test]
+    fn hashnode_public_intent_fails_during_planning() {
+        let name = "hashnode".to_string();
+        let target = SyndicationTargetConfig {
+            provider: SyndicationProvider::Hashnode,
+            allow_publish: true,
+            publication_id: "pub-id".into(),
+            ..Default::default()
+        };
+        let error = validate_plan(&[(&name, &target)], true).unwrap_err();
+        assert!(error.contains("draft-only"));
+    }
+
+    #[test]
     fn endpoints_reject_insecure_or_credentialed_urls() {
         assert!(validated_endpoint("http://ghost.example", "endpoint").is_err());
         assert!(validated_endpoint("https://a:b@ghost.example", "endpoint").is_err());
@@ -842,6 +1040,66 @@ mod tests {
     }
 
     #[test]
+    fn canonical_preflight_requires_a_matching_page_canonical() {
+        let valid = Response {
+            status: 200,
+            body: br#"<html><head><link href="/posts/a/" rel="alternate canonical"></head></html>"#
+                .to_vec(),
+        };
+        verify_live_canonical(&FakeTransport(valid), "https://blog.example/posts/a/").unwrap();
+
+        let wrong = Response {
+            status: 200,
+            body: br#"<link rel='canonical' href='https://other.example/a'>"#.to_vec(),
+        };
+        let error = verify_live_canonical(&FakeTransport(wrong), "https://blog.example/posts/a/")
+            .unwrap_err();
+        assert!(error.contains("does not declare itself"));
+    }
+
+    #[test]
+    fn draft_and_scheduled_sources_are_rejected_before_syndication() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("openblog-syndication-draft-{unique}"));
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::write(
+            root.join("openblog.json"),
+            r#"{
+              "url":"https://blog.openblog.dev",
+              "syndication":{"targets":{"medium":{"provider":"medium"}}}
+            }"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/posts/post.md"),
+            "---\ntitle: Post\nslug: post\ndate: 2020-01-01\ndraft: true\n---\n\nBody\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/posts/scheduled.md"),
+            "---\ntitle: Scheduled\nslug: scheduled\ndate: 2999-01-01\n---\n\nBody\n",
+        )
+        .unwrap();
+        for slug in ["post", "scheduled"] {
+            let error = run(
+                &root,
+                slug,
+                Options {
+                    target_names: Vec::new(),
+                    write: false,
+                    publish: false,
+                },
+            )
+            .unwrap_err();
+            assert!(error.contains("not production-visible"));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn dry_run_is_secretless_and_does_not_create_private_state() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -859,7 +1117,7 @@ mod tests {
         .unwrap();
         fs::write(
             root.join("content/posts/post.md"),
-            "---\ntitle: Post\nslug: post\ndate: 2026-10-24\nsyndicationId: durable-post\n---\n\nBody\n",
+            "---\ntitle: Post\nslug: post\ndate: 2020-01-01\nsyndicationId: durable-post\n---\n\nBody\n",
         )
         .unwrap();
         run(

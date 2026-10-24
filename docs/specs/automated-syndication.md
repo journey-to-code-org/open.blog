@@ -19,6 +19,9 @@ openblog syndicate <slug> [--target name[,name...]] [--write] [--publish]
   provider nor changes private state.
 - `--target` selects configured target names. Without it, every enabled target is planned.
 - `--write` creates a remote draft or updates the remote ID saved for that source and target.
+- Only a non-draft post whose scheduled date has arrived can be syndicated. Before the first
+  provider write, open.blog fetches its canonical page with the same bounded transport and
+  requires a successful response containing a self-referential `link rel="canonical"`.
 - Remote content remains a draft unless `--publish` is supplied **and** that target has
   `allowPublish: true`. This is a deliberate two-step opt-in.
 - Hashnode remains draft-only in this iteration because publishing a draft is a distinct
@@ -76,9 +79,9 @@ syndicationId: 01JAZ8M7Y64Q9Z8P6ACZHQN5KC
 Private state defaults to `.openblog/syndication.json`. Records are keyed by source identity
 plus configured target name and contain source path, remote ID, remote URL when supplied,
 provider concurrency revision when required, source revision, remote publication state, and
-update time. A source-ID collision with a
-different source path fails closed. State is saved after each successful target, so partial
-success is retained without attempting a remote rollback.
+update time. A source-ID collision with a different source path fails closed across every
+target. State is saved after each successful target, so partial success is retained without
+attempting a remote rollback.
 
 The state path must be project-relative and cannot contain `..`. Keep `.openblog/` out of
 public output and commit history.
@@ -104,6 +107,8 @@ four tags and Hashnode receives at most fifteen.
 - [x] Public writes require both `--publish` and per-target `allowPublish: true`.
 - [x] Canonicals derive from the configured open.blog URL and final post route.
 - [x] Canonicals must be public HTTPS and cannot use the scaffold `example.com` host.
+- [x] The source must be production-visible locally, and the first remote mutation is preceded
+  by a bounded GET proving the deployed page is successful and canonicalizes to itself.
 - [x] Secrets are environment-only and are not serialized into config, state, output, or logs.
 - [x] Provider endpoints are fixed except for user-owned Ghost and WordPress origins, which
   must be HTTPS without embedded credentials, query, or fragment.
@@ -117,7 +122,6 @@ four tags and Hashnode receives at most fifteen.
 
 ## Out of scope
 
-- Probing the deployed canonical over the public internet; deployment remains a prerequisite.
 - Automatic Medium publishing or legacy Medium tokens.
 - Portable WordPress external-canonical support; plugin support needs an explicit extension.
 - Automatic Hashnode `publishDraft`, reconciliation by title, bulk runs, retry loops,
