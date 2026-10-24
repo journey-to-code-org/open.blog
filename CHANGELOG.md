@@ -14,6 +14,14 @@ All notable changes to open.blog are recorded here. Releases follow
   iframe; authored raw HTML is unchanged until
   [#114](https://github.com/journey-to-code-org/open.blog/issues/114).
 - Fixed quizzes and web sandboxes failing to build when nested in a callout, quote, or list item.
+- The portable HTML projection now keeps research and attribution: ordered contributor credits
+  with their roles and unauthenticated ORCID iDs (kept apart from the references), the DOI and
+  license, the "Originally published at" source, and footnote citations that keep their
+  numbers and ids and link to the note on the canonical article. An unsafe `sourceUrl` fails
+  the projection for that post instead of being published.
+- Planned or unknown capabilities without a portable fallback yet now fail closed in portable
+  HTML: their authored content stays visible, a labeled link points to the canonical article,
+  private-only state adds nothing, and each is reported with the canonical-only level.
 
 ## [0.15.0] - 2026-10-24
 

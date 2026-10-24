@@ -45,16 +45,55 @@ list item keeps its position. A malformed capability fails the projection with t
 and that capability's error and diagnostic; the canonical Markdown, the native HTML, and any
 remote state are left untouched.
 
+## Research, attribution, and planned structures
+
+The projection keeps what identifies and credits the work
+([#113](https://github.com/journey-to-code-org/open.blog/issues/113)), in the order the native
+page shows it:
+
+- **Credits.** A post with an explicit credit sidecar starts with the same ordered
+  "Contributions" list as the native page: each name, its role labels (for example *Author*
+  or *Translator*), and a manually entered ORCID iD marked "(unauthenticated)". Contributor
+  links resolve against the site, and the decorative ORCID icon (a site asset) is left out.
+  Credits are attribution: they never enter the References section or `references()`. A post
+  credited only to the legacy site author gets no list; consumers take that byline from
+  `authors()`, as feeds do.
+- **Work identity.** A research post's DOI and license follow, as on the native page. A DOI
+  that cannot be resolved is not shown as the work's identifier there or here; the evidence
+  audit reports it.
+- **References and citations.** Reference links keep their exact address, including page or
+  section fragments and query strings, and references without a link stay visible as text.
+  Footnote citations keep their number and note id; each citation links to the note on the
+  canonical article (`…/post/#note`), as heading anchors do, so a copy that drops ids still
+  reaches the cited note. A repeated citation keeps one number.
+- **Provenance.** A `sourceUrl` adds the native "Originally published at" line after the body.
+  It must be an absolute HTTP(S) address without credentials; anything else fails the
+  projection for that post.
+
+Planned research and reader capabilities (the ids in the
+[planned-capability registry](./planned-capability-contracts.json): comparisons, timelines,
+source previews, guided explanations, relationships, reading paths, interpretations,
+reflections, diagrams, and the rest) have no authoring syntax or portable fallback yet. Until
+their owning story ships one, a capability the canonical page reports without a portable
+fallback fails closed: its authored content stays visible as ordinary Markdown, a labeled note
+such as "**Timeline**: see it on the original article" links to the canonical article, and the
+capability is reported with the canonical-only level. An unknown capability gets the label
+"Interactive content". Private-only state (local reader annotations and protected reflection
+drafts) adds nothing to the copy. Unknown front matter stays in the canonical source and never
+reaches the output.
+
 ## Tests
 
 The focused contract is tested in
 [portability.rs](../../crates/openblog-core/src/portability.rs) and
 [markdown.rs](../../crates/openblog-core/src/markdown.rs). The golden suite in
 [portable_html.rs](../../crates/openblog-core/tests/portable_html.rs) renders the
-[video lesson](../../tests/fixtures/portable-html/video-lesson.md) and
-[recipe](../../tests/fixtures/portable-html/recipe.md) fixtures and compares them with their
-expected `.html` files. It also checks that the output has no runtime-only elements or
+[video lesson](../../tests/fixtures/portable-html/video-lesson.md),
+[recipe](../../tests/fixtures/portable-html/recipe.md), and
+[research](../../tests/fixtures/portable-html/research.md) fixtures (the last with a
+[credit sidecar](../../tests/fixtures/portable-html/research.credits.json) naming two authors
+and a translator) and compares them with their expected `.html` files. It also checks that the output has no runtime-only elements or
 attributes, uses only absolute URLs, has a target for every anchor, gives every link an
 accessible name and every image alternative text, and leaks neither the comments nor the runner
-endpoint. The shared [portability fixtures](../../tests/fixtures/portability-contract.json)
+endpoint nor unknown front matter. The shared [portability fixtures](../../tests/fixtures/portability-contract.json)
 also render through `portable_html()`.

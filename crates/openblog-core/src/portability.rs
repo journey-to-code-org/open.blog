@@ -7,7 +7,7 @@ use crate::escape;
 use crate::markdown::{CodeRunnerRenderOptions, PortableContext, RenderOptions};
 use crate::model::{CommentsPolicy, Post};
 use crate::recipe::Recipe;
-use crate::research::ResearchReference;
+use crate::research::{ResearchMetadata, ResearchReference};
 use crate::video::VideoMetadata;
 use url::Url;
 
@@ -29,9 +29,12 @@ pub struct PortableProjection<'a> {
     title: &'a str,
     source_path: &'a str,
     source_url: Option<&'a str>,
+    /// The native page's "Originally published at" notice, when it has one.
+    source_notice: Option<String>,
     credit_provenance: CreditProvenance,
     credits: &'a [ResolvedCredit],
     references: &'a [ResearchReference],
+    research: Option<&'a ResearchMetadata>,
     capabilities: &'a [CapabilityDescriptor],
     html: &'a str,
     markdown: &'a str,
@@ -84,9 +87,11 @@ impl<'a> PortableProjection<'a> {
             title: &post.title,
             source_path: &post.source,
             source_url: post.source_url.as_deref(),
+            source_notice: post.source_notice_html(),
             credit_provenance: post.credit_provenance,
             credits: &post.credits,
             references,
+            research: post.research.as_ref(),
             capabilities: &post.capabilities,
             html: &post.html,
             markdown: &post.authored_markdown,
@@ -189,7 +194,19 @@ impl<'a> PortableProjection<'a> {
         }
         let mut html = String::new();
         let mut capabilities = rendered.capabilities;
-        // The native page shows these beside the body, so they stay visible here.
+        // The native page shows these beside the body, so they stay visible here:
+        // explicit credits (a legacy site author is a byline, which consumers
+        // take from `authors()`), then the work's DOI and license.
+        if self.credit_provenance == CreditProvenance::ExplicitSidecar && !self.credits.is_empty() {
+            html.push_str(&crate::contributor::contributions_html(
+                self.credits,
+                |url| self.resolve_link(url),
+                None,
+            )?);
+        }
+        if let Some(research) = self.research {
+            html.push_str(&research.work_meta_html());
+        }
         if let Some(video) = self.video {
             html.push_str(&video.production_notes_html());
         }
@@ -229,6 +246,42 @@ impl<'a> PortableProjection<'a> {
             }
         }
         html.push_str(&rendered.html);
+        // A capability the canonical page offers without a portable fallback yet
+        // (a planned or unknown structure) fails closed: its authored content
+        // stays visible as ordinary Markdown, and a labeled link points to the
+        // canonical article. Private state adds nothing. Each is reported once.
+        let mut labels = Vec::new();
+        for capability in self.capabilities {
+            if capability.has_portable_fallback() {
+                continue;
+            }
+            if !capabilities.iter().any(|known| known.id == capability.id) {
+                capabilities.push(capability.clone());
+            }
+            if let Some(label) = capability.portable_label() {
+                if !labels.contains(&label) {
+                    labels.push(label);
+                    html.push_str(&format!(
+                        "<p class=\"ob-portable-note\"><strong>{}</strong>: see it on <a href=\"{}\">the original article</a>.</p>\n",
+                        escape::text(label),
+                        escape::attr(&self.canonical_url)
+                    ));
+                }
+            }
+        }
+        // Provenance is untrusted metadata: only a plain web address is published.
+        if let (Some(source_url), Some(notice)) = (self.source_url, &self.source_notice) {
+            Url::parse(source_url)
+                .ok()
+                .filter(|url| validate_http_url(url, true).is_ok())
+                .ok_or_else(|| {
+                    format!(
+                        "{}: sourceUrl must be an absolute HTTP(S) URL without credentials",
+                        self.source_path
+                    )
+                })?;
+            html.push_str(notice);
+        }
         // Discussion stays on the canonical page: link there rather than to a
         // form that cannot work here, and never name the hosted endpoint.
         if let Some(policy) = self.participation {
@@ -824,6 +877,202 @@ mod tests {
         assert!(hidden.capabilities.is_empty());
         let without_backend = portable("---\ntitle: Work\ndate: 2026-10-01\n---\nBody\n");
         assert_eq!(without_backend.html, "<p>Body</p>\n");
+    }
+
+    #[test]
+    fn portable_research_posts_keep_their_work_identifier_and_license() {
+        let output = portable(
+            "---\ntitle: Study\ndate: 2026-10-01\nprofile: research\ndoi: 10.1234/café/results\nlicense: https://creativecommons.org/licenses/by/4.0/\n---\n## Abstract\n\nSummary.\n",
+        );
+        assert!(output.html.starts_with(
+            "<aside class=\"ob-work-meta\" aria-label=\"Research work details\"><dl><div><dt>DOI</dt><dd><a href=\"https://doi.org/10.1234/caf%C3%A9%2Fresults\">10.1234/café/results</a></dd></div><div><dt>Reuse</dt><dd><a href=\"https://creativecommons.org/licenses/by/4.0/\">License</a></dd></div></dl></aside>\n<h2 id=\"abstract\">"
+        ), "{}", output.html);
+        // A DOI that cannot be resolved is not presented as the work's identity,
+        // exactly as on the native page.
+        let output = portable(
+            "---\ntitle: Study\ndate: 2026-10-01\nprofile: research\ndoi: \"not a <doi>\"\nlicense: javascript:alert(1)\n---\nBody\n",
+        );
+        assert_eq!(output.html, "<p>Body</p>\n");
+    }
+
+    #[test]
+    fn portable_footnote_citations_keep_their_identity_and_point_to_the_canonical_note() {
+        let output = portable(
+            "---\ntitle: Study\ndate: 2026-10-01\n---\nA claim[^zürich] and another[^\"x\"] and the first again[^zürich].\n\n[^\"x\"]: Second note <b>.\n[^zürich]: [Smith 2020, p. 42](https://example.org/book?page=42#p42).\n",
+        );
+        assert!(output.html.contains(
+            "<p>A claim<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#zürich\">1</a></sup> and another<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#&quot;x&quot;\">2</a></sup> and the first again<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#zürich\">1</a></sup>.</p>\n"
+        ), "{}", output.html);
+        // Notes keep their numbers and ids even when defined out of order.
+        assert!(output.html.contains(
+            "<div class=\"footnote-definition\" id=\"&quot;x&quot;\"><sup class=\"footnote-definition-label\">2</sup>\n<p>Second note <b>.</p>\n</div>\n<div class=\"footnote-definition\" id=\"zürich\"><sup class=\"footnote-definition-label\">1</sup>\n<p><a href=\"https://example.org/book?page=42#p42\">Smith 2020, p. 42</a>.</p>\n</div>\n"
+        ), "{}", output.html);
+        assert!(!output.html.contains("href=\"#"), "{}", output.html);
+    }
+
+    fn credited_post(contents: &str, credits: &str) -> (SiteConfig, Site) {
+        let config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://example.test/blog","postPath":"/{slug}/","author":{"name":"Site Author"},
+            "contributors":{
+                "ada":{"name":"Ada <Lovelace> & Co.","url":"/people/ada/","orcid":"0000-0002-1825-0097"},
+                "grace":{"name":"Grace Hopper","url":"https://grace.example/"},
+                "emile":{"name":"Émile Zola"}
+            }}"#,
+        )
+        .unwrap();
+        let site = Site::load(
+            config.clone(),
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/work.md".into(),
+                    contents: contents.into(),
+                }],
+                credits: vec![SourceFile {
+                    path: "posts/work.credits.json".into(),
+                    contents: credits.into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        (config, site)
+    }
+
+    #[test]
+    fn portable_credits_stay_ordered_attribution_rather_than_bibliography() {
+        let (config, site) = credited_post(
+            "---\ntitle: Study\ndate: 2026-10-01\nprofile: research\n---\n## References\n\n1. [Prior work](https://doi.org/10.1000/prior)\n",
+            r#"{"version":1,"credits":[
+                {"contributor":"grace","roles":[{"vocabulary":"crossref","role":"author"}]},
+                {"contributor":"ada","roles":[{"vocabulary":"crossref","role":"author"},{"vocabulary":"credit","role":"writing-review-editing"}]},
+                {"contributor":"emile","roles":[{"vocabulary":"crossref","role":"translator"}]}
+            ]}"#,
+        );
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let output = projection.portable_html().unwrap();
+        assert!(output.html.starts_with(
+            "<aside class=\"ob-contributions\" aria-labelledby=\"ob-contributions-title\">\n<h2 id=\"ob-contributions-title\" class=\"ob-contributions-title\">Contributions</h2>\n<ul>\n\
+             <li><div><span class=\"ob-contributor-name\"><a href=\"https://grace.example/\">Grace Hopper</a></span><span class=\"ob-contributor-roles\">Author</span></div></li>\n\
+             <li><div><span class=\"ob-contributor-name\"><a href=\"https://example.test/blog/people/ada/\">Ada &lt;Lovelace&gt; &amp; Co.</a></span><span class=\"ob-contributor-roles\">Author, Writing – review &amp; editing</span></div><p class=\"ob-orcid\"><a href=\"https://orcid.org/0000-0002-1825-0097\" aria-label=\"View unauthenticated ORCID record – 0000-0002-1825-0097\">https://orcid.org/0000-0002-1825-0097</a> (unauthenticated)</p></li>\n\
+             <li><div><span class=\"ob-contributor-name\">Émile Zola</span><span class=\"ob-contributor-roles\">Translator</span></div></li>\n\
+             </ul>\n</aside>\n<h2 id=\"references\">"
+        ), "{}", output.html);
+        // The bundled ORCID icon is a site asset and purely decorative.
+        assert!(!output.html.contains("<img"), "{}", output.html);
+        // Credits never become references, and references stay the authored list.
+        let references = output.html.split("<h2 id=\"references\">").nth(1).unwrap();
+        assert!(!references.contains("Grace") && !references.contains("orcid"));
+        assert_eq!(
+            projection
+                .references()
+                .iter()
+                .map(|reference| reference.url.as_str())
+                .collect::<Vec<_>>(),
+            ["https://doi.org/10.1000/prior"]
+        );
+        assert_eq!(
+            projection
+                .authors()
+                .map(|credit| credit.contributor_id.as_str())
+                .collect::<Vec<_>>(),
+            ["grace", "ada"]
+        );
+    }
+
+    #[test]
+    fn legacy_site_author_posts_add_no_portable_credit_list() {
+        let output = portable("---\ntitle: Work\ndate: 2026-10-01\n---\nBody\n");
+        assert_eq!(output.html, "<p>Body</p>\n");
+    }
+
+    #[test]
+    fn portable_html_keeps_the_original_source_and_rejects_unsafe_provenance() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\nsourceUrl: https://origin.example/café/?id=1&x=<2>\n---\nBody\n",
+        );
+        assert_eq!(
+            output.html,
+            "<p>Body</p>\n<p class=\"ob-source\">Originally published at <a class=\"u-syndication\" href=\"https://origin.example/café/?id=1&amp;x=&lt;2&gt;\" rel=\"noopener\">origin.example/café/?id=1&amp;x=&lt;2&gt;</a>.</p>\n"
+        );
+        for unsafe_url in [
+            "javascript:alert(1)",
+            "https://user:secret@origin.example/",
+            "/relative/copy",
+        ] {
+            let (config, site) = public_post(&format!(
+                "---\ntitle: Work\ndate: 2026-10-01\nsourceUrl: \"{unsafe_url}\"\n---\nBody\n"
+            ));
+            let post = &site.posts[0];
+            let native = post.html.clone();
+            let error = PortableProjection::from_post(post, &config)
+                .unwrap()
+                .portable_html()
+                .unwrap_err();
+            assert!(
+                error.contains("posts/work.md") && error.contains("sourceUrl"),
+                "{error}"
+            );
+            assert!(!error.contains("secret"), "{error}");
+            assert_eq!(post.html, native);
+            assert_eq!(post.source_url.as_deref(), Some(unsafe_url));
+        }
+    }
+
+    #[test]
+    fn planned_and_unknown_structures_fail_closed_to_labeled_canonical_links() {
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n```timeline\n1914 – War begins (date uncertain: <July>)\n```\n",
+        );
+        let post = &site.posts[0];
+        let native = post.html.clone();
+        // What an owning story's detection would register before it ships a
+        // portable fallback, plus a capability this build does not know.
+        let registered = [
+            CapabilityDescriptor::describe("historical-timelines", Some("ob-timeline")),
+            CapabilityDescriptor::describe("future-structure", None),
+            CapabilityDescriptor::describe("protected-reflection-drafts", None),
+            CapabilityDescriptor::describe("historical-timelines", Some("ob-timeline")),
+            CapabilityDescriptor::describe("Bad<id>", None),
+        ];
+        let mut projection = PortableProjection::from_post(post, &config).unwrap();
+        projection.capabilities = &registered;
+        let output = projection.portable_html().unwrap();
+        assert_eq!(
+            output.html,
+            "<pre><code class=\"language-timeline\">1914 – War begins (date uncertain: &lt;July&gt;)\n</code></pre>\n\
+             <p class=\"ob-portable-note\"><strong>Timeline</strong>: see it on <a href=\"https://example.test/blog/work/\">the original article</a>.</p>\n\
+             <p class=\"ob-portable-note\"><strong>Interactive content</strong>: see it on <a href=\"https://example.test/blog/work/\">the original article</a>.</p>\n",
+            "authored content stays visible; private drafts add nothing"
+        );
+        assert_eq!(
+            output
+                .capabilities
+                .iter()
+                .map(|capability| (capability.id.as_str(), capability.portability))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "historical-timelines",
+                    crate::capability::PortabilityLevel::CanonicalOnlyInteraction
+                ),
+                (
+                    "future-structure",
+                    crate::capability::PortabilityLevel::CanonicalOnlyInteraction
+                ),
+                (
+                    "protected-reflection-drafts",
+                    crate::capability::PortabilityLevel::CanonicalOnlyInteraction
+                ),
+                (
+                    "invalid",
+                    crate::capability::PortabilityLevel::CanonicalOnlyInteraction
+                ),
+            ],
+            "each capability is reported once, so the loss stays visible to consumers"
+        );
+        assert_eq!(post.html, native);
+        assert_eq!(projection.portable_html().unwrap(), output);
     }
 
     #[test]

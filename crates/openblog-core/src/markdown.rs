@@ -1063,6 +1063,40 @@ fn apply_portable_paragraphs<'a>(
 
 /// A chapter list for a tight bulleted list whose items are all timestamp
 /// lines (`- 00:00 Intro`), with the number of events it replaces.
+/// Point footnote citations at the note on the canonical article, as heading
+/// anchors do, keeping each note's id and number: a copy that drops ids still
+/// reaches the cited note. Numbers follow first use, as in the native page.
+fn apply_portable_footnotes<'a>(
+    events: Vec<Event<'a>>,
+    context: PortableContext<'_>,
+) -> Vec<Event<'a>> {
+    let mut numbers: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    events
+        .into_iter()
+        .map(|event| {
+            let (name, reference) = match &event {
+                Event::FootnoteReference(name) => (name.to_string(), true),
+                Event::Start(Tag::FootnoteDefinition(name)) => (name.to_string(), false),
+                _ => return event,
+            };
+            let next = numbers.len() + 1;
+            let number = *numbers.entry(name.clone()).or_insert(next);
+            let html = if reference {
+                format!(
+                    "<sup class=\"footnote-reference\"><a href=\"{}\">{number}</a></sup>",
+                    escape::attr(&format!("{}#{name}", context.canonical_url))
+                )
+            } else {
+                format!(
+                    "<div class=\"footnote-definition\" id=\"{}\"><sup class=\"footnote-definition-label\">{number}</sup>\n",
+                    escape::attr(&name)
+                )
+            };
+            Event::Html(CowStr::from(html))
+        })
+        .collect()
+}
+
 fn chapter_list(events: &[Event<'_>], video_id: Option<&str>) -> Option<(usize, String)> {
     let mut lines = Vec::new();
     let mut item = None;
@@ -1336,7 +1370,7 @@ fn render_events<'a>(
     }
 
     let events = if let Some(context) = portable {
-        apply_portable_paragraphs(events, context)
+        apply_portable_footnotes(apply_portable_paragraphs(events, context), context)
     } else if options.embeds {
         apply_embeds(events)
     } else {

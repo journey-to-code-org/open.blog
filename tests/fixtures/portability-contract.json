@@ -71,7 +71,12 @@
         "capabilities": [],
         "htmlContains": ["A concise summary.", "Prior work"],
         "textContains": ["A concise summary."],
-        "markdownContains": ["## References", "https://doi.org/10.1000/prior"]
+        "markdownContains": ["## References", "https://doi.org/10.1000/prior"],
+        "portableHtmlContains": [
+          "<span class=\"ob-contributor-name\"><a href=\"https://ada.example\">Ada Example</a></span><span class=\"ob-contributor-roles\">Author</span>",
+          "<li><a href=\"https://doi.org/10.1000/prior\">Prior work</a></li>",
+          "Originally published at <a class=\"u-syndication\" href=\"https://origin.example/study\" rel=\"noopener\">origin.example/study</a>."
+        ]
       }
     },
     {

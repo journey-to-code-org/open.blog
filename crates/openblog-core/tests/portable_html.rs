@@ -23,7 +23,12 @@ fn config() -> SiteConfig {
             "postPath": "/{slug}/",
             "author": { "name": "Site Author" },
             "engagement": { "enabled": true, "endpoint": "https://engage.example/api" },
-            "codeRunner": { "endpoint": "https://runner.example/execute", "languages": ["python"] }
+            "codeRunner": { "endpoint": "https://runner.example/execute", "languages": ["python"] },
+            "contributors": {
+                "mira": { "name": "Mira Øster", "url": "/people/mira/", "orcid": "0000-0002-1825-0097" },
+                "lantern": { "name": "Lantern <Team> & \"Friends\"", "url": "https://lantern.example/" },
+                "jose": { "name": "José Ramírez" }
+            }
         }"#,
     )
     .unwrap()
@@ -34,6 +39,13 @@ fn load(name: &str) -> (SiteConfig, Site) {
     let contents = std::fs::read_to_string(format!("{FIXTURES}/{name}.md"))
         .unwrap()
         .replace("\r\n", "\n");
+    let credits = std::fs::read_to_string(format!("{FIXTURES}/{name}.credits.json"))
+        .map(|contents| SourceFile {
+            path: format!("posts/{name}.credits.json"),
+            contents,
+        })
+        .into_iter()
+        .collect();
     let site = Site::load(
         config.clone(),
         Sources {
@@ -41,6 +53,7 @@ fn load(name: &str) -> (SiteConfig, Site) {
                 path: format!("posts/{name}.md"),
                 contents,
             }],
+            credits,
             ..Default::default()
         },
         LoadOptions::default(),
@@ -317,6 +330,93 @@ fn recipe_fallbacks_match_the_golden_output() {
         );
     }
     assert_eq!(site.posts[0].recipe.as_ref().unwrap().steps.len(), 2);
+}
+
+#[test]
+fn research_attribution_and_references_match_the_golden_output() {
+    let (config, site) = load("research");
+    let post = &site.posts[0];
+    let projection = PortableProjection::from_post(post, &config).unwrap();
+    let output = projection.portable_html().unwrap();
+    let html = &output.html;
+    assert_golden("research", html);
+    assert_static_and_accessible("research", html);
+
+    let visible = text_without_tags(html);
+    for essential in [
+        // Ordered attribution with roles, kept apart from the references.
+        "Mira ØsterAuthor, Investigation",
+        "Lantern &lt;Team&gt; &amp; &quot;Friends&quot;Author",
+        "José RamírezTranslator",
+        "https://orcid.org/0000-0002-1825-0097 (unauthenticated)",
+        // Work identity, reuse terms, and provenance.
+        "DOI10.5555/zürich.bridges/2026",
+        "ReuseLicense",
+        "Originally published at journal.example/bridges?lang=de&amp;v=2.",
+        // Citations, precise locations, and stated uncertainty survive.
+        "c. 1350 (date uncertain)",
+        "Stadtarchiv Zürich, Annals, fol. 12v",
+        "Survey of bridges, p. 42",
+        "Hoffmann, Brücken, print edition only (no stable link).",
+        "Annals, fol. 12v, line 4 — the year is written over an erasure.",
+    ] {
+        assert!(
+            visible.contains(essential),
+            "missing {essential:?}:\n{html}"
+        );
+    }
+    for exact in [
+        "href=\"https://archive.example/annals?folio=12v#line-4\"",
+        "href=\"https://doi.org/10.1000/survey.42#page=42\"",
+        "href=\"https://doi.org/10.5555/z%C3%BCrich.bridges%2F2026\"",
+        "href=\"https://example.test/blog/archive/z%C3%BCrich-1480/\"",
+        "href=\"https://example.test/blog/people/mira/\"",
+    ] {
+        assert!(html.contains(exact), "missing {exact}:\n{html}");
+    }
+    // The repeated citation keeps one note number and identity.
+    assert_eq!(
+        html.matches("<a href=\"https://example.test/blog/research/#annals\">1</a>")
+            .count(),
+        2,
+        "{html}"
+    );
+    // Credits are attribution, never bibliography.
+    let references = html.split("<h2 id=\"references\">").nth(1).unwrap();
+    for credit in ["Mira", "Lantern", "José", "orcid"] {
+        assert!(!references.contains(credit), "{credit} in references");
+    }
+    assert_eq!(
+        projection
+            .references()
+            .iter()
+            .map(|reference| (reference.label.as_str(), reference.line))
+            .collect::<Vec<_>>(),
+        [
+            ("Stadtarchiv Zürich, Annals, fol. 12v", 23),
+            ("Survey of bridges, p. 42", 24)
+        ]
+    );
+    assert_eq!(
+        projection
+            .authors()
+            .map(|credit| credit.contributor_id.as_str())
+            .collect::<Vec<_>>(),
+        ["mira", "lantern"]
+    );
+    // Unknown front matter stays in the canonical source, never in the copy.
+    assert!(projection
+        .representation(openblog_core::portability::RepresentationFormat::Markdown)
+        .contains("[^annals]"));
+    for private in ["privateNote", "Reviewer 2", "leak", "<script"] {
+        assert!(!html.contains(private), "leaked {private}:\n{html}");
+    }
+    assert!(output.capabilities.is_empty(), "{:?}", output.capabilities);
+    assert_eq!(projection.portable_html().unwrap(), output);
+
+    // The native page keeps its own byline, icon, and relative note anchors.
+    assert!(post.html.contains("<a href=\"#annals\">1</a>"));
+    assert!(!post.html.contains("ob-contributions"));
 }
 
 #[test]

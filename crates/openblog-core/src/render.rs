@@ -1061,7 +1061,7 @@ impl<'a> Renderer<'a> {
             body.push_str(&contributions_html(post));
         }
         if let Some(research) = &post.research {
-            body.push_str(&self.research_work_meta(research));
+            body.push_str(&research.work_meta_html());
         }
         if let Some(journal) = &post.field_journal {
             body.push_str(&self.field_journal_card(journal));
@@ -1121,12 +1121,8 @@ impl<'a> Renderer<'a> {
             body.push_str("</ob-recipe>\n");
         }
 
-        if let Some(source_url) = &post.source_url {
-            body.push_str(&format!(
-                "<p class=\"ob-source\">Originally published at <a class=\"u-syndication\" href=\"{}\" rel=\"noopener\">{}</a>.</p>\n",
-                attr(source_url),
-                text(source_url.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/'))
-            ));
+        if let Some(source) = post.source_notice_html() {
+            body.push_str(&source);
         }
         if c.share.enabled {
             body.push_str(&self.share_block(post));
@@ -1323,29 +1319,6 @@ impl<'a> Renderer<'a> {
             noindex: false,
         };
         self.document(&meta, &body)
-    }
-
-    fn research_work_meta(&self, research: &crate::research::ResearchMetadata) -> String {
-        if research.doi_url.is_none() && research.license_url.is_none() {
-            return String::new();
-        }
-        let mut html =
-            String::from("<aside class=\"ob-work-meta\" aria-label=\"Research work details\"><dl>");
-        if let (Some(name), Some(url)) = (&research.doi, &research.doi_url) {
-            html.push_str(&format!(
-                "<div><dt>DOI</dt><dd><a href=\"{}\">{}</a></dd></div>",
-                attr(url),
-                text(name)
-            ));
-        }
-        if let Some(url) = &research.license_url {
-            html.push_str(&format!(
-                "<div><dt>Reuse</dt><dd><a href=\"{}\">License</a></dd></div>",
-                attr(url)
-            ));
-        }
-        html.push_str("</dl></aside>\n");
-        html
     }
 
     /// Share links. Plain anchors, so they work without JavaScript; the
@@ -2017,46 +1990,12 @@ fn human_list(items: &[String]) -> String {
 }
 
 fn contributions_html(post: &Post) -> String {
-    let mut html = String::from(
-        "<aside class=\"ob-contributions\" aria-labelledby=\"ob-contributions-title\">\n<h2 id=\"ob-contributions-title\" class=\"ob-contributions-title\">Contributions</h2>\n<ul>\n",
-    );
-    for credit in &post.credits {
-        html.push_str("<li><div><span class=\"ob-contributor-name\">");
-        if credit.contributor.url.trim().is_empty() {
-            html.push_str(&text(&credit.contributor.name));
-        } else {
-            html.push_str(&format!(
-                "<a href=\"{}\">{}</a>",
-                attr(credit.contributor.url.trim()),
-                text(&credit.contributor.name)
-            ));
-        }
-        html.push_str("</span><span class=\"ob-contributor-roles\">");
-        html.push_str(&text(
-            &credit
-                .roles
-                .iter()
-                .map(|role| role.label())
-                .collect::<Vec<_>>()
-                .join(", "),
-        ));
-        html.push_str("</span></div>");
-        if !credit.contributor.orcid.is_empty() {
-            let id = credit
-                .contributor
-                .orcid
-                .trim_start_matches("https://orcid.org/");
-            html.push_str(&format!(
-                "<p class=\"ob-orcid\"><a href=\"{}\" aria-label=\"View unauthenticated ORCID record – {}\"><span class=\"ob-orcid-icon\" aria-hidden=\"true\"><img src=\"/assets/orcid-unauthenticated-id-icons.png\" alt=\"\" loading=\"lazy\" decoding=\"async\"></span>{}</a> (unauthenticated)</p>",
-                attr(&credit.contributor.orcid),
-                attr(id),
-                text(&credit.contributor.orcid)
-            ));
-        }
-        html.push_str("</li>\n");
-    }
-    html.push_str("</ul>\n</aside>\n");
-    html
+    crate::contributor::contributions_html(
+        &post.credits,
+        |url| Ok::<_, std::convert::Infallible>(url.to_string()),
+        Some("/assets/orcid-unauthenticated-id-icons.png"),
+    )
+    .unwrap_or_else(|never| match never {})
 }
 
 fn contributor_json_ld(

@@ -215,6 +215,19 @@ impl Post {
             .iter()
             .filter(|credit| credit.roles.iter().any(|role| role.is_author()))
     }
+
+    /// The escaped "Originally published at" notice for a post first published
+    /// elsewhere, shared by the native page and the portable projection.
+    pub(crate) fn source_notice_html(&self) -> Option<String> {
+        use crate::escape::{attr, text};
+        self.source_url.as_deref().map(|source_url| {
+            format!(
+                "<p class=\"ob-source\">Originally published at <a class=\"u-syndication\" href=\"{}\" rel=\"noopener\">{}</a>.</p>\n",
+                attr(source_url),
+                text(source_url.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/'))
+            )
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

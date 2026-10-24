@@ -48,6 +48,12 @@ rendering and interaction policy where applicable. This registry records the min
 acceptance gate and points to the feature owner; it does not prescribe implementation
 internals or create a parallel renderer.
 
+Until a capability's owner ships its portable fallback, the portable HTML projection fails
+closed for it: authored content stays visible, a labeled note links to the canonical article,
+and private-only state adds nothing (see the
+[portable HTML pipeline](./portable-html-pipeline.md#research-attribution-and-planned-structures)).
+The label table in `capability.rs` is checked against this registry's ids.
+
 ## Shared Perspectives and privacy
 
 The shared-publication contract reuses the source identity in story #144, contributor
