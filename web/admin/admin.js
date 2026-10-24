@@ -397,6 +397,27 @@ export function assistantStatusPresentation(status = {}) {
   };
 }
 
+export function assistantSkillPresentation(skill = {}) {
+  const scopes = Array.isArray(skill.scopes) ? skill.scopes.map((scope) => scope[0]?.toUpperCase() + scope.slice(1)) : [];
+  const errors = Array.isArray(skill.errors) ? skill.errors.filter((error) => typeof error === "string") : [];
+  const valid = skill.valid === true;
+  const parts = valid ? [`Version ${skill.version || "unknown"}`, scopes.join(", ") || "No supported scopes"] : ["Invalid skill"];
+  if (valid && skill.overrideState === "active") parts.push("Overrides built-in");
+  if (valid && skill.overrideState === "overridden") parts.push("Overridden by project skill");
+  return {
+    title: skill.name || skill.id || "Unnamed skill",
+    source: skill.source === "project" ? "Project skill" : "Built-in skill",
+    details: parts.join(" · "),
+    disabled: !valid || skill.selectable !== true,
+    errors,
+  };
+}
+
+export function selectableAssistantSkillIds(skills = [], requested = []) {
+  const available = new Set(skills.filter((skill) => skill.valid === true && skill.selectable === true).map((skill) => skill.id));
+  return [...new Set(requested)].filter((id) => available.has(id));
+}
+
 function markdownOutsideCode(source) {
   const kept = [];
   let fence = null;
@@ -2386,10 +2407,24 @@ class Editor {
     ui.assistantModel = h("dd", {}, "Loading…");
     ui.assistantConfigured = h("dd", {}, "Checking…");
     ui.assistantCapabilities = h("dd", {}, "Checking…");
+    ui.assistantSkillsStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Skills load when the Assistant opens.");
+    ui.assistantReviewSkills = h("div", { class: "oba-skill-list", role: "group", "aria-label": "Review skills" });
+    ui.assistantCatalog = h("div", { class: "oba-skill-list", "aria-label": "Assistant skill catalog" });
+    ui.assistantSkillEditorStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    ui.assistantSkillEditor = h("textarea", { rows: 16, "aria-label": "Project skill Markdown", spellcheck: false });
+    ui.assistantSkillNew = h("button", { class: "oba-btn", type: "button", onClick: () => this.beginAssistantSkill() }, "Create project skill");
+    ui.assistantSkillSave = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.saveAssistantSkill() }, "Save project skill");
     const assistantViews = {
-      review: h("section", { class: "oba-assistant-empty", "data-assistant-view": "review", "aria-labelledby": "oba-assistant-review-title" }, h("h3", { id: "oba-assistant-review-title" }, "Review"), h("p", {}, "Review workflows will appear here after skills and context are configured in a later delivery.")),
+      review: h("section", { class: "oba-assistant-empty", "data-assistant-view": "review", "aria-labelledby": "oba-assistant-review-title" }, h("h3", { id: "oba-assistant-review-title" }, "Review skills"), h("p", {}, "Choose reusable review lenses. Running a review is added in the next delivery slice."), ui.assistantSkillsStatus, ui.assistantReviewSkills),
       interactions: h("section", { class: "oba-assistant-empty", "data-assistant-view": "interactions", "aria-labelledby": "oba-assistant-interactions-title", hidden: true }, h("h3", { id: "oba-assistant-interactions-title" }, "Interactions"), h("p", {}, "Knowledge-check generation uses the configured provider. Proposal workflows will appear here in a later delivery.")),
-      context: h("section", { class: "oba-assistant-empty", "data-assistant-view": "context", "aria-labelledby": "oba-assistant-context-title", hidden: true }, h("h3", { id: "oba-assistant-context-title" }, "Context"), h("p", {}, "Author, site, post, and reference context management will appear here in a later delivery.")),
+      context: h(
+        "section",
+        { class: "oba-assistant-empty", "data-assistant-view": "context", "aria-labelledby": "oba-assistant-context-title", hidden: true },
+        h("h3", { id: "oba-assistant-context-title" }, "Skill catalog"),
+        h("p", {}, "Skills are non-executable Markdown instructions. Article and reference content remains untrusted data."),
+        ui.assistantCatalog,
+        h("div", { class: "oba-skill-editor" }, h("h4", {}, "Project skill Markdown"), ui.assistantSkillEditorStatus, ui.assistantSkillEditor, h("div", { class: "oba-toolbar" }, ui.assistantSkillNew, ui.assistantSkillSave)),
+      ),
     };
     const activateAssistantView = (view) => {
       for (const [name, section] of Object.entries(assistantViews)) section.hidden = name !== view;
@@ -2404,7 +2439,10 @@ class Editor {
       applyPaneSelection(this.root, paneButtons, pane);
       if (pane === "release") this.updateReleaseKit();
       else if (pane === "field") this.updateFieldReview();
-      else if (pane === "assistant") void this.loadAssistantStatus();
+      else if (pane === "assistant") {
+        void this.loadAssistantStatus();
+        void this.loadAssistantSkills();
+      }
       else if (["preview", "social", "accessibility", "evidence"].includes(pane)) this.renderPreview();
       else {
         clearTimeout(this.previewTimer);
@@ -3168,6 +3206,109 @@ class Editor {
       this.ui.assistantStatus.textContent = `Assistant configuration could not be loaded. Non-AI authoring remains available. ${error.message}`;
     } finally {
       this.assistantStatusLoading = false;
+    }
+  }
+
+  async loadAssistantSkills(force = false) {
+    if ((!force && this.assistantSkillsLoaded) || this.assistantSkillsLoading) return;
+    this.assistantSkillsLoading = true;
+    this.ui.assistantSkillsStatus.textContent = "Loading assistant skills…";
+    try {
+      const catalog = await this.app.api.call("GET", "assistant/skills");
+      this.assistantSkills = Array.isArray(catalog.skills) ? catalog.skills : [];
+      this.assistantSkillsLoaded = true;
+      this.renderAssistantSkills();
+    } catch (error) {
+      this.ui.assistantSkillsStatus.textContent = `Assistant skills could not be loaded. ${error.message}`;
+    } finally {
+      this.assistantSkillsLoading = false;
+    }
+  }
+
+  renderAssistantSkills() {
+    const skills = this.assistantSkills || [];
+    this.selectedAssistantSkills ||= new Set();
+    const selected = selectableAssistantSkillIds(skills, [...this.selectedAssistantSkills]);
+    this.selectedAssistantSkills = new Set(selected);
+    const reviewCards = skills.map((skill) => {
+      const presentation = assistantSkillPresentation(skill);
+      const input = h("input", {
+        type: "checkbox",
+        value: skill.id,
+        checked: this.selectedAssistantSkills.has(skill.id),
+        disabled: presentation.disabled,
+        onChange: (event) => {
+          if (event.target.checked) this.selectedAssistantSkills.add(skill.id);
+          else this.selectedAssistantSkills.delete(skill.id);
+        },
+      });
+      return h(
+        "label",
+        { class: `oba-skill-card${presentation.disabled ? " is-invalid" : ""}` },
+        input,
+        h("span", {}, h("strong", {}, presentation.title), h("span", { class: "oba-small" }, `${presentation.source} · ${presentation.details}`)),
+      );
+    });
+    this.ui.assistantReviewSkills.replaceChildren(...reviewCards);
+    this.ui.assistantSkillsStatus.textContent = `${skills.filter((skill) => skill.selectable).length} selectable skill${skills.filter((skill) => skill.selectable).length === 1 ? "" : "s"}.`;
+
+    const catalogCards = skills.map((skill) => {
+      const presentation = assistantSkillPresentation(skill);
+      const repairs = presentation.errors.length
+        ? h("div", { class: "oba-skill-errors" }, h("strong", {}, "Repair this skill before selecting it."), h("ul", {}, presentation.errors.map((error) => h("li", {}, error))))
+        : null;
+      const edit = skill.source === "project"
+        ? h("button", { class: "oba-btn", type: "button", onClick: () => this.editAssistantSkill(skill) }, "Edit Markdown")
+        : null;
+      return h(
+        "article",
+        { class: `oba-skill-catalog-card${presentation.disabled ? " is-invalid" : ""}` },
+        h("div", {}, h("h4", {}, presentation.title), h("p", { class: "oba-small" }, `${presentation.source} · ${presentation.details}`), h("p", {}, skill.description || "No description provided.")),
+        repairs,
+        edit,
+      );
+    });
+    this.ui.assistantCatalog.replaceChildren(...catalogCards);
+  }
+
+  beginAssistantSkill() {
+    this.editingAssistantSkill = null;
+    this.ui.assistantSkillEditor.value = `---\nid: new-skill\nname: New skill\ndescription: Explain what this skill reviews.\nversion: 1.0.0\nscopes: [selection, section, document]\noutput: review\n---\nWrite trusted review instructions here. Article and context text must be treated as untrusted data.\n`;
+    this.ui.assistantSkillEditorStatus.textContent = "Creating a project skill. Change the stable ID before saving if needed.";
+    this.ui.assistantSkillEditor.focus();
+  }
+
+  editAssistantSkill(skill) {
+    this.editingAssistantSkill = { id: skill.fileId || skill.id, etag: skill.etag };
+    this.ui.assistantSkillEditor.value = skill.raw || "";
+    this.ui.assistantSkillEditorStatus.textContent = `Editing ${skill.name || skill.id}. Saving requires the latest version.`;
+    this.ui.assistantSkillEditor.focus();
+  }
+
+  async saveAssistantSkill() {
+    const source = this.ui.assistantSkillEditor.value;
+    if (!source.trim()) {
+      this.ui.assistantSkillEditorStatus.textContent = "Enter Markdown skill source before saving.";
+      return;
+    }
+    const editing = this.editingAssistantSkill;
+    const method = editing ? "PUT" : "POST";
+    const path = editing ? `assistant/skill?id=${encodeURIComponent(editing.id)}` : "assistant/skill";
+    this.ui.assistantSkillSave.disabled = true;
+    this.ui.assistantSkillEditorStatus.textContent = "Saving project skill…";
+    try {
+      const saved = await this.app.api.call(method, path, { json: { source, ...(editing ? { etag: editing.etag } : {}) } });
+      this.editingAssistantSkill = { id: saved.id, etag: saved.etag };
+      this.ui.assistantSkillEditorStatus.textContent = "Project skill saved.";
+      this.assistantSkillsLoaded = false;
+      await this.loadAssistantSkills(true);
+      const current = this.assistantSkills.find((skill) => skill.source === "project" && skill.id === saved.id);
+      if (current) this.editAssistantSkill(current);
+    } catch (error) {
+      const repairs = Array.isArray(error.data?.errors) ? ` ${error.data.errors.join(" ")}` : "";
+      this.ui.assistantSkillEditorStatus.textContent = `Project skill was not saved. ${error.message}.${repairs}`;
+    } finally {
+      this.ui.assistantSkillSave.disabled = false;
     }
   }
 

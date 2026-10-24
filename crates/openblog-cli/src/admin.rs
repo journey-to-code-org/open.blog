@@ -28,9 +28,9 @@ use openblog_core::{
 use serde_json::{json, Map, Value as Json};
 
 use crate::assistant::{
-    AssistantErrorKind, AssistantProvider, AssistantProviderStatus, AssistantRequest,
+    parse_skill, AssistantErrorKind, AssistantProvider, AssistantProviderStatus, AssistantRequest,
     AssistantResult, AssistantSource, AssistantTask, KnowledgeCheckCount, LegacyQuizEndpoint,
-    ASSISTANT_SCHEMA_VERSION,
+    SkillDefinition, ASSISTANT_SCHEMA_VERSION, BUILTIN_SKILL_SOURCES,
 };
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
@@ -42,6 +42,7 @@ pub const SESSION_COOKIE: &str = "ob_session";
 const MAX_JSON_BODY: usize = 2 * 1024 * 1024 + 64 * 1024;
 const MAX_LOGIN_BODY: usize = 4 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_SKILL_BYTES: usize = 256 * 1024;
 
 #[derive(Default)]
 pub struct BuildStatus {
@@ -419,6 +420,9 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ),
         ("GET", "meta") => meta(state),
         ("GET", "assistant/status") => assistant_status(state),
+        ("GET", "assistant/skills") => assistant_skills(state),
+        ("POST", "assistant/skill") => create_assistant_skill(state, req),
+        ("PUT", "assistant/skill") => update_assistant_skill(state, req),
         ("GET", "contributors") => get_contributors(state),
         ("PUT", "contributors") => save_contributors(state, req),
         ("GET", "status") => status(state),
@@ -995,6 +999,365 @@ fn assistant_status(state: &AppState) -> Response {
             credential_configured,
         )),
     )
+}
+
+struct ProjectSkillFile {
+    filename: String,
+    source: String,
+    etag: String,
+    parsed: Result<SkillDefinition, Vec<String>>,
+}
+
+fn assistant_skills_dir(root: &Path, create: bool) -> Result<PathBuf, String> {
+    let assistant = root.join("assistant");
+    let skills = assistant.join("skills");
+    for path in [&assistant, &skills] {
+        if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            return Err(format!(
+                "assistant-managed directory {} cannot be a symlink",
+                path.display()
+            ));
+        }
+    }
+    if create {
+        fs::create_dir_all(&skills)
+            .map_err(|error| format!("cannot create {}: {error}", skills.display()))?;
+    }
+    if skills.exists() {
+        let canonical_root = fs::canonicalize(root).map_err(|error| error.to_string())?;
+        let canonical_skills = fs::canonicalize(&skills).map_err(|error| error.to_string())?;
+        if !canonical_skills.starts_with(&canonical_root) {
+            return Err("assistant skills directory resolves outside the project".into());
+        }
+    }
+    Ok(skills)
+}
+
+fn read_project_skills(root: &Path) -> Result<Vec<ProjectSkillFile>, String> {
+    let directory = assistant_skills_dir(root, false)?;
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut paths = fs::read_dir(&directory)
+        .map_err(|error| format!("cannot read {}: {error}", directory.display()))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("md"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    let mut files = Vec::new();
+    for path in paths {
+        let filename = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("invalid.md")
+            .to_string();
+        if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            files.push(ProjectSkillFile {
+                filename,
+                source: String::new(),
+                etag: String::new(),
+                parsed: Err(vec![
+                    "Replace this symlink with a regular Markdown skill file.".into(),
+                ]),
+            });
+            continue;
+        }
+        let bytes =
+            fs::read(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+        if bytes.len() > MAX_SKILL_BYTES {
+            files.push(ProjectSkillFile {
+                filename,
+                source: String::new(),
+                etag: etag_bytes(&bytes),
+                parsed: Err(vec![format!(
+                    "Reduce this skill below {MAX_SKILL_BYTES} bytes."
+                )]),
+            });
+            continue;
+        }
+        let source = match String::from_utf8(bytes.clone()) {
+            Ok(source) => source,
+            Err(_) => {
+                files.push(ProjectSkillFile {
+                    filename,
+                    source: String::new(),
+                    etag: etag_bytes(&bytes),
+                    parsed: Err(vec!["Save this skill as UTF-8 Markdown.".into()]),
+                });
+                continue;
+            }
+        };
+        files.push(ProjectSkillFile {
+            filename,
+            etag: etag(&source),
+            parsed: parse_skill(&source),
+            source,
+        });
+    }
+    Ok(files)
+}
+
+struct SkillSummaryState<'a> {
+    source: &'a str,
+    selectable: bool,
+    override_state: &'a str,
+    errors: Vec<String>,
+    raw: Option<&'a str>,
+    etag: Option<&'a str>,
+    file_id: Option<&'a str>,
+}
+
+fn skill_summary(definition: &SkillDefinition, state: SkillSummaryState<'_>) -> Json {
+    json!({
+        "id": definition.id,
+        "name": definition.name,
+        "description": definition.description,
+        "version": definition.version,
+        "scopes": definition.scopes,
+        "output": definition.output,
+        "source": state.source,
+        "valid": state.errors.is_empty(),
+        "selectable": state.selectable && state.errors.is_empty(),
+        "overrideState": state.override_state,
+        "errors": state.errors,
+        "raw": state.raw,
+        "etag": state.etag,
+        "fileId": state.file_id,
+    })
+}
+
+fn assistant_skills(state: &AppState) -> Response {
+    let builtins = BUILTIN_SKILL_SOURCES
+        .iter()
+        .map(|(id, source)| {
+            let definition = parse_skill(source).expect("built-in assistant skills are valid");
+            debug_assert_eq!(*id, definition.id);
+            definition
+        })
+        .collect::<Vec<_>>();
+    let projects = match read_project_skills(&state.root) {
+        Ok(projects) => projects,
+        Err(error) => return Response::error(500, &error),
+    };
+    let mut id_counts = BTreeMap::<String, usize>::new();
+    for project in &projects {
+        if let Ok(skill) = &project.parsed {
+            *id_counts.entry(skill.id.clone()).or_default() += 1;
+        }
+    }
+    let builtin_ids = builtins
+        .iter()
+        .map(|skill| skill.id.as_str())
+        .collect::<Vec<_>>();
+    let active_overrides = projects
+        .iter()
+        .filter_map(|project| {
+            let skill = project.parsed.as_ref().ok()?;
+            (project.filename.trim_end_matches(".md") == skill.id).then_some(skill)
+        })
+        .filter(|skill| {
+            id_counts.get(&skill.id) == Some(&1)
+                && builtin_ids.contains(&skill.id.as_str())
+                && skill.override_builtin.as_deref() == Some(skill.id.as_str())
+        })
+        .map(|skill| skill.id.as_str())
+        .collect::<Vec<_>>();
+    let mut items = builtins
+        .iter()
+        .map(|skill| {
+            let overridden = active_overrides.contains(&skill.id.as_str());
+            skill_summary(
+                skill,
+                SkillSummaryState {
+                    source: "built-in",
+                    selectable: !overridden,
+                    override_state: if overridden { "overridden" } else { "none" },
+                    errors: Vec::new(),
+                    raw: None,
+                    etag: None,
+                    file_id: None,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+    for project in projects {
+        match project.parsed {
+            Ok(skill) => {
+                let mut errors = Vec::new();
+                let file_id = project.filename.trim_end_matches(".md");
+                if file_id != skill.id {
+                    errors.push(format!(
+                        "Change `id` to `{file_id}` so it matches the project skill filename."
+                    ));
+                }
+                if id_counts.get(&skill.id).copied().unwrap_or_default() > 1 {
+                    errors.push(format!(
+                        "Project skill ID `{}` is declared more than once.",
+                        skill.id
+                    ));
+                }
+                let overrides_builtin = builtin_ids.contains(&skill.id.as_str());
+                if overrides_builtin && skill.override_builtin.as_deref() != Some(skill.id.as_str())
+                {
+                    errors.push(format!(
+                        "Add `override: {}` to explicitly replace the built-in skill.",
+                        skill.id
+                    ));
+                }
+                let active = overrides_builtin && errors.is_empty();
+                items.push(skill_summary(
+                    &skill,
+                    SkillSummaryState {
+                        source: "project",
+                        selectable: true,
+                        override_state: if active { "active" } else { "none" },
+                        errors,
+                        raw: Some(&project.source),
+                        etag: Some(&project.etag),
+                        file_id: Some(file_id),
+                    },
+                ));
+            }
+            Err(errors) => {
+                let id = frontmatter::parse(&project.source)
+                    .ok()
+                    .and_then(|document| document.front_matter.get("id").map(str::to_string))
+                    .unwrap_or_else(|| project.filename.trim_end_matches(".md").to_string());
+                items.push(json!({
+                    "id": id,
+                    "name": project.filename,
+                    "description": "Invalid project skill",
+                    "version": "",
+                    "scopes": [],
+                    "output": null,
+                    "source": "project",
+                    "valid": false,
+                    "selectable": false,
+                    "overrideState": "none",
+                    "errors": errors,
+                    "raw": project.source,
+                    "etag": project.etag,
+                    "fileId": project.filename.trim_end_matches(".md"),
+                }));
+            }
+        }
+    }
+    Response::json(200, &json!({ "skills": items }))
+}
+
+fn valid_skill_path_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 80
+        && id.as_bytes()[0].is_ascii_lowercase()
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn validate_skill_write(
+    source: &str,
+    expected_id: Option<&str>,
+) -> Result<SkillDefinition, Response> {
+    if source.len() > MAX_SKILL_BYTES || source.contains('\0') {
+        return Err(Response::error(
+            413,
+            "Skill Markdown is too large or contains invalid data",
+        ));
+    }
+    let skill = parse_skill(source).map_err(|errors| {
+        Response::json(422, &json!({ "error": "Invalid skill", "errors": errors }))
+    })?;
+    if expected_id.is_some_and(|id| id != skill.id) {
+        return Err(Response::error(
+            400,
+            "A skill ID cannot change during an edit",
+        ));
+    }
+    let builtin = BUILTIN_SKILL_SOURCES.iter().any(|(id, _)| *id == skill.id);
+    if builtin && skill.override_builtin.as_deref() != Some(skill.id.as_str()) {
+        return Err(Response::error(
+            409,
+            "A project skill can replace a built-in only with a matching `override` declaration",
+        ));
+    }
+    Ok(skill)
+}
+
+fn skill_request_body(req: &Request) -> Result<(Json, String), Response> {
+    require_json(req)?;
+    let body: Json =
+        serde_json::from_slice(&req.body).map_err(|_| Response::error(400, "Invalid JSON"))?;
+    let source = body["source"]
+        .as_str()
+        .ok_or_else(|| Response::error(400, "Missing skill Markdown in `source`"))?
+        .to_string();
+    Ok((body, source))
+}
+
+fn create_assistant_skill(state: &AppState, req: &Request) -> Response {
+    let (_, source) = match skill_request_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let skill = match validate_skill_write(&source, None) {
+        Ok(skill) => skill,
+        Err(response) => return response,
+    };
+    let _transaction = lock(&state.build);
+    let directory = match assistant_skills_dir(&state.root, true) {
+        Ok(directory) => directory,
+        Err(error) => return Response::error(500, &error),
+    };
+    let path = directory.join(format!("{}.md", skill.id));
+    if path.exists() {
+        return Response::error(409, "A project skill with this ID already exists");
+    }
+    if let Err(error) = write_atomic(&path, &source) {
+        return Response::error(500, &error);
+    }
+    Response::json(201, &json!({ "id": skill.id, "etag": etag(&source) }))
+}
+
+fn update_assistant_skill(state: &AppState, req: &Request) -> Response {
+    let id = req.query.get("id").map(String::as_str).unwrap_or("");
+    if !valid_skill_path_id(id) {
+        return Response::error(400, "Invalid skill ID");
+    }
+    let (body, source) = match skill_request_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let skill = match validate_skill_write(&source, Some(id)) {
+        Ok(skill) => skill,
+        Err(response) => return response,
+    };
+    let _transaction = lock(&state.build);
+    let directory = match assistant_skills_dir(&state.root, false) {
+        Ok(directory) => directory,
+        Err(error) => return Response::error(500, &error),
+    };
+    let path = directory.join(format!("{id}.md"));
+    if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Response::error(400, "Project skill symlinks cannot be edited");
+    }
+    let current = match fs::read_to_string(&path) {
+        Ok(source) => source,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Response::error(404, "Project skill not found")
+        }
+        Err(error) => return Response::error(500, &format!("Cannot read project skill: {error}")),
+    };
+    if body["etag"].as_str() != Some(etag(&current).as_str()) {
+        return Response::error(
+            409,
+            "Skill changed since it was opened; reload before saving",
+        );
+    }
+    if let Err(error) = write_atomic(&path, &source) {
+        return Response::error(500, &error);
+    }
+    Response::json(200, &json!({ "id": skill.id, "etag": etag(&source) }))
 }
 
 fn generate_quiz(state: &AppState, req: &Request) -> Response {
@@ -3180,6 +3543,125 @@ mod tests {
         let configured_body = String::from_utf8_lossy(&configured.body);
         assert!(!configured_body.contains("provider-secret-value"));
         assert!(!configured_body.contains("assistant.example"));
+    }
+
+    #[test]
+    fn assistant_skill_catalog_keeps_invalid_projects_visible_and_requires_explicit_overrides() {
+        let f = fixture("assistant-skills-catalog");
+        let directory = f.dir.join("assistant/skills");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("house-style.md"),
+            "---\nid: house-style\nname: House style\ndescription: Applies our editorial conventions.\nversion: 1\nscopes: [selection, document]\noutput: review\n---\nUse short, direct sentences.",
+        )
+        .unwrap();
+        fs::write(
+            directory.join("broken.md"),
+            "---\nid: broken\nname: Broken\nversion: 1\nscopes: [repository]\noutput: review\nshell: cargo test\n---\nDo things.",
+        )
+        .unwrap();
+        fs::write(
+            directory.join("copy-review.md"),
+            "---\nid: copy-review\nname: Local copy review\ndescription: Local conventions.\nversion: 2\nscopes: [document]\noutput: review\n---\nUse local conventions.",
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/skills"), &session, false),
+        );
+        assert_eq!(response.status, 200);
+        let catalog = body_json(&response);
+        let skills = catalog["skills"].as_array().unwrap();
+        assert_eq!(
+            skills
+                .iter()
+                .filter(|skill| skill["source"] == "built-in")
+                .count(),
+            7
+        );
+        let broken = skills.iter().find(|skill| skill["id"] == "broken").unwrap();
+        assert_eq!(broken["valid"], false);
+        assert_eq!(broken["selectable"], false);
+        assert!(broken["errors"].as_array().unwrap().len() >= 2);
+        let duplicate = skills
+            .iter()
+            .find(|skill| skill["id"] == "copy-review" && skill["source"] == "project")
+            .unwrap();
+        assert_eq!(duplicate["valid"], false);
+        assert!(duplicate["errors"][0]
+            .as_str()
+            .unwrap()
+            .contains("override: copy-review"));
+    }
+
+    #[test]
+    fn assistant_skill_mutations_require_csrf_etags_and_contained_ids() {
+        let f = fixture("assistant-skills-write");
+        let session = login_ok(&f);
+        let source = "---\nid: story-review\nname: Story review\ndescription: Reviews narrative flow.\nversion: 1\nscopes: [section, document]\noutput: review\n---\nIdentify specific continuity gaps.";
+        let create = json_req(
+            "POST",
+            "/admin/api/assistant/skill",
+            json!({ "source": source }),
+        );
+        assert_eq!(
+            handle(&f.state, &authed(create.clone(), &session, false)).status,
+            403
+        );
+        let created = handle(&f.state, &authed(create, &session, true));
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created_json = body_json(&created);
+        let original_etag = created_json["etag"].as_str().unwrap();
+        assert!(f.dir.join("assistant/skills/story-review.md").is_file());
+
+        let changed = source.replace("version: 1", "version: 2");
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/skill?id=story-review",
+                    json!({ "source": changed, "etag": "stale" }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+        let updated = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/skill?id=story-review",
+                    json!({ "source": changed, "etag": original_etag }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(updated.status, 200);
+        assert_ne!(body_json(&updated)["etag"], original_etag);
+
+        let escape = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/skill?id=..%2Foutside",
+                    json!({ "source": source, "etag": original_etag }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(escape.status, 400);
     }
 
     #[test]
