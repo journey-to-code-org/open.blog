@@ -6,6 +6,7 @@
 import "./components/ob-theme-toggle.js";
 import "./components/ob-code.js";
 import "./components/ob-rust-playground.js";
+import "./components/ob-code-runner.js";
 import "./components/ob-web-sandbox.js";
 import "./components/ob-recipe.js";
 import "./components/ob-quiz.js";

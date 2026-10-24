@@ -825,6 +825,39 @@ ob-rust-playground {
   margin: 1.1em 0;
 }
 
+ob-code-runner {
+  display: block;
+  margin: 1.1em 0;
+}
+
+.ob-code-block ob-code-runner { margin: 0; }
+
+ob-code-runner[data-enhanced="true"] > pre.ob-code-runner-source { display: none; }
+
+.ob-code-runner-editor,
+.ob-code-runner-stdin,
+.ob-code-runner-output {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-code-bg);
+  color: var(--ob-color-code-text);
+  font-family: var(--ob-font-mono);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  tab-size: 4;
+}
+
+.ob-code-runner-editor { min-height: 10rem; resize: vertical; white-space: pre; }
+.ob-code-runner-stdin { min-height: 4.5rem; margin-top: 0.65rem; resize: vertical; }
+.ob-code-runner-controls { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 0.65rem; }
+.ob-code-runner-notice,
+.ob-code-runner-status { color: var(--ob-color-muted); font-size: 0.85rem; }
+.ob-code-runner-output { overflow: auto; max-height: 28rem; white-space: pre-wrap; }
+.ob-code-runner-controls button[aria-disabled="true"] { opacity: 0.65; cursor: progress; }
+
 .ob-code-block ob-rust-playground {
   margin: 0;
 }

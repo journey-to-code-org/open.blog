@@ -39,7 +39,13 @@ pub struct Rendered {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct RenderOptions {
+pub struct CodeRunnerRenderOptions<'a> {
+    pub endpoint: &'a str,
+    pub languages: &'a [String],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RenderOptions<'a> {
     /// Convert straight quotes and dashes to typographic ones.
     pub smart_punctuation: bool,
     /// Add `loading="lazy"` to images.
@@ -51,9 +57,11 @@ pub struct RenderOptions {
     pub embeds: bool,
     /// Treat "Ingredients" and "Steps" sections as a recipe (see [`crate::recipe`]).
     pub recipe: bool,
+    /// Public browser runner configuration; no credentials are accepted here.
+    pub code_runner: Option<CodeRunnerRenderOptions<'a>>,
 }
 
-impl Default for RenderOptions {
+impl Default for RenderOptions<'_> {
     fn default() -> Self {
         Self {
             smart_punctuation: false,
@@ -61,6 +69,7 @@ impl Default for RenderOptions {
             heading_anchors: true,
             embeds: true,
             recipe: false,
+            code_runner: None,
         }
     }
 }
@@ -388,11 +397,16 @@ fn html_line_depth(line: &str) -> i32 {
 /// Recipe sections only ever open and close at the top level of the post:
 /// a heading or list inside a quote, callout, list item, table or footnote
 /// belongs to that container and is left alone.
-fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, BlockData) {
+fn transform_blocks<'a>(
+    events: Vec<Event<'a>>,
+    recipe: bool,
+    code_runner: Option<CodeRunnerRenderOptions<'_>>,
+) -> (Vec<Event<'a>>, BlockData) {
     let mut out = Vec::with_capacity(events.len());
     let mut data = BlockData::default();
     let mut titled_code = false;
     let mut runnable_code = false;
+    let mut configured_runner = false;
     let mut web_sandbox = false;
     // Open containers (quotes, callouts, list items, tables, footnotes).
     let mut depth = 0usize;
@@ -474,9 +488,24 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
                     ));
                 }
                 titled_code = fence.title.is_some();
+                let runner = code_runner.filter(|runner| {
+                    fence.lang.eq_ignore_ascii_case("rust")
+                        || runner
+                            .languages
+                            .iter()
+                            .any(|language| language.eq_ignore_ascii_case(&fence.lang))
+                });
+                configured_runner = fence.runnable && runner.is_some();
                 runnable_code = fence.runnable && fence.lang.eq_ignore_ascii_case("rust");
                 web_sandbox = fence.runnable && fence.lang.eq_ignore_ascii_case("web");
-                if runnable_code {
+                if configured_runner {
+                    let runner = runner.expect("configured runner was checked");
+                    html.push_str(&format!(
+                        "<ob-code-runner data-language=\"{}\" data-endpoint=\"{}\">",
+                        escape::attr(&fence.lang.to_ascii_lowercase()),
+                        escape::attr(runner.endpoint)
+                    ));
+                } else if runnable_code {
                     html.push_str("<ob-rust-playground");
                     if fence.playground_link == Some(false) {
                         html.push_str(" data-playground-link=\"false\"");
@@ -493,8 +522,11 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
                         escape::attr(&fence.lang)
                     ));
                 }
-                if runnable_code {
-                    html.push_str(" data-runnable=\"rust\"");
+                if runnable_code || configured_runner {
+                    html.push_str(&format!(
+                        " data-runnable=\"{}\"",
+                        escape::attr(&fence.lang.to_ascii_lowercase())
+                    ));
                 } else if web_sandbox {
                     html.push_str(" data-runnable=\"web\"");
                 }
@@ -510,9 +542,13 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
                 html.push('>');
                 Event::Html(CowStr::from(html))
             }
-            Event::End(TagEnd::CodeBlock) if titled_code || runnable_code || web_sandbox => {
+            Event::End(TagEnd::CodeBlock)
+                if titled_code || runnable_code || configured_runner || web_sandbox =>
+            {
                 let mut html = String::from("</code></pre>");
-                if runnable_code {
+                if configured_runner {
+                    html.push_str("</ob-code-runner>");
+                } else if runnable_code {
                     html.push_str("</ob-rust-playground>");
                 }
                 if web_sandbox {
@@ -524,6 +560,7 @@ fn transform_blocks(events: Vec<Event<'_>>, recipe: bool) -> (Vec<Event<'_>>, Bl
                 html.push('\n');
                 titled_code = false;
                 runnable_code = false;
+                configured_runner = false;
                 web_sandbox = false;
                 Event::Html(CowStr::from(html))
             }
@@ -755,7 +792,7 @@ pub(crate) fn parser_options(smart_punctuation: bool) -> Options {
     options
 }
 
-pub fn render(markdown: &str, options: RenderOptions) -> Rendered {
+pub fn render(markdown: &str, options: RenderOptions<'_>) -> Rendered {
     let parser = Parser::new_ext(markdown, parser_options(options.smart_punctuation));
 
     let mut events: Vec<Event> = Vec::new();
@@ -854,7 +891,7 @@ pub fn render(markdown: &str, options: RenderOptions) -> Rendered {
     } else {
         events
     };
-    let (events, blocks) = transform_blocks(events, options.recipe);
+    let (events, blocks) = transform_blocks(events, options.recipe, options.code_runner);
     let mut html = String::with_capacity(markdown.len() * 2);
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
     if options.lazy_images {
@@ -1181,6 +1218,27 @@ mod tests {
             r.code_languages,
             vec!["rust".to_string(), "python".to_string()]
         );
+    }
+
+    #[test]
+    fn configured_runner_enhances_only_rust_and_explicitly_allowed_languages() {
+        let languages = vec!["python".to_string(), "go".to_string()];
+        let rendered = render(
+            "```rust runnable\nfn main() {}\n```\n\n```python runnable\nprint('hi')\n```\n\n```ruby runnable\nputs 'static'\n```\n",
+            RenderOptions {
+                code_runner: Some(CodeRunnerRenderOptions {
+                    endpoint: "https://runner.example/execute",
+                    languages: &languages,
+                }),
+                ..Default::default()
+            },
+        );
+        assert!(rendered.html.contains("<ob-code-runner data-language=\"rust\" data-endpoint=\"https://runner.example/execute\">"));
+        assert!(rendered.html.contains("<ob-code-runner data-language=\"python\" data-endpoint=\"https://runner.example/execute\">"));
+        assert!(!rendered.html.contains("data-language=\"ruby\""));
+        assert!(rendered
+            .html
+            .contains("<code class=\"language-ruby\">puts 'static'"));
     }
 
     #[test]

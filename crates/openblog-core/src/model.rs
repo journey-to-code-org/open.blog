@@ -10,7 +10,7 @@ use crate::contributor::{self, CreditProvenance, ResolvedCredit};
 use crate::date::DateTime;
 use crate::field_journal::FieldJournalMetadata;
 use crate::frontmatter::{self, FrontMatter};
-use crate::markdown::{self, Heading, RenderOptions};
+use crate::markdown::{self, CodeRunnerRenderOptions, Heading, RenderOptions};
 use crate::profile::{self, ProfileBehavior};
 use crate::recipe::Recipe;
 use crate::research::{self, EvidenceFinding, ResearchMetadata};
@@ -294,6 +294,12 @@ impl Site {
             heading_anchors: config.markdown.heading_anchors,
             embeds: config.markdown.embeds,
             recipe: false,
+            code_runner: (!config.code_runner.endpoint.is_empty()).then_some(
+                CodeRunnerRenderOptions {
+                    endpoint: &config.code_runner.endpoint,
+                    languages: &config.code_runner.languages,
+                },
+            ),
         };
         let credit_sidecars = associate_credit_sidecars(&sources);
         errors.extend(credit_sidecars.errors.iter().cloned());
@@ -692,7 +698,7 @@ fn optional_string(value: Option<&str>) -> Option<String> {
 pub fn load_post(
     file: &SourceFile,
     config: &SiteConfig,
-    options: RenderOptions,
+    options: RenderOptions<'_>,
 ) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
@@ -883,7 +889,7 @@ pub fn load_post(
 pub fn load_post_with_credits(
     file: &SourceFile,
     config: &SiteConfig,
-    options: RenderOptions,
+    options: RenderOptions<'_>,
     sidecar: Option<&SourceFile>,
 ) -> Result<Post, String> {
     if let Some(sidecar) = sidecar {
@@ -921,7 +927,7 @@ fn apply_credits(
     Ok(())
 }
 
-fn load_series(file: &SourceFile, options: RenderOptions) -> Result<Series, String> {
+fn load_series(file: &SourceFile, options: RenderOptions<'_>) -> Result<Series, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
     let rendered = markdown::render(&doc.body, options);
@@ -959,7 +965,7 @@ fn load_series(file: &SourceFile, options: RenderOptions) -> Result<Series, Stri
     })
 }
 
-fn load_page(file: &SourceFile, options: RenderOptions) -> Result<Page, String> {
+fn load_page(file: &SourceFile, options: RenderOptions<'_>) -> Result<Page, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
     let rendered = markdown::render(&doc.body, options);

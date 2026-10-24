@@ -57,6 +57,8 @@ pub struct SiteConfig {
     pub markdown: MarkdownConfig,
     /// Code blocks: colours, line numbers, copy buttons.
     pub code: CodeConfig,
+    /// Optional public gateway for executing explicitly opted-in code lessons.
+    pub code_runner: CodeRunnerConfig,
     /// Interactive extras on posts with `recipe: true`.
     pub recipes: RecipesConfig,
     /// Optional author-time generation for interactive knowledge checks.
@@ -141,6 +143,17 @@ pub struct CodeConfig {
     pub line_numbers: Option<bool>,
     /// A "Copy" button on every code block.
     pub copy_button: bool,
+}
+
+/// Browser-facing code execution gateway. The endpoint is public configuration;
+/// provider credentials belong only on the independently hosted runner.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CodeRunnerConfig {
+    pub endpoint: String,
+    /// Additional runnable fence languages. Rust is always enabled when an
+    /// endpoint is configured; `web` keeps its dedicated local sandbox.
+    pub languages: Vec<String>,
 }
 
 impl Default for CodeConfig {
@@ -283,6 +296,7 @@ impl Default for SiteConfig {
             seo: SeoConfig::default(),
             markdown: MarkdownConfig::default(),
             code: CodeConfig::default(),
+            code_runner: CodeRunnerConfig::default(),
             recipes: RecipesConfig::default(),
             knowledge_checks: KnowledgeChecksConfig::default(),
             paths: PathsConfig::default(),
@@ -737,6 +751,47 @@ impl SiteConfig {
                 );
             }
         }
+        while self.code_runner.endpoint.ends_with('/') {
+            self.code_runner.endpoint.pop();
+        }
+        if !self.code_runner.endpoint.is_empty() {
+            let endpoint = self
+                .code_runner
+                .endpoint
+                .parse::<http::Uri>()
+                .map_err(|_| "codeRunner.endpoint must be a valid HTTPS URL")?;
+            let authority = endpoint
+                .authority()
+                .ok_or("codeRunner.endpoint must include a host")?;
+            if endpoint.scheme_str() != Some("https")
+                || authority.as_str().contains('@')
+                || endpoint.query().is_some()
+                || self.code_runner.endpoint.contains('#')
+            {
+                return Err(
+                    "codeRunner.endpoint must be HTTPS without credentials, query, or fragment"
+                        .into(),
+                );
+            }
+        }
+        let mut languages = Vec::new();
+        for authored in &self.code_runner.languages {
+            let language = authored.trim().to_ascii_lowercase();
+            let valid = (1..=32).contains(&language.len())
+                && language
+                    .bytes()
+                    .next()
+                    .is_some_and(|byte| byte.is_ascii_lowercase())
+                && language.bytes().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || matches!(byte, b'_' | b'+' | b'#' | b'.' | b'-')
+                });
+            if valid && language != "rust" && language != "web" && !languages.contains(&language) {
+                languages.push(language);
+            }
+        }
+        self.code_runner.languages = languages;
         contributor::normalize_registry(&mut self.contributors)?;
         Ok(())
     }
@@ -858,6 +913,33 @@ mod tests {
             r#"{"engagement":{"enabled":true,"endpoint":"https://blog.example/api"}}"#
         )
         .is_ok());
+    }
+
+    #[test]
+    fn code_runner_requires_a_public_https_endpoint_and_normalizes_languages() {
+        for endpoint in [
+            "http://runner.example/execute",
+            "https://user:secret@runner.example/execute",
+            "https://runner.example/execute?token=secret",
+            "https://runner.example/execute#secret",
+        ] {
+            let source =
+                format!(r#"{{"codeRunner":{{"endpoint":"{endpoint}","languages":["python"]}}}}"#);
+            assert!(
+                SiteConfig::from_json(&source).is_err(),
+                "accepted {endpoint}"
+            );
+        }
+
+        let config = SiteConfig::from_json(
+            r#"{"codeRunner":{"endpoint":"https://runner.example/execute/","languages":[" Python ","python","go","web","rust","shell script"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.code_runner.endpoint,
+            "https://runner.example/execute"
+        );
+        assert_eq!(config.code_runner.languages, ["python", "go"]);
     }
 
     #[test]
