@@ -404,10 +404,19 @@ fn research_attribution_and_references_match_the_golden_output() {
             .collect::<Vec<_>>(),
         ["mira", "lantern"]
     );
-    // Unknown front matter stays in the canonical source, never in the copy.
+    // The Markdown representation keeps the authored citation markers.
     assert!(projection
         .representation(openblog_core::portability::RepresentationFormat::Markdown)
         .contains("[^annals]"));
+    // Unknown front matter stays in the canonical source, never in the copy.
+    let source = std::fs::read_to_string(format!("{FIXTURES}/research.md"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    let canonical = openblog_core::frontmatter::parse(&source).unwrap();
+    assert_eq!(
+        canonical.front_matter.get("privateNote"),
+        Some("Reviewer 2 is <script>alert(\"leak\")</script> — do not publish")
+    );
     for private in ["privateNote", "Reviewer 2", "leak", "<script"] {
         assert!(!html.contains(private), "leaked {private}:\n{html}");
     }

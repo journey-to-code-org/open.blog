@@ -1061,8 +1061,22 @@ fn apply_portable_paragraphs<'a>(
     out
 }
 
-/// A chapter list for a tight bulleted list whose items are all timestamp
-/// lines (`- 00:00 Intro`), with the number of events it replaces.
+/// `canonical#fragment`, with the fragment percent-encoded as a browser would
+/// (the WHATWG fragment set: controls, space, `"`, `<`, `>` and backtick), so a
+/// destination that validates URLs keeps the link. The element's `id` stays as
+/// authored; browsers decode the same way, so the fragment still matches it.
+fn canonical_fragment(canonical_url: &str, fragment: &str) -> String {
+    let mut href = format!("{canonical_url}#");
+    for character in fragment.chars() {
+        if character.is_ascii_control() || matches!(character, ' ' | '"' | '<' | '>' | '`') {
+            href.push_str(&format!("%{:02X}", character as u32));
+        } else {
+            href.push(character);
+        }
+    }
+    href
+}
+
 /// Point footnote citations at the note on the canonical article, as heading
 /// anchors do, keeping each note's id and number: a copy that drops ids still
 /// reaches the cited note. Numbers follow first use, as in the native page.
@@ -1084,7 +1098,7 @@ fn apply_portable_footnotes<'a>(
             let html = if reference {
                 format!(
                     "<sup class=\"footnote-reference\"><a href=\"{}\">{number}</a></sup>",
-                    escape::attr(&format!("{}#{name}", context.canonical_url))
+                    escape::attr(&canonical_fragment(context.canonical_url, &name))
                 )
             } else {
                 format!(
@@ -1097,6 +1111,8 @@ fn apply_portable_footnotes<'a>(
         .collect()
 }
 
+/// A chapter list for a tight bulleted list whose items are all timestamp
+/// lines (`- 00:00 Intro`), with the number of events it replaces.
 fn chapter_list(events: &[Event<'_>], video_id: Option<&str>) -> Option<(usize, String)> {
     let mut lines = Vec::new();
     let mut item = None;
@@ -1349,7 +1365,7 @@ fn render_events<'a>(
                 let level_num = heading_level(level);
                 if options.heading_anchors && level_num >= 2 {
                     let href = portable
-                        .map(|context| format!("{}#{id}", context.canonical_url))
+                        .map(|context| canonical_fragment(context.canonical_url, &id))
                         .unwrap_or_else(|| format!("#{id}"));
                     let anchor = format!(
                         "<a class=\"ob-heading-anchor\" href=\"{}\" aria-label=\"Link to this section\">#</a>",

@@ -249,24 +249,29 @@ impl<'a> PortableProjection<'a> {
         // A capability the canonical page offers without a portable fallback yet
         // (a planned or unknown structure) fails closed: its authored content
         // stays visible as ordinary Markdown, and a labeled link points to the
-        // canonical article. Private state adds nothing. Each is reported once.
+        // canonical article. Each is reported once. Private state (a protected
+        // draft, a reader annotation) adds nothing and is not reported either,
+        // so a destination reading the loss report cannot learn it exists.
+        // The note is article-level: nothing locates these blocks until their
+        // owning stories ship detection, so it follows the whole body.
         let mut labels = Vec::new();
         for capability in self.capabilities {
             if capability.has_portable_fallback() {
                 continue;
             }
+            let Some(label) = capability.portable_label() else {
+                continue;
+            };
             if !capabilities.iter().any(|known| known.id == capability.id) {
                 capabilities.push(capability.clone());
             }
-            if let Some(label) = capability.portable_label() {
-                if !labels.contains(&label) {
-                    labels.push(label);
-                    html.push_str(&format!(
-                        "<p class=\"ob-portable-note\"><strong>{}</strong>: see it on <a href=\"{}\">the original article</a>.</p>\n",
-                        escape::text(label),
-                        escape::attr(&self.canonical_url)
-                    ));
-                }
+            if !labels.contains(&label) {
+                labels.push(label);
+                html.push_str(&format!(
+                    "<p class=\"ob-portable-note\"><strong>{}</strong>: see it on <a href=\"{}\">the original article</a>.</p>\n",
+                    escape::text(label),
+                    escape::attr(&self.canonical_url)
+                ));
             }
         }
         // Provenance is untrusted metadata: only a plain web address is published.
@@ -901,13 +906,34 @@ mod tests {
             "---\ntitle: Study\ndate: 2026-10-01\n---\nA claim[^zürich] and another[^\"x\"] and the first again[^zürich].\n\n[^\"x\"]: Second note <b>.\n[^zürich]: [Smith 2020, p. 42](https://example.org/book?page=42#p42).\n",
         );
         assert!(output.html.contains(
-            "<p>A claim<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#zürich\">1</a></sup> and another<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#&quot;x&quot;\">2</a></sup> and the first again<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#zürich\">1</a></sup>.</p>\n"
+            "<p>A claim<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#zürich\">1</a></sup> and another<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#%22x%22\">2</a></sup> and the first again<sup class=\"footnote-reference\"><a href=\"https://example.test/blog/work/#zürich\">1</a></sup>.</p>\n"
         ), "{}", output.html);
         // Notes keep their numbers and ids even when defined out of order.
         assert!(output.html.contains(
             "<div class=\"footnote-definition\" id=\"&quot;x&quot;\"><sup class=\"footnote-definition-label\">2</sup>\n<p>Second note <b>.</p>\n</div>\n<div class=\"footnote-definition\" id=\"zürich\"><sup class=\"footnote-definition-label\">1</sup>\n<p><a href=\"https://example.org/book?page=42#p42\">Smith 2020, p. 42</a>.</p>\n</div>\n"
         ), "{}", output.html);
         assert!(!output.html.contains("href=\"#"), "{}", output.html);
+        // A label that is not a valid fragment is percent-encoded in the link
+        // only, so URL-validating destinations keep it and the id still matches.
+        let output = portable(
+            "---
+title: Study
+date: 2026-10-01
+---
+## Odd {#a b}
+
+A[^a b].
+
+[^a b]: note
+",
+        );
+        for expected in [
+            "<a href=\"https://example.test/blog/work/#a%20b\">1</a>",
+            "<div class=\"footnote-definition\" id=\"a b\">",
+        ] {
+            assert!(output.html.contains(expected), "{}", output.html);
+        }
+        assert!(!output.html.contains("#a b"), "{}", output.html);
     }
 
     fn credited_post(contents: &str, credits: &str) -> (SiteConfig, Site) {
@@ -1061,16 +1087,18 @@ mod tests {
                     crate::capability::PortabilityLevel::CanonicalOnlyInteraction
                 ),
                 (
-                    "protected-reflection-drafts",
-                    crate::capability::PortabilityLevel::CanonicalOnlyInteraction
-                ),
-                (
                     "invalid",
                     crate::capability::PortabilityLevel::CanonicalOnlyInteraction
                 ),
             ],
-            "each capability is reported once, so the loss stays visible to consumers"
+            "each capability is reported once, so the loss stays visible to consumers; private state is never reported"
         );
+        // The note is article-level for now: it follows the body, not the block.
+        assert!(output.html.ends_with("the original article</a>.</p>\n"));
+        assert!(!output
+            .capabilities
+            .iter()
+            .any(|capability| capability.id.contains("reflection")));
         assert_eq!(post.html, native);
         assert_eq!(projection.portable_html().unwrap(), output);
     }

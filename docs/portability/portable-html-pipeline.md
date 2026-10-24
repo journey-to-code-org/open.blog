@@ -77,9 +77,12 @@ reflections, diagrams, and the rest) have no authoring syntax or portable fallba
 their owning story ships one, a capability the canonical page reports without a portable
 fallback fails closed: its authored content stays visible as ordinary Markdown, a labeled note
 such as "**Timeline**: see it on the original article" links to the canonical article, and the
-capability is reported with the canonical-only level. An unknown capability gets the label
+capability is reported with the canonical-only level. The note is article-level for now: until
+an owning story detects the block, nothing locates its content, so notes follow the whole body
+(footnotes included) rather than the block they describe. An unknown capability gets the label
 "Interactive content". Private-only state (local reader annotations and protected reflection
-drafts) adds nothing to the copy. Unknown front matter stays in the canonical source and never
+drafts) adds nothing to the copy and is left out of the capability report, so no destination
+learns that it exists. Unknown front matter stays in the canonical source and never
 reaches the output.
 
 ## Tests
