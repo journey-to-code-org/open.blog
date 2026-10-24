@@ -15,6 +15,7 @@ mod publish;
 mod scaffold;
 mod serve;
 mod site;
+mod syndication;
 mod transaction;
 mod url_context;
 
@@ -40,6 +41,7 @@ COMMANDS
     check                      Validate content and themes without writing anything
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
+    syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
     analytics backup           Save view counts to the analytics branch (and push)
     analytics pull <url>       Merge counts from a hosted counter (--secret <s>)
     analytics worker [dir]     Write a Cloudflare Worker counter to deploy (default: counter/)
@@ -58,6 +60,11 @@ COMMON OPTIONS
     --port <n>                 Port for serve (default: 8080)
     --host <addr>              Address for serve (default: 127.0.0.1; use 0.0.0.0 behind HTTPS)
     --password-stdin           For `user`: read the password from standard input
+
+syndicate OPTIONS
+    --target a,b               Limit the run to named configured targets
+    --write                    Send remote create/update requests and save private state
+    --publish                  Request publication (also requires target allowPublish: true)
 
 new OPTIONS
     --series <slug>            Put the post in a series
@@ -92,6 +99,7 @@ const SWITCHES: &[&str] = &[
     "overwrite",
     "recipe",
     "write",
+    "publish",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -233,6 +241,33 @@ fn run(raw: &[String]) -> Result<(), String> {
                 println!("No files changed. Re-run with --write to apply this plan.");
             }
             Ok(())
+        }
+        "syndicate" => {
+            let slug = args
+                .positional
+                .first()
+                .ok_or("usage: openblog syndicate <slug> [--target a,b] [--write] [--publish]")?;
+            let target_names = args
+                .options
+                .get("target")
+                .map(|targets| {
+                    targets
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default();
+            syndication::run(
+                &root,
+                slug,
+                syndication::Options {
+                    target_names,
+                    write: args.switches.contains("write"),
+                    publish: args.switches.contains("publish"),
+                },
+            )
         }
         "build" => {
             let out = args.options.get("out").map(PathBuf::from);

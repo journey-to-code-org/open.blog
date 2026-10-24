@@ -64,6 +64,9 @@ pub struct SiteConfig {
     pub paths: PathsConfig,
     pub admin: AdminConfig,
     pub publish: PublishConfig,
+    /// Optional server-side cross-posting destinations. Credentials are read from
+    /// environment variables and are never serialized here.
+    pub syndication: SyndicationConfig,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -285,6 +288,60 @@ impl Default for SiteConfig {
             paths: PathsConfig::default(),
             admin: AdminConfig::default(),
             publish: PublishConfig::default(),
+            syndication: SyndicationConfig::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SyndicationProvider {
+    Dev,
+    Hashnode,
+    Ghost,
+    Wordpress,
+    Medium,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SyndicationTargetConfig {
+    pub provider: SyndicationProvider,
+    pub enabled: bool,
+    /// Permit public publication when the CLI also receives `--publish`.
+    pub allow_publish: bool,
+    /// Provider base URL. Required for Ghost and self-hosted WordPress.
+    pub endpoint: String,
+    /// Hashnode publication ID or WordPress.com numeric site ID.
+    pub publication_id: String,
+}
+
+impl Default for SyndicationTargetConfig {
+    fn default() -> Self {
+        Self {
+            provider: SyndicationProvider::Dev,
+            enabled: true,
+            allow_publish: false,
+            endpoint: String::new(),
+            publication_id: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SyndicationConfig {
+    /// Private state, relative to the project root.
+    pub state_file: String,
+    /// User-chosen target names permit multiple sites using the same provider.
+    pub targets: BTreeMap<String, SyndicationTargetConfig>,
+}
+
+impl Default for SyndicationConfig {
+    fn default() -> Self {
+        Self {
+            state_file: ".openblog/syndication.json".into(),
+            targets: BTreeMap::new(),
         }
     }
 }
@@ -886,5 +943,13 @@ mod tests {
             SiteConfig::from_json(r#"{"knowledgeChecks":{"provider":"unknown-provider"}}"#)
                 .is_err()
         );
+        let syndication = SiteConfig::from_json(
+            r#"{"syndication":{"stateFile":".private/s.json","targets":{"dev":{"provider":"dev","allowPublish":true}}}}"#,
+        )
+        .unwrap();
+        let dev = &syndication.syndication.targets["dev"];
+        assert_eq!(dev.provider, SyndicationProvider::Dev);
+        assert!(dev.enabled && dev.allow_publish);
+        assert_eq!(syndication.syndication.state_file, ".private/s.json");
     }
 }
