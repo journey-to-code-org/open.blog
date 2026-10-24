@@ -2,7 +2,8 @@
 
 `openblog serve --admin` adds a login-protected editor at `/admin` to the same server that
 serves your blog. The editor reads and writes the same Markdown files you would edit by
-hand, so your content stays plain files you own. There is no database.
+hand, so your content stays plain files you own. No database is required by default.
+Ephemeral hosts can opt into [durable Supabase workspace storage](deploy.md#durable-editorial-workspace-on-ephemeral-hosts).
 
 ```sh
 openblog user add you              # create a login (prompts for a password)

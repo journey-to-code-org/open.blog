@@ -2,13 +2,16 @@
 # Starts open.blog inside the container. See the Dockerfile for the variables.
 set -e
 
-if [ -n "$OPENBLOG_ADMIN_USER" ] && [ -n "$OPENBLOG_ADMIN_PASSWORD" ]; then
-  # Create the login if it does not exist; `user add` refuses an existing name,
-  # and `user passwd` keeps it current with the variable.
-  if OPENBLOG_PASSWORD="$OPENBLOG_ADMIN_PASSWORD" openblog user add "$OPENBLOG_ADMIN_USER" >/dev/null 2>&1; then
-    echo "created admin user $OPENBLOG_ADMIN_USER"
+if [ -n "$OPENBLOG_ADMIN_USER" ] || [ -n "$OPENBLOG_ADMIN_PASSWORD" ]; then
+  if [ -z "$OPENBLOG_ADMIN_USER" ] || [ -z "$OPENBLOG_ADMIN_PASSWORD" ]; then
+    echo "Set both OPENBLOG_ADMIN_USER and OPENBLOG_ADMIN_PASSWORD." >&2
+    exit 1
+  fi
+  users=$(openblog user list)
+  if printf '%s\n' "$users" | grep -Fqx -- "$OPENBLOG_ADMIN_USER"; then
+    OPENBLOG_PASSWORD="$OPENBLOG_ADMIN_PASSWORD" openblog user passwd "$OPENBLOG_ADMIN_USER"
   else
-    OPENBLOG_PASSWORD="$OPENBLOG_ADMIN_PASSWORD" openblog user passwd "$OPENBLOG_ADMIN_USER" >/dev/null 2>&1 || true
+    OPENBLOG_PASSWORD="$OPENBLOG_ADMIN_PASSWORD" openblog user add "$OPENBLOG_ADMIN_USER"
   fi
 fi
 
@@ -16,21 +19,27 @@ if [ -n "$GIT_AUTHOR_NAME" ]; then
   git config --global user.name "$GIT_AUTHOR_NAME"
   git config --global user.email "${GIT_AUTHOR_EMAIL:-openblog@localhost}"
 fi
-git config --global --add safe.directory /blog 2>/dev/null || true
+git config --global --add safe.directory /blog
 
-# With a token, the Publish button and analytics backups can push from the
-# container: the https remote gets the token baked in (never printed).
-if [ -n "$OPENBLOG_GIT_TOKEN" ] && [ -d /blog/.git ]; then
-  remote=$(git -C /blog remote get-url origin 2>/dev/null || true)
+# Read the token from the process environment only when Git requests credentials.
+if [ -n "$OPENBLOG_GIT_TOKEN" ]; then
+  remote=$(git -C /blog remote get-url origin)
   case "$remote" in
-    https://*)
+    https://github.com/*|https://*@github.com/*)
       host_path=$(printf '%s' "$remote" | sed 's#^https://\([^@]*@\)\{0,1\}##')
-      git -C /blog remote set-url origin "https://x-access-token:${OPENBLOG_GIT_TOKEN}@${host_path}"
+      git -C /blog remote set-url origin "https://${host_path}"
       ;;
     git@github.com:*)
-      git -C /blog remote set-url origin "https://x-access-token:${OPENBLOG_GIT_TOKEN}@github.com/${remote#git@github.com:}"
+      git -C /blog remote set-url origin "https://github.com/${remote#git@github.com:}"
+      ;;
+    *)
+      echo "OPENBLOG_GIT_TOKEN requires a github.com origin remote." >&2
+      exit 1
       ;;
   esac
+  git config --global --replace-all credential.https://github.com.helper ""
+  git config --global --add credential.https://github.com.helper \
+    '!f() { if [ "$1" = get ]; then printf "username=x-access-token\npassword=%s\n" "$OPENBLOG_GIT_TOKEN"; fi; }; f'
 fi
 
 exec openblog serve --admin --host 0.0.0.0 --port "${PORT:-8080}" "$@"

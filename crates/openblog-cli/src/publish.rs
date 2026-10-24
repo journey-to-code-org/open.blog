@@ -110,6 +110,17 @@ pub fn publish(root: &Path, config: &SiteConfig, summary: Option<&str>) -> Resul
     let (to_commit, skipped): (Vec<String>, Vec<String>) = changed
         .into_iter()
         .partition(|path| p.include_drafts || !drafts.contains(path));
+    let staged = git.run(&["diff", "--cached", "--name-only", "-z"])?;
+    if staged
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .any(|path| !to_commit.iter().any(|allowed| allowed == path))
+    {
+        return Err(
+            "Git has staged files outside the publishable changes (possibly drafts); unstage them before publishing"
+                .into(),
+        );
+    }
 
     let mut outcome = Outcome {
         skipped_drafts: skipped,
@@ -200,6 +211,122 @@ pub fn setup(root: &Path, config: &SiteConfig) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
     use std::fs;
+
+    struct RemoteFixture {
+        dir: std::path::PathBuf,
+        root: std::path::PathBuf,
+        remote: std::path::PathBuf,
+        config: SiteConfig,
+    }
+
+    impl RemoteFixture {
+        fn remote(&self, args: &[&str]) -> Result<String, String> {
+            let mut command = vec!["--git-dir", self.remote.to_str().unwrap()];
+            command.extend_from_slice(args);
+            Git::new(&self.dir).run(&command)
+        }
+
+        fn new(label: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "ob-publish-{label}-{}-{}",
+                std::process::id(),
+                crate::auth::random_token().unwrap()
+            ));
+            fs::create_dir_all(&dir).unwrap();
+            let remote = dir.join("remote.git");
+            fs::create_dir(&remote).unwrap();
+            Git::new(&remote).run(&["init", "--bare", "-q"]).unwrap();
+            let root = dir.join("blog");
+            crate::scaffold::init(&root, Some("Publish test"), false).unwrap();
+            let git = Git::new(&root);
+            git.init().unwrap();
+            git.run(&["checkout", "-q", "-b", "main"]).unwrap();
+            git.run(&["config", "user.name", "Publish test"]).unwrap();
+            git.run(&["config", "user.email", "test@example.com"])
+                .unwrap();
+            git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+            git.run(&["remote", "add", "origin", remote.to_str().unwrap()])
+                .unwrap();
+            let config = site::load_config(&root).unwrap();
+            Self {
+                dir,
+                root,
+                remote,
+                config,
+            }
+        }
+    }
+
+    impl Drop for RemoteFixture {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn publishes_to_remote_and_keeps_drafts_out_of_history() {
+        let fixture = RemoteFixture::new("roundtrip");
+        let draft = fixture.root.join("content/posts/private-draft.md");
+        fs::write(
+            &draft,
+            "---\ntitle: Private draft\ndraft: true\n---\nPrivate text",
+        )
+        .unwrap();
+        let result = publish(&fixture.root, &fixture.config, Some("Hosted round trip")).unwrap();
+        assert!(result.pushed && result.commit.is_some());
+        let files = fixture
+            .remote(&["ls-tree", "-r", "--name-only", "main"])
+            .unwrap();
+        assert!(files.contains("content/posts/hello-world.md"));
+        assert!(!files.contains("private-draft.md"));
+        assert!(draft.exists());
+        let message = fixture
+            .remote(&["log", "-1", "--format=%B", "main"])
+            .unwrap();
+        assert!(message.contains("Publish: Hosted round trip"));
+        assert!(!message.to_lowercase().contains("co-authored-by:"));
+        let again = publish(&fixture.root, &fixture.config, None).unwrap();
+        assert!(again.pushed && again.commit.is_none());
+    }
+
+    #[test]
+    fn refuses_pre_staged_drafts_and_unrelated_files() {
+        let fixture = RemoteFixture::new("staged");
+        let git = Git::new(&fixture.root);
+        let draft = fixture.root.join("content/posts/private-draft.md");
+        fs::write(
+            &draft,
+            "---\ntitle: Private draft\ndraft: true\n---\nPrivate text",
+        )
+        .unwrap();
+        git.run(&["add", "content/posts/private-draft.md"]).unwrap();
+        let error = publish(&fixture.root, &fixture.config, None).unwrap_err();
+        assert!(error.contains("unstage"));
+        assert!(git.run(&["rev-parse", "--verify", "HEAD"]).is_err());
+        git.run(&["rm", "--cached", "content/posts/private-draft.md"])
+            .unwrap();
+        fs::write(fixture.root.join("unrelated.txt"), "Not publishing input").unwrap();
+        git.run(&["add", "unrelated.txt"]).unwrap();
+        assert!(publish(&fixture.root, &fixture.config, None).is_err());
+    }
+
+    #[test]
+    fn reports_push_rejection_without_losing_the_local_commit() {
+        let fixture = RemoteFixture::new("rejected");
+        fixture
+            .remote(&["config", "receive.denyCurrentBranch", "refuse"])
+            .unwrap();
+        fixture.remote(&["config", "core.bare", "false"]).unwrap();
+        fixture
+            .remote(&["symbolic-ref", "HEAD", "refs/heads/main"])
+            .unwrap();
+        let error = publish(&fixture.root, &fixture.config, Some("Rejected test")).unwrap_err();
+        assert!(error.contains("git push failed"));
+        assert!(Git::new(&fixture.root)
+            .run(&["log", "-1", "--format=%B"])
+            .unwrap()
+            .contains("Publish: Rejected test"));
+    }
 
     #[test]
     fn commits_content_but_keeps_drafts_out() {

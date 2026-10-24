@@ -89,6 +89,9 @@ pub struct AppState {
     pub trusted_proxies: Vec<String>,
     /// Serialises publishes so two saves never run git at the same time.
     pub publish_lock: Mutex<()>,
+    /// Serializes durable acknowledgements, including background publishing.
+    pub workspace: Mutex<Option<crate::workspace::Workspace>>,
+    pub workspace_enabled: bool,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
     assistant_operations: AssistantConcurrency,
     /// Last analytics backup to the branch, as a unix time.
@@ -100,6 +103,18 @@ pub struct AppState {
 /// The server registers its `Arc<AppState>` here so request handlers, which
 /// only hold `&AppState`, can hand a clone to background work.
 static SHARED: std::sync::OnceLock<Mutex<Vec<Arc<AppState>>>> = std::sync::OnceLock::new();
+
+thread_local! {
+    static DURABLE_TRANSACTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+struct DurableTransaction;
+
+impl Drop for DurableTransaction {
+    fn drop(&mut self) {
+        DURABLE_TRANSACTION.with(|active| active.set(false));
+    }
+}
 
 pub fn register(state: &Arc<AppState>) {
     lock(SHARED.get_or_init(|| Mutex::new(Vec::new()))).push(Arc::clone(state));
@@ -155,6 +170,8 @@ impl AppState {
             base_path,
             trusted_proxies,
             publish_lock: Mutex::new(()),
+            workspace: Mutex::new(None),
+            workspace_enabled: false,
             assistant_operations: AssistantConcurrency::new(2),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
@@ -202,6 +219,13 @@ impl AppState {
         }
         let state = Arc::clone(self);
         std::thread::spawn(move || {
+            let mut workspace = lock(&state.workspace);
+            if let Some(store) = workspace.as_mut() {
+                if let Err(error) = store.begin() {
+                    eprintln!("auto-publish blocked by workspace persistence: {error}");
+                    return;
+                }
+            }
             let _publish = lock(&state.publish_lock);
             let _content_transaction = lock(&state.build);
             let _filesystem_transaction =
@@ -219,9 +243,41 @@ impl AppState {
             if !config.publish.auto {
                 return;
             }
+            if workspace.is_some()
+                && !crate::git::Git::new(&state.root).has_remote(&config.publish.remote)
+            {
+                eprintln!(
+                    "auto-publish blocked: durable workspace publishing requires a Git remote"
+                );
+                return;
+            }
             match crate::publish::publish(&state.root, &config, Some(&summary)) {
-                Ok(outcome) => eprintln!("publish: {}", outcome.message),
-                Err(e) => eprintln!("publish failed: {e}"),
+                Ok(outcome) => {
+                    if let Some(store) = workspace.as_mut() {
+                        if outcome.pushed {
+                            if let Err(error) = store.published(&state.root) {
+                                eprintln!("publish succeeded but workspace acknowledgement failed: {error}");
+                                return;
+                            }
+                        }
+                        if let Err(error) = store.save(&state.root) {
+                            eprintln!("publish workspace persistence failed: {error}");
+                            return;
+                        }
+                    }
+                    eprintln!("publish: {}", outcome.message);
+                }
+                Err(e) => {
+                    if let Some(store) = workspace.as_mut() {
+                        if let Err(error) = store.save(&state.root) {
+                            eprintln!(
+                                "publish failed ({e}); workspace persistence also failed: {error}"
+                            );
+                            return;
+                        }
+                    }
+                    eprintln!("publish failed: {e}");
+                }
             }
         });
     }
@@ -426,6 +482,61 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             return r;
         }
     }
+    if !state.workspace_enabled {
+        return authenticated_api(state, req, name, &session);
+    }
+    let mut workspace = lock(&state.workspace);
+    let _filesystem_transaction = if workspace.is_some() && !req.is_read_only() && name != "logout"
+    {
+        match crate::transaction::ContentTransactionLock::acquire(&state.root) {
+            Ok(transaction) => Some(transaction),
+            Err(error) => return Response::error(409, &error),
+        }
+    } else {
+        None
+    };
+    let _durable_transaction = _filesystem_transaction.as_ref().map(|_| {
+        DURABLE_TRANSACTION.with(|active| active.set(true));
+        DurableTransaction
+    });
+    if !req.is_read_only() && name != "logout" {
+        if let Some(store) = workspace.as_mut() {
+            if let Err(error) = store.begin() {
+                return Response::error(503, &format!("Workspace save NOT acknowledged: {error}"));
+            }
+        }
+    }
+    let response = authenticated_api(state, req, name, &session);
+    if !req.is_read_only() && name != "logout" {
+        if let Some(store) = workspace.as_mut() {
+            // Even an unsuccessful handler may have completed part of a local
+            // operation. Never acknowledge any result until the bundle is durable.
+            let published = name == "publish"
+                && response.status < 300
+                && serde_json::from_slice::<Json>(&response.body)
+                    .is_ok_and(|body| body["pushed"] == true);
+            let result = if published {
+                store.published(&state.root)
+            } else {
+                Ok(())
+            }
+            .and_then(|_| store.save(&state.root));
+            if let Err(error) = result {
+                return Response::error(503, &format!(
+                    "Workspace save NOT acknowledged; local changes may exist. Writes are blocked; reconcile/restart before retrying. {error}"
+                ));
+            }
+        }
+    }
+    response
+}
+
+fn authenticated_api(
+    state: &AppState,
+    req: &Request,
+    name: &str,
+    session: &auth::Session,
+) -> Response {
     if req.method == "GET" {
         if let Some(token) = name.strip_prefix("preview/") {
             return preview_document(state, token);
@@ -516,6 +627,11 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
                 Err(response) => return response,
             };
             let config = site::load_config(&state.root).unwrap_or_default();
+            if state.workspace_enabled
+                && !crate::git::Git::new(&state.root).has_remote(&config.publish.remote)
+            {
+                return Response::error(409, "Durable workspace publishing requires a Git remote; a local-only commit is not a durable publication");
+            }
             match crate::publish::publish(&state.root, &config, summary.as_deref()) {
                 Ok(o) => Response::json(
                     200,
@@ -642,8 +758,12 @@ fn save_admin_preferences(state: &AppState, req: &Request, user: &str) -> Respon
 
 fn content_transaction(
     state: &AppState,
-) -> Result<crate::transaction::ContentTransactionLock, Response> {
+) -> Result<Option<crate::transaction::ContentTransactionLock>, Response> {
+    if DURABLE_TRANSACTION.with(std::cell::Cell::get) {
+        return Ok(None);
+    }
     crate::transaction::ContentTransactionLock::acquire(&state.root)
+        .map(Some)
         .map_err(|error| Response::error(409, &error))
 }
 
