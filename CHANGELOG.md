@@ -7,6 +7,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 - Added an Assistant provider settings panel for endpoint and model configuration plus write-only
   private credential replacement and clearing, with environment credentials taking precedence.
+- Refined Assistant provider setup into a compact connection card with clear status, progressive
+  disclosure, author-friendly guidance, and confirmed credential removal.
 
 ## [0.11.0] - 2026-10-23
 

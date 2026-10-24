@@ -393,6 +393,8 @@ export function assistantStatusPresentation(status = {}) {
     model: status.model || "Provider default",
     destination: status.destination || "Not configured",
     configured: status.configured ? "Configured" : "Not configured",
+    statusLabel: status.configured ? "Ready" : status.state === "invalid" ? "Check settings" : "Setup needed",
+    statusTone: status.configured ? "ready" : status.state === "invalid" ? "invalid" : "missing",
     capabilities: capabilities.length ? capabilities.join(", ") : "No generation capabilities",
     message: status.message || (status.configured ? "Assistant provider is ready." : "Assistant provider is not configured. Non-AI authoring remains available."),
   };
@@ -2465,7 +2467,8 @@ export class Editor {
         : null,
     );
     ui.formatToolbar.addEventListener("mousedown", () => this.captureVisualSelection());
-    ui.assistantStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "Loading assistant configuration…");
+    ui.assistantStatus = h("p", { class: "oba-assistant-status-copy", role: "status", "aria-live": "polite" }, "Loading assistant configuration…");
+    ui.assistantStatusBadge = h("span", { class: "oba-assistant-status-badge", "data-tone": "loading" }, "Checking…");
     ui.assistantProviderType = h("dd", {}, "Loading…");
     ui.assistantModel = h("dd", {}, "Loading…");
     ui.assistantDestination = h("dd", {}, "Loading…");
@@ -2476,7 +2479,7 @@ export class Editor {
     ui.assistantSettingsCredential = h("input", { type: "password", placeholder: "Leave blank to keep the saved credential", autocomplete: "new-password" });
     ui.assistantSettingsStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Provider settings load when the Assistant opens.");
     ui.assistantSettingsSave = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.saveAssistantSettings("save") }, "Save provider settings");
-    ui.assistantSettingsClear = h("button", { class: "oba-btn", type: "button", onClick: () => this.saveAssistantSettings("clear") }, "Clear private credential");
+    ui.assistantSettingsClear = h("button", { class: "oba-btn oba-btn-danger oba-btn-link", type: "button", disabled: true, onClick: () => this.clearAssistantCredential() }, "Remove saved credential");
     ui.assistantSkillsStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Skills load when the Assistant opens.");
     ui.assistantReviewSkills = h("div", { class: "oba-skill-list", role: "group", "aria-label": "Review skills" });
     ui.assistantReviewStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "No review has run. Your draft is unchanged.");
@@ -2725,27 +2728,37 @@ export class Editor {
                   h(
                     "aside",
                     { class: "oba-assistant-provider", "aria-label": "Assistant provider" },
-                    h("h3", {}, "Provider"),
+                    h("div", { class: "oba-assistant-provider-heading" }, h("h3", {}, "AI provider"), ui.assistantStatusBadge),
                     ui.assistantStatus,
                     h(
-                      "dl",
-                      { class: "oba-social-meta" },
-                      h("div", {}, h("dt", {}, "Type"), ui.assistantProviderType),
-                      h("div", {}, h("dt", {}, "Model"), ui.assistantModel),
-                      h("div", {}, h("dt", {}, "Destination"), ui.assistantDestination),
-                      h("div", {}, h("dt", {}, "Credential"), ui.assistantConfigured),
-                      h("div", {}, h("dt", {}, "Capabilities"), ui.assistantCapabilities),
+                      "details",
+                      { class: "oba-assistant-provider-details" },
+                      h("summary", {}, "Connection details"),
+                      h(
+                        "dl",
+                        { class: "oba-social-meta" },
+                        h("div", {}, h("dt", {}, "Type"), ui.assistantProviderType),
+                        h("div", {}, h("dt", {}, "Model"), ui.assistantModel),
+                        h("div", {}, h("dt", {}, "Destination"), ui.assistantDestination),
+                        h("div", {}, h("dt", {}, "Credential"), ui.assistantConfigured),
+                        h("div", {}, h("dt", {}, "Capabilities"), ui.assistantCapabilities),
+                      ),
                     ),
                     h(
-                      "section",
-                      { class: "oba-assistant-provider-settings", "aria-labelledby": "oba-assistant-provider-settings-title" },
-                      h("h4", { id: "oba-assistant-provider-settings-title" }, "Provider settings"),
-                      h("p", { class: "oba-small" }, "The endpoint and model are saved in openblog.json. The credential is write-only and stored under .openblog/private/assistant. Environment credential takes precedence."),
-                      this.field("oba-assistant-endpoint", "Generation endpoint", ui.assistantSettingsEndpoint),
-                      this.field("oba-assistant-model", "Model", ui.assistantSettingsModel),
-                      this.field("oba-assistant-credential", "Replace private credential", ui.assistantSettingsCredential),
-                      ui.assistantSettingsStatus,
-                      h("div", { class: "oba-toolbar" }, ui.assistantSettingsSave, ui.assistantSettingsClear),
+                      "details",
+                      { class: "oba-assistant-provider-settings" },
+                      h("summary", {}, "Edit provider settings"),
+                      h(
+                        "div",
+                        { class: "oba-assistant-provider-settings-body" },
+                        h("p", { class: "oba-small" }, "Connect an HTTPS provider for AI review and draft generation. This is optional; your other writing tools keep working without it."),
+                        this.field("oba-assistant-endpoint", "Generation endpoint URL", ui.assistantSettingsEndpoint, "The HTTPS address that receives generation requests."),
+                        this.field("oba-assistant-model", "Model", ui.assistantSettingsModel, "Optional. Leave blank to use the provider default."),
+                        this.field("oba-assistant-credential", "API credential (write-only)", ui.assistantSettingsCredential, "Leave blank to keep the saved credential. Its value is never displayed."),
+                        ui.assistantSettingsStatus,
+                        h("p", { class: "oba-assistant-settings-note" }, "A server environment credential overrides a saved credential."),
+                        h("div", { class: "oba-assistant-settings-actions" }, ui.assistantSettingsSave, ui.assistantSettingsClear),
+                      ),
                     ),
                   ),
                   h("div", { class: "oba-assistant-main" }, ui.assistantViewNav, assistantViews.review, assistantViews.interactions, assistantViews.context),
@@ -3690,11 +3703,15 @@ export class Editor {
         this.ui.assistantConfigured.textContent = presentation.configured;
         this.ui.assistantCapabilities.textContent = presentation.capabilities;
         this.ui.assistantStatus.textContent = presentation.message;
+        this.ui.assistantStatusBadge.textContent = presentation.statusLabel;
+        this.ui.assistantStatusBadge.dataset.tone = presentation.statusTone;
         this.assistantStatusLoaded = true;
         this.renderAssistantReviewSummary();
         return status;
       } catch (error) {
         this.ui.assistantStatus.textContent = `Assistant configuration could not be loaded. Non-AI authoring remains available. ${error.message}`;
+        this.ui.assistantStatusBadge.textContent = "Unavailable";
+        this.ui.assistantStatusBadge.dataset.tone = "invalid";
         return null;
       } finally {
         this.assistantStatusLoading = false;
@@ -3713,6 +3730,9 @@ export class Editor {
       this.ui.assistantSettingsEndpoint.value = settings.generationEndpoint || "";
       this.ui.assistantSettingsModel.value = settings.model || "";
       const source = settings.credential?.source || "none";
+      this.assistantCredentialSource = source;
+      this.assistantPrivateCredentialConfigured = settings.credential?.privateConfigured === true || source === "private";
+      this.ui.assistantSettingsClear.disabled = !this.assistantPrivateCredentialConfigured;
       this.ui.assistantSettingsStatus.textContent = source === "environment"
         ? "Configured by the server environment. Environment credential takes precedence; a saved private credential is never displayed."
         : source === "private"
@@ -3721,6 +3741,14 @@ export class Editor {
     } catch (error) {
       this.ui.assistantSettingsStatus.textContent = `Provider settings could not be loaded. ${error.message}`;
     }
+  }
+
+  async clearAssistantCredential() {
+    const environmentNote = this.assistantCredentialSource === "environment"
+      ? " The environment credential will remain active."
+      : " AI review and generation will be unavailable until another credential is configured.";
+    if (!globalThis.confirm(`Permanently remove the saved private credential?${environmentNote}`)) return;
+    await this.saveAssistantSettings("clear");
   }
 
   async saveAssistantSettings(action = "save") {
@@ -3749,7 +3777,7 @@ export class Editor {
       this.ui.assistantSettingsStatus.textContent = `Provider settings were not saved. ${error.message}`;
     } finally {
       this.ui.assistantSettingsSave.disabled = false;
-      this.ui.assistantSettingsClear.disabled = false;
+      this.ui.assistantSettingsClear.disabled = !this.assistantPrivateCredentialConfigured;
     }
   }
 

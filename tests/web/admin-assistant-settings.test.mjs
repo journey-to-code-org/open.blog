@@ -44,6 +44,7 @@ test("provider settings load and replace a write-only credential without reveali
   assert.equal(editor.ui.assistantSettingsModel.value, "writer-v1");
   assert.equal(editor.ui.assistantSettingsCredential.value, "");
   assert.match(editor.ui.assistantSettingsStatus.textContent, /private credential is saved/i);
+  assert.equal(editor.ui.assistantSettingsClear.disabled, false);
 
   editor.ui.assistantSettingsCredential.value = "replacement-secret";
   await editor.saveAssistantSettings("save");
@@ -91,7 +92,57 @@ test("environment precedence is announced and clearing never submits a credentia
   editor.loadAssistantStatus = async () => {};
   await editor.loadAssistantSettings();
   assert.match(editor.ui.assistantSettingsStatus.textContent, /environment credential takes precedence/i);
+  assert.equal(editor.ui.assistantSettingsClear.disabled, true);
   await editor.saveAssistantSettings("clear");
   assert.equal(submitted.credentialAction, "clear");
   assert.equal("credential" in submitted, false);
+  assert.equal(editor.ui.assistantSettingsClear.disabled, true);
+});
+
+test("provider status failures leave a clear unavailable state", async () => {
+  const editor = new Editor(
+    { api: { call: async () => { throw new Error("offline"); } } },
+    { kind: "posts", fields: {} },
+  );
+  editor.ui = {
+    assistantStatus: { textContent: "" },
+    assistantStatusBadge: { textContent: "Checking…", dataset: { tone: "loading" } },
+  };
+  editor.renderAssistantReviewSummary = () => {};
+
+  assert.equal(await editor.loadAssistantStatus(), null);
+  assert.equal(editor.ui.assistantStatusBadge.textContent, "Unavailable");
+  assert.equal(editor.ui.assistantStatusBadge.dataset.tone, "invalid");
+  assert.match(editor.ui.assistantStatus.textContent, /could not be loaded/i);
+});
+
+test("removing a write-only credential requires explicit confirmation", async () => {
+  let submitted = false;
+  let prompt = "";
+  const editor = new Editor(
+    { api: { call: async () => { submitted = true; return {}; } } },
+    { kind: "posts", fields: {} },
+  );
+  editor.assistantCredentialSource = "environment";
+  editor.saveAssistantSettings = async (action) => {
+    assert.equal(action, "clear");
+    submitted = true;
+  };
+  const originalConfirm = globalThis.confirm;
+  try {
+    globalThis.confirm = (message) => {
+      prompt = message;
+      return false;
+    };
+    await editor.clearAssistantCredential();
+    assert.equal(submitted, false);
+    assert.match(prompt, /permanently remove/i);
+    assert.match(prompt, /environment credential will remain active/i);
+
+    globalThis.confirm = () => true;
+    await editor.clearAssistantCredential();
+    assert.equal(submitted, true);
+  } finally {
+    globalThis.confirm = originalConfirm;
+  }
 });

@@ -150,6 +150,7 @@ test("controlled provider response renders through the mounted Review UI without
       assistantReviewStatus: new DomNode("p"),
       assistantReviewResults: Object.assign(new DomNode("section"), { attributes: { role: "region", "aria-label": "Review results" } }),
       assistantStatus: new DomNode("p"),
+      assistantStatusBadge: Object.assign(new DomNode("span"), { dataset: {} }),
       assistantProviderType: new DomNode("dd"),
       assistantModel: new DomNode("dd"),
       assistantDestination: new DomNode("dd"),

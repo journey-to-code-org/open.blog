@@ -43,10 +43,13 @@ test("Assistant provider settings can be configured without revealing a saved cr
   assert.match(admin, /api\.call\("PUT", "assistant\/settings"/);
   assert.match(admin, /Generation endpoint/);
   assert.match(admin, /Model/);
-  assert.match(admin, /Replace private credential/);
-  assert.match(admin, /Clear private credential/);
+  assert.match(admin, /API credential \(write-only\)/);
+  assert.match(admin, /Remove saved credential/);
   assert.match(admin, /Environment credential takes precedence/);
   assert.doesNotMatch(admin, /assistantSettingsCredential\.value\s*=\s*settings/);
+  assert.match(admin, /"details",\s*\{ class: "oba-assistant-provider-settings" \}/);
+  assert.match(admin, /"Edit provider settings"/);
+  assert.match(admin, /oba-assistant-status-badge/);
 });
 
 test("Assistant Context manages portable and private files with a disclosure preview", () => {

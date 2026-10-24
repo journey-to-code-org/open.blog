@@ -1125,6 +1125,92 @@ kbd {
   margin-top: 0;
 }
 
+.oba-assistant-provider-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.oba-assistant-provider-heading h3 {
+  margin-bottom: 0;
+}
+
+.oba-assistant-status-badge {
+  padding: 0.25rem 0.55rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: 999px;
+  color: var(--ob-color-subtle);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.oba-assistant-status-badge[data-tone="ready"] {
+  border-color: color-mix(in srgb, var(--oba-success) 45%, transparent);
+  color: var(--oba-success);
+  background: color-mix(in srgb, var(--oba-success) 9%, transparent);
+}
+
+.oba-assistant-status-badge[data-tone="invalid"] {
+  border-color: color-mix(in srgb, var(--oba-danger) 45%, transparent);
+  color: var(--oba-danger);
+}
+
+.oba-assistant-status-copy {
+  margin: 0.7rem 0 1rem;
+  color: var(--ob-color-subtle);
+  line-height: 1.5;
+}
+
+.oba-assistant-provider details {
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-assistant-provider details > summary {
+  padding: 0.8rem 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.oba-assistant-provider-details .oba-social-meta {
+  margin: 0 0 0.9rem;
+}
+
+.oba-assistant-provider-settings-body {
+  padding: 0.15rem 0 0.25rem;
+}
+
+.oba-assistant-provider-settings-body > .oba-small:first-child {
+  margin-top: 0;
+}
+
+.oba-assistant-settings-note {
+  margin: 0.8rem 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--ob-radius-sm);
+  color: var(--ob-color-subtle);
+  background: var(--ob-color-surface);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.oba-assistant-settings-actions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.oba-assistant-settings-actions .oba-btn {
+  width: 100%;
+}
+
+.oba-btn-link {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
 .oba-assistant-main {
   min-width: 0;
 }
