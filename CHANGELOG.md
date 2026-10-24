@@ -9,6 +9,9 @@ All notable changes to open.blog are recorded here. Releases follow
   participant, contribution, reveal, layout, and approval collections, explicit size limits, a
   derived two-person projection, revision-checked replacement, and one non-identifying error for
   unsafe identifiers, spoofed names, profile URLs, Markdown, or unknown fields.
+- Defined shared-publication language for sources, participants, collaboration roles,
+  contribution drafts, reveals, approvals, and published assemblies, kept apart from posts,
+  contributors, work credits, and Admin users, with fixtures for legacy posts and groups of any size.
 
 ## [0.14.0] - 2026-10-24
 

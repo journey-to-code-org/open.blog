@@ -12,7 +12,9 @@ of an otherwise unchanged group contract.
 
 The surrounding domain terms are defined by
 [ADR 0005](../adr/0005-shared-publication-language.md). In particular, private participation and
-contribution ownership never imply public authorship or work credit.
+contribution ownership never imply public authorship or work credit. Source references are part of
+that language but not of this version 1 contract; the private collaboration artifact adds them as an
+ordered collection keyed by stable IDs.
 
 The contract is intentionally isolated from the document model and renderer. Invalid collaboration
 state cannot change source Markdown, canonical content, feeds, or public output.
@@ -104,11 +106,12 @@ The version 1 policy is group-safe and contains no pair-specific fields:
 ```
 
 Bindings are one-to-one within a publication: Admin account, contributor ID, and participant ID
-cannot repeat. A binding may carry multiple distinct roles. Authorization checks the publication,
-currently authenticated account, active Admin-user set, current contributor registry, current
-participant collection, requested action, and (for participant-owned actions) target participant on
-every request. Missing, removed, renamed, stale, cross-publication, or unbound identities deny by
-default.
+cannot repeat. A binding may carry multiple distinct roles. These are publication-scoped
+collaboration roles: the `contributor` role means writing one's own contribution, not holding a
+public contributor credit. Authorization checks the publication, currently authenticated account,
+active Admin-user set, current contributor registry, current participant collection, requested
+action, and (for participant-owned actions) target participant on every request. Missing,
+removed, renamed, stale, cross-publication, or unbound identities deny by default.
 
 | Role | View published | View revealed | View contribution | Edit contribution | Invite | Reveal | Approve | Schedule | Publish | Remove member | Export |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -177,6 +180,12 @@ Unicode and spoofed or blank display names, URLs, verbatim hostile Markdown, sta
 skipped, and exhausted revisions, and private errors. Because this module has no renderer, Admin,
 filesystem, or network integration, canonical content and public output remain unchanged by
 construction.
+
+Shared-publication language fixtures check that the glossary keeps collaboration terms apart from
+Post, Contributor, Author, Work credit, and Admin user, that bound and approving participants in
+groups of 1, 2, 3, and 10 create no work credit while explicit credit keeps sidecar order, and that
+collaboration-shaped front matter on a legacy post stays lossless and changes no credit or
+generated output.
 
 Authorization matrix fixtures cover every role and action plus confused-deputy targeting, removed
 Admin users, renamed contributors, removed participants, unbound accounts, cross-publication use,

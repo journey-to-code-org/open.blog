@@ -34,20 +34,24 @@ attribution terms under [Evidence and identity](#evidence-and-identity), and the
 collaboration state part of a document or post.
 
 **Shared publication**:
-A collaboration effort that brings one or more ordered source references and one or more ordered
-participants toward a possible published work. It is pre-publication state, not another kind of
-Post or Published work.
-_Avoid_: Pair, co-authored post, published work before publication
+A collaboration effort, identified by a stable opaque publication ID, that brings one or more
+ordered source references and one or more ordered participants toward a possible published work.
+It is pre-publication state, not another kind of Post or Published work, and one participant is
+as valid as two or many.
+_Avoid_: Pair, couple, co-authored post, published work before publication
 
 **Source reference**:
-A bounded, ordered description of material that prompted or informs a shared publication. It is
-not automatically evidence cited by the resulting work and does not replace a Citation, Reference,
+A bounded entry, identified by a stable ID within one shared publication's ordered source
+collection, describing material that prompted or informs it: a video, article, podcast, book, or
+other source with author-entered attribution and an optional original link. It is not
+automatically evidence cited by the resulting work and does not replace a Citation, Reference,
 canonical URL, or Work identifier.
-_Avoid_: Citation when there is no in-text pointer, canonical source, provider response
+_Avoid_: Citation when there is no in-text pointer, primary source field, provider response
 
 **Participant**:
-A person represented by a stable opaque ID within one shared publication. Participation grants no
-site administration authority and implies neither public credit nor authorship.
+A person represented by a stable opaque ID within one shared publication. Participation is bound
+to an Admin user and a Contributor only through an explicit publication authorization binding; it
+grants no site administration authority and implies neither public credit nor authorship.
 _Avoid_: Contributor, Author, Admin user, left participant, right participant
 
 **Pair projection**:
@@ -57,14 +61,17 @@ state, so changing the group size never requires a migration.
 _Avoid_: Pair, couple, left/right fields, author A/B
 
 **Collaboration role**:
-A responsibility held by a participant within the collaboration workflow, such as coordinating or
-reviewing. It is not a public Work credit role and must not be promoted to one implicitly.
-_Avoid_: Work credit, global job title, authorization claim
+A publication-scoped responsibility, such as site owner, coordinator, contributor, editor, or
+reader, that a publication authorization binding gives a participant. It permits only the actions
+that policy lists for that one shared publication. The `contributor` role means writing one's own
+contribution draft, not holding a public Contributor credit, and no role is promoted to a Work
+credit role implicitly.
+_Avoid_: Work credit, global job title, site-wide Admin permission
 
 **Contribution draft**:
-Untrusted, participant-associated draft material offered to a shared publication. It remains
-collaboration state until an explicit assembly and publication path incorporates it into the
-author-owned Document.
+Untrusted Markdown that one participant owns and offers to a shared publication. It stays private
+collaboration state, never stored on a Post or Document, until an explicit assembly and
+publication path incorporates an approved revision into the author-owned Document.
 _Avoid_: Post, canonical content, public contribution disclosure
 
 **Reveal**:
@@ -78,11 +85,11 @@ define quorum, authorize publication, or assign public credit.
 _Avoid_: Publication, Work credit, timeless consent
 
 **Published assembly**:
-The result of explicitly selecting and ordering source references and contribution drafts for
-incorporation into canonical content. It names the publication-time assembly, not a second stored
-Post or Published work, and participant order does not determine public credit; publication
-resolves credit through the existing Work credit model.
-_Avoid_: Collaboration transcript, automatic byline, second canonical document
+The explicit, ordered selection of source references and exact approved contribution-draft
+revisions that a publication operation incorporates into canonical content. It names that
+publication-time assembly, not a second stored Post or Published work. Participant order does not
+determine public credit; publication resolves credit through the existing Work credit model.
+_Avoid_: Collaboration transcript, automatic byline, second Post or canonical document
 
 ## Evidence and identity
 
@@ -111,6 +118,11 @@ _Avoid_: Site owner, publisher, or every person acknowledged on the work
 An ordered relationship between one contributor and one published work, with one or more
 explicitly named roles.
 _Avoid_: Contributor profile, global job title
+
+**Admin user**:
+An authenticated account that signs in to Admin Studio for one site. It proves who is editing; by
+itself it grants no public credit, authorship, or participation in a shared publication.
+_Avoid_: Contributor, Participant, Author
 
 **Contributor identifier**:
 A persistent identifier for a person credited on a work.
