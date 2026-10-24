@@ -102,3 +102,21 @@ _Avoid_: Merely different styling
 Rules for projecting a capability to a particular destination, including its supported
 representation, fallback, portability level, and diagnostics.
 _Avoid_: Changing the canonical work to satisfy one destination
+
+## Admin workspace
+
+**Workspace preferences**:
+One admin login's private, schema-versioned presentation choices for Admin Studio: preset,
+optional-tool order and visibility, density, and default writing mode. They never change a
+document, site configuration, or any public or exported output.
+_Avoid_: Settings or configuration when site-wide `openblog.json` behavior is meant
+
+**Workspace preset**:
+A named starting arrangement of optional tools (Simple, Guided, Advanced) or Custom, where the
+admin chooses each optional tool's visibility. Every preset keeps every capability reachable.
+_Avoid_: Mode or role; a preset never grants or removes permissions
+
+**Essential control**:
+An Admin control no workspace preference can hide or reorder: Write, Site preview, Settings,
+save state, publish status, conflicts, privacy notices, approvals, and blocking validation.
+_Avoid_: Default tool, pinned tool

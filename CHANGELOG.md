@@ -6,8 +6,11 @@ All notable changes to open.blog are recorded here. Releases follow
 ## [Unreleased]
 
 - Added private per-admin workspace personalization with Simple, Guided, Advanced, and Custom
-  layouts, optional-tool ordering, density and writing-mode preferences, and an always-available
-  Advanced tools drawer that keeps essential authoring and publishing controls visible.
+  layouts, optional-tool ordering, density and writing-mode preferences, Restore defaults, and a
+  goal-grouped Advanced tools dialog, while essential authoring and publishing controls stay visible.
+- Stored workspace preferences per login under `.openblog/private/` with revision-checked saves,
+  so a change from another tab is reloaded instead of overwritten, and moved admins who used the
+  workspace before personalization into the Advanced layout with their remembered writing mode.
 
 ## [0.14.0] - 2026-10-24
 

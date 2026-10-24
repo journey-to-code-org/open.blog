@@ -382,6 +382,18 @@ kbd {
 .oba-module-list {
   display: grid;
   gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-advanced-group {
+  margin-top: 1rem;
+}
+
+.oba-advanced-group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
 }
 
 .oba-advanced-tool {
@@ -457,19 +469,17 @@ kbd {
 }
 
 .oba-preferences-warning {
-  position: fixed;
-  right: 1rem;
-  bottom: 1rem;
-  z-index: 5;
-  max-width: 30rem;
+  margin: 0.75rem 1rem 0;
   padding: 0.75rem 1rem;
   border: var(--ob-border-width) solid var(--ob-color-accent);
   border-radius: var(--ob-radius-sm);
   background: var(--ob-color-surface-raised);
-  box-shadow: var(--oba-shadow-lg);
 }
 
-html[data-admin-preset="simple"] .oba-progressive-tools {
+html[data-admin-preset="simple"] .oba-progressive-tools,
+[data-admin-module][hidden],
+[data-admin-module-group][hidden],
+.oba-editor-advanced[hidden] {
   display: none;
 }
 
@@ -2249,6 +2259,10 @@ html[data-admin-density="compact"] .oba-pane {
 
   .oba-preferences-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .oba-module-row {
+    flex-wrap: wrap;
   }
 
   .oba-dialog-actions {

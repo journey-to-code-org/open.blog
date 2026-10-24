@@ -43,18 +43,32 @@ immediately.
 
 The admin is organized like a writing studio. New accounts start in **Simple**, which keeps
 the main navigation focused on content and the essential **Write**, **Site preview**, and
-**Settings** views. **Advanced tools** keeps analytics, contributors, the public site, and
-every document tool reachable without crowding the everyday workspace. Choose
-**Personalize** to switch to Guided or Advanced, or use Custom to show, hide, and reorder
-optional tools. You can also choose comfortable or compact spacing and a default Visual or
-Markdown writing mode.
+**Settings** views. Every other document view sits under **More tools** in the editor bar,
+and the header's **Advanced tools** dialog groups every optional tool by goal: getting
+writing help (the optional AI Assistant, including knowledge checks and runnable-code
+proposals), checking quality and research, sharing and distribution, and collaboration and
+readership. **Guided** adds Accessibility, Evidence Studio, and Assistant to the editor bar,
+**Advanced** shows everything, and **Custom** lets you show or hide each optional tool. In
+every preset you can reorder optional tools with the up and down buttons, choose comfortable
+or compact spacing, pick a default Visual or Markdown writing mode, and **Restore defaults**.
+Open **Personalize** from the header, from Advanced tools, or by searching for
+"Personalize workspace" with `Ctrl+K`.
 
-Personalization is private to each admin login. It is stored under
-`.openblog/private/admin-preferences/`, is protected by the same login and CSRF checks as
-content editing, and never enters `openblog.json`, a post, an export, or the generated site.
-Write, preview, settings, save state, publish status, conflicts, privacy notices, approvals,
-and blockers cannot be hidden. If private preference storage is unavailable, authoring falls
-back to the Simple workspace and remains usable.
+Workspace preferences are private presentation choices for one admin login, not site
+configuration: they never change a post, `openblog.json`, the generated site, feeds, or
+exports. They are stored under `.openblog/private/admin-preferences/` (ignored by Git in new
+projects), limited to a small schema-versioned file per login, and protected by the same
+login and CSRF checks as content editing. Each save names the revision it replaces, so a
+change made in another tab or session is reloaded instead of silently overwritten. Write,
+preview, settings, save state, publish status, conflicts, privacy notices, approvals, and
+blockers cannot be hidden or reordered. If private preference storage is unavailable,
+authoring falls back to the Simple workspace with a notice and remains usable; saving from
+**Personalize** replaces stored preferences that can no longer be read.
+
+Admins who used the workspace before personalization existed keep the full layout: on their
+first sign-in after upgrading, a browser that remembered a writing mode or preview width
+starts in **Advanced** with that writing mode, and the choice is then stored privately for the
+login.
 
 Inside the editor, Social, Release kit, Field Review, Optimize, Accessibility, Evidence, and
 Assistant are separate full-width views, so writing is not squeezed beside a permanent preview.
@@ -67,7 +81,8 @@ the arrow keys and Enter to choose a result, or Escape to close it.
 
 The editor footer shows whether the document is saved plus its line, word, and character
 counts. Press `Alt+1` through `Alt+9` to focus Write, Site preview, Social, Release kit,
-Field Review, Optimize, Settings, Accessibility, or Evidence. The preview
+Field Review, Optimize, Settings, Accessibility, or Evidence, whether or not that view is
+shown in the editor bar. The preview
 toolbar can constrain the canvas to wide, tablet, or mobile width; this preference is stored
 in the browser and does not change the published theme.
 

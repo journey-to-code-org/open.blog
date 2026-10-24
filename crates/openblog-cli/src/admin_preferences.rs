@@ -5,7 +5,10 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+pub const SCHEMA_VERSION: u32 = 1;
 pub const MAX_FILE_BYTES: usize = 64 * 1024;
+/// Largest accepted `PUT /admin/api/preferences` body.
+pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 pub const OPTIONAL_MODULES: [&str; 10] = [
     "social",
     "release",
@@ -56,7 +59,7 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: SCHEMA_VERSION,
             preset: WorkspacePreset::Simple,
             density: WorkspaceDensity::Comfortable,
             editor_mode: EditorMode::Visual,
@@ -71,7 +74,7 @@ impl Default for Preferences {
 
 impl Preferences {
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 1 {
+        if self.schema_version != SCHEMA_VERSION {
             return Err("unsupported admin preferences schema version".into());
         }
         if self.module_order.len() != OPTIONAL_MODULES.len() {
@@ -101,6 +104,32 @@ impl Preferences {
         }
         Ok(())
     }
+
+    /// Stored preferences written by another release may name modules this
+    /// release does not know or omit ones it added. Unknown and repeated names
+    /// are dropped and missing modules are appended, so every tool stays reachable.
+    fn migrate_modules(mut self) -> Self {
+        let mut order: Vec<String> = Vec::with_capacity(OPTIONAL_MODULES.len());
+        for module in self.module_order.drain(..) {
+            if OPTIONAL_MODULES.contains(&module.as_str()) && !order.contains(&module) {
+                order.push(module);
+            }
+        }
+        for module in OPTIONAL_MODULES {
+            if !order.iter().any(|item| item == module) {
+                order.push(module.into());
+            }
+        }
+        self.module_order = order;
+        let mut hidden: Vec<String> = Vec::new();
+        for module in self.hidden_modules.drain(..) {
+            if OPTIONAL_MODULES.contains(&module.as_str()) && !hidden.contains(&module) {
+                hidden.push(module);
+            }
+        }
+        self.hidden_modules = hidden;
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -108,11 +137,15 @@ impl Preferences {
 pub struct Snapshot {
     pub preferences: Preferences,
     pub etag: String,
+    /// False until this admin saves once; the Admin uses it to migrate
+    /// browser-local settings from earlier releases exactly once.
+    pub stored: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SaveError {
     Conflict,
+    Invalid(String),
     Storage(String),
 }
 
@@ -120,7 +153,7 @@ impl fmt::Display for SaveError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Conflict => write!(formatter, "admin preferences changed in another session"),
-            Self::Storage(message) => formatter.write_str(message),
+            Self::Invalid(message) | Self::Storage(message) => formatter.write_str(message),
         }
     }
 }
@@ -139,35 +172,53 @@ pub fn preference_path(root: &Path, user: &str) -> Result<PathBuf, String> {
 
 pub fn load(root: &Path, user: &str) -> Result<Snapshot, String> {
     let path = preference_path(root, user)?;
-    if !path.exists() {
-        return snapshot(Preferences::default());
+    match read_stored(&path)? {
+        Some(preferences) => snapshot(preferences, true),
+        None => snapshot(Preferences::default(), false),
     }
-    let metadata = fs::metadata(&path)
-        .map_err(|error| format!("could not inspect admin preferences: {error}"))?;
+}
+
+fn read_stored(path: &Path) -> Result<Option<Preferences>, String> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("could not inspect admin preferences: {error}")),
+    };
     if metadata.len() > MAX_FILE_BYTES as u64 {
         return Err("admin preferences file is too large".into());
     }
     let bytes =
-        fs::read(&path).map_err(|error| format!("could not read admin preferences: {error}"))?;
+        fs::read(path).map_err(|error| format!("could not read admin preferences: {error}"))?;
     let preferences: Preferences = serde_json::from_slice(&bytes)
         .map_err(|error| format!("admin preferences are not valid: {error}"))?;
+    let preferences = preferences.migrate_modules();
     preferences.validate()?;
-    snapshot(preferences)
+    Ok(Some(preferences))
 }
 
+/// Replaces this admin's preferences when `expected_etag` names the current
+/// revision. Unreadable stored state has no revision, so a client that could
+/// not load it recovers by saving with an empty ETag.
 pub fn save(
     root: &Path,
     user: &str,
     expected_etag: &str,
     preferences: Preferences,
 ) -> Result<Snapshot, SaveError> {
-    preferences.validate().map_err(SaveError::Storage)?;
-    let current = load(root, user).map_err(SaveError::Storage)?;
-    if current.etag != expected_etag {
+    preferences.validate().map_err(SaveError::Invalid)?;
+    let path = preference_path(root, user).map_err(SaveError::Invalid)?;
+    let current_etag = match read_stored(&path) {
+        Ok(Some(stored)) => snapshot(stored, true).map_err(SaveError::Storage)?.etag,
+        Ok(None) => {
+            snapshot(Preferences::default(), false)
+                .map_err(SaveError::Storage)?
+                .etag
+        }
+        Err(_) => String::new(),
+    };
+    if current_etag != expected_etag {
         return Err(SaveError::Conflict);
     }
-
-    let path = preference_path(root, user).map_err(SaveError::Storage)?;
     let parent = path
         .parent()
         .ok_or_else(|| SaveError::Storage("invalid admin preferences path".into()))?;
@@ -176,6 +227,15 @@ pub fn save(
             "could not create private preferences directory: {error}"
         ))
     })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(parent, fs::Permissions::from_mode(0o700)).map_err(|error| {
+            SaveError::Storage(format!(
+                "could not protect private preferences directory: {error}"
+            ))
+        })?;
+    }
     let bytes = serde_json::to_vec_pretty(&preferences).map_err(|error| {
         SaveError::Storage(format!("could not encode admin preferences: {error}"))
     })?;
@@ -187,14 +247,17 @@ pub fn save(
 
     let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
     let write_result = (|| -> Result<(), std::io::Error> {
-        let mut file = fs::File::create(&temporary)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
+        let mut options = fs::OpenOptions::new();
+        options.create(true).truncate(true).write(true);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
         }
+        let mut file = options.open(&temporary)?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        drop(file);
         fs::rename(&temporary, &path)?;
         Ok(())
     })();
@@ -204,15 +267,16 @@ pub fn save(
             "could not save admin preferences: {error}"
         )));
     }
-    snapshot(preferences).map_err(SaveError::Storage)
+    snapshot(preferences, true).map_err(SaveError::Storage)
 }
 
-fn snapshot(preferences: Preferences) -> Result<Snapshot, String> {
+fn snapshot(preferences: Preferences, stored: bool) -> Result<Snapshot, String> {
     let canonical = serde_json::to_vec(&preferences)
         .map_err(|error| format!("could not encode admin preferences: {error}"))?;
     Ok(Snapshot {
         preferences,
         etag: format!("{:x}", Sha256::digest(canonical)),
+        stored,
     })
 }
 
@@ -298,6 +362,76 @@ mod tests {
         assert!(!path.to_string_lossy().contains("alice"));
         assert!(path.starts_with(root.join(".openblog/private/admin-preferences")));
         assert!(!root.join("openblog.json").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn snapshots_say_whether_preferences_were_ever_stored() {
+        let root = fixture("stored");
+        let initial = load(&root, "alice").unwrap();
+        assert!(!initial.stored);
+        let saved = save(&root, "alice", &initial.etag, initial.preferences.clone()).unwrap();
+        assert!(saved.stored);
+        assert!(load(&root, "alice").unwrap().stored);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stored_preferences_keep_newly_added_modules_reachable() {
+        let root = fixture("migration");
+        let path = preference_path(&root, "alice").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            br#"{"schemaVersion":1,"preset":"custom","density":"compact","editorMode":"markdown",
+            "moduleOrder":["assistant","retired-tool","social","assistant"],
+            "hiddenModules":["social","retired-tool"]}"#,
+        )
+        .unwrap();
+        let loaded = load(&root, "alice").unwrap();
+        assert_eq!(loaded.preferences.module_order[0], "assistant");
+        assert_eq!(loaded.preferences.module_order[1], "social");
+        assert_eq!(
+            loaded.preferences.module_order.len(),
+            OPTIONAL_MODULES.len()
+        );
+        assert_eq!(
+            loaded.preferences.hidden_modules,
+            vec!["social".to_string()]
+        );
+        loaded.preferences.validate().unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unreadable_state_can_be_replaced_only_by_a_client_without_a_revision() {
+        let root = fixture("recovery");
+        let path = preference_path(&root, "alice").unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, b"{not json").unwrap();
+        let restored = save(&root, "alice", "", Preferences::default()).unwrap();
+        assert_eq!(restored.preferences, Preferences::default());
+        assert!(matches!(
+            save(&root, "alice", "", Preferences::default()),
+            Err(SaveError::Conflict)
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_input_is_distinguished_from_storage_failure() {
+        let root = fixture("invalid");
+        let mut invalid = Preferences::default();
+        invalid.hidden_modules.push("publish".into());
+        let etag = load(&root, "alice").unwrap().etag;
+        assert!(matches!(
+            save(&root, "alice", &etag, invalid),
+            Err(SaveError::Invalid(_))
+        ));
+        assert!(matches!(
+            save(&root, "", &etag, Preferences::default()),
+            Err(SaveError::Invalid(_))
+        ));
         fs::remove_dir_all(root).unwrap();
     }
 
