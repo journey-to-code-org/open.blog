@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-24
+
 - Added native Assistant integrations for OpenAI, Google Gemini, xAI Grok, DeepSeek, Mistral AI,
   and OpenRouter with fixed official destinations, provider-specific environment credentials,
   structured-output adapters, editable model choices, and strict local result validation.
@@ -297,7 +299,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.2...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/journey-to-code-org/open.blog/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.10.1...v0.11.0
