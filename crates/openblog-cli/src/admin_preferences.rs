@@ -172,33 +172,64 @@ pub fn preference_path(root: &Path, user: &str) -> Result<PathBuf, String> {
 
 pub fn load(root: &Path, user: &str) -> Result<Snapshot, String> {
     let path = preference_path(root, user)?;
-    match read_stored(&path)? {
+    match read_stored(&path).map_err(StoredError::into_message)? {
         Some(preferences) => snapshot(preferences, true),
         None => snapshot(Preferences::default(), false),
     }
 }
 
-fn read_stored(path: &Path) -> Result<Option<Preferences>, String> {
+/// Why stored preferences could not be used.
+enum StoredError {
+    /// The file exists but is malformed, invalid, or too large: replaceable.
+    Invalid(String),
+    /// The file could not be inspected or read (permissions, transient I/O):
+    /// it may be valid, so it must not be overwritten blindly.
+    Unreadable(String),
+}
+
+impl StoredError {
+    fn into_message(self) -> String {
+        match self {
+            Self::Invalid(message) | Self::Unreadable(message) => message,
+        }
+    }
+}
+
+fn read_stored(path: &Path) -> Result<Option<Preferences>, StoredError> {
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("could not inspect admin preferences: {error}")),
+        Err(error) => {
+            return Err(StoredError::Unreadable(format!(
+                "could not inspect admin preferences: {error}"
+            )))
+        }
     };
-    if metadata.len() > MAX_FILE_BYTES as u64 {
-        return Err("admin preferences file is too large".into());
+    if !metadata.is_file() {
+        return Err(StoredError::Unreadable(
+            "admin preferences path is not a file".into(),
+        ));
     }
-    let bytes =
-        fs::read(path).map_err(|error| format!("could not read admin preferences: {error}"))?;
-    let preferences: Preferences = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("admin preferences are not valid: {error}"))?;
+    if metadata.len() > MAX_FILE_BYTES as u64 {
+        return Err(StoredError::Invalid(
+            "admin preferences file is too large".into(),
+        ));
+    }
+    let bytes = fs::read(path).map_err(|error| {
+        StoredError::Unreadable(format!("could not read admin preferences: {error}"))
+    })?;
+    let preferences: Preferences = serde_json::from_slice(&bytes).map_err(|error| {
+        StoredError::Invalid(format!("admin preferences are not valid: {error}"))
+    })?;
     let preferences = preferences.migrate_modules();
-    preferences.validate()?;
+    preferences.validate().map_err(StoredError::Invalid)?;
     Ok(Some(preferences))
 }
 
 /// Replaces this admin's preferences when `expected_etag` names the current
-/// revision. Unreadable stored state has no revision, so a client that could
-/// not load it recovers by saving with an empty ETag.
+/// revision. Malformed, invalid, or oversized stored state has no revision, so
+/// a client that could not load it recovers by saving with an empty ETag. A
+/// file that could not be read at all is never replaced: it may still be valid.
 pub fn save(
     root: &Path,
     user: &str,
@@ -214,7 +245,8 @@ pub fn save(
                 .map_err(SaveError::Storage)?
                 .etag
         }
-        Err(_) => String::new(),
+        Err(StoredError::Invalid(_)) => String::new(),
+        Err(StoredError::Unreadable(message)) => return Err(SaveError::Storage(message)),
     };
     if current_etag != expected_etag {
         return Err(SaveError::Conflict);
@@ -415,6 +447,21 @@ mod tests {
             save(&root, "alice", "", Preferences::default()),
             Err(SaveError::Conflict)
         ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn state_that_cannot_be_read_at_all_is_never_replaced() {
+        let root = fixture("unreadable");
+        let path = preference_path(&root, "alice").unwrap();
+        // A directory where the file belongs cannot be read, like a permission or I/O failure.
+        fs::create_dir_all(&path).unwrap();
+        assert!(load(&root, "alice").is_err());
+        assert!(matches!(
+            save(&root, "alice", "", Preferences::default()),
+            Err(SaveError::Storage(_))
+        ));
+        assert!(path.is_dir(), "the unreadable entry is left in place");
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -476,7 +476,7 @@ kbd {
   background: var(--ob-color-surface-raised);
 }
 
-html[data-admin-preset="simple"] .oba-progressive-tools,
+.oba-progressive-tools[hidden],
 [data-admin-module][hidden],
 [data-admin-module-group][hidden],
 .oba-editor-advanced[hidden] {

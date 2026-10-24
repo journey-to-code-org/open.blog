@@ -62,13 +62,18 @@ login and CSRF checks as content editing. Each save names the revision it replac
 change made in another tab or session is reloaded instead of silently overwritten. Write,
 preview, settings, save state, publish status, conflicts, privacy notices, approvals, and
 blockers cannot be hidden or reordered. If private preference storage is unavailable,
-authoring falls back to the Simple workspace with a notice and remains usable; saving from
-**Personalize** replaces stored preferences that can no longer be read.
+authoring falls back to the Simple workspace with a notice and remains usable. Only saving
+from **Personalize** replaces stored preferences that can no longer be read; switching
+between Visual and Markdown then lasts for the session without touching the stored file.
+The server allows that replacement only when the stored file is malformed or too large,
+never when it could not be read at all.
 
 Admins who used the workspace before personalization existed keep the full layout: on their
-first sign-in after upgrading, a browser that remembered a writing mode or preview width
-starts in **Advanced** with that writing mode, and the choice is then stored privately for the
-login.
+first sign-in after upgrading, a browser that remembered a writing mode from an earlier
+release starts in **Advanced** with that writing mode, and the choice is then stored privately
+for the login. The browser then forgets the old writing mode, so the migration happens once
+and another login in the same browser starts in **Simple**. A remembered preview width does
+not count, because this release still remembers it.
 
 Inside the editor, Social, Release kit, Field Review, Optimize, Accessibility, Evidence, and
 Assistant are separate full-width views, so writing is not squeezed beside a permanent preview.

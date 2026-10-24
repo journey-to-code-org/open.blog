@@ -71,6 +71,12 @@ class DomNode {
   setAttribute(name, value) {
     this.attributes[name] = String(value);
     if (name === "id") this.id = String(value);
+    if (name === "hidden") this.hidden = true;
+    if (name.startsWith("data-")) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = String(value);
+  }
+  contains(node) {
+    for (let current = node; current; current = current.parent) if (current === this) return true;
+    return false;
   }
   getAttribute(name) {
     return this.attributes[name] ?? null;
@@ -171,6 +177,16 @@ const withDom = (run) => async () => {
 };
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const memoryStorage = (values = {}) => ({
+  values,
+  getItem: (key) => values[key] ?? null,
+  setItem: (key, value) => {
+    values[key] = String(value);
+  },
+  removeItem: (key) => {
+    delete values[key];
+  },
+});
 const findByText = (root, tag, text) => root.querySelectorAll(tag).find((node) => node.textContent.includes(text));
 
 function snapshotFor(preferences, etag, stored = true) {
@@ -305,10 +321,86 @@ test("the editor bar applies a layout and names a hidden active view on More too
   assert.equal(editor.advancedPaneDetails.open, false);
   assert.equal(editor.editorMode, "markdown");
 
+  Editor.prototype.applyWorkspacePreferences.call(editor, normalizeAdminPreferences({ preset: "guided" }));
+  assert.deepEqual(editor.primaryPaneNav.children.map((button) => button.textContent), ["write", "preview", "settings", "accessibility", "evidence", "assistant"]);
+  assert.deepEqual(editor.advancedPaneActions.children.map((button) => button.textContent), ["social", "release", "field", "optimize"]);
+  assert.equal(editor.advancedPaneDetails.hidden, false);
+  assert.equal(editor.moreToolsSummary.textContent, "More tools: Social");
+
+  Editor.prototype.applyWorkspacePreferences.call(editor, normalizeAdminPreferences({ preset: "custom", moduleOrder: ["assistant", "social"], hiddenModules: ["release", "field", "optimize", "accessibility", "evidence"] }));
+  assert.deepEqual(editor.primaryPaneNav.children.map((button) => button.textContent), ["write", "preview", "settings", "assistant", "social"]);
+  assert.deepEqual(editor.advancedPaneActions.children.map((button) => button.textContent), ["release", "field", "optimize", "accessibility", "evidence"]);
+  assert.equal(editor.moreToolsSummary.textContent, "More tools", "an active view shown in the bar is not named on More tools");
+
   Editor.prototype.applyWorkspacePreferences.call(editor, normalizeAdminPreferences({ preset: "advanced" }));
   assert.equal(editor.primaryPaneNav.children.length, DOCUMENT_PANES.length);
   assert.equal(editor.advancedPaneDetails.hidden, true);
   assert.equal(editor.moreToolsSummary.textContent, "More tools");
+}));
+
+test("choosing a view from More tools keeps keyboard focus on the menu, which names the choice", withDom(async ({ document }) => {
+  const summary = new DomNode("summary", document);
+  const actions = new DomNode("div", document);
+  const choice = Object.assign(new DomNode("button", document), { textContent: "release" });
+  actions.append(choice);
+  const details = new DomNode("details", document);
+  details.append(summary, actions);
+  const editor = {
+    advancedPaneDetails: Object.assign(details, { open: true }),
+    advancedPaneActions: actions,
+    moreToolsSummary: summary,
+    morePanes: ["release"],
+    paneLabels: { release: "Release kit" },
+  };
+  choice.focus();
+  Editor.prototype.syncMoreTools.call(editor, "release");
+  assert.equal(details.open, false);
+  assert.equal(document.activeElement, summary, "focus does not fall back to the page when the menu collapses");
+  assert.equal(summary.textContent, "More tools: Release kit");
+
+  const elsewhere = new DomNode("button", document);
+  elsewhere.focus();
+  Editor.prototype.syncMoreTools.call(editor, "write");
+  assert.equal(document.activeElement, elsewhere, "focus outside the menu is left alone");
+}));
+
+function renderShell(app, active) {
+  app.meta = { siteTitle: "Blog" };
+  const root = app.shell(active);
+  app.querySelectorAll = (selector) => root.querySelectorAll(selector);
+  app.applyWorkspacePreferences();
+  return root;
+}
+
+function hiddenWithin(node, root) {
+  for (let current = node; current && current !== root; current = current.parent) if (current.hidden) return true;
+  return false;
+}
+
+const toolbeltLinks = (root) =>
+  root.querySelector("nav").querySelectorAll("a").filter((link) => link.attributes.href?.startsWith("#/") && !hiddenWithin(link, root)).map((link) => link.textContent);
+
+test("every preset applies its toolbelt modules and the open route always stays marked current", withDom(async () => {
+  const content = ["Overview", "Posts", "Pages", "Series"];
+  const cases = [
+    [{ preset: "simple" }, "overview", content],
+    [{ preset: "guided" }, "posts", content],
+    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics"]],
+    [{ preset: "simple" }, "analytics", [...content, "Analytics"]],
+    [{ preset: "guided" }, "contributors", [...content, "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Contributors"]],
+  ];
+  for (const [preferences, active, expected] of cases) {
+    const app = appWith(fakeApi({}));
+    app.preferences = normalizeAdminPreferences(preferences);
+    const root = renderShell(app, active);
+    const label = `${preferences.preset} on ${active}`;
+    assert.deepEqual(toolbeltLinks(root), expected, label);
+    const current = root.querySelector("nav").querySelectorAll("a").filter((link) => link.attributes["aria-current"] === "page");
+    assert.equal(current.length, 1, `${label} marks one current item`);
+    assert.equal(hiddenWithin(current[0], root), false, `${label} shows the current item`);
+  }
 }));
 
 // ---------------------------------------------------------------- migration
@@ -319,13 +411,14 @@ test("first-time admins start Simple while earlier admins keep the full workspac
   assert.equal(legacyAdminPreferences(unstored, storage({})), null);
   assert.equal(legacyAdminPreferences(snapshotFor({}, "a", true), storage({ "ob-admin-editor-mode": "markdown" })), null);
   assert.deepEqual(legacyAdminPreferences(unstored, storage({ "ob-admin-editor-mode": "markdown" })), normalizeAdminPreferences({ preset: "advanced", editorMode: "markdown" }));
-  assert.deepEqual(legacyAdminPreferences(unstored, storage({ "ob-admin-preview-width": "tablet" })), normalizeAdminPreferences({ preset: "advanced" }));
+  assert.equal(legacyAdminPreferences(unstored, storage({ "ob-admin-preview-width": "tablet" })), null, "this release still writes the preview width, so it proves nothing");
   assert.equal(legacyAdminPreferences(unstored, { getItem: () => { throw new Error("blocked"); } }), null);
   assert.equal(legacyAdminPreferences(unstored, undefined), null);
 });
 
 test("existing admins migrate once into a stored Advanced workspace", withDom(async () => {
-  globalThis.localStorage = { getItem: (key) => (key === "ob-admin-editor-mode" ? "markdown" : null) };
+  const storage = memoryStorage({ "ob-admin-editor-mode": "markdown" });
+  globalThis.localStorage = storage;
   const api = fakeApi({
     "GET meta": () => ({ siteTitle: "Blog" }),
     "GET preferences": () => snapshotFor({}, "initial", false),
@@ -339,6 +432,35 @@ test("existing admins migrate once into a stored Advanced workspace", withDom(as
   assert.equal(app.preferences.editorMode, "markdown");
   assert.equal(app.preferencesEtag, "migrated");
   assert.equal(app.routed, true);
+  assert.equal(storage.getItem("ob-admin-editor-mode"), null, "the legacy trace is dropped after migrating");
+
+  // Another login signing in for the first time in the same browser starts Simple.
+  const other = fakeApi({
+    "GET meta": () => ({ siteTitle: "Blog" }),
+    "GET preferences": () => snapshotFor({}, "ada", false),
+  });
+  const ada = appWith(other);
+  await ada.enter();
+  assert.equal(ada.preferences.preset, "simple");
+  assert.equal(other.calls.some((call) => call.method === "PUT"), false);
+}));
+
+test("a first-time admin who changes preview width stays Simple after a reload", withDom(async () => {
+  const storage = memoryStorage();
+  globalThis.localStorage = storage;
+  const api = fakeApi({
+    "GET meta": () => ({ siteTitle: "Blog" }),
+    "GET preferences": () => snapshotFor({}, "initial", false),
+  });
+  const first = appWith(api);
+  await first.enter();
+  assert.equal(first.preferences.preset, "simple");
+  // The editor remembers the chosen preview width in this browser.
+  storage.setItem("ob-admin-preview-width", "mobile");
+  const reloaded = appWith(api);
+  await reloaded.enter();
+  assert.equal(reloaded.preferences.preset, "simple");
+  assert.equal(api.calls.some((call) => call.method === "PUT"), false, "nothing is migrated or stored");
 }));
 
 // ---------------------------------------------------------------- storage failure and conflicts
@@ -391,6 +513,71 @@ test("a stale preference write reloads the latest revision instead of overwritin
   await assert.rejects(app.saveWorkspacePreferences({ ...app.preferences, preset: "guided" }), (error) => error.status === 409);
   assert.equal(app.preferences.preset, "advanced");
   assert.equal(app.preferencesEtag, "theirs");
+}));
+
+test("a writing-mode toggle never replaces stored settings that could not be loaded", withDom(async ({ document }) => {
+  const api = fakeApi({
+    "GET meta": () => ({ siteTitle: "Blog" }),
+    "GET preferences": () => {
+      throw Object.assign(new Error("permission denied"), { status: 500 });
+    },
+    "PUT preferences": (body) => snapshotFor(body.preferences, "overwritten"),
+  });
+  const app = appWith(api);
+  await app.enter();
+  const status = Object.assign(new DomNode("span", document), { textContent: "Markdown" });
+  app.editor = { ui: { editorModeStatus: status }, applyWorkspacePreferences() {} };
+  await app.persistEditorMode("markdown");
+  assert.equal(app.preferences.editorMode, "markdown", "the mode still changes for this session");
+  assert.equal(api.calls.some((call) => call.method === "PUT"), false);
+  assert.match(status.textContent, /preference not saved/);
+  assert.match(app.preferencesError, /personalization is unavailable/);
+}));
+
+test("a writing-mode save queued behind a Personalize save keeps that save's choices", withDom(async () => {
+  let revision = 0;
+  const api = fakeApi({
+    "PUT preferences": async (body) => {
+      await tick();
+      revision += 1;
+      return snapshotFor(body.preferences, `r${revision}`);
+    },
+  });
+  const app = appWith(api);
+  app.preferencesEtag = "r0";
+  const personalize = app.saveWorkspacePreferences({ ...app.preferences, density: "compact", preset: "guided" });
+  const mode = app.persistEditorMode("markdown");
+  await Promise.all([personalize, mode]);
+  const last = api.calls.at(-1).body;
+  assert.equal(last.etag, "r1");
+  assert.equal(last.preferences.density, "compact");
+  assert.equal(last.preferences.preset, "guided");
+  assert.equal(last.preferences.editorMode, "markdown");
+  assert.equal(app.preferences.density, "compact");
+  assert.equal(app.preferences.editorMode, "markdown");
+}));
+
+test("a writing-mode conflict merges with the other session without flipping the editor", withDom(async () => {
+  let attempts = 0;
+  const api = fakeApi({
+    "PUT preferences": (body) => {
+      attempts += 1;
+      if (attempts === 1) throw Object.assign(new Error("changed elsewhere"), { status: 409 });
+      return snapshotFor(body.preferences, "merged");
+    },
+    "GET preferences": () => snapshotFor({ preset: "advanced", editorMode: "visual" }, "theirs"),
+  });
+  const app = appWith(api);
+  app.preferencesEtag = "mine";
+  const modes = [];
+  app.editor = { applyWorkspacePreferences: (preferences) => modes.push(preferences.editorMode) };
+  await app.persistEditorMode("markdown");
+  assert.deepEqual(modes.filter((mode) => mode !== "markdown"), [], "the editor never shows the other session's writing mode");
+  assert.equal(api.calls.at(-1).body.etag, "theirs");
+  assert.equal(api.calls.at(-1).body.preferences.preset, "advanced");
+  assert.equal(api.calls.at(-1).body.preferences.editorMode, "markdown");
+  assert.equal(app.preferences.preset, "advanced");
+  assert.equal(app.preferencesError, "");
 }));
 
 test("a failed writing-mode save keeps the mode for this session and says so", withDom(async () => {
@@ -501,6 +688,20 @@ test("personalization can replace unreadable stored preferences", withDom(async 
   assert.equal(app.preferencesError, "");
 }));
 
+test("the workspace storage warning disappears once a save recovers", withDom(async () => {
+  const api = fakeApi({ "PUT preferences": (body) => snapshotFor(body.preferences, "fresh") });
+  const app = appWith(api);
+  app.preferencesError = "Workspace personalization is unavailable: admin preferences are not valid";
+  app.preferencesUnreadable = true;
+  const root = renderShell(app, "overview");
+  const warning = root.querySelector(".oba-preferences-warning");
+  assert.equal(warning.hidden, false);
+  assert.match(warning.textContent, /personalization is unavailable/);
+  await app.saveWorkspacePreferences(normalizeAdminPreferences({ preset: "guided" }));
+  assert.equal(warning.hidden, true);
+  assert.equal(warning.textContent, "");
+}));
+
 test("keyboard shortcuts and search reach every view regardless of preferences", () => {
   assert.match(admin, /\["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence"\]\[Number\(e\.key\) - 1\]/);
   assert.match(admin, /label: "Advanced tools"/);
@@ -516,7 +717,8 @@ test("personalization uses the private authenticated API and accessible responsi
   assert.match(admin, /Your private view/);
   assert.match(admin, /Restore defaults/);
   assert.match(admin, /role: "status", "aria-live": "polite"/);
-  assert.match(styles, /html\[data-admin-preset="simple"\] \.oba-progressive-tools/);
+  assert.match(styles, /\.oba-progressive-tools\[hidden\]/);
+  assert.doesNotMatch(styles, /data-admin-preset="simple"\] \.oba-progressive-tools/, "hiding follows the hidden attribute, so the open route can stay visible");
   assert.match(styles, /@media \(max-width: 44rem\)/);
   assert.match(styles, /min-height: 44px/);
 });

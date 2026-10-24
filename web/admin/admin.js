@@ -112,27 +112,36 @@ export function editorPaneLayout(preferences, panes) {
   };
 }
 
-// Earlier releases remembered the writing mode only in this browser.
+// Earlier releases remembered the writing mode only in this browser. This
+// release never writes the key, so its presence marks an earlier admin. (The
+// preview width key is still written today, so it proves nothing.)
 const LEGACY_EDITOR_MODE_KEY = "ob-admin-editor-mode";
 
 /**
  * Preferences for an admin who used the workspace before personalization
  * existed: keep every tool where it was and carry over the writing mode.
- * First-time admins (no browser traces) and admins with stored server-side
- * preferences get null.
+ * First-time admins (no legacy writing mode in this browser) and admins with
+ * stored server-side preferences get null.
  */
 export function legacyAdminPreferences(snapshot, storage) {
   if (!snapshot || snapshot.stored !== false || !storage) return null;
   let editorMode;
-  let previewWidth;
   try {
     editorMode = storage.getItem(LEGACY_EDITOR_MODE_KEY);
-    previewWidth = storage.getItem(ADMIN_PREVIEW_WIDTH_KEY);
   } catch {
     return null;
   }
-  if (editorMode == null && previewWidth == null) return null;
+  if (editorMode == null) return null;
   return normalizeAdminPreferences({ preset: "advanced", editorMode });
+}
+
+/** Drop the legacy trace once one login has migrated, so it cannot migrate another login in this browser. */
+export function forgetLegacyAdminPreferences(storage) {
+  try {
+    storage?.removeItem(LEGACY_EDITOR_MODE_KEY);
+  } catch {
+    // Blocked storage has nothing left to migrate from on the next sign-in either way.
+  }
 }
 
 function browserStorage() {
@@ -1341,8 +1350,12 @@ export class ObAdmin extends AdminElement {
   skipRoute = false;
   currentHash = "";
   preferences = normalizeAdminPreferences();
+  preferencesSaved = normalizeAdminPreferences();
   preferencesEtag = "";
   preferencesError = "";
+  preferencesUnreadable = false;
+  preferencesWarning = null;
+  activeRoute = "";
   preferencesSaving = Promise.resolve();
   preferencesTicket = 0;
 
@@ -1397,10 +1410,12 @@ export class ObAdmin extends AdminElement {
     this.meta = await this.api.call("GET", "meta");
     try {
       const snapshot = await this.loadWorkspacePreferences();
-      const legacy = legacyAdminPreferences(snapshot, browserStorage());
+      const storage = browserStorage();
+      const legacy = legacyAdminPreferences(snapshot, storage);
       if (legacy) {
         try {
           await this.saveWorkspacePreferences(legacy);
+          forgetLegacyAdminPreferences(storage);
         } catch {
           // Keep the migrated layout for this session; the next sign-in retries.
           this.preferences = legacy;
@@ -1409,6 +1424,7 @@ export class ObAdmin extends AdminElement {
     } catch (error) {
       this.preferences = normalizeAdminPreferences();
       this.preferencesEtag = "";
+      this.preferencesUnreadable = true;
       this.preferencesError = `Workspace personalization is unavailable: ${error.message}`;
     }
     this.applyWorkspacePreferences();
@@ -1416,53 +1432,87 @@ export class ObAdmin extends AdminElement {
     this.onHash();
   }
 
-  async loadWorkspacePreferences() {
+  /** Read the stored revision; `apply: false` refreshes the revision without changing the visible layout. */
+  async loadWorkspacePreferences({ apply = true } = {}) {
     const snapshot = await this.api.call("GET", "preferences");
-    this.preferences = normalizeAdminPreferences(snapshot.preferences);
+    this.preferencesSaved = normalizeAdminPreferences(snapshot.preferences);
     this.preferencesEtag = snapshot.etag;
-    this.preferencesError = "";
+    this.preferencesUnreadable = false;
+    if (apply) {
+      this.preferences = this.preferencesSaved;
+      this.preferencesError = "";
+    }
     return snapshot;
   }
 
   /**
-   * Save one complete preference set. Saves run one at a time so each sends
-   * the revision the previous one produced; only the newest response is
-   * applied, and a stale write reloads the latest revision before rejecting.
+   * Save a preference set, or an update function applied to the latest saved
+   * set when the save runs. Saves run one at a time so each sends the revision
+   * the previous one produced, and an update queued behind another save builds
+   * on that save's result instead of a stale copy. Only the newest response is
+   * applied. A stale complete set reloads the latest revision before
+   * rejecting; a stale update reloads quietly and retries once on top of it.
    */
   saveWorkspacePreferences(next) {
-    const preferences = normalizeAdminPreferences(next);
+    const update = typeof next === "function" ? next : null;
     const ticket = ++this.preferencesTicket;
+    const put = () => {
+      const preferences = normalizeAdminPreferences(update ? update(this.preferencesSaved) : next);
+      return this.api.call("PUT", "preferences", { json: { etag: this.preferencesEtag, preferences } });
+    };
     const run = async () => {
+      let snapshot;
       try {
-        const snapshot = await this.api.call("PUT", "preferences", { json: { etag: this.preferencesEtag, preferences } });
-        this.preferencesEtag = snapshot.etag;
-        this.preferencesError = "";
-        if (ticket === this.preferencesTicket) {
-          this.preferences = normalizeAdminPreferences(snapshot.preferences);
-          this.applyWorkspacePreferences();
-        }
-        return snapshot;
+        snapshot = await put();
       } catch (error) {
-        if (error.status === 409) {
-          try {
-            await this.loadWorkspacePreferences();
-            this.applyWorkspacePreferences();
-          } catch {
-            // The conflict is still reported; the next save retries the reload.
-          }
+        if (error.status !== 409) throw error;
+        try {
+          await this.loadWorkspacePreferences({ apply: !update });
+        } catch {
+          // The conflict is still reported; the next save retries the reload.
+          throw error;
         }
-        throw error;
+        if (!update) {
+          this.applyWorkspacePreferences();
+          throw error;
+        }
+        snapshot = await put();
       }
+      this.preferencesEtag = snapshot.etag;
+      this.preferencesSaved = normalizeAdminPreferences(snapshot.preferences);
+      this.preferencesError = "";
+      this.preferencesUnreadable = false;
+      if (ticket === this.preferencesTicket) {
+        this.preferences = this.preferencesSaved;
+        this.applyWorkspacePreferences();
+      } else this.syncPreferencesWarning();
+      return snapshot;
     };
     const pending = this.preferencesSaving.then(run, run);
     this.preferencesSaving = pending.catch(() => {});
     return pending;
   }
 
+  /**
+   * Shell modules to show: the preset's visible modules plus the module whose
+   * route is open, so the navigation always marks where the admin is.
+   */
+  shownShellModules() {
+    const visible = new Set(visibleAdminModules(this.preferences));
+    if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
+    return visible;
+  }
+
+  syncPreferencesWarning() {
+    if (!this.preferencesWarning) return;
+    this.preferencesWarning.textContent = this.preferencesError;
+    this.preferencesWarning.hidden = !this.preferencesError;
+  }
+
   applyWorkspacePreferences() {
     document.documentElement.dataset.adminPreset = this.preferences.preset;
     document.documentElement.dataset.adminDensity = this.preferences.density;
-    const visible = new Set(visibleAdminModules(this.preferences));
+    const visible = this.shownShellModules();
     this.querySelectorAll?.("[data-admin-module]").forEach((element) => {
       element.hidden = !visible.has(element.dataset.adminModule);
     });
@@ -1471,23 +1521,25 @@ export class ObAdmin extends AdminElement {
       element.hidden = !modules.some((module) => visible.has(module));
     });
     this.editor?.applyWorkspacePreferences(this.preferences);
+    this.syncPreferencesWarning();
   }
 
   async persistEditorMode(mode) {
     this.preferences = normalizeAdminPreferences({ ...this.preferences, editorMode: mode });
     this.applyWorkspacePreferences();
+    const notSaved = () => {
+      if (this.editor?.ui?.editorModeStatus) this.editor.ui.editorModeStatus.textContent += " · preference not saved";
+    };
+    // Stored settings that could not be read are replaced only from Personalize, never by a routine toggle.
+    if (this.preferencesUnreadable) return notSaved();
     try {
-      await this.saveWorkspacePreferences(this.preferences);
+      // Change only the writing mode, on top of the latest saved choices (from this or another session).
+      await this.saveWorkspacePreferences((saved) => ({ ...saved, editorMode: mode }));
     } catch (error) {
-      try {
-        // Another session changed other choices; keep them and this explicit mode.
-        if (error.status !== 409) throw error;
-        await this.saveWorkspacePreferences({ ...this.preferences, editorMode: mode });
-      } catch (retryError) {
-        this.preferences = normalizeAdminPreferences({ ...this.preferences, editorMode: mode });
-        this.preferencesError = `Writing mode changed for this session but could not be saved: ${retryError.message}`;
-        if (this.editor?.ui?.editorModeStatus) this.editor.ui.editorModeStatus.textContent += " · preference not saved";
-      }
+      this.preferences = normalizeAdminPreferences({ ...this.preferences, editorMode: mode });
+      this.preferencesError = `Writing mode changed for this session but could not be saved: ${error.message}`;
+      this.syncPreferencesWarning();
+      notSaved();
     }
   }
 
@@ -1545,6 +1597,7 @@ export class ObAdmin extends AdminElement {
   }
 
   shell(active, ...content) {
+    this.activeRoute = active;
     const publishBox = h("span", { class: "oba-publish" });
     this.loadPublishStatus(publishBox);
     const logout = h(
@@ -1576,7 +1629,7 @@ export class ObAdmin extends AdminElement {
     const personalizeTrigger = h("button", { class: "oba-btn oba-personalize-trigger", type: "button", onClick: () => this.openWorkspacePreferences() }, "Personalize");
     const toolGroup = (label, ...tools) =>
       h("div", { class: "oba-tool-group" }, h("span", { class: "oba-tool-label" }, label), h("div", { class: "oba-tool-actions" }, tools));
-    const visibleModules = new Set(visibleAdminModules(this.preferences));
+    const visibleModules = this.shownShellModules();
     const contentTabs = [
       h("a", { class: "oba-tab", "aria-current": active === "overview" ? "page" : null, href: "#/overview" }, "Overview"),
       ...Object.entries(KINDS).map(([kind, info]) =>
@@ -1628,7 +1681,7 @@ export class ObAdmin extends AdminElement {
         h("span", { class: "oba-spacer" }),
         publishBox,
       ),
-      this.preferencesError ? h("p", { class: "oba-preferences-warning", role: "status" }, this.preferencesError) : null,
+      (this.preferencesWarning = h("p", { class: "oba-preferences-warning", role: "status", hidden: !this.preferencesError }, this.preferencesError)),
       h("main", { class: "oba-workspace-content" }, ...content),
     );
   }
@@ -3548,11 +3601,16 @@ export class Editor {
     }
   }
 
-  /** Name the active view on the More tools menu when it lives there, and close the menu after a choice. */
+  /**
+   * Name the active view on the More tools menu when it lives there, and close
+   * the menu after a choice. Focus inside the closing menu moves to its summary,
+   * which now names the chosen view, instead of falling back to the page.
+   */
   syncMoreTools(pane) {
     if (!this.advancedPaneDetails) return;
     const inMore = this.morePanes?.includes(pane);
     this.moreToolsSummary.textContent = inMore ? `More tools: ${this.paneLabels[pane]}` : "More tools";
+    if (this.advancedPaneActions?.contains(document.activeElement)) this.moreToolsSummary.focus();
     this.advancedPaneDetails.open = false;
   }
 
