@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-24
+
 - Portable HTML now renders static fallbacks for every current interactive capability:
   quizzes keep their prompt, lettered choices, and the author's answer and explanation behind a
   native `<details>` disclosure; runnable code and web sandboxes keep their labelled source with
@@ -397,7 +399,8 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.12.0...v0.13.0
