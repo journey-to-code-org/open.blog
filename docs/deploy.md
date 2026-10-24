@@ -71,6 +71,20 @@ it is the natural choice when the repository is private. A clone of the engine r
 The file also sets cache headers for assets and CORS headers for the feeds and the
 latest-posts JSON. Aliases are plain redirect pages, so they need no Netlify redirects.
 
+### Admin hosted separately on Render
+
+This repository's Netlify configuration redirects `/admin` and `/admin/*` to
+`https://openblog-o0o5.onrender.com/admin/`, preserving nested paths. Replace that hostname
+in both rules when deploying your own Admin service. These are temporary (`302`) redirects,
+not proxy rewrites: the browser moves to Render, where login, cookies, and authenticated
+requests stay on the same origin. Public engagement routes under `/api/` stay on Netlify.
+
+Keeping Admin requests off Netlify's proxy also avoids its 26-second proxy timeout for
+long-running operations. Do not change these rules to `200` rewrites without verifying
+Admin's Origin/Host checks and request timeouts. On Render, use `OPENBLOG_BEHIND_PROXY=1`
+for secure session cookies, and follow the [self-hosting](#self-hosting-with-openblog-serve)
+and Render guidance below for credentials, persistent storage, and Git publishing.
+
 ### Comments and persistent analytics on Netlify
 
 The repository includes an optional Netlify Function backed by Supabase. It adds moderated comments
