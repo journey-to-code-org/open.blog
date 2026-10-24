@@ -76,12 +76,10 @@ impl Users {
     }
 }
 
+/// Lowercase ASCII letters, digits, `_`, `.`, and `-`, at most 32 bytes. The rule lives in
+/// `openblog-core` so collaboration bindings accept exactly the accounts that can sign in.
 pub fn valid_username(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 32
-        && name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.' | '-'))
+    openblog_core::collaboration::valid_admin_username(name)
 }
 
 pub fn check_password_policy(password: &str) -> Result<(), String> {

@@ -2,7 +2,8 @@
 
 use openblog_core::{
     collaboration::{
-        AuthorizationAction, AuthorizationContext, AuthorizationPolicy, CollaborationContract,
+        AuthorizationAction, AuthorizationContext, AuthorizationPolicy, AuthorizationTarget,
+        CollaborationContract,
     },
     contributor::CreditProvenance,
     frontmatter, generate, LoadOptions, Site, SiteConfig, SourceFile, Sources, ThemeSet,
@@ -236,7 +237,7 @@ fn site_without_collaboration_input_derives_no_credits_from_participants() {
             active_admin_users: &admin_users,
             contributor_ids: &contributor_ids,
             collaboration: &contract,
-            target_participant_id: None,
+            target: AuthorizationTarget::Publication,
         };
         assert!(policy
             .authorize(&context, AuthorizationAction::Publish)

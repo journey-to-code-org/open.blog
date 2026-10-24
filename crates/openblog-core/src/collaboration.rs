@@ -22,6 +22,7 @@ pub const MAX_REGION_BYTES: usize = 64;
 pub const COLLABORATION_AUTHORIZATION_VERSION: u8 = 1;
 pub const MAX_AUTHORIZATION_POLICY_BYTES: usize = 64 * 1024;
 pub const MAX_AUTHORIZATION_BINDINGS: usize = MAX_PARTICIPANTS;
+pub const MAX_ADMIN_USERNAME_BYTES: usize = 32;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -112,28 +113,56 @@ pub enum AuthorizationRole {
     Reader,
 }
 
+/// A collaboration action an authenticated request asks to perform. Each action takes exactly one
+/// [`AuthorizationTarget`] kind; a target of any other kind is denied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthorizationAction {
+    /// Read the published projection. Targets the publication.
     ViewPublished,
+    /// Read one contribution draft whose reveal lists the requester. Targets a contribution.
     ViewRevealed,
+    /// Read one contribution draft's private content. Targets a contribution.
     ViewContribution,
+    /// Change one contribution draft. Targets a contribution.
     EditContribution,
+    /// Start an invitation into the publication. Targets the publication.
     Invite,
+    /// Reveal one's own contribution draft. Targets a contribution.
     RevealContribution,
+    /// Submit one's own approval of the current revision. Targets a participant.
     ApproveContribution,
+    /// Request a publication time. Targets the publication.
     Schedule,
+    /// Request publication. Targets the publication.
     Publish,
+    /// Remove a participant from the publication. Targets a participant.
     RemoveMember,
+    /// Export the published projection, never private collaboration state. Targets the
+    /// publication.
     Export,
 }
 
+/// What a request acts on. Participant and contribution IDs come from the request and resolve
+/// against the server-side collaboration contract; ownership and reveal recipients are read from
+/// that contract, never from the request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthorizationTarget<'a> {
+    Publication,
+    Participant(&'a str),
+    Contribution(&'a str),
+}
+
+/// Server-side facts for one request. Callers fill the identity fields from the authenticated
+/// session, the current Admin users file, and the current contributor registry, load the policy
+/// and contract from the same publication record, and authorize inside the same transaction as
+/// any change the grant permits.
 pub struct AuthorizationContext<'a> {
     pub publication_id: &'a str,
     pub authenticated_admin_user: &'a str,
     pub active_admin_users: &'a [&'a str],
     pub contributor_ids: &'a [&'a str],
     pub collaboration: &'a CollaborationContract,
-    pub target_participant_id: Option<&'a str>,
+    pub target: AuthorizationTarget<'a>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,6 +175,39 @@ impl fmt::Display for AuthorizationError {
 }
 
 impl std::error::Error for AuthorizationError {}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TargetKind {
+    Publication,
+    Participant,
+    Contribution,
+}
+
+/// A target resolved against the contract, from the bound participant's point of view.
+enum ResolvedTarget<'a> {
+    Publication,
+    Participant {
+        id: &'a str,
+        site_owner: bool,
+    },
+    Contribution {
+        owner: &'a str,
+        revealed_to_requester: bool,
+    },
+}
+
+impl AuthorizationAction {
+    fn target_kind(self) -> TargetKind {
+        use AuthorizationAction::*;
+        match self {
+            ViewPublished | Invite | Schedule | Publish | Export => TargetKind::Publication,
+            ApproveContribution | RemoveMember => TargetKind::Participant,
+            ViewRevealed | ViewContribution | EditContribution | RevealContribution => {
+                TargetKind::Contribution
+            }
+        }
+    }
+}
 
 impl AuthorizationPolicy {
     pub fn from_json(source: &str) -> Result<Self, AuthorizationError> {
@@ -161,16 +223,16 @@ impl AuthorizationPolicy {
         }
         let mut admin_users = HashSet::with_capacity(policy.bindings.len());
         let mut contributor_ids = HashSet::with_capacity(policy.bindings.len());
-        let mut participant_ids = HashSet::with_capacity(policy.bindings.len());
+        let mut participant_keys = HashSet::with_capacity(policy.bindings.len());
         for binding in &policy.bindings {
             let mut roles = HashSet::with_capacity(binding.roles.len());
-            if !valid_id(&binding.admin_user)
-                || !valid_id(&binding.contributor_id)
+            if !valid_admin_username(&binding.admin_user)
+                || !valid_contributor_id(&binding.contributor_id)
                 || !valid_id(&binding.participant_id)
                 || binding.roles.is_empty()
                 || !admin_users.insert(binding.admin_user.as_str())
                 || !contributor_ids.insert(binding.contributor_id.as_str())
-                || !participant_ids.insert(binding.participant_id.as_str())
+                || !participant_keys.insert(binding.participant_id.to_ascii_lowercase())
                 || binding.roles.iter().any(|role| !roles.insert(*role))
             {
                 return Err(AuthorizationError);
@@ -198,6 +260,10 @@ impl AuthorizationPolicy {
         Ok(replacement)
     }
 
+    /// Deny by default: the request must come from an active Admin user whose binding in this
+    /// publication still resolves to a registry key and a current participant, and one of the
+    /// binding's roles must allow `action` on the resolved target. A grant permits the request;
+    /// it never records authorship, credit, a reveal, or an approval.
     pub fn authorize<'a>(
         &'a self,
         context: &AuthorizationContext<'_>,
@@ -215,11 +281,11 @@ impl AuthorizationPolicy {
             .iter()
             .find(|binding| binding.admin_user == context.authenticated_admin_user)
             .ok_or(AuthorizationError)?;
+        let collaboration = context.collaboration;
         if !context
             .contributor_ids
             .contains(&binding.contributor_id.as_str())
-            || !context
-                .collaboration
+            || !collaboration
                 .participants
                 .iter()
                 .any(|participant| participant.id == binding.participant_id)
@@ -227,59 +293,93 @@ impl AuthorizationPolicy {
             return Err(AuthorizationError);
         }
 
-        let target = match action {
-            AuthorizationAction::ViewContribution
-            | AuthorizationAction::EditContribution
-            | AuthorizationAction::RevealContribution
-            | AuthorizationAction::ApproveContribution
-            | AuthorizationAction::RemoveMember => {
-                let target = context.target_participant_id.ok_or(AuthorizationError)?;
-                if !context
-                    .collaboration
+        let own = binding.participant_id.as_str();
+        let target = match (action.target_kind(), context.target) {
+            (TargetKind::Publication, AuthorizationTarget::Publication) => {
+                ResolvedTarget::Publication
+            }
+            (TargetKind::Participant, AuthorizationTarget::Participant(id)) => {
+                let participant = collaboration
                     .participants
                     .iter()
-                    .any(|participant| participant.id == target)
-                {
-                    return Err(AuthorizationError);
+                    .find(|participant| participant.id == id)
+                    .ok_or(AuthorizationError)?;
+                ResolvedTarget::Participant {
+                    id: participant.id.as_str(),
+                    site_owner: self.bindings.iter().any(|other| {
+                        other.participant_id == participant.id
+                            && other.roles.contains(&AuthorizationRole::SiteOwner)
+                    }),
                 }
-                Some(target)
             }
-            _ => None,
+            (TargetKind::Contribution, AuthorizationTarget::Contribution(id)) => {
+                let contribution = collaboration
+                    .contributions
+                    .iter()
+                    .find(|contribution| contribution.id == id)
+                    .ok_or(AuthorizationError)?;
+                ResolvedTarget::Contribution {
+                    owner: contribution.participant_id.as_str(),
+                    revealed_to_requester: collaboration.reveals.iter().any(|reveal| {
+                        reveal.contribution_id == contribution.id
+                            && reveal.participant_ids.iter().any(|viewer| viewer == own)
+                    }),
+                }
+            }
+            _ => return Err(AuthorizationError),
         };
-        let allowed = binding
+        if binding
             .roles
             .iter()
-            .any(|role| role_allows(*role, action, target, &binding.participant_id));
-        if !allowed {
-            return Err(AuthorizationError);
+            .any(|role| role_allows(*role, action, &target, own))
+        {
+            Ok(binding)
+        } else {
+            Err(AuthorizationError)
         }
-        Ok(binding)
     }
 }
 
+/// The complete role matrix. Anything not listed is denied, so a new role or action starts with
+/// no access.
 fn role_allows(
     role: AuthorizationRole,
     action: AuthorizationAction,
-    target_participant_id: Option<&str>,
-    own_participant_id: &str,
+    target: &ResolvedTarget<'_>,
+    own: &str,
 ) -> bool {
     use AuthorizationAction::*;
     use AuthorizationRole::*;
 
-    match (role, action) {
-        (
-            SiteOwner | Coordinator,
-            ViewPublished | ViewRevealed | Invite | Schedule | Publish | RemoveMember | Export,
-        ) => true,
-        (Contributor, ViewPublished | ViewRevealed | Export) => true,
-        (
-            Contributor,
-            ViewContribution | EditContribution | RevealContribution | ApproveContribution,
-        ) => target_participant_id == Some(own_participant_id),
-        (Editor, ViewPublished | ViewRevealed | ViewContribution | EditContribution | Export) => {
+    match (role, action, target) {
+        (SiteOwner | Coordinator | Contributor | Editor | Reader, ViewPublished | Export, _) => {
             true
         }
-        (Reader, ViewPublished | ViewRevealed | Export) => true,
+        (
+            SiteOwner | Coordinator | Contributor | Editor | Reader,
+            ViewRevealed,
+            ResolvedTarget::Contribution {
+                revealed_to_requester,
+                ..
+            },
+        ) => *revealed_to_requester,
+        (SiteOwner | Coordinator, Invite | Schedule | Publish, _) => true,
+        (SiteOwner, RemoveMember, ResolvedTarget::Participant { .. }) => true,
+        (Coordinator, RemoveMember, ResolvedTarget::Participant { site_owner, .. }) => !site_owner,
+        (
+            Contributor,
+            ViewContribution | EditContribution | RevealContribution,
+            ResolvedTarget::Contribution { owner, .. },
+        ) => *owner == own,
+        (Contributor, ApproveContribution, ResolvedTarget::Participant { id, .. }) => *id == own,
+        (
+            Editor,
+            ViewContribution | EditContribution,
+            ResolvedTarget::Contribution {
+                owner,
+                revealed_to_requester,
+            },
+        ) => *owner == own || *revealed_to_requester,
         _ => false,
     }
 }
@@ -408,6 +508,22 @@ impl CollaborationContract {
 
 fn valid_id(value: &str) -> bool {
     valid_slug(value, MAX_IDENTIFIER_BYTES)
+}
+
+/// The Admin sign-in username rule, owned here so the CLI's users file and a binding's
+/// `adminUser` cannot drift apart: every account that can sign in can be bound, and a binding
+/// can never name an account that could not exist.
+pub fn valid_admin_username(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_ADMIN_USERNAME_BYTES
+        && name.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'.' | b'-')
+        })
+}
+
+/// A binding names an existing contributor registry key, so it uses the registry key rule.
+fn valid_contributor_id(value: &str) -> bool {
+    value.len() <= MAX_IDENTIFIER_BYTES && contributor::valid_registry_key(value)
 }
 
 /// Opaque ASCII identifiers may later key files or URLs, so `.` is only a separator:
