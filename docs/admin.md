@@ -100,6 +100,17 @@ unselectable with guidance.
 The disclosure preview includes every selected post brief, reference, and existing-post snapshot,
 with its visibility and character count. These selections remain local until a later explicit
 Assistant request.
+To capture a web reference, use **Add URL snapshot** and confirm the retrieval. Admin accepts
+only public HTTP(S) destinations, rechecks every bounded redirect, rejects credentials and
+local or private network addresses, and applies one total deadline plus strict response and
+extracted-text limits. Supported responses are UTF-8 HTML, Markdown, and plain text. Compressed
+responses are rejected, so an encoded body cannot expand past the extraction limit.
+
+Retrieval does not save anything. Inspect the source and final canonical URLs, retrieval time,
+content type, and extracted text, then choose portable or private storage and explicitly save.
+Saved references live under `assistant/context/references/` or the matching
+`.openblog/private/context/references/` directory. They are labelled untrusted reference data;
+selecting one uses the saved Markdown snapshot and never silently contacts the URL again.
 
 ### Write visually or in Markdown
 

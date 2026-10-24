@@ -15,6 +15,9 @@ All notable changes to open.blog are recorded here. Releases follow
   disclosure preview.
 - Added portable and private post briefs, bounded Markdown/text references, and immutable existing-
   post snapshots to Assistant context, including transactional post rename and deletion handling.
+- Added explicit URL-context snapshots with inspect-before-save metadata, selectable portable or
+  private storage, SSRF-safe DNS and redirect validation, and bounded textual extraction without
+  implicit refetching.
 
 - Added Visual and Markdown writing modes in Admin, with a remembered author preference,
   Heading 2–6 selection, familiar rich-text controls, and protected advanced blocks that

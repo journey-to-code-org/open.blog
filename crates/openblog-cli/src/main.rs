@@ -15,6 +15,7 @@ mod scaffold;
 mod serve;
 mod site;
 mod transaction;
+mod url_context;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
