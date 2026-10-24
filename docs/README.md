@@ -16,31 +16,33 @@ If you are new, read these in order; each one stands alone otherwise.
 7. [Portable projection contract](portable-projection.md): how the parsed post becomes
    destination-neutral HTML, Markdown, and text with shared identity, attribution, references,
    provenance, and link resolution.
-8. [Themes and the design system](themes.md): how a theme is built from design tokens,
+8. [Native HTML and no-JavaScript behavior](no-javascript.md): the checked
+   progressive-enhancement contract for every built-in custom element.
+9. [Themes and the design system](themes.md): how a theme is built from design tokens,
    light and dark, per-series themes, and making your own.
-9. [Adding web components to a theme](theme-components.md): scripts, heading effects,
+10. [Adding web components to a theme](theme-components.md): scripts, heading effects,
    and the demo theme to copy from.
-10. [The admin editor](admin.md): the writing workspace, production-faithful theme and
+11. [The admin editor](admin.md): the writing workspace, production-faithful theme and
    social previews, search, answer-readiness and accessibility guidance, optional AI review,
    safe suggestion application, knowledge-check proposals, opt-in autocomplete, provider
    configuration, scheduling, and safe operation.
-11. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
+12. [Sharing, views, analytics, and embeds](features.md): share links, the view counter,
    Supabase-backed Netlify comments and analytics, syntax highlighting, related posts, a CDN, and
    slots for comments or newsletters.
-12. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
+13. [SEO and answer discovery](seo.md): publishing checks, AI crawler policy, text feeds,
    and machine-access analytics.
-13. [Accessibility checks and manual review](accessibility.md): source findings, outcome
+14. [Accessibility checks and manual review](accessibility.md): source findings, outcome
    meanings, known limits, and a rendered-site review workflow.
-14. [Research posts and Evidence Studio](research-profile.md): DOI and license fields,
+15. [Research posts and Evidence Studio](research-profile.md): DOI and license fields,
    visible references, contributor-credit demonstration, scholarly metadata, deterministic
    evidence checks, and their limits.
-15. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
+16. [Video productions and release kits](video-production.md): YouTube embeds, transcripts,
    chapter validation, structured data, and reusable release copy.
-16. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,
+17. [Field journals and private-by-default tracks](field-journal.md): local GPX analysis,
    trail facts, route drawings, and enforceable location-privacy modes.
-17. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
-18. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
-19. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
+18. [Showing your posts on another site](integrations.md): feeds and the latest-posts JSON.
+19. [Migrating from Hashnode](hashnode-migration.md): with or without a paid plan.
+20. [Migrating inherited authorship](contributor-migration.md): dry-run-first contributor credits.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
