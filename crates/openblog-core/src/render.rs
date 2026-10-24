@@ -1,7 +1,7 @@
 //! HTML page generation. Pages are semantic HTML (`header`, `nav`, `main`,
-//! `article`, `time`, `details`, ...) enhanced by a few autonomous custom
-//! elements (`<ob-theme-toggle>`, `<ob-typewriter>`, `<ob-search>`,
-//! `<ob-code>`, `<ob-back-to-top>`). Every page works without JavaScript.
+//! `article`, `time`, `details`, ...) enhanced by autonomous custom elements.
+//! Published content has static HTML fallbacks; optional interactions may
+//! require JavaScript.
 //!
 //! Appearance comes entirely from CSS custom properties (`--ob-*`) written by
 //! the theme, so the same markup can look like any theme.
@@ -284,10 +284,10 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     }
 
     if c.feeds.rss {
-        out.add("rss.xml".into(), feeds::rss(site))?;
+        out.add("rss.xml".into(), feeds::rss(site)?)?;
     }
     if c.feeds.json {
-        out.add("feed.json".into(), feeds::json_feed(site))?;
+        out.add("feed.json".into(), feeds::json_feed(site)?)?;
     }
     if c.feeds.sitemap {
         out.add(
@@ -297,11 +297,11 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         out.add("robots.txt".into(), feeds::robots(site))?;
     }
     if c.feeds.llms {
-        out.add("llms.txt".into(), feeds::llms_index(site))?;
-        out.add("llms-full.txt".into(), feeds::llms_full(site))?;
+        out.add("llms.txt".into(), feeds::llms_index(site)?)?;
+        out.add("llms-full.txt".into(), feeds::llms_full(site)?)?;
     }
     if c.feeds.portfolio_snapshot {
-        out.add("api/blog.json".into(), feeds::portfolio_snapshot(site, 4))?;
+        out.add("api/blog.json".into(), feeds::portfolio_snapshot(site, 4)?)?;
     }
     if c.analytics.bake_counts && !site.view_counts.is_empty() {
         // Counts as of this build, for static hosts and for scripts.
