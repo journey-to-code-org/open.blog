@@ -35,6 +35,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-rust-runner.js"),
     ),
     (
+        "components/ob-code-runner.js",
+        include_str!("../../../web/components/ob-code-runner.js"),
+    ),
+    (
+        "components/ob-code-runner-client.js",
+        include_str!("../../../web/components/ob-code-runner-client.js"),
+    ),
+    (
         "components/ob-code-runner-language.js",
         include_str!("../../../web/components/ob-code-runner-language.js"),
     ),
@@ -609,6 +617,37 @@ mod tests {
             "openblog-site-{tag}-{}-{unique}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn every_relative_script_import_is_embedded() {
+        // A built site without a local `web/` copy uses only these files; one
+        // missing module makes the browser reject the whole openblog.js graph.
+        let embedded: HashSet<&str> = EMBEDDED_WEB.iter().map(|(path, _)| *path).collect();
+        let mut missing = Vec::new();
+        for (path, contents) in EMBEDDED_WEB
+            .iter()
+            .filter(|(path, _)| path.ends_with(".js"))
+        {
+            let dir = Path::new(path).parent().unwrap_or(Path::new(""));
+            for line in contents.lines() {
+                let line = line.trim_start();
+                if !line.starts_with("import ") {
+                    continue;
+                }
+                let Some(spec) = line.split(['"', '\'']).nth(1) else {
+                    continue;
+                };
+                let Some(relative) = spec.strip_prefix("./") else {
+                    continue;
+                };
+                let target = dir.join(relative).to_string_lossy().replace('\\', "/");
+                if !embedded.contains(target.as_str()) {
+                    missing.push(format!("{path} imports {spec}"));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "not embedded: {missing:?}");
     }
 
     #[test]

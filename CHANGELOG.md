@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Fixed sites built without a local `web/` folder missing the configured code-runner scripts;
+  the absent module stopped every enhanced component on the page from loading. A test now
+  checks that every relative script import is embedded.
+
 ## [0.17.1] - 2026-10-24
 
 - Added modern Supabase secret API key support for Netlify comments and analytics via
