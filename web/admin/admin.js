@@ -397,6 +397,16 @@ export function assistantStatusPresentation(status = {}) {
   };
 }
 
+export function assistantContextDisclosure(documents = [], selectedIds = new Set()) {
+  const selected = documents
+    .filter((document) => selectedIds.has(document.id) && document.exists && document.valid)
+    .map(({ name, visibility, characters }) => ({ name, visibility, characters }));
+  return {
+    documents: selected,
+    totalCharacters: selected.reduce((total, document) => total + document.characters, 0),
+  };
+}
+
 function markdownOutsideCode(source) {
   const kept = [];
   let fence = null;
@@ -2386,14 +2396,30 @@ class Editor {
     ui.assistantModel = h("dd", {}, "Loading…");
     ui.assistantConfigured = h("dd", {}, "Checking…");
     ui.assistantCapabilities = h("dd", {}, "Checking…");
+    this.assistantContextDocuments = [];
+    this.assistantContextSelected = new Set();
+    ui.assistantContextStatus = h("p", { class: "oba-notice", role: "status", "aria-live": "polite" }, "Open Context to load author and site context.");
+    ui.assistantContextSafety = h("p", { class: "oba-notice is-warning", role: "alert", hidden: true });
+    ui.assistantContextCards = h("div", { class: "oba-assistant-context-cards" });
+    ui.assistantContextDisclosure = h("div", { class: "oba-assistant-disclosure", "aria-live": "polite" }, h("p", {}, "No context selected."));
     const assistantViews = {
       review: h("section", { class: "oba-assistant-empty", "data-assistant-view": "review", "aria-labelledby": "oba-assistant-review-title" }, h("h3", { id: "oba-assistant-review-title" }, "Review"), h("p", {}, "Review workflows will appear here after skills and context are configured in a later delivery.")),
       interactions: h("section", { class: "oba-assistant-empty", "data-assistant-view": "interactions", "aria-labelledby": "oba-assistant-interactions-title", hidden: true }, h("h3", { id: "oba-assistant-interactions-title" }, "Interactions"), h("p", {}, "Knowledge-check generation uses the configured provider. Proposal workflows will appear here in a later delivery.")),
-      context: h("section", { class: "oba-assistant-empty", "data-assistant-view": "context", "aria-labelledby": "oba-assistant-context-title", hidden: true }, h("h3", { id: "oba-assistant-context-title" }, "Context"), h("p", {}, "Author, site, post, and reference context management will appear here in a later delivery.")),
+      context: h(
+        "section",
+        { class: "oba-assistant-context", "data-assistant-view": "context", "aria-labelledby": "oba-assistant-context-title", hidden: true },
+        h("h3", { id: "oba-assistant-context-title" }, "Context"),
+        h("p", {}, "Portable context can be shared with the project. Private context stays under .openblog/private and must remain outside Git."),
+        ui.assistantContextStatus,
+        ui.assistantContextSafety,
+        ui.assistantContextCards,
+        h("aside", { class: "oba-assistant-disclosure-panel", "aria-labelledby": "oba-assistant-disclosure-title" }, h("h4", { id: "oba-assistant-disclosure-title" }, "Context disclosure"), h("p", {}, "Selected context that would be sent with an explicit Assistant request:"), ui.assistantContextDisclosure),
+      ),
     };
     const activateAssistantView = (view) => {
       for (const [name, section] of Object.entries(assistantViews)) section.hidden = name !== view;
       ui.assistantViewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.assistantView === view)));
+      if (view === "context") void this.loadAssistantContext();
     };
     ui.assistantViewButtons = ["review", "interactions", "context"].map((view) =>
       h("button", { class: "oba-tab", type: "button", "data-assistant-view": view, "aria-pressed": String(view === "review"), onClick: () => activateAssistantView(view) }, view[0].toUpperCase() + view.slice(1)),
@@ -3149,6 +3175,105 @@ class Editor {
     ];
     this.ui.fieldFacts.replaceChildren(...facts.map(([label, value]) => h("div", {}, h("dt", {}, label), h("dd", {}, value))));
     this.ui.fieldCharts.replaceChildren(fieldChart(fields.routeShape, "Privacy-filtered route outline"), fieldChart(fields.elevationProfile, "Elevation profile"));
+  }
+
+  renderAssistantContext(catalog) {
+    this.assistantContextDocuments = catalog.documents || [];
+    for (const id of [...this.assistantContextSelected]) {
+      const document = this.assistantContextDocuments.find((candidate) => candidate.id === id);
+      if (!document?.exists || !document.valid) this.assistantContextSelected.delete(id);
+    }
+    const cards = this.assistantContextDocuments.map((document) => {
+      const visibilityLabel = document.visibility === "private" ? "Private" : "Portable";
+      const typeLabel = document.contextType === "author" ? "Author" : "Site";
+      const textarea = h("textarea", { rows: "8", "aria-label": `${visibilityLabel} ${typeLabel} context` }, document.content || "");
+      const selected = h("input", {
+        type: "checkbox",
+        checked: this.assistantContextSelected.has(document.id),
+        disabled: !document.exists || !document.valid,
+        onChange: () => {
+          if (selected.checked) this.assistantContextSelected.add(document.id);
+          else this.assistantContextSelected.delete(document.id);
+          this.renderAssistantContextDisclosure();
+        },
+      });
+      const save = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => this.saveAssistantContext(document, textarea.value) }, document.exists ? "Save changes" : "Create context");
+      const remove = h("button", { class: "oba-btn oba-btn-danger", type: "button", disabled: !document.exists, onClick: () => this.deleteAssistantContext(document) }, "Remove");
+      const path = document.visibility === "private" ? `.openblog/private/context/${document.name}` : `assistant/context/${document.name}`;
+      return h(
+        "section",
+        { class: "oba-assistant-context-card", "data-visibility": document.visibility, "aria-labelledby": `oba-context-${document.id.replace(":", "-")}` },
+        h("div", { class: "oba-assistant-context-heading" }, h("h4", { id: `oba-context-${document.id.replace(":", "-")}` }, `${typeLabel} · ${visibilityLabel}`), h("span", { class: "oba-badge" }, visibilityLabel)),
+        h("p", { class: "oba-small" }, path),
+        document.guidance ? h("p", { class: "oba-notice is-warning" }, document.guidance) : null,
+        this.field(`oba-context-${document.id}-content`, `${typeLabel} context Markdown`, textarea),
+        h("label", { class: "oba-check" }, selected, h("span", {}, `Selected context · ${document.characters} characters`)),
+        h("div", { class: "oba-toolbar" }, save, remove),
+      );
+    });
+    this.ui.assistantContextCards.replaceChildren(...cards);
+    const warning = catalog.privateSafety?.warning || "";
+    this.ui.assistantContextSafety.textContent = warning;
+    this.ui.assistantContextSafety.hidden = !warning;
+    this.renderAssistantContextDisclosure();
+  }
+
+  renderAssistantContextDisclosure() {
+    const disclosure = assistantContextDisclosure(this.assistantContextDocuments, this.assistantContextSelected);
+    if (!disclosure.documents.length) {
+      this.ui.assistantContextDisclosure.replaceChildren(h("p", {}, "No context selected."));
+      return;
+    }
+    this.ui.assistantContextDisclosure.replaceChildren(
+      h("ul", {}, disclosure.documents.map((document) => h("li", {}, `${document.name} · ${document.visibility === "private" ? "Private" : "Portable"} · ${document.characters} characters`))),
+      h("p", { class: "oba-small" }, `${disclosure.totalCharacters} context characters selected in total.`),
+    );
+  }
+
+  async loadAssistantContext(force = false) {
+    if ((this.assistantContextLoaded && !force) || this.assistantContextLoading) return;
+    this.assistantContextLoading = true;
+    this.ui.assistantContextStatus.textContent = "Loading Assistant context…";
+    try {
+      const catalog = await this.app.api.call("GET", "assistant/context");
+      this.renderAssistantContext(catalog);
+      this.assistantContextLoaded = true;
+      this.ui.assistantContextStatus.textContent = "Author and site context loaded.";
+    } catch (error) {
+      this.ui.assistantContextStatus.textContent = `Assistant context could not be loaded. ${error.message}`;
+    } finally {
+      this.assistantContextLoading = false;
+    }
+  }
+
+  async saveAssistantContext(document, content) {
+    this.ui.assistantContextStatus.textContent = `Saving ${document.name}…`;
+    try {
+      await this.app.api.call("PUT", "assistant/context", {
+        json: { contextType: document.contextType, visibility: document.visibility, content, etag: document.etag },
+      });
+      this.assistantContextLoaded = false;
+      await this.loadAssistantContext(true);
+      this.ui.assistantContextStatus.textContent = `${document.name} saved.`;
+    } catch (error) {
+      this.ui.assistantContextStatus.textContent = `Could not save ${document.name}. ${error.message}`;
+    }
+  }
+
+  async deleteAssistantContext(document) {
+    if (!confirm(`Remove ${document.visibility} ${document.name}?`)) return;
+    this.ui.assistantContextStatus.textContent = `Removing ${document.name}…`;
+    try {
+      await this.app.api.call("DELETE", "assistant/context", {
+        json: { contextType: document.contextType, visibility: document.visibility, etag: document.etag },
+      });
+      this.assistantContextSelected.delete(document.id);
+      this.assistantContextLoaded = false;
+      await this.loadAssistantContext(true);
+      this.ui.assistantContextStatus.textContent = `${document.name} removed.`;
+    } catch (error) {
+      this.ui.assistantContextStatus.textContent = `Could not remove ${document.name}. ${error.message}`;
+    }
   }
 
   async loadAssistantStatus() {

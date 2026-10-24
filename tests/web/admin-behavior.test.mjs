@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   ObAdmin,
   accessibilityReview,
+  assistantContextDisclosure,
   assistantStatusPresentation,
   evidenceReview,
   evidenceStudioState,
@@ -32,6 +33,26 @@ import {
   validateCreditDraft,
   validateContributorDraft,
 } from "../../web/admin/admin.js";
+
+test("assistant context disclosure names selected documents, visibility, and character counts", () => {
+  assert.deepEqual(
+    assistantContextDisclosure(
+      [
+        { id: "portable:author", name: "author.md", visibility: "portable", characters: 120, exists: true, valid: true },
+        { id: "private:site", name: "site.md", visibility: "private", characters: 48, exists: true, valid: true },
+        { id: "private:author", name: "author.md", visibility: "private", characters: 0, exists: true, valid: false },
+      ],
+      new Set(["portable:author", "private:site", "private:author"]),
+    ),
+    {
+      documents: [
+        { name: "author.md", visibility: "portable", characters: 120 },
+        { name: "site.md", visibility: "private", characters: 48 },
+      ],
+      totalCharacters: 168,
+    },
+  );
+});
 
 test("assistant provider status presents configured and unconfigured states without credentials", () => {
   assert.deepEqual(

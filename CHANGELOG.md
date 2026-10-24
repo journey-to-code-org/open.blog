@@ -10,6 +10,9 @@ All notable changes to open.blog are recorded here. Releases follow
 - Added a post Assistant workspace with keyboard and command-palette navigation, labelled
   Review, Interactions, and Context areas, and an authenticated credential-safe provider
   capability summary that leaves non-AI authoring available when configuration is missing.
+- Added portable and private author/site Assistant context management with bounded UTF-8 files,
+  atomic conflict-safe saves, Git safety warnings, publish exclusions, and a selected-context
+  disclosure preview.
 
 - Added Visual and Markdown writing modes in Admin, with a remembered author preference,
   Heading 2–6 selection, familiar rich-text controls, and protected advanced blocks that

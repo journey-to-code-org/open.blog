@@ -42,6 +42,7 @@ pub const SESSION_COOKIE: &str = "ob_session";
 const MAX_JSON_BODY: usize = 2 * 1024 * 1024 + 64 * 1024;
 const MAX_LOGIN_BODY: usize = 4 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_ASSISTANT_CONTEXT_BYTES: usize = 64 * 1024;
 
 #[derive(Default)]
 pub struct BuildStatus {
@@ -419,6 +420,9 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ),
         ("GET", "meta") => meta(state),
         ("GET", "assistant/status") => assistant_status(state),
+        ("GET", "assistant/context") => assistant_context_catalog(state),
+        ("PUT", "assistant/context") => save_assistant_context(state, req),
+        ("DELETE", "assistant/context") => delete_assistant_context(state, req),
         ("GET", "contributors") => get_contributors(state),
         ("PUT", "contributors") => save_contributors(state, req),
         ("GET", "status") => status(state),
@@ -995,6 +999,241 @@ fn assistant_status(state: &AppState) -> Response {
             credential_configured,
         )),
     )
+}
+
+fn assistant_context_target(
+    root: &Path,
+    context_type: &str,
+    visibility: &str,
+) -> Result<(PathBuf, &'static str, &'static str), Response> {
+    let (context_type, file_name) = match context_type {
+        "author" => ("author", "author.md"),
+        "site" => ("site", "site.md"),
+        _ => return Err(Response::error(400, "Context type must be author or site")),
+    };
+    let (visibility, base) = match visibility {
+        "portable" => ("portable", root.join("assistant/context")),
+        "private" => ("private", root.join(".openblog/private/context")),
+        _ => {
+            return Err(Response::error(
+                400,
+                "Context visibility must be portable or private",
+            ))
+        }
+    };
+    let target = base.join(file_name);
+    let mut cursor = root.to_path_buf();
+    for component in target
+        .strip_prefix(root)
+        .map_err(|_| Response::error(400, "Assistant context path escaped the project"))?
+        .components()
+    {
+        cursor.push(component);
+        if fs::symlink_metadata(&cursor).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            return Err(Response::error(
+                400,
+                "Assistant context paths cannot contain symbolic links",
+            ));
+        }
+    }
+    Ok((target, context_type, visibility))
+}
+
+fn assistant_context_document(
+    root: &Path,
+    context_type: &str,
+    visibility: &str,
+) -> Result<Json, Response> {
+    let (path, context_type, visibility) =
+        assistant_context_target(root, context_type, visibility)?;
+    match fs::read(&path) {
+        Ok(bytes) if bytes.len() > MAX_ASSISTANT_CONTEXT_BYTES => Ok(json!({
+            "id": format!("{visibility}:{context_type}"),
+            "name": format!("{context_type}.md"),
+            "contextType": context_type,
+            "visibility": visibility,
+            "exists": true,
+            "valid": false,
+            "content": "",
+            "characters": 0,
+            "etag": etag_bytes(&bytes),
+            "guidance": format!("This context file exceeds the {} KiB limit. Shorten it before selecting it.", MAX_ASSISTANT_CONTEXT_BYTES / 1024),
+        })),
+        Ok(bytes) => match String::from_utf8(bytes.clone()) {
+            Ok(content) => Ok(json!({
+                "id": format!("{visibility}:{context_type}"),
+                "name": format!("{context_type}.md"),
+                "contextType": context_type,
+                "visibility": visibility,
+                "exists": true,
+                "valid": true,
+                "content": content,
+                "characters": content.chars().count(),
+                "etag": etag_bytes(&bytes),
+            })),
+            Err(_) => Ok(json!({
+                "id": format!("{visibility}:{context_type}"),
+                "name": format!("{context_type}.md"),
+                "contextType": context_type,
+                "visibility": visibility,
+                "exists": true,
+                "valid": false,
+                "content": "",
+                "characters": 0,
+                "etag": etag_bytes(&bytes),
+                "guidance": "This context file is not valid UTF-8. Replace it here or remove it, then save UTF-8 Markdown.",
+            })),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(json!({
+            "id": format!("{visibility}:{context_type}"),
+            "name": format!("{context_type}.md"),
+            "contextType": context_type,
+            "visibility": visibility,
+            "exists": false,
+            "valid": true,
+            "content": "",
+            "characters": 0,
+            "etag": null,
+        })),
+        Err(error) => Err(Response::error(
+            500,
+            &format!("Cannot read assistant context: {error}"),
+        )),
+    }
+}
+
+fn assistant_context_catalog(state: &AppState) -> Response {
+    let mut documents = Vec::new();
+    for (visibility, context_type) in [
+        ("portable", "author"),
+        ("portable", "site"),
+        ("private", "author"),
+        ("private", "site"),
+    ] {
+        match assistant_context_document(&state.root, context_type, visibility) {
+            Ok(document) => documents.push(document),
+            Err(response) => return response,
+        }
+    }
+    let git = crate::git::Git::new(&state.root);
+    let private_safety = if git.is_repo() {
+        let ignored = [
+            ".openblog/private/context/author.md",
+            ".openblog/private/context/site.md",
+        ]
+        .iter()
+        .all(|path| git.run(&["check-ignore", "-q", "--no-index", path]).is_ok());
+        let tracked = git
+            .run(&["ls-files", "--", ".openblog/private"])
+            .is_ok_and(|paths| !paths.trim().is_empty());
+        let warning = if tracked {
+            Some("Private assistant content is already tracked by Git. Remove it from the index and rotate any exposed secrets before using it.")
+        } else if !ignored {
+            Some("Private assistant content is not ignored by Git. Add /.openblog/private/ to .gitignore before saving sensitive context.")
+        } else {
+            None
+        };
+        json!({ "gitRepository": true, "ignored": ignored, "tracked": tracked, "warning": warning })
+    } else {
+        json!({ "gitRepository": false, "ignored": null, "tracked": false, "warning": null })
+    };
+    Response::json(
+        200,
+        &json!({
+            "documents": documents,
+            "privateSafety": private_safety
+        }),
+    )
+}
+
+fn assistant_context_mutation(req: &Request) -> Result<(Json, String, String), Response> {
+    if let Err(response) = require_json(req) {
+        return Err(response);
+    }
+    let body: Json = serde_json::from_slice(&req.body)
+        .map_err(|_| Response::error(400, "Invalid context request"))?;
+    let context_type = body["contextType"]
+        .as_str()
+        .ok_or_else(|| Response::error(400, "Missing contextType"))?
+        .to_string();
+    let visibility = body["visibility"]
+        .as_str()
+        .ok_or_else(|| Response::error(400, "Missing visibility"))?
+        .to_string();
+    Ok((body, context_type, visibility))
+}
+
+fn save_assistant_context(state: &AppState, req: &Request) -> Response {
+    let (body, context_type, visibility) = match assistant_context_mutation(req) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let (path, _, _) = match assistant_context_target(&state.root, &context_type, &visibility) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let content = match body["content"].as_str() {
+        Some(content) => content,
+        None => return Response::error(400, "Context content must be UTF-8 text"),
+    };
+    if content.len() > MAX_ASSISTANT_CONTEXT_BYTES {
+        return Response::error(413, "Context files are limited to 64 KiB of UTF-8 text");
+    }
+    let _content_lock = lock(&state.build);
+    let _filesystem_lock = match content_transaction(state) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let current = match fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Response::error(500, &format!("Cannot read context: {error}")),
+    };
+    let expected = body["etag"].as_str();
+    let matches = match &current {
+        Some(bytes) => expected == Some(etag_bytes(bytes).as_str()),
+        None => body["etag"].is_null(),
+    };
+    if !matches {
+        return Response::error(409, "Context changed since it was opened; reload and retry");
+    }
+    if let Err(error) = write_atomic(&path, content) {
+        return Response::error(500, &error);
+    }
+    match assistant_context_document(&state.root, &context_type, &visibility) {
+        Ok(document) => Response::json(200, &json!({ "document": document })),
+        Err(response) => response,
+    }
+}
+
+fn delete_assistant_context(state: &AppState, req: &Request) -> Response {
+    let (body, context_type, visibility) = match assistant_context_mutation(req) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let (path, _, _) = match assistant_context_target(&state.root, &context_type, &visibility) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let _content_lock = lock(&state.build);
+    let _filesystem_lock = match content_transaction(state) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let current = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Response::error(404, "Context file does not exist")
+        }
+        Err(error) => return Response::error(500, &format!("Cannot read context: {error}")),
+    };
+    if body["etag"].as_str() != Some(etag_bytes(&current).as_str()) {
+        return Response::error(409, "Context changed since it was opened; reload and retry");
+    }
+    match fs::remove_file(&path) {
+        Ok(()) => Response::json(200, &json!({ "deleted": true })),
+        Err(error) => Response::error(500, &format!("Cannot remove context: {error}")),
+    }
 }
 
 fn generate_quiz(state: &AppState, req: &Request) -> Response {
@@ -3180,6 +3419,244 @@ mod tests {
         let configured_body = String::from_utf8_lossy(&configured.body);
         assert!(!configured_body.contains("provider-secret-value"));
         assert!(!configured_body.contains("assistant.example"));
+    }
+
+    #[test]
+    fn assistant_context_catalog_mutations_are_authenticated_csrf_and_etag_protected() {
+        let f = fixture("assistant-context-crud");
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/assistant/context")).status,
+            401
+        );
+
+        let session = login_ok(&f);
+        let catalog = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        );
+        assert_eq!(catalog.status, 200);
+        let catalog = body_json(&catalog);
+        assert_eq!(catalog["documents"].as_array().unwrap().len(), 4);
+        assert_eq!(catalog["documents"][0]["id"], "portable:author");
+        assert_eq!(catalog["documents"][0]["exists"], false);
+
+        let create = json!({
+            "contextType": "author",
+            "visibility": "portable",
+            "content": "I write concise field notes.",
+            "etag": null
+        });
+        assert_eq!(
+            handle(
+                &f.state,
+                &authed(
+                    json_req("PUT", "/admin/api/assistant/context", create.clone()),
+                    &session,
+                    false,
+                ),
+            )
+            .status,
+            403
+        );
+        let created = handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/assistant/context", create),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            created.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created = body_json(&created)["document"].clone();
+        assert_eq!(created["characters"], 28);
+        assert_eq!(
+            fs::read_to_string(f.dir.join("assistant/context/author.md")).unwrap(),
+            "I write concise field notes."
+        );
+
+        let edited = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "author", "visibility": "portable",
+                        "content": "I write concise field notes for working developers.",
+                        "etag": created["etag"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(edited.status, 200);
+        let edited = body_json(&edited)["document"].clone();
+        assert_ne!(edited["etag"], created["etag"]);
+
+        let stale = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "author", "visibility": "portable",
+                        "content": "changed", "etag": "stale"
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale.status, 409);
+
+        let private = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "site", "visibility": "private",
+                        "content": "Unannounced audience research.", "etag": null
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(private.status, 200);
+        assert!(f.dir.join(".openblog/private/context/site.md").exists());
+        f.state.rebuild().unwrap();
+        for output in fsutil::walk(&f.dir.join("dist")) {
+            let contents = String::from_utf8_lossy(&fs::read(output).unwrap()).into_owned();
+            assert!(!contents.contains("I write concise field notes for working developers."));
+            assert!(!contents.contains("Unannounced audience research."));
+        }
+
+        let deleted = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "DELETE",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "author", "visibility": "portable",
+                        "etag": edited["etag"]
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(deleted.status, 200);
+        assert!(!f.dir.join("assistant/context/author.md").exists());
+    }
+
+    #[test]
+    fn assistant_context_rejects_unsafe_input_and_reports_private_git_risks() {
+        let f = fixture("assistant-context-safety");
+        let session = login_ok(&f);
+        let traversal = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "../../openblog.json", "visibility": "portable",
+                        "content": "overwrite", "etag": null
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(traversal.status, 400);
+        assert!(!fs::read_to_string(f.dir.join("openblog.json"))
+            .unwrap()
+            .contains("overwrite"));
+
+        let oversized = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/assistant/context",
+                    json!({
+                        "contextType": "author", "visibility": "private",
+                        "content": "x".repeat(64 * 1024 + 1), "etag": null
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(oversized.status, 413);
+
+        let private_dir = f.dir.join(".openblog/private/context");
+        fs::create_dir_all(&private_dir).unwrap();
+        fs::write(private_dir.join("author.md"), [0xff, 0xfe]).unwrap();
+        let invalid = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        ));
+        let invalid = invalid["documents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|document| document["id"] == "private:author")
+            .unwrap();
+        assert_eq!(invalid["valid"], false);
+        assert!(invalid["guidance"].as_str().unwrap().contains("UTF-8"));
+        assert_eq!(invalid["content"], "");
+
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        fs::write(f.dir.join(".gitignore"), "/dist\n").unwrap();
+        let unignored = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        ));
+        assert_eq!(unignored["privateSafety"]["gitRepository"], true);
+        assert_eq!(unignored["privateSafety"]["ignored"], false);
+        assert!(unignored["privateSafety"]["warning"]
+            .as_str()
+            .unwrap()
+            .contains("not ignored"));
+
+        fs::write(
+            f.dir.join(".gitignore"),
+            "/dist\n/.openblog/private/context/author.md\n",
+        )
+        .unwrap();
+        let partly_ignored = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        ));
+        assert_eq!(partly_ignored["privateSafety"]["ignored"], false);
+        assert!(partly_ignored["privateSafety"]["warning"]
+            .as_str()
+            .unwrap()
+            .contains("not ignored"));
+
+        git.run(&["add", "-f", ".openblog/private/context/author.md"])
+            .unwrap();
+        let tracked = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/assistant/context"), &session, false),
+        ));
+        assert_eq!(tracked["privateSafety"]["tracked"], true);
+        assert!(tracked["privateSafety"]["warning"]
+            .as_str()
+            .unwrap()
+            .contains("already tracked"));
     }
 
     #[test]
