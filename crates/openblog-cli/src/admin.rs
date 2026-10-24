@@ -1057,6 +1057,17 @@ fn assistant_configuration_ready(config: &SiteConfig, credential_configured: boo
         }
 }
 
+fn assistant_provider_timeout(provider: AssistantProviderKind, test_mode: bool) -> Duration {
+    if test_mode {
+        return Duration::from_millis(300);
+    }
+    match provider {
+        // Structured-output grammars can take additional time to compile on first use.
+        AssistantProviderKind::Anthropic => Duration::from_secs(240),
+        AssistantProviderKind::CustomHttps => Duration::from_secs(30),
+    }
+}
+
 fn configured_assistant_provider(
     config: &SiteConfig,
     credential: Option<String>,
@@ -2657,11 +2668,7 @@ fn generate_document_review(state: &AppState, req: &Request) -> Response {
     let provider = match configured_assistant_provider(
         &config,
         credential,
-        if cfg!(test) {
-            Duration::from_millis(300)
-        } else {
-            Duration::from_secs(30)
-        },
+        assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
     ) {
         Ok(provider) => provider,
         Err(error) => return review_error(error),
@@ -2933,11 +2940,7 @@ fn generate_quiz(state: &AppState, req: &Request) -> Response {
     let provider = match configured_assistant_provider(
         &config,
         credential,
-        if cfg!(test) {
-            Duration::from_millis(300)
-        } else {
-            Duration::from_secs(30)
-        },
+        assistant_provider_timeout(config.knowledge_checks.provider, cfg!(test)),
     ) {
         Ok(provider) => provider,
         Err(error) => {
@@ -5541,6 +5544,22 @@ mod tests {
             &authed(req("GET", "/admin/api/assistant/status"), &session, false),
         );
         assert_eq!(body_json(&switched_status)["configured"], false);
+    }
+
+    #[test]
+    fn anthropic_provider_timeout_covers_structured_output_compilation() {
+        assert_eq!(
+            assistant_provider_timeout(AssistantProviderKind::Anthropic, false),
+            Duration::from_secs(240)
+        );
+        assert_eq!(
+            assistant_provider_timeout(AssistantProviderKind::CustomHttps, false),
+            Duration::from_secs(30)
+        );
+        assert_eq!(
+            assistant_provider_timeout(AssistantProviderKind::Anthropic, true),
+            Duration::from_millis(300)
+        );
     }
 
     #[test]

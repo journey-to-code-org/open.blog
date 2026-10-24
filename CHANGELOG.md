@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Extended native Anthropic Assistant requests to four minutes while preserving the existing
+  30-second custom-provider deadline, allowing first-use structured-output grammar compilation.
 - Constrained native Anthropic Assistant replies with task-specific JSON schemas so every review
   finding includes its required source range, and safely re-anchors incorrect provider offsets
   when their exact evidence occurs only once in the reviewed Markdown.
