@@ -343,9 +343,11 @@ impl CollaborationContract {
         }
 
         let mut participant_ids = HashSet::with_capacity(self.participants.len());
+        let mut participant_keys = HashSet::with_capacity(self.participants.len());
         for participant in &self.participants {
             if !valid_id(&participant.id)
                 || !participant_ids.insert(participant.id.as_str())
+                || !participant_keys.insert(participant.id.to_ascii_lowercase())
                 || !valid_text(&participant.display_name, MAX_DISPLAY_NAME_BYTES)
                 || participant
                     .profile_url
@@ -357,9 +359,11 @@ impl CollaborationContract {
         }
 
         let mut contribution_ids = HashSet::with_capacity(self.contributions.len());
+        let mut contribution_keys = HashSet::with_capacity(self.contributions.len());
         for contribution in &self.contributions {
             if !valid_id(&contribution.id)
                 || !contribution_ids.insert(contribution.id.as_str())
+                || !contribution_keys.insert(contribution.id.to_ascii_lowercase())
                 || !participant_ids.contains(contribution.participant_id.as_str())
                 || contribution.markdown.len() > MAX_MARKDOWN_BYTES
                 || contribution.markdown.contains('\0')
@@ -407,7 +411,9 @@ fn valid_id(value: &str) -> bool {
 }
 
 /// Opaque ASCII identifiers may later key files or URLs, so `.` is only a separator:
-/// dot segments such as `.` and `..` can never be expressed.
+/// dot segments such as `.` and `..` can never be expressed, and Windows device stems are
+/// refused. Contract collections compare participant and contribution IDs ASCII
+/// case-insensitively, so two entries cannot share one key on a case-insensitive filesystem.
 fn valid_slug(value: &str, max_bytes: usize) -> bool {
     !value.is_empty()
         && value.len() <= max_bytes
@@ -417,15 +423,24 @@ fn valid_slug(value: &str, max_bytes: usize) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        && !is_windows_device_stem(value.split('.').next().unwrap_or(value))
+}
+
+fn is_windows_device_stem(stem: &str) -> bool {
+    let stem = stem.to_ascii_lowercase();
+    matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || (stem.len() == 4
+            && (stem.starts_with("com") || stem.starts_with("lpt"))
+            && stem.as_bytes()[3].is_ascii_digit())
 }
 
 /// Identity text keeps ordinary Unicode, including joiners used by scripts and emoji, but
 /// rejects controls that could reorder another participant's name or make it invisible.
 fn valid_text(value: &str, max_bytes: usize) -> bool {
     value.len() <= max_bytes
-        && !value
-            .chars()
-            .any(|character| character.is_control() || is_bidi_control(character))
+        && !value.chars().any(|character| {
+            character.is_control() || is_line_break(character) || is_bidi_control(character)
+        })
         && value
             .chars()
             .any(|character| !character.is_whitespace() && !is_invisible(character))
@@ -438,10 +453,37 @@ fn is_bidi_control(character: char) -> bool {
     )
 }
 
+/// Unicode line and paragraph separators are not `Cc` controls but still break a name
+/// across lines.
+fn is_line_break(character: char) -> bool {
+    matches!(character, '\u{2028}' | '\u{2029}')
+}
+
+/// Default_Ignorable_Code_Point plus blank-rendering fillers. These remain allowed inside a
+/// name, where joiners, variation selectors, and emoji tags are legitimate, but a name made only
+/// of them would render as nobody.
 fn is_invisible(character: char) -> bool {
     matches!(
         character,
-        '\u{200B}'..='\u{200D}' | '\u{2060}'..='\u{2064}' | '\u{FEFF}'
+        '\u{00AD}'
+            | '\u{034F}'
+            | '\u{061C}'
+            | '\u{115F}'..='\u{1160}'
+            | '\u{17B4}'..='\u{17B5}'
+            | '\u{180B}'..='\u{180F}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{2800}'
+            | '\u{3164}'
+            | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}'
+            | '\u{FFA0}'
+            | '\u{FFF0}'..='\u{FFF8}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D159}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0000}'..='\u{E0FFF}'
     )
 }
 

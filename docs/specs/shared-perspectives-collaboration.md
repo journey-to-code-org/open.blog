@@ -135,19 +135,27 @@ denial cannot mutate canonical content or public output.
 
 - Unknown fields are rejected. Credentials, session tokens, arbitrary metadata, and provider
   identity claims therefore cannot enter this persisted/API shape.
-- IDs must be unique in their collection. Every participant or contribution reference must resolve,
-  including after removals and reorders. Reveal recipients and approvals cannot repeat.
+- IDs must be unique in their collection; participant and contribution IDs are compared ASCII
+  case-insensitively, so `Ada` and `ada` cannot share one file key on a case-insensitive
+  filesystem. References match the exact ID and must resolve, including after removals and
+  reorders. Reveal recipients and approvals cannot repeat.
 - Identifiers and layout regions are opaque ASCII letters, digits, `-`, `_`, and `.`; they cannot
-  start or end with a separator or contain `..`, so dot segments and path traversal cannot be
-  expressed if a later consumer keys files or URLs by them.
+  start or end with a separator, contain `..`, or have a Windows device stem (`con`, `prn`, `aux`,
+  `nul`, `com0`-`com9`, `lpt0`-`lpt9`, in any case and before any `.`), so dot segments, path
+  traversal, and device files cannot be expressed if a later consumer keys files or URLs by them.
 - Profile URLs reuse the contributor profile-link rules, narrowed to absolute HTTPS: no
   credentials, invalid ports, empty host labels, control characters, or whitespace. Non-ASCII must
   be percent-encoded (hosts in punycode), which also keeps bidi controls out of displayed links.
-- Display names keep ordinary Unicode, including the joiners used by scripts and emoji, but reject
-  control characters, bidi embedding/override/isolate marks, and names made only of whitespace or
-  invisible characters, so one participant cannot render as another or as nobody. Contribution Markdown is retained as untrusted source,
-  bounded, and rejected when it contains a NUL byte. A future display surface must pass it through
-  open.blog's normal Markdown and HTML-safety pipeline; the contract never renders it.
+- Display names keep ordinary Unicode, including the joiners, variation selectors, and tags used
+  by scripts and emoji, but reject control characters, the U+2028/U+2029 line and paragraph
+  separators, and bidi embedding/override/isolate marks, so a name cannot break across lines or be
+  reordered into a different string. A name must also contain a visible character: whitespace,
+  Default_Ignorable_Code_Point characters, and blank fillers such as U+3164 and U+2800 alone are
+  rejected, so no participant renders as nobody. Names are not unique and confusable names are
+  allowed, so a display surface must distinguish participants by ID.
+- Contribution Markdown is retained as untrusted source, bounded, and rejected when it contains a
+  NUL byte. A future display surface must pass it through open.blog's normal Markdown and
+  HTML-safety pipeline; the contract never renders it.
 - Parsing and validation return one non-identifying error. The error does not echo Markdown, URLs,
   IDs, tokens, metadata, or another participant's content.
 - Replacement is whole-contract and optimistic: the caller supplies the observed revision and the
@@ -162,11 +170,13 @@ Property-style fixtures cover groups of 1, 2, 3, 10, and the maximum participant
 participants, duplicates in every collection, and removals that either purge every reference or
 leave one dangling. The pair projection is checked to exist only for two participants and to add no
 persisted state, and every serialized key of the contract and authorization policy is checked for
-pair-specific names. Boundary fixtures cover each limit, untrusted fields, dot-segment and
-lookalike identifiers, Unicode and spoofed display names, URLs, verbatim hostile Markdown, stale,
-replayed, skipped, and exhausted revisions, and private errors. Because this module has
-no renderer, Admin, filesystem, or network integration, canonical content and public output remain
-unchanged by construction.
+pair-specific names. Boundary fixtures accept every limit at its maximum and reject it one past
+(approvals, capped at one per participant, are checked at the maximum group). Further fixtures
+cover untrusted fields, dot-segment, device-name, case-colliding, and lookalike identifiers,
+Unicode and spoofed or blank display names, URLs, verbatim hostile Markdown, stale, replayed,
+skipped, and exhausted revisions, and private errors. Because this module has no renderer, Admin,
+filesystem, or network integration, canonical content and public output remain unchanged by
+construction.
 
 Authorization matrix fixtures cover every role and action plus confused-deputy targeting, removed
 Admin users, renamed contributors, removed participants, unbound accounts, cross-publication use,

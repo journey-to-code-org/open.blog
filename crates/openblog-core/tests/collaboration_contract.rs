@@ -1,7 +1,7 @@
 use openblog_core::collaboration::{
-    AuthorizationPolicy, CollaborationContract, MAX_CONTRACT_BYTES, MAX_CONTRIBUTIONS,
-    MAX_DISPLAY_NAME_BYTES, MAX_IDENTIFIER_BYTES, MAX_LAYOUT_ITEMS, MAX_MARKDOWN_BYTES,
-    MAX_PARTICIPANTS, MAX_PROFILE_URL_BYTES, MAX_REVEALS,
+    AuthorizationPolicy, CollaborationContract, MAX_APPROVALS, MAX_CONTRACT_BYTES,
+    MAX_CONTRIBUTIONS, MAX_DISPLAY_NAME_BYTES, MAX_IDENTIFIER_BYTES, MAX_LAYOUT_ITEMS,
+    MAX_MARKDOWN_BYTES, MAX_PARTICIPANTS, MAX_PROFILE_URL_BYTES, MAX_REGION_BYTES, MAX_REVEALS,
 };
 use serde_json::{json, Value};
 
@@ -159,13 +159,31 @@ fn duplicate_and_removed_participant_fixtures_fail_as_one_private_error() {
     let mut duplicate = populated_contract();
     duplicate["participants"][1]["id"] = json!("p0");
 
+    // Case-insensitive filesystems would map these IDs to one file key.
+    let mut case_duplicate = populated_contract();
+    case_duplicate["participants"][0]["id"] = json!("Ada");
+    case_duplicate["participants"][1]["id"] = json!("ada");
+    case_duplicate["contributions"][1]["participantId"] = json!("Ada");
+    case_duplicate["reveals"][0]["participantIds"] = json!(["Ada", "ada"]);
+    case_duplicate["approvals"][1]["participantId"] = json!("Ada");
+
+    let mut case_duplicate_contribution = populated_contract();
+    case_duplicate_contribution["contributions"][0]["id"] = json!("C0");
+    case_duplicate_contribution["reveals"][0]["contributionId"] = json!("C0");
+    case_duplicate_contribution["layout"][1]["contributionId"] = json!("C0");
+
     let mut removed = populated_contract();
     removed["participants"] = json!([
         { "id": "p0", "displayName": "First" },
         { "id": "p1", "displayName": "Second" }
     ]);
 
-    for invalid in [duplicate, removed] {
+    for invalid in [
+        duplicate,
+        case_duplicate,
+        case_duplicate_contribution,
+        removed,
+    ] {
         let error = CollaborationContract::from_json(&invalid.to_string())
             .expect_err("invalid relationship must fail closed");
         assert_eq!(error.to_string(), "invalid collaboration contract");
@@ -193,9 +211,12 @@ fn untrusted_fields_identifiers_urls_and_markdown_are_bounded() {
     unsafe_url["participants"][0]["profileUrl"] = json!("javascript:alert(1)");
     fixtures.push(unsafe_url);
 
-    let mut invalid_identity = contract_with(&["../p0"]);
-    invalid_identity["participants"][0]["displayName"] = json!("Participant\u{0}name");
-    fixtures.push(invalid_identity);
+    // Each identity defect stands alone so either rule is shown to reject by itself.
+    fixtures.push(contract_with(&["../p0"]));
+
+    let mut nul_name = contract_with(&["p0"]);
+    nul_name["participants"][0]["displayName"] = json!("Participant\u{0}name");
+    fixtures.push(nul_name);
 
     let mut oversized_markdown = populated_contract();
     oversized_markdown["contributions"][0]["markdown"] = json!("x".repeat(MAX_MARKDOWN_BYTES + 1));
@@ -222,7 +243,29 @@ fn identifiers_reject_dot_segments_and_non_ascii_lookalikes() {
     region["layout"][0]["region"] = json!("..");
     assert!(CollaborationContract::from_json(&region.to_string()).is_err());
 
-    for id in ["p0", "ada.lovelace", "Guest_2", "a-b"] {
+    // Windows device names cannot be opened as ordinary files, whatever their case or extension.
+    for id in ["con", "PRN", "Aux", "nul.json", "com1", "LPT9.p0", "com0"] {
+        assert!(
+            CollaborationContract::from_json(&contract_with(&[id]).to_string()).is_err(),
+            "{id}"
+        );
+        let mut region = populated_contract();
+        region["layout"][0]["region"] = json!(id);
+        assert!(
+            CollaborationContract::from_json(&region.to_string()).is_err(),
+            "{id}"
+        );
+    }
+
+    for id in [
+        "p0",
+        "ada.lovelace",
+        "Guest_2",
+        "a-b",
+        "console",
+        "com10",
+        "my.con",
+    ] {
         CollaborationContract::from_json(&contract_with(&[id]).to_string())
             .expect("opaque ASCII identifier remains valid");
     }
@@ -230,7 +273,15 @@ fn identifiers_reject_dot_segments_and_non_ascii_lookalikes() {
 
 #[test]
 fn display_names_keep_unicode_but_reject_spoofing_controls() {
-    for name in ["Zoë 李", "Ada 👩\u{200D}💻", "مریم\u{200C}ی", "  Grace  "] {
+    for name in [
+        "Zoë 李",
+        "Ada 👩\u{200D}💻",
+        "مریم\u{200C}ی",
+        "  Grace  ",
+        "Ada ❤\u{FE0F}",
+        "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}",
+        "한글",
+    ] {
         let mut contract = contract_with(&["p0"]);
         contract["participants"][0]["displayName"] = json!(name);
         let parsed = CollaborationContract::from_json(&contract.to_string())
@@ -245,6 +296,20 @@ fn display_names_keep_unicode_but_reject_spoofing_controls() {
         "\u{FEFF}\u{2060}",
         "\u{3000}",
         "Ada\nAdmin",
+        "Ada\u{2028}Admin",
+        "Ada\u{2029}Admin",
+        "\u{00AD}",
+        "\u{034F}",
+        "\u{115F}\u{1160}",
+        "\u{17B4}",
+        "\u{180E}",
+        "\u{3164}",
+        "\u{FFA0}",
+        "\u{2800}",
+        "\u{FE0F}",
+        "\u{1D159}",
+        "\u{1D173}",
+        "\u{E0041}\u{E0042}",
     ] {
         let mut contract = contract_with(&["p0"]);
         contract["participants"][0]["displayName"] = json!(name);
@@ -432,6 +497,33 @@ fn collection_and_text_limits_are_enforced_at_their_boundaries() {
     CollaborationContract::from_json(&full.to_string())
         .expect("every collection at its maximum is accepted");
 
+    // Approvals are capped at one per participant, so the largest group can all approve.
+    let mut approved = contract_with(&borrowed[..MAX_PARTICIPANTS]);
+    approved["approvals"] = borrowed[..MAX_APPROVALS]
+        .iter()
+        .map(|id| json!({ "participantId": id, "revision": 4 }))
+        .collect();
+    CollaborationContract::from_json(&approved.to_string())
+        .expect("maximum group with every approval is accepted");
+
+    let region = |bytes: usize| {
+        let mut contract = populated_contract();
+        contract["layout"][0]["region"] = json!("r".repeat(bytes));
+        contract.to_string()
+    };
+    CollaborationContract::from_json(&region(MAX_REGION_BYTES))
+        .expect("maximum region length is accepted");
+    assert!(CollaborationContract::from_json(&region(MAX_REGION_BYTES + 1)).is_err());
+
+    let markdown = |bytes: usize| {
+        let mut contract = populated_contract();
+        contract["contributions"][0]["markdown"] = json!("x".repeat(bytes));
+        contract.to_string()
+    };
+    CollaborationContract::from_json(&markdown(MAX_MARKDOWN_BYTES))
+        .expect("maximum Markdown length is accepted");
+    assert!(CollaborationContract::from_json(&markdown(MAX_MARKDOWN_BYTES + 1)).is_err());
+
     let long_id = "p".repeat(MAX_IDENTIFIER_BYTES);
     CollaborationContract::from_json(&contract_with(&[&long_id]).to_string())
         .expect("maximum identifier length is accepted");
@@ -439,18 +531,25 @@ fn collection_and_text_limits_are_enforced_at_their_boundaries() {
     assert!(CollaborationContract::from_json(&contract_with(&[&too_long_id]).to_string()).is_err());
 
     let mut name = contract_with(&["p0"]);
+    name["participants"][0]["displayName"] = json!("é".repeat(MAX_DISPLAY_NAME_BYTES / 2));
+    CollaborationContract::from_json(&name.to_string())
+        .expect("maximum display-name length is accepted");
     name["participants"][0]["displayName"] = json!("é".repeat(MAX_DISPLAY_NAME_BYTES / 2 + 1));
     assert!(
         CollaborationContract::from_json(&name.to_string()).is_err(),
         "limits count UTF-8 bytes, not characters"
     );
 
-    let mut url = contract_with(&["p0"]);
-    url["participants"][0]["profileUrl"] = json!(format!(
-        "https://example.org/{}",
-        "a".repeat(MAX_PROFILE_URL_BYTES)
-    ));
-    assert!(CollaborationContract::from_json(&url.to_string()).is_err());
+    let url = |bytes: usize| {
+        let prefix = "https://example.org/";
+        let mut contract = contract_with(&["p0"]);
+        contract["participants"][0]["profileUrl"] =
+            json!(format!("{prefix}{}", "a".repeat(bytes - prefix.len())));
+        contract.to_string()
+    };
+    CollaborationContract::from_json(&url(MAX_PROFILE_URL_BYTES))
+        .expect("maximum profile URL length is accepted");
+    assert!(CollaborationContract::from_json(&url(MAX_PROFILE_URL_BYTES + 1)).is_err());
 
     let oversized = format!(
         "{}{}",
