@@ -5,12 +5,20 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
-- Added private per-admin workspace personalization with Simple, Guided, Advanced, and Custom
-  layouts, optional-tool ordering, density and writing-mode preferences, Restore defaults, and a
-  goal-grouped Advanced tools dialog, while essential authoring and publishing controls stay visible.
-- Stored workspace preferences per login under `.openblog/private/` with revision-checked saves,
-  so a change from another tab is reloaded instead of overwritten, and moved admins who used the
-  workspace before personalization into the Advanced layout with their remembered writing mode.
+- Added private per-admin workspace personalization to Admin Studio: Simple (the new default),
+  Guided, Advanced, and Custom presets; showing, hiding, and reordering optional tools; comfortable
+  or compact density; a default Visual or Markdown writing mode; and Restore defaults. A
+  goal-grouped **Advanced tools** dialog, the **More tools** menu, and `Ctrl+K` keep every tool
+  reachable in every preset, and Write, Site preview, Settings, save and publish state, conflicts,
+  privacy notices, approvals, and blocking validation can never be hidden or reordered.
+- Stored workspace preferences as a bounded, schema-versioned file per login under
+  `.openblog/private/admin-preferences/`, behind login and CSRF checks, with atomic,
+  revision-checked saves so a change from another tab is reloaded instead of overwritten. They never
+  reach posts, `openblog.json`, the built site, feeds, or exports, and unavailable storage falls back
+  to a usable Simple workspace with a notice.
+- Admins whose browser remembered a writing mode from an earlier release move once into the
+  Advanced layout with that mode; every other login, including others in the same browser, starts
+  in Simple.
 
 ## [0.14.0] - 2026-10-24
 
