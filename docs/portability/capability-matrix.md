@@ -1,76 +1,94 @@
 # Content-capability portability matrix
 
-- Status: implemented first iteration (audit document only; no rendering changes)
+- Status: current consumer map for the Portable Content & Universal Publishing epic
 - Date: 2026-10-24
 - Issue: [#107](https://github.com/journey-to-code-org/open.blog/issues/107) (Task P2.1)
 - Parent story: [#94](https://github.com/journey-to-code-org/open.blog/issues/94) · Parent epic: [#92](https://github.com/journey-to-code-org/open.blog/issues/92)
 - Depends on completed contract work: [#105](https://github.com/journey-to-code-org/open.blog/issues/105) (`PortableProjection`) and
   [#106](https://github.com/journey-to-code-org/open.blog/issues/106) (portability-contract fixtures)
 
-## Purpose and boundaries
+## Current publication projections
 
-This document inventories, capability by capability, what open.blog actually does today versus
-what is only planned in later epics. It changes no rendering behavior (out of scope per #94/#107)
-and assigns no final portability level (out of scope per #107 and ADR 0004). Every row cites the
-parser, domain model, renderer, feed, Admin, or syndication source that backs its claim. Where a
-capability has no shipped behavior, the entry says "planned" and cites the issue that scopes it
-instead of describing a hypothetical implementation.
+One author-owned Markdown document is projected through the shared
+[`PortableProjection`](../../crates/openblog-core/src/portability.rs). `representation(Html)`
+continues to expose the legacy native body for backward compatibility; portable HTML and Markdown
+are separate derived outputs and never become editable source files.
 
-### Portability-level vocabulary (defined, not newly assigned here)
+| Surface | Projection and policy |
+| --- | --- |
+| Native pages | Existing production renderer and runtime remain unchanged. |
+| Portable HTML | Static HTML from authored Markdown with safe raw-HTML handling, accessible capability fallbacks, canonical interaction links, public attribution, resolved URLs, and bounded output. |
+| Portable Markdown | CommonMark-oriented text with static quiz/code/web-sandbox/callout transformations, title and canonical identity, public credits and provenance, and explicit raw-HTML/canonical-only notes. `openblog export` is dry-run-first. |
+| RSS / JSON Feed | Full-content RSS `content:encoded` and JSON Feed `content_html` use portable HTML. JSON Feed also emits `content_text` from portable Markdown. Feed metadata remains distinct from provider payloads. |
+| Admin Studio | Authenticated unsaved previews offer native site, portable HTML, portable Markdown, and destination-policy views; source-scoped diagnostics accompany the portable output. |
+| Syndication | DEV and Hashnode use portable Markdown; Ghost and WordPress use portable HTML; Medium is manual import. The dry run reports the representation, canonical behavior, and portability diagnostics. |
+| Other/unknown capabilities | Preserve authored Markdown where possible, label canonical-only behavior, and report loss. Private-only state produces no public diagnostic or output. |
 
-[ADR 0004](../adr/0004-portable-projections-from-canonical-work.md) and the parent epic
-([#92](https://github.com/journey-to-code-org/open.blog/issues/92)) define three levels reused
-below only where a `CapabilityDescriptor` or fixture already records one:
+Portability levels and capability ownership come from the
+[ADR](../adr/0004-portable-projections-from-canonical-work.md),
+[capability descriptors](../../crates/openblog-core/src/capability.rs), and
+[planned-capability registry](./planned-capability-contracts.json). The rows below are the
+original native-capability audit and remain useful for parser/native behavior; consumer behavior
+is governed by the current projection table above.
 
-- **Fully portable** — the portable representation preserves authored meaning and remains usable
-  without open.blog's native interaction runtime.
-- **Gracefully transformed** — a simpler representation preserves essential content and
-  attribution; material semantic loss is reported.
-- **Canonical-only interaction** — no portable interaction is claimed; the reader is directed to
-  the canonical article.
+## Destination conversion policies
 
-### How native output, feeds, Admin preview, and syndication currently relate
+Cross-posting provider policies are typed in the shared core and consumed by both Admin previews
+and syndication dry runs. Feed rows describe destination-neutral generated contracts. Unknown
+provider identifiers are rejected by configuration parsing; they do not inherit a permissive
+destination policy.
 
-- `PortableProjection::representation(RepresentationFormat::Html)` returns `post.html` unchanged —
-  the same authored/native HTML string used for the native page
-(`crates/openblog-core/src/portability.rs:158-164`, confirmed by
-`crates/openblog-core/src/portability.rs:346-349` asserting
-  `projection.representation(RepresentationFormat::Html) == post.html`). The separate
-  `PortableProjection::portable_html()` API re-renders retained authored Markdown and resolves
-  Markdown link and image destinations without parsing native HTML; it is an opt-in body projection,
-  not yet consumed by feeds, Admin preview, or syndication. It renders static fallbacks for
-  quizzes, runnable code, web sandboxes, embeds, video chapters, recipes, callouts, and comment
-  participation ([#112](https://github.com/journey-to-code-org/open.blog/issues/112)), keeps
-  credits, DOI/license, footnote citations, and source provenance, and fails closed for planned
-  capabilities ([#113](https://github.com/journey-to-code-org/open.blog/issues/113)). Authored
-  raw HTML passes through an allowlist that removes active and destination-hostile markup,
-  reports the loss, resolves its URLs, keeps ids unique, and bounds size and nesting
-  ([#114](https://github.com/journey-to-code-org/open.blog/issues/114)). See the
-  [portable HTML pipeline](./portable-html-pipeline.md) for its exact boundaries. Story
-  [#95](https://github.com/journey-to-code-org/open.blog/issues/95) delivers this body projection;
-  no consumer uses it yet, and [#96](https://github.com/journey-to-code-org/open.blog/issues/96)
-  (portable Markdown export) is still unimplemented.
-- RSS (`crates/openblog-core/src/feeds.rs:13-101`) and JSON Feed
-  (`crates/openblog-core/src/feeds.rs:106-181`) both call
-  `projection.representation(RepresentationFormat::Html)` for `<content:encoded>` /
-  `content_html` when `feeds.full_content` is enabled, i.e. feeds currently embed the **native**
-  HTML (including custom elements such as `<ob-quiz>`, `<ob-rust-playground>`, and
-  `<ob-web-sandbox>`) after the existing root-relative `src`/`href` URL absolutization, rather
-  than a feed-appropriate simplified fallback. Story
-  [#97](https://github.com/journey-to-code-org/open.blog/issues/97) ("Make RSS and JSON Feed use
-  appropriate portable representations") is open and unimplemented.
-- Admin's **Site preview** "produced by the same site model, document renderer, theme
-  inheritance, metadata, and components as a real build" (`docs/admin.md:24`), so Admin preview
-  renders the identical native markup described in this matrix — there is no distinct Admin
-  "portable preview" yet (`#100` is open and unimplemented: "Add portable publication previews to
-  Admin Studio", epic #92 M4).
-- Syndication (`docs/specs/automated-syndication.md:71-78`) sends either raw authored Markdown
-  (DEV, Hashnode) or rendered HTML (Ghost, WordPress) built from the same renderer; it does not
-  yet consult a destination-specific capability policy (`#101`, "Define destination-specific
-  conversion policies and capabilities", is open). The detailed URL, attribution, reference,
-  and text-loss comparison is in the [Markdown/feed/syndication audit](./markdown-feed-syndication-audit.md).
+| Destination | Representation | Canonical behavior | Workflow |
+| --- | --- | --- | --- |
+| DEV | Portable Markdown | Canonical URL is sent | Remote draft by default; public publishing requires explicit CLI approval |
+| Hashnode | Portable Markdown | Canonical URL is sent | Draft create/update only; public-publish requests are rejected |
+| Ghost | Portable HTML | Sent as Ghost canonical URL | Remote draft by default; public publishing requires explicit CLI approval |
+| WordPress | Portable HTML | WordPress core cannot set an external canonical URL | Remote draft by default; verify an SEO plugin before public publishing |
+| Medium | Portable Markdown | Verify canonical URL during import | Manual import only; no remote write |
+| RSS | Portable HTML | Entry link and feed item URL identify the canonical post | Generated feed; no provider API |
+| JSON Feed | Portable HTML plus portable text | Item URL identifies the canonical post | Generated feed; no provider API |
 
-## Matrix
+Warnings include source path, capability, observed transformation, and a recommended review or
+repair action. Warnings do not attest to correctness, accessibility, or provider-side rendering.
+An Admin acknowledgement is kept in the post's tracked `.portability.json` sidecar and bound to
+the portable source revision, capability, representation, and destination. It records review but
+does not suppress the warning or override a projection error; older revisions stay visibly stale.
+
+## Interactive fallback and state policy
+
+Portable artifacts use semantic HTML/CommonMark only; they do not depend on open.blog JavaScript,
+live provider endpoints, reader submissions, or owner snippets. Content below refers to authored,
+public meaning. Attempts, moderation state, credentials, and private annotations are ephemeral or
+private and never enter a public projection.
+
+| Capability | Authored/public meaning retained | Portable behavior and order | Interaction loss / private state |
+| --- | --- | --- | --- |
+| Knowledge check | Prompt, choices, designated answer, and explanation | Static question, ordered choices, then answer and explanation; Markdown labels the answer explicitly | Scoring, retries, and remembered attempts are unavailable |
+| Runnable code | Caption/title and complete source | Caption, source code block, optional prefilled Rust Playground link, then canonical run/edit link. `playgroundLink=false` or an encoded URL over 8 KiB omits only the external link | In-copy editing and execution are unavailable; eligible Rust examples can be opened externally |
+| Web sandbox | HTML, CSS, and JavaScript source sections | Each source section is a separately labeled code block; canonical link follows | Live preview and execution are unavailable |
+| Discussion/comments | Canonical article identity and discussion link | A labeled canonical link after article content | Submissions, reader identity, moderation queues, and hosted endpoint details are not exported |
+| Planned public interactions | Existing authored prose and its position | Labeled canonical link after the preserved authored content; planned behavior is not claimed as implemented | Future interactions remain canonical-only until an owning story defines semantics |
+| Private annotations/reflection drafts | None; private state has no public authored representation | No content, diagnostic, or link is emitted | All private reader state remains private |
+| Raw HTML | Text and elements accepted by the portable allowlist | Safe elements are preserved where possible; unsupported content is removed or escaped and diagnosed | Scripts, forms, frames, embeds, and active behavior are not carried through |
+| Video chapters | Timestamp, chapter label, and source video identity | Ordered timestamp list with links to the corresponding video position when available | Player state is unavailable |
+| Recipe | Public recipe facts, sections, lists, and author notes | Static facts followed by labeled ingredients/instructions sections | Interactive scaling and local state are not portable |
+
+The portable representations are readable without JavaScript. Any warning associated with a
+transformation includes a recommended review action; no warning can authorize exporting private
+state or suppress an unsafe-markup failure.
+
+Discussion links target the generated `#ob-discussion` region only when that region is enabled
+on the native article. Hidden discussions and sites without a backend expose no participation
+link. Approved public contributions are not currently imported into exports: any future opt-in
+must use the owning moderation/publication story's exact approved public projection, attribution
+and privacy review. Pending/rejected material, deleted passages and author-only responses are
+never fetched by an exporter. Article prose alone cannot opt private state into publication.
+
+## Native capability audit (baseline)
+
+This table records the source audit completed before the consumer rollout. Its native-renderer
+descriptions remain useful; feed, Admin-preview, and syndication cells are historical baseline
+observations and are superseded by the current projection policy above.
 
 | Capability | Status | Owner (code) | Native HTML | No-JavaScript behavior | Feeds (RSS/JSON Feed) | Admin preview | Syndication | Citations |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -96,29 +114,20 @@ below only where a `CapabilityDescriptor` or fixture already records one:
 
 ## Notes on scope and gaps
 
-- **No rendering behavior changed.** This document only reads existing source; it does not add,
-  remove, or modify any parser rule, renderer branch, feed field, Admin surface, or syndication
-  adapter.
-- The portability gates for upcoming research/reader capabilities live in the
+- The portability gates for planned research/reader capabilities live in the
   [planned-capability registry](./planned-capability-contracts.md) and its
   [machine-checked contract data](./planned-capability-contracts.json); planned work must use its
   existing story and unique contract owner rather than adding parallel exporters.
-- **No final portability levels assigned beyond what code/fixtures already record.** The three
-  rows with a recorded level (Quizzes, Runnable code, Web sandboxes) cite the exact
-  `CapabilityDescriptor`/fixture source; the matrix does not extend that classification to
-  capabilities the descriptor system does not cover (articles, recipes, callouts, research,
-  credits, video, timestamps) or to anything still planned.
 - **"Shared Perspectives", "Questions/discussions" (passage-specific), "Reflections", "Source
   previews", "Guided explanations", "Knowledge relationships", "Translation comparisons",
   "Timelines", and "Diagrams"** are drawn directly from the epic roadmap
   (`crates/openblog-core` has no matching modules); treating any of them as shipped would misrepresent
   the backlog recorded in issues #15, #16, and #143. Generic post comments (implemented) are a
   distinct, narrower capability from the planned passage-specific questions/corrections workstream.
-- **Feeds and Admin preview currently reuse native HTML rather than a distinct portable
-  representation.** This is expected per #105/#106 (which defined the projection seam and
-  fixtures) and is not a defect of this audit. Story #95 added the portable HTML body transform;
-  portable Markdown and switching consumers to the portable transforms are scoped to the
-  still-open stories #96, #97, and #100.
-- **Ambiguity:** the parent epic (#92) lists "#103/#107" first in its MVP sequence, but #107's own
-  body states it is unblocked ("Blocked by: None") and scoped only to publishing this audit
-  document; this document does not depend on or anticipate #103's outcome.
+- The capability matrix distinguishes shipped native features from planned features. A planned
+  interaction remains ordinary authored content plus a canonical link until its owning story
+  supplies a semantic fallback; private-only reader or collaboration state never appears in public
+  output or diagnostics.
+- Portable diagnostics are source-scoped and severity-aware. A warning describes a conversion
+  boundary; it does not certify truth, accessibility, or equivalent behavior on a third-party
+  destination.

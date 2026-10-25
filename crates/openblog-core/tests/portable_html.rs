@@ -119,7 +119,7 @@ fn text_without_tags(html: &str) -> String {
 }
 
 /// Static checks a no-JavaScript or no-stylesheet reader depends on. Print is
-/// covered by `quiz_answers_stay_behind_a_closed_disclosure_in_print`.
+/// covered by `quiz_answers_are_visible_without_disclosure_on_screen_and_in_print`.
 fn assert_static_and_accessible(name: &str, html: &str) {
     let tags = tags(html);
     let mut stack: Vec<&str> = Vec::new();
@@ -216,9 +216,16 @@ fn assert_static_and_accessible(name: &str, html: &str) {
         }
     }
     assert!(stack.is_empty(), "{name}: unclosed {stack:?}");
+    let (_, site) = load(name);
+    let native = openblog_core::render::generate_document(
+        &site,
+        &openblog_core::theme::ThemeSet::new(),
+        &format!("posts/{name}.md"),
+    )
+    .unwrap();
     for fragment in fragments {
         assert!(
-            ids.contains(&fragment),
+            ids.contains(&fragment) || native.contents.contains(&format!("id=\"{fragment}\"")),
             "{name}: anchor #{fragment} has no target"
         );
     }
@@ -236,6 +243,219 @@ fn assert_golden(name: &str, html: &str) {
         .unwrap_or_else(|_| panic!("{name}: missing golden file {path}"))
         .replace("\r\n", "\n");
     assert_eq!(html, expected, "{name}: portable HTML differs from {path}");
+}
+
+#[test]
+fn current_markdown_fallbacks_match_reviewed_golden_artifacts() {
+    use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
+
+    for name in ["video-lesson", "recipe", "research", "hostile-html"] {
+        let (config, site) = load(name);
+        let post = &site.posts[0];
+        let authored = post.authored_markdown().to_string();
+        let native = post.html.clone();
+        let projection = PortableProjection::from_post(post, &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        let path = format!("{FIXTURES}/{name}.portable.md");
+        if std::env::var_os("OPENBLOG_UPDATE_GOLDEN").is_some() {
+            std::fs::write(&path, &markdown).unwrap();
+        }
+        let expected = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{name}: missing Markdown golden: {error}"))
+            .replace("\r\n", "\n");
+        assert_eq!(markdown, expected, "{name}: Markdown golden changed");
+        assert_eq!(markdown, projection.portable_markdown().unwrap());
+        let events = Parser::new_ext(&markdown, Options::empty()).collect::<Vec<_>>();
+        for event in &events {
+            match event {
+                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
+                    assert!(!info.contains("runnable"), "{name}: {info}");
+                    assert_ne!(info.as_ref(), "quiz");
+                }
+                Event::Html(html) | Event::InlineHtml(html) => {
+                    panic!("{name}: active HTML in Markdown artifact: {html}");
+                }
+                _ => {}
+            }
+        }
+        let mut html = String::new();
+        pulldown_cmark::html::push_html(&mut html, events.into_iter());
+        assert!(!html.contains("<script"));
+        assert!(!html.contains("<ob-"));
+        assert!(!html.contains("<iframe"));
+        for private in ["engage.example", "runner.example", "Private: ask Dana"] {
+            assert!(!markdown.contains(private), "{name}: leaked {private}");
+        }
+        assert_eq!(post.authored_markdown(), authored);
+        assert_eq!(post.html, native);
+        match name {
+            "video-lesson" => {
+                for fact in [
+                    "00:00 The gate opens",
+                    "1:02:03 Into the ruin",
+                    "Native disclosure works without JavaScript",
+                    "Zürich",
+                    "cargo run --release",
+                    "**HTML**",
+                    "**CSS**",
+                    "**JavaScript**",
+                    "Try it on the canonical article",
+                    "https://codepen.io/team/acme/pen/xyz",
+                    "The café gate",
+                    "**Answer:** 2.",
+                    "**Answer:** 1. No",
+                    "Join the discussion on the canonical article",
+                ] {
+                    assert!(markdown.contains(fact), "{name}: missing {fact}");
+                }
+            }
+            "recipe" => {
+                for fact in [
+                    "**Tip:**",
+                    "**Warning:**",
+                    "2 cups *tomatoes*",
+                    "Toss with the sauce.",
+                    "**Answer:** 2. At the end",
+                    "Prep: 10 min",
+                    "Cook: 10-15 min",
+                    "Serves: 4",
+                    "Read the discussion on the canonical article",
+                ] {
+                    assert!(markdown.contains(fact), "{name}: missing {fact}");
+                }
+            }
+            "research" => {
+                for fact in [
+                    "Mira Øster",
+                    "José Ramírez",
+                    "Author, Investigation",
+                    "Translator",
+                    "(unauthenticated)",
+                    "10.5555/zürich.bridges/2026",
+                    "https://creativecommons.org/licenses/by/4.0/",
+                    "https://journal.example/bridges?lang=de&v=2",
+                    "date uncertain",
+                    "https://archive.example/annals?folio=12v#line-4",
+                    "https://doi.org/10.1000/survey.42#page=42",
+                    "print edition only",
+                    "the year is written over an erasure",
+                ] {
+                    assert!(markdown.contains(fact), "{name}: missing {fact}");
+                }
+                assert!(!markdown.contains("Reviewer 2"));
+                let references = markdown
+                    .split("## References")
+                    .nth(1)
+                    .unwrap()
+                    .split("## Contributions")
+                    .next()
+                    .unwrap();
+                for credit in ["Mira", "Lantern", "José", "orcid"] {
+                    assert!(!references.contains(credit), "{credit} in references");
+                }
+                assert_eq!(markdown.matches("[^annals]").count(), 3);
+            }
+            _ => {
+                assert!(markdown.contains("Portable export note"));
+                assert!(markdown.contains("A hand-written custom element keeps its text."));
+                assert!(!markdown.contains("Join the discussion"));
+            }
+        }
+    }
+}
+
+#[test]
+fn semantic_loss_analysis_detects_mutated_facts_in_every_portable_representation() {
+    use openblog_core::portability::{DiagnosticSeverity, RepresentationFormat};
+    for (name, mutations) in [
+        (
+            "video-lesson",
+            vec![
+                (
+                    "Native disclosure works without JavaScript",
+                    "knowledge-check",
+                ),
+                ("Yes", "knowledge-check"),
+                ("cargo run --release", "runnable-code"),
+                ("button { color: red; }", "web-sandbox"),
+                ("00:14", "content"),
+                ("The café gate", "content"),
+                ("dQw4w9WgXcQ", "video"),
+            ],
+        ),
+        (
+            "research",
+            vec![
+                ("José Ramírez", "credits"),
+                ("Investigation", "credits"),
+                ("unauthenticated", "credits"),
+                ("https://lantern.example/", "credits"),
+                ("10.5555/zürich.bridges/2026", "research"),
+                ("https://creativecommons.org/licenses/by/4.0/", "research"),
+                ("https://archive.example/annals?folio=12v#line-4", "content"),
+                ("date uncertain", "content"),
+            ],
+        ),
+        ("recipe", vec![("10 min", "recipe"), ("2 bowls", "recipe")]),
+    ] {
+        let (config, site) = load(name);
+        let post = &site.posts[0];
+        let source = post.authored_markdown().to_string();
+        let native = post.html.clone();
+        let projection = PortableProjection::from_post(post, &config).unwrap();
+        for (format, artifact) in [
+            (
+                RepresentationFormat::Html,
+                projection.portable_html().unwrap().html,
+            ),
+            (
+                RepresentationFormat::Markdown,
+                projection.portable_markdown().unwrap(),
+            ),
+            (
+                RepresentationFormat::Text,
+                projection.portable_text().unwrap(),
+            ),
+        ] {
+            assert!(projection
+                .analyze_portable_artifact(format, &artifact)
+                .unwrap()
+                .is_empty());
+            for (value, capability) in &mutations {
+                let encoded = openblog_core::escape::attr(value);
+                let mutated = artifact
+                    .replace(value, "REMOVED")
+                    .replace(&encoded, "REMOVED");
+                assert_ne!(artifact, mutated, "{name}: mutation did not reach {value}");
+                let findings = projection
+                    .analyze_portable_artifact(format, &mutated)
+                    .unwrap();
+                assert!(
+                    findings.iter().any(|finding| {
+                        finding.code == "missing-semantic-fact"
+                            && finding.severity == DiagnosticSeverity::Error
+                            && finding.capability_id.as_deref() == Some(*capability)
+                            && finding.source_path == post.source
+                            && finding.context.representation.is_some()
+                    }),
+                    "{name} {format:?} {value}: {findings:?}"
+                );
+            }
+            if name == "video-lesson" {
+                let mutated = artifact
+                    .replace("Answer: A. No", "Answer: A. WRONG")
+                    .replace("Answer: 1. No", "Answer: 1. WRONG")
+                    .replace("**Answer:** 1. No", "**Answer:** 1. WRONG");
+                assert_ne!(artifact, mutated);
+                assert!(projection.analyze_portable_artifact(format, &mutated).unwrap().iter().any(|finding|
+                    finding.capability_id.as_deref() == Some("knowledge-check")
+                        && finding.context.affected_semantics.as_deref() == Some("answer")
+                ), "an answer still present among the choices must not hide a missing designated answer");
+            }
+        }
+        assert_eq!(post.authored_markdown(), source);
+        assert_eq!(post.html, native);
+    }
 }
 
 #[test]
@@ -286,23 +506,20 @@ fn video_lesson_fallbacks_match_the_golden_output() {
     }
 }
 
-/// Print policy: the answer and explanation sit in a closed `<details>`, which
-/// browsers print collapsed. A printed knowledge check therefore shows the
-/// prompt and choices, and the reader opens the disclosure first to print the
-/// answer; the answer is never shown before the reader asks.
 #[test]
-fn quiz_answers_stay_behind_a_closed_disclosure_in_print() {
+fn quiz_answers_are_visible_without_disclosure_on_screen_and_in_print() {
     let (html, _) = portable("video-lesson");
-    assert!(!html.contains("<details open"), "{html}");
+    assert!(!html.contains("<details"), "{html}");
     for answer in ["Answer: B.", "Answer: A. No"] {
         let at = html.find(answer).expect(answer);
         let opened = html[..at]
-            .rfind("<details class=\"ob-quiz-answer\"><summary>Show answer</summary>")
-            .expect("answer outside a disclosure");
+            .rfind("<div class=\"ob-quiz-answer\">")
+            .expect("answer outside a visible answer block");
         assert!(
-            !html[opened..at].contains("</details>"),
-            "{answer} must sit inside its disclosure"
+            !html[opened..at].contains("</div>"),
+            "{answer} must sit inside its visible answer block"
         );
+        assert!(html[..opened].ends_with("</ol>\n"));
     }
 }
 

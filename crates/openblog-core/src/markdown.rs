@@ -22,6 +22,11 @@ pub struct Heading {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Rendered {
     pub html: String,
+    /// Image destinations retained by the portable raw-HTML boundary, in source order.
+    pub portable_images: Vec<crate::portability::PortableImage>,
+    pub portable_has_raw_html: bool,
+    /// YouTube identities detected from source paragraphs with portable embed fallbacks.
+    pub portable_video_ids: Vec<String>,
     /// Semantic capabilities detected in authored Markdown, in source order.
     pub capabilities: Vec<CapabilityDescriptor>,
     /// Content errors discovered by Markdown extensions such as quiz blocks.
@@ -91,13 +96,13 @@ pub(crate) struct PortableContext<'a> {
 /// Options written after a fence's language, in the style other site
 /// generators use: ```` ```rust title="src/main.rs" {2,4-6} showLineNumbers=10 ````.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct FenceInfo {
-    lang: String,
-    title: Option<String>,
+pub(crate) struct FenceInfo {
+    pub(crate) lang: String,
+    pub(crate) title: Option<String>,
     /// `runnable`: let readers edit and run this Rust example.
-    runnable: bool,
+    pub(crate) runnable: bool,
     /// `playgroundLink=false`: omit the external Playground fallback link.
-    playground_link: Option<bool>,
+    pub(crate) playground_link: Option<bool>,
     /// `showLineNumbers` / `showLineNumbers=false`.
     line_numbers: Option<bool>,
     /// `showLineNumbers=10` starts counting at 10.
@@ -106,7 +111,7 @@ struct FenceInfo {
     highlight: Option<String>,
 }
 
-fn parse_fence_info(info: &str) -> FenceInfo {
+pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
     let mut out = FenceInfo::default();
     let mut rest = info.trim();
     let mut first = true;
@@ -174,6 +179,51 @@ fn parse_fence_info(info: &str) -> FenceInfo {
         first = false;
     }
     out
+}
+
+pub(crate) fn capability_source_ranges(
+    markdown: &str,
+) -> Vec<(String, crate::portability::SourceRange)> {
+    let mut starts = vec![0];
+    starts.extend(markdown.match_indices('\n').map(|(offset, _)| offset + 1));
+    let position = |offset: usize| {
+        let line = starts.partition_point(|start| *start <= offset);
+        let column = markdown[starts[line - 1]..offset]
+            .trim_end_matches('\r')
+            .chars()
+            .count()
+            + 1;
+        (line, column)
+    };
+    Parser::new_ext(markdown, parser_options(false))
+        .into_offset_iter()
+        .filter_map(|(event, range)| {
+            let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = event else {
+                return None;
+            };
+            let fence = parse_fence_info(&info);
+            let id = if info.trim() == "quiz" {
+                "knowledge-check"
+            } else if fence.runnable && fence.lang.eq_ignore_ascii_case("web") {
+                "web-sandbox"
+            } else if fence.runnable {
+                "runnable-code"
+            } else {
+                return None;
+            };
+            let (start_line, start_column) = position(range.start);
+            let (end_line, end_column) = position(range.end);
+            Some((
+                id.into(),
+                crate::portability::SourceRange {
+                    start_line,
+                    start_column,
+                    end_line,
+                    end_column,
+                },
+            ))
+        })
+        .collect()
 }
 
 fn valid_web_sandbox_source(source: &str) -> bool {
@@ -376,7 +426,7 @@ fn render_quiz(
 }
 
 /// A knowledge check without controls: the prompt, lettered choices, and the
-/// author's answer and explanation behind a native disclosure.
+/// author's answer and explanation immediately after the choices.
 fn render_portable_quiz(source: &str) -> Result<String, String> {
     let quiz = parse_quiz(source)?;
     let mut html = format!(
@@ -400,7 +450,7 @@ fn render_portable_quiz(source: &str) -> Result<String, String> {
     }
     html.push_str(&format!(
         "</ol>
-<details class=\"ob-quiz-answer\"><summary>Show answer</summary>
+<div class=\"ob-quiz-answer\">
 <p>Answer: {answer}</p>
 "
     ));
@@ -412,11 +462,30 @@ fn render_portable_quiz(source: &str) -> Result<String, String> {
         ));
     }
     html.push_str(
-        "</details>
+        "</div>
 </div>
 ",
     );
     Ok(html)
+}
+
+pub(crate) fn portable_quiz_markdown(source: &str) -> Result<String, String> {
+    let quiz = parse_quiz(source)?;
+    let mut markdown = format!("**Question:** {}\n\n", quiz.prompt);
+    let mut answer = None;
+    for (index, choice) in quiz.choices.iter().enumerate() {
+        markdown.push_str(&format!("{}. {}\n", index + 1, choice.text));
+        if choice.correct {
+            answer = Some((index + 1, choice.text.as_str()));
+        }
+    }
+    if let Some((number, text)) = answer {
+        markdown.push_str(&format!("\n**Answer:** {number}. {text}\n"));
+    }
+    if let Some(explanation) = quiz.explanation {
+        markdown.push_str(&format!("\n> **Explanation:** {explanation}\n"));
+    }
+    Ok(markdown)
 }
 
 /// The fence's authored line options (`showLineNumbers`, the start line, and
@@ -438,8 +507,19 @@ fn line_attributes(fence: &FenceInfo) -> String {
     attributes
 }
 
-/// A runnable fence without its runtime: the authored source stays visible as code
-/// and the live interaction is pointed at the canonical article.
+pub(crate) fn rust_playground_url(source: &str) -> Option<String> {
+    let mut url = url::Url::parse("https://play.rust-lang.org/").expect("static Playground URL");
+    url.query_pairs_mut()
+        .append_pair("version", "stable")
+        .append_pair("mode", "debug")
+        .append_pair("edition", "2021")
+        .append_pair("code", source);
+    // Keep exported links practical for feed readers and destination importers.
+    (url.as_str().len() <= 8 * 1024).then(|| url.into())
+}
+
+/// A runnable fence without its runtime: source, an optional external Playground
+/// link for Rust, and a link back to the canonical article.
 fn portable_code_html(
     fence: &FenceInfo,
     source: &str,
@@ -507,6 +587,14 @@ fn portable_code_html(
         "Open the live preview on"
     } else {
         html.push_str(&code(&fence.lang, source, &line_attributes(fence)));
+        if fence.lang.eq_ignore_ascii_case("rust") && fence.playground_link != Some(false) {
+            if let Some(url) = rust_playground_url(source) {
+                html.push_str(&format!(
+                    "<p class=\"ob-playground-link\"><a href=\"{}\">Open in Rust Playground</a>.</p>",
+                    escape::attr(&url)
+                ));
+            }
+        }
         "Run and edit this example on"
     };
     html.push_str(&format!(
@@ -1016,6 +1104,7 @@ fn apply_embeds(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
 fn apply_portable_paragraphs<'a>(
     events: Vec<Event<'a>>,
     context: PortableContext<'_>,
+    video_ids: &mut Vec<String>,
 ) -> Vec<Event<'a>> {
     let mut out = Vec::with_capacity(events.len());
     let mut i = 0;
@@ -1027,7 +1116,12 @@ fn apply_portable_paragraphs<'a>(
             {
                 let inner = &events[i + 1..i + 1 + len];
                 let replacement = standalone_embed(inner)
-                    .map(|embed| portable_embed_html(inner, &embed))
+                    .map(|embed| {
+                        if let Some(id) = crate::embed::youtube_video_id(&embed.link) {
+                            video_ids.push(id);
+                        }
+                        portable_embed_html(inner, &embed)
+                    })
                     .or_else(|| {
                         context
                             .chapters
@@ -1331,9 +1425,9 @@ pub fn render_portable(
             *destination = CowStr::from(projection.resolve_link(destination)?);
         }
     }
-    let (parsed_events, raw_html) = crate::raw_html::sanitize(parsed_events, projection)?;
+    let sanitized = crate::raw_html::sanitize(parsed_events, projection)?;
     let mut rendered = render_events(
-        parsed_events,
+        sanitized.events,
         markdown.len(),
         options,
         Some(projection.markdown_context()),
@@ -1341,8 +1435,231 @@ pub fn render_portable(
     // Recipe sections are added after raw HTML is balanced inside its own
     // containers, so the finished body is balanced once more as a whole.
     rendered.html = crate::raw_html::balance(&rendered.html);
-    rendered.capabilities.extend(raw_html);
+    rendered.capabilities.extend(sanitized.capability);
+    rendered.portable_images = sanitized.images;
+    rendered.portable_has_raw_html = sanitized.has_raw_html;
     Ok(rendered)
+}
+
+pub(crate) fn portable_semantic_facts(
+    markdown: &str,
+    options: RenderOptions<'_>,
+    projection: &crate::portability::PortableProjection<'_>,
+) -> Result<Vec<crate::portability::SemanticFact>, String> {
+    use crate::portability::SemanticFact;
+    let events = Parser::new_ext(markdown, parser_options(options.smart_punctuation));
+    let sanitized = crate::raw_html::sanitize(events.collect(), projection)?;
+    let mut facts = Vec::new();
+    let mut semantic_events = Vec::new();
+    let mut index = 0;
+    while index < sanitized.events.len() {
+        if matches!(sanitized.events[index], Event::Start(Tag::Paragraph)) {
+            if let Some(length) = sanitized.events[index + 1..]
+                .iter()
+                .position(|event| matches!(event, Event::End(TagEnd::Paragraph)))
+            {
+                let inner = &sanitized.events[index + 1..index + 1 + length];
+                if inner.iter().all(|event| matches!(event, Event::Text(_))) {
+                    if let Some(embed) = standalone_embed(inner) {
+                        facts.push(
+                            SemanticFact::new("media", "source link", embed.link)
+                                .with_link_label(embed.link_label),
+                        );
+                        index += length + 2;
+                        continue;
+                    }
+                }
+            }
+        }
+        semantic_events.push(sanitized.events[index].clone());
+        index += 1;
+    }
+    for (index, event) in semantic_events.iter().enumerate() {
+        let (destination, end) = match event {
+            Event::Start(Tag::Link { dest_url, .. }) => (dest_url, TagEnd::Link),
+            Event::Start(Tag::Image { dest_url, .. }) => (dest_url, TagEnd::Image),
+            _ => continue,
+        };
+        let mut label = String::new();
+        let mut text_label = String::new();
+        let mut image = None;
+        for inner in semantic_events[index + 1..]
+            .iter()
+            .take_while(|event| **event != Event::End(end))
+        {
+            match inner {
+                Event::Text(text) | Event::Code(text) => {
+                    label.push_str(text);
+                    text_label.push_str(text);
+                }
+                Event::SoftBreak | Event::HardBreak => {
+                    label.push(' ');
+                    text_label.push(' ');
+                }
+                Event::Start(Tag::Image { dest_url, .. }) => {
+                    image = Some((text_label.len(), projection.resolve_link(dest_url)?));
+                }
+                Event::End(TagEnd::Image) => {
+                    if let Some((start, destination)) = image.take() {
+                        if text_label[start..].trim() != destination {
+                            text_label.push_str(&format!(" ({destination})"));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut fact = SemanticFact::new(
+            "content",
+            "link or media target",
+            projection.resolve_link(destination)?,
+        )
+        .with_link_label(label.clone())
+        .with_text_link_label(text_label)
+        .with_link_kind(if end == TagEnd::Image {
+            crate::portability::SemanticLinkKind::Image
+        } else {
+            crate::portability::SemanticLinkKind::Anchor
+        });
+        if label == destination.as_ref()
+            && index > 0
+            && matches!(semantic_events[index - 1], Event::Start(Tag::Paragraph))
+        {
+            if let Some(length) = semantic_events[index..]
+                .iter()
+                .position(|event| *event == Event::End(TagEnd::Paragraph))
+            {
+                if let Some(embed) = standalone_embed(&semantic_events[index..index + length]) {
+                    fact = fact.with_html_link_label(embed.link_label);
+                }
+            }
+        }
+        facts.push(fact);
+    }
+    let mut code: Option<(String, String)> = None;
+    for event in semantic_events {
+        match event {
+            Event::Start(Tag::CodeBlock(kind)) => {
+                let info = match kind {
+                    CodeBlockKind::Fenced(info) => info.to_string(),
+                    CodeBlockKind::Indented => String::new(),
+                };
+                code = Some((info, String::new()));
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                let Some((info, source)) = code.take() else {
+                    continue;
+                };
+                if source.trim().is_empty() {
+                    continue;
+                }
+                let fence = parse_fence_info(&info);
+                if info.trim() == "quiz" {
+                    let quiz = parse_quiz(&source)?;
+                    for (field, value) in std::iter::once(("prompt", quiz.prompt.as_str()))
+                        .chain(
+                            quiz.choices
+                                .iter()
+                                .map(|choice| ("choice", choice.text.as_str())),
+                        )
+                        .chain(
+                            quiz.explanation
+                                .as_deref()
+                                .map(|value| ("explanation", value)),
+                        )
+                    {
+                        facts.push(SemanticFact::new(
+                            "knowledge-check",
+                            field,
+                            crate::raw_html::semantic_content(&quiz_inline(value)?),
+                        ));
+                    }
+                    facts.push(SemanticFact::new(
+                        "knowledge-check",
+                        "answer label",
+                        "Answer:",
+                    ));
+                    let (index, answer) = quiz
+                        .choices
+                        .iter()
+                        .enumerate()
+                        .find(|(_, choice)| choice.correct)
+                        .unwrap();
+                    let answer = crate::raw_html::semantic_content(&quiz_inline(&answer.text)?);
+                    facts.push(
+                        SemanticFact::new(
+                            "knowledge-check",
+                            "answer",
+                            format!("Answer: {}. {answer}", char::from(b'A' + index as u8)),
+                        )
+                        .with_markdown_value(format!("Answer: {}. {answer}", index + 1)),
+                    );
+                } else if fence.runnable && fence.lang.eq_ignore_ascii_case("web") {
+                    for line in source.lines() {
+                        let label = match line.trim() {
+                            "---html" => Some("HTML"),
+                            "---css" => Some("CSS"),
+                            "---js" => Some("JavaScript"),
+                            _ => None,
+                        };
+                        facts.push(SemanticFact::new(
+                            "web-sandbox",
+                            if label.is_some() {
+                                "source label"
+                            } else {
+                                "source"
+                            },
+                            label.unwrap_or(line),
+                        ));
+                    }
+                } else {
+                    facts.push(SemanticFact::new("runnable-code", "source", source));
+                }
+                if let Some(title) = fence.title {
+                    facts.push(SemanticFact::new("runnable-code", "title", title));
+                }
+            }
+            Event::Text(text) | Event::Code(text) => {
+                if let Some((_, source)) = &mut code {
+                    source.push_str(&text);
+                } else if let Some(url) = text
+                    .trim()
+                    .strip_prefix("%[")
+                    .and_then(|s| s.strip_suffix(']'))
+                {
+                    facts.push(SemanticFact::new(
+                        "media",
+                        "source link",
+                        projection.resolve_link(url)?,
+                    ));
+                } else {
+                    facts.push(SemanticFact::new("content", "text", text.to_string()));
+                }
+            }
+            Event::Start(Tag::BlockQuote(Some(kind))) => {
+                facts.push(SemanticFact::new("callout", "label", callout_label(kind).1));
+            }
+            Event::FootnoteReference(label) => {
+                facts.push(
+                    SemanticFact::new(
+                        "references",
+                        "citation target",
+                        projection.resolve_link(&format!("#{label}"))?,
+                    )
+                    .with_markdown_value(label.to_string()),
+                );
+            }
+            Event::Html(html) | Event::InlineHtml(html) => {
+                facts.push(SemanticFact::new(
+                    "raw-html",
+                    "retained content",
+                    crate::raw_html::semantic_content(&html),
+                ));
+            }
+            _ => {}
+        }
+    }
+    Ok(facts)
 }
 
 fn render_events<'a>(
@@ -1431,8 +1748,12 @@ fn render_events<'a>(
         events.push(event);
     }
 
+    let mut portable_video_ids = Vec::new();
     let events = if let Some(context) = portable {
-        apply_portable_footnotes(apply_portable_paragraphs(events, context), context)
+        apply_portable_footnotes(
+            apply_portable_paragraphs(events, context, &mut portable_video_ids),
+            context,
+        )
     } else if options.embeds {
         apply_embeds(events)
     } else {
@@ -1449,6 +1770,9 @@ fn render_events<'a>(
     let word_count = text.split_whitespace().count();
     Rendered {
         html,
+        portable_images: Vec::new(),
+        portable_has_raw_html: false,
+        portable_video_ids,
         capabilities: blocks.capabilities,
         errors: blocks.errors,
         headings,

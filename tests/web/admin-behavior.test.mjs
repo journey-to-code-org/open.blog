@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   ObAdmin,
+  Editor,
   accessibilityReview,
   assistantContextDisclosure,
   postContextFields,
@@ -26,6 +27,14 @@ import {
   normalizeContributorDraft,
   parseAdminHash,
   preserveProfileFieldDrafts,
+  destinationPolicyForDisplay,
+  destinationTagsForDisplay,
+  destinationContentForDisplay,
+  portabilityAcknowledgementScope,
+  portabilityGroups,
+  portabilitySourceSelection,
+  portableDiagnosticsForDisplay,
+  portablePreviewArtifact,
   previewWarningsForDisplay,
   resolveProfileSelection,
   researchSectionIsPresent,
@@ -133,6 +142,277 @@ test("assistant provider status presents configured and unconfigured states with
       message: "Assistant provider is not configured. Non-AI authoring remains available.",
     },
   );
+});
+
+test("portable preview diagnostics retain source scope and severity in readable warnings", () => {
+  assert.deepEqual(
+    portableDiagnosticsForDisplay([
+      {
+        code: "canonical-only-interaction",
+        severity: "warning",
+        sourcePath: "posts/lesson.md",
+        message: "Timeline remains on the canonical article.",
+        recommendedAction: "Keep the canonical link.",
+      },
+      { code: "invalid", message: "" },
+      null,
+    ]),
+    ["posts/lesson.md: warning: Timeline remains on the canonical article. Action: Keep the canonical link."],
+  );
+});
+
+test("portable preview shows exactly the selected representation without changing the draft", () => {
+  const frame = {
+    hidden: false,
+    removeAttribute(name) { delete this[name]; },
+  };
+  const editor = {
+    ui: {
+      preview: frame,
+      previewMarkdown: { hidden: true, textContent: "", setAttribute() {} },
+      previewCopy: { disabled: true },
+      previewDownload: { disabled: true },
+      previewMode: { value: "portable-html" },
+      previewTheme: { textContent: "" },
+    },
+    previewResult: {
+      social: { title: "A <lesson>" },
+      previewUrl: "/admin/preview/native",
+      theme: "paper",
+      portablePreview: { html: "<p>Public</p>", markdown: "**Public**", text: "Public" },
+    },
+  };
+  Editor.prototype.showPreviewRepresentation.call(editor);
+  assert.equal(frame.hidden, false, "HTML preview must be visible");
+  assert.equal(editor.ui.previewMarkdown.hidden, true);
+  assert.match(frame.srcdoc, /A &lt;lesson&gt;/);
+  assert.equal(editor.ui.previewCopy.disabled, false);
+  for (const mode of ["portable-markdown", "portable-text"]) {
+    editor.ui.previewMode.value = mode;
+    Editor.prototype.showPreviewRepresentation.call(editor);
+    assert.equal(frame.hidden, true);
+    assert.equal(editor.ui.previewMarkdown.hidden, false);
+    assert.equal(editor.ui.previewMarkdown.textContent, mode === "portable-text" ? "Public" : "**Public**");
+  }
+  editor.ui.previewMode.value = "site";
+  Editor.prototype.showPreviewRepresentation.call(editor);
+  assert.equal(frame.hidden, false);
+  assert.equal(editor.ui.previewMarkdown.hidden, true);
+  assert.equal(frame.src, "/admin/preview/native");
+  assert.equal(frame.srcdoc, undefined);
+  assert.equal(editor.ui.previewCopy.disabled, true);
+});
+
+test("portable export actions use exact preview bytes and fail closed for unavailable policies", () => {
+  const preview = { portablePreview: {
+    html: "<p>&lt;script&gt;</p>",
+    markdown: "```html\n<script>\n```",
+    text: "Literal <script>",
+    destinations: [
+      { version: 1, provider: "ghost", representation: "portable-html" },
+      { version: 1, provider: "medium", representation: "manual-markdown" },
+      { version: 2, provider: "dev", representation: "portable-markdown" },
+    ],
+  } };
+  assert.deepEqual(portablePreviewArtifact(preview, "portable-text"), {
+    content: "Literal <script>", extension: "txt", mime: "text/plain;charset=utf-8",
+  });
+  assert.equal(portablePreviewArtifact(preview, "destination:ghost").content, preview.portablePreview.html);
+  assert.equal(portablePreviewArtifact(preview, "destination:medium").content, preview.portablePreview.markdown);
+  assert.equal(portablePreviewArtifact(preview, "destination:unknown"), null);
+  assert.equal(portablePreviewArtifact(preview, "destination:dev"), null);
+  assert.equal(portablePreviewArtifact(preview, "site"), null);
+  assert.equal(portablePreviewArtifact(null, "portable-text"), null);
+  const editor = {
+    previewRequest: 7,
+    previewResult: preview,
+    root: { dataset: { editorView: "write" } },
+    ui: { previewCopy: { disabled: false }, previewDownload: { disabled: false } },
+  };
+  Editor.prototype.schedulePreview.call(editor);
+  assert.equal(editor.previewResult, null);
+  assert.equal(editor.ui.previewCopy.disabled, true);
+  assert.equal(editor.ui.previewDownload.disabled, true);
+  assert.ok(editor.previewRequest > 7);
+});
+
+test("portable copy and download actions preserve bytes, clean URLs, and announce failures", async (t) => {
+  const copied = [];
+  const attributes = {};
+  let clicked = false;
+  let removed = false;
+  let blob;
+  let revoked;
+  for (const [key, value] of Object.entries({
+    navigator: { clipboard: { async writeText(content) { copied.push(content); } } },
+    document: {
+      createElement: () => ({
+        setAttribute(key, value) { attributes[key] = value; },
+        click() { clicked = true; },
+        remove() { removed = true; },
+      }),
+      body: { append() {} },
+    },
+  })) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key);
+    Object.defineProperty(globalThis, key, { value, configurable: true });
+    t.after(() => previous ? Object.defineProperty(globalThis, key, previous) : delete globalThis[key]);
+  }
+  t.mock.method(URL, "createObjectURL", (value) => { blob = value; return "blob:test"; });
+  t.mock.method(URL, "revokeObjectURL", (value) => { revoked = value; });
+  t.mock.method(globalThis, "setTimeout", (callback) => { callback(); return 0; });
+  const editor = {
+    previewResult: { portablePreview: { text: "Literal <script>\n42\n" } },
+    ui: { previewMode: { value: "portable-text" }, previewTheme: {} },
+  };
+  await Editor.prototype.exportPreviewArtifact.call(editor, false);
+  assert.deepEqual(copied, ["Literal <script>\n42\n"]);
+  assert.match(editor.ui.previewTheme.textContent, /copied; source unchanged/);
+  await Editor.prototype.exportPreviewArtifact.call(editor, true);
+  assert.equal(await blob.text(), copied[0]);
+  assert.equal(blob.type, "text/plain;charset=utf-8");
+  assert.equal(attributes.download, "portable-preview.txt");
+  assert.equal(clicked, true);
+  assert.equal(removed, true);
+  assert.equal(revoked, "blob:test");
+  navigator.clipboard.writeText = async () => { throw new Error("permission denied"); };
+  await Editor.prototype.exportPreviewArtifact.call(editor, false);
+  assert.match(editor.ui.previewTheme.textContent, /Portable export failed: permission denied/);
+  editor.previewResult = null;
+  await Editor.prototype.exportPreviewArtifact.call(editor, true);
+  assert.match(editor.ui.previewTheme.textContent, /Render a current portable preview/);
+});
+
+test("destination preview policy discloses canonical behavior and manual workflows", () => {
+  const policies = [
+    {
+      version: 1,
+      provider: "wordpress",
+      label: "WordPress",
+      representation: "portable-html",
+      canonicalBehavior: "WordPress core cannot set an external canonical URL.",
+      workflow: "Remote draft by default.",
+    },
+    {
+      version: 1,
+      provider: "medium",
+      label: "Medium",
+      representation: "manual-markdown",
+      canonicalBehavior: "Check the canonical URL during import.",
+      workflow: "Manual import only.",
+    },
+  ];
+  assert.deepEqual(destinationPolicyForDisplay(policies, "destination:wordpress"), [
+    "WordPress: WordPress core cannot set an external canonical URL.",
+    "WordPress: Remote draft by default.",
+  ]);
+  assert.deepEqual(destinationPolicyForDisplay(policies, "destination:medium"), [
+    "Medium: Check the canonical URL during import.",
+    "Medium: Manual import only.",
+  ]);
+  assert.deepEqual(destinationPolicyForDisplay([], "destination:unknown"), [
+    "Destination policy is unavailable; do not publish until the policy can be loaded.",
+  ]);
+  assert.match(destinationPolicyForDisplay([{
+    version: 1, provider: "hashnode", label: "Hashnode",
+    canonicalBehavior: "Canonical URL is retained.", workflow: "Draft only.",
+    maxRequestBodyBytes: 100000,
+  }], "destination:hashnode")[2], /100000-byte limit.*cannot certify request size/);
+  const futurePolicy = [{ version: 2, provider: "medium", representation: "manual-markdown" }];
+  assert.match(destinationPolicyForDisplay(futurePolicy, "destination:medium")[0], /unavailable/);
+  assert.equal(portabilityAcknowledgementScope(futurePolicy, "destination:medium"), null);
+  assert.deepEqual(portabilityAcknowledgementScope(policies, "destination:medium"), {
+    destination: "medium",
+    representation: "manual-markdown",
+  });
+  assert.deepEqual(portabilityAcknowledgementScope(policies, "portable-html"), {
+    destination: "portable-export",
+    representation: "portable-html",
+  });
+  assert.deepEqual(portabilityAcknowledgementScope(policies, "portable-text"), {
+    destination: "portable-export",
+    representation: "portable-text",
+  });
+  assert.equal(portabilityAcknowledgementScope(policies, "site"), null);
+});
+
+test("destination tag review shows selected metadata, omissions, and blocking errors only for its provider", () => {
+  const plans = [{
+    policy: { version: 1, provider: "dev", label: "DEV" },
+    tags: ["Rust", "<invalid>"],
+    omittedTags: ["fifth"],
+    diagnostics: [{
+      code: "destination-tag-invalid", severity: "error", sourcePath: "posts/lesson.md",
+      message: "Invalid DEV tag.", recommendedAction: "Choose a valid tag.",
+    }],
+  }];
+  const display = destinationTagsForDisplay(plans, "destination:dev");
+  assert.match(display[0], /Rust, <invalid>.*Omitted tags: fifth/);
+  assert.match(display[1], /posts\/lesson.md: error: Invalid DEV tag.*Choose a valid tag/);
+  assert.deepEqual(destinationTagsForDisplay(plans, "portable-markdown"), []);
+  assert.deepEqual(destinationTagsForDisplay(plans, "destination:hashnode"), []);
+  plans[0].policy.version = 2;
+  assert.deepEqual(destinationTagsForDisplay(plans, "destination:dev"), []);
+});
+
+test("portable findings group deterministic capability levels without scores and navigate Unicode source without edits", () => {
+  const diagnostic = { capabilityId: "knowledge-check", portabilityLevel: "gracefully-transformed", message: "Static answer." };
+  const preview = { portablePreview: {
+    destinations: [{ version: 1, provider: "dev", representation: "portable-markdown" }],
+    diagnosticsByRepresentation: { "portable-markdown": [diagnostic, diagnostic] },
+  } };
+  const groups = portabilityGroups(preview, "destination:dev");
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].diagnostics.length, 2);
+  assert.equal(groups[0].level, "gracefully-transformed");
+  assert.equal(groups[0].destination, "dev");
+  assert.equal(groups[0].representation, "portable-markdown");
+  assert.deepEqual(portabilityGroups(preview, "site"), []);
+  assert.equal(portabilityGroups({ portablePreview: { diagnostics: [diagnostic] } }, "site")[0].level,
+    "gracefully-transformed", "native previews retain the existing portability warning visibility");
+  const body = "😀 heading\n> ```quiz\n> Question?\n> ```\n";
+  const range = { startLine: 2, startColumn: 3, endLine: 4, endColumn: 6 };
+  const selection = portabilitySourceSelection(body, range);
+  assert.equal(body.slice(selection.start, selection.end), "```quiz\n> Question?\n> ```");
+  assert.equal(portabilitySourceSelection(body, { ...range, startLine: 99 }), null);
+  const calls = [];
+  const editor = {
+    previewResult: preview,
+    syncRichToMarkdown() { calls.push("sync"); },
+    setEditorMode(mode) { calls.push(mode); },
+    activatePane(pane) { calls.push(pane); },
+    ui: {
+      body: { value: body, setSelectionRange(start, end) { calls.push({ start, end }); }, focus() { calls.push("focus"); } },
+      live: {}, previewTheme: {},
+    },
+  };
+  Editor.prototype.navigatePortabilitySource.call(editor, range, preview);
+  assert.deepEqual(calls, ["sync", "markdown", "write", selection, "focus"]);
+  assert.equal(editor.ui.body.value, body);
+  assert.match(editor.ui.live.textContent, /line 2.*unchanged/);
+  calls.length = 0;
+  Editor.prototype.navigatePortabilitySource.call(editor, range, {});
+  assert.deepEqual(calls, []);
+  assert.match(editor.ui.previewTheme.textContent, /Source changed/);
+});
+
+test("destination content findings disclose hosted-media uncertainty and stay scoped and literal", () => {
+  const plans = [
+    { policy: { version: 1, provider: "ghost" }, diagnostics: [
+      { sourcePath: "posts/media.md", severity: "warning", message: "Ghost source=html is lossy; <script>literal</script>." },
+      { sourcePath: "posts/media.md", severity: "warning", message: "Hosted media bytes remain unverified." },
+    ] },
+    { policy: { version: 2, provider: "dev" }, diagnostics: [{ message: "Unknown policy" }] },
+  ];
+  const messages = destinationContentForDisplay(plans, "destination:ghost");
+  assert.equal(messages.length, 2);
+  assert.match(messages[0], /<script>literal<\/script>/);
+  assert.match(messages[1], /unverified/);
+  assert.deepEqual(destinationContentForDisplay(plans, "destination:dev"), []);
+  assert.deepEqual(destinationContentForDisplay(plans, "site"), []);
+  assert.deepEqual(destinationContentForDisplay(null, "destination:ghost"), []);
+  const policies = [{ version: 1, provider: "ghost", label: "Ghost", conversionReview: "Lossy HTML to Lexical conversion." }];
+  assert.ok(destinationPolicyForDisplay(policies, "destination:ghost").some((message) => message.includes("Lossy HTML")));
 });
 
 const SAMPLE_GPX = `<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>

@@ -51,6 +51,16 @@ JSON Feed item `authors` array. The feed-level author remains the site owner.
 The RSS items use the post address as the `guid`, so a reader never shows a post twice
 when its title changes.
 
+Full-content feeds derive static HTML from the shared portable projection, not the native
+component markup. JSON Feed also includes useful plain text (including code and link targets).
+Quiz answers remain visible; execution and participation link back to the canonical article.
+Relative body URLs resolve against that article, while a front-matter `canonical` pointing
+elsewhere remains JSON Feed's `external_url`, not the item ID. RSS uses namespaced
+`content:encoded`/`dc:creator`/`atom:link`; no provider payload fields enter either feed.
+With `feeds.fullContent: false`, RSS retains its description and omits full content; JSON Feed
+uses the same summary as `content_text` to satisfy its required-content contract without
+exporting the body. IDs, dates, ordering, credits and cover URLs retain the same policy.
+
 ## Cross-posting
 
 To republish a post on another platform (dev.to, Medium, Hashnode, a newsletter), either

@@ -141,7 +141,7 @@ test("post settings expose content profiles without silently migrating legacy fi
   assert.match(admin, /if \(this\.profileTouched\) set\("profile", ui\.profile\.value\)/);
   assert.match(admin, /Unknown profile:/);
   assert.match(admin, /ui\.previewWarnings\.replaceChildren/);
-  assert.match(admin, /previewWarningsForDisplay\(preview\.warnings\)/);
+  assert.match(admin, /previewWarningsForDisplay\(preview\?\.warnings\)/);
 });
 
 test("post settings expose ordered contributor credits and repair states", () => {

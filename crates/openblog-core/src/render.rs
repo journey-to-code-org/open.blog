@@ -1154,7 +1154,8 @@ impl<'a> Renderer<'a> {
                 ""
             };
             body.push_str(&format!(
-                "<ob-comments path=\"{}\" endpoint=\"{}\"{}><p>Comments require JavaScript.</p></ob-comments>\n",
+                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
+                crate::model::DISCUSSION_ANCHOR,
                 attr(&post.url),
                 attr(c.engagement.endpoint.trim().trim_end_matches('/')),
                 mode,

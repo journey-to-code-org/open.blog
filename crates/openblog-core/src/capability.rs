@@ -41,14 +41,16 @@ const PLANNED_CAPABILITIES: &[(&str, Option<&str>)] = &[
     ("diagrams", Some("Diagram")),
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum PortabilityLevel {
     FullyPortable,
     GracefullyTransformed,
     CanonicalOnlyInteraction,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum CapabilityDiagnosticCode {
     UnknownCapability,
     MalformedIdentifier,
@@ -58,13 +60,15 @@ pub enum CapabilityDiagnosticCode {
     RemovedMarkup,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapabilityDiagnostic {
     pub code: CapabilityDiagnosticCode,
     pub message: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapabilityDescriptor {
     /// Stable, product-owned identifier. Invalid identifiers use `"invalid"`.
     pub id: String,

@@ -22,7 +22,7 @@ immediately.
 | --- | --- |
 | **Edit** | Every post, page, and series. Front matter fields become a form; unknown fields you added by hand are kept. |
 | **Create** | New posts, pages, and series. The file is named from the date and slug. |
-| **Preview** | A full-page preview produced by the same site model, document renderer, theme inheritance, metadata, and components as a real build. Front matter stays in the settings form and is never printed into the preview. |
+| **Preview** | A full-page site preview plus portable HTML and Markdown projections for posts, all generated from the current unsaved source. Portable warnings identify transformed or canonical-only behavior; front matter stays in Settings and is never printed into a preview. |
 | **Social preview** | A card built from the generated OpenGraph title, description, canonical URL, type, image, and X card mode—not a separate browser-side approximation. |
 | **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
 | **Accessibility Studio** | Production-backed source findings grouped as detected, potential, or needs review, with exact locations and repair guidance. It also keeps rendered-site checks visible without claiming WCAG conformance. |
@@ -79,6 +79,21 @@ not count, because this release still remembers it.
 Inside the editor, Social, Release kit, Field Review, Optimize, Accessibility, Evidence, and
 Assistant are separate full-width views, so writing is not squeezed beside a permanent preview.
 Switching views never loses edits, and opening Site preview refreshes it from the current draft.
+
+Portable preview findings are grouped by capability, representation, and destination, with
+**Fully portable**, **Gracefully transformed**, or **Canonical-only interaction** labels
+rather than a score. Findings explain what the copy preserves and which interactions stay
+on the canonical article. **Edit source at line …** opens Markdown, focuses and selects the
+relevant source, and announces the navigation without saving or changing unsaved content.
+Findings without an exact source location remain visible without a navigation button.
+Warning acknowledgements remain revision- and destination-scoped. A failed preview shows
+the validation error and disables copy/download until a current preview succeeds.
+
+Destination views also show shared content-policy findings: retained image references
+have not been inspected or uploaded, Ghost's HTML-to-Lexical conversion is lossy, and
+WordPress's external canonical needs separate configuration. Unmapped destination tags
+are disclosed, not silently discarded. These are draft-review requirements, not claims
+that a browser preview certifies provider rendering or media type/size acceptance.
 
 Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace
 commands. The palette opens content lists, creates documents, switches editor panes,
@@ -237,6 +252,28 @@ unset, and open **Site preview** on a post in that series. To compare a one-off 
 select a theme on the post instead. The preview includes unsaved changes to the document
 you are editing but does not expose unrelated drafts or scheduled posts. Front matter
 remains in **Settings** and is never printed into the preview.
+
+For posts, use the **Preview representation or destination** selector to compare the themed site
+output, portable HTML, Markdown, and plain text, or a DEV, Hashnode, Ghost, WordPress, or Medium policy view.
+These projections run through the same conversion used by feeds, export, and syndication;
+warnings include the source, transformation, and recommended action.
+**Copy portable output** and **Download portable output** use the exact selected artifact
+without saving or changing the post. Downloaded previews may contain unsaved draft content;
+review them before sharing. Actions are disabled for the native site view, unavailable policies,
+failed previews, and while edits await a fresh preview. Text and Markdown are displayed as literal
+source, never executed in the Admin shell. The authenticated API also returns capability
+portability levels alongside all three representations.
+DEV and Hashnode views also show the selected and omitted tags, slug transformations,
+and blocking tag errors from the same core plan used by the CLI. These are payload metadata
+checks; copying a portable body does not validate or include its destination tags.
+
+Warnings can be acknowledged for a specific source revision, capability, representation, and
+destination. Acknowledgements are stored in a tracked sibling `*.portability.json` sidecar and
+remain visible beside the warning; they never bypass unsafe-markup errors, private-state rules, or
+canonical-identity requirements. Editing the post makes older acknowledgements visibly stale.
+The portable views are computed from the authenticated, unsaved preview request and are not saved
+to the document or exposed at a public URL. Acknowledging is allowed only when the preview matches
+the saved source revision.
 
 ### Review accessibility while writing
 

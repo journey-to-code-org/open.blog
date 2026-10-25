@@ -213,9 +213,106 @@ fn next_token(source: &str, at: usize) -> (Token<'_>, usize) {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct SemanticLink {
+    pub kind: crate::portability::SemanticLinkKind,
+    pub target: String,
+    pub label: String,
+}
+
+/// Read facts from a derived artifact for validation, never for reconstruction.
+pub(crate) fn semantic_links(html: &str) -> Vec<SemanticLink> {
+    use crate::portability::SemanticLinkKind;
+    let mut links = Vec::new();
+    let mut anchor: Option<(String, String)> = None;
+    let mut at = 0;
+    while at < html.len() {
+        let (token, next) = next_token(html, at);
+        at = next;
+        match token {
+            Token::Start {
+                name, attributes, ..
+            } if name == "a" => {
+                anchor = attributes
+                    .into_iter()
+                    .find(|(name, _)| name == "href")
+                    .map(|(_, href)| (href, String::new()));
+            }
+            Token::End { name } if name == "a" => {
+                if let Some((target, label)) = anchor.take() {
+                    links.push(SemanticLink {
+                        kind: SemanticLinkKind::Anchor,
+                        target,
+                        label,
+                    });
+                }
+            }
+            Token::Start {
+                name, attributes, ..
+            } if name == "img" => {
+                let get = |key| {
+                    attributes
+                        .iter()
+                        .find(|(name, _)| name == key)
+                        .map(|(_, value)| value.clone())
+                        .unwrap_or_default()
+                };
+                let alt = get("alt");
+                if let Some((_, label)) = &mut anchor {
+                    label.push_str(&alt);
+                }
+                if attributes.iter().any(|(name, _)| name == "src") {
+                    links.push(SemanticLink {
+                        kind: SemanticLinkKind::Image,
+                        target: get("src"),
+                        label: alt,
+                    });
+                }
+            }
+            Token::Text(text) => {
+                if let Some((_, label)) = &mut anchor {
+                    label.push_str(&decode(text));
+                }
+            }
+            _ => {}
+        }
+    }
+    links
+}
+
+/// Read facts from a derived artifact for validation, never for reconstruction.
+pub(crate) fn semantic_content(html: &str) -> String {
+    let mut output = String::new();
+    let mut at = 0;
+    while at < html.len() {
+        let (token, next) = next_token(html, at);
+        at = next;
+        match token {
+            Token::Text(text) => output.push_str(&decode(text)),
+            Token::Start { attributes, .. } => {
+                for (name, value) in attributes {
+                    if matches!(name.as_str(), "href" | "src" | "alt") {
+                        output.push('\n');
+                        output.push_str(&value);
+                        output.push('\n');
+                        if name != "alt" {
+                            if let Ok(url) = url::Url::parse(&value) {
+                                output.push_str(url.as_str());
+                                output.push('\n');
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    output
+}
+
 /// Where a comment that is open at the start of `text` ends: the length
 /// through its `-->` (or `--!>`), or `None` when `text` does not end it.
-fn comment_end(text: &str) -> Option<usize> {
+pub(crate) fn comment_end(text: &str) -> Option<usize> {
     [
         text.find("-->").map(|index| index + 3),
         text.find("--!>").map(|index| index + 4),
@@ -223,6 +320,21 @@ fn comment_end(text: &str) -> Option<usize> {
     .into_iter()
     .flatten()
     .min()
+}
+
+pub(crate) fn escape_markdown_fragment(source: &str) -> (String, bool) {
+    let mut output = String::new();
+    let mut at = 0;
+    while at < source.len() {
+        let (token, next) = next_token(source, at);
+        match token {
+            Token::Ignored => {}
+            Token::OpenComment => return (output, true),
+            _ => output.push_str(&source[at..next].replace('<', "&lt;").replace('>', "&gt;")),
+        }
+        at = next;
+    }
+    (output, false)
 }
 
 type ParsedTag = (String, Vec<(String, String)>, bool, usize);
@@ -557,6 +669,8 @@ struct Skip {
 
 struct RawHtml<'p, 'a> {
     projection: &'p PortableProjection<'a>,
+    images: Vec<crate::portability::PortableImage>,
+    has_raw_html: bool,
     /// Ids the projection writes itself (headings and footnotes).
     reserved: HashSet<String>,
     ids: HashSet<String>,
@@ -657,7 +771,7 @@ fn unique_heading_ids(events: &mut [Event<'_>]) -> usize {
 pub(crate) fn sanitize<'e>(
     mut events: Vec<Event<'e>>,
     projection: &PortableProjection<'_>,
-) -> Result<(Vec<Event<'e>>, Option<CapabilityDescriptor>), String> {
+) -> Result<Sanitized<'e>, String> {
     let heading_ids = unique_heading_ids(&mut events);
     // A footnote named in the reserved `ob-` namespace is written without an
     // id; its citations still point at the note on the canonical article.
@@ -677,6 +791,8 @@ pub(crate) fn sanitize<'e>(
         .collect();
     let mut state = RawHtml {
         projection,
+        images: Vec::new(),
+        has_raw_html: false,
         reserved,
         ids: HashSet::new(),
         open: Vec::new(),
@@ -717,14 +833,18 @@ pub(crate) fn sanitize<'e>(
                 state.in_block = true;
                 let html = state.fragment(&source);
                 state.in_block = false;
-                out.push(Event::Html(CowStr::from(html?)));
+                let html = html?;
+                state.has_raw_html |= !html.trim().is_empty();
+                out.push(Event::Html(CowStr::from(html)));
                 out.push(Event::End(TagEnd::HtmlBlock));
                 if let Some(skip) = state.skip.as_mut() {
                     skip.outlived |= skip.in_block;
                 }
             }
             Event::Html(html) | Event::InlineHtml(html) => {
-                out.push(Event::InlineHtml(CowStr::from(state.fragment(&html)?)));
+                let html = state.fragment(&html)?;
+                state.has_raw_html |= !html.trim().is_empty();
+                out.push(Event::InlineHtml(CowStr::from(html)));
             }
             Event::Start(mut tag) => {
                 state.depth += 1;
@@ -741,6 +861,12 @@ pub(crate) fn sanitize<'e>(
                 }
                 if matches!(tag, Tag::Paragraph) {
                     paragraphs.push(out.len());
+                }
+                if let Tag::Image { dest_url, .. } = &tag {
+                    state.images.push(crate::portability::PortableImage {
+                        url: dest_url.to_string(),
+                        raw_html: false,
+                    });
                 }
                 out.push(Event::Start(tag));
             }
@@ -784,7 +910,19 @@ pub(crate) fn sanitize<'e>(
     if !closes.is_empty() {
         out.push(Event::Html(CowStr::from(closes)));
     }
-    Ok((out, state.losses.report()))
+    Ok(Sanitized {
+        events: out,
+        capability: state.losses.report(),
+        images: state.images,
+        has_raw_html: state.has_raw_html,
+    })
+}
+
+pub(crate) struct Sanitized<'a> {
+    pub events: Vec<Event<'a>>,
+    pub capability: Option<CapabilityDescriptor>,
+    pub images: Vec<crate::portability::PortableImage>,
+    pub has_raw_html: bool,
 }
 
 impl RawHtml<'_, '_> {
@@ -1043,6 +1181,12 @@ impl RawHtml<'_, '_> {
             } else {
                 value
             };
+            if name == "img" && attribute == "src" {
+                self.images.push(crate::portability::PortableImage {
+                    url: value.clone(),
+                    raw_html: true,
+                });
+            }
             if value.is_empty() && matches!(attribute.as_str(), "open" | "reversed") {
                 html.push_str(&format!(" {attribute}"));
             } else {

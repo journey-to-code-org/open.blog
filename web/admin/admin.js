@@ -463,6 +463,123 @@ export function previewWarningsForDisplay(warnings) {
   return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
 }
 
+export function portableDiagnosticsForDisplay(diagnostics) {
+  return Array.isArray(diagnostics)
+    ? diagnostics
+      .filter((diagnostic) => diagnostic && typeof diagnostic.message === "string" && diagnostic.message.trim())
+      .map((diagnostic) => {
+        const scope = diagnostic.sourcePath ? `${diagnostic.sourcePath}: ` : "";
+        const repair = typeof diagnostic.recommendedAction === "string" && diagnostic.recommendedAction.trim()
+          ? ` Action: ${diagnostic.recommendedAction}`
+          : "";
+        return `${scope}${diagnostic.severity || "warning"}: ${diagnostic.message}${repair}`;
+      })
+    : [];
+}
+
+function previewDestinationPolicy(policies, mode) {
+  return Array.isArray(policies)
+    ? policies.find((policy) => policy?.version === 1 && `destination:${policy.provider}` === mode)
+    : null;
+}
+
+export function portablePreviewArtifact(preview, mode) {
+  const portable = preview?.portablePreview;
+  if (!portable || mode === "site") return null;
+  const representation = mode.startsWith("destination:")
+    ? previewDestinationPolicy(portable.destinations, mode)?.representation
+    : mode;
+  const formats = {
+    "portable-html": ["html", "text/html"],
+    "portable-markdown": ["markdown", "text/markdown"],
+    "manual-markdown": ["markdown", "text/markdown"],
+    "portable-text": ["text", "text/plain"],
+  };
+  const format = formats[representation];
+  if (!format || typeof portable[format[0]] !== "string") return null;
+  return { content: portable[format[0]], extension: { html: "html", markdown: "md", text: "txt" }[format[0]], mime: `${format[1]};charset=utf-8` };
+}
+
+export function destinationPolicyForDisplay(policies, mode) {
+  if (!String(mode).startsWith("destination:")) return [];
+  const policy = previewDestinationPolicy(policies, mode);
+  if (!policy) return ["Destination policy is unavailable; do not publish until the policy can be loaded."];
+  return [
+    `${policy.label}: ${policy.canonicalBehavior}`,
+    `${policy.label}: ${policy.workflow}`,
+    ...(policy.conversionReview ? [`${policy.label}: ${policy.conversionReview}`] : []),
+    ...(policy.maxRequestBodyBytes
+      ? [`${policy.label}: CLI validates the complete serialized request against a ${policy.maxRequestBodyBytes}-byte limit; a body preview alone cannot certify request size.`]
+      : []),
+  ];
+}
+
+export function destinationTagsForDisplay(plans, mode) {
+  if (!String(mode).startsWith("destination:") || !Array.isArray(plans)) return [];
+  const plan = plans.find((plan) => plan?.policy?.version === 1
+    && `destination:${plan.policy.provider}` === mode);
+  if (!plan) return [];
+  return [
+    `${plan.policy.label}: selected tags: ${plan.tags.join(", ") || "(none)"}. Omitted tags: ${plan.omittedTags.join(", ") || "(none)"}.`,
+    ...portableDiagnosticsForDisplay(plan.diagnostics),
+  ];
+}
+
+export function destinationContentForDisplay(plans, mode) {
+  if (!String(mode).startsWith("destination:") || !Array.isArray(plans)) return [];
+  const plan = plans.find((plan) => plan?.policy?.version === 1
+    && `destination:${plan.policy.provider}` === mode);
+  return plan ? portableDiagnosticsForDisplay(plan.diagnostics) : [];
+}
+
+export function portabilityGroups(preview, mode) {
+  const portable = preview?.portablePreview;
+  const scope = portabilityAcknowledgementScope(portable?.destinations, mode)
+    || (mode === "site" ? { representation: "portable-html", destination: "portable-export" } : null);
+  if (!scope) return [];
+  const representation = scope.representation === "manual-markdown" ? "portable-markdown" : scope.representation;
+  const diagnostics = portable?.diagnosticsByRepresentation?.[representation] || portable?.diagnostics || [];
+  const groups = new Map();
+  for (const diagnostic of diagnostics) {
+    const key = diagnostic.capabilityId || "document";
+    if (!groups.has(key)) groups.set(key, {
+      capabilityId: key, representation: scope.representation, destination: scope.destination,
+      level: diagnostic.portabilityLevel || "unclassified", diagnostics: [],
+    });
+    groups.get(key).diagnostics.push(diagnostic);
+  }
+  return [...groups.values()];
+}
+
+export function portabilitySourceSelection(body, range) {
+  if (!range) return null;
+  const lines = body.split("\n");
+  const offset = (line, column) => {
+    if (!Number.isInteger(line) || !Number.isInteger(column) || line < 1 || column < 1 || line > lines.length) return null;
+    const characters = Array.from(lines[line - 1]);
+    if (column > characters.length + 1) return null;
+    return lines.slice(0, line - 1).reduce((length, text) => length + text.length + 1, 0)
+      + characters.slice(0, column - 1).join("").length;
+  };
+  const start = offset(range.startLine, range.startColumn);
+  const end = offset(range.endLine, range.endColumn);
+  return start !== null && end !== null && end >= start ? { start, end } : null;
+}
+
+export function portabilityAcknowledgementScope(policies, mode) {
+  if (mode === "portable-html" || mode === "portable-markdown" || mode === "portable-text") {
+    return { destination: "portable-export", representation: mode };
+  }
+  if (!String(mode).startsWith("destination:")) return null;
+  const provider = String(mode).slice("destination:".length);
+  const policy = previewDestinationPolicy(policies, mode);
+  if (!policy) return null;
+  return {
+    destination: provider,
+    representation: policy.representation,
+  };
+}
+
 const ACCESSIBILITY_OUTCOMES = [
   { outcome: "detected", label: "Detected" },
   { outcome: "potential", label: "Potential" },
@@ -2897,6 +3014,32 @@ export class Editor {
       ui.assistantCompletion,
     );
     ui.preview = h("iframe", { class: "oba-preview", title: "Preview", sandbox: "allow-scripts" });
+    ui.previewMode = h(
+      "select",
+      { class: "oba-preview-width", "aria-label": "Preview representation or destination" },
+      h("option", { value: "site" }, "Site"),
+      ...(kind === "posts"
+        ? [
+            h("option", { value: "portable-html" }, "Portable HTML"),
+            h("option", { value: "portable-markdown" }, "Portable Markdown"),
+            h("option", { value: "portable-text" }, "Portable text"),
+            h("option", { value: "destination:dev" }, "DEV"),
+            h("option", { value: "destination:hashnode" }, "Hashnode"),
+            h("option", { value: "destination:ghost" }, "Ghost"),
+            h("option", { value: "destination:wordpress" }, "WordPress"),
+            h("option", { value: "destination:medium" }, "Medium manual import"),
+          ]
+        : []),
+    );
+    ui.previewMarkdown = h("pre", { class: "oba-portable-markdown", hidden: true, tabindex: "0", "aria-label": "Portable Markdown preview" });
+    ui.previewCopy = h("button", { type: "button", class: "oba-btn", disabled: true }, "Copy portable output");
+    ui.previewDownload = h("button", { type: "button", class: "oba-btn", disabled: true }, "Download portable output");
+    ui.previewCopy.addEventListener("click", () => this.exportPreviewArtifact(false));
+    ui.previewDownload.addEventListener("click", () => this.exportPreviewArtifact(true));
+    ui.previewMode.addEventListener("change", () => {
+      this.showPreviewRepresentation();
+      this.updatePreviewWarnings();
+    });
     ui.previewTheme = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Rendering site…");
     ui.previewWarnings = h("div", { class: "oba-notice", role: "status", "aria-live": "polite", hidden: true });
     ui.socialStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" }, "Open this view to render the current social metadata.");
@@ -3388,9 +3531,10 @@ export class Editor {
           h(
             "section",
             { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" },
-            paneHeader("Review", "Site preview", h("div", { class: "oba-preview-tools" }, ui.previewTheme, ui.previewWidth)),
+            paneHeader("Review", "Site preview", h("div", { class: "oba-preview-tools" }, ui.previewTheme, ui.previewMode, ui.previewWidth)),
             ui.previewWarnings,
-            h("div", { class: "oba-preview-canvas" }, ui.preview),
+            h("div", { class: "oba-preview-tools", "aria-label": "Portable output actions" }, ui.previewCopy, ui.previewDownload),
+            h("div", { class: "oba-preview-canvas" }, ui.preview, ui.previewMarkdown),
           ),
           h(
             "section",
@@ -4198,6 +4342,10 @@ export class Editor {
 
   schedulePreview() {
     clearTimeout(this.previewTimer);
+    this.previewRequest += 1;
+    this.previewResult = null;
+    this.ui.previewCopy.disabled = true;
+    this.ui.previewDownload.disabled = true;
     if (this.root?.dataset.editorView === "release") {
       this.updateReleaseKit();
       return;
@@ -4951,6 +5099,9 @@ export class Editor {
 
   async renderPreview() {
     const request = ++this.previewRequest;
+    this.previewResult = null;
+    this.ui.previewCopy.disabled = true;
+    this.ui.previewDownload.disabled = true;
     this.ui.previewTheme.textContent = "Rendering site…";
     this.ui.socialStatus.textContent = "Rendering current social metadata…";
     this.ui.accessibilityStatus.textContent = "Checking current source…";
@@ -4967,23 +5118,19 @@ export class Editor {
         },
       });
       if (request !== this.previewRequest) return;
-      this.ui.preview.removeAttribute("srcdoc");
-      this.ui.preview.src = preview.previewUrl;
-      this.ui.previewTheme.textContent = `Theme: ${preview.theme}`;
-      const warnings = previewWarningsForDisplay(preview.warnings);
-      this.ui.previewWarnings.replaceChildren(
-        ...(warnings.length
-          ? [h("strong", {}, "Publishing warnings"), h("ul", {}, warnings.map((warning) => h("li", {}, warning)))]
-          : []),
-      );
-      this.ui.previewWarnings.hidden = warnings.length === 0;
+      this.previewResult = preview;
+      this.showPreviewRepresentation(preview);
+      this.updatePreviewWarnings(preview);
       this.updateSocialPreview(preview.social);
       this.updateAccessibility(preview.accessibility);
       this.updateEvidence(preview.evidence, preview.research);
     } catch (error) {
       if (request !== this.previewRequest) return;
+      this.previewResult = null;
       this.ui.preview.srcdoc = "<!doctype html><html><body><p>Preview unavailable. Check the editor for validation problems.</p></body></html>";
-      this.ui.previewTheme.textContent = "Preview unavailable";
+      this.ui.preview.hidden = false;
+      this.ui.previewMarkdown.hidden = true;
+      this.ui.previewTheme.textContent = `Preview unavailable: ${error.message}`;
       this.ui.previewWarnings.replaceChildren();
       this.ui.previewWarnings.hidden = true;
       this.updateSocialPreview({ siteName: this.meta.siteTitle, title: "Preview unavailable", description: "Fix the document validation problems, then try again.", url: "", image: null, imageAlt: "", type: "—", card: "—" });
@@ -4996,6 +5143,173 @@ export class Editor {
       this.ui.evidenceMetadata.replaceChildren();
       this.ui.evidenceFindings.replaceChildren(h("p", { class: "oba-notice" }, "Fix the document validation problems, then run the checks again."));
     }
+  }
+
+  showPreviewRepresentation(preview = this.previewResult) {
+    const mode = this.ui.previewMode.value;
+    const artifact = portablePreviewArtifact(preview, mode);
+    this.ui.previewCopy.disabled = !artifact;
+    this.ui.previewDownload.disabled = !artifact;
+    const portable = preview?.portablePreview;
+    const destinationMode = mode.startsWith("destination:");
+    const destination = destinationMode
+      ? previewDestinationPolicy(portable?.destinations, mode)
+      : null;
+    if (destinationMode && !destination) {
+      this.ui.previewMarkdown.hidden = true;
+      this.ui.preview.hidden = true;
+      this.ui.previewTheme.textContent = "Destination policy unavailable";
+      return;
+    }
+    const representation = destination?.representation || mode;
+    const textMode = representation === "portable-text";
+    const markdownMode = textMode || representation === "portable-markdown" || representation === "manual-markdown";
+    this.ui.previewMarkdown.hidden = !markdownMode || !portable;
+    this.ui.preview.hidden = !this.ui.previewMarkdown.hidden;
+    if (!preview) return;
+    if (markdownMode && portable) {
+      this.ui.previewMarkdown.textContent = textMode ? portable.text : portable.markdown;
+      this.ui.previewMarkdown.setAttribute("aria-label", textMode ? "Portable text preview" : "Portable Markdown preview");
+      this.ui.previewTheme.textContent = destination
+        ? `${destination.label} · ${representation === "manual-markdown" ? "manual import" : "portable Markdown"}`
+        : textMode ? "Portable text fallback" : "Portable Markdown fallback";
+      return;
+    }
+    this.ui.preview.removeAttribute("srcdoc");
+    if (representation === "portable-html" && portable) {
+      const escape = (value) => String(value).replace(/[&<>"]/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+      })[character]);
+      this.ui.preview.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head><body><main><h1>${escape(preview.social.title)}</h1>${portable.html}</main></body></html>`;
+      this.ui.previewTheme.textContent = destination
+        ? `${destination.label} · portable HTML`
+        : "Portable HTML fallback";
+      return;
+    }
+    this.ui.preview.src = preview.previewUrl;
+    this.ui.previewTheme.textContent = `Theme: ${preview.theme}`;
+  }
+
+  async exportPreviewArtifact(download) {
+    const artifact = portablePreviewArtifact(this.previewResult, this.ui.previewMode.value);
+    if (!artifact) {
+      this.ui.previewTheme.textContent = "Render a current portable preview before exporting.";
+      return;
+    }
+    try {
+      if (download) {
+        const url = URL.createObjectURL(new Blob([artifact.content], { type: artifact.mime }));
+        try {
+          const link = h("a", { href: url, download: `portable-preview.${artifact.extension}` });
+          document.body.append(link);
+          link.click();
+          link.remove();
+        } finally {
+          setTimeout(() => URL.revokeObjectURL(url), 0);
+        }
+      } else {
+        await navigator.clipboard.writeText(artifact.content);
+      }
+      this.ui.previewTheme.textContent = download ? "Portable output downloaded; source unchanged." : "Portable output copied; source unchanged.";
+    } catch (error) {
+      this.ui.previewTheme.textContent = `Portable export failed: ${error.message}`;
+    }
+  }
+
+  updatePreviewWarnings(preview = this.previewResult) {
+    const portable = preview?.portablePreview;
+    const mode = this.ui.previewMode.value;
+    const scope = portabilityAcknowledgementScope(portable?.destinations, mode);
+    const acknowledgements = Array.isArray(portable?.acknowledgements) ? portable.acknowledgements : [];
+    const staleCount = portable?.sourceRevision
+      ? acknowledgements.filter((acknowledgement) => acknowledgement.sourceRevision !== portable.sourceRevision).length
+      : 0;
+    const items = [
+      ...previewWarningsForDisplay(preview?.warnings).map((warning) => h("li", {}, warning)),
+      ...(staleCount
+        ? [h("li", {}, `${staleCount} previous portability acknowledgement${staleCount === 1 ? " is" : "s are"} stale after source changes. Review the current warnings; stale records never suppress them.`)]
+        : []),
+      ...portabilityGroups(preview, mode).map((group) => {
+        const labels = {
+          "fully-portable": "Fully portable",
+          "gracefully-transformed": "Gracefully transformed",
+          "canonical-only-interaction": "Canonical-only interaction",
+        };
+        const findings = group.diagnostics.map((diagnostic) => {
+          const children = [portableDiagnosticsForDisplay([diagnostic])[0] || diagnostic.message];
+          if (diagnostic.affectedSemantics) children.push(h("p", {}, diagnostic.affectedSemantics));
+          if (diagnostic.sourceRange) {
+            children.push(h("button", { type: "button", class: "oba-btn", onClick: () => this.navigatePortabilitySource(diagnostic.sourceRange, preview) }, `Edit source at line ${diagnostic.sourceRange.startLine}`));
+          }
+          if (!scope || diagnostic.severity !== "warning" || !diagnostic.capabilityId || !portable?.sourceRevision) {
+            return h("li", {}, ...children);
+          }
+          const sameScope = acknowledgements.filter((acknowledgement) =>
+            acknowledgement.capabilityId === diagnostic.capabilityId
+            && acknowledgement.representation === scope.representation
+            && acknowledgement.destination === scope.destination);
+          const acknowledged = sameScope.some((acknowledgement) =>
+            acknowledgement.sourceRevision === portable.sourceRevision);
+          if (acknowledged) {
+            children.push(h("span", { class: "oba-small" }, " Acknowledged for this revision."));
+          } else {
+            const button = h("button", { type: "button", class: "oba-btn" }, "Acknowledge this warning");
+            button.addEventListener("click", async () => {
+              button.disabled = true;
+              try {
+                const result = await this.app.api.call("POST", "portability/acknowledge", {
+                  json: {
+                    path: this.doc.path,
+                    sourceRevision: portable.sourceRevision,
+                    capabilityId: diagnostic.capabilityId,
+                    representation: scope.representation,
+                    destination: scope.destination,
+                    expectedEtag: portable.acknowledgementEtag,
+                  },
+                });
+                portable.acknowledgements = result.acknowledgements;
+                portable.acknowledgementEtag = result.etag;
+                this.updatePreviewWarnings(preview);
+              } catch (error) {
+                button.disabled = false;
+                this.ui.previewTheme.textContent = `Acknowledgement failed: ${error.message}`;
+              }
+            });
+            children.push(button);
+          }
+          return h("li", {}, ...children);
+        });
+        return h("li", {}, h("strong", {}, `${group.capabilityId} · ${labels[group.level] || "Review required"} · ${group.representation} · ${group.destination}`), h("ul", {}, ...findings));
+      }),
+      ...destinationPolicyForDisplay(portable?.destinations, mode).map((warning) => h("li", {}, warning)),
+      ...destinationTagsForDisplay(portable?.destinationTagPlans, mode).map((warning) => h("li", {}, warning)),
+      ...destinationContentForDisplay(portable?.destinationContentPlans, mode).map((warning) => h("li", {}, warning)),
+    ];
+    this.ui.previewWarnings.replaceChildren(
+      ...(items.length ? [h("strong", {}, "Publishing warnings"), h("ul", {}, ...items)] : []),
+    );
+    this.ui.previewWarnings.hidden = items.length === 0;
+  }
+
+  navigatePortabilitySource(range, preview) {
+    if (preview !== this.previewResult) {
+      this.ui.previewTheme.textContent = "Source changed; render a current preview before navigating.";
+      return;
+    }
+    this.syncRichToMarkdown();
+    const selection = portabilitySourceSelection(this.ui.body.value, range);
+    if (!selection) {
+      this.ui.previewTheme.textContent = "Source location is unavailable; render a current preview.";
+      return;
+    }
+    this.setEditorMode("markdown");
+    this.activatePane("write");
+    this.ui.body.setSelectionRange(selection.start, selection.end);
+    this.ui.body.focus();
+    this.ui.live.textContent = `Editing portability source at line ${range.startLine}. Unsaved content is unchanged.`;
   }
 
   updateAccessibility(findings) {

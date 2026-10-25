@@ -15,7 +15,11 @@ use html5ever::{local_name, ns, QualName};
 use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 use openblog_core::config::{SyndicationProvider, SyndicationTargetConfig};
 use openblog_core::frontmatter;
-use openblog_core::portability::{PortableProjection, RepresentationFormat};
+use openblog_core::portability::{
+    destination_content_plan, destination_payload_plan, destination_policies, destination_policy,
+    destination_tag_plan, DestinationContentPlan, DestinationPayloadPlan,
+    DestinationRepresentation, PortableProjection,
+};
 use openblog_core::{Post, SiteConfig};
 use pulldown_cmark::{Event, Options as MarkdownOptions, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
@@ -35,6 +39,7 @@ pub struct Options {
     pub target_names: Vec<String>,
     pub write: bool,
     pub publish: bool,
+    pub json: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,11 +50,14 @@ struct SyndicationPost {
     title: String,
     subtitle: Option<String>,
     description: String,
+    source_markdown: String,
     markdown: String,
     html: String,
     tags: Vec<String>,
     canonical_url: String,
     revision: String,
+    portable_diagnostics: Vec<openblog_core::portability::PortabilityDiagnostic>,
+    content_plans: Vec<DestinationContentPlan>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -267,6 +275,9 @@ fn run_with_transport(
     options: Options,
     transport: &dyn Transport,
 ) -> Result<(), String> {
+    if options.json && options.write {
+        return Err("--json is available for dry runs only; no request was sent".into());
+    }
     let config = site::load_config(root)?;
     let sources = site::read_sources(root, &config)?;
     let (loaded, _) = site::load_site(root, false, Some(crate::clock::now()))?;
@@ -286,6 +297,40 @@ fn run_with_transport(
     let mut state = State::load(&state_path)?;
     validate_source_identity(&state, &syndication_post)?;
     validate_plan(&selected, options.publish)?;
+    if options.write {
+        for (name, target) in &selected {
+            for plan in syndication_post
+                .content_plans
+                .iter()
+                .filter(|plan| plan.policy.provider == target.provider)
+            {
+                plan.validate()?;
+            }
+            destination_tag_plan(
+                target.provider,
+                &syndication_post.source_path,
+                &syndication_post.tags,
+            )
+            .validate()?;
+            if target.provider == SyndicationProvider::Hashnode {
+                hashnode_payload_plan(
+                    &target.publication_id,
+                    &syndication_post,
+                    state.record(&syndication_post.source_id, name),
+                )?
+                .validate()?;
+            }
+        }
+    }
+    if options.json {
+        let plan = dry_run_json_plan(&syndication_post, &selected, &state, options.publish);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&plan)
+                .map_err(|error| format!("could not serialize syndication plan: {error}"))?
+        );
+        return Ok(());
+    }
     println!(
         "Syndication {} for `{}` ({})",
         if options.write { "write" } else { "dry run" },
@@ -297,6 +342,7 @@ fn run_with_transport(
         let adapter = match provider_adapter(target) {
             DestinationAdapter::Manual(adapter) => {
                 println!("- {name}: {}", adapter.instruction(&syndication_post));
+                print_portable_plan(target.provider, &syndication_post);
                 continue;
             }
             DestinationAdapter::Remote(adapter) => adapter,
@@ -320,6 +366,27 @@ fn run_with_transport(
         );
         if let Some(warning) = adapter.warning() {
             println!("  warning: {warning}");
+        }
+        print_portable_plan(target.provider, &syndication_post);
+        if target.provider == SyndicationProvider::Hashnode {
+            match hashnode_payload_plan(&target.publication_id, &syndication_post, existing) {
+                Ok(plan) => {
+                    println!("  request body: {} UTF-8 bytes", plan.body_bytes);
+                    if let Some(limit) = plan.policy.max_request_body_bytes {
+                        println!("  request body limit: {limit} bytes");
+                    }
+                    for diagnostic in plan.diagnostics {
+                        println!(
+                            "  error: {} [{}] {} Action: {}",
+                            diagnostic.source_path,
+                            diagnostic.code,
+                            diagnostic.message,
+                            diagnostic.recommended_action
+                        );
+                    }
+                }
+                Err(error) => println!("  request body unavailable: {error}"),
+            }
         }
         if !options.write {
             continue;
@@ -367,7 +434,10 @@ fn validate_plan(
                 "target `{name}` does not permit publishing; set allowPublish to true as a second explicit opt-in"
             ));
         }
-        if publish && !adapter.supports_public_write() {
+        if publish
+            && destination_policy(target.provider).publication
+                == openblog_core::portability::DestinationPublication::RemoteDraftOnly
+        {
             return Err(format!(
                 "target `{name}` uses {}, whose adapter is draft-only; omit --publish and publish the saved draft in {}",
                 adapter.name(), adapter.name()
@@ -564,10 +634,13 @@ fn syndication_post(
     {
         return Err("set the site's real public URL before syndication".into());
     }
-    let markdown = absolutize_markdown(
-        projection.representation(RepresentationFormat::Markdown),
-        config,
-    )?;
+    let portable_html = projection.portable_html()?;
+    let content_plans = destination_policies()
+        .into_iter()
+        .map(|policy| destination_content_plan(policy.provider, &post.source, &portable_html))
+        .collect();
+    let markdown = absolutize_markdown(&projection.portable_markdown()?, config)?;
+    let portable_diagnostics = portable_html.diagnostics.clone();
     let mut hasher = Blake2b512::new();
     hasher.update(post.title.as_bytes());
     // Posts without a subtitle keep the revision they had before subtitles existed.
@@ -590,14 +663,158 @@ fn syndication_post(
         title: post.title.clone(),
         subtitle: post.subtitle.clone(),
         description: post.description.clone(),
+        source_markdown: post.authored_markdown().to_string(),
         markdown,
-        html: absolutize_html(
-            projection.representation(RepresentationFormat::Html),
-            config,
-        ),
+        html: absolutize_html(&portable_html.html, config),
         tags: post.tags.iter().map(|tag| tag.name.clone()).collect(),
         canonical_url,
         revision,
+        portable_diagnostics,
+        content_plans,
+    })
+}
+
+fn print_portable_plan(provider: SyndicationProvider, post: &SyndicationPost) {
+    let policy = destination_policy(provider);
+    let representation = match policy.representation {
+        DestinationRepresentation::PortableMarkdown => "portable Markdown",
+        DestinationRepresentation::PortableHtml => "portable HTML",
+        DestinationRepresentation::ManualMarkdown => "portable Markdown for manual import",
+    };
+    println!(
+        "  projection: {representation}; {}",
+        policy.canonical_behavior
+    );
+    println!("  workflow: {}", policy.workflow);
+    println!("  content policy: {}", policy.conversion_review);
+    if let Some(plan) = post
+        .content_plans
+        .iter()
+        .find(|plan| plan.policy.provider == provider)
+    {
+        for diagnostic in &plan.diagnostics {
+            println!(
+                "  {:?}: {} [{}] {} Action: {}",
+                diagnostic.severity,
+                diagnostic.source_path,
+                diagnostic.code,
+                diagnostic.message,
+                diagnostic.recommended_action
+            );
+        }
+    }
+    for diagnostic in &post.portable_diagnostics {
+        println!(
+            "  portability: {} [{}] {} Action: {}",
+            diagnostic.source_path,
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.recommended_action
+        );
+    }
+    {
+        let tags = destination_tag_plan(provider, &post.source_path, &post.tags);
+        println!(
+            "  tags: selected {:?}; omitted {:?}",
+            tags.tags, tags.omitted_tags
+        );
+        for diagnostic in tags.diagnostics {
+            println!(
+                "  {:?}: {} [{}] {} Action: {}",
+                diagnostic.severity,
+                diagnostic.source_path,
+                diagnostic.code,
+                diagnostic.message,
+                diagnostic.recommended_action,
+            );
+        }
+    }
+}
+
+fn dry_run_json_plan(
+    post: &SyndicationPost,
+    selected: &[(&String, &SyndicationTargetConfig)],
+    state: &State,
+    publish: bool,
+) -> Json {
+    let targets = selected
+        .iter()
+        .map(|(name, target)| {
+            let policy = destination_policy(target.provider);
+            let (format, content) = match policy.representation {
+                DestinationRepresentation::PortableMarkdown => {
+                    ("portable-markdown", post.markdown.as_str())
+                }
+                DestinationRepresentation::PortableHtml => ("portable-html", post.html.as_str()),
+                DestinationRepresentation::ManualMarkdown => {
+                    ("manual-markdown", post.markdown.as_str())
+                }
+            };
+            let manual = target.provider == SyndicationProvider::Medium;
+            let tag_plan = destination_tag_plan(target.provider, &post.source_path, &post.tags);
+            let (payload_plan, payload_plan_error) =
+                if target.provider == SyndicationProvider::Hashnode {
+                    match hashnode_payload_plan(
+                        &target.publication_id,
+                        post,
+                        state.record(&post.source_id, name),
+                    ) {
+                        Ok(plan) => (Some(plan), None),
+                        Err(error) => (None, Some(error)),
+                    }
+                } else {
+                    (None, None)
+                };
+            json!({
+                "name": name,
+                "provider": target.provider,
+                "operation": if manual {
+                    "manual-import"
+                } else if state.record(&post.source_id, name).is_some() {
+                    "update"
+                } else {
+                    "create"
+                },
+                "publicationIntent": if manual {
+                    "manual"
+                } else if publish && target.allow_publish {
+                    "published"
+                } else {
+                    "draft"
+                },
+                "remoteRequestSent": false,
+                "policy": policy,
+                "contentPlan": post.content_plans.iter().find(|plan| plan.policy.provider == target.provider),
+                "tagPlan": tag_plan,
+                "payloadPlan": payload_plan,
+                "payloadPlanError": payload_plan_error,
+                "conversion": {
+                    "from": {
+                        "format": "authored-markdown",
+                        "content": &post.source_markdown
+                    },
+                    "to": {
+                        "format": format,
+                        "content": content
+                    }
+                },
+                "diagnostics": post.portable_diagnostics.iter().map(|diagnostic| diagnostic.scoped(format, match target.provider {
+                    SyndicationProvider::Dev => "dev",
+                    SyndicationProvider::Hashnode => "hashnode",
+                    SyndicationProvider::Ghost => "ghost",
+                    SyndicationProvider::Wordpress => "wordpress",
+                    SyndicationProvider::Medium => "medium",
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "sourcePath": post.source_path,
+        "sourceId": post.source_id,
+        "slug": post.slug,
+        "canonicalUrl": post.canonical_url,
+        "revision": post.revision,
+        "targets": targets,
     })
 }
 
@@ -936,9 +1153,6 @@ trait ProviderAdapter {
         credential: &str,
     ) -> Result<Request, String>;
     fn outcome(&self, body: &Json) -> Result<Outcome, String>;
-    fn supports_public_write(&self) -> bool {
-        true
-    }
     fn warning(&self) -> Option<&'static str> {
         None
     }
@@ -974,13 +1188,6 @@ impl DestinationAdapter<'_> {
         match self {
             Self::Remote(adapter) => adapter.validate(),
             Self::Manual(_) => Ok(()),
-        }
-    }
-
-    fn supports_public_write(&self) -> bool {
-        match self {
-            Self::Remote(adapter) => adapter.supports_public_write(),
-            Self::Manual(_) => true,
         }
     }
 }
@@ -1054,11 +1261,34 @@ impl ProviderAdapter for HashnodeAdapter<'_> {
         publish: bool,
         credential: &str,
     ) -> Result<Request, String> {
-        hashnode_request(self.publication_id, post, existing, publish, credential)
+        let request = hashnode_request(self.publication_id, post, existing, publish, credential)?;
+        destination_payload_plan(
+            SyndicationProvider::Hashnode,
+            &post.source_path,
+            request.body.to_string().len(),
+        )
+        .validate()?;
+        Ok(request)
     }
     fn outcome(&self, body: &Json) -> Result<Outcome, String> {
-        if let Some(message) = body["errors"][0]["message"].as_str() {
-            return Err(format!("Hashnode rejected the request: {message}"));
+        if let Some(errors) = body.get("errors").filter(|errors| !errors.is_null()) {
+            let errors = errors
+                .as_array()
+                .ok_or("Hashnode returned a malformed GraphQL errors field")?;
+            if let Some(error) = errors.first() {
+                let reason = match error["extensions"]["code"].as_str() {
+                    Some("UNAUTHENTICATED") => status_error(401),
+                    Some("FORBIDDEN") => status_error(403),
+                    Some("NOT_FOUND") => status_error(404),
+                    Some("BAD_USER_INPUT") => status_error(422),
+                    Some("INTERNAL_SERVER_ERROR") => status_error(500),
+                    _ => {
+                        "GraphQL returned an error; inspect the provider dashboard before retrying"
+                            .into()
+                    }
+                };
+                return Err(format!("Hashnode rejected the request: {reason}"));
+            }
         }
         let draft = if body["data"]["createDraft"]["draft"].is_object() {
             &body["data"]["createDraft"]["draft"]
@@ -1066,9 +1296,6 @@ impl ProviderAdapter for HashnodeAdapter<'_> {
             &body["data"]["updateDraft"]["draft"]
         };
         outcome_from_fields(self.name(), &draft["id"], &draft["slug"], "")
-    }
-    fn supports_public_write(&self) -> bool {
-        false
     }
 }
 
@@ -1092,11 +1319,14 @@ impl ProviderAdapter for GhostAdapter<'_> {
         ghost_request(self.endpoint, post, existing, publish, credential)
     }
     fn outcome(&self, body: &Json) -> Result<Outcome, String> {
+        let revision = body["posts"][0]["updated_at"].as_str()
+            .filter(|revision| !revision.trim().is_empty())
+            .ok_or("Ghost response did not contain an updated_at revision; inspect the remote draft before retrying")?;
         outcome_from_fields(
             self.name(),
             &body["posts"][0]["id"],
             &body["posts"][0]["url"],
-            body["posts"][0]["updated_at"].as_str().unwrap_or_default(),
+            revision,
         )
     }
 }
@@ -1173,6 +1403,8 @@ fn dev_request(
     publish: bool,
     credential: &str,
 ) -> Result<Request, String> {
+    let tags = destination_tag_plan(SyndicationProvider::Dev, &post.source_path, &post.tags);
+    tags.validate()?;
     let (method, url) = match existing {
         Some(record) if !record.remote_id.is_empty() => (
             "PUT",
@@ -1192,9 +1424,22 @@ fn dev_request(
             "published": publish,
             "canonical_url": post.canonical_url,
             "description": post.description,
-            "tags": post.tags.iter().take(4).cloned().collect::<Vec<_>>().join(",")
+            "tags": tags.tags.join(",")
         }}),
     })
+}
+
+fn hashnode_payload_plan(
+    publication_id: &str,
+    post: &SyndicationPost,
+    existing: Option<&StateRecord>,
+) -> Result<DestinationPayloadPlan, String> {
+    let request = hashnode_request(publication_id, post, existing, false, "")?;
+    Ok(destination_payload_plan(
+        SyndicationProvider::Hashnode,
+        &post.source_path,
+        request.body.to_string().len(),
+    ))
 }
 
 fn hashnode_request(
@@ -1209,17 +1454,19 @@ fn hashnode_request(
             "Hashnode target requires publicationId (and an eligible Pro publication)".into(),
         );
     }
-    let tags: Vec<Json> = post
+    let tag_plan =
+        destination_tag_plan(SyndicationProvider::Hashnode, &post.source_path, &post.tags);
+    tag_plan.validate()?;
+    let tags: Vec<Json> = tag_plan
         .tags
         .iter()
-        .take(15)
         .map(|name| json!({"name": name, "slug": slug(name)}))
         .collect();
     let input = json!({
         "title": post.title,
         "subtitle": post.subtitle.as_deref().unwrap_or(&post.description),
         "slug": post.slug,
-        "contentMarkdown": post.markdown, "canonicalUrl": post.canonical_url, "tags": tags
+        "contentMarkdown": post.markdown, "originalArticleURL": post.canonical_url, "tags": tags
     });
     let (query, variables) = if let Some(record) = existing {
         ("mutation Update($input: UpdateDraftInput!) { updateDraft(input: $input) { draft { id slug } } }",
@@ -1380,6 +1627,9 @@ fn execute(
     request: &Request,
 ) -> Result<Outcome, String> {
     let response = transport.send(request)?;
+    if response.body.len() as u64 > MAX_RESPONSE_BYTES {
+        return Err("provider response exceeded 1 MiB or could not be read".into());
+    }
     if !(200..300).contains(&response.status) {
         return Err(status_error(response.status));
     }
@@ -1398,6 +1648,7 @@ fn outcome_from_fields(
         .as_str()
         .map(str::to_string)
         .or_else(|| id.as_u64().map(|id| id.to_string()))
+        .filter(|id| !id.trim().is_empty())
         .ok_or_else(|| format!("{provider} response did not contain a remote ID"))?;
     Ok(Outcome {
         id,
@@ -1423,7 +1674,141 @@ mod tests {
             tags: vec!["Rust".into()],
             canonical_url: "https://blog.example/posts/a/".into(),
             revision: "abc".into(),
+            source_markdown: "Body".into(),
+            portable_diagnostics: Vec::new(),
+            content_plans: Vec::new(),
         }
+    }
+
+    #[test]
+    fn hashnode_drafts_use_the_documented_canonical_input_on_create_and_update() {
+        let post = post_fixture();
+        let record = StateRecord {
+            remote_id: "draft-id".into(),
+            ..Default::default()
+        };
+        for existing in [None, Some(&record)] {
+            let request =
+                hashnode_request("publication", &post, existing, false, "unused").unwrap();
+            let input = &request.body["variables"]["input"];
+            assert_eq!(input["originalArticleURL"], post.canonical_url);
+            assert!(input.get("canonicalUrl").is_none());
+        }
+    }
+
+    #[test]
+    fn hashnode_payload_budget_counts_the_serialized_envelope_on_create_and_update() {
+        let adapter = HashnodeAdapter {
+            publication_id: "publication",
+        };
+        let record = StateRecord {
+            remote_id: "draft".into(),
+            ..Default::default()
+        };
+        for existing in [None, Some(&record)] {
+            let mut post = post_fixture();
+            post.markdown.clear();
+            let overhead = hashnode_request("publication", &post, existing, false, "unused")
+                .unwrap()
+                .body
+                .to_string()
+                .len();
+            post.markdown = "a".repeat(100_000 - overhead);
+            let request = adapter.request(&post, existing, false, "unused").unwrap();
+            assert_eq!(request.body.to_string().len(), 100_000);
+            post.markdown.push('a');
+            assert!(adapter
+                .request(&post, existing, false, "unused")
+                .unwrap_err()
+                .contains("100001 UTF-8 bytes"));
+            post.markdown = "é\n\"".repeat(20_000);
+            let request =
+                hashnode_request("publication", &post, existing, false, "unused").unwrap();
+            let bytes = request.body.to_string().len();
+            assert!(
+                bytes > post.markdown.len(),
+                "JSON escaping and the envelope must count"
+            );
+            let target = SyndicationTargetConfig {
+                provider: SyndicationProvider::Hashnode,
+                publication_id: "publication".into(),
+                ..Default::default()
+            };
+            let mut state = State::default();
+            if let Some(record) = existing {
+                state.insert(&post.source_id, "hashnode", record.clone());
+            }
+            let name = "hashnode".to_string();
+            let plan = dry_run_json_plan(&post, &[(&name, &target)], &state, false);
+            assert_eq!(plan["targets"][0]["payloadPlan"]["bodyBytes"], bytes);
+            assert_eq!(
+                plan["targets"][0]["payloadPlan"]["diagnostics"][0]["code"],
+                "destination-payload-limit"
+            );
+            assert!(plan["targets"][0]["payloadPlanError"].is_null());
+        }
+    }
+
+    #[test]
+    fn destination_tag_plans_match_create_and_update_payloads_and_keep_source_unchanged() {
+        let mut post = post_fixture();
+        post.tags = (0..16).map(|index| format!("tag{index}")).collect();
+        let before = post.clone();
+        let record = StateRecord {
+            remote_id: "remote".into(),
+            ..Default::default()
+        };
+        let selected = [
+            (
+                "dev".to_string(),
+                SyndicationTargetConfig {
+                    provider: SyndicationProvider::Dev,
+                    ..Default::default()
+                },
+            ),
+            (
+                "hashnode".to_string(),
+                SyndicationTargetConfig {
+                    provider: SyndicationProvider::Hashnode,
+                    publication_id: "publication".into(),
+                    ..Default::default()
+                },
+            ),
+        ];
+        let targets = selected
+            .iter()
+            .map(|(name, target)| (name, target))
+            .collect::<Vec<_>>();
+        let plan = dry_run_json_plan(&post, &targets, &State::default(), false);
+        for existing in [None, Some(&record)] {
+            let dev = dev_request(&post, existing, false, "unused").unwrap();
+            let hashnode =
+                hashnode_request("publication", &post, existing, false, "unused").unwrap();
+            for (index, count) in [(0, 4), (1, 15)] {
+                let tags = &plan["targets"][index]["tagPlan"];
+                assert_eq!(tags["tags"].as_array().unwrap().len(), count);
+                assert_eq!(tags["omittedTags"].as_array().unwrap().len(), 16 - count);
+                assert_eq!(tags["diagnostics"][0]["code"], "destination-tag-limit");
+                assert_eq!(
+                    tags["policy"]["provider"],
+                    plan["targets"][index]["provider"]
+                );
+            }
+            assert_eq!(dev.body["article"]["tags"], post.tags[..4].join(","));
+            let hashnode_tags = hashnode.body["variables"]["input"]["tags"]
+                .as_array()
+                .unwrap();
+            assert_eq!(hashnode_tags.len(), 15);
+            for (tag, name) in hashnode_tags.iter().zip(&post.tags) {
+                assert_eq!(tag["name"], *name);
+                assert_eq!(tag["slug"], *name);
+            }
+        }
+        assert_eq!(post, before);
+        post.tags = vec!["invalid-dev".into()];
+        assert!(dev_request(&post, None, false, "unused").is_err());
+        post.tags = vec!["Same Tag".into(), "same-tag".into()];
+        assert!(hashnode_request("publication", &post, None, false, "unused").is_err());
     }
 
     #[test]
@@ -1438,6 +1823,7 @@ mod tests {
             if fixture["expected"]["public"] == false {
                 continue;
             }
+
             let path = fixture["path"].as_str().unwrap();
             let source = fixture["source"].as_str().unwrap();
             let config = SiteConfig::from_json(&fixture["config"].to_string()).unwrap();
@@ -1499,10 +1885,178 @@ mod tests {
                 .contains(&post.canonical_url));
 
             if fixture["name"] == "knowledge-check" {
-                assert!(post.markdown.contains("```quiz"));
-                assert!(post.html.contains("<ob-quiz"));
+                assert!(post.markdown.contains("**Question:**"));
+                assert!(!post.markdown.contains("```quiz"));
+                assert!(!post.html.contains("<ob-quiz"));
             }
         }
+    }
+
+    #[test]
+    fn universal_publishing_example_uses_exact_portable_artifacts_for_every_destination() {
+        use openblog_core::{LoadOptions, Site, SourceFile, Sources};
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("examples")
+            .join("portable-publishing");
+        let config = site::load_config(&root).unwrap();
+        let source =
+            include_str!("../../../examples/portable-publishing/content/posts/portable-lesson.md");
+        let loaded = Site::load(
+            config.clone(),
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/portable-lesson.md".into(),
+                    contents: source.into(),
+                }],
+                credits: vec![SourceFile {
+                    path: "posts/portable-lesson.credits.json".into(),
+                    contents: include_str!(
+                        "../../../examples/portable-publishing/content/posts/portable-lesson.credits.json"
+                    ).into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        ).unwrap();
+        let post = syndication_post(&loaded.posts[0], source, &config).unwrap();
+        let selected = select_targets(&config, &[]).unwrap();
+        let plan = dry_run_json_plan(&post, &selected, &State::default(), false);
+        assert_eq!(plan["targets"].as_array().unwrap().len(), 5);
+        for target in plan["targets"].as_array().unwrap() {
+            let content_plan = &target["contentPlan"];
+            assert_eq!(content_plan["policy"], target["policy"]);
+            assert_eq!(content_plan["policy"]["mediaDelivery"], "hosted-urls-only");
+            assert!(!content_plan["images"].as_array().unwrap().is_empty());
+            assert!(content_plan["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|finding| finding["code"] == "destination-media-unverified"
+                    && finding["destination"] == target["provider"]));
+            let artifact = &target["conversion"]["to"];
+            let expected = if target["provider"] == "ghost" || target["provider"] == "wordpress" {
+                &post.html
+            } else {
+                &post.markdown
+            };
+            assert_eq!(artifact["content"], *expected);
+            let content = artifact["content"].as_str().unwrap();
+            for essential in [
+                "Alex Example",
+                "Supporting study",
+                "Open in Rust Playground",
+                "Join the discussion",
+            ] {
+                assert!(content.contains(essential), "{essential}: {artifact}");
+            }
+            for private in [
+                "PRIVATE_",
+                "runner.example.org",
+                "discussion.example.org",
+                "<ob-",
+            ] {
+                assert!(!content.contains(private), "{private}: {artifact}");
+            }
+            assert_eq!(target["remoteRequestSent"], false);
+            assert_eq!(
+                target["publicationIntent"],
+                if target["provider"] == "medium" {
+                    "manual"
+                } else {
+                    "draft"
+                }
+            );
+        }
+        assert_eq!(
+            dev_request(&post, None, false, "fixture").unwrap().body["article"]["body_markdown"],
+            post.markdown
+        );
+        assert_eq!(
+            hashnode_request("fixture", &post, None, false, "fixture")
+                .unwrap()
+                .body["variables"]["input"]["contentMarkdown"],
+            post.markdown
+        );
+        assert_eq!(
+            ghost_request(
+                "https://ghost.example.org",
+                &post,
+                None,
+                false,
+                "abc:00112233445566778899aabbccddeeff"
+            )
+            .unwrap()
+            .body["posts"][0]["html"],
+            post.html
+        );
+        assert_eq!(
+            wordpress_request(
+                "https://wordpress.example.org/wp-json/wp/v2",
+                "",
+                &post,
+                None,
+                false,
+                "fixture"
+            )
+            .unwrap()
+            .body["content"],
+            post.html
+        );
+        assert!(MediumAdapter
+            .instruction(&post)
+            .contains(&post.canonical_url));
+
+        struct NoRequests;
+        impl Transport for NoRequests {
+            fn send(&self, _: &Request) -> Result<Response, String> {
+                panic!("a dry-run plan must not send a request");
+            }
+        }
+        for json in [false, true] {
+            run_with_transport(
+                &root,
+                "portable-lesson",
+                Options {
+                    json,
+                    target_names: Vec::new(),
+                    write: false,
+                    publish: false,
+                },
+                &NoRequests,
+            )
+            .unwrap();
+        }
+        assert!(!root.join(".openblog/syndication.json").exists());
+    }
+
+    #[test]
+    fn json_dry_run_plan_contains_deterministic_before_and_after_without_remote_intent() {
+        let post = post_fixture();
+        let state = State::default();
+        let name = "dev".to_string();
+        let target = SyndicationTargetConfig {
+            provider: SyndicationProvider::Dev,
+            ..Default::default()
+        };
+        let selected = [(&name, &target)];
+        let plan = dry_run_json_plan(&post, &selected, &state, false);
+        let serialized = serde_json::to_string(&plan).unwrap();
+        assert_eq!(
+            serialized,
+            serde_json::to_string(&dry_run_json_plan(&post, &selected, &state, false)).unwrap()
+        );
+        assert_eq!(plan["targets"][0]["operation"], "create");
+        assert_eq!(plan["targets"][0]["publicationIntent"], "draft");
+        assert_eq!(plan["targets"][0]["remoteRequestSent"], false);
+        assert_eq!(plan["targets"][0]["conversion"]["from"]["content"], "Body");
+        assert_eq!(
+            plan["targets"][0]["conversion"]["to"]["format"],
+            "portable-markdown"
+        );
+        assert_eq!(plan["targets"][0]["conversion"]["to"]["content"], "Body");
     }
 
     #[test]
@@ -1779,6 +2333,373 @@ const attribute = 'href="/script"';
         }
     }
 
+    struct NoNetwork;
+    impl Transport for NoNetwork {
+        fn send(&self, _: &Request) -> Result<Response, String> {
+            panic!("destination validation must finish before any network access");
+        }
+    }
+
+    #[test]
+    fn invalid_destination_metadata_blocks_all_selected_writes_without_source_or_state_changes() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-destination-tags-{}",
+            crate::auth::random_token().unwrap(),
+        ));
+        let posts = root.join("content/posts");
+        fs::create_dir_all(&posts).unwrap();
+        fs::write(
+            root.join("openblog.json"),
+            r#"{
+            "url":"https://blog.openblog.dev",
+            "syndication":{"targets":{
+                "a-ghost":{"provider":"ghost","endpoint":"https://ghost.example"},
+                "b-dev":{"provider":"dev"},
+                "c-hashnode":{"provider":"hashnode","publicationId":"publication"}
+            }}
+        }"#,
+        )
+        .unwrap();
+        let source =
+            "---\ntitle: Post\nslug: post\ndate: 2020-01-01\ntags: [invalid-dev]\n---\n\nBody\n";
+        fs::write(posts.join("post.md"), source).unwrap();
+        let error = run_with_transport(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: true,
+                publish: false,
+                json: false,
+            },
+            &NoNetwork,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("posts/post.md: DEV [destination-tag-invalid]"),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(posts.join("post.md")).unwrap(), source);
+        assert!(!root.join(".openblog").exists());
+        let invalid_image = "---\ntitle: Post\nslug: post\ndate: 2020-01-01\ntags: [rust]\n---\n\n![Not an image](mailto:author@example.test)\n";
+        fs::write(posts.join("post.md"), invalid_image).unwrap();
+        let error = run_with_transport(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: true,
+                publish: false,
+                json: false,
+            },
+            &NoNetwork,
+        )
+        .unwrap_err();
+        assert!(error.contains("destination-image-url-invalid"), "{error}");
+        assert_eq!(
+            fs::read_to_string(posts.join("post.md")).unwrap(),
+            invalid_image
+        );
+        assert!(!root.join(".openblog").exists());
+        run_with_transport(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: false,
+                publish: false,
+                json: true,
+            },
+            &NoNetwork,
+        )
+        .unwrap();
+        fs::write(posts.join("post.md"), source).unwrap();
+        run_with_transport(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: false,
+                publish: false,
+                json: true,
+            },
+            &NoNetwork,
+        )
+        .unwrap();
+        assert!(!root.join(".openblog").exists());
+        let source = format!(
+            "---\ntitle: Post\nslug: post\ndate: 2020-01-01\ntags: [rust]\n---\n\n{}\n",
+            "a".repeat(100_000),
+        );
+        fs::write(posts.join("post.md"), &source).unwrap();
+        let error = run_with_transport(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: true,
+                publish: false,
+                json: false,
+            },
+            &NoNetwork,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("posts/post.md: Hashnode [destination-payload-limit]"),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(posts.join("post.md")).unwrap(), source);
+        assert!(!root.join(".openblog").exists());
+        fs::remove_file(posts.join("post.md")).unwrap();
+        fs::remove_file(root.join("openblog.json")).unwrap();
+        fs::remove_dir(posts).unwrap();
+        fs::remove_dir(root.join("content")).unwrap();
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_success_outcomes_cannot_lose_remote_identity_or_ghost_revision() {
+        for id in [Json::Null, json!(""), json!("   "), json!({})] {
+            let error = outcome_from_fields("Provider", &id, &Json::Null, "")
+                .err()
+                .expect("remote IDs must be present and nonempty");
+            assert!(error.contains("remote ID"));
+        }
+        for id in [json!("remote-id"), json!(42)] {
+            assert!(outcome_from_fields("Provider", &id, &Json::Null, "").is_ok());
+        }
+        let ghost = GhostAdapter {
+            endpoint: "https://ghost.example",
+        };
+        for revision in [Json::Null, json!(""), json!("  ")] {
+            let error = ghost
+                .outcome(&json!({ "posts": [{
+                "id": "remote-id", "updated_at": revision,
+            }] }))
+                .err()
+                .expect("Ghost success must retain an update revision");
+            assert!(error.contains("updated_at revision"));
+        }
+        let outcome = ghost
+            .outcome(&json!({ "posts": [{
+            "id": "remote-id", "url": "https://ghost.example/post",
+            "updated_at": "2026-10-25T00:00:00.000Z",
+        }] }))
+            .unwrap();
+        assert_eq!(outcome.id, "remote-id");
+        assert_eq!(outcome.remote_revision, "2026-10-25T00:00:00.000Z");
+    }
+
+    #[test]
+    fn provider_http_errors_are_actionable_without_echoing_response_bodies() {
+        let adapters: [&dyn ProviderAdapter; 4] = [
+            &DevAdapter,
+            &HashnodeAdapter {
+                publication_id: "publication",
+            },
+            &GhostAdapter {
+                endpoint: "https://ghost.example",
+            },
+            &WordpressAdapter {
+                endpoint: "https://wordpress.example",
+                publication_id: "",
+            },
+        ];
+        let request = dev_request(&post_fixture(), None, false, "unused").unwrap();
+        for adapter in adapters {
+            for (status, expected) in [
+                (401, "authentication failed"),
+                (402, "billing"),
+                (403, "lacks permission"),
+                (404, "not found"),
+                (409, "remote item changed"),
+                (422, "rejected the post"),
+                (429, "rate limit"),
+                (503, "temporarily unavailable"),
+            ] {
+                let error = execute(
+                    adapter,
+                    &FakeTransport(Response {
+                        status,
+                        body: b"PRIVATE_provider_response".to_vec(),
+                    }),
+                    &request,
+                )
+                .err()
+                .expect("provider errors cannot become outcomes");
+                assert!(error.contains(expected), "{status}: {error}");
+                assert!(!error.contains("PRIVATE_"));
+            }
+            let error = execute(
+                adapter,
+                &FakeTransport(Response {
+                    status: 200,
+                    body: b"PRIVATE_invalid_json".to_vec(),
+                }),
+                &request,
+            )
+            .err()
+            .expect("invalid JSON cannot become an outcome");
+            assert!(error.contains("invalid JSON"), "{error}");
+            assert!(!error.contains("PRIVATE_"));
+        }
+    }
+
+    #[test]
+    fn ghost_revision_and_wordpress_endpoint_contracts_preserve_update_intent() {
+        let post = post_fixture();
+        let mut record = StateRecord {
+            remote_id: "42".into(),
+            ..Default::default()
+        };
+        let error = ghost_request(
+            "https://ghost.example",
+            &post,
+            Some(&record),
+            false,
+            "abc:00112233445566778899aabbccddeeff",
+        )
+        .unwrap_err();
+        assert!(error.contains("no updated_at revision"), "{error}");
+        record.remote_revision = "2026-10-25T00:00:00.000Z".into();
+        let request = ghost_request(
+            "https://ghost.example",
+            &post,
+            Some(&record),
+            false,
+            "abc:00112233445566778899aabbccddeeff",
+        )
+        .unwrap();
+        assert_eq!(request.method, "PUT");
+        assert!(request.url.ends_with("/posts/42/?source=html"));
+        assert_eq!(
+            request.body["posts"][0]["updated_at"],
+            record.remote_revision
+        );
+        let error = execute(
+            &GhostAdapter {
+                endpoint: "https://ghost.example",
+            },
+            &FakeTransport(Response {
+                status: 409,
+                body: br#"{"errors":[{"message":"stale revision"}]}"#.to_vec(),
+            }),
+            &request,
+        )
+        .err()
+        .expect("stale remote revision must fail");
+        assert!(error.contains("remote item changed"));
+        assert_eq!(record.remote_revision, "2026-10-25T00:00:00.000Z");
+        for (endpoint, publication, url) in [
+            (
+                "https://wp.example/wp-json/wp/v2",
+                "",
+                "https://wp.example/wp-json/wp/v2/posts/42",
+            ),
+            (
+                "",
+                "12345",
+                "https://public-api.wordpress.com/wp/v2/sites/12345/posts/42",
+            ),
+        ] {
+            let request =
+                wordpress_request(endpoint, publication, &post, Some(&record), false, "unused")
+                    .unwrap();
+            assert_eq!(request.method, "POST");
+            assert_eq!(request.url, url);
+            assert_eq!(request.body["status"], "draft");
+            assert_eq!(request.body["content"], post.html);
+            assert!(
+                request.body.get("canonical_url").is_none(),
+                "do not invent core external canonical support"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_response_bounds_apply_to_every_transport_before_success_is_recorded() {
+        let request = dev_request(&post_fixture(), None, false, "unused").unwrap();
+        let mut body = br#"{"id":42,"url":"https://dev.to/example"}"#.to_vec();
+        body.resize(MAX_RESPONSE_BYTES as usize, b' ');
+        assert_eq!(
+            execute(
+                &DevAdapter,
+                &FakeTransport(Response {
+                    status: 201,
+                    body: body.clone(),
+                }),
+                &request
+            )
+            .unwrap()
+            .id,
+            "42"
+        );
+        body.push(b' ');
+        let error = execute(
+            &DevAdapter,
+            &FakeTransport(Response { status: 201, body }),
+            &request,
+        )
+        .err()
+        .expect("oversized responses must fail");
+        assert!(error.contains("exceeded 1 MiB"), "{error}");
+    }
+
+    #[test]
+    fn hashnode_partial_or_malformed_graphql_errors_never_count_as_success() {
+        let adapter = HashnodeAdapter {
+            publication_id: "publication",
+        };
+        let request =
+            hashnode_request("publication", &post_fixture(), None, false, "unused").unwrap();
+        for errors in [
+            json!([{}]),
+            json!({"message": "invalid shape"}),
+            json!([{
+                "message": "PRIVATE_provider_echo",
+                "extensions": { "code": "FORBIDDEN" },
+            }]),
+        ] {
+            let body = json!({
+                "errors": errors,
+                "data": { "createDraft": { "draft": { "id": "partial-id", "slug": "partial" } } },
+            });
+            let error = execute(
+                &adapter,
+                &FakeTransport(Response {
+                    status: 200,
+                    body: body.to_string().into_bytes(),
+                }),
+                &request,
+            )
+            .err()
+            .expect("GraphQL errors must fail even alongside partial data");
+            assert!(error.contains("Hashnode"), "{error}");
+            assert!(
+                !error.contains("PRIVATE_"),
+                "provider responses must not echo private content"
+            );
+        }
+        for (code, expected) in [
+            ("UNAUTHENTICATED", "authentication failed"),
+            ("FORBIDDEN", "lacks permission"),
+            ("NOT_FOUND", "not found"),
+            ("BAD_USER_INPUT", "rejected the post"),
+            ("INTERNAL_SERVER_ERROR", "temporarily unavailable"),
+            ("UNKNOWN_FUTURE_CODE", "inspect the provider dashboard"),
+        ] {
+            let error = adapter
+                .outcome(&json!({ "errors": [{
+                "message": "PRIVATE_provider_echo",
+                "extensions": { "code": code },
+            }] }))
+                .err()
+                .expect("GraphQL error codes must fail explicitly");
+            assert!(error.contains(expected), "{error}");
+            assert!(!error.contains("PRIVATE_"));
+        }
+    }
+
     #[test]
     fn response_parsing_uses_provider_remote_id() {
         let response = Response {
@@ -1880,6 +2801,7 @@ const attribute = 'href="/script"';
                     target_names: Vec::new(),
                     write: false,
                     publish: false,
+                    json: false,
                 },
             )
             .unwrap_err();
@@ -1916,6 +2838,7 @@ const attribute = 'href="/script"';
                 target_names: Vec::new(),
                 write: false,
                 publish: false,
+                json: true,
             },
         )
         .unwrap();
