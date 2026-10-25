@@ -96,6 +96,7 @@ pub fn with_subject<R>(
         authors: &authors,
         sections: &sections,
         metadata: &metadata,
+        attributed: &[],
     })
 }
 

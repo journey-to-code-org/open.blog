@@ -79,6 +79,33 @@ pub struct SynthesisItem {
     markdown: String,
     contributors: Vec<String>,
     revision: u64,
+    #[serde(default)]
+    approvals: Vec<ItemApproval>,
+}
+
+/// One author's approval of one item, bound to the item revision and digest they approved.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ItemApproval {
+    author: String,
+    revision: u64,
+    digest: String,
+}
+
+/// Where one item stands: who has approved its current revision and who is still awaited.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ItemApprovalStatus {
+    pub item_id: String,
+    pub revision: u64,
+    pub approved: Vec<String>,
+    pub awaiting: Vec<String>,
+}
+
+impl ItemApprovalStatus {
+    /// True when every attributed author has approved the current revision.
+    pub fn is_approved(&self) -> bool {
+        self.awaiting.is_empty()
+    }
 }
 
 impl SynthesisItem {
@@ -98,6 +125,53 @@ impl SynthesisItem {
     }
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// The attributed authors who approved this exact revision, in attribution order.
+    pub fn approved_by(&self) -> Vec<&str> {
+        let digest = self.digest();
+        self.contributors
+            .iter()
+            .filter(|author| {
+                self.approvals.iter().any(|a| {
+                    a.author == **author && a.revision == self.revision && a.digest == digest
+                })
+            })
+            .map(String::as_str)
+            .collect()
+    }
+
+    /// The attributed authors who have not approved this exact revision.
+    pub fn awaiting(&self) -> Vec<&str> {
+        let approved = self.approved_by();
+        self.contributors
+            .iter()
+            .map(String::as_str)
+            .filter(|author| !approved.contains(author))
+            .collect()
+    }
+
+    /// Approved only when every attributed author approved the current revision.
+    pub fn is_approved(&self) -> bool {
+        self.awaiting().is_empty()
+    }
+
+    fn status(&self) -> ItemApprovalStatus {
+        ItemApprovalStatus {
+            item_id: self.id.clone(),
+            revision: self.revision,
+            approved: self.approved_by().into_iter().map(str::to_owned).collect(),
+            awaiting: self.awaiting().into_iter().map(str::to_owned).collect(),
+        }
+    }
+
+    fn approvals_are_valid(&self) -> bool {
+        let mut seen = HashSet::new();
+        self.approvals.len() <= MAX_PARTICIPANTS
+            && self
+                .approvals
+                .iter()
+                .all(|a| self.contributors.contains(&a.author) && seen.insert(a.author.as_str()))
     }
 
     fn digest(&self) -> String {
@@ -217,7 +291,20 @@ impl SynthesisSet {
                     && ids.insert(item.id.to_ascii_lowercase())
                     && valid_markdown(&item.markdown)
                     && valid_contributors(&item.contributors)
+                    && self.minted_id_in_range(&item.id)
+                    && item.approvals_are_valid()
             })
+    }
+
+    /// An id this set mints (`syn-N`) must not be ahead of the counter, or the next add could
+    /// mint a duplicate.
+    fn minted_id_in_range(&self, id: &str) -> bool {
+        match id.to_ascii_lowercase().strip_prefix("syn-") {
+            Some(number) if number.bytes().all(|b| b.is_ascii_digit()) => number
+                .parse::<u64>()
+                .is_ok_and(|number| number <= self.next_id),
+            _ => true,
+        }
     }
 
     /// The revision callers send back as `expected` so a concurrent change is refused.
@@ -274,15 +361,21 @@ impl SynthesisSet {
         if !valid_contributors(&contributors) {
             return Err(SynthesisError::Invalid);
         }
-        self.next_id += 1;
-        let id = format!("syn-{}", self.next_id);
-        self.revision += 1;
+        let next_id = self.next_id.checked_add(1).ok_or(SynthesisError::Invalid)?;
+        let revision = self
+            .revision
+            .checked_add(1)
+            .ok_or(SynthesisError::Invalid)?;
+        self.next_id = next_id;
+        let id = format!("syn-{next_id}");
+        self.revision = revision;
         self.items.push(SynthesisItem {
             id: id.clone(),
             kind: new.kind,
             markdown: new.markdown.to_owned(),
             contributors,
             revision: 1,
+            approvals: Vec::new(),
         });
         Ok(id)
     }
@@ -329,9 +422,18 @@ impl SynthesisSet {
         if item == self.items[index] {
             return Ok(());
         }
-        item.revision += 1;
+        // Any change to the item clears its approvals: they were bound to the old revision.
+        item.revision = item
+            .revision
+            .checked_add(1)
+            .ok_or(SynthesisError::Invalid)?;
+        item.approvals.clear();
+        let revision = self
+            .revision
+            .checked_add(1)
+            .ok_or(SynthesisError::Invalid)?;
         self.items[index] = item;
-        self.revision += 1;
+        self.revision = revision;
         Ok(())
     }
 
@@ -345,14 +447,76 @@ impl SynthesisSet {
     ) -> Result<(), SynthesisError> {
         self.guard(requester, authors, expected)?;
         let index = self.position(id, requester)?;
+        let revision = self
+            .revision
+            .checked_add(1)
+            .ok_or(SynthesisError::Invalid)?;
+        let item_revision = self.items[index]
+            .revision
+            .checked_add(1)
+            .ok_or(SynthesisError::Invalid)?;
         self.items[index].contributors.retain(|c| c != requester);
         if self.items[index].contributors.is_empty() {
             self.items.remove(index);
         } else {
-            self.items[index].revision += 1;
+            self.items[index].revision = item_revision;
+            self.items[index].approvals.clear();
         }
-        self.revision += 1;
+        self.revision = revision;
         Ok(())
+    }
+
+    /// Approve one item at its current revision. Only an author the item speaks for may, and
+    /// anyone else gets the uniform `Denied`. Approving again changes nothing.
+    pub fn approve_item(
+        &mut self,
+        requester: &str,
+        authors: &[&str],
+        expected: u64,
+        id: &str,
+    ) -> Result<(), SynthesisError> {
+        self.guard(requester, authors, expected)?;
+        let index = self.position(id, requester)?;
+        if self.items[index].approved_by().contains(&requester) {
+            return Ok(());
+        }
+        let revision = self
+            .revision
+            .checked_add(1)
+            .ok_or(SynthesisError::Invalid)?;
+        let item = &mut self.items[index];
+        let approval = ItemApproval {
+            author: requester.to_owned(),
+            revision: item.revision,
+            digest: item.digest(),
+        };
+        item.approvals.retain(|a| a.author != requester);
+        item.approvals.push(approval);
+        self.revision = revision;
+        Ok(())
+    }
+
+    /// Who has approved each item and who is still awaited, in publication order, for an author
+    /// only. Anyone else gets `Denied`.
+    pub fn item_approvals(
+        &self,
+        requester: &str,
+        authors: &[&str],
+    ) -> Result<Vec<ItemApprovalStatus>, SynthesisError> {
+        check_author(requester, authors)?;
+        Ok(self.items.iter().map(SynthesisItem::status).collect())
+    }
+
+    /// Every author named on any item, in first-appearance order. Whatever the approval policy,
+    /// each of them must approve the piece, so no author can be bound to a statement they never
+    /// saw.
+    pub fn attributed_authors(&self) -> Vec<&str> {
+        let mut seen = HashSet::new();
+        self.items
+            .iter()
+            .flat_map(|item| item.contributors.iter().map(String::as_str))
+            .filter(|author| seen.insert(*author))
+            .collect()
     }
 
     /// Put the items in a new order. `order` must name every item exactly once.
@@ -394,13 +558,14 @@ impl SynthesisSet {
             let before_len = item.contributors.len();
             item.contributors.retain(|c| authors.contains(&c.as_str()));
             if item.contributors.len() != before_len {
-                item.revision += 1;
+                item.revision = item.revision.saturating_add(1);
+                item.approvals.clear();
             }
         }
         self.items.retain(|item| !item.contributors.is_empty());
         let changed = self.items != before;
         if changed {
-            self.revision += 1;
+            self.revision = self.revision.saturating_add(1);
         }
         changed
     }

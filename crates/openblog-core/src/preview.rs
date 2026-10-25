@@ -140,6 +140,7 @@ pub fn build(
         authors: &author_ids,
         sections: &subject_sections,
         metadata: &metadata_refs,
+        attributed: &[],
     };
 
     let mut sections = Vec::new();

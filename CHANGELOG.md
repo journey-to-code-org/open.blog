@@ -8,7 +8,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - Shared reflections have a core model for synthesis items: optional agreements, differences,
   questions, applications and uncertainties, each attributed to one, some or all authors. Disagreement
   is never an error, authors can withdraw their own name, and an approval binds to the exact items,
-  order and attribution. No Admin screen or public output uses it yet.
+  order and attribution. Each item records which of its authors approved it, and any change to the
+  item clears those approvals. No Admin screen or public output uses it yet.
 
 ## [0.22.0] - 2026-10-25
 

@@ -154,7 +154,9 @@ _Avoid_: Publication, Work credit, timeless consent
 An optional statement the authors of a shared reflection make together: an agreement, difference,
 question, application or uncertainty, written as untrusted Markdown and attributed in order to one,
 some or all authors. No kind is required, an empty synthesis is complete, and disagreement is never
-an error. An author can add attributions but removes only their own name (withdrawal). Approval binds
+an error. An author can add attributions but removes only their own name (withdrawal). Each item
+records which attributed authors approved it, bound to its revision (any change clears them), and
+everyone named on an item must approve the piece. Approval binds
 to the exact items, order and attribution, and the set stays private until a later step publishes it
 (ADR 0036).
 _Avoid_: Consensus, summary, comment

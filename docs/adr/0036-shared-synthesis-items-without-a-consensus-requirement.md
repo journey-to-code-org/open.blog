@@ -35,6 +35,20 @@ and a model that rejected that would push them to hide it.
   each item's id, kind, text and attribution in order. The caller appends it to the approval
   subject's metadata (ADR 0020), so any edit, reorder, withdrawal or attribution change invalidates
   every approval, and an empty synthesis binds exactly as a piece without one.
+- Item approval: each item also records which of its attributed authors approved it, bound to the
+  item's revision and digest. `approve_item` is revision-checked (`Stale` on mismatch) and open only
+  to an author the item speaks for (otherwise the uniform `Denied`). Any change to the item (text,
+  kind, attribution, a withdrawal, or `reconcile` removing someone) clears its approvals, and an
+  item counts as approved only when every attributed author approved its current digest.
+  `item_approvals` lists, for each item, who approved and who is still awaited. Item approvals do
+  not enter `binding_frame`, which still folds the items into the whole-piece approval as defence
+  in depth.
+- Everyone named on any item is a required approver of the piece under every policy
+  (`attributed_authors`, carried as `ApprovalSubject::attributed`), so an author cannot be bound to
+  a statement by another author's edit without approving it. Callers that build an approval subject
+  must pass it; assembly, preview and the admin routes still pass none until they are wired.
+- Stored sets are checked: a `syn-N` id ahead of `nextId` is rejected so a counter can never mint a
+  duplicate, and counters use checked arithmetic, failing as `Invalid` instead of overflowing.
 - The set is private collaboration state holding prose. This task adds core types only: no route,
   storage, panel or publishing of synthesis exists yet, so canonical content and public output are
   unchanged. Later tasks store it privately, route it through `SharedPublication::authorize`,
