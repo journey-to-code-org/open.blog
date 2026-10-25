@@ -60,6 +60,95 @@ custom fences. Nested list/quote containers, multiline inline destinations and r
 definitions retain their structure. Literal inline and indented code remain examples,
 not links or executable custom syntax.
 
+## Portable Markdown dialect and export contract
+
+This is the destination-neutral contract for
+[#115](https://github.com/journey-to-code-org/open.blog/issues/115), under
+[ADR 0004](../adr/0004-portable-projections-from-canonical-work.md).
+Exported Markdown is a derived delivery artifact, **not** the canonical authored Markdown
+and not a round-trip editing format. Neither exporting nor selecting an Admin preview
+rewrites the source, native HTML, front matter, or sidecars.
+
+### Baseline and intentional extensions
+
+The baseline is CommonMark: paragraphs, emphasis, headings, thematic breaks, nested
+lists/quotes, ordinary links/images, inline code, and fenced/indented code. Ordinary
+HTTP(S) links keep their destinations; relative destinations, root-relative destinations,
+and fragments resolve against the canonical article/site context. `mailto:` and `tel:`
+are supported link schemes; destination image plans require HTTP(S). Executable,
+credential-bearing, and malformed URLs fail validation rather than being passed through.
+
+Code examples remain literal code, including examples that contain link-like text,
+raw HTML, or custom fence syntax. Generated fences grow when necessary so nested
+backticks do not terminate the example. Fence delimiters/whitespace may be normalized;
+preserving authored code and readable structure does not imply byte-identical Markdown.
+The exported body uses LF line endings and deterministic metadata/fallback ordering.
+
+| Intentional extension | Export behavior | Reader without that extension |
+| --- | --- | --- |
+| GFM tables | Preserve the authored pipe table and cell order. | Pipe-separated text still includes headers and cell facts, but table navigation is not guaranteed. |
+| GFM task lists | Preserve `[x]` / `[ ]` and item order. | Markers and labels remain readable list text; no editable state is promised. |
+| Strikethrough | Preserve `~~text~~`. | Delimiters remain visible; readers must not assume typographic deletion is understood. |
+| Footnotes | Preserve references and definitions. | Labels, definition text, and evidence URLs remain readable; cross-linking is reader-dependent. |
+| Heading attributes | Preserve authored `{#id}` / attribute syntax. | The annotation may display literally; exported links point to real canonical anchors, not assumed remote anchors. |
+| open.blog/GFM callout markers | Convert `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, and `[!CAUTION]` to bold titles inside ordinary blockquotes. | The title and quoted content need no callout extension. |
+
+The dialect does not claim full GFM conformance, identical typography, or uniform
+third-party support for extensions. Smart punctuation is not applied to the authored
+Markdown export. open.blog custom quizzes, runnable fences, web sandboxes, and recognized
+embeds are converted according to the [static fallback contract](#static-fallbacks-for-interactive-capabilities);
+they are not additional requirements imposed on destination readers.
+Raw HTML is escaped as literal text with a visible note, never executed. HTML comments
+and declarations are excluded; literal comment syntax inside code stays example content.
+
+### Envelope, identity, and public context
+
+No YAML/TOML front matter or arbitrary private metadata is exported. The artifact begins
+with an escaped level-one title, a blank line, `Canonical: <absolute-article-url>`, and an
+optional subtitle, followed by the converted body. Public context follows in this order,
+when present:
+
+1. **Contributions** from explicit credit sidecars, preserving names, roles, public links,
+   and unauthenticated ORCID labels. Credits do not replace bibliographic references.
+2. **Work details**: resolvable DOI and license links.
+3. **Video details** and **Recipe details**: applicable public facts.
+4. An **Originally published at** provenance link when the native publication has one.
+5. Visible raw-HTML/export notes, capability fallback/review notes, canonical-only
+   interaction explanations, and an applicable discussion link.
+
+Empty sections are omitted; authored bibliography, captions, facts, and ordinary expected
+output stay in the body. Private research/reader notes, credentials, attempts, moderation
+state, and arbitrary front matter do not enter the artifact. Public CLI exports reject
+drafts and future-scheduled posts; authenticated unsaved previews are a separate boundary.
+
+### Loss reporting and destination separation
+
+The Markdown artifact contains reader-facing fallback notes, not a provider payload,
+credential, embedded diagnostics JSON, or a numeric portability score. Machine-readable
+losses accompany it in the version-1 `export --format markdown --json` manifest under
+`diagnostics`, with exact `content`, UTF-8 `bytes`, `sourcePath`, `sourceRevision`,
+`canonicalUrl`, representation, capabilities, and dry-run/write intent. Findings retain
+stable codes, severity, source/capability, affected semantics, repair guidance, and optional
+source ranges as described above.
+
+Safe transformations remain visible warnings; invalid content/URLs and size-bound failures
+are errors, not successful truncated output. Errors identify the source and, where known,
+the capability. Acknowledgements record scoped review and cannot suppress errors or change
+the artifact. Private-data exclusion is protection, not a semantic loss to override.
+
+DEV/Hashnode tag selection, request envelopes, provider byte limits, Ghost Lexical conversion,
+WordPress canonical limitations, and Medium manual-import instructions belong to
+[destination policies](../cross-posting.md#content-subsets-and-media-review), not this
+dialect. Projecting the same post therefore does not change when a target is selected.
+Native rendering and legacy article behavior remain unchanged.
+
+The executable specification fixtures in
+[`portability_contract.rs`](../../crates/openblog-core/tests/portability_contract.rs)
+parse the baseline with extensions **disabled** and verify structure, destinations, literal
+code, deterministic output, privacy, and unchanged native/source content. A separate fixture
+enables exactly the documented extensions, asserts their events, and verifies that their
+substantive facts remain present with a plain CommonMark parser.
+
 ## Browser release gates
 
 After building the CLI, run the isolated browser project from the repository root:
