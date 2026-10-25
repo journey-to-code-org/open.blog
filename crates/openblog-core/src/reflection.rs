@@ -79,6 +79,13 @@ impl ReflectionLayout {
         Self::Roundtable,
     ];
 
+    /// The layouts the Admin can choose and public pages render. The other modes are valid
+    /// structure values but are not presented yet (point and counterpoint and dialogue turns are
+    /// out of scope for #171); choosing one is refused rather than silently shown as sequential.
+    pub fn is_presentable(self) -> bool {
+        matches!(self, Self::Sequential | Self::SideBySide)
+    }
+
     /// A stable key usable as a CSS class suffix.
     pub fn key(self) -> &'static str {
         match self {
@@ -262,7 +269,6 @@ impl ReflectionStructure {
 
     /// The unscoped reading order with every readable word, for the publish gate and assembly
     /// only, like [`DraftSet::latest_view`]: it ignores who may read what, so it is crate-private.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn reading_order<'a>(
         &'a self,
         contract: &'a CollaborationContract,
@@ -410,6 +416,92 @@ impl ReflectionStructure {
             })
             .collect()
     }
+}
+
+/// Join a draft's parts back into one text without its [`PART_MARKER`] lines, for a draft that is
+/// shown whole (no structure). A draft without the marker comes back unchanged. The marker never
+/// reaches rendered output (ADR 0032).
+pub fn strip_part_markers(markdown: &str) -> String {
+    split_parts(markdown).join("\n")
+}
+
+/// One turn handed to [`compose`]. `body` is Markdown when assembling a Post and rendered HTML
+/// when building a preview; either way it is placed unchanged between the turn's own markup.
+pub struct ComposedTurn<'a> {
+    pub round: usize,
+    pub round_prompt: Option<&'a str>,
+    pub display_name: &'a str,
+    pub placement: Placement,
+    pub body: String,
+}
+
+/// The stylesheet for [`compose`] output, identical to the rules in `web/base.css` (a test keeps
+/// them equal). The preview carries it inline because it loads nothing else.
+pub const LAYOUT_CSS: &str = r#"/* Shared reflections: sequential and side-by-side (ADR 0032). The markup is already in reading
+   order; this only places it, and only on wide screens. Below 48em, in print and without CSS it
+   reads top to bottom in that same order. */
+.ob-reflection .ob-round { margin: 1.5rem 0; }
+.ob-reflection .ob-round-prompt { font-weight: 600; }
+.ob-reflection .ob-turn { min-width: 0; overflow-wrap: anywhere; }
+.ob-reflection .ob-turn-author { font-size: 1.1rem; margin: 0 0 .5rem; }
+.ob-reflection .ob-turn pre, .ob-reflection .ob-turn table { max-width: 100%; overflow-x: auto; }
+.ob-reflection .ob-turn img { max-width: 100%; height: auto; }
+@media screen and (min-width: 48em) {
+  .ob-reflection-side-by-side.ob-lanes-2 .ob-round,
+  .ob-reflection-side-by-side.ob-lanes-3 .ob-round { display: grid; gap: 1rem 2rem; align-items: start; grid-auto-flow: row; }
+  .ob-reflection-side-by-side.ob-lanes-2 .ob-round { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ob-reflection-side-by-side.ob-lanes-3 .ob-round { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ob-reflection-side-by-side .ob-round-prompt { grid-column: 1 / -1; margin: 0; }
+  .ob-reflection-side-by-side .ob-lane-0 { grid-column: 1; }
+  .ob-reflection-side-by-side .ob-lane-1 { grid-column: 2; }
+  .ob-reflection-side-by-side .ob-lane-2 { grid-column: 3; }
+}
+"#;
+
+/// The widest side-by-side the styles lay out. More lanes read sequentially at every width.
+pub const MAX_LAID_OUT_LANES: usize = 3;
+
+/// The arranged markup shared by the published Post and the preview (ADR 0032). The DOM order is
+/// exactly the order of `turns`, which is the reading order: a layout only adds classes, and
+/// the stylesheet places them, so a reader without CSS, a screen reader and the narrow-width
+/// layout all read the same sequence. Every turn has its own heading with the participant's name,
+/// so attribution never depends on position. Names and round prompts are untrusted text and are
+/// escaped here; `body` is the caller's already-safe content.
+pub fn compose(layout: ReflectionLayout, turns: &[ComposedTurn<'_>]) -> String {
+    let lanes = turns.iter().map(|t| t.placement.lanes).max().unwrap_or(1);
+    let mut out = format!(
+        "<div class=\"ob-reflection ob-reflection-{} ob-lanes-{}\">\n\n",
+        layout.key(),
+        lanes.min(MAX_LAID_OUT_LANES + 1)
+    );
+    let mut open_round: Option<usize> = None;
+    for turn in turns {
+        if open_round != Some(turn.round) {
+            if open_round.is_some() {
+                out.push_str("</div>\n\n");
+            }
+            out.push_str("<div class=\"ob-round\">\n");
+            if let Some(prompt) = turn.round_prompt {
+                out.push_str(&format!(
+                    "<p class=\"ob-round-prompt\">{}</p>\n",
+                    crate::escape::text(prompt)
+                ));
+            }
+            out.push('\n');
+            open_round = Some(turn.round);
+        }
+        out.push_str(&format!(
+            "<section class=\"ob-turn ob-lane-{}\">\n<h2 class=\"ob-turn-author\">{}</h2>\n\n{}\n\n</section>\n\n",
+            turn.placement.lane,
+            crate::escape::text(turn.display_name),
+            turn.body.trim()
+        ));
+    }
+    if open_round.is_some() {
+        out.push_str("</div>\n\n");
+    }
+    out.push_str("</div>\n");
+    out
 }
 
 #[cfg(test)]

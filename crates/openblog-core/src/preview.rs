@@ -19,13 +19,13 @@
 
 use serde::Serialize;
 
-use crate::approval::{
-    public_metadata, ApprovalSet, ApprovalState, ApprovalSubject, Readiness, Section,
-};
+use crate::approval::{ApprovalSet, ApprovalState, ApprovalSubject, Readiness, Section};
+use crate::assembly::subject_metadata;
 use crate::collaboration::SharedPublication;
 use crate::draft::DraftSet;
 use crate::escape;
 use crate::markdown::{self, RenderOptions};
+use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
 use crate::shared_source::SharedAttribution;
 
 /// The policy the preview document carries. Nothing loads, nothing runs.
@@ -92,13 +92,26 @@ fn approval_label(state: ApprovalState) -> &'static str {
     }
 }
 
+/// Build the preview with no stored arrangement; see [`build_for`].
+pub fn build(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    approvals: &ApprovalSet,
+    requester: &str,
+    active: &[&str],
+    options: RenderOptions<'_>,
+) -> Result<CombinedPreview, PreviewError> {
+    build_for(record, None, drafts, approvals, requester, active, options)
+}
+
 /// Build the preview `requester` may see, from the active authors in participant order.
 ///
 /// `active` are the participants who currently hold the draft grant; the requester must be one.
 /// `options` are the site's production Markdown options. Pure: it never writes drafts or
 /// approvals.
-pub fn build(
+pub fn build_for(
     record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
     approvals: &ApprovalSet,
     requester: &str,
@@ -134,7 +147,7 @@ pub fn build(
             })
         })
         .collect();
-    let metadata = public_metadata(record);
+    let metadata = subject_metadata(record, structure);
     let metadata_refs: Vec<&str> = metadata.iter().map(String::as_str).collect();
     let subject = ApprovalSubject {
         authors: &author_ids,
@@ -151,7 +164,7 @@ pub fn build(
         });
         let prose = entitled
             .as_ref()
-            .map(|view| render_section(&view.markdown, options));
+            .map(|view| render_section(&strip_part_markers(&view.markdown), options));
         sections.push(PreviewSection {
             participant_id: author.id.clone(),
             display_name: author.display_name.clone(),
@@ -166,7 +179,13 @@ pub fn build(
 
     // Complete means every section that exists is shown. An author who owns no section adds no
     // content to be missed, so they can still approve the whole piece (ADR 0020).
+    let arranged = structure.map(|structure| {
+        arrange(
+            record, structure, drafts, requester, active, &sections, options,
+        )
+    });
     let complete = !subject_sections.is_empty()
+        && arranged.as_ref().is_none_or(|arranged| arranged.is_ok())
         && sections
             .iter()
             .zip(&stamps)
@@ -177,7 +196,14 @@ pub fn build(
     } else {
         None
     };
-    let document = document(record, &sections, &rendered, complete, ready);
+    let document = document(
+        record,
+        &sections,
+        &rendered,
+        arranged.as_ref(),
+        complete,
+        ready,
+    );
     Ok(CombinedPreview {
         sections,
         complete,
@@ -187,10 +213,68 @@ pub fn build(
     })
 }
 
+/// The arranged markup of a preview: each turn in the structure's reading order, wrapped like the
+/// published Post. A turn of an author whose latest revision the requester may not read is the
+/// one uniform placeholder, so the arrangement never shows more than the sections do. `Err` means
+/// the arrangement cannot be read against the drafts (a turn names a missing part or participant,
+/// or an unsupported layout), so nothing is arranged and the piece is not complete.
+fn arrange(
+    record: &SharedPublication,
+    structure: &ReflectionStructure,
+    drafts: &DraftSet,
+    requester: &str,
+    active: &[&str],
+    sections: &[PreviewSection],
+    options: RenderOptions<'_>,
+) -> Result<String, ()> {
+    if !structure.layout.is_presentable() {
+        return Err(());
+    }
+    let order = structure
+        .reading_order_for(&record.collaboration, drafts, requester, active)
+        .map_err(|_| ())?;
+    let shown = |id: &str| {
+        sections
+            .iter()
+            .find(|s| s.participant_id == id)
+            .map(|s| s.shown)
+    };
+    let order: Vec<_> = order
+        .into_iter()
+        .filter(|entry| match shown(entry.participant_id) {
+            None => false,
+            Some(true) => entry.markdown.is_some(),
+            Some(false) => true,
+        })
+        .collect();
+    let placements = ReflectionStructure::placements(structure.layout, &order);
+    let turns: Vec<ComposedTurn<'_>> = order
+        .iter()
+        .zip(placements)
+        .map(|(entry, placement)| {
+            let body = match (shown(entry.participant_id), entry.markdown.as_deref()) {
+                (Some(true), Some(text)) => render_section(text, options).html,
+                _ => String::from(
+                    "<p class=\"ob-preview-status ob-preview-hidden\">Not shared with you at its current revision.</p>"
+                ),
+            };
+            ComposedTurn {
+                round: entry.round,
+                round_prompt: structure.rounds[entry.round].round_prompt.as_deref(),
+                display_name: entry.display_name,
+                placement,
+                body,
+            }
+        })
+        .collect();
+    Ok(compose(structure.layout, &turns))
+}
+
 fn document(
     record: &SharedPublication,
     sections: &[PreviewSection],
     rendered: &[Option<String>],
+    arranged: Option<&Result<String, ()>>,
     complete: bool,
     ready: bool,
 ) -> String {
@@ -213,6 +297,12 @@ fn document(
         escape::text(title)
     ));
     html.push_str(STYLE);
+    html.push_str(&format!(
+        "<style>
+{}</style>
+",
+        crate::reflection::LAYOUT_CSS
+    ));
     html.push_str("</head>\n<body>\n");
     html.push_str(
         "<p class=\"ob-preview-banner\" role=\"note\"><strong>Preview, not published.</strong> ",
@@ -244,6 +334,13 @@ fn document(
         ));
     }
     html.push_str("</ol>\n");
+    match arranged {
+        Some(Ok(arranged)) => html.push_str(arranged),
+        Some(Err(())) => html.push_str(
+            "<p class=\"ob-preview-status ob-preview-hidden\">The arrangement of this piece does not match the drafts, so it cannot be shown or approved. Ask a coordinator to review the arrangement.</p>
+",
+        ),
+        None => {
     for (section, prose) in sections.iter().zip(rendered) {
         html.push_str("<section class=\"ob-preview-section\">\n");
         match (prose, section.revision) {
@@ -264,6 +361,8 @@ fn document(
             )),
         }
         html.push_str("</section>\n");
+    }
+        }
     }
     html.push_str("</body>\n</html>\n");
     html

@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Shared reflections can now be presented sequentially or side by side. A coordinator chooses the
+  layout and the order of turns in Admin (Shared reflections, "Layout and arrangement"); writers can
+  start a new part of their draft with "Start a new part". The published page keeps one reading
+  order in the page itself, so a screen reader, print and a page without styles read it top to
+  bottom, and side by side becomes one column on narrow screens and at high zoom. Changing the
+  layout or the order makes earlier approvals stale, so every author approves what readers will
+  see. The part marker line is never shown anywhere.
 - Added the layout-independent structure of a shared reflection: rounds, round prompts and turns
   that point at parts of each participant's draft, one deterministic reading order that shows each
   reader only what they may read, and five layout modes over the same contributions without any

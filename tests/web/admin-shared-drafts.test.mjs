@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { ObAdmin, REFLECTION_PROMPTS, draftFailure, draftStateText, insertAtSelection, previewSectionText, previewStateText, promptInsertion, revealSlotText } from "../../web/admin/admin.js";
+import { ARRANGEMENT_LAYOUTS, ObAdmin, REFLECTION_PROMPTS, arrangementDraft, arrangementFailure, arrangementPayload, draftFailure, moveItem, nextRoundId, partBreakInsertion, validateArrangement, draftStateText, insertAtSelection, previewSectionText, previewStateText, promptInsertion, revealSlotText } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");
@@ -206,6 +206,12 @@ function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {})
           return { stamp: stampOf(state.number) };
         case "GET collaboration/reveal":
           return state.reveal;
+        case "GET collaboration/reflection":
+          return { structure: state.structure ?? null, participants: [{ id: "p1", displayName: "Ann" }, { id: "p2", displayName: "Bo" }], layouts: [], canArrange: state.canArrange === true };
+        case "PUT collaboration/reflection":
+          if (options.json.expectedRevision !== (state.structure?.revision ?? 0)) throw new FakeApiError("changed", 409, { error: "The arrangement changed." });
+          state.structure = options.json.structure;
+          return { structure: state.structure };
         case "GET collaboration/preview":
           if (state.previewFails) throw new FakeApiError("not found", 404, null);
           return { preview: state.preview };
@@ -296,7 +302,7 @@ test("the draft panel is for writers and coordinators and loads only when opened
   await panel.dispatch("toggle");
   await settle();
   assert.equal(textarea(panel).value, "mine");
-  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/reveal"]);
+  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/reveal", "GET collaboration/reflection"]);
 }));
 
 test("prompts can be added, edited, deleted, hidden, and are never required to save", withDom(async () => {
@@ -597,6 +603,92 @@ test("a failed preview shows a calm message, keeps nothing stale, and changes no
   assert.equal(panel.querySelector("iframe"), null);
   assert.match(textOf(panel), /could not be loaded.*Nothing was changed/);
   assert.equal(api.state.calls.filter((call) => call.key.startsWith("PUT")).length, 0);
+}));
+
+// ---------------------------------------------------------------- layout and arrangement (ADR 0032)
+
+test("the part break is the marker alone on its own line, and the starting arrangement reads no draft", () => {
+  assert.equal(partBreakInsertion(), "\n<!-- openblog:part -->\n");
+  assert.deepEqual(insertAtSelection("ab", 1, 1, partBreakInsertion()).text, "a\n<!-- openblog:part -->\nb");
+  const people = [{ id: "p1", displayName: "Ann" }, { id: "p2", displayName: "Bo" }];
+  const start = arrangementDraft(null, people);
+  assert.equal(start.revision, 0);
+  assert.equal(start.layout, "sequential");
+  assert.deepEqual(start.rounds[0].turns, [{ draft: "p1", part: 0 }, { draft: "p2", part: 0 }]);
+  const payload = arrangementPayload(start);
+  assert.equal(payload.revision, 1);
+  assert.equal(payload.rounds[0].roundPrompt, undefined, "an empty prompt is omitted");
+  assert.deepEqual(Object.keys(payload).sort(), ["layout", "revision", "rounds", "version"]);
+  assert.deepEqual(Object.keys(payload.rounds[0].turns[0]).sort(), ["draft", "part"], "a turn names a draft and a part, never a side or a person");
+  assert.deepEqual(ARRANGEMENT_LAYOUTS.map((item) => item.value), ["sequential", "sideBySide"]);
+});
+
+test("moving and validating an arrangement never loses or repeats a turn", () => {
+  assert.deepEqual(moveItem([1, 2, 3], 0, 1), [2, 1, 3]);
+  assert.deepEqual(moveItem([1, 2, 3], 0, -1), [1, 2, 3]);
+  assert.deepEqual(moveItem([1, 2, 3], 2, 1), [1, 2, 3]);
+  assert.equal(nextRoundId([{ id: "round-1" }, { id: "round-3" }]), "round-4");
+  const draft = arrangementDraft({ revision: 2, layout: "sideBySide", rounds: [{ id: "round-1", roundPrompt: "Why?", turns: [{ draft: "p1", part: 0 }, { draft: "p2", part: 0 }] }] }, []);
+  assert.equal(validateArrangement(draft), "");
+  assert.equal(arrangementPayload(draft).revision, 3);
+  draft.rounds[0].turns.push({ draft: "p1", part: 0 });
+  assert.match(validateArrangement(draft), /only once/);
+  assert.match(validateArrangement({ rounds: [] }), /at least one round/);
+  assert.match(validateArrangement({ rounds: [{ prompt: "", turns: [] }] }), /no turns/);
+  assert.match(validateArrangement({ rounds: [{ prompt: "a\nb", turns: [{ draft: "p1", part: 0 }] }] }), /one line/);
+  assert.equal(arrangementFailure({ status: 409 }).kind, "conflict");
+  assert.equal(arrangementFailure({ status: 404 }).kind, "denied");
+  assert.equal(arrangementFailure({}).kind, "offline");
+});
+
+test("a coordinator sets the layout and order with labelled, keyboard operable controls", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  api.state.canArrange = true;
+  const { panel } = await openDraft(api, ["coordinator"]);
+  assert.match(textOf(panel), /Layout and arrangement/);
+  const radios = panel.querySelectorAll("input").filter((node) => node.attributes.type === "radio");
+  assert.equal(radios.length, 2);
+  for (const radio of radios) assert.ok(panel.querySelectorAll("label").some((label) => label.attributes.for === radio.attributes.id), "every layout has a label");
+  await radios.find((radio) => radio.value === "sideBySide").dispatch("change");
+  await button(panel, "Move round 1, turn 1 down").click();
+  await button(panel, "Save layout and arrangement").click();
+  await settle();
+  const put = api.state.calls.find((call) => call.key === "PUT collaboration/reflection");
+  assert.equal(put.body.expectedRevision, 0);
+  assert.equal(put.body.structure.revision, 1);
+  assert.equal(put.body.structure.layout, "sideBySide");
+  assert.deepEqual(put.body.structure.rounds[0].turns.map((turn) => turn.draft), ["p2", "p1"]);
+  assert.match(textOf(panel), /Approvals that no longer matched were cleared/);
+}));
+
+test("someone without the grant reads the arrangement and has no way to change it", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { slots: SLOTS.slice(0, 1) } });
+  api.state.canArrange = false;
+  api.state.structure = { version: 1, revision: 1, layout: "sideBySide", rounds: [{ id: "round-1", roundPrompt: "Why?", turns: [{ draft: "p2", part: 0 }, { draft: "p1", part: 1 }] }] };
+  const { panel } = await openDraft(api);
+  assert.match(textOf(panel), /Layout: Side by side. Only a coordinator can change it./);
+  assert.match(textOf(panel), /Round 1: Why\?. Bo, part 1; Ann, part 2\./);
+  assert.equal(button(panel, "Save layout and arrangement"), undefined);
+}));
+
+test("a conflicting save shows the server words and reloads the current arrangement", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  api.state.canArrange = true;
+  const { panel } = await openDraft(api, ["coordinator"]);
+  api.state.structure = { version: 1, revision: 4, layout: "sequential", rounds: [{ id: "round-1", turns: [{ draft: "p1", part: 0 }] }] };
+  await button(panel, "Save layout and arrangement").click();
+  await settle();
+  assert.match(panel.querySelectorAll("p").filter((node) => node.attributes.role === "alert").map((node) => node.textContent).join(" "), /arrangement changed/);
+  assert.equal(api.state.structure.revision, 4, "nothing was overwritten");
+}));
+
+test("a writer can start a new part from the editor and the page documents the layout styles", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "first" });
+  const { panel } = await openDraft(api);
+  await button(panel, "Start a new part").click();
+  assert.match(textarea(panel).value, /<!-- openblog:part -->/);
+  assert.match(textOf(panel), /marker line is never published/);
+  assert.match(styles, /\.oba-arrangement-turn/);
 }));
 
 // ---------------------------------------------------------------- source checks

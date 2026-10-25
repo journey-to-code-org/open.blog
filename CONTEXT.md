@@ -195,6 +195,19 @@ collaboration contract's `layout` field, a reserved list of contribution-to-regi
 reads and the next contract version drops.
 _Avoid_: Role, side, speaker slot, contract layout, region layout
 
+**Arrangement**:
+The stored Reflection structure as a coordinator edits it: the chosen presentable layout (sequential
+or side-by-side), the rounds, round prompts and the order of turns. It is private until published,
+holds no prose, is saved with a revision check, and is part of what every author approves, so
+changing it makes standing approvals stale (ADR 0031, ADR 0032). A reflection with no arrangement
+publishes in participant order.
+_Avoid_: Template, theme, layout setting
+
+**Part break**:
+The line `<!-- openblog:part -->` a writer places in their own draft to start a new part. It is
+never rendered or published: the preview, the Post, feeds and exports all drop it (ADR 0032).
+_Avoid_: Page break, horizontal rule
+
 **Round prompt**:
 The optional public cue or question a round of a reflection structure answers, read once before its
 first answer. It is not an editor prompt (ADR 0019), which is a never-stored hint inside the draft

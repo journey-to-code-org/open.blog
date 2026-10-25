@@ -15,6 +15,7 @@ use crate::approval::{public_metadata, ApprovalSet, ApprovalSubject, Readiness, 
 use crate::collaboration::{valid_admin_username, SharedPublication};
 use crate::draft::DraftSet;
 use crate::frontmatter::{self, Value};
+use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
 use crate::shared_source::{
     SharedAttribution, QUESTION_KEY, SOURCE_KIND_KEY, SOURCE_TITLE_KEY, SOURCE_URL_KEY,
 };
@@ -57,11 +58,40 @@ pub fn post_path(record: &SharedPublication) -> String {
     format!("posts/{}.md", record.publication_id)
 }
 
+/// The metadata the approval subject binds for `record`: the public record fields and, when the
+/// publication has a [`ReflectionStructure`], its prose-free binding frame (ADR 0031), so a
+/// change of layout, turn order or round prompt makes standing approvals stale exactly as a
+/// change of prose does. With no structure nothing is appended and approvals given before one
+/// existed stay valid. Every path that builds an [`ApprovalSubject`] (the gate, the preview and
+/// the Admin routes) goes through here.
+pub fn subject_metadata(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+) -> Vec<String> {
+    let mut metadata = public_metadata(record);
+    if let Some(structure) = structure {
+        metadata.push(format!("reflection-frame:{}", structure.binding_frame()));
+    }
+    metadata
+}
+
+/// Run `ask` against the approval subject for the active authors as the content is now, with no
+/// reflection structure. See [`with_subject_for`].
+pub fn with_subject<R>(
+    record: &SharedPublication,
+    drafts: &DraftSet,
+    active: &[&str],
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> R {
+    with_subject_for(record, None, drafts, active, ask)
+}
+
 /// Run `ask` against the approval subject for the active authors as the content is now. This is
 /// the one place the subject is built from the record and drafts, so the approval binding a
 /// preview hands out and the one the gate checks cannot drift apart.
-pub fn with_subject<R>(
+pub fn with_subject_for<R>(
     record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
     active: &[&str],
     ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
@@ -90,7 +120,7 @@ pub fn with_subject<R>(
             })
         })
         .collect();
-    let metadata = public_metadata(record);
+    let metadata = subject_metadata(record, structure);
     let metadata: Vec<&str> = metadata.iter().map(String::as_str).collect();
     ask(&ApprovalSubject {
         authors: &authors,
@@ -99,7 +129,8 @@ pub fn with_subject<R>(
     })
 }
 
-/// Build the Post for `record` dated `date` (RFC 3339), or say why not. Pure.
+/// Build the Post for `record` dated `date` (RFC 3339), or say why not. Pure. For a publication
+/// with no stored arrangement; see [`assemble_for`].
 pub fn assemble(
     record: &SharedPublication,
     drafts: &DraftSet,
@@ -107,7 +138,23 @@ pub fn assemble(
     active: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
-    match with_subject(record, drafts, active, |subject| {
+    assemble_for(record, None, drafts, approvals, active, date)
+}
+
+/// Build the Post for `record` dated `date` (RFC 3339), or say why not. Pure. With a `structure`
+/// the sections follow its reading order and are wrapped in the arranged markup of
+/// [`compose`] (ADR 0032), and credits are one per participant at their first appearance
+/// (ADR 0031); without one the sections are the participants' drafts in participant order. Part
+/// marker lines never reach the Post either way.
+pub fn assemble_for(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    approvals: &ApprovalSet,
+    active: &[&str],
+    date: &str,
+) -> Result<Assembly, AssemblyError> {
+    match with_subject_for(record, structure, drafts, active, |subject| {
         approvals.evaluate(subject)
     }) {
         Ok(Readiness::Ready) => {}
@@ -135,28 +182,68 @@ pub fn assemble(
         .filter(|title| !title.is_empty())
         .ok_or(AssemblyError::Invalid)?;
 
-    let mut prose = Vec::new();
-    let mut credits = Vec::new();
-    for participant in &record.collaboration.participants {
-        if !active.contains(&participant.id.as_str()) {
-            continue;
-        }
-        // The same latest revision the approval's binding covers, because the gate above just
-        // evaluated it against these drafts.
-        let Some(view) = drafts.latest_view(&participant.id) else {
-            continue;
-        };
+    let credit_for = |participant_id: &str| -> Result<serde_json::Value, AssemblyError> {
         let binding = record
             .authorization
             .bindings
             .iter()
-            .find(|binding| binding.participant_id == participant.id)
+            .find(|binding| binding.participant_id == participant_id)
             .ok_or(AssemblyError::Invalid)?;
-        prose.push(view.markdown.trim().to_string());
-        credits.push(serde_json::json!({
+        Ok(serde_json::json!({
             "contributor": binding.contributor_id,
             "roles": [{ "vocabulary": "crossref", "role": "author" }],
-        }));
+        }))
+    };
+    let mut prose = Vec::new();
+    let mut credits = Vec::new();
+    let mut arranged = None;
+    if let Some(structure) = structure {
+        if !structure.layout.is_presentable() {
+            return Err(AssemblyError::Invalid);
+        }
+        // The same latest revisions the approval's binding covers, in the one reading order.
+        let order = structure
+            .reading_order(&record.collaboration, drafts)
+            .map_err(|_| AssemblyError::Invalid)?;
+        let order: Vec<_> = order
+            .into_iter()
+            .filter(|entry| active.contains(&entry.participant_id) && entry.markdown.is_some())
+            .collect();
+        let placements = ReflectionStructure::placements(structure.layout, &order);
+        let mut turns = Vec::new();
+        let mut credited: Vec<&str> = Vec::new();
+        for (entry, placement) in order.iter().zip(placements) {
+            let text = entry.markdown.as_deref().unwrap_or_default().trim();
+            if text.is_empty() {
+                return Err(AssemblyError::Invalid);
+            }
+            if !credited.contains(&entry.participant_id) {
+                credited.push(entry.participant_id);
+                credits.push(credit_for(entry.participant_id)?);
+            }
+            prose.push(text.to_string());
+            turns.push(ComposedTurn {
+                round: entry.round,
+                round_prompt: structure.rounds[entry.round].round_prompt.as_deref(),
+                display_name: entry.display_name,
+                placement,
+                body: text.to_string(),
+            });
+        }
+        arranged = Some(compose(structure.layout, &turns));
+    } else {
+        for participant in &record.collaboration.participants {
+            if !active.contains(&participant.id.as_str()) {
+                continue;
+            }
+            // The same latest revision the approval's binding covers, because the gate above
+            // just evaluated it against these drafts.
+            let Some(view) = drafts.latest_view(&participant.id) else {
+                continue;
+            };
+            credits.push(credit_for(&participant.id)?);
+            prose.push(strip_part_markers(&view.markdown).trim().to_string());
+        }
     }
     if prose.is_empty() || prose.iter().any(String::is_empty) {
         return Err(AssemblyError::Invalid);
@@ -200,7 +287,10 @@ pub fn assemble(
     .map_err(|_| AssemblyError::Invalid)?;
     Ok(Assembly {
         path,
-        source: frontmatter::compose(&fields, &prose.join(SECTION_BREAK)),
+        source: frontmatter::compose(
+            &fields,
+            &arranged.unwrap_or_else(|| prose.join(SECTION_BREAK)),
+        ),
         credits_path,
         credits: format!("{credits}\n"),
     })
