@@ -24,6 +24,7 @@ use openblog_core::frontmatter::{self, Value};
 use openblog_core::markdown::RenderOptions;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
 use openblog_core::slug::slugify;
+use openblog_core::source_interchange::{self, plan_csl_import};
 use openblog_core::source_library::{SourceDiagnostic, SourceRecord};
 use openblog_core::{
     generate, generate_document, social_metadata, DateTime, LoadOptions, Site, SiteConfig,
@@ -58,6 +59,7 @@ const MAX_SKILL_BYTES: usize = 256 * 1024;
 const MAX_ASSISTANT_CONTEXT_BYTES: usize = 64 * 1024;
 /// Largest accepted source create, update, or archive request.
 const MAX_SOURCE_REQUEST_BYTES: usize = 256 * 1024;
+const MAX_SOURCE_IMPORT_BYTES: usize = 3 * 1024 * 1024;
 const MAX_PORTABILITY_ACKNOWLEDGEMENTS: usize = 500;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -580,6 +582,8 @@ fn authenticated_api(
         ("POST", "sources") => save_source(state, req, true),
         ("PUT", "sources") => save_source(state, req, false),
         ("POST", "sources/archive") => archive_source(state, req),
+        ("POST", "sources/import") => import_sources(state, req),
+        ("GET", "sources/export") => export_sources(state, req),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
@@ -873,6 +877,116 @@ fn archive_source(state: &AppState, req: &Request) -> Response {
         Ok(snapshot) => source_saved(200, &snapshot, id),
         Err(error) => source_store_error(state, error, Some(id)),
     }
+}
+
+/// Preview (`apply: false`) or apply a CSL JSON import. The preview never
+/// writes. An apply is refused whole if any item conflicts, and otherwise
+/// goes through the same revision-checked, atomic store as every other change.
+fn import_sources(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    if req.body.len() > MAX_SOURCE_IMPORT_BYTES {
+        return Response::error(413, "A source import is limited to 3 MiB");
+    }
+    let Ok(body) = serde_json::from_slice::<Json>(&req.body) else {
+        return Response::error(400, "Invalid JSON");
+    };
+    let (Some(revision), Some(content)) = (body["revision"].as_str(), body["content"].as_str())
+    else {
+        return Response::error(400, "Name the library revision and the CSL JSON content");
+    };
+    let apply = body["apply"].as_bool().unwrap_or(false);
+    let contributors = source_contributors(state);
+    let snapshot = match source_store::load(&state.root, &contributors) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return source_store_error(state, error, None),
+    };
+    if snapshot.revision != revision {
+        return source_store_error(state, StoreError::Conflict, None);
+    }
+    let plan = match plan_csl_import(&snapshot.library, content, &contributors) {
+        Ok(plan) => plan,
+        Err(diagnostics) => return source_diagnostics(diagnostics),
+    };
+    if !apply || (!plan.has_changes() && plan.is_applicable()) {
+        return Response::json(
+            200,
+            &json!({
+                "file": source_store::LIBRARY_FILE,
+                "revision": snapshot.revision,
+                "applied": false,
+                "applicable": plan.is_applicable(),
+                "plan": plan,
+            }),
+        );
+    }
+    if !plan.is_applicable() {
+        let blockers = plan.blockers();
+        let error = blockers.first().map_or_else(
+            || "The import has conflicts".to_string(),
+            ToString::to_string,
+        );
+        return Response::json(
+            422,
+            &json!({ "error": error, "file": source_store::LIBRARY_FILE, "diagnostics": blockers, "plan": plan }),
+        );
+    }
+    match source_store::import_csl(&state.root, revision, content, &contributors) {
+        Ok((saved, plan)) => Response::json(
+            200,
+            &json!({
+                "file": source_store::LIBRARY_FILE,
+                "revision": saved.revision,
+                "stored": saved.stored,
+                "applied": true,
+                "applicable": true,
+                "plan": plan,
+                "sources": saved.library.sources,
+            }),
+        ),
+        Err(error) => source_store_error(state, error, None),
+    }
+}
+
+/// Export the whole library, including archived sources, as CSL JSON or
+/// BibTeX. The content is deterministic for a given library revision, and
+/// `losses` names everything the format could not carry.
+fn export_sources(state: &AppState, req: &Request) -> Response {
+    let format = req.query.get("format").map_or("csl-json", String::as_str);
+    if !["csl-json", "bibtex"].contains(&format) {
+        return Response::error(400, "Export format must be csl-json or bibtex");
+    }
+    let snapshot = match source_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return source_store_error(state, error, None),
+    };
+    let (export, filename, media_type) = if format == "bibtex" {
+        (
+            source_interchange::export_bibtex(&snapshot.library),
+            "open-blog-sources.bib",
+            "application/x-bibtex",
+        )
+    } else {
+        (
+            source_interchange::export_csl_json(&snapshot.library),
+            "open-blog-sources.json",
+            "application/vnd.citationstyles.csl+json",
+        )
+    };
+    Response::json(
+        200,
+        &json!({
+            "file": source_store::LIBRARY_FILE,
+            "revision": snapshot.revision,
+            "format": format,
+            "filename": filename,
+            "mediaType": media_type,
+            "count": export.count,
+            "content": export.content,
+            "losses": export.losses,
+        }),
+    )
 }
 
 fn source_saved(status: u16, snapshot: &source_store::Snapshot, id: &str) -> Response {
@@ -6830,6 +6944,168 @@ mod tests {
             fs::read_to_string(&path).unwrap(),
             "{\"version\":1,\"sources\":[{\"id\":\"w\"}]}"
         );
+    }
+
+    #[test]
+    fn source_import_previews_first_applies_atomically_and_exports_deterministically() {
+        let f = fixture("sources-interchange");
+        let upload = |revision: &str, content: &str, apply: bool| json!({ "revision": revision, "content": content, "apply": apply });
+        let mut anonymous = json_req(
+            "POST",
+            "/admin/api/sources/import",
+            upload("x", "[]", false),
+        );
+        anonymous.headers.remove("cookie");
+        assert_eq!(handle(&f.state, &anonymous).status, 401);
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/sources/export")).status,
+            401
+        );
+        let session = login_ok(&f);
+        let without_csrf = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/sources/import",
+                    upload("x", "[]", false),
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without_csrf.status, 403);
+
+        let empty = source_library(&f, &session);
+        let revision = empty["revision"].as_str().unwrap().to_string();
+        let csl = r#"[
+            {"id":"Plato-Republic","type":"book","title":"Πολιτεία","author":[{"literal":"Plato"}],"note":"private"},
+            {"id":"bad","title":"Bad link","URL":"javascript:alert(1)"}
+        ]"#;
+
+        // A preview reports creates, conflicts, and unsupported fields, and writes nothing.
+        let (status, preview) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/sources/import",
+            upload(&revision, csl, false),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(preview["applied"], false);
+        assert_eq!(preview["applicable"], false);
+        assert_eq!(preview["plan"]["counts"]["create"], 1);
+        assert_eq!(preview["plan"]["counts"]["conflict"], 1);
+        assert_eq!(preview["plan"]["entries"][0]["sourceId"], "plato-republic");
+        assert_eq!(
+            preview["plan"]["entries"][0]["unsupported"][0]["field"],
+            "note"
+        );
+        assert_eq!(stored_sources(&f), None);
+
+        // Applying a plan with a conflict is refused, scoped, and writes nothing.
+        let (status, refused) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/sources/import",
+            upload(&revision, csl, true),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(refused["diagnostics"][0]["sourceId"], "bad");
+        assert_eq!(refused["plan"]["counts"]["conflict"], 1);
+        assert_eq!(stored_sources(&f), None);
+
+        // Stale revisions and unreadable files change nothing either.
+        let (status, stale) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/sources/import",
+            upload("stale", "[]", true),
+        );
+        assert_eq!((status, stale["conflict"].clone()), (409, json!(true)));
+        let (status, unreadable) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/sources/import",
+            upload(&revision, "{not json", true),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(unreadable["diagnostics"][0]["code"], "invalid-json");
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/sources/import",
+            json!({ "revision": revision }),
+        );
+        assert_eq!(status, 400);
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/sources/import",
+            upload(&revision, &" ".repeat(MAX_SOURCE_IMPORT_BYTES), true),
+        );
+        assert_eq!(status, 413);
+        assert_eq!(stored_sources(&f), None);
+
+        // A clean import applies; the same import again is a no-op.
+        let clean = r#"[{"id":"Plato-Republic","type":"book","title":"Πολιτεία","author":[{"literal":"Plato"}]}]"#;
+        let (status, applied) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/sources/import",
+            upload(&revision, clean, true),
+        );
+        assert_eq!(status, 200, "{applied}");
+        assert_eq!(applied["applied"], true);
+        assert_eq!(applied["sources"][0]["id"], "plato-republic");
+        let stored = stored_sources(&f).expect("library written");
+        let new_revision = applied["revision"].as_str().unwrap().to_string();
+        let (status, again) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/sources/import",
+            upload(&new_revision, clean, true),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(again["applied"], false);
+        assert_eq!(again["plan"]["counts"]["unchanged"], 1);
+        assert_eq!(stored_sources(&f), Some(stored));
+
+        // Exports are deterministic and name the revision they came from.
+        let export = |format: &str| {
+            let response = handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/sources/export?format={format}")),
+                    &session,
+                    false,
+                ),
+            );
+            (response.status, body_json(&response))
+        };
+        let (status, csl_export) = export("csl-json");
+        assert_eq!(status, 200);
+        assert_eq!(csl_export, export("csl-json").1);
+        assert_eq!(csl_export["revision"], new_revision);
+        assert_eq!(csl_export["filename"], "open-blog-sources.json");
+        assert!(csl_export["content"]
+            .as_str()
+            .unwrap()
+            .contains("\"id\": \"plato-republic\""));
+        let (status, bibtex) = export("bibtex");
+        assert_eq!(status, 200);
+        assert!(bibtex["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("@book{plato-republic,\n"));
+        assert_eq!(export("ris").0, 400);
     }
 
     #[test]

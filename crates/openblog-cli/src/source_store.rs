@@ -15,6 +15,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use openblog_core::contributor::Contributor;
+use openblog_core::source_interchange::{plan_csl_import, ImportPlan};
 use openblog_core::source_library::{
     SourceDiagnostic, SourceDiagnosticCode, SourceLibrary, SourceRecord, MAX_LIBRARY_BYTES,
 };
@@ -76,8 +77,7 @@ pub fn load(
     read(&library_path(root)?, contributors)
 }
 
-// Admin source management (#34) and import (#35) are the first callers of the
-// changes below; until they land only tests use them.
+// Changes below are used by Admin source management (#34) and import (#35).
 
 /// Add a record whose identifier is not yet in the library.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -141,6 +141,22 @@ pub fn set_archived(
         library.upsert(record, contributors)
     })
     .map(|(snapshot, ())| snapshot)
+}
+
+/// Apply a CSL JSON import. The plan is rebuilt from the library as stored
+/// under the lock, so it can never describe a stale library, and any
+/// conflict in it refuses the whole import before anything is written.
+pub fn import_csl(
+    root: &Path,
+    expected_revision: &str,
+    text: &str,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<(Snapshot, ImportPlan), StoreError> {
+    change(root, expected_revision, contributors, |library| {
+        let plan = plan_csl_import(library, text, contributors)?;
+        *library = plan.apply(library, contributors)?;
+        Ok(plan)
+    })
 }
 
 fn unknown_source(id: &str) -> SourceDiagnostic {
