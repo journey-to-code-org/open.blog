@@ -296,7 +296,18 @@ pub fn plan_csl_import(
         };
         let mut record = None;
         if entry.diagnostics.is_empty() {
-            match SourceRecord::from_json(Value::Object(item.object.clone())) {
+            // An item that matches a stored record is validated as that
+            // record with the stated fields applied, not as a standalone one.
+            let mut object = item.object.clone();
+            if let Some(existing) = item.id.as_deref().and_then(|id| library.get(id)) {
+                if !item.provided.contains("kind") {
+                    object.remove("kind");
+                }
+                let mut base = record_map(existing);
+                base.extend(object);
+                object = base;
+            }
+            match SourceRecord::from_json(Value::Object(object)) {
                 Ok(parsed) => record = Some(parsed),
                 Err(diagnostics) => entry.diagnostics = diagnostics,
             }
@@ -339,7 +350,32 @@ pub fn plan_csl_import(
                     } else {
                         ImportAction::Update
                     };
-                    record = Some(merged);
+                    // Identifiers the update adds must not belong to another record.
+                    let mut added = merged.clone();
+                    added.identifiers.retain(|identifier| {
+                        let key = identifier_key(&identifier.scheme, &identifier.value);
+                        !existing
+                            .identifiers
+                            .iter()
+                            .any(|held| identifier_key(&held.scheme, &held.value) == key)
+                    });
+                    if let Some(other) =
+                        duplicate_identifier(library, &added, id, &mut seen_identifiers)
+                    {
+                        entry.diagnostics.push(problem(
+                            SourceDiagnosticCode::DuplicateId,
+                            Some(id),
+                            "identifiers",
+                            format!(
+                                "shares an identifier with `{other}`; import it under the id `{other}` or remove the duplicate"
+                            ),
+                        ));
+                        entry.duplicate_of = Some(other);
+                        entry.changes = Vec::new();
+                        record = None;
+                    } else {
+                        record = Some(merged);
+                    }
                 }
             } else if let Some(other) =
                 duplicate_identifier(library, parsed, id, &mut seen_identifiers)
@@ -663,7 +699,33 @@ fn map_item(raw: Value) -> Mapped {
             for (key, value) in extra {
                 if key == "csl" {
                     match value {
-                        Value::Object(rest) => bag.extend(rest),
+                        Value::Object(rest) => {
+                            for (name, value) in rest {
+                                if NOTE_FIELDS.contains(&name.as_str()) {
+                                    unsupported.push(Loss {
+                                        field: format!("custom.openblog-extra.csl.{name}"),
+                                        reason: "private notes and abstracts are never imported, so they cannot reach a public artifact".into(),
+                                    });
+                                } else if matches!(&value, Value::String(text) if is_plain_text(text))
+                                    || value.is_number()
+                                {
+                                    bag.insert(name, value);
+                                } else if matches!(value, Value::String(_)) {
+                                    problems.push(problem(
+                                        SourceDiagnosticCode::InvalidField,
+                                        Some(id),
+                                        &format!("custom.openblog-extra.csl.{name}"),
+                                        "must be short text without control characters",
+                                    ));
+                                } else {
+                                    unsupported.push(Loss {
+                                        field: format!("custom.openblog-extra.csl.{name}"),
+                                        reason: "only text and numbers are kept for this variable"
+                                            .into(),
+                                    });
+                                }
+                            }
+                        }
                         _ => problems.push(problem(
                             SourceDiagnosticCode::InvalidField,
                             Some(id),
@@ -671,6 +733,11 @@ fn map_item(raw: Value) -> Mapped {
                             "must be an object",
                         )),
                     }
+                } else if NOTE_FIELDS.contains(&key.as_str()) {
+                    unsupported.push(Loss {
+                        field: format!("custom.openblog-extra.{key}"),
+                        reason: "private notes and abstracts are never imported, so they cannot reach a public artifact".into(),
+                    });
                 } else if RECORD_FIELDS.contains(&key.as_str()) || mapped.object.contains_key(&key)
                 {
                     problems.push(problem(
@@ -1363,8 +1430,9 @@ fn bibtex_escape(text: &str) -> String {
     for character in text.chars() {
         match character {
             '\\' => out.push_str("\\textbackslash{}"),
-            '{' => out.push_str("\\{"),
-            '}' => out.push_str("\\}"),
+            // BibTeX counts braces even after a backslash; write them as commands.
+            '{' => out.push_str("\\textbraceleft{}"),
+            '}' => out.push_str("\\textbraceright{}"),
             '%' | '&' | '$' | '#' | '_' => {
                 out.push('\\');
                 out.push(character);

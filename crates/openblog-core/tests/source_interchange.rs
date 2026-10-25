@@ -612,15 +612,105 @@ fn bibtex_special_characters_cannot_break_an_entry() {
     );
     assert!(
         content.contains(
-            "title = {R\\&D 100\\% \\{braced\\} \\textbackslash{} \\$5\\_a \\#1 \\^{} \\~{} line},"
+            "title = {R\\&D 100\\% \\textbraceleft{}braced\\textbraceright{} \\textbackslash{} \\$5\\_a \\#1 \\^{} \\~{} line},"
         ),
         "{content}"
     );
-    assert!(content.contains("booktitle = {Book \\{of\\} Things},"));
+    assert!(content.contains("booktitle = {Book \\textbraceleft{}of\\textbraceright{} Things},"));
     assert!(content.contains("url = {https://example.org/a_b?x=%7By%7D&z=%20},"));
     assert!(content.contains("year = {2020},\n  month = feb,"));
     assert!(export
         .losses
         .iter()
         .any(|l| l.field == "issued" && l.reason.contains("day")));
+}
+
+fn two_sources() -> SourceLibrary {
+    library(
+        r#"{"version": 1, "sources": [
+        {"id": "a", "kind": "work", "title": "A"},
+        {"id": "b", "kind": "work", "title": "B", "identifiers": [{"scheme": "doi", "value": "10.1000/xyz"}]}
+    ]}"#,
+    )
+}
+
+#[test]
+fn an_update_cannot_copy_an_identifier_another_record_holds() {
+    let base = two_sources();
+    let plan = preview(&base, r#"[{"id":"a","title":"A","DOI":"10.1000/xyz"}]"#);
+    assert_eq!(plan.counts.conflict, 1, "{:?}", plan.entries);
+    assert_eq!(plan.entries[0].duplicate_of.as_deref(), Some("b"));
+    assert!(plan.apply(&base, &none()).is_err());
+}
+
+#[test]
+fn an_update_and_a_create_cannot_share_a_new_identifier() {
+    let base = two_sources();
+    let plan = preview(
+        &base,
+        r#"[{"id":"a","title":"A","DOI":"10.2000/new"},{"id":"c","title":"C","DOI":"10.2000/new"}]"#,
+    );
+    assert_eq!(plan.counts.update, 1, "{:?}", plan.entries);
+    assert_eq!(plan.counts.conflict, 1, "{:?}", plan.entries);
+    assert_eq!(plan.entries[1].duplicate_of.as_deref(), Some("a"));
+}
+
+#[test]
+fn a_partial_item_updates_a_stored_record_without_standalone_validation() {
+    let base = two_sources();
+    let plan = preview(&base, r#"[{"id":"a","DOI":"10.2000/new"}]"#);
+    assert_eq!(plan.counts.conflict, 0, "{:?}", plan.entries);
+    assert_eq!(plan.counts.update, 1);
+    let next = applied(&base, &plan);
+    assert_eq!(next.get("a").unwrap().title.as_deref(), Some("A"));
+    assert_eq!(next.get("a").unwrap().identifiers.len(), 1);
+}
+
+#[test]
+fn openblog_extra_cannot_smuggle_private_notes_or_control_text() {
+    let empty = SourceLibrary::default();
+    let hostile = json!([{"id": "d", "title": "D", "custom": {"openblog-extra": {
+        "csl": {"note": "PRIVATE-NOTE", "abstract": "PRIVATE-ABS", "publisher": "x\u{7}y", "volume": "3"},
+        "annote": "PRIVATE2"
+    }}}])
+    .to_string();
+    let plan = preview(&empty, &hostile);
+    assert_eq!(plan.counts.conflict, 1, "{:?}", plan.entries);
+    let clean = hostile.replace("x\\u0007y", "xy");
+    let plan = preview(&empty, &clean);
+    assert_eq!(plan.counts.create, 1, "{:?}", plan.entries);
+    let library = applied(&empty, &plan);
+    for out in [
+        library.to_json(),
+        export_csl_json(&library).content,
+        export_bibtex(&library).content,
+    ] {
+        for private in ["PRIVATE-NOTE", "PRIVATE-ABS", "PRIVATE2"] {
+            assert!(!out.contains(private), "{private}");
+        }
+    }
+    assert_eq!(library.get("d").unwrap().extra["csl"]["volume"], "3");
+}
+
+#[test]
+fn lone_braces_keep_bibtex_fields_balanced() {
+    let empty = SourceLibrary::default();
+    let items = json!([{"id": "t", "type": "chapter", "title": "Open { brace and } close",
+        "container-title": "Lone }{ pair {"}]);
+    let library = applied(&empty, &preview(&empty, &items.to_string()));
+    let content = export_bibtex(&library).content;
+    let (mut depth, mut min) = (0i32, 0i32);
+    for c in content.chars() {
+        match c {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            _ => {}
+        }
+        min = min.min(depth);
+    }
+    assert_eq!((depth, min), (0, 0), "{content}");
+    assert!(
+        content.contains(r"Open \textbraceleft{} brace"),
+        "{content}"
+    );
 }

@@ -12,6 +12,10 @@ All notable changes to open.blog are recorded here. Releases follow
   recorded. Private notes and abstracts are never imported. Export CSL JSON (lossless for
   open.blog) or BibTeX (with a list of what it cannot carry). The Admin API adds
   `POST /admin/api/sources/import` and `GET /admin/api/sources/export`.
+  Re-imported items may state only the fields they change, an import can no longer give two
+  sources the same DOI, ISBN, ISSN, PMID, or PMCID (including through an update), hand-edited
+  files cannot slip private notes through `custom`, and BibTeX export stays valid when a title
+  holds a lone brace.
 - Included the research source library in the durable hosted editorial workspace so source
   changes made in Admin survive a Render restart or redeploy.
 - Defined the versioned research source library contract in core: distinct works, editions,

@@ -65,10 +65,18 @@ translations, witnesses, or locations.
 - **Private notes never cross.** `note`, `abstract`, `annote`, and `keyword` are reported as
   unsupported and never stored, so a private reading note cannot reach an export. Credit
   fields smuggled through `openblog-extra` are refused like in any other record, and an
-  unknown field cannot shadow a defined one.
+  unknown field cannot shadow a defined one. The same rules cover `openblog-extra` and its
+  `csl` bag: note fields are dropped and reported, and every kept value must be plain text or
+  a number.
+- **A matched item is validated as the stored record with its stated fields applied.** An
+  item that names an existing id may state only what it changes; it is not checked as a
+  complete record of the default kind. Identifiers an update adds go through the same
+  shared-identifier check as creates (and are visible to later items in the file), so a
+  library never gains two records for one DOI, ISBN, ISSN, PMID, or PMCID.
 - **Deterministic exports.** Exports list records in library order with sorted keys and a
   trailing newline, so the same revision always exports the same bytes. CSL export loses
-  nothing. BibTeX uses the source id as the cite key, escapes every special character, keeps
+  nothing. BibTeX uses the source id as the cite key, escapes every special character (a brace is
+  written as `	extbraceleft{}` or `	extbraceright{}`, which BibTeX does not count), keeps
   braces balanced, and returns a `losses` list per source for what it omits: kind,
   relationships, locations, the archived flag, annotated or unknown identifier schemes,
   roles BibTeX has no field for, days, and non-year dates. `GET
