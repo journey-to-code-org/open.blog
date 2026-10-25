@@ -582,6 +582,13 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
 
     fsutil::remove_stale(&out_dir, &written);
 
+    let mut warnings = site.warnings.clone();
+    warnings.extend(
+        crate::portable_export::diagnostics(&site)?
+            .into_iter()
+            .map(|warning| format!("portability: {warning}")),
+    );
+
     Ok(BuildReport {
         posts: site.posts.len(),
         series: site.series.len(),
@@ -591,7 +598,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         scheduled: site.scheduled.len(),
         next_due: site.next_scheduled(),
         out_dir,
-        warnings: site.warnings.clone(),
+        warnings,
         accessibility: site.accessibility.clone(),
         evidence: site.evidence.clone(),
     })

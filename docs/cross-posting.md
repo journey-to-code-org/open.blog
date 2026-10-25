@@ -29,6 +29,30 @@ openblog syndicate your-post-slug
 openblog syndicate your-post-slug --target dev,medium
 ```
 
+The plan identifies the portable Markdown or HTML projection used by each destination and
+calls out interactions that remain on the canonical article.
+
+For automation or a complete before/after review, request the deterministic JSON dry-run plan:
+
+```sh
+openblog syndicate your-post-slug --json
+```
+
+The plan includes authored Markdown, the exact provider artifact, destination policy, intended
+draft/publication action, and source-scoped diagnostics. `--json` cannot be combined with
+`--write`.
+
+For a local Markdown artifact, preview it before writing:
+
+```sh
+openblog export your-post-slug --format markdown
+openblog export your-post-slug --format markdown --out exports/your-post.md --write
+```
+
+The export does not replace or modify the canonical post, and it refuses to overwrite an
+existing destination file. Full-content RSS and JSON Feed likewise use portable HTML rather
+than native open.blog component markup; JSON Feed includes a plain-text companion.
+
 After the open.blog URL is deployed and reachable, create or update remote drafts:
 
 ```sh
