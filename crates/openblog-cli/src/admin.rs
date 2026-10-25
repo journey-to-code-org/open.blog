@@ -1103,7 +1103,10 @@ fn validate_portability_acknowledgement(
 
 fn acknowledgement_scope_supported(destination: &str, representation: &str) -> bool {
     match destination {
-        "portable-export" => matches!(representation, "portable-html" | "portable-markdown"),
+        "portable-export" => matches!(
+            representation,
+            "portable-html" | "portable-markdown" | "portable-text"
+        ),
         "dev" | "hashnode" | "ghost" | "wordpress" | "medium" => {
             let provider = match destination {
                 "dev" => SyndicationProvider::Dev,
@@ -10637,6 +10640,12 @@ mod tests {
 
     #[test]
     fn portability_acknowledgements_are_tracked_scoped_and_stale_on_source_changes() {
+        for representation in ["portable-html", "portable-markdown", "portable-text"] {
+            assert_portability_acknowledgement(representation);
+        }
+    }
+
+    fn assert_portability_acknowledgement(representation: &str) {
         let f = fixture("portability-ack");
         let post_path = "posts/lesson.md";
         let post_body =
@@ -10669,7 +10678,7 @@ mod tests {
                             "path": post_path,
                             "sourceRevision": revision,
                             "capabilityId": "knowledge-check",
-                            "representation": "portable-html",
+                            "representation": representation,
                             "destination": destination,
                             "expectedEtag": etag,
                         }),
@@ -10704,6 +10713,10 @@ mod tests {
         assert_eq!(
             stored["acknowledgements"][0]["destination"],
             "portable-export"
+        );
+        assert_eq!(
+            stored["acknowledgements"][0]["representation"],
+            representation
         );
 
         let preview = handle(

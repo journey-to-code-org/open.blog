@@ -205,8 +205,9 @@ test("portable export actions use exact preview bytes and fail closed for unavai
     markdown: "```html\n<script>\n```",
     text: "Literal <script>",
     destinations: [
-      { provider: "ghost", representation: "portable-html" },
-      { provider: "medium", representation: "manual-markdown" },
+      { version: 1, provider: "ghost", representation: "portable-html" },
+      { version: 1, provider: "medium", representation: "manual-markdown" },
+      { version: 2, provider: "dev", representation: "portable-markdown" },
     ],
   } };
   assert.deepEqual(portablePreviewArtifact(preview, "portable-text"), {
@@ -215,6 +216,7 @@ test("portable export actions use exact preview bytes and fail closed for unavai
   assert.equal(portablePreviewArtifact(preview, "destination:ghost").content, preview.portablePreview.html);
   assert.equal(portablePreviewArtifact(preview, "destination:medium").content, preview.portablePreview.markdown);
   assert.equal(portablePreviewArtifact(preview, "destination:unknown"), null);
+  assert.equal(portablePreviewArtifact(preview, "destination:dev"), null);
   assert.equal(portablePreviewArtifact(preview, "site"), null);
   assert.equal(portablePreviewArtifact(null, "portable-text"), null);
   const editor = {
@@ -280,6 +282,7 @@ test("portable copy and download actions preserve bytes, clean URLs, and announc
 test("destination preview policy discloses canonical behavior and manual workflows", () => {
   const policies = [
     {
+      version: 1,
       provider: "wordpress",
       label: "WordPress",
       representation: "portable-html",
@@ -287,6 +290,7 @@ test("destination preview policy discloses canonical behavior and manual workflo
       workflow: "Remote draft by default.",
     },
     {
+      version: 1,
       provider: "medium",
       label: "Medium",
       representation: "manual-markdown",
@@ -305,6 +309,9 @@ test("destination preview policy discloses canonical behavior and manual workflo
   assert.deepEqual(destinationPolicyForDisplay([], "destination:unknown"), [
     "Destination policy is unavailable; do not publish until the policy can be loaded.",
   ]);
+  const futurePolicy = [{ version: 2, provider: "medium", representation: "manual-markdown" }];
+  assert.match(destinationPolicyForDisplay(futurePolicy, "destination:medium")[0], /unavailable/);
+  assert.equal(portabilityAcknowledgementScope(futurePolicy, "destination:medium"), null);
   assert.deepEqual(portabilityAcknowledgementScope(policies, "destination:medium"), {
     destination: "medium",
     representation: "manual-markdown",
@@ -312,6 +319,10 @@ test("destination preview policy discloses canonical behavior and manual workflo
   assert.deepEqual(portabilityAcknowledgementScope(policies, "portable-html"), {
     destination: "portable-export",
     representation: "portable-html",
+  });
+  assert.deepEqual(portabilityAcknowledgementScope(policies, "portable-text"), {
+    destination: "portable-export",
+    representation: "portable-text",
   });
   assert.equal(portabilityAcknowledgementScope(policies, "site"), null);
 });
