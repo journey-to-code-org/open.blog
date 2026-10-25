@@ -678,15 +678,14 @@ export const QUESTION_STATES = Object.freeze([
   { value: "resolved", label: "Resolved" },
 ]);
 
-/** The query string for a notebook search: only the filters that are set. */
-export function notebookSearchPath(filters) {
-  const params = new URLSearchParams();
+/** The JSON body for a notebook search: only the filters that are set. It travels in a POST body, never the URL, so access logs cannot record research text. */
+export function notebookSearchBody(filters) {
+  const body = {};
   for (const [key, name] of [["query", "q"], ["source", "source"], ["locator", "locator"], ["concept", "concept"], ["state", "state"]]) {
     const value = String(filters?.[key] ?? "").trim();
-    if (value) params.set(name, value);
+    if (value) body[name] = value;
   }
-  const text = params.toString();
-  return text ? `research/search?${text}` : "research/search";
+  return body;
 }
 
 export function searchIsActive(filters) {
@@ -4098,7 +4097,7 @@ export class ObAdmin extends AdminElement {
         return;
       }
       try {
-        const found = await this.api.call("GET", notebookSearchPath(filters));
+        const found = await this.api.call("POST", "research/search", { json: notebookSearchBody(filters) });
         if (sequence !== searchSequence || this.viewVersion !== mountedView) return;
         results = found;
         searchProblem = "";
@@ -4125,7 +4124,7 @@ export class ObAdmin extends AdminElement {
             {},
             h(
               "button",
-              { class: "oba-source-item", type: "button", "data-entry-id": hit.id, "data-entry-type": hit.entry, "data-search-hit": "true", "aria-current": selected?.id === hit.id ? "true" : null, "aria-label": `${hit.entry === "passage" ? "Passage" : hit.kind === "question" ? (hit.state === "resolved" ? "Resolved question" : "Open question") : "Observation"}: ${entryPreview({ text: hit.snippet }, 60)}`, onClick: () => open({ type: hit.entry, id: hit.id }) },
+              { class: "oba-source-item", type: "button", "data-entry-id": hit.id, "data-entry-type": hit.entry, "data-search-hit": "true", "aria-current": selected?.id === hit.id ? "true" : null, onClick: () => open({ type: hit.entry, id: hit.id }) },
               h("strong", {}, hit.snippet),
               h("span", { class: "oba-small" }, hitContext(hit)),
               hit.matched?.length && filters.query.trim() ? h("span", { class: "oba-small" }, `Matched in ${hit.matched.join(", ")}`) : null,
@@ -4228,7 +4227,7 @@ export class ObAdmin extends AdminElement {
       const sections = [];
       for (const [type, id, heading] of asks) {
         try {
-          const found = await this.api.call("GET", `research/backlinks?type=${type}&id=${encodeURIComponent(id)}`);
+          const found = await this.api.call("POST", "research/backlinks", { json: { type, id } });
           if (sequence !== panelSequence || this.viewVersion !== mountedView) return;
           const others = (found.entries || []).filter((item) => item.id !== entry.id);
           const headingId = `oba-research-backlinks-${type}-${sections.length}`;
@@ -4265,8 +4264,23 @@ export class ObAdmin extends AdminElement {
       box.replaceChildren(...sections);
     };
 
-    const open = (target) => {
+    const open = async (target) => {
       if (!confirmDiscard()) return;
+      if (target !== "new" && !entryOf(target)) {
+        // A hit or backlink from the server may be newer than this view: refresh once and retry.
+        try {
+          const latest = await this.api.call("GET", "research/notebook");
+          if (this.viewVersion !== mountedView) return;
+          Object.assign(state, { revision: latest.revision, sources: latest.sources, passages: latest.passages, notes: latest.notes });
+        } catch {
+          if (this.viewVersion !== mountedView) return;
+        }
+        if (!entryOf(target)) {
+          // Leave the list and its focus as they are.
+          say(`That ${target.type} (${target.id}) is no longer in the notebook. The list may be out of date.`, "oba-error");
+          return;
+        }
+      }
       selected = target;
       say("");
       renderLists();

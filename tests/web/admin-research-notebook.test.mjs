@@ -6,7 +6,7 @@ import {
   Editor,
   ObAdmin,
   hitContext,
-  notebookSearchPath,
+  notebookSearchBody,
   searchIsActive,
   captureSources,
   createCaptureForm,
@@ -236,8 +236,8 @@ function notebookApi(handlers) {
   return {
     calls,
     async call(method, path, options = {}) {
-      const handler = handlers[`${method} ${path}`];
-      if (method !== "GET") calls.push({ method, path, body: options.json });
+      const handler = handlers[`${method} ${path}`] || handlers[`${method} ${path} ${JSON.stringify(options.json)}`];
+      if (method !== "GET" && !/^research\/(search|backlinks)$/.test(path)) calls.push({ method, path, body: options.json });
       if (!handler) throw new ApiError(`unexpected ${method} ${path}`, 500, null);
       return handler(options.json);
     },
@@ -487,7 +487,7 @@ function mountResearch(api) {
 test("the notebook lists passages and notes as text, searches them, and opens an entry for editing", withDom(async () => {
   const { app, root } = mountResearch(notebookApi({
     "GET research/notebook": () => notebook(),
-    "GET research/search?q=cave": () => ({ total: 1, truncated: false, broken: [], hits: [{ id: "note-2", entry: "note", kind: "question", state: "open", snippet: "Why a cave?", matched: ["text"], sources: [], passages: [], notes: [] }] }),
+    "POST research/search {\"q\":\"cave\"}": () => ({ total: 1, truncated: false, broken: [], hits: [{ id: "note-2", entry: "note", kind: "question", state: "open", snippet: "Why a cave?", matched: ["text"], sources: [], passages: [], notes: [] }] }),
   }));
   await app.showResearch();
   assert.deepEqual(entryButtons(root).map((item) => item.dataset.entryId), ["passage-1", "note-2"]);
@@ -658,7 +658,10 @@ test("a conflict in the notebook view refreshes the lists and a kept draft saves
   let reads = 0;
   const api = conflictApi({ ...PASSAGE(), extra: 5 });
   const inner = api.call.bind(api);
-  api.call = async (method, path, options) => (method === "GET" ? (reads++ ? latest : notebook()) : inner(method, path, options));
+  api.call = async (method, path, options) => {
+    if (path === "research/backlinks") return { entries: [] };
+    return method === "GET" ? (reads++ ? latest : notebook()) : inner(method, path, options);
+  };
   const { app, root } = mountResearch(api);
   await app.showResearch();
   await entryButton(root, "passage-1").click();
@@ -812,10 +815,10 @@ const change = async (control, value) => {
   await tick();
 };
 
-test("search paths carry only the filters that are set", () => {
-  assert.equal(notebookSearchPath({}), "research/search");
-  assert.equal(notebookSearchPath({ query: " the cave ", source: "slings-2003", locator: "page", concept: "allegory", state: "open" }), "research/search?q=the+cave&source=slings-2003&locator=page&concept=allegory&state=open");
-  assert.equal(notebookSearchPath({ query: "a&b=c#" }), "research/search?q=a%26b%3Dc%23");
+test("search bodies carry only the filters that are set, and never go in a URL", () => {
+  assert.deepEqual(notebookSearchBody({}), {});
+  assert.deepEqual(notebookSearchBody({ query: " the cave ", source: "slings-2003", locator: "page", concept: "allegory", state: "open" }), { q: "the cave", source: "slings-2003", locator: "page", concept: "allegory", state: "open" });
+  assert.deepEqual(notebookSearchBody({ query: "a&b=c#" }), { q: "a&b=c#" });
   assert.equal(searchIsActive({ query: "  " }), false);
   assert.equal(searchIsActive({ state: "resolved" }), true);
   assert.equal(hitContext(HIT()), "Old (archived) · page: 514");
@@ -825,10 +828,10 @@ test("search paths carry only the filters that are set", () => {
 test("filters call the server search, show context as text, and clearing them restores the lists", withDom(async () => {
   const api = notebookApi({
     "GET research/notebook": () => notebook(),
-    "GET research/search?source=old&locator=page&state=open": () => searchResult([HIT()]),
-    "GET research/search?source=old&locator=page&state=resolved": () => searchResult([]),
-    "GET research/search?source=old&locator=page": () => searchResult([HIT()]),
-    "GET research/search?source=old": () => searchResult([HIT()], { broken: [{ from: "note-9", entry: "note", field: "passages[0]", target: "gone" }] }),
+    "POST research/search {\"source\":\"old\",\"locator\":\"page\",\"state\":\"open\"}": () => searchResult([HIT()]),
+    "POST research/search {\"source\":\"old\",\"locator\":\"page\",\"state\":\"resolved\"}": () => searchResult([]),
+    "POST research/search {\"source\":\"old\",\"locator\":\"page\"}": () => searchResult([HIT()]),
+    "POST research/search {\"source\":\"old\"}": () => searchResult([HIT()], { broken: [{ from: "note-9", entry: "note", field: "passages[0]", target: "gone" }] }),
   });
   const { app, root } = mountResearch(api);
   await app.showResearch();
@@ -859,7 +862,7 @@ test("filters call the server search, show context as text, and clearing them re
 test("a refused search says why in the page and changes nothing", withDom(async () => {
   const api = notebookApi({
     "GET research/notebook": () => notebook(),
-    "GET research/search?concept=bad+word": () => {
+    "POST research/search {\"concept\":\"bad word\"}": () => {
       throw new ApiError("bad", 422, { diagnostics: [{ field: "concept", message: "a concept is lowercase words" }] });
     },
   });
@@ -877,9 +880,9 @@ test("a refused search says why in the page and changes nothing", withDom(async 
 test("the panel lists backlinks for a passage, its source and a note's concepts, and opens them", withDom(async () => {
   const api = notebookApi({
     "GET research/notebook": () => notebook(),
-    "GET research/backlinks?type=passage&id=passage-1": () => ({ entries: [{ id: "note-2", entry: "note", kind: "question", state: "open", preview: "Why a cave?", relation: "notes" }] }),
-    "GET research/backlinks?type=source&id=slings-2003": () => ({ entries: [{ id: "passage-1", entry: "passage", preview: "self", relation: "quotes" }, { id: "other", entry: "passage", preview: "another quote", relation: "quotes", through: "slings-2003" }] }),
-    "GET research/backlinks?type=concept&id=allegory": () => ({ entries: [{ id: "note-2", entry: "note", kind: "question", state: "resolved", preview: "me", relation: "notes" }, { id: "note-7", entry: "note", kind: "observation", preview: "Also allegory", relation: "notes" }] }),
+    "POST research/backlinks {\"type\":\"passage\",\"id\":\"passage-1\"}": () => ({ entries: [{ id: "note-2", entry: "note", kind: "question", state: "open", preview: "Why a cave?", relation: "notes" }] }),
+    "POST research/backlinks {\"type\":\"source\",\"id\":\"slings-2003\"}": () => ({ entries: [{ id: "passage-1", entry: "passage", preview: "self", relation: "quotes" }, { id: "other", entry: "passage", preview: "another quote", relation: "quotes", through: "slings-2003" }] }),
+    "POST research/backlinks {\"type\":\"concept\",\"id\":\"allegory\"}": () => ({ entries: [{ id: "note-2", entry: "note", kind: "question", state: "resolved", preview: "me", relation: "notes" }, { id: "note-7", entry: "note", kind: "observation", preview: "Also allegory", relation: "notes" }] }),
   });
   const { app, root } = mountResearch(api);
   await app.showResearch();
@@ -926,4 +929,33 @@ test("the capture form offers the question state only for questions and sends it
   await submit(form.element);
   assert.equal(api.calls[0].body.note.status, "resolved");
   assert.equal(api.calls[0].body.note.kind, "question");
+}));
+
+test("opening a hit the view has not seen refreshes the notebook and retries; if it is still missing the author is told and the list stays", withDom(async () => {
+  let reads = 0;
+  const newer = { id: "note-9", kind: "observation", text: "added elsewhere", visibility: "private" };
+  const api = notebookApi({
+    "GET research/notebook": () => (reads++ ? notebook({ revision: "r2", notes: [NOTE(), newer] }) : notebook()),
+    "POST research/search": () => searchResult([HIT({ id: "note-9", entry: "note", kind: "observation", snippet: "added elsewhere", sources: [] }), HIT({ id: "ghost-1", entry: "note", kind: "observation", snippet: "nowhere", sources: [] })]),
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  await type(byId(root, "oba-research-search"), "else");
+  await settledSearch();
+  await entryButton(root, "note-9").click();
+  await tick();
+  assert.ok(byId(root, "oba-capture-text") || root.textContent.includes("Observation"), "the refreshed entry opened for editing");
+  await entryButton(root, "ghost-1").click();
+  await tick();
+  assert.match(root.textContent, /no longer in the notebook/);
+  assert.ok(entryButton(root, "ghost-1"), "the list is left as it was");
+  assert.equal(api.calls.length, 0);
+}));
+
+test("the capture form can still save a passage when every source is archived", withDom(async () => {
+  const archived = SOURCES().map((source) => ({ ...source, archived: true }));
+  const passage = { ...PASSAGE(), source: archived[0].id };
+  const form = createCaptureForm({ api: notebookApi({}), state: formState({ sources: archived, passages: [passage] }), entry: passage, entryType: "passage" });
+  assert.ok(!form.element.textContent.includes("Add a source to the library first"));
+  assert.ok(!buttonLabelled(form.element, "Save changes").disabled);
 }));
