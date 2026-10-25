@@ -82,7 +82,10 @@ source link on request. It is read-only: it stores nothing and never changes a r
   `provenance: "provider"`.
 - The form applies a suggestion only to fields that are empty after trimming. Values the author
   typed are never replaced, and the saved record keeps `provenance: "author"` because the author
-  reviewed and kept every value. Embed discovery itself needs no network and works offline.
+  reviewed and kept every value. This is a deliberate deviation from the specification's
+  "provider suggestions need their own provenance": version 1 records have no per-field
+  provenance, so the form labels each provider-filled field "Suggested by ..." until the author
+  edits it, and per-field provenance in the record waits for a record version bump. Embed discovery itself needs no network and works offline.
 
 ## Consequences
 

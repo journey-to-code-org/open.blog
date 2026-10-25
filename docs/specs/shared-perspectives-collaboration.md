@@ -305,8 +305,9 @@ together:
   `source-2`, …). `kind` is `video`, `article`, `podcast`, `book`, or `other`. A title is
   required; `url`, `creator`, `publisher`, `published`, and `isbn` are optional, and `isbn` is
   accepted only for a book. `provenance` is `author` in version 1: every value was typed by a
-  person. Provider suggestions (ADR 0007, "Optional source metadata") are shown to the author,
-  labelled `provider`, and become part of the record only as text the author keeps and saves.
+  person, and later provider suggestions need their own provenance. Version 1 deliberately
+  deviates for lookups: values filled from a provider suggestion are saved as `author` (ADR 0007,
+  "Optional source metadata").
 - A source link is an absolute HTTP or HTTPS URL with no username or password, a valid host and
   port, and no control or bidi characters. Creation trims and normalizes a pasted link, so a
   Unicode host becomes punycode and a Unicode path is percent-encoded; a stored link must already
