@@ -447,6 +447,31 @@ pub fn format_reference(reference: &PublicReference) -> String {
     }
 }
 
+/// A locator in its public form: kind, value and optional end, and nothing
+/// else. A notebook [`Locator`] keeps unknown fields for lossless editing;
+/// this type has no room for them, so they cannot reach a public artifact.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PublicLocator {
+    pub kind: String,
+    pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+}
+
+impl From<&Locator> for PublicLocator {
+    fn from(locator: &Locator) -> Self {
+        Self {
+            kind: locator.kind.as_str().into(),
+            value: locator.value.clone(),
+            to: locator.to.clone(),
+        }
+    }
+}
+
+fn public_locators(locators: &[Locator]) -> Vec<PublicLocator> {
+    locators.iter().map(PublicLocator::from).collect()
+}
+
 /// A citation in its public form.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct PublicCitation {
@@ -454,7 +479,7 @@ pub struct PublicCitation {
     /// One-based number of the reference in order of first citation.
     pub number: usize,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub locators: Vec<Locator>,
+    pub locators: Vec<PublicLocator>,
 }
 
 #[derive(Debug, Default, PartialEq, Serialize)]
@@ -509,7 +534,7 @@ pub fn resolve_citations(
         out.citations.push(PublicCitation {
             key: citation.key.clone(),
             number,
-            locators: citation.locators.clone(),
+            locators: public_locators(&citation.locators),
         });
     }
     out
@@ -595,7 +620,7 @@ pub fn citation_to_csl_item(citation: &Citation) -> (Value, Vec<CitationLoss>) {
         }
         item.insert(
             OPENBLOG_LOCATORS.into(),
-            serde_json::to_value(&citation.locators).unwrap_or_else(|_| json!([])),
+            serde_json::to_value(public_locators(&citation.locators)).unwrap_or_else(|_| json!([])),
         );
     }
     (Value::Object(item), losses)

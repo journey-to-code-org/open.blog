@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 
 use openblog_core::citations::{
     citation_from_csl_item, citation_to_csl_item, csl_field_fate, format_citation,
-    format_reference, parse_citation, resolve_citations, scan_citations, CitationDiagnosticCode,
-    CslFate, MAX_CITATIONS, MAX_CITATION_LOCATORS,
+    format_reference, parse_citation, resolve_citations, scan_citations, Citation,
+    CitationDiagnosticCode, CitationMention, CslFate, MAX_CITATIONS, MAX_CITATION_LOCATORS,
 };
 use openblog_core::markdown::{render, RenderOptions};
-use openblog_core::research_notes::LocatorKind;
+use openblog_core::research_notes::{LocatorKind, Notebook};
 use openblog_core::source_interchange::{plan_csl_import, MAX_IMPORT_BYTES};
 use openblog_core::source_library::SourceLibrary;
 use serde_json::json;
@@ -321,5 +321,35 @@ fn csl_field_fates_agree_with_the_import_plan() {
             CslFate::PrivateDropped | CslFate::Unsupported
         );
         assert_eq!(unsupported.contains(&field), expected_lost, "{field}");
+    }
+}
+
+#[test]
+fn notebook_locator_extra_fields_never_reach_public_output_or_csl() {
+    let notebook = json!({"version": 1,
+        "passages": [{"id": "p-1", "source": "republic-slings-2003", "visibility": "private",
+            "excerpt": {"text": "quoted"},
+            "locators": [{"kind": "page", "value": "514", "to": "520",
+                "privateNote": "do not publish"}]}],
+        "notes": []});
+    let notebook = Notebook::parse(&notebook.to_string(), &library()).expect("notebook");
+    let locators = notebook.passages[0].locators.clone();
+    assert!(locators[0].extra.contains_key("privateNote"));
+    let citation = Citation {
+        key: "republic-slings-2003".into(),
+        locators,
+    };
+    let mention = CitationMention {
+        citation: citation.clone(),
+        span: 0..1,
+        line: 1,
+    };
+    let resolved = resolve_citations(&[mention], &library());
+    let public = serde_json::to_string(&resolved).unwrap();
+    let (item, _) = citation_to_csl_item(&citation);
+    for text in [public, item.to_string()] {
+        assert!(!text.contains("privateNote"), "{text}");
+        assert!(!text.contains("do not publish"), "{text}");
+        assert!(text.contains("\"to\":\"520\""), "{text}");
     }
 }
