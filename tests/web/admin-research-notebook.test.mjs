@@ -1,0 +1,582 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+import {
+  ObAdmin,
+  captureSources,
+  createCaptureForm,
+  entryPreview,
+  formatLocatorLines,
+  noteDraft,
+  noteDraftPayload,
+  normalizeAdminPreferences,
+  notebookDiagnosticControl,
+  notebookErrorMessage,
+  parseConceptList,
+  parseLocatorLines,
+  passageDraft,
+  passageDraftPayload,
+  suggestEntryId,
+  validateNoteDraft,
+  validatePassageDraft,
+} from "../../web/admin/admin.js";
+
+const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");
+
+// ---------------------------------------------------------------- DOM shim
+
+class DomNode {
+  constructor(tag = "", owner = null) {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.parent = null;
+    this.attributes = {};
+    this.listeners = {};
+    this.dataset = {};
+    this.style = {};
+    this.owner = owner;
+    this.hidden = false;
+    this.disabled = false;
+    this.checked = false;
+    this.selected = false;
+    this.open = false;
+    this._text = "";
+    this._value = undefined;
+    this.classList = { contains: (name) => (this.className || "").split(/\s+/).includes(name) };
+  }
+  get value() {
+    if (this.tagName === "SELECT" && this._value === undefined) return this.children.find((child) => child.selected)?.value ?? this.children[0]?.value ?? "";
+    return this._value ?? "";
+  }
+  set value(value) {
+    this._value = String(value);
+  }
+  append(...children) {
+    for (const child of children.flat()) {
+      if (child === null || child === undefined || child === false) continue;
+      const node = child instanceof DomNode ? child : Object.assign(new DomNode("#text"), { textContent: String(child) });
+      node.parent?.children.splice(node.parent.children.indexOf(node), 1);
+      node.parent = this;
+      this.children.push(node);
+    }
+  }
+  replaceChildren(...children) {
+    for (const child of this.children) child.parent = null;
+    this.children = [];
+    this.append(...children);
+  }
+  remove() {
+    if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1);
+    this.parent = null;
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+    if (name === "id") this.id = String(value);
+    if (name === "hidden") this.hidden = true;
+    if (name.startsWith("data-")) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = String(value);
+  }
+  contains(node) {
+    for (let current = node; current; current = current.parent) if (current === this) return true;
+    return false;
+  }
+  getAttribute(name) {
+    return this.attributes[name] ?? null;
+  }
+  addEventListener(name, listener, options = {}) {
+    (this.listeners[name] ||= []).push({ listener, once: Boolean(options.once) });
+  }
+  dispatch(name, event = {}) {
+    const listeners = this.listeners[name] || [];
+    this.listeners[name] = listeners.filter((entry) => !entry.once);
+    const payload = { type: name, target: this, currentTarget: this, preventDefault() {}, ...event };
+    return Promise.all(listeners.map((entry) => entry.listener(payload)));
+  }
+  click() {
+    if (this.disabled) return Promise.resolve();
+    return this.dispatch("click");
+  }
+  focus() {
+    this.owner.activeElement = this;
+  }
+  showModal() {
+    this.open = true;
+  }
+  close() {
+    if (!this.open) return;
+    this.open = false;
+    // Browsers queue the close event as a task, after the code that closed the dialog.
+    setTimeout(() => this.dispatch("close"), 0);
+  }
+  set textContent(value) {
+    this.children = [];
+    this._text = String(value);
+  }
+  get textContent() {
+    return this._text + this.children.map((child) => child.textContent).join("");
+  }
+  matches(selector) {
+    if (selector.startsWith("#")) return this.id === selector.slice(1);
+    if (selector.startsWith(".")) return this.classList.contains(selector.slice(1));
+    const attribute = selector.match(/^([a-z]*)\[([a-z-]+)\]$/);
+    if (attribute) {
+      const [, tag, name] = attribute;
+      if (tag && this.tagName !== tag.toUpperCase()) return false;
+      if (name === "open") return this.open;
+      if (name.startsWith("data-")) return name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()) in this.dataset;
+      return name in this.attributes;
+    }
+    return this.tagName === selector.toUpperCase();
+  }
+  querySelectorAll(selector) {
+    const found = [];
+    const visit = (node) => {
+      for (const child of node.children) {
+        if (child.matches(selector)) found.push(child);
+        visit(child);
+      }
+    };
+    visit(this);
+    return found;
+  }
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+}
+
+function installDom() {
+  const previous = { Node: globalThis.Node, document: globalThis.document, location: globalThis.location, open: globalThis.open, localStorage: globalThis.localStorage };
+  const documentShim = {
+    activeElement: null,
+    documentElement: { dataset: {} },
+    title: "",
+    createElement: (tag) => new DomNode(tag, documentShim),
+    createTextNode: (text) => Object.assign(new DomNode("#text", documentShim), { textContent: String(text) }),
+    querySelector: (selector) => documentShim.body.querySelector(selector),
+  };
+  documentShim.body = new DomNode("body", documentShim);
+  globalThis.Node = DomNode;
+  globalThis.document = documentShim;
+  globalThis.location = { hash: "#/overview" };
+  return {
+    document: documentShim,
+    restore() {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete globalThis[name];
+        else globalThis[name] = value;
+      }
+    },
+  };
+}
+
+const withDom = (run) => async () => {
+  const dom = installDom();
+  try {
+    await run(dom);
+  } finally {
+    dom.restore();
+  }
+};
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const memoryStorage = (values = {}) => ({
+  values,
+  getItem: (key) => values[key] ?? null,
+  setItem: (key, value) => {
+    values[key] = String(value);
+  },
+  removeItem: (key) => {
+    delete values[key];
+  },
+});
+const findByText = (root, tag, text) => root.querySelectorAll(tag).find((node) => node.textContent.includes(text));
+
+// ---------------------------------------------------------------- fixtures
+
+class ApiError extends Error {
+  constructor(message, status, data) {
+    super(message);
+    this.status = status;
+    this.data = data;
+  }
+}
+
+const HOSTILE = '<img src=x onerror="alert(1)"> ὁ δὲ Σωκράτης 🙂 <script>alert(2)</script>';
+const SOURCES = () => [
+  { id: "plato-republic", kind: "work", title: "Πολιτεία" },
+  { id: "slings-2003", kind: "edition", of: "plato-republic", title: "Platonis Rempublicam" },
+  { id: "old", kind: "edition", of: "plato-republic", title: "Old", archived: true },
+];
+const PASSAGE = () => ({
+  id: "passage-1",
+  source: "slings-2003",
+  excerpt: { text: HOSTILE, language: "grc", scan: "p1.png" },
+  locators: [{ kind: "page", value: "514", hint: true }, { kind: "canonical", value: "514a", to: "520a" }],
+  visibility: "private",
+  extra: 1,
+});
+const NOTE = () => ({ id: "note-2", kind: "question", text: "Why a cave?", passages: ["passage-1"], sources: ["plato-republic"], concepts: ["allegory"], visibility: "private" });
+const notebook = (over = {}) => ({ file: ".openblog/private/research/notebook.json", revision: "r1", stored: true, sources: SOURCES(), passages: [PASSAGE()], notes: [NOTE()], ...over });
+
+function notebookApi(handlers) {
+  const calls = [];
+  return {
+    calls,
+    async call(method, path, options = {}) {
+      const handler = handlers[`${method} ${path}`];
+      if (method !== "GET") calls.push({ method, path, body: options.json });
+      if (!handler) throw new ApiError(`unexpected ${method} ${path}`, 500, null);
+      return handler(options.json);
+    },
+  };
+}
+
+const byId = (root, id) => root.querySelector(`#${id}`);
+const type = async (control, value, event = "input") => {
+  control.value = value;
+  await control.dispatch(event, { target: control });
+};
+const submit = (node) => (node.tagName === "FORM" ? node : node.querySelector("form")).dispatch("submit");
+const buttonLabelled = (root, text) => root.querySelectorAll("button").find((button) => button.textContent === text);
+const entryButtons = (root) => root.querySelectorAll("button").filter((button) => button.dataset.entryId);
+const entryButton = (root, id) => entryButtons(root).find((button) => button.dataset.entryId === id);
+const removeButton = (root) => root.querySelectorAll("button").find((button) => button.dataset.entryRemove);
+
+function formState(over = {}) {
+  return { revision: "r1", sources: SOURCES(), passages: [], notes: [], ...over };
+}
+
+// ---------------------------------------------------------------- pure helpers
+
+test("locators parse one per line, keep ranges, and format back losslessly", () => {
+  const lines = "page: 514\nfolio: 12r\ncanonical: 514a to 520a\nx-stephanus: 514a\n\nloose";
+  assert.deepEqual(parseLocatorLines(lines), [
+    { kind: "page", value: "514" },
+    { kind: "folio", value: "12r" },
+    { kind: "canonical", value: "514a", to: "520a" },
+    { kind: "x-stephanus", value: "514a" },
+    { kind: "", value: "loose" },
+  ]);
+  const stored = PASSAGE().locators;
+  assert.deepEqual(parseLocatorLines(formatLocatorLines(stored)), [{ kind: "page", value: "514" }, stored[1]]);
+  assert.deepEqual(parseConceptList("Allegory, the-good  allegory\n"), ["allegory", "the-good"]);
+});
+
+test("a passage payload sends the quoted text exactly and carries every unknown field", () => {
+  const stored = PASSAGE();
+  assert.deepEqual(passageDraftPayload(passageDraft(stored)), stored, "an untouched draft is the stored passage");
+  const draft = passageDraft(stored);
+  draft.excerpt = `  ${HOSTILE}\n\n  second paragraph  `;
+  draft.language = "";
+  draft.locators = "page: 515";
+  const payload = passageDraftPayload(draft);
+  assert.equal(payload.excerpt.text, `  ${HOSTILE}\n\n  second paragraph  `, "quoted text is neither trimmed nor interpreted");
+  assert.equal(payload.excerpt.scan, "p1.png");
+  assert.equal("language" in payload.excerpt, false);
+  assert.deepEqual(payload.locators, [{ kind: "page", value: "515" }]);
+  assert.equal(payload.extra, 1);
+  const fresh = Object.assign(passageDraft(null, "slings-2003"), { id: "passage-9", excerpt: "x" });
+  assert.deepEqual(passageDraftPayload(fresh), { id: "passage-9", source: "slings-2003", excerpt: { text: "x" } });
+});
+
+test("a note payload keeps unknown fields and drops emptied links", () => {
+  const stored = NOTE();
+  assert.deepEqual(noteDraftPayload(noteDraft(stored)), stored);
+  const draft = noteDraft({ ...stored, mood: "curious" });
+  draft.passages = [];
+  draft.concepts = "";
+  const payload = noteDraftPayload(draft);
+  assert.equal(payload.mood, "curious");
+  assert.equal("passages" in payload, false);
+  assert.equal("concepts" in payload, false);
+});
+
+test("the advisory checks name the first problem and the control that fixes it", () => {
+  const sources = SOURCES();
+  const check = (changes) => validatePassageDraft(Object.assign(passageDraft(null), changes), sources);
+  assert.equal(check({ excerpt: "x" }).field, "source");
+  assert.equal(check({ source: "absent", excerpt: "x" }).field, "source");
+  assert.equal(check({ source: "slings-2003", excerpt: "  \n " }).field, "excerpt");
+  assert.equal(check({ source: "slings-2003", excerpt: "ὁ".repeat(20001) }).field, "excerpt");
+  assert.equal(check({ source: "slings-2003", excerpt: "ὁ".repeat(20000) }), null, "long Unicode is counted by character");
+  assert.equal(check({ source: "slings-2003", excerpt: "x", locators: "page" }).field, "locators");
+  assert.equal(check({ source: "slings-2003", excerpt: "x", locators: Array(9).fill("page: 1").join("\n") }).field, "locators");
+  assert.equal(validateNoteDraft(noteDraft()).field, "text");
+  assert.equal(validateNoteDraft({ ...noteDraft(), text: "ok", concepts: "Bad Concept!" }).field, "concepts");
+  assert.equal(validateNoteDraft({ ...noteDraft(), text: "ok", concepts: "fine, ok-too" }), null);
+  assert.equal(notebookDiagnosticControl("excerpt.text"), "excerpt");
+  assert.equal(notebookDiagnosticControl("excerpt.language"), "language");
+  assert.equal(notebookDiagnosticControl("locators[1].value"), "locators");
+  assert.equal(notebookDiagnosticControl("source"), "source");
+  assert.equal(notebookDiagnosticControl("unheard"), "");
+  assert.equal(notebookErrorMessage({ data: { diagnostics: [{ field: "source", message: "unknown" }] } }), "source: unknown");
+});
+
+test("identifiers are fresh, archived sources are not offered, and previews never split a character", () => {
+  assert.equal(suggestEntryId("passage", []), "passage-1");
+  assert.equal(suggestEntryId("note", ["passage-1", "note-2"]), "note-3");
+  assert.equal(suggestEntryId("note", ["note-3", "a", "b"]), "note-4");
+  const offered = captureSources(SOURCES()).map((source) => source.id);
+  assert.equal(offered.length, 2);
+  assert.ok(!offered.includes("old"));
+  assert.equal(entryPreview({ excerpt: { text: "🙂".repeat(200) } }, 10), `${"🙂".repeat(9)}…`);
+  assert.equal(entryPreview({ text: "a\n\n  b" }), "a b");
+});
+
+// ---------------------------------------------------------------- the capture form
+
+test("saving requires a valid source and never calls the API otherwise", withDom(async () => {
+  const api = notebookApi({});
+  const state = formState();
+  const form = createCaptureForm({ api, state });
+  await type(byId(form.element, "oba-capture-excerpt"), "Some quote");
+  await submit(form.element);
+  assert.equal(api.calls.length, 0);
+  const error = byId(form.element, "oba-capture-error");
+  assert.equal(error.hidden, false);
+  assert.match(error.textContent, /Choose the source/);
+  assert.equal(globalThis.document.activeElement, byId(form.element, "oba-capture-source"), "focus moves to the control that needs attention");
+  assert.equal(byId(form.element, "oba-capture-source").getAttribute("aria-invalid"), "true");
+
+  const noSources = createCaptureForm({ api, state: formState({ sources: [{ id: "old", kind: "work", title: "Old", archived: true }] }) });
+  assert.ok(buttonLabelled(noSources.element, "Save to notebook").disabled, "nothing to quote without a source");
+  assert.match(noSources.element.textContent, /Add a source to the library first/);
+}));
+
+test("capturing a passage with a note names the revision, sends the text verbatim, and links the note", withDom(async () => {
+  const state = formState();
+  const api = notebookApi({
+    "POST research/passages": (body) => ({ revision: "r2", sources: SOURCES(), passages: [body.passage], notes: [], passage: body.passage }),
+    "POST research/notes": (body) => ({ revision: "r3", sources: SOURCES(), passages: state.passages, notes: [body.note], note: body.note }),
+  });
+  let saved = null;
+  const form = createCaptureForm({ api, state, prefill: { excerpt: HOSTILE }, onSaved: (result) => { saved = result; } });
+  assert.equal(byId(form.element, "oba-capture-excerpt").value, HOSTILE, "the draft selection is prefilled");
+  await type(byId(form.element, "oba-capture-source"), "slings-2003", "change");
+  await type(byId(form.element, "oba-capture-locators"), "page: 514\ncanonical: 514a to 520a");
+  await type(byId(form.element, "oba-capture-follow-text"), "Why does he go back down?");
+  await type(byId(form.element, "oba-capture-follow-kind"), "question", "change");
+  await submit(form.element);
+  assert.deepEqual(api.calls.map((call) => [call.method, call.path, call.body.revision]), [["POST", "research/passages", "r1"], ["POST", "research/notes", "r2"]]);
+  assert.equal(api.calls[0].body.passage.excerpt.text, HOSTILE);
+  assert.equal(api.calls[0].body.passage.id, "passage-1");
+  assert.deepEqual(api.calls[0].body.passage.locators, [{ kind: "page", value: "514" }, { kind: "canonical", value: "514a", to: "520a" }]);
+  assert.deepEqual(api.calls[1].body.note, { id: "note-2", kind: "question", text: "Why does he go back down?", passages: ["passage-1"] });
+  assert.equal(state.revision, "r3");
+  assert.equal(saved.type, "passage");
+  assert.equal(saved.note.id, "note-2");
+}));
+
+test("a passage saved without its follow-up note carries on as a note about that passage", withDom(async () => {
+  const state = formState();
+  const api = notebookApi({
+    "POST research/passages": (body) => ({ revision: "r2", sources: SOURCES(), passages: [body.passage], notes: [], passage: body.passage }),
+    "POST research/notes": () => {
+      throw new ApiError("bad", 422, { diagnostics: [{ field: "text", message: "is not allowed" }] });
+    },
+  });
+  const events = [];
+  const form = createCaptureForm({ api, state, onSaved: (result) => events.push(result) });
+  await type(byId(form.element, "oba-capture-source"), "slings-2003", "change");
+  await type(byId(form.element, "oba-capture-excerpt"), "quoted");
+  await type(byId(form.element, "oba-capture-follow-text"), "my words");
+  await submit(form.element);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].partial, true);
+  assert.match(byId(form.element, "oba-capture-error").textContent, /The passage was saved, but the note was not/);
+  assert.equal(byId(form.element, "oba-capture-text").value, "my words", "the note draft is kept");
+  assert.equal(globalThis.document.activeElement, byId(form.element, "oba-capture-text"));
+  assert.equal(state.passages.length, 1);
+  assert.equal(api.calls.filter((call) => call.path === "research/passages").length, 1, "retrying the note never quotes the passage twice");
+}));
+
+test("a server rejection is scoped to its field, keeps the draft, and says nothing was stored", withDom(async () => {
+  const api = notebookApi({
+    "POST research/passages": () => {
+      throw new ApiError("bad", 422, { diagnostics: [{ field: "locators[0].kind", message: "pages differ between editions" }] });
+    },
+  });
+  const form = createCaptureForm({ api, state: formState() });
+  await type(byId(form.element, "oba-capture-source"), "plato-republic", "change");
+  await type(byId(form.element, "oba-capture-excerpt"), "keep me");
+  await type(byId(form.element, "oba-capture-locators"), "page: 1");
+  await submit(form.element);
+  assert.match(byId(form.element, "oba-capture-error").textContent, /locators\[0\]\.kind: pages differ/);
+  assert.equal(globalThis.document.activeElement, byId(form.element, "oba-capture-locators"));
+  assert.equal(byId(form.element, "oba-capture-excerpt").value, "keep me");
+  assert.match(form.element.textContent, /The stored notebook is unchanged/);
+  assert.ok(!buttonLabelled(form.element, "Save to notebook").disabled, "the author can fix it and save again");
+}));
+
+test("a stale revision keeps the draft, reloads the notebook, and saves again only on request", withDom(async () => {
+  const state = formState();
+  let attempts = 0;
+  const api = notebookApi({
+    "POST research/notes": (body) => {
+      attempts += 1;
+      if (attempts === 1) throw new ApiError("changed", 409, { conflict: true, revision: "r9" });
+      return { revision: "r10", sources: SOURCES(), passages: [], notes: [body.note], note: body.note };
+    },
+    "GET research/notebook": () => notebook({ revision: "r9", passages: [], notes: [{ id: "note-1", kind: "observation", text: "elsewhere" }] }),
+  });
+  let saved = null;
+  const form = createCaptureForm({ api, state, prefill: { type: "note" }, onSaved: (result) => { saved = result; } });
+  await type(byId(form.element, "oba-capture-text"), "my note");
+  await submit(form.element);
+  assert.equal(saved, null);
+  assert.ok(form.element.querySelector("[data-capture-conflict]"));
+  assert.equal(state.revision, "r9");
+  assert.equal(byId(form.element, "oba-capture-text").value, "my note");
+  assert.equal(globalThis.document.activeElement.dataset.captureSave, "true");
+  assert.equal(api.calls.length, 1, "nothing is resubmitted automatically");
+  await submit(form.element);
+  assert.equal(api.calls[1].body.revision, "r9");
+  assert.equal(api.calls[1].body.note.id, "note-2", "ids are chosen against the latest notebook");
+  assert.equal(saved.note.id, "note-2");
+}));
+
+test("cancelling is a plain button that changes nothing", withDom(async () => {
+  const api = notebookApi({});
+  let cancelled = 0;
+  const form = createCaptureForm({ api, state: formState(), onCancel: () => { cancelled += 1; } });
+  const cancel = buttonLabelled(form.element, "Cancel");
+  assert.equal(cancel.getAttribute("type"), "button");
+  await type(byId(form.element, "oba-capture-excerpt"), "draft");
+  await form.element.dispatch("input"); // the browser bubbles the control's event to the form
+  assert.equal(form.isDirty(), true);
+  await cancel.click();
+  assert.equal(cancelled, 1);
+  assert.equal(api.calls.length, 0);
+}));
+
+test("every control is labelled, grouped, and quoted text only ever reaches the page as text", withDom(async () => {
+  const form = createCaptureForm({ api: notebookApi({}), state: formState({ passages: [PASSAGE()], notes: [NOTE()] }), prefill: { type: "note" } });
+  for (const control of form.element.querySelectorAll("textarea").concat(form.element.querySelectorAll("select"))) {
+    assert.ok(form.element.querySelectorAll("label").some((label) => label.getAttribute("for") === control.id), `${control.id} has a label`);
+  }
+  assert.ok(form.element.querySelectorAll("legend").length >= 3, "radios and checkbox lists are grouped under legends");
+  assert.ok(form.element.textContent.includes("Passages this note is about"));
+  assert.equal(form.element.querySelectorAll("img").length + form.element.querySelectorAll("script").length, 0);
+}));
+
+// ---------------------------------------------------------------- the view
+
+function mountResearch(api) {
+  const app = new ObAdmin();
+  const root = new DomNode("div", globalThis.document);
+  app.api = api;
+  app.meta = { siteTitle: "Blog" };
+  app.preferences = normalizeAdminPreferences({ preset: "advanced" });
+  app.replaceChildren = (...nodes) => root.replaceChildren(...nodes);
+  return { app, root };
+}
+
+test("the notebook lists passages and notes as text, filters them, and opens an entry for editing", withDom(async () => {
+  const { app, root } = mountResearch(notebookApi({ "GET research/notebook": () => notebook() }));
+  await app.showResearch();
+  assert.deepEqual(entryButtons(root).map((item) => item.dataset.entryId), ["passage-1", "note-2"]);
+  assert.equal(root.querySelectorAll("img").length + root.querySelectorAll("script").length, 0, "hostile excerpts render as text");
+  assert.ok(root.textContent.includes("<img src=x"), "the characters are shown, not interpreted");
+  await type(byId(root, "oba-research-search"), "cave");
+  assert.deepEqual(entryButtons(root).map((item) => item.dataset.entryId), ["note-2"]);
+  await type(byId(root, "oba-research-search"), "");
+  await entryButton(root, "passage-1").click();
+  assert.equal(globalThis.document.activeElement.id, "oba-research-heading");
+  assert.equal(byId(root, "oba-research-excerpt").value, HOSTILE);
+  assert.equal(byId(root, "oba-research-source").value, "slings-2003");
+  assert.match(root.textContent, /1 note links to this passage, so it cannot be removed/);
+}));
+
+test("editing a passage sends the full record on the notebook revision and updates the list", withDom(async () => {
+  const api = notebookApi({
+    "GET research/notebook": () => notebook(),
+    "PUT research/passages": (body) => ({ revision: "r2", sources: SOURCES(), passages: [body.passage], notes: [NOTE()], passage: body.passage }),
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  await entryButton(root, "passage-1").click();
+  await type(byId(root, "oba-research-excerpt"), "Edited quote");
+  await submit(root);
+  assert.deepEqual(api.calls.map((call) => [call.method, call.path, call.body.revision]), [["PUT", "research/passages", "r1"]]);
+  assert.equal(api.calls[0].body.passage.extra, 1, "unknown fields survive the edit");
+  assert.equal(api.calls[0].body.passage.excerpt.scan, "p1.png");
+  assert.match(root.textContent, /Saved to the private notebook/);
+  assert.ok(root.textContent.includes("Edited quote"));
+}));
+
+test("removing asks first, names the revision, and a refused removal says why", withDom(async () => {
+  let refuse = true;
+  const api = notebookApi({
+    "GET research/notebook": () => notebook(),
+    "DELETE research/passages": () => {
+      if (refuse) throw new ApiError("linked", 422, { diagnostics: [{ field: "passages", message: "this note still links to the passage" }] });
+      return { revision: "r2", sources: SOURCES(), passages: [], notes: [NOTE()] };
+    },
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  await entryButton(root, "passage-1").click();
+  globalThis.confirm = () => false;
+  await removeButton(root).click();
+  assert.equal(api.calls.length, 0, "declining the confirmation changes nothing");
+  globalThis.confirm = () => true;
+  await removeButton(root).click();
+  assert.deepEqual(api.calls[0], { method: "DELETE", path: "research/passages", body: { revision: "r1", id: "passage-1" } });
+  assert.match(root.textContent, /still links to the passage/);
+  assert.match(root.textContent, /The stored notebook is unchanged/);
+  refuse = false;
+  await removeButton(root).click();
+  assert.equal(entryButton(root, "passage-1"), undefined);
+  delete globalThis.confirm;
+}));
+
+test("a damaged notebook is reported with its path and offers no way to overwrite it", withDom(async () => {
+  const api = notebookApi({
+    "GET research/notebook": () => {
+      throw new ApiError("bad", 422, { error: "invalid JSON", file: ".openblog/private/research/notebook.json", diagnostics: [{ message: "invalid JSON: eof" }] });
+    },
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  assert.match(root.textContent, /The research notebook could not be read/);
+  assert.match(root.textContent, /Repair \.openblog\/private\/research\/notebook\.json by hand/);
+  assert.equal(root.querySelectorAll("form").length, 0);
+}));
+
+// ---------------------------------------------------------------- wiring and accessibility
+
+test("the notebook is reachable from the research tools, the palette, the router, and the editor", () => {
+  assert.match(admin, /href: "#\/research"/);
+  assert.match(admin, /head === "research"\) await this\.showResearch\(\)/);
+  assert.match(admin, /label: "Research notebook", category: "Research"/);
+  assert.match(admin, /"data-research-capture": "true", onClick: \(\) => this\.openResearchCapture\(\)/);
+  assert.match(admin, /\["sources", "research"\]\.includes\(this\.activeRoute\)/);
+});
+
+test("capture code never parses text as markup and the dialog hands focus back to the draft", () => {
+  const start = admin.indexOf("// ---------------------------------------------------------------- research notebook capture");
+  const end = admin.indexOf("export const SHARED_SOURCE_KINDS");
+  const capture = admin.slice(start, end);
+  const view = admin.slice(admin.indexOf("// ---- research notebook"), admin.indexOf("// ---- shared reflections"));
+  const dialog = admin.slice(admin.indexOf("async openResearchCapture()"), admin.indexOf("  openKnowledgeCheck() {"));
+  for (const code of [capture, view, dialog]) assert.doesNotMatch(code, /innerHTML|insertAdjacentHTML|outerHTML|createContextualFragment/);
+  assert.match(dialog, /showModal\(\)/);
+  assert.match(dialog, /addEventListener\("cancel"[\s\S]*returnToDraft\(\)/, "Escape cancels and returns to the draft");
+  assert.match(dialog, /const returnToDraft = \(\) => \{[\s\S]*surface\.focus\(\)[\s\S]*setSelectionRange[\s\S]*restoreVisualSelection/);
+  assert.match(dialog, /onCancel: returnToDraft/);
+  assert.match(dialog, /if \(!result\.partial\) returnToDraft\(\)/);
+  assert.doesNotMatch(dialog, /this\.markDirty|this\.ui\.body\.value =/, "capturing never edits the draft");
+  assert.match(capture, /role: "alert"/);
+  assert.match(capture, /"aria-live": "polite"/);
+  assert.match(capture, /aria-invalid/);
+  assert.match(capture, /h\("legend"/);
+});
+
+test("capture styles keep focus visible, targets large, and add no motion", () => {
+  const css = styles.slice(styles.indexOf("/* Research notebook capture */"), styles.indexOf("/* Anchors styled as buttons"));
+  assert.match(css, /:focus-visible/);
+  assert.match(css, /min-height: 44px/);
+  assert.doesNotMatch(css, /transition|animation/);
+  assert.match(css, /max-width: 100%/);
+});

@@ -9,7 +9,16 @@ All notable changes to open.blog are recorded here. Releases follow
   page, folio, line, canonical and custom locators, tied to a source-library record) and
   observation or question notes that link to passages, sources, and concepts. Every entry is
   always private with no publication path, quoted text stays apart from your own prose, and a
-  failed change leaves the notebook untouched. No screen or storage uses it yet.
+  failed change leaves the notebook untouched.
+- You can now capture passages and notes from Admin. A new Notebook view under Research
+  lists, edits and removes them, and a Capture research button in the post editor opens a
+  dialog prefilled with your selected text where you pick a source, add locators and an
+  optional note, then return to exactly where you were writing. Saving needs a real source and
+  the current notebook revision; a stale save keeps your draft and writes nothing. Quoted text
+  is stored as typed and shown only as text. The notebook lives in
+  `.openblog/private/research/notebook.json`, is kept in the hosted workspace, is checked by
+  `openblog check`, and never reaches the built site, feeds, search or exports. A source that
+  a passage or note still uses can no longer be removed from the library.
 
 ## [0.22.0] - 2026-10-25
 

@@ -72,7 +72,7 @@ openblog init [dir] [--title "..."] [--github-pages]
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
-openblog check                          Validate content, themes, and the private source library, write nothing
+openblog check                          Validate content, themes, and the private source library and notebook, write nothing
 openblog export <slug> [--out path] [--write]
                                         Preview or write portable Markdown
 openblog syndicate <slug> [--target a,b] [--write] [--publish]

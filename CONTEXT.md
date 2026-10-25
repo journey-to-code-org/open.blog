@@ -328,6 +328,16 @@ or an `x-` extension kind, and an optional range end. A passage lists several in
 compound location.
 _Avoid_: Location when the single source-library record location is meant; citation
 
+**Notebook revision**:
+The fingerprint of the notebook as stored, which every capture, edit, and removal must name
+so that a change based on an older read is refused instead of overwriting newer research.
+_Avoid_: Version, which names the file format
+
+**Capture**:
+Saving a passage, and optionally a first note about it, into the notebook from Admin without
+leaving the draft. It never changes the draft and never publishes anything.
+_Avoid_: Clip, import, citation
+
 **Research note**:
 The author's own observation or question, linked to passages, sources, or concepts. Always
 private; never a quotation, claim, or citation.

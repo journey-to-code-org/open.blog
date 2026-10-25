@@ -813,6 +813,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn check_reports_the_private_notebook_only_when_it_is_stored() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-notebook-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let contributors = std::collections::BTreeMap::new();
+        assert_eq!(check_research_notebook(&root, &contributors), Ok(None));
+        assert!(!root.join(".openblog").exists());
+
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#,
+        )
+        .unwrap();
+        let path = root.join(notebook_store::NOTEBOOK_FILE);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"notes":[{"id":"n","kind":"question","text":"Why?","sources":["w"]}]}"#,
+        )
+        .unwrap();
+        let summary = check_research_notebook(&root, &contributors)
+            .unwrap()
+            .unwrap();
+        assert!(summary.contains("0 passage(s) and 1 note(s)"), "{summary}");
+
+        std::fs::write(
+            &path,
+            r#"{"version":1,"notes":[{"id":"n","kind":"question","text":"Why?","sources":["gone"]}]}"#,
+        )
+        .unwrap();
+        let error = check_research_notebook(&root, &contributors).unwrap_err();
+        assert!(
+            error.contains(".openblog/private/research/notebook.json: notes[0] `n`")
+                && error.contains("(unknown-source)"),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn check_reports_the_private_source_library_only_when_it_is_stored() {
         let root = std::env::temp_dir().join(format!(
             "openblog-check-sources-{}-{}",

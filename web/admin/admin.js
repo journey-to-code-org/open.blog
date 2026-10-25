@@ -671,6 +671,367 @@ export function sourceExportLossNotes(losses) {
   return [...bySource].map(([id, fields]) => `${id}: ${[...fields].join(", ")}`);
 }
 
+// ---------------------------------------------------------------- research notebook capture
+
+export const NOTE_KINDS = Object.freeze([
+  { kind: "observation", label: "Observation" },
+  { kind: "question", label: "Question" },
+]);
+const MAX_NOTEBOOK_TEXT_CHARS = 20000;
+const MAX_PASSAGE_LOCATORS = 8;
+const NOTEBOOK_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+const codePoints = (value) => [...String(value ?? "")].length;
+
+/** A fresh, readable identifier that no passage or note uses. Passages and notes share one id space. */
+export function suggestEntryId(prefix, existingIds = []) {
+  const used = new Set(existingIds);
+  let number = used.size + 1;
+  while (used.has(`${prefix}-${number}`)) number += 1;
+  return `${prefix}-${number}`;
+}
+
+/** Sources an author may quote or note: not archived, ordered by label. */
+export function captureSources(sources) {
+  return (Array.isArray(sources) ? sources : [])
+    .filter((source) => !source.archived)
+    .sort((a, b) => sourceLabel(a).localeCompare(sourceLabel(b)));
+}
+
+/** One locator per line as `kind: value`, with a range written `kind: value to value`. */
+export function parseLocatorLines(value) {
+  return textLines(value).map((line) => {
+    const cut = line.indexOf(":");
+    if (cut < 0) return { kind: "", value: line };
+    const kind = line.slice(0, cut).trim().toLowerCase();
+    const rest = line.slice(cut + 1).trim();
+    const range = rest.indexOf(" to ");
+    return range < 0 ? { kind, value: rest } : { kind, value: rest.slice(0, range).trim(), to: rest.slice(range + 4).trim() };
+  });
+}
+
+export function formatLocatorLines(locators) {
+  return (Array.isArray(locators) ? locators : []).map((locator) => `${locator?.kind ?? ""}: ${locator?.value ?? ""}${locator?.to ? ` to ${locator.to}` : ""}`).join("\n");
+}
+
+export function parseConceptList(value) {
+  return [...new Set(String(value || "").split(/[\s,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean))];
+}
+
+export function passageDraft(record = null, source = "") {
+  const passage = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof passage.id === "string" ? passage.id : "",
+    source: typeof passage.source === "string" ? passage.source : source,
+    excerpt: typeof passage.excerpt?.text === "string" ? passage.excerpt.text : "",
+    language: typeof passage.excerpt?.language === "string" ? passage.excerpt.language : "",
+    locators: formatLocatorLines(passage.locators),
+  };
+}
+
+/** The full passage to send. The excerpt text is sent exactly as typed; unknown stored fields are carried over. */
+export function passageDraftPayload(draft) {
+  const original = draft.original || {};
+  const record = { ...original };
+  delete record.locators;
+  record.id = String(draft.id || "").trim();
+  record.source = draft.source;
+  const excerpt = { ...(original.excerpt || {}), text: String(draft.excerpt ?? "") };
+  const language = String(draft.language || "").trim();
+  if (language) excerpt.language = language;
+  else delete excerpt.language;
+  record.excerpt = excerpt;
+  const locators = keepUnchanged(parseLocatorLines(draft.locators), original.locators, (a, b) => a.kind === b.kind && a.value === b.value && (a.to ?? "") === (b.to ?? ""));
+  if (locators.length) record.locators = locators;
+  return record;
+}
+
+/** A quick, advisory check; the server's validation stays authoritative. */
+export function validatePassageDraft(draft, sources = []) {
+  if (!draft.source || !sources.some((source) => source.id === draft.source)) return { field: "source", message: "Choose the source this passage comes from." };
+  if (!String(draft.excerpt ?? "").trim()) return { field: "excerpt", message: "Enter the quoted text." };
+  if (codePoints(draft.excerpt) > MAX_NOTEBOOK_TEXT_CHARS) return { field: "excerpt", message: `A quoted passage is limited to ${MAX_NOTEBOOK_TEXT_CHARS} characters.` };
+  const locators = parseLocatorLines(draft.locators);
+  if (locators.length > MAX_PASSAGE_LOCATORS) return { field: "locators", message: `A passage may have at most ${MAX_PASSAGE_LOCATORS} locators.` };
+  const bad = locators.findIndex((locator) => !locator.kind || !locator.value);
+  if (bad >= 0) return { field: "locators", message: `Locator ${bad + 1} must look like page: 514 or canonical: 514a to 520a.` };
+  return null;
+}
+
+export function noteDraft(record = null) {
+  const note = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof note.id === "string" ? note.id : "",
+    kind: typeof note.kind === "string" ? note.kind : "observation",
+    text: typeof note.text === "string" ? note.text : "",
+    passages: Array.isArray(note.passages) ? [...note.passages] : [],
+    sources: Array.isArray(note.sources) ? [...note.sources] : [],
+    concepts: (Array.isArray(note.concepts) ? note.concepts : []).join(", "),
+  };
+}
+
+export function noteDraftPayload(draft) {
+  const original = draft.original || {};
+  const record = { ...original };
+  for (const field of ["passages", "sources", "concepts"]) delete record[field];
+  record.id = String(draft.id || "").trim();
+  record.kind = draft.kind;
+  record.text = String(draft.text ?? "");
+  if (draft.passages.length) record.passages = [...draft.passages];
+  if (draft.sources.length) record.sources = [...draft.sources];
+  const concepts = parseConceptList(draft.concepts);
+  if (concepts.length) record.concepts = concepts;
+  return record;
+}
+
+export function validateNoteDraft(draft) {
+  if (!String(draft.text ?? "").trim()) return { field: "text", message: "Write the observation or question." };
+  if (codePoints(draft.text) > MAX_NOTEBOOK_TEXT_CHARS) return { field: "text", message: `A note is limited to ${MAX_NOTEBOOK_TEXT_CHARS} characters.` };
+  if (parseConceptList(draft.concepts).some((concept) => !NOTEBOOK_SLUG.test(concept) || concept.length > 64)) {
+    return { field: "concepts", message: "Concepts are lowercase words separated by commas or spaces, such as allegory, the-good." };
+  }
+  return null;
+}
+
+/** Map a server diagnostic's field path to the form control that edits it. */
+export function notebookDiagnosticControl(field) {
+  const name = String(field || "").replace(/\[\d+\].*$/, "").split(".")[0];
+  if (name === "excerpt") return String(field).endsWith("language") ? "language" : "excerpt";
+  return { source: "source", locators: "locators", text: "text", kind: "kind", passages: "passages", sources: "sources", concepts: "concepts" }[name] || "";
+}
+
+export function notebookErrorMessage(error) {
+  const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
+  if (!diagnostics.length) return error?.data?.error || error?.message || "The research entry could not be saved.";
+  return diagnostics.map((item) => `${item.field ? `${item.field}: ` : ""}${item.message}`).join(" ");
+}
+
+/** A short plain-text label for a passage or note in lists; never markup. */
+export function entryPreview(entry, limit = 90) {
+  const text = String(entry?.excerpt?.text ?? entry?.text ?? "").replace(/\s+/g, " ").trim();
+  const points = [...text];
+  return points.length > limit ? `${points.slice(0, limit - 1).join("")}…` : text;
+}
+
+/**
+ * The capture form shared by the research notebook view and the editor's
+ * capture dialog. It edits one passage (optionally with a first note about it)
+ * or one note. `state` is the notebook as last read ({ revision, sources,
+ * passages, notes }) and is updated in place after every save or conflict.
+ * Nothing is saved until the author submits, and every server message reaches
+ * the page as text.
+ */
+export function createCaptureForm({ api, state, entry = null, entryType = "passage", prefill = {}, idPrefix = "oba-capture", onSaved, onCancel }) {
+  let type = entry ? entryType : prefill.type === "note" ? "note" : "passage";
+  const editing = Boolean(entry);
+  let passage = type === "passage" ? passageDraft(editing ? entry : null, prefill.source || "") : passageDraft(null, prefill.source || "");
+  let note = type === "note" ? noteDraft(editing ? entry : null) : noteDraft();
+  if (!editing) passage.excerpt = prefill.excerpt || "";
+  let followUp = { text: "", kind: "observation" };
+  let busy = false;
+  let conflict = false;
+  let touched = false;
+  const root = h("form", { class: "oba-capture-form", novalidate: true });
+  const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+  const control = (name) => root.querySelector(`#${idPrefix}-${name}`);
+
+  const field = (name, labelText, input, hint) => {
+    input.id = `${idPrefix}-${name}`;
+    if (hint) input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+    return h("div", { class: "oba-field", "data-capture-field": name }, h("label", { for: input.id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint) : null);
+  };
+  const fail = (message, name = "") => {
+    errorBox.hidden = false;
+    errorBox.textContent = message;
+    const target = name ? control(name) : null;
+    if (target) {
+      target.setAttribute("aria-invalid", "true");
+      target.setAttribute("aria-describedby", errorBox.id);
+      target.focus();
+    } else errorBox.focus();
+  };
+  const sourceSelect = (current, onPick) =>
+    h(
+      "select",
+      { onChange: (event) => onPick(event.target.value) },
+      h("option", { value: "", selected: !current }, "Choose a source"),
+      captureSources(state.sources).map((source) => h("option", { value: source.id, selected: current === source.id }, `${sourceLabel(source)} (${source.kind})`)),
+    );
+  const checkList = (name, legend, options, chosen, onToggle) =>
+    h(
+      "fieldset",
+      { class: "oba-capture-checks", id: `${idPrefix}-${name}`, tabindex: "-1" },
+      h("legend", {}, legend),
+      options.length
+        ? options.map(([value, label]) => {
+            const id = `${idPrefix}-${name}-${value}`;
+            return h("div", { class: "oba-capture-check" }, h("input", { id, type: "checkbox", value, checked: chosen.includes(value), onChange: (event) => onToggle(value, event.target.checked) }), h("label", { for: id }, label));
+          })
+        : h("p", { class: "oba-small" }, "None yet."),
+    );
+
+  const render = () => {
+    const fields = [];
+    if (!editing) {
+      fields.push(
+        h(
+          "fieldset",
+          { class: "oba-capture-type" },
+          h("legend", {}, "Capture"),
+          [["passage", "A passage from a source"], ["note", "A note"]].map(([value, label]) => {
+            const id = `${idPrefix}-type-${value}`;
+            return h("span", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-type`, value, checked: type === value, onChange: () => { type = value; render(); control(`type-${value}`)?.focus(); } }), h("label", { for: id }, label));
+          }),
+        ),
+      );
+    }
+    if (type === "passage") {
+      fields.push(
+        field("source", "Source", sourceSelect(passage.source, (value) => { passage.source = value; }), editing ? "A passage keeps the source it was quoted from. Record a quotation from another source as a new passage." : "From your private source library."),
+        field("excerpt", "Quoted text", h("textarea", { rows: 5, value: passage.excerpt, spellcheck: "false", onInput: (event) => { passage.excerpt = event.target.value; } }), "Stored exactly as written and shown only as text. It is someone else's words, kept apart from your own."),
+        field("language", "Language (optional)", h("input", { type: "text", value: passage.language, autocomplete: "off", spellcheck: "false", onInput: (event) => { passage.language = event.target.value; } }), "A language tag such as en or grc."),
+        field("locators", "Locators (optional)", h("textarea", { rows: 3, value: passage.locators, spellcheck: "false", onInput: (event) => { passage.locators = event.target.value; } }), "One per line as kind: value, such as page: 514, folio: 12r, or canonical: 514a to 520a."),
+      );
+      if (!editing) {
+        fields.push(
+          h(
+            "fieldset",
+            { class: "oba-capture-follow" },
+            h("legend", {}, "Add a note about this passage (optional)"),
+            field("follow-kind", "Note type", h("select", { onChange: (event) => { followUp.kind = event.target.value; } }, NOTE_KINDS.map((item) => h("option", { value: item.kind, selected: followUp.kind === item.kind }, item.label)))),
+            field("follow-text", "Note", h("textarea", { rows: 3, value: followUp.text, onInput: (event) => { followUp.text = event.target.value; } }), "Your own words. Leave empty to save the passage alone."),
+          ),
+        );
+      }
+    } else {
+      fields.push(
+        field("kind", "Note type", h("select", { onChange: (event) => { note.kind = event.target.value; } }, NOTE_KINDS.map((item) => h("option", { value: item.kind, selected: note.kind === item.kind }, item.label)))),
+        field("text", "Note", h("textarea", { rows: 5, value: note.text, onInput: (event) => { note.text = event.target.value; } }), "Your own observation or question. Quoted text belongs in a passage."),
+        checkList("passages", "Passages this note is about (optional)", state.passages.map((item) => [item.id, `${entryPreview(item, 60)} (${item.id})`]), note.passages, (value, on) => { note.passages = on ? [...note.passages, value] : note.passages.filter((id) => id !== value); }),
+        checkList("sources", "Sources this note is about (optional)", captureSources(state.sources).map((item) => [item.id, `${sourceLabel(item)} (${item.kind})`]), note.sources, (value, on) => { note.sources = on ? [...note.sources, value] : note.sources.filter((id) => id !== value); }),
+        field("concepts", "Concepts (optional)", h("input", { type: "text", value: note.concepts, autocomplete: "off", spellcheck: "false", onInput: (event) => { note.concepts = event.target.value; } }), "Lowercase words separated by commas, such as allegory, the-good."),
+      );
+    }
+    const noSources = type === "passage" && !captureSources(state.sources).length;
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-capture-save": "true", disabled: busy || noSources }, editing ? "Save changes" : "Save to notebook");
+    const cancel = h("button", { class: "oba-btn", type: "button", "data-capture-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
+    root.replaceChildren(
+      ...fields,
+      noSources ? h("p", { class: "oba-notice" }, "Add a source to the library first, then capture passages from it. ", h("a", { href: "#/sources" }, "Open sources")) : null,
+      errorBox,
+      conflict ? h("p", { class: "oba-notice", role: "alert", "data-capture-conflict": "true" }, "The notebook changed after you opened it, so nothing was saved. Your draft is still here; save again to add it to the latest notebook.") : null,
+      h("div", { class: "oba-toolbar" }, save, cancel),
+      status,
+    );
+  };
+
+  const say = (text, kind = "oba-small") => {
+    status.className = kind;
+    status.textContent = text;
+  };
+
+  const refresh = async () => {
+    const latest = await api.call("GET", "research/notebook");
+    Object.assign(state, { revision: latest.revision, sources: latest.sources, passages: latest.passages, notes: latest.notes });
+  };
+
+  const send = async (method, path, key, payload) => {
+    const result = await api.call(method, path, { json: { revision: state.revision, [key]: payload } });
+    Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
+    return result;
+  };
+
+  root.addEventListener("input", () => { touched = true; });
+  root.addEventListener("change", () => { touched = true; });
+  root.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    errorBox.hidden = true;
+    conflict = false;
+    let problem;
+    if (type === "passage") {
+      problem = validatePassageDraft(passage, state.sources);
+      if (!problem && !editing && followUp.text.trim()) problem = validateNoteDraft({ text: followUp.text, concepts: "" });
+      if (problem && !["source", "excerpt", "locators"].includes(problem.field)) problem = { ...problem, field: "follow-text" };
+    } else problem = validateNoteDraft(note);
+    if (problem) return fail(problem.message, problem.field);
+    busy = true;
+    root.querySelector("[data-capture-save]")?.setAttribute("disabled", "");
+    let saved = null;
+    try {
+      if (type === "passage") {
+        if (!editing) passage.id = suggestEntryId("passage", [...state.passages, ...state.notes].map((item) => item.id));
+        say("Saving…");
+        const result = await send(editing ? "PUT" : "POST", "research/passages", "passage", passageDraftPayload(passage));
+        saved = result;
+        let savedNote = null;
+        if (!editing && followUp.text.trim()) {
+          const draft = noteDraft();
+          draft.id = suggestEntryId("note", [...state.passages, ...state.notes].map((item) => item.id));
+          draft.kind = followUp.kind;
+          draft.text = followUp.text;
+          draft.passages = [result.passage.id];
+          draft.sources = [];
+          savedNote = (await send("POST", "research/notes", "note", noteDraftPayload(draft))).note;
+        }
+        busy = false;
+        onSaved?.({ type: "passage", passage: result.passage, note: savedNote });
+      } else {
+        if (!editing) note.id = suggestEntryId("note", [...state.passages, ...state.notes].map((item) => item.id));
+        say("Saving…");
+        const result = await send(editing ? "PUT" : "POST", "research/notes", "note", noteDraftPayload(note));
+        busy = false;
+        onSaved?.({ type: "note", note: result.note });
+      }
+    } catch (error) {
+      busy = false;
+      if (saved) {
+        // The passage is stored and only the follow-up note failed: carry on
+        // as a note about that passage so the author can retry without
+        // quoting the passage twice.
+        type = "note";
+        note = noteDraft();
+        note.kind = followUp.kind;
+        note.text = followUp.text;
+        note.passages = [saved.passage.id];
+        say("");
+        render();
+        fail(`The passage was saved, but the note was not. ${notebookErrorMessage(error)} Fix it and save again, or cancel to keep only the passage.`, notebookDiagnosticControl(error.data?.diagnostics?.[0]?.field));
+        onSaved?.({ type: "passage", passage: saved.passage, note: null, partial: true });
+        return;
+      }
+      if (error.status === 409 && error.data?.conflict) {
+        try {
+          await refresh();
+        } catch {
+          // The next save reports whatever is wrong.
+        }
+        conflict = true;
+        say("Not saved: the notebook changed elsewhere.", "oba-error");
+        render();
+        root.querySelector("[data-capture-save]")?.focus();
+        return;
+      }
+      say("Not saved. The stored notebook is unchanged.", "oba-error");
+      render();
+      const first = error.data?.diagnostics?.[0];
+      fail(notebookErrorMessage(error), first ? notebookDiagnosticControl(first.field) : "");
+    }
+  });
+
+  render();
+  return {
+    element: root,
+    isDirty: () => touched && !busy,
+    focus() {
+      (root.querySelector(type === "passage" && !passage.source ? `#${idPrefix}-source` : `#${idPrefix}-${type === "passage" ? "excerpt" : "text"}`) || root.querySelector("input,select,textarea,button"))?.focus();
+    },
+  };
+}
+
 export const SHARED_SOURCE_KINDS = Object.freeze([
   { value: "video", label: "Video", example: "e.g. How to Listen, a talk on YouTube" },
   { value: "article", label: "Article", example: "e.g. The Slow Read, an essay in a magazine" },
@@ -2190,7 +2551,7 @@ export class ObAdmin extends AdminElement {
   shownShellModules() {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
-    if (this.activeRoute === "sources") visible.add("evidence");
+    if (["sources", "research"].includes(this.activeRoute)) visible.add("evidence");
     return visible;
   }
 
@@ -2332,6 +2693,8 @@ export class ObAdmin extends AdminElement {
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
       : active === "sources"
         ? { title: "Sources", detail: "Keep private research sources, editions, translations, and references in one library." }
+      : active === "research"
+        ? { title: "Research notebook", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "shared"
@@ -2364,7 +2727,7 @@ export class ObAdmin extends AdminElement {
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"))),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
@@ -2546,6 +2909,7 @@ export class ObAdmin extends AdminElement {
       { label: "Series", category: "Content", run: () => go("#/series") },
       { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
       { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go("#/sources") },
+      { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go("#/research") },
       { label: "Contributors", category: "Site", keywords: "authors credits orcid identity", run: () => go("#/contributors") },
       { label: "View site", category: "Site", keywords: "public blog", run: () => open("/", "_blank", "noopener") },
       { label: "Advanced tools", category: "Workspace", keywords: "more optional hidden ai assistant research distribution", run: () => this.openAdvancedTools() },
@@ -2704,6 +3068,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "contributors") await this.showContributors();
       else if (head === "sources") await this.showSources();
+      else if (head === "research") await this.showResearch();
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
       else if (head === "shared") await this.showSharedReflections();
@@ -3561,6 +3926,181 @@ export class ObAdmin extends AdminElement {
         status,
         interchange,
         h("div", { class: "oba-source-layout" }, h("nav", { "aria-label": "Sources" }, list), panel),
+      ),
+    );
+  }
+
+  // ---- research notebook
+
+  async showResearch() {
+    let loaded;
+    try {
+      loaded = await this.api.call("GET", "research/notebook");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      // A damaged notebook (or library) is reported, never replaced: show where to repair it.
+      this.mount(
+        this.shell(
+          "research",
+          h("p", { class: "oba-error", role: "alert" }, `The research notebook could not be read. ${notebookErrorMessage(error)}`),
+          error.data?.file ? h("p", { class: "oba-small" }, `Repair ${error.data.file} by hand, then reload this view. Nothing was changed.`) : null,
+        ),
+      );
+      return;
+    }
+    const state = { revision: loaded.revision, sources: loaded.sources, passages: loaded.passages, notes: loaded.notes };
+    const mountedView = this.viewVersion + 1;
+    let selected = null; // null, "new", or { type, id }
+    let form = null;
+    let busy = false;
+    const filters = { query: "" };
+
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const say = (text, kind = "oba-small") => {
+      status.className = kind;
+      status.textContent = text;
+    };
+    const search = h("input", { id: "oba-research-search", type: "search", autocomplete: "off", "aria-controls": "oba-research-lists", placeholder: "Quoted text, note, source, or ID" });
+    const count = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const passageList = h("ul", { class: "oba-source-list", id: "oba-research-passages" });
+    const noteList = h("ul", { class: "oba-source-list", id: "oba-research-notes" });
+    const panel = h("section", { class: "oba-source-editor", "aria-labelledby": "oba-research-heading" });
+    const newButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => open("new") }, "Capture");
+    const sourceById = (id) => state.sources.find((source) => source.id === id);
+    const sourceName = (id) => (sourceById(id) ? sourceLabel(sourceById(id)) : id);
+
+    const confirmDiscard = () => !form?.isDirty() || globalThis.confirm?.("Discard the unsaved research entry?") !== false;
+    const matches = (entry) => {
+      const terms = filters.query.toLowerCase().split(/\s+/).filter(Boolean);
+      if (!terms.length) return true;
+      const haystack = [entry.id, entry.source, entry.excerpt?.text, entry.text, ...(entry.sources || []), ...(entry.concepts || []), entry.source ? sourceName(entry.source) : ""].filter((part) => typeof part === "string").join("\n").toLowerCase();
+      return terms.every((term) => haystack.includes(term));
+    };
+
+    const renderLists = () => {
+      const passages = state.passages.filter(matches);
+      const notes = state.notes.filter(matches);
+      const row = (type, entry) =>
+        h(
+          "li",
+          {},
+          h(
+            "button",
+            { class: "oba-source-item", type: "button", "data-entry-id": entry.id, "data-entry-type": type, "aria-current": selected?.id === entry.id ? "true" : null, "aria-label": `${type === "passage" ? "Passage" : entry.kind === "question" ? "Question" : "Observation"}: ${entryPreview(entry, 60)}`, onClick: () => open({ type, id: entry.id }) },
+            h("strong", {}, entryPreview(entry)),
+            h("span", { class: "oba-small" }, type === "passage" ? `${sourceName(entry.source)}${entry.locators?.length ? ` · ${formatLocatorLines(entry.locators).split("\n")[0]}` : ""}` : `${entry.kind}${entry.passages?.length ? ` · ${entry.passages.length} passage${entry.passages.length === 1 ? "" : "s"}` : ""}`),
+          ),
+        );
+      passageList.replaceChildren(...passages.map((entry) => row("passage", entry)));
+      noteList.replaceChildren(...notes.map((entry) => row("note", entry)));
+      if (!passages.length) passageList.replaceChildren(h("li", { class: "oba-notice" }, state.passages.length ? "No passages match." : "No passages yet."));
+      if (!notes.length) noteList.replaceChildren(h("li", { class: "oba-notice" }, state.notes.length ? "No notes match." : "No notes yet."));
+      count.textContent = `${state.passages.length} passage${state.passages.length === 1 ? "" : "s"} and ${state.notes.length} note${state.notes.length === 1 ? "" : "s"}.`;
+    };
+
+    const entryOf = (target) => (target.type === "passage" ? state.passages : state.notes).find((entry) => entry.id === target.id) || null;
+
+    const renderPanel = (moveFocus = false) => {
+      form = null;
+      if (!selected) {
+        panel.replaceChildren(
+          h("h2", { id: "oba-research-heading", tabindex: "-1" }, "Capture"),
+          h("p", { class: "oba-notice" }, state.passages.length || state.notes.length ? "Choose a passage or note to edit it, or capture a new one." : "Capture your first passage or note."),
+        );
+        return;
+      }
+      const entry = selected === "new" ? null : entryOf(selected);
+      if (selected !== "new" && !entry) {
+        selected = null;
+        renderPanel();
+        return;
+      }
+      form = createCaptureForm({
+        api: this.api,
+        state,
+        entry,
+        entryType: selected === "new" ? "passage" : selected.type,
+        idPrefix: "oba-research",
+        onSaved: (result) => {
+          if (this.viewVersion !== mountedView) return;
+          const target = result.note && !result.partial && result.type === "note" ? { type: "note", id: result.note.id } : result.passage ? { type: "passage", id: result.passage.id } : selected;
+          if (result.partial) {
+            renderLists();
+            return;
+          }
+          selected = target;
+          renderLists();
+          renderPanel(true);
+          say("Saved to the private notebook.", "oba-ok");
+        },
+        onCancel: () => close(),
+      });
+      const linked = entry && selected.type === "passage" ? state.notes.filter((note) => (note.passages || []).includes(entry.id)) : [];
+      panel.replaceChildren(
+        h("h2", { id: "oba-research-heading", tabindex: "-1" }, entry ? (selected.type === "passage" ? "Passage" : entry.kind === "question" ? "Question" : "Observation") : "Capture"),
+        entry ? h("p", { class: "oba-small" }, `ID ${entry.id}. Private; never published.`) : null,
+        form.element,
+        linked.length ? h("p", { class: "oba-small" }, `${linked.length} note${linked.length === 1 ? "" : "s"} link${linked.length === 1 ? "s" : ""} to this passage, so it cannot be removed until they are.`) : null,
+        entry ? h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-entry-remove": "true", onClick: () => remove() }, selected.type === "passage" ? "Remove passage" : "Remove note")) : null,
+      );
+      if (moveFocus) panel.querySelector("#oba-research-heading")?.focus();
+    };
+
+    const open = (target) => {
+      if (!confirmDiscard()) return;
+      selected = target;
+      say("");
+      renderLists();
+      renderPanel(true);
+    };
+    const close = () => {
+      if (!confirmDiscard()) return;
+      selected = null;
+      renderLists();
+      renderPanel();
+      newButton.focus();
+    };
+
+    const remove = async () => {
+      if (busy || !selected || selected === "new") return;
+      if (globalThis.confirm?.(`Remove this ${selected.type}? It is deleted from the private notebook.`) === false) return;
+      busy = true;
+      try {
+        const result = await this.api.call("DELETE", selected.type === "passage" ? "research/passages" : "research/notes", { json: { revision: state.revision, id: selected.id } });
+        if (this.viewVersion !== mountedView) return;
+        Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
+        selected = null;
+        renderLists();
+        renderPanel();
+        say("Removed from the private notebook.", "oba-ok");
+        newButton.focus();
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(error.status === 409 ? "Not removed: the notebook changed elsewhere. Reload this view and try again." : `${notebookErrorMessage(error)} The stored notebook is unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    search.addEventListener("input", () => {
+      filters.query = search.value;
+      renderLists();
+    });
+    renderLists();
+    renderPanel();
+    this.mount(
+      this.shell(
+        "research",
+        h("section", { class: "oba-contributor-intro" }, h("p", {}, "Keep quoted passages, with where they sit in a source, apart from your own notes about them."), h("p", { class: "oba-small" }, `Private author research stored in ${loaded.file}. It never reaches the public site, and saving here changes only that file.`)),
+        h("div", { class: "oba-toolbar oba-source-filters", role: "search" }, h("div", { class: "oba-field" }, h("label", { for: "oba-research-search" }, "Search the notebook"), search), newButton),
+        count,
+        status,
+        h(
+          "div",
+          { class: "oba-source-layout", id: "oba-research-lists" },
+          h("nav", { "aria-label": "Notebook" }, h("h2", { class: "oba-small-heading" }, "Passages"), passageList, h("h2", { class: "oba-small-heading" }, "Notes"), noteList),
+          panel,
+        ),
       ),
     );
   }
@@ -5254,6 +5794,7 @@ export class Editor {
     ui.live = h("span", { class: "oba-small" });
 
     const imageButton = h("button", { class: "oba-btn", type: "button", onClick: () => ui.imageFile.click() }, "Insert image");
+    const captureButton = kind === "posts" ? h("button", { class: "oba-btn", type: "button", "data-research-capture": "true", onClick: () => this.openResearchCapture() }, "Capture research") : null;
     const quizButton = kind === "posts" ? h("button", { class: "oba-btn oba-btn-feature", type: "button", onClick: () => this.openKnowledgeCheck() }, "✦ Add knowledge check") : null;
     ui.imageFile = h("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp,image/avif", class: "oba-sr", tabindex: "-1", "aria-hidden": "true" });
     ui.imageFile.addEventListener("change", async () => {
@@ -5262,7 +5803,7 @@ export class Editor {
       ui.imageFile.value = "";
     });
     const back = h("a", { class: "oba-btn", href: `#/${kind}` }, "← Back");
-    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, quizButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
+    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, captureButton, quizButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
 
     let savedPreviewWidth = "wide";
     try {
@@ -7700,6 +8241,64 @@ export class Editor {
     document.body.append(dialog);
     dialog.showModal();
     title.focus();
+  }
+
+  /**
+   * Capture a passage or note from the draft without leaving it. The dialog
+   * is modal; Save and Cancel (and Escape) both return focus to the editing
+   * surface with the author's selection restored, and neither changes the draft.
+   */
+  async openResearchCapture() {
+    this.captureVisualSelection();
+    const selectedText = this.knowledgeCheckTarget().selected;
+    const trigger = document.activeElement;
+    const markdownSelection = this.editorMode === "markdown" ? [this.ui.body.selectionStart, this.ui.body.selectionEnd] : null;
+    const dialog = h("dialog", { class: "oba-dialog oba-capture-dialog", "aria-labelledby": "oba-capture-title" });
+    const body = h("div", {}, h("p", { class: "oba-small", role: "status" }, "Loading the research notebook…"));
+    const returnToDraft = () => {
+      dialog.close();
+      dialog.remove();
+      const surface = this.writingSurface();
+      surface.focus();
+      if (markdownSelection && this.editorMode === "markdown") this.ui.body.setSelectionRange(markdownSelection[0], markdownSelection[1]);
+      else if (this.editorMode === "visual") this.restoreVisualSelection();
+      else if (trigger instanceof HTMLElement && trigger !== surface) trigger.focus?.();
+    };
+    dialog.append(
+      h("h2", { id: "oba-capture-title" }, "Capture research"),
+      h("p", { class: "oba-help" }, "Quote a passage from a source, or record a note. Saved to your private notebook; your draft is not changed."),
+      body,
+    );
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      returnToDraft();
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+    try {
+      const loaded = await this.app.api.call("GET", "research/notebook");
+      if (!dialog.isConnected) return;
+      const state = { revision: loaded.revision, sources: loaded.sources, passages: loaded.passages, notes: loaded.notes };
+      const form = createCaptureForm({
+        api: this.app.api,
+        state,
+        idPrefix: "oba-capture",
+        prefill: { excerpt: selectedText },
+        onSaved: (result) => {
+          if (!result.partial) returnToDraft();
+        },
+        onCancel: returnToDraft,
+      });
+      body.replaceChildren(form.element);
+      form.focus();
+    } catch (error) {
+      if (!dialog.isConnected) return;
+      body.replaceChildren(
+        h("p", { class: "oba-error", role: "alert" }, `The research notebook could not be read. ${notebookErrorMessage(error)}`),
+        h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", onClick: returnToDraft }, "Close")),
+      );
+      body.querySelector("button")?.focus();
+    }
   }
 
   openKnowledgeCheck() {

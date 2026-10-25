@@ -3,8 +3,8 @@
 Version 1 of the private passage and research-note contract defined by
 [ADR 0024](../adr/0024-private-passages-and-research-notes.md), implemented by
 `openblog_core::research_notes`. It points into the
-[source library](research-source-library.md). No file location or Admin API exists yet;
-builds never read a notebook.
+[source library](research-source-library.md). It is stored and edited as described in
+[ADR 0025](../adr/0025-private-notebook-storage-and-admin-capture.md); builds never read it.
 
 ```json
 {
@@ -55,3 +55,26 @@ refused. Diagnostics carry a kebab-case `code`, `collection`, zero-based `index`
 (`upsert_passage`, `upsert_note`, `remove_passage`, `remove_note`) leave the notebook
 unchanged; removing a passage still linked by a note is `still-linked`, and changing a
 passage's source is `source-changed`.
+
+## Storage and Admin API
+
+The notebook is one file, `.openblog/private/research/notebook.json`, in canonical form
+(deterministic pretty JSON, trailing newline). Its **notebook revision** is the SHA-256 of
+the stored bytes, or of the empty notebook while no file exists. Every change names the
+revision it was based on and is refused with `409` when the file has changed, including by
+hand edit. Changes are validated against the stored source library, written to a temporary
+file and renamed under a lock, so a refused or interrupted change leaves the file as it was.
+A damaged, oversized or newer-version file is reported with its path and never replaced.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /admin/api/research/notebook` | `file`, `revision`, `stored`, `passages`, `notes`, and the library's `sources` for choosing from. |
+| `POST` / `PUT /admin/api/research/passages` | Body `{ revision, passage }`. Create refuses an id any entry uses; update refuses an unknown id. |
+| `POST` / `PUT /admin/api/research/notes` | Body `{ revision, note }`. Same rules. |
+| `DELETE /admin/api/research/passages`, `/notes` | Body `{ revision, id }`. A passage a note links to is refused (`still-linked`). |
+
+All routes require an Admin session and, for changes, the CSRF token; requests are at most
+256 KiB and responses are `no-store`. Successes return the new `revision`, the lists, and
+the saved entry. `409` carries `conflict`, the latest `revision`, and the stored `current`
+copy; `422` carries entry-scoped `diagnostics`. Removing a source-library record that a
+passage or note still uses is refused with `still-used`.
