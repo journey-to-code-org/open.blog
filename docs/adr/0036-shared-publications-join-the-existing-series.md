@@ -27,8 +27,9 @@ second concept, and what authors must approve when it does.
   the series file, and cannot be set from a shared publication. A reference to a slug with no file
   uses the existing implicit series and warning.
 - The reference is any title of up to 120 bytes on one line (Unicode, punctuation and Markdown-like
-  text included) that has a letter or digit, because the loader slugifies it. It is written as a
-  quoted scalar through the ordinary front matter writer, so it cannot add a field. Blank,
+  text included) that has a letter or digit, because the loader slugifies it. It is written
+  through the ordinary front matter writer, which quotes any value that needs it, so it cannot add
+  a field. Blank,
   multi-line, control or direction characters, over-long and address-less titles are refused, and a
   stored record that holds one fails to load. Refusals name the rule and never the value.
 - Placement is public output, so it is part of the approval binding: `public_metadata` appends the
