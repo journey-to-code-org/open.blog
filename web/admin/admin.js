@@ -904,6 +904,61 @@ export function sharedManagementError(error) {
   return { message, reload: false };
 }
 
+// ---------------------------------------------------------------- shared reflection drafts
+
+/** Optional starting points. Nothing requires them: a writer can ignore, edit, or delete any of them. */
+export const REFLECTION_PROMPTS = Object.freeze([
+  "What stood out to you, and why?",
+  "What did you agree or disagree with?",
+  "What did it remind you of from your own experience?",
+  "What would you ask the others who took part?",
+]);
+
+/** The Markdown a prompt adds to a draft: a plain quote the writer owns once it is inserted. */
+export function promptInsertion(prompt) {
+  return `> ${String(prompt).replace(/\s+/g, " ").trim()}\n\n`;
+}
+
+/** Insert text at a selection (or at the end), returning the new text and where the caret goes. */
+export function insertAtSelection(text, start, end, insertion) {
+  const length = text.length;
+  const from = Number.isInteger(start) && start >= 0 && start <= length ? start : length;
+  const to = Number.isInteger(end) && end >= from && end <= length ? end : from;
+  return { text: text.slice(0, from) + insertion + text.slice(to), caret: from + insertion.length };
+}
+
+/** The visible, non-color save state of a draft. */
+export function draftStateText({ number = 0, dirty = false, saving = false } = {}) {
+  if (saving) return "Saving...";
+  if (dirty) return number ? `Unsaved changes. Last saved as revision ${number}.` : "Unsaved changes. Nothing saved yet.";
+  return number ? `Saved as revision ${number}. Only you can see it.` : "Nothing saved yet. Only you can see what you write here.";
+}
+
+/** Sort a failed draft request into what the writer should be told and whether their text is safe. */
+export function draftFailure(error) {
+  const status = error?.status;
+  const text = error?.data?.error || error?.message || "";
+  if (!status) return { kind: "offline", message: "Could not reach the server. You may be offline. Your text is still here and has not been saved; try again when you are back." };
+  if (status === 409) return { kind: "conflict", message: text || "Your draft changed elsewhere, perhaps in another tab.", current: error?.data?.current ?? null };
+  if (status === 404 || status === 403) return { kind: "denied", message: "You cannot write a draft in this shared reflection, or your access changed. Your text is still here; copy it before reloading." };
+  if (status === 422) return { kind: "invalid", message: text || "That draft could not be saved. Your text is still here." };
+  return { kind: "other", message: text || "That did not work. Your text is still here; try again." };
+}
+
+export const REVEAL_POLICIES = Object.freeze([
+  { value: "independent", label: "Independent", help: "Nobody sees anyone else's draft." },
+  { value: "voluntary", label: "Voluntary", help: "Any two or more writers who offer a revision share those revisions with each other." },
+  { value: "allReady", label: "Everyone ready", help: "Nothing is shared until every writer has offered a revision." },
+]);
+
+/** One comparison slot as words: whose it is, and what the reader may know about it. */
+export function revealSlotText(slot) {
+  const name = slot?.displayName || "A participant";
+  if (slot?.kind === "own") return `${name} (you): your latest saved revision.`;
+  if (slot?.kind === "revealed") return `${name}: revealed to you, revision ${slot.stamp?.number ?? "?"}.`;
+  return slot?.ready ? `${name}: private. They have offered a revision to share.` : `${name}: private. They have not offered a revision.`;
+}
+
 const SUGGESTED_SOURCE_FIELDS = ["title", "creator", "publisher"];
 
 /**
@@ -3525,6 +3580,7 @@ export class ObAdmin extends AdminElement {
             );
           }),
         ),
+        this.draftPanel(publication, index),
         this.invitationPanel(publication, index),
       );
     });
@@ -4062,6 +4118,323 @@ export class ObAdmin extends AdminElement {
         loaded = false;
         fail(error);
       }
+    });
+    return details;
+  }
+
+  // ---- shared reflection drafts
+
+  /**
+   * The signed-in writer's own private draft, with optional prompts, a save state, conflict
+   * recovery, and the sharing controls. It loads only when opened and only ever shows the
+   * writer's own text plus what the server has revealed to them.
+   */
+  draftPanel(publication, index) {
+    const roles = publication.roles || [];
+    if (!["contributor", "editor", "coordinator", "siteOwner"].some((role) => roles.includes(role))) return null;
+    const id = publication.publicationId;
+    const prefix = `oba-draft-${index}`;
+    const heading = h("h3", { id: `${prefix}-heading`, tabindex: "-1" }, "Your draft");
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const denied = h("p", { class: "oba-notice", hidden: true }, "You cannot write a draft in this shared reflection. Ask a coordinator if you need to.");
+    const text = h("textarea", { id: `${prefix}-text`, rows: "12", spellcheck: "true", autocomplete: "off", "aria-describedby": `${prefix}-state` });
+    const state = h("p", { id: `${prefix}-state`, class: "oba-small" });
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, "Save draft");
+    const restore = h("button", { class: "oba-btn", type: "button", hidden: true }, "Restore my earlier text");
+    const prompts = h("div", { class: "oba-draft-prompts" });
+    const togglePrompts = h("button", { class: "oba-btn", type: "button", "aria-pressed": "false" }, "Hide prompts");
+    const conflict = h("div", { class: "oba-draft-conflict", role: "group", "aria-labelledby": `${prefix}-conflict-heading`, hidden: true });
+    const sharing = h("div", { class: "oba-draft-sharing", hidden: true });
+    const editor = h("div", { class: "oba-draft-editor", hidden: true });
+    let saved = { number: 0, markdown: "" };
+    let saving = false;
+    let stash = null;
+    let hidePrompts = false;
+
+    const refreshState = () => {
+      const dirty = text.value !== saved.markdown;
+      state.textContent = `${draftStateText({ number: saved.number, dirty, saving })} ${text.value.length.toLocaleString()} characters.`;
+      save.disabled = saving;
+      return dirty;
+    };
+    const fail = (error, { focus = true } = {}) => {
+      const failure = draftFailure(error);
+      problem.textContent = failure.message;
+      problem.hidden = false;
+      if (focus) problem.focus();
+      return failure;
+    };
+    const clearProblem = () => {
+      problem.hidden = true;
+      problem.textContent = "";
+    };
+
+    const renderPrompts = () => {
+      togglePrompts.textContent = hidePrompts ? "Show prompts" : "Hide prompts";
+      togglePrompts.setAttribute("aria-pressed", String(hidePrompts));
+      prompts.hidden = hidePrompts;
+      prompts.replaceChildren(
+        h("p", { class: "oba-small", id: `${prefix}-prompts-note` }, "Prompts are optional. Add one to your draft, change it, or delete it; write something else entirely if you like."),
+        h(
+          "ul",
+          { class: "oba-draft-prompt-list", "aria-describedby": `${prefix}-prompts-note` },
+          REFLECTION_PROMPTS.map((prompt) => {
+            const add = h("button", { class: "oba-btn", type: "button", "aria-label": `Add prompt to draft: ${prompt}` }, "Add to draft");
+            add.addEventListener("click", () => {
+              const result = insertAtSelection(text.value, text.selectionStart, text.selectionEnd, promptInsertion(prompt));
+              text.value = result.text;
+              text.focus();
+              text.setSelectionRange?.(result.caret, result.caret);
+              refreshState();
+              status.textContent = "Prompt added to your draft. You can edit or delete it.";
+            });
+            return h("li", {}, h("span", {}, prompt), " ", add);
+          }),
+        ),
+      );
+    };
+    togglePrompts.addEventListener("click", () => {
+      hidePrompts = !hidePrompts;
+      renderPrompts();
+      status.textContent = hidePrompts ? "Prompts hidden." : "Prompts shown.";
+    });
+
+    const adoptDraft = (draft) => {
+      saved = { number: draft?.stamp?.number || 0, markdown: draft?.markdown || "" };
+    };
+
+    const closeConflict = (focusEditor = true) => {
+      conflict.hidden = true;
+      conflict.replaceChildren();
+      if (focusEditor) text.focus();
+    };
+
+    /** Show the writer's untouched text beside the newer copy. Nothing is saved or replaced. */
+    const showConflict = (current, message) => {
+      const mine = text.value;
+      const field = (label, value, key) => {
+        const area = h("textarea", { id: `${prefix}-conflict-${key}`, rows: "6", readonly: true });
+        area.value = value;
+        return h("div", { class: "oba-field" }, h("label", { for: `${prefix}-conflict-${key}` }, label), area);
+      };
+      const keepMine = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Save my text as a new revision");
+      const useNewer = h("button", { class: "oba-btn", type: "button" }, "Use the newer copy instead");
+      const later = h("button", { class: "oba-btn", type: "button" }, "Decide later");
+      keepMine.addEventListener("click", async () => {
+        saved = { number: current?.stamp?.number || 0, markdown: current?.markdown || "" };
+        loadSharing(); // an open offer box names the old revision
+        closeConflict(false);
+        await doSave();
+        if (conflict.hidden && problem.hidden) text.focus();
+      });
+      useNewer.addEventListener("click", () => {
+        stash = mine;
+        text.value = current?.markdown || "";
+        adoptDraft(current);
+        loadSharing(); // an open offer box names the old revision
+        restore.hidden = false;
+        closeConflict();
+        refreshState();
+        status.textContent = "Showing the newer copy. Your own text is kept; use Restore my earlier text to bring it back.";
+      });
+      later.addEventListener("click", () => {
+        closeConflict();
+        status.textContent = "Your text is unchanged and not saved.";
+      });
+      conflict.replaceChildren(
+        h("h4", { id: `${prefix}-conflict-heading`, tabindex: "-1" }, "Your draft changed elsewhere"),
+        h("p", {}, message),
+        current ? field(`Newer saved copy (revision ${current.stamp?.number ?? "?"})`, current.markdown || "", "newer") : h("p", { class: "oba-small" }, "The newer copy could not be shown."),
+        field("Your text, not saved", mine, "mine"),
+        h("div", { class: "oba-toolbar" }, keepMine, useNewer, later),
+      );
+      conflict.hidden = false;
+      conflict.querySelector(`#${prefix}-conflict-heading`)?.focus();
+    };
+
+    const doSave = async () => {
+      if (saving) return;
+      clearProblem();
+      saving = true;
+      refreshState();
+      const sent = text.value;
+      try {
+        const result = await this.api.call("PUT", "collaboration/draft", { json: { publicationId: id, expectedRevision: saved.number, markdown: sent } });
+        saved = { number: result?.stamp?.number || saved.number + 1, markdown: sent };
+        stash = null;
+        restore.hidden = true;
+        saving = false;
+        refreshState();
+        status.textContent = `Saved as revision ${saved.number}.`;
+        await loadSharing();
+      } catch (error) {
+        saving = false;
+        refreshState();
+        const failure = draftFailure(error);
+        if (failure.kind === "conflict") {
+          let current = failure.current;
+          if (!current) {
+            try {
+              current = (await this.api.call("GET", `collaboration/draft?publicationId=${encodeURIComponent(id)}`))?.draft ?? null;
+            } catch {
+              current = null;
+            }
+          }
+          showConflict(current, failure.message);
+        } else fail(error);
+      }
+    };
+
+    restore.addEventListener("click", () => {
+      if (stash === null) return;
+      text.value = stash;
+      stash = null;
+      restore.hidden = true;
+      refreshState();
+      text.focus();
+      status.textContent = "Your earlier text is back. It is not saved yet.";
+    });
+    text.addEventListener("input", () => {
+      refreshState();
+    });
+
+    const form = h(
+      "form",
+      { class: "oba-draft-form", "aria-labelledby": `${prefix}-heading`, novalidate: true },
+      prompts,
+      h("div", { class: "oba-field" }, h("label", { for: `${prefix}-text` }, "Your reflection (Markdown)"), text),
+      state,
+      h("div", { class: "oba-toolbar" }, togglePrompts, restore, h("span", { class: "oba-spacer" }), save),
+    );
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      doSave();
+    });
+    editor.append(form, conflict);
+
+    // ---- sharing
+    const runSharing = async (method, path, json, done) => {
+      clearProblem();
+      try {
+        const result = await this.api.call(method, path, { json });
+        status.textContent = done(result);
+        await loadSharing();
+        // The control that was pressed is gone; keep keyboard and screen-reader users in place.
+        sharing.querySelector(`#${prefix}-sharing-heading`)?.focus();
+        return true;
+      } catch (error) {
+        const failure = fail(error);
+        if (failure.kind === "conflict" || failure.kind === "denied") {
+          await loadSharing();
+          problem.focus();
+        }
+        return false;
+      }
+    };
+
+    const renderSharing = (reveal) => {
+      const policy = REVEAL_POLICIES.find((item) => item.value === reveal.policy) || REVEAL_POLICIES[0];
+      const slots = h(
+        "ul",
+        { class: "oba-member-list", "aria-label": "Everyone's drafts" },
+        (reveal.slots || []).map((slot) =>
+          h(
+            "li",
+            {},
+            h("span", {}, revealSlotText(slot)),
+            slot.kind !== "private" ? h("pre", { class: "oba-draft-revealed", tabindex: "0", "aria-label": `Text from ${slot.displayName || "a participant"}` }, slot.markdown || "") : null,
+          ),
+        ),
+      );
+      const parts = [
+        h("h4", { id: `${prefix}-sharing-heading`, tabindex: "-1" }, "Sharing"),
+        h("p", { class: "oba-small" }, h("strong", {}, `${policy.label}. `), policy.help, " Until a revision is shared, only its writer can read it."),
+      ];
+      if (reveal.slots?.length && saved.number) {
+        if (reveal.ready) {
+          const takeBack = h("button", { class: "oba-btn", type: "button" }, "Take back my offer");
+          takeBack.addEventListener("click", () => runSharing("PUT", "collaboration/reveal/ready", { publicationId: id, revision: null }, () => "Your offer was taken back."));
+          parts.push(h("p", { class: "oba-small" }, "You have offered a revision to share."), takeBack);
+        } else if (policy.value !== "independent") {
+          const offer = h("button", { class: "oba-btn", type: "button" }, `Offer revision ${saved.number} to the group`);
+          const holder = h("div", {});
+          offer.addEventListener("click", () => {
+            const revision = saved.number; // what the writer confirms is exactly what is sent
+            const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, `Share revision ${revision}`);
+            const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
+            const box = h(
+              "div",
+              { class: "oba-confirm", role: "group", "aria-labelledby": `${prefix}-offer-title`, tabindex: "-1" },
+              h("p", { id: `${prefix}-offer-title`, class: "oba-confirm-title" }, `Share revision ${revision}?`),
+              h("p", { class: "oba-small" }, "When the sharing rule is met, everyone who offered will read the revisions offered. A copy that has been read cannot be taken back. Later edits stay private."),
+              h("div", { class: "oba-toolbar" }, yes, no),
+            );
+            holder.replaceChildren(box);
+            box.focus();
+            const close = () => {
+              holder.replaceChildren();
+              offer.focus();
+            };
+            no.addEventListener("click", close);
+            box.addEventListener("keydown", (event) => {
+              if (event.key === "Escape") close();
+            });
+            yes.addEventListener("click", () =>
+              runSharing("PUT", "collaboration/reveal/ready", { publicationId: id, revision }, (result) =>
+                result?.revealed ? "Revealed. Everyone who offered can now read the offered revisions." : "Offered. Nothing is shared until the rule is met.",
+              ),
+            );
+          });
+          parts.push(offer, holder);
+        }
+      } else if (policy.value !== "independent" && !saved.number) {
+        parts.push(h("p", { class: "oba-small" }, "Save a draft before you can offer it."));
+      }
+      if (reveal.canSetPolicy) {
+        const select = h(
+          "select",
+          { id: `${prefix}-policy` },
+          REVEAL_POLICIES.map((item) => h("option", { value: item.value, selected: item.value === reveal.policy }, `${item.label}: ${item.help}`)),
+        );
+        const change = h("button", { class: "oba-btn", type: "button" }, "Change sharing rule");
+        change.addEventListener("click", () => runSharing("PUT", "collaboration/reveal/policy", { publicationId: id, policy: select.value }, () => "The sharing rule changed. Every standing offer was cleared and nothing was shared."));
+        parts.push(h("div", { class: "oba-field" }, h("label", { for: `${prefix}-policy` }, "Sharing rule (coordinators)"), select), change);
+      }
+      if (reveal.slots?.length) parts.push(slots);
+      sharing.replaceChildren(...parts);
+      sharing.hidden = false;
+    };
+
+    const loadSharing = async () => {
+      try {
+        renderSharing(await this.api.call("GET", `collaboration/reveal?publicationId=${encodeURIComponent(id)}`));
+      } catch {
+        sharing.hidden = true;
+      }
+    };
+
+    renderPrompts();
+    const details = h("details", { class: "oba-invitations oba-draft" }, h("summary", {}, "Your draft"), heading, h("p", { class: "oba-small" }, "Only you can read this draft. Nothing here is published."), status, problem, denied, editor, sharing);
+    let loaded = false;
+    details.addEventListener("toggle", async () => {
+      if (!details.open || loaded) return;
+      loaded = true;
+      try {
+        const result = await this.api.call("GET", `collaboration/draft?publicationId=${encodeURIComponent(id)}`);
+        adoptDraft(result?.draft);
+        text.value = saved.markdown;
+        editor.hidden = false;
+        refreshState();
+      } catch (error) {
+        const failure = draftFailure(error);
+        if (failure.kind === "denied") denied.hidden = false;
+        else {
+          loaded = false;
+          fail(error, { focus: false });
+        }
+      }
+      await loadSharing();
     });
     return details;
   }

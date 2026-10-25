@@ -5,6 +5,34 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-25
+
+- Fixed the shared draft sharing controls: the revision you confirm to share is now always the one
+  sent, even if the draft changes in another tab, and keyboard focus stays in the Sharing section
+  after you offer, take back or change the rule.
+- Added a "Your draft" panel to Shared reflections in Admin. Writers get optional prompts they can
+  add, edit, delete or hide, a clear saved or unsaved state, and sharing controls to offer a
+  revision or take the offer back. If a draft changed in another tab, your text stays put beside the
+  newer copy and you choose which to keep, with an undo. Offline and size errors keep your text.
+  Other people's drafts appear only once the sharing rule has revealed them to you.
+- Added optional mutual reveal for shared reflections. A coordinator chooses whether sharing is off
+  (the default), voluntary, or requires everyone to be ready. Each contributor marks one exact
+  revision ready and can take it back until the reveal happens; then everyone involved sees those
+  revisions together. A comparison lists everyone in order by name and shows a placeholder for any
+  section not revealed to you. Changing the policy never reveals anything, and removed members
+  neither block nor receive a reveal.
+- Added private draft saving for shared reflections: a Contributor or Editor can save and read only
+  their own section through Admin. Each save appends a revision; a save made on an out-of-date
+  copy is refused with the newer copy and overwrites nothing. Drafts stay under the project's
+  private folder and never reach content, generated output, feeds, exports or Git.
+- A shared draft that reaches its revision or storage limit is now refused with a clear message
+  and nothing is lost, instead of making every participant's drafts unreadable.
+- Defined private contribution drafts for shared reflections: append-only revisions with a
+  prose-free identity, conflict checks on save, and a mutual reveal that shows nothing until every
+  member has committed. Revealing is never approval, and no storage or route is added yet. Draft ids are compared ignoring case so a stored set always
+  reloads, and saving over another participant's draft id no longer reveals more than that the id
+  is taken.
+
 ## [0.20.0] - 2026-10-25
 
 - Enforced collaboration roles through one server-side check on the shared reflection record.
