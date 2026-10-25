@@ -5571,7 +5571,7 @@ fn read_own_draft(state: &AppState, req: &Request, session: &auth::Session) -> R
     let draft = stored
         .set
         .as_ref()
-        .and_then(|set| set.view(&own, &own).ok())
+        .and_then(|set| set.view(&own, &own, &[own.as_str()]).ok())
         .map(|view| draft_json(&view));
     Response::json(200, &json!({ "draft": draft }))
 }
@@ -5635,7 +5635,10 @@ fn save_own_draft(state: &AppState, req: &Request, session: &auth::Session) -> R
             }
         }
         Err(DraftError::Stale) => {
-            let current = set.view(&own, &own).ok().map(|view| draft_json(&view));
+            let current = set
+                .view(&own, &own, &[own.as_str()])
+                .ok()
+                .map(|view| draft_json(&view));
             Response::json(
                 409,
                 &json!({
@@ -5777,7 +5780,9 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
             .iter()
             .map(|p| p.id.as_str())
             .collect::<Vec<_>>();
-        let Ok(compared) = set.compare(own, &order) else {
+        let active = active_drafters(&transaction, record);
+        let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        let Ok(compared) = set.compare(own, &order, &active) else {
             return draft_not_found();
         };
         for (participant, slot) in participants.iter().zip(compared) {

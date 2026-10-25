@@ -134,7 +134,9 @@ for none. A reveal does not publish the draft, approve an assembly, or imply a t
 participants may receive the draft; permission to view revealed drafts in general does not widen
 that list.
 A coordinator-chosen reveal policy (independent, voluntary, all-ready) and each participant's
-per-revision readiness decide when an exchange forms (ADR 0018).
+per-revision readiness decide when an exchange forms (ADR 0018). A publication has one author set, so
+voluntary visibility is derived at read time from the active participants' standing offers: each
+sees exactly the revision the others currently offer, and nothing is stored or merged.
 The Shared reflections draft panel offers a revision only after an explicit confirmation, because a
 copy that has been read cannot be recalled (ADR 0019).
 _Avoid_: Publication, approval, left-to-right handoff

@@ -33,9 +33,22 @@ each draft would allow.
   A removed or downgraded participant neither counts toward `allReady` nor joins a reveal. Their
   earlier offers and any reveal already committed are untouched, and a copy already read cannot be
   recalled.
-- `voluntary` groups are separate: a participant who becomes ready after a group revealed starts the
-  next group and sees nothing from the earlier one, because the earlier members only agreed to
-  share with each other.
+- `voluntary` visibility is derived at read time and never stored or merged. A publication has one
+  author set, made up of the participants the maintainer (site owner or coordinator) added, and it
+  never splits into groups. Under `voluntary`, a reader V may read participant T's draft only when
+  the policy is `voluntary`, V and T differ, both are active, both hold a standing ready offer, and
+  T's draft is not withdrawn. V then sees exactly the revision T marked ready, matched on
+  participant and contribution, never a later unmarked revision or a different contribution. The
+  reason is that a stored circle had to be merged and carried over across removals, which could hand
+  one person's prose to people it was never offered to; deriving it from the standing offers means
+  nothing is stored that could outlive its meaning. A participant who marks a newer revision ready
+  moves the shared revision forward. Retracting readiness, withdrawing, being removed, or a policy
+  change that clears the offers ends the visibility, and a participant who becomes active again
+  while the offer still stands rejoins the author set. Marking ready returns "revealed" only when
+  another active participant has a standing offer. Exchanges created by `allReady`, by the explicit
+  open and commit API, or stored by v0.21.0 keep their old meaning: they are never pulled into
+  voluntary visibility and never feed it. `DraftSet::view` and `DraftSet::compare` take the active
+  list so the comparison goes through the same check.
 - The comparison lists every contract participant in contract order with their display name. Each
   slot is the caller's own latest revision, a revision revealed to the caller (decided by
   `DraftSet::view`), or a placeholder that is identical for missing, unrevealed, withdrawn and
