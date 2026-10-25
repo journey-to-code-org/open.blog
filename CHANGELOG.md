@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-10-25
+
 - Fixed voluntary reveal so a publication keeps one author set: visibility is now derived from the
   active participants' standing ready offers, so late joiners see earlier offers and are seen in
   return, each person sees only the revision currently offered, and removed or withdrawn people are
