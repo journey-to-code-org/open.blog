@@ -337,7 +337,7 @@ fn csl_import_refuses_hostile_items() {
         json!({"id": "Not A Slug"}),
         json!({"id": "plato-republic", "locator": 5}),
         json!({"id": "plato-republic", "locator": "1;2"}),
-        json!({"id": "plato-republic", "label": "a b", "locator": "1"}),
+        json!({"id": "plato-republic", "label": "A/B", "locator": "1"}),
         json!({"id": "plato-republic", "openblog-locators": [{"kind": "zzz", "value": "1"}]}),
     ] {
         assert!(citation_from_csl_item(&item).is_err(), "{item}");
@@ -442,4 +442,28 @@ fn only_publicly_resolvable_identifier_schemes_are_published() {
         format_reference(&resolved.references[0]),
         "Scan. doi:10.1000/xyz"
     );
+}
+
+#[test]
+fn csl_extension_labels_are_written_back_and_spaced_labels_round_trip() {
+    let item = json!({"id": "plato-republic", "label": "figure", "locator": "3"});
+    let (citation, _) = citation_from_csl_item(&item).unwrap();
+    let (exported, losses) = citation_to_csl_item(&citation);
+    assert_eq!(exported["label"], "figure");
+    assert_eq!(exported["locator"], "3");
+    assert!(losses.is_empty(), "{losses:?}");
+
+    let item = json!({"id": "plato-republic", "label": "sub verbo", "locator": "polis"});
+    let (citation, losses) = citation_from_csl_item(&item).unwrap();
+    assert_eq!(citation.locators[0].kind.as_str(), "x-csl-sub-verbo");
+    assert!(losses.is_empty(), "{losses:?}");
+    let (exported, _) = citation_to_csl_item(&citation);
+    assert_eq!(exported["label"], "sub verbo");
+    assert_eq!(citation_from_csl_item(&exported).unwrap().0, citation);
+
+    let item = json!({"id": "plato-republic", "label": "folio verso", "locator": "2"});
+    let (citation, losses) = citation_from_csl_item(&item).unwrap();
+    assert_eq!(citation.locators[0].kind.as_str(), "x-csl-folio-verso");
+    assert_eq!(losses[0].field, "label");
+    assert_eq!(citation_to_csl_item(&citation).0["label"], "folio-verso");
 }

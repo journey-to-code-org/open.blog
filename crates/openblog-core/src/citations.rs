@@ -665,6 +665,47 @@ const CSL_LABELS: [&str; 6] = ["page", "folio", "line", "section", "chapter", "t
 const OPENBLOG_LOCATORS: &str = "openblog-locators";
 /// Prefix of the extension kind that keeps a CSL label with no kind of its own.
 const CSL_EXTENSION_PREFIX: &str = "x-csl-";
+/// CSL labels spelled with a space, which a kind cannot hold, and the
+/// hyphenated name each is kept under. Both directions use this table, so
+/// these labels round-trip exactly.
+const CSL_SPACED_LABELS: [(&str, &str); 1] = [("sub verbo", "sub-verbo")];
+
+/// The CSL label a kind exports as: its own name for a kind CSL shares, the
+/// kept label for an `x-csl-` kind, and none for any other kind.
+fn csl_label(kind: &LocatorKind) -> Option<String> {
+    let name = kind.as_str();
+    if CSL_LABELS.contains(&name) {
+        return Some(name.into());
+    }
+    let kept = name
+        .strip_prefix(CSL_EXTENSION_PREFIX)
+        .filter(|kept| !kept.is_empty())?;
+    Some(
+        CSL_SPACED_LABELS
+            .iter()
+            .find(|(_, hyphenated)| *hyphenated == kept)
+            .map_or(kept, |(label, _)| label)
+            .to_string(),
+    )
+}
+
+/// The kind a CSL label imports as, and whether an unlisted label with
+/// spaces had to be respelled with hyphens to fit.
+fn kind_for_csl_label(label: &str) -> Option<(LocatorKind, bool)> {
+    if CSL_LABELS.contains(&label) {
+        return LocatorKind::parse(label).map(|kind| (kind, false));
+    }
+    if let Some((_, hyphenated)) = CSL_SPACED_LABELS
+        .iter()
+        .find(|(spaced, _)| *spaced == label)
+    {
+        return LocatorKind::parse(&format!("{CSL_EXTENSION_PREFIX}{hyphenated}"))
+            .map(|kind| (kind, false));
+    }
+    let hyphenated = label.split(' ').collect::<Vec<_>>().join("-");
+    LocatorKind::parse(&format!("{CSL_EXTENSION_PREFIX}{hyphenated}"))
+        .map(|kind| (kind, hyphenated != label))
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct CitationLoss {
@@ -689,8 +730,8 @@ pub fn citation_to_csl_item(citation: &Citation) -> (Value, Vec<CitationLoss>) {
     item.insert("id".into(), Value::String(citation.key.clone()));
     let mut losses = Vec::new();
     if let Some(first) = citation.locators.first() {
-        if CSL_LABELS.contains(&first.kind.as_str()) {
-            item.insert("label".into(), first.kind.as_str().into());
+        if let Some(label) = csl_label(&first.kind) {
+            item.insert("label".into(), label.into());
             item.insert("locator".into(), Value::String(flat_range(first)));
             if first.to.is_some() {
                 losses.push(CitationLoss {
@@ -768,18 +809,22 @@ pub fn citation_from_csl_item(
                 Some(Value::String(label)) => label,
                 Some(_) => return Err(locator_diag(&key, "label must be text")),
             };
-            let kind = if CSL_LABELS.contains(&label) {
-                LocatorKind::parse(label)
-            } else {
-                LocatorKind::parse(&format!("{CSL_EXTENSION_PREFIX}{label}"))
-            }
-            .ok_or_else(|| {
+            let (kind, respelled) = kind_for_csl_label(label).ok_or_else(|| {
                 diag(
                     CitationDiagnosticCode::UnknownLocatorKind,
                     Some(&key),
                     "this CSL label cannot be kept as an extension kind",
                 )
             })?;
+            if respelled {
+                losses.push(CitationLoss {
+                    field: "label".into(),
+                    reason: format!(
+                        "kept as `{}`, so it exports with hyphens for spaces",
+                        kind.as_str()
+                    ),
+                });
+            }
             Some(checked(Locator {
                 kind,
                 value: text.trim().into(),
