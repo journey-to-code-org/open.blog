@@ -26,6 +26,9 @@ import {
   normalizeContributorDraft,
   parseAdminHash,
   preserveProfileFieldDrafts,
+  destinationPolicyForDisplay,
+  portabilityAcknowledgementScope,
+  portableDiagnosticsForDisplay,
   previewWarningsForDisplay,
   resolveProfileSelection,
   researchSectionIsPresent,
@@ -133,6 +136,62 @@ test("assistant provider status presents configured and unconfigured states with
       message: "Assistant provider is not configured. Non-AI authoring remains available.",
     },
   );
+});
+
+test("portable preview diagnostics retain source scope and severity in readable warnings", () => {
+  assert.deepEqual(
+    portableDiagnosticsForDisplay([
+      {
+        code: "canonical-only-interaction",
+        severity: "warning",
+        sourcePath: "posts/lesson.md",
+        message: "Timeline remains on the canonical article.",
+        recommendedAction: "Keep the canonical link.",
+      },
+      { code: "invalid", message: "" },
+      null,
+    ]),
+    ["posts/lesson.md: warning: Timeline remains on the canonical article. Action: Keep the canonical link."],
+  );
+});
+
+test("destination preview policy discloses canonical behavior and manual workflows", () => {
+  const policies = [
+    {
+      provider: "wordpress",
+      label: "WordPress",
+      representation: "portable-html",
+      canonicalBehavior: "WordPress core cannot set an external canonical URL.",
+      workflow: "Remote draft by default.",
+    },
+    {
+      provider: "medium",
+      label: "Medium",
+      representation: "manual-markdown",
+      canonicalBehavior: "Check the canonical URL during import.",
+      workflow: "Manual import only.",
+    },
+  ];
+  assert.deepEqual(destinationPolicyForDisplay(policies, "destination:wordpress"), [
+    "WordPress: WordPress core cannot set an external canonical URL.",
+    "WordPress: Remote draft by default.",
+  ]);
+  assert.deepEqual(destinationPolicyForDisplay(policies, "destination:medium"), [
+    "Medium: Check the canonical URL during import.",
+    "Medium: Manual import only.",
+  ]);
+  assert.deepEqual(destinationPolicyForDisplay([], "destination:unknown"), [
+    "Destination policy is unavailable; do not publish until the policy can be loaded.",
+  ]);
+  assert.deepEqual(portabilityAcknowledgementScope(policies, "destination:medium"), {
+    destination: "medium",
+    representation: "manual-markdown",
+  });
+  assert.deepEqual(portabilityAcknowledgementScope(policies, "portable-html"), {
+    destination: "portable-export",
+    representation: "portable-html",
+  });
+  assert.equal(portabilityAcknowledgementScope(policies, "site"), null);
 });
 
 const SAMPLE_GPX = `<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>
