@@ -301,6 +301,8 @@ pub fn assemble_for(
 /// Markdown in one section that changes how another renders (an open fence, a reference
 /// definition, a footnote). Checked on the exact parse the site renders with, both with and
 /// without smart punctuation because the site setting is not known here.
+const TAIL_SENTINEL: &str = "tail";
+
 fn has_unsafe_markup(sections: &[String]) -> bool {
     use pulldown_cmark::{Event, Parser, Tag};
     let unsafe_address = |address: &str| {
@@ -318,9 +320,14 @@ fn has_unsafe_markup(sections: &[String]) -> bool {
     };
     [false, true].into_iter().any(|smart| {
         let options = crate::markdown::parser_options(smart);
-        let joined = sections.join(SECTION_BREAK);
+        // A sentinel section after the last one stands for the markup that follows the prose in
+        // the published Post (the arrangement's closing tags): an open fence in the last section
+        // would swallow it, so it must stay a separate section like every other boundary.
+        let mut all: Vec<&str> = sections.iter().map(String::as_str).collect();
+        all.push(TAIL_SENTINEL);
+        let joined = all.join(SECTION_BREAK);
         let mut separate: Vec<Event<'_>> = Vec::new();
-        for (index, section) in sections.iter().enumerate() {
+        for (index, section) in all.iter().enumerate() {
             if index > 0 {
                 separate.push(Event::Rule);
             }
