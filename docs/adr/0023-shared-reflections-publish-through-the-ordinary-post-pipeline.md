@@ -1,6 +1,7 @@
 # ADR 0023: Shared reflections publish through the ordinary Post pipeline
 
-- Status: Accepted
+- Status: Accepted. The participant-order rule below is amended for structured reflections by
+  [ADR 0031](0031-one-deterministic-reading-order.md) (Amended by 0031).
 - Date: 2026-10-25
 - Decision issue: [#169](https://github.com/journey-to-code-org/open.blog/issues/169)
 - Parent story: [#147](https://github.com/journey-to-code-org/open.blog/issues/147)
@@ -21,7 +22,8 @@ projections. It would also need its own authorization, its own escaping and its 
   state, so the one author set of [ADR 0018](0018-reveal-policy-readiness-and-comparison.md) and
   `SharedPublication::authorize` stay the only way in. Publishing remains behind
   [ADR 0014](0014-record-level-authorization-and-publish-gate.md)'s gate.
-- Section order is participant order and credit order is the same order, so RSS `dc:creator` and
+- Section order is participant order (amended by 0031: when a reflection structure exists, section
+  order follows its reading order) and credit order is the same order, so RSS `dc:creator` and
   JSON Feed `authors` list the same people in the same sequence as the sections. An author who wrote
   nothing has no section and no credit in any output. Under the plain-text fallback the sections
   stay in that order and the source is still a link. Summary-only feeds (`feeds.fullContent: false`)

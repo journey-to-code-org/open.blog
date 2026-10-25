@@ -179,20 +179,33 @@ account name or publication id (ADR 0023).
 _Avoid_: Shared page, collaboration export
 
 **Reflection structure**:
-The ordered rounds, prompts and turns of a shared reflection, plus one chosen Reflection layout. A
-turn names a contribution, never a person, so the structure holds no identity and no gendered or
-positional field (ADR 0030). It is separate from the prose it arranges and from CSS.
-_Avoid_: Left/right, author A/B, theme, template
+The ordered rounds, round prompts and turns of a shared reflection, plus one chosen Reflection
+layout, and the only authority for how it is arranged. A turn names one part of one draft, never a
+person, so the structure holds no identity and no gendered or positional field (ADR 0030). A draft
+splits into ordered parts at a line that is exactly `<!-- openblog:part -->`; without it a draft is
+one part. Once wired, its turn order, round prompts and layout are part of what an author approves
+(ADR 0031).
+_Avoid_: Left/right, author A/B, theme, template, the contract's region layout
 
 **Reflection layout**:
 One of sequential, side-by-side, point-counterpoint, alternating dialogue or roundtable: a
 presentation of the same structure. Changing it rewrites no prose, and it never decides identity,
-authority or credit. Every layout reads in the one Reading order (ADR 0031).
-_Avoid_: Role, side, speaker slot
+authority or credit. Every layout reads in the one Reading order (ADR 0031). It is not the
+collaboration contract's `layout` field, a reserved list of contribution-to-region pairs that nothing
+reads and the next contract version drops.
+_Avoid_: Role, side, speaker slot, contract layout, region layout
+
+**Round prompt**:
+The optional public cue or question a round of a reflection structure answers, read once before its
+first answer. It is not an editor prompt (ADR 0019), which is a never-stored hint inside the draft
+editor, and a round is not an exchange, which means a mutual reveal.
+_Avoid_: Editor prompt, exchange
 
 **Reading order**:
 The deterministic linear sequence of a reflection structure: rounds, then turns, with each round's
-prompt before its first answer. Shared by every layout and by the portable equivalent.
+round prompt before its first answer. Shared by every layout. The requester-scoped form shows the
+same placeholder for any turn the requester cannot read (ADR 0021); the unscoped form is for the
+publish gate only. The portable equivalent can share it once #173 wires it.
 _Avoid_: Visual order
 
 **Published assembly**:

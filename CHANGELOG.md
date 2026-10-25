@@ -5,8 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
-- Added the layout-independent structure of a shared reflection: rounds, prompts and turns, one
-  deterministic reading order, and five layout modes over the same contributions without any
+- Added the layout-independent structure of a shared reflection: rounds, round prompts and turns
+  that point at parts of each participant's draft, one deterministic reading order that shows each
+  reader only what they may read, and five layout modes over the same contributions without any
   gendered or positional field. Nothing is presented differently yet; invalid structures are
   refused without echoing anyone's text.
 
