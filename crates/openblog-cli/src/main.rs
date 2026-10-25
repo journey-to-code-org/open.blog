@@ -112,6 +112,7 @@ const SWITCHES: &[&str] = &[
     "recipe",
     "write",
     "publish",
+    "json",
 ];
 
 fn parse_args(raw: &[String]) -> Result<Args, String> {
@@ -760,5 +761,26 @@ mod tests {
         assert_eq!(a.options["tags"], "a,b");
         assert!(a.switches.contains("drafts"));
         assert!(parse_args(&strings(&["--series"])).is_err());
+    }
+
+    #[test]
+    fn json_dry_runs_work_through_command_dispatch_for_export_and_syndication() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("examples")
+            .join("portable-publishing");
+        for command in ["export", "syndicate"] {
+            let mut args = strings(&[
+                command,
+                "portable-lesson",
+                "--root",
+                root.to_str().unwrap(),
+                "--json",
+            ]);
+            run(&args).unwrap();
+            args.push("--write".into());
+            assert!(run(&args).unwrap_err().contains("dry run"));
+        }
     }
 }
