@@ -9,6 +9,8 @@ All notable changes to open.blog are recorded here. Releases follow
   timestamped consent bound to the exact content, author set, order, public metadata and policy,
   so editing or changing any of them withdraws the affected approvals and nobody can approve for
   another author. No screen or publishing step uses it yet.
+- An approval from an author who has written no section now covers the whole piece, so any
+  later edit to the prose withdraws it.
 
 ## [0.21.1] - 2026-10-25
 

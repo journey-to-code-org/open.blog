@@ -30,7 +30,8 @@ set, the participants the maintainer added.
   author, or reverting an edit, cannot revive consent given earlier.
 - What invalidates which approvals is defined by policy scope. Under `ownSections` (default) a
   prose edit invalidates only its owner's approval. Under `wholePiece` any prose edit invalidates
-  every approval. Under both, any change to the author set, section order or ownership, public
+  every approval. An author who owns no section has no prose of their own to scope to, so under
+  `ownSections` their approval covers every section: any prose edit invalidates it. Under both, any change to the author set, section order or ownership, public
   metadata, policy, or consent wording invalidates every approval. A policy change also clears all
   approvals and advances the policy revision.
 - Required approvers come from the policy: `allAuthors` (default) needs every author the

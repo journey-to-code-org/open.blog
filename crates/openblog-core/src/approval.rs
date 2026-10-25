@@ -232,9 +232,14 @@ impl ApprovalSubject<'_> {
             put(&mut hasher, section.contribution_id.as_bytes());
             put(&mut hasher, section.owner.as_bytes());
         }
-        // Prose revisions: only what the scope covers.
+        // Prose revisions: only what the scope covers. An author who owns no section has no
+        // prose of their own to scope to, so their approval covers the whole piece.
+        let owns_prose = self.sections.iter().any(|s| s.owner == participant);
         for section in self.sections {
-            if policy.scope == ApprovalScope::WholePiece || section.owner == participant {
+            if policy.scope == ApprovalScope::WholePiece
+                || !owns_prose
+                || section.owner == participant
+            {
                 put(&mut hasher, section.contribution_id.as_bytes());
                 hasher.update(section.revision.to_be_bytes());
                 put(&mut hasher, section.digest.as_bytes());
@@ -594,6 +599,21 @@ mod tests {
         approve(&mut set, &piece, "ann");
         approve(&mut set, &piece, "bo");
         assert!(ready(&set, &piece));
+    }
+
+    #[test]
+    fn a_non_contributing_authors_approval_covers_the_whole_piece() {
+        let mut piece = Piece::new();
+        piece.authors.push("cy");
+        let mut set = ApprovalSet::new();
+        approve(&mut set, &piece, "ann");
+        approve(&mut set, &piece, "bo");
+        approve(&mut set, &piece, "cy");
+        assert!(ready(&set, &piece));
+        piece.sections[1].2 = 2;
+        piece.sections[1].3 = "d-b2";
+        assert_eq!(missing(&set, &piece), ["bo", "cy"]);
+        piece.with(|s| assert!(set.is_approved(s, "ann")));
     }
 
     #[test]
