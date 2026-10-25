@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-25
+
 - Added import and export to Sources in Admin Studio. Import CSL JSON (for example from
   Zotero) after a preview of what would be created, updated, kept, and not imported; conflicts
   such as duplicate ids or identifiers block the whole import and nothing is saved, and
