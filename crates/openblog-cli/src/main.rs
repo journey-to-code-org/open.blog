@@ -19,6 +19,7 @@ mod scaffold;
 mod serve;
 mod shared_publications;
 mod site;
+mod source_metadata;
 mod syndication;
 mod transaction;
 mod url_context;

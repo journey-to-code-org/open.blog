@@ -602,6 +602,7 @@ fn authenticated_api(
         ("PUT", "contributors") => save_contributors(state, req),
         ("GET", "collaboration/publications") => list_shared_publications(state, session),
         ("POST", "collaboration/publications") => create_shared_publication(state, req, session),
+        ("POST", "collaboration/publications/source-metadata") => shared_source_metadata(req),
         ("GET", "status") => status(state),
         ("GET", "analytics") => {
             if !state.analytics_enabled {
@@ -4603,6 +4604,39 @@ fn list_shared_publications(state: &AppState, session: &auth::Session) -> Respon
         })
         .collect::<Vec<_>>();
     Response::json(200, &json!({ "publications": publications }))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceMetadataRequest {
+    url: String,
+}
+
+/// Optional help for one source link: the embed the renderer would use (found offline) and, for
+/// a supported provider, bounded suggestions labelled with their provider. Nothing is stored and
+/// no outcome is an error, so authoring never depends on a provider answering.
+fn shared_source_metadata(req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<SourceMetadataRequest>(&req.body) else {
+        return Response::error(400, "Send the link to look up.");
+    };
+    if body.url.len() > 2048 {
+        return Response::json(200, &json!({ "status": "unsupported" }));
+    }
+    use crate::source_metadata::Lookup;
+    let embed_json = |found: &openblog_core::embed::Embed| json!({ "provider": found.provider, "link": found.link, "linkLabel": found.link_label });
+    let payload = match crate::source_metadata::lookup(&body.url) {
+        Lookup::Unsupported => json!({ "status": "unsupported" }),
+        Lookup::Unavailable(message, found) => {
+            json!({ "status": "unavailable", "message": message, "embed": embed_json(&found) })
+        }
+        Lookup::Found(suggestion, found) => {
+            json!({ "status": "found", "suggestion": suggestion, "embed": embed_json(&found) })
+        }
+    };
+    Response::json(200, &payload)
 }
 
 fn create_shared_publication(state: &AppState, req: &Request, session: &auth::Session) -> Response {
@@ -11653,6 +11687,65 @@ mod tests {
                 true,
             ),
         )
+    }
+
+    #[test]
+    fn source_metadata_lookup_needs_a_session_and_never_fetches_unsupported_links() {
+        let f = fixture("shared-metadata");
+        let session = login_ok(&f);
+        let path = "/admin/api/collaboration/publications/source-metadata";
+        let anonymous = handle(
+            &f.state,
+            &json_req("POST", path, json!({ "url": "https://example.com" })),
+        );
+        assert_eq!(anonymous.status, 401);
+        let no_csrf = handle(
+            &f.state,
+            &authed(
+                json_req("POST", path, json!({ "url": "https://example.com" })),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(no_csrf.status, 403);
+        for url in [
+            "https://example.com/a",
+            "http://127.0.0.1/admin",
+            "javascript:alert(1)",
+            "",
+        ] {
+            let resp = handle(
+                &f.state,
+                &authed(
+                    json_req("POST", path, json!({ "url": url })),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(resp.status, 200, "{url}");
+            assert_eq!(
+                body_json(&resp),
+                json!({ "status": "unsupported" }),
+                "{url}"
+            );
+        }
+        let too_long = handle(
+            &f.state,
+            &authed(
+                json_req("POST", path, json!({ "url": "h".repeat(5000) })),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(body_json(&too_long), json!({ "status": "unsupported" }));
+        for bad in [json!({}), json!({ "url": "x", "extra": 1 })] {
+            let resp = handle(
+                &f.state,
+                &authed(json_req("POST", path, bad), &session, true),
+            );
+            assert_eq!(resp.status, 400);
+        }
+        assert!(shared_records(&f).is_empty());
     }
 
     fn list_shared(f: &Fixture, session: &(String, String)) -> Json {
