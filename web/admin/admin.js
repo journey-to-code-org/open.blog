@@ -579,6 +579,54 @@ export async function submitSharedReflection(draft, { post, created, failed }) {
   }
 }
 
+const SUGGESTED_SOURCE_FIELDS = ["title", "creator", "publisher"];
+
+/**
+ * Copy provider suggestions into a source, only into fields the author left empty. Anything the
+ * author typed is kept as is, whatever the provider says. Returns the fields that were filled.
+ */
+export function applySourceSuggestion(source, suggestion) {
+  const applied = [];
+  if (!source || !suggestion || suggestion.provenance !== "provider") return applied;
+  for (const key of SUGGESTED_SOURCE_FIELDS) {
+    const value = suggestion[key];
+    if (typeof value === "string" && value.trim() && !String(source[key] ?? "").trim()) {
+      source[key] = value.trim();
+      applied.push(key);
+    }
+  }
+  return applied;
+}
+
+/**
+ * Ask the server for optional details about a source link. It never throws and never blocks
+ * authoring: every failure becomes a plain message and the source stays as the author left it.
+ */
+export async function lookupSourceDetails(source, call) {
+  const url = String(source?.url ?? "").trim();
+  if (!url) return { applied: [], message: "Paste a link first. Details are optional; you can always type them yourself." };
+  let result;
+  try {
+    result = await call({ url });
+  } catch {
+    return { applied: [], message: "Details could not be looked up. Type them yourself; nothing is lost." };
+  }
+  if (result?.status === "found" && result.suggestion) {
+    const applied = applySourceSuggestion(source, result.suggestion);
+    const provider = result.suggestion.publisher || "the provider";
+    return {
+      applied,
+      message: applied.length
+        ? `Suggested by ${provider} and filled in: ${applied.join(", ")}. Check them; they are yours to edit.`
+        : `${provider} had nothing to add to what you already typed.`,
+    };
+  }
+  if (result?.status === "unavailable") {
+    return { applied: [], message: `${result.message || "No details came back."} Type them yourself; nothing is lost.` };
+  }
+  return { applied: [], message: "Details can only be suggested for YouTube and CodePen links. Type them yourself." };
+}
+
 export function sharedSourceHref(value) {
   return typeof value === "string" && isAbsoluteHttpUrl(value) ? value : "";
 }
@@ -2748,6 +2796,28 @@ export class ObAdmin extends AdminElement {
             isbnField.hidden = source.kind !== "book";
             markDirty();
           });
+          const lookupStatus = h("small", { class: "oba-small", id: `${prefix}-lookup-status`, role: "status", "aria-live": "polite" });
+          const lookup = h(
+            "button",
+            {
+              class: "oba-btn",
+              type: "button",
+              "aria-describedby": lookupStatus.id,
+              onClick: async () => {
+                lookup.disabled = true;
+                lookupStatus.textContent = "Looking up…";
+                const outcome = await lookupSourceDetails(source, (json) => this.api.call("POST", "collaboration/publications/source-metadata", { json }));
+                for (const key of outcome.applied) {
+                  const control = sourceList.querySelector(`#${prefix}-${key}`);
+                  if (control) control.value = source[key];
+                }
+                if (outcome.applied.length) markDirty();
+                lookupStatus.textContent = outcome.message;
+                lookup.disabled = false;
+              },
+            },
+            "Suggest details from link",
+          );
           const remove = sources.length > 1
             ? h(
                 "button",
@@ -2777,6 +2847,7 @@ export class ObAdmin extends AdminElement {
               field(`${prefix}-published`, "Published (optional)", bind(text(source.published, { placeholder: "e.g. 2019" }), "published"), "A year or date, written however you like."),
               isbnField,
             ),
+            h("div", { class: "oba-toolbar" }, lookup, lookupStatus),
             remove,
           );
         }),

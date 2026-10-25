@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added an optional **Suggest details from link** button to each source in a shared reflection.
+  For YouTube and CodePen links, the same providers the embed renderer supports, Admin Studio asks
+  the provider's oEmbed service for a title and creator and fills only fields you left empty,
+  telling you what it filled. It never fetches transcripts or pages, refuses redirects and
+  non-public addresses, and gives up after six seconds. A timeout, refusal, missing details, or an
+  unsupported link changes nothing and never blocks saving. Nothing is stored until you create the
+  reflection.
 - Added a versioned, group-safe collaboration contract in `openblog-core` with ordered
   participant, contribution, reveal, layout, and approval collections, explicit size limits, a
   derived two-person projection, revision-checked replacement, and one non-identifying error for

@@ -384,7 +384,11 @@ workspace for it). The form asks, in plain words:
    link if there is one; a book, a talk you attended, or a conversation can be left without a
    link. You can add who made it, the publisher, a year or date, and an ISBN for a book. Use
    **Add another source** to list up to 20 sources in the order you want; at 20 the button is
-   turned off and the form says why.
+   turned off and the form says why. With a YouTube or CodePen link, **Suggest details from
+   link** can fill in a title, who made it, and the publisher. It only fills fields you left
+   empty, says what it filled so you can check it, and never asks for a transcript. If the
+   provider is slow, refuses, or has nothing, or the link is from another site, the form tells
+   you and nothing changes; type the details yourself.
 2. **Your reflection.** Give a working title, a guiding question that each writer answers in
    their own words, or both.
 3. **You will appear as.** Choose your entry from the contributor registry. If you are not in

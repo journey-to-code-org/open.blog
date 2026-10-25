@@ -63,6 +63,27 @@ Contributors editor refuses to remove a registry key that a record binds. Hand e
 file or `openblog.json` stay outside these checks; a binding whose account or key is missing
 already grants nothing.
 
+## Optional source metadata
+
+The Admin endpoint `POST /admin/api/collaboration/publications/source-metadata` looks up a
+source link on request. It is read-only: it stores nothing and never changes a record.
+
+- Only links that `openblog_core::embed::detect` recognises (YouTube, CodePen) are looked up. The
+  request goes to the provider's fixed oEmbed address with the canonical link rebuilt by the
+  embed renderer, never the pasted text, so a link cannot choose the host.
+- It uses the shared public-address HTTP client with no redirects, one 6-second deadline, no
+  compression, and a 16 KiB response limit. A redirect, private address, wrong content type, bad
+  JSON, or odd shape is "unavailable".
+- Only `title` and `author_name` are read, reduced to one line of plain text within the
+  existing field limits, plus the provider's name as publisher. HTML, thumbnails, captions, and
+  transcripts are never requested or returned.
+- The response is always HTTP 200 with `found`, `unavailable`, or `unsupported`, plus the embed
+  link when recognised, so a provider outage never blocks authoring. Suggestions carry
+  `provenance: "provider"`.
+- The form applies a suggestion only to fields that are empty after trimming. Values the author
+  typed are never replaced, and the saved record keeps `provenance: "author"` because the author
+  reviewed and kept every value. Embed discovery itself needs no network and works offline.
+
 ## Consequences
 
 - The canonical Post format, existing drafts, credits, builds, and feeds are unchanged, and a

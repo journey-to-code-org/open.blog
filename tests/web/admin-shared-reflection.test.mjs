@@ -4,6 +4,8 @@ import test from "node:test";
 
 import {
   MAX_SHARED_SOURCES,
+  applySourceSuggestion,
+  lookupSourceDetails,
   SHARED_SOURCE_KINDS,
   contributorSaveRefusalDetail,
   emptySharedSource,
@@ -260,4 +262,50 @@ test("a refused Contributors save names the blocking posts or registry keys", ()
   assert.equal(contributorSaveRefusalDetail({ error: "x" }), "");
   assert.equal(contributorSaveRefusalDetail(undefined), "");
   assert.equal(contributorSaveRefusalDetail({ contributors: [1, "", "ada"] }), " ada");
+});
+
+const suggestion = { provider: "youtube", provenance: "provider", title: "Remote title", creator: "Remote channel", publisher: "YouTube" };
+
+test("provider suggestions fill only empty fields and never replace what the author typed", () => {
+  const source = { ...emptySharedSource("video"), url: "https://youtu.be/dQw4w9WgXcQ", title: "My own title", creator: "   " };
+  assert.deepEqual(applySourceSuggestion(source, suggestion), ["creator", "publisher"]);
+  assert.equal(source.title, "My own title");
+  assert.equal(source.creator, "Remote channel");
+  assert.equal(source.publisher, "YouTube");
+  // A second lookup changes nothing, and unlabelled data is ignored.
+  assert.deepEqual(applySourceSuggestion(source, { ...suggestion, creator: "Other" }), []);
+  assert.deepEqual(applySourceSuggestion(emptySharedSource(), { title: "x" }), []);
+  assert.deepEqual(applySourceSuggestion(emptySharedSource(), { ...suggestion, title: 7 }).includes("title"), false);
+});
+
+test("a failed, refused, or unsupported lookup never blocks authoring or edits the source", async () => {
+  const make = () => ({ ...emptySharedSource("video"), url: "https://youtu.be/dQw4w9WgXcQ", title: "Keep me" });
+  for (const call of [
+    async () => { throw new Error("offline"); },
+    async () => ({ status: "unavailable", message: "The provider took too long to answer." }),
+    async () => ({ status: "unsupported" }),
+    async () => null,
+  ]) {
+    const source = make();
+    const outcome = await lookupSourceDetails(source, call);
+    assert.deepEqual(outcome.applied, []);
+    assert.ok(outcome.message.length > 10);
+    assert.deepEqual(source, make());
+  }
+  const none = await lookupSourceDetails(emptySharedSource(), async () => assert.fail("no link, no request"));
+  assert.match(none.message, /Paste a link/);
+  const found = make();
+  const outcome = await lookupSourceDetails(found, async (body) => {
+    assert.deepEqual(body, { url: "https://youtu.be/dQw4w9WgXcQ" });
+    return { status: "found", suggestion };
+  });
+  assert.deepEqual(outcome.applied, ["creator", "publisher"]);
+  assert.match(outcome.message, /Suggested by YouTube/);
+  assert.equal(found.title, "Keep me");
+});
+
+test("the form offers the optional lookup and shows its outcome politely", () => {
+  assert.match(admin, /Suggest details from link/);
+  assert.match(admin, /collaboration\/publications\/source-metadata/);
+  assert.match(admin, /lookup-status[\s\S]{0,120}aria-live/);
 });
