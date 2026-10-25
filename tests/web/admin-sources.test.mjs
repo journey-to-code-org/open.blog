@@ -13,7 +13,10 @@ import {
   sourceDiagnosticControl,
   sourceDraft,
   sourceDraftPayload,
+  sourceExportLossNotes,
   sourceFieldsForKind,
+  sourceImportRows,
+  sourceImportSummary,
   sourceRelationOptions,
   validateSourceDraft,
 } from "../../web/admin/admin.js";
@@ -496,3 +499,103 @@ test("source controls are labelled, reflow on small screens, and add no motion",
   assert.doesNotMatch(css, /transition|animation/);
   assert.match(css, /min-height: 44px/);
 });
+
+// ---------------------------------------------------------------- import and export
+
+const PLAN = (counts, entries) => ({ counts: { create: 0, update: 0, unchanged: 0, conflict: 0, ...counts }, entries, diagnostics: [] });
+const CREATE_ENTRY = { index: 0, cslId: "Plato-Republic", sourceId: "plato-republic", action: "create", changes: [], kept: [], unsupported: [{ field: "note", reason: "private notes and abstracts are never imported" }], diagnostics: [] };
+
+test("import previews are summarised with kept and unsupported fields and every conflict", () => {
+  assert.equal(sourceImportSummary(PLAN({ create: 2, update: 1, conflict: 1 })), "2 new, 1 updated, 1 in conflict");
+  assert.equal(sourceImportSummary(PLAN({})), "Nothing to import");
+  const rows = sourceImportRows(PLAN({ create: 1, update: 1, conflict: 2 }, [
+    CREATE_ENTRY,
+    { index: 1, cslId: "x", sourceId: "x", action: "update", changes: [{ field: "title" }], kept: ["of", "creators"], unsupported: [], diagnostics: [] },
+    { index: 2, cslId: null, sourceId: null, action: "conflict", changes: [], kept: [], unsupported: [], diagnostics: [{ field: "id", message: "every item needs a non-empty `id`" }] },
+    { index: 3, cslId: "Π", sourceId: "csl-0123", action: "conflict", changes: [], kept: [], unsupported: [], diagnostics: [{ message: "shares an identifier" }] },
+  ]));
+  assert.deepEqual(rows[0], { action: "create", label: "New", name: "plato-republic (from Plato-Republic)", details: ["Not imported: note (private notes and abstracts are never imported)"] });
+  assert.deepEqual(rows[1].details, ["Changes title", "Keeps of, creators as they are"]);
+  assert.deepEqual([rows[2].name, rows[2].details], ["Item 3", ["id: every item needs a non-empty `id`"]]);
+  assert.equal(rows[3].name, "csl-0123 (from Π)");
+  assert.deepEqual(sourceExportLossNotes([{ sourceId: "a", field: "kind" }, { sourceId: "a", field: "of" }, { sourceId: "b", field: "location" }, { sourceId: "a", field: "kind" }]), ["a: kind, of", "b: location"]);
+  assert.deepEqual(sourceExportLossNotes(undefined), []);
+});
+
+test("an import is previewed first, applies only the previewed text, and reports conflicts without saving", withDom(async () => {
+  const csl = '[{"id":"Plato-Republic","title":"<b>Πολιτεία</b>"}]';
+  const plan = PLAN({ create: 1 }, [CREATE_ENTRY]);
+  const api = sourceApi({
+    "GET sources": () => listing(),
+    "POST sources/import": (body) => {
+      if (body.content.includes("bad")) throw new ApiError("conflict", 422, { diagnostics: [{ sourceId: "bad", field: "identifiers[0]", message: "must be an absolute HTTP(S) URL" }], plan: PLAN({ conflict: 1 }, [{ ...CREATE_ENTRY, action: "conflict", sourceId: "bad", cslId: "bad", unsupported: [], diagnostics: [{ field: "identifiers[0]", message: "must be an absolute HTTP(S) URL" }] }]) });
+      if (body.revision === "stale") throw new ApiError("changed", 409, { conflict: true });
+      return body.apply
+        ? { revision: "r2", applied: true, applicable: true, plan, sources: [...LIBRARY(), { id: "plato-republic-2", kind: "work", title: "Imported" }] }
+        : { revision: body.revision, applied: false, applicable: true, plan };
+    },
+  });
+  const { app, root } = mountSources(api);
+  await app.showSources();
+  const text = byId(root, "oba-source-import-text");
+  const applyButton = buttonLabelled(root, "Apply import");
+  assert.equal(applyButton.hidden, true, "nothing can be applied before a preview");
+  assert.ok(root.querySelectorAll("label").some((label) => label.attributes.for === "oba-source-import-text"));
+  assert.ok(root.querySelectorAll("label").some((label) => label.attributes.for === "oba-source-import-file"));
+
+  await buttonLabelled(root, "Preview import").click();
+  assert.match(root.textContent, /Paste CSL JSON or choose a file first/);
+  assert.equal(document.activeElement, text);
+
+  text.value = csl;
+  await buttonLabelled(root, "Preview import").click();
+  assert.deepEqual(api.calls[0], { method: "POST", path: "sources/import", body: { revision: "r1", content: csl, apply: false } });
+  assert.match(byId(root, "oba-source-import-result").textContent, /Preview: 1 new\. Nothing has been saved\./);
+  assert.match(byId(root, "oba-source-import-result").textContent, /Not imported: note/);
+  assert.equal(applyButton.hidden, false);
+  assert.equal(document.activeElement, byId(root, "oba-source-import-result"), "focus moves to the preview");
+
+  // Editing the text invalidates the preview.
+  await type(text, csl.replace("Πολιτεία", "Other"));
+  assert.equal(applyButton.hidden, true);
+  await buttonLabelled(root, "Preview import").click();
+  await applyButton.click();
+  assert.equal(api.calls.at(-1).body.apply, true);
+  assert.equal(api.calls.at(-1).body.revision, "r1");
+  assert.match(byId(root, "oba-source-import-result").textContent, /Imported: 1 new\./);
+  assert.ok(itemFor(root, "plato-republic-2"), "the list shows the imported source");
+  assert.equal(applyButton.hidden, true);
+
+  // A conflict is shown per item and offers no way to apply.
+  await type(text, '[{"id":"bad"}]');
+  await buttonLabelled(root, "Preview import").click();
+  assert.match(byId(root, "oba-source-import-result").textContent, /Conflict: bad/);
+  assert.match(byId(root, "oba-source-import-result").textContent, /identifiers\[0\]: must be an absolute HTTP\(S\) URL/);
+  assert.equal(applyButton.hidden, true);
+  assert.match(root.textContent, /Nothing was saved/);
+}));
+
+test("exports download the file and name what the format could not carry", withDom(async () => {
+  const downloads = [];
+  const previous = { URL: globalThis.URL, Blob: globalThis.Blob };
+  globalThis.URL = Object.assign(function URLShim() {}, { createObjectURL: (blob) => (downloads.push(blob), "blob:test"), revokeObjectURL() {} });
+  globalThis.Blob = class { constructor(parts, options) { this.text = parts.join(""); this.type = options.type; } };
+  try {
+    const api = sourceApi({
+      "GET sources": () => listing(),
+      "GET sources/export?format=bibtex": () => ({ filename: "open-blog-sources.bib", mediaType: "application/x-bibtex", count: 4, content: "@misc{a,\n}\n", losses: [{ sourceId: "slings-2003", field: "kind" }, { sourceId: "slings-2003", field: "of" }] }),
+      "GET sources/export?format=csl-json": () => { throw new ApiError("damaged", 422, { diagnostics: [{ sourceId: "w", field: "title", message: "is required" }] }); },
+    });
+    const { app, root } = mountSources(api);
+    await app.showSources();
+    await buttonLabelled(root, "Export BibTeX").click();
+    assert.equal(downloads[0].text, "@misc{a,\n}\n");
+    assert.match(downloads[0].type, /^application\/x-bibtex;charset=utf-8$/);
+    assert.match(root.textContent, /Exported 4 sources as open-blog-sources\.bib\. This format cannot carry: slings-2003: kind, of\./);
+    await buttonLabelled(root, "Export CSL JSON").click();
+    assert.equal(downloads.length, 1, "a failed export downloads nothing");
+    assert.match(root.textContent, /title: is required/);
+  } finally {
+    Object.assign(globalThis, previous);
+  }
+}));

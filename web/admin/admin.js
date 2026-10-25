@@ -636,6 +636,41 @@ export function sourceErrorMessage(error) {
   return diagnostics.map((item) => `${item.field ? `${item.field}: ` : ""}${item.message}`).join(" ");
 }
 
+const SOURCE_IMPORT_LABELS = Object.freeze({ create: "New", update: "Update", unchanged: "Unchanged", conflict: "Conflict" });
+
+/** One line saying what an import preview would do. */
+export function sourceImportSummary(plan) {
+  const counts = plan?.counts || {};
+  const parts = [[counts.create, "new"], [counts.update, "updated"], [counts.unchanged, "unchanged"], [counts.conflict, "in conflict"]]
+    .filter(([number]) => number > 0)
+    .map(([number, label]) => `${number} ${label}`);
+  return parts.length ? parts.join(", ") : "Nothing to import";
+}
+
+/** Preview rows: what happens to each item, what is kept, and what is not imported. */
+export function sourceImportRows(plan) {
+  return (Array.isArray(plan?.entries) ? plan.entries : []).map((entry) => {
+    const details = [];
+    for (const change of Array.isArray(entry.changes) ? entry.changes : []) details.push(`Changes ${change.field}`);
+    if (Array.isArray(entry.kept) && entry.kept.length) details.push(`Keeps ${entry.kept.join(", ")} as they are`);
+    for (const loss of Array.isArray(entry.unsupported) ? entry.unsupported : []) details.push(`Not imported: ${loss.field} (${loss.reason})`);
+    for (const diagnostic of Array.isArray(entry.diagnostics) ? entry.diagnostics : []) details.push(`${diagnostic.field ? `${diagnostic.field}: ` : ""}${diagnostic.message}`);
+    const id = entry.sourceId || "";
+    const name = id ? (entry.cslId && entry.cslId !== id ? `${id} (from ${entry.cslId})` : id) : `Item ${Number(entry.index) + 1}`;
+    return { action: entry.action, label: SOURCE_IMPORT_LABELS[entry.action] || "Item", name, details };
+  });
+}
+
+/** What an export could not carry, as one note per source. */
+export function sourceExportLossNotes(losses) {
+  const bySource = new Map();
+  for (const loss of Array.isArray(losses) ? losses : []) {
+    if (!bySource.has(loss.sourceId)) bySource.set(loss.sourceId, new Set());
+    bySource.get(loss.sourceId).add(loss.field);
+  }
+  return [...bySource].map(([id, fields]) => `${id}: ${[...fields].join(", ")}`);
+}
+
 export function previewWarningsForDisplay(warnings) {
   return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
 }
@@ -3020,6 +3055,128 @@ export class ObAdmin extends AdminElement {
     });
     newButton.addEventListener("click", () => open("new"));
 
+    // ---- import and export (CSL JSON, BibTeX)
+    const importText = h("textarea", { id: "oba-source-import-text", rows: "6", spellcheck: "false", autocomplete: "off" });
+    const importFile = h("input", { id: "oba-source-import-file", type: "file", accept: ".json,application/json" });
+    const previewButton = h("button", { class: "oba-btn", type: "button" }, "Preview import");
+    const applyButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", hidden: true }, "Apply import");
+    const importResult = h("div", { class: "oba-source-import-result", id: "oba-source-import-result", tabindex: "-1" });
+    const interchangeStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    let previewedText = null;
+    const showImportPlan = (plan, headline) => {
+      const rows = sourceImportRows(plan);
+      importResult.replaceChildren(
+        h("p", {}, headline || `Preview: ${sourceImportSummary(plan)}. Nothing has been saved.`),
+        rows.length
+          ? h("ul", { class: "oba-source-import-list" }, rows.map((row) => h("li", { "data-import-action": row.action }, h("strong", {}, `${row.label}: ${row.name}`), row.details.length ? h("ul", {}, row.details.map((detail) => h("li", {}, detail))) : null)))
+          : null,
+      );
+    };
+    const runImport = async (apply) => {
+      const text = importText.value;
+      if (!text.trim()) {
+        interchangeStatus.className = "oba-error";
+        interchangeStatus.textContent = "Paste CSL JSON or choose a file first.";
+        importText.focus();
+        return;
+      }
+      previewButton.disabled = applyButton.disabled = true;
+      try {
+        const result = await this.api.call("POST", "sources/import", { json: { revision, content: text, apply } });
+        revision = result.revision;
+        interchangeStatus.className = "oba-small";
+        if (apply && result.applied) {
+          sources = result.sources;
+          previewedText = null;
+          applyButton.hidden = true;
+          renderList();
+          showImportPlan(result.plan, `Imported: ${sourceImportSummary(result.plan)}.`);
+          interchangeStatus.textContent = "Import saved.";
+        } else {
+          const changes = result.plan.counts.create + result.plan.counts.update > 0;
+          previewedText = result.applicable && changes ? text : null;
+          applyButton.hidden = !previewedText;
+          showImportPlan(result.plan);
+          interchangeStatus.textContent = !result.applicable ? "Resolve the conflicts before importing; nothing was saved." : changes ? "Review the preview, then apply the import." : "Everything is already up to date.";
+        }
+        importResult.focus();
+      } catch (error) {
+        previewedText = null;
+        applyButton.hidden = true;
+        interchangeStatus.className = "oba-error";
+        if (error?.data?.plan) showImportPlan(error.data.plan, "The import was not applied. Nothing was saved.");
+        else importResult.replaceChildren();
+        interchangeStatus.textContent = error?.status === 409 ? "The library changed since it was read. Reload this view and preview again." : sourceErrorMessage(error);
+      } finally {
+        previewButton.disabled = applyButton.disabled = false;
+      }
+    };
+    previewButton.addEventListener("click", () => runImport(false));
+    applyButton.addEventListener("click", () => {
+      // Only the text that was previewed can be applied.
+      if (previewedText === null || previewedText !== importText.value) {
+        applyButton.hidden = true;
+        interchangeStatus.textContent = "The text changed after the preview. Preview it again.";
+        return;
+      }
+      runImport(true);
+    });
+    importText.addEventListener("input", () => {
+      previewedText = null;
+      applyButton.hidden = true;
+    });
+    importFile.addEventListener("change", async () => {
+      const file = importFile.files?.[0];
+      if (!file) return;
+      try {
+        importText.value = await file.text();
+        previewedText = null;
+        applyButton.hidden = true;
+        interchangeStatus.className = "oba-small";
+        interchangeStatus.textContent = `Loaded ${file.name}. Preview it before importing.`;
+      } catch {
+        interchangeStatus.className = "oba-error";
+        interchangeStatus.textContent = "That file could not be read.";
+      }
+    });
+    const exportAs = async (format) => {
+      try {
+        const result = await this.api.call("GET", `sources/export?format=${format}`);
+        const url = URL.createObjectURL(new Blob([result.content], { type: `${result.mediaType};charset=utf-8` }));
+        try {
+          const link = h("a", { href: url, download: result.filename });
+          document.body.append(link);
+          link.click();
+          link.remove();
+        } finally {
+          setTimeout(() => URL.revokeObjectURL(url), 0);
+        }
+        const notes = sourceExportLossNotes(result.losses);
+        interchangeStatus.className = "oba-small";
+        interchangeStatus.textContent = `Exported ${result.count} sources as ${result.filename}.${notes.length ? ` This format cannot carry: ${notes.join("; ")}.` : ""}`;
+      } catch (error) {
+        interchangeStatus.className = "oba-error";
+        interchangeStatus.textContent = sourceErrorMessage(error);
+      }
+    };
+    const exportCsl = h("button", { class: "oba-btn", type: "button" }, "Export CSL JSON");
+    const exportBibtex = h("button", { class: "oba-btn", type: "button" }, "Export BibTeX");
+    exportCsl.addEventListener("click", () => exportAs("csl-json"));
+    exportBibtex.addEventListener("click", () => exportAs("bibtex"));
+    const interchange = h(
+      "details",
+      { class: "oba-source-interchange" },
+      h("summary", {}, "Import and export"),
+      h("p", { class: "oba-small" }, "Import CSL JSON (for example from Zotero) after a preview. Importing adds and updates sources but never removes anything, keeps richer details you already recorded, and lists every field it cannot store. Private notes and abstracts are never imported."),
+      h("div", { class: "oba-field" }, h("label", { for: "oba-source-import-file" }, "CSL JSON file"), importFile),
+      h("div", { class: "oba-field" }, h("label", { for: "oba-source-import-text" }, "Or paste CSL JSON"), importText),
+      h("div", { class: "oba-toolbar" }, previewButton, applyButton),
+      importResult,
+      h("div", { class: "oba-toolbar" }, exportCsl, exportBibtex),
+      interchangeStatus,
+    );
+
+
     renderList();
     renderPanel();
     this.mount(
@@ -3036,6 +3193,7 @@ export class ObAdmin extends AdminElement {
         ),
         count,
         status,
+        interchange,
         h("div", { class: "oba-source-layout" }, h("nav", { "aria-label": "Sources" }, list), panel),
       ),
     );
