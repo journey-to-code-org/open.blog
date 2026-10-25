@@ -1,5 +1,5 @@
 //! A shared reflection joins an ordinary series through the existing `series` and `seriesOrder`
-//! front matter, with the placement approved like any other public metadata (ADR 0036).
+//! front matter, with the placement approved like any other public metadata (ADR 0038).
 
 use openblog_core::approval::ApprovalSet;
 use openblog_core::assembly::{assemble, with_subject, Assembly, AssemblyError};

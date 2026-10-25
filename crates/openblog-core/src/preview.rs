@@ -411,7 +411,7 @@ fn document(
     if let Some(attribution) = SharedAttribution::from_record(record) {
         html.push_str(&attribution.html());
     }
-    // The placement is public and bound into every approval (ADR 0036), so it is shown here.
+    // The placement is public and bound into every approval (ADR 0038), so it is shown here.
     if let Some(placement) = &record.series {
         html.push_str(&format!(
             "<p class=\"ob-preview-series\"><strong>Series:</strong> {}</p>\n",

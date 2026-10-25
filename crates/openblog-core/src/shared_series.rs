@@ -1,4 +1,4 @@
-//! A shared reflection's place in a series (ADR 0036).
+//! A shared reflection's place in a series (ADR 0038).
 //!
 //! There is no collaborative-series entity. A placement is the two front matter values an
 //! ordinary Post already uses, `series` and `seriesOrder`, so title, description, theme, cover,
@@ -110,9 +110,9 @@ impl SharedPublication {
     }
 
     /// Set, change or remove the placement as `admin_user`, against the placement revision they
-    /// read (ADR 0037). Only a holder of [`AuthorizationAction::PlaceInSeries`] may do it. A
+    /// read (ADR 0039). Only a holder of [`AuthorizationAction::PlaceInSeries`] may do it. A
     /// request that changes nothing returns the record unchanged, with the same revision. The
-    /// caller stores the result and reconciles approvals in the same write (ADR 0036).
+    /// caller stores the result and reconciles approvals in the same write (ADR 0038).
     pub fn place_in_series(
         &self,
         admin_user: &str,
@@ -148,7 +148,7 @@ pub(crate) fn is_zero(value: &u64) -> bool {
     *value == 0
 }
 
-/// Why a placement change was refused (ADR 0037). None of them repeats a value.
+/// Why a placement change was refused (ADR 0039). None of them repeats a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlacementError {
     /// The requester may not arrange this publication. Callers answer it exactly as they answer
@@ -279,7 +279,7 @@ pub enum DefinitionError {
     Premise,
 }
 
-/// A new `content/series/<slug>.md`, written by a site owner (ADR 0037).
+/// A new `content/series/<slug>.md`, written by a site owner (ADR 0039).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SeriesDefinition {
     pub slug: String,

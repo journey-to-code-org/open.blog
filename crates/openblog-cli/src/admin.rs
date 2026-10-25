@@ -7610,7 +7610,7 @@ fn set_reveal_ready(state: &AppState, req: &Request, session: &auth::Session) ->
 }
 
 // ---------------------------------------------------------------------------
-// Series placement (ADR 0036, ADR 0037)
+// Series placement (ADR 0038, ADR 0039)
 // ---------------------------------------------------------------------------
 
 /// Every refusal to read or arrange a publication's series, whatever the reason.
@@ -7775,7 +7775,7 @@ fn read_series(state: &AppState, req: &Request, session: &auth::Session) -> Resp
 
 /// A site owner or coordinator sets, changes or removes the placement against the revision they
 /// read. The placement is public output bound into every approval, so approvals are reconciled
-/// in the same write (ADR 0036). A refused change stores nothing.
+/// in the same write (ADR 0038). A refused change stores nothing.
 fn set_series(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     use openblog_core::shared_series::{PlacementError, SeriesPlacement};
     if let Err(response) = require_json(req) {
@@ -20258,7 +20258,7 @@ mod tests {
         assert!(body_json(&gone)["items"].as_array().unwrap().is_empty());
     }
 
-    // ---- Series placement (ADR 0036, ADR 0037) ----
+    // ---- Series placement (ADR 0038, ADR 0039) ----
 
     fn series_read(f: &Fixture, who: &(String, String), query: &str) -> Response {
         handle(

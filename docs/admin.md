@@ -456,7 +456,7 @@ next to the current one and you can save again. Site owners can also **Add a new
 name and a one-line recurring premise; it is an ordinary series file, not shown to readers until a
 part is published, and other details stay in the Series editor. Once the reflection is published,
 its series is changed in the post like any other. The design is recorded in
-[ADR 0037](adr/0037-arranging-a-shared-reflections-series-in-admin.md).
+[ADR 0039](adr/0039-arranging-a-shared-reflections-series-in-admin.md).
 
 ## Scheduling
 

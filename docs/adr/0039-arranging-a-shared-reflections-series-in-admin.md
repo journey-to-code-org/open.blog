@@ -1,4 +1,4 @@
-# ADR 0037: Arranging a shared reflection's series in Admin
+# ADR 0039: Arranging a shared reflection's series in Admin
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -8,7 +8,7 @@
 
 ## Context
 
-[ADR 0036](0036-shared-publications-join-the-existing-series.md) gave a shared publication an
+[ADR 0038](0038-shared-publications-join-the-existing-series.md) gave a shared publication an
 optional series placement that is bound into every approval, but nothing in Admin could set it.
 Coordinators need to choose or start a series, describe its recurring premise, assign the piece and
 see the reading order, without a second series concept and without letting any participant change

@@ -174,13 +174,13 @@ pub enum AuthorizationAction {
     /// Export the published projection, never private collaboration state. Targets the
     /// publication.
     Export,
-    /// Set, change or remove the publication's series placement (ADR 0036, ADR 0037). Targets
+    /// Set, change or remove the publication's series placement (ADR 0038, ADR 0039). Targets
     /// the publication. An arrangement decision, so Site owners and Coordinators hold it and
     /// participants do not; authors consent to the placement through approval.
     PlaceInSeries,
     /// Create a new series definition (`content/series/<slug>.md`: name and premise) from this
     /// publication's Admin view. Targets the publication. Series are site-owned, so only Site
-    /// owners hold it (ADR 0037).
+    /// owners hold it (ADR 0039).
     CreateSeries,
 }
 
@@ -740,10 +740,10 @@ pub struct SharedPublication {
     /// participant, the binding, and the invitation outcome in one atomic write.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invitations: Vec<crate::invitation::Invitation>,
-    /// The ordinary series this publication joins (ADR 0036). Absent for every legacy record.
+    /// The ordinary series this publication joins (ADR 0038). Absent for every legacy record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub series: Option<crate::shared_series::SeriesPlacement>,
-    /// Counts placement changes, so a change made against an older read is refused (ADR 0037).
+    /// Counts placement changes, so a change made against an older read is refused (ADR 0039).
     /// Zero, and absent from the file, until the first change.
     #[serde(default, skip_serializing_if = "crate::shared_series::is_zero")]
     pub series_revision: u64,

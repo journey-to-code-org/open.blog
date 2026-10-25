@@ -433,7 +433,7 @@ pub fn assemble(
         }
     }
     // The ordinary series front matter: the site's own series definition supplies the title,
-    // description, theme and navigation (ADR 0036). Approved with the rest (`public_metadata`).
+    // description, theme and navigation (ADR 0038). Approved with the rest (`public_metadata`).
     if let Some(placement) = &record.series {
         placement.validate().map_err(|_| AssemblyError::Invalid)?;
         fields.insert(SERIES_KEY.into(), scalar(&placement.series));

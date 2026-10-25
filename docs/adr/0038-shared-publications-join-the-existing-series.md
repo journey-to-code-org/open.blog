@@ -1,4 +1,4 @@
-# ADR 0036: Shared publications join the existing series
+# ADR 0038: Shared publications join the existing series
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -52,9 +52,9 @@ second concept, and what authors must approve when it does.
 - `SharedPublication::with_series` returns a new record or an error, so a refused change leaves
   the stored record, content and output unchanged. The route that sets it must call
   `ApprovalSet::reconcile` in the same write, as other metadata changes do; the Admin route and
-  screen are [ADR 0037](0037-arranging-a-shared-reflections-series-in-admin.md).
+  screen are [ADR 0039](0039-arranging-a-shared-reflections-series-in-admin.md).
 
 ## Consequences
 
 - Named built-in series templates remain out of scope.
-- The Admin control for choosing the series, and who may use it, is [ADR 0037](0037-arranging-a-shared-reflections-series-in-admin.md).
+- The Admin control for choosing the series, and who may use it, is [ADR 0039](0039-arranging-a-shared-reflections-series-in-admin.md).

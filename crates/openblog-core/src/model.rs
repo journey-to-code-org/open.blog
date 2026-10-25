@@ -617,7 +617,7 @@ impl Site {
     }
 
     /// Everyone credited as an author on any published part of the series, once each, in the
-    /// order they first appear reading the series from its first part (ADR 0036). Derived from
+    /// order they first appear reading the series from its first part (ADR 0038). Derived from
     /// the posts' resolved work credits at read time and never stored, so a changed credit
     /// changes the answer and a removed one cannot linger. Secondary contributors are not
     /// included.

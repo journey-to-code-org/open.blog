@@ -1,5 +1,5 @@
 //! Setting a shared reflection's series placement from Admin, previewing the reading order and
-//! creating a series definition (ADR 0037).
+//! creating a series definition (ADR 0039).
 
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
