@@ -1426,6 +1426,72 @@ export function draftFailure(error) {
   return { kind: "other", message: text || "That did not work. Your text is still here; try again." };
 }
 
+// ---------------------------------------------------------------- shared synthesis (continuing conversation)
+
+/** The kinds of synthesis item, each with an optional prompt the author may use, edit or ignore. */
+export const SYNTHESIS_KINDS = Object.freeze([
+  { value: "agreement", label: "Agreement", prompt: "Where did we land in the same place?" },
+  { value: "difference", label: "Difference", prompt: "Where do we see it differently, and why?" },
+  { value: "question", label: "Question", prompt: "What are we still wondering about?" },
+  { value: "application", label: "Application", prompt: "What could a reader try or do with this?" },
+  { value: "uncertainty", label: "Uncertainty", prompt: "What are we not sure about?" },
+]);
+
+export function synthesisKindLabel(kind) {
+  return SYNTHESIS_KINDS.find((item) => item.value === kind)?.label || "Item";
+}
+
+const nameList = (people) => (people || []).map((person) => person.displayName || "A participant").join(", ");
+
+/** One item as words: its kind, who it speaks for, who approved it and who is still awaited. */
+export function synthesisItemText(item) {
+  const speaking = nameList(item?.contributors) || "no one";
+  const approved = nameList(item?.approved) || "no one yet";
+  const awaiting = (item?.awaiting || []).length ? nameList(item.awaiting) : "no one";
+  return `${synthesisKindLabel(item?.kind)}, speaking for ${speaking}. Approved by: ${approved}. Awaiting: ${awaiting}.`;
+}
+
+/** The new order of item ids after moving one by `delta` places, or null when it cannot move. */
+export function moveSynthesisItem(ids, id, delta) {
+  const from = ids.indexOf(id);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= ids.length) return null;
+  const next = ids.slice();
+  next.splice(from, 1);
+  next.splice(to, 0, id);
+  return next;
+}
+
+/** Sort a failed synthesis request into what the author should be told. Their text is never lost. */
+export function synthesisFailure(error) {
+  const status = error?.status;
+  const text = error?.data?.error || error?.message || "";
+  if (!status) return { kind: "offline", message: "Could not reach the server. You may be offline. Your text is still here and has not been saved." };
+  if (status === 409) return { kind: "conflict", message: text || "The continuing conversation changed elsewhere. Reload to see the current items." };
+  if (status === 404 || status === 403) return { kind: "denied", message: "You cannot work on this continuing conversation, or your access changed. Your text is still here; copy it before reloading." };
+  if (status === 422) return { kind: "invalid", message: text || "That item could not be saved. Your text is still here." };
+  return { kind: "other", message: text || "That did not work. Your text is still here; try again." };
+}
+
+const PROMPTS_DISMISSED_KEY = "ob-admin-synthesis-prompts-dismissed";
+
+function promptsDismissed() {
+  try {
+    return globalThis.localStorage?.getItem(PROMPTS_DISMISSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberPromptsDismissed(dismissed) {
+  try {
+    if (dismissed) globalThis.localStorage?.setItem(PROMPTS_DISMISSED_KEY, "1");
+    else globalThis.localStorage?.removeItem(PROMPTS_DISMISSED_KEY);
+  } catch {
+    // Remembering is a convenience only.
+  }
+}
+
 export const REVEAL_POLICIES = Object.freeze([
   { value: "independent", label: "Independent", help: "Nobody sees anyone else's draft." },
   { value: "voluntary", label: "Voluntary", help: "Any two or more writers who offer a revision share those revisions with each other." },
@@ -1448,11 +1514,128 @@ export function previewSectionText(section) {
   return `${name}: ${where}; ${approval}${section?.required === false ? " (approval not required)" : ""}.`;
 }
 
+/** One synthesis item's line in the combined preview: who it speaks for and who has approved it. */
+export function previewItemText(item) {
+  const names = (list) => ((list || []).length ? list.join(", ") : "no one");
+  return `${synthesisKindLabel(item?.kind)}${item?.mine ? " (yours)" : ""}: speaks for ${names(item?.authors)}. Approved by: ${names(item?.approved)}. Awaiting: ${names(item?.awaiting)}.`;
+}
+
 /** The one-line state of the whole preview. */
 export function previewStateText(preview) {
   if (preview?.ready) return "Every required author has approved this exact piece.";
   if (preview?.complete) return "Not ready to publish: approvals are missing or out of date.";
   return "Incomplete: some sections are not shared with you at their current revision.";
+}
+
+/** The line that starts a new part of a draft (ADR 0029). It is invisible in published output. */
+export const PART_MARKER_LINE = "<!-- openblog:part -->";
+
+/** What to insert at the caret to start a new part: the marker alone on its own line. */
+export function partBreakInsertion() {
+  return `\n${PART_MARKER_LINE}\n`;
+}
+
+/** The layouts a coordinator can choose (ADR 0031). The server decides which exist. */
+export const ARRANGEMENT_LAYOUTS = Object.freeze([
+  { value: "sequential", label: "Sequential", help: "One section after another, in reading order." },
+  { value: "sideBySide", label: "Side by side", help: "Sections sit in columns on wide screens and read one after another on narrow ones." },
+  { value: "pointCounterpoint", label: "Point and counterpoint", help: "Two columns on wide screens when exactly two people take part; with three or more it reads as one column. Optional labels are yours; nothing is implied about who agrees." },
+  { value: "alternatingDialogue", label: "Alternating dialogue", help: "Turns alternate like a conversation on wide screens, switching side when the speaker changes, each under its author's name." },
+  { value: "roundtable", label: "Roundtable", help: "Turns sit in a grid that fits any number of participants and reads in the same order." },
+]);
+
+/** The longest label a turn may carry, in UTF-8 bytes like the server's limit. */
+export const TURN_LABEL_MAX_BYTES = 80;
+
+/**
+ * An editable copy of the stored arrangement, or a starting one: a single round holding the first
+ * part of everyone's draft, in participant order. Nothing here reads a draft.
+ */
+export function arrangementDraft(stored, participants) {
+  if (stored && Array.isArray(stored.rounds)) {
+    return {
+      revision: Number(stored.revision) || 0,
+      layout: stored.layout || "sequential",
+      rounds: stored.rounds.map((round) => ({
+        id: round.id,
+        prompt: round.roundPrompt || "",
+        turns: (round.turns || []).map((turn) => ({ draft: turn.draft, part: Number(turn.part) || 0, label: turn.label || "" })),
+      })),
+    };
+  }
+  return {
+    revision: 0,
+    layout: "sequential",
+    rounds: [{ id: "round-1", prompt: "", turns: (participants || []).map((person) => ({ draft: person.id, part: 0, label: "" })) }],
+  };
+}
+
+/** A new list with the item at `index` moved by `delta`; out-of-range moves change nothing. */
+export function moveItem(list, index, delta) {
+  const target = index + delta;
+  if (!Number.isInteger(index) || index < 0 || index >= list.length || target < 0 || target >= list.length) return list.slice();
+  const next = list.slice();
+  const [item] = next.splice(index, 1);
+  next.splice(target, 0, item);
+  return next;
+}
+
+/** The next round id that no round uses yet. */
+export function nextRoundId(rounds) {
+  const used = new Set(rounds.map((round) => String(round.id).toLowerCase()));
+  for (let n = rounds.length + 1; n < rounds.length + 1000; n += 1) {
+    if (!used.has(`round-${n}`)) return `round-${n}`;
+  }
+  return `round-${Date.now()}`;
+}
+
+/** The request body for saving: the edited draft as a structure one revision after the stored one. */
+export function arrangementPayload(draft) {
+  return {
+    version: 1,
+    revision: draft.revision + 1,
+    layout: draft.layout,
+    rounds: draft.rounds.map((round) => {
+      const prompt = String(round.prompt || "").trim();
+      return { id: round.id, ...(prompt ? { roundPrompt: prompt } : {}), turns: round.turns.map((turn) => {
+          const label = String(turn.label || "").trim();
+          return { draft: turn.draft, part: Number(turn.part), ...(label ? { label } : {}) };
+        }),
+      };
+    }),
+  };
+}
+
+/** A mistake in the draft the server would refuse anyway, found first so the words can be specific. */
+export function validateArrangement(draft) {
+  if (!draft.rounds.length) return "Add at least one round.";
+  const seen = new Set();
+  for (const [r, round] of draft.rounds.entries()) {
+    if (!round.turns.length) return `Round ${r + 1} has no turns. Add a turn or remove the round.`;
+    if (String(round.prompt || "").includes("\n")) return `Round ${r + 1}: keep the round prompt on one line.`;
+    for (const turn of round.turns) {
+      const part = Number(turn.part);
+      if (!Number.isInteger(part) || part < 0 || part > 999) return `Round ${r + 1}: a part is a whole number from 1 up.`;
+      const label = String(turn.label || "");
+      if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(label)) return `Round ${r + 1}: keep a turn label on one line.`;
+      if (new TextEncoder().encode(label.trim()).length > TURN_LABEL_MAX_BYTES) return `Round ${r + 1}: a turn label can be at most ${TURN_LABEL_MAX_BYTES} bytes, which is a short phrase.`;
+      const key = `${String(turn.draft).toLowerCase()}:${part}`;
+      if (seen.has(key)) return `Round ${r + 1}: each part of each draft can appear only once.`;
+      seen.add(key);
+    }
+  }
+  return "";
+}
+
+/** What went wrong saving an arrangement, in words that say nothing about anyone's draft. */
+export function arrangementFailure(error) {
+  const status = error?.status;
+  const text = error?.data?.error || error?.message || "";
+  if (!status) return { kind: "offline", message: "Could not reach the server. Your changes are still here and were not saved; try again when you are back." };
+  if (status === 409) return { kind: "conflict", message: text || "The arrangement changed elsewhere. Reload to see it; nothing was changed." };
+  if (status === 404 || status === 403) return { kind: "denied", message: "You cannot arrange this reflection, or your access changed." };
+  if (status === 422) return { kind: "invalid", message: text || "That arrangement is not valid." };
+  return { kind: "other", message: text || "That did not work. Try again." };
 }
 
 const SUGGESTED_SOURCE_FIELDS = ["title", "creator", "publisher"];
@@ -5128,6 +5311,7 @@ export class ObAdmin extends AdminElement {
     const restore = h("button", { class: "oba-btn", type: "button", hidden: true }, "Restore my earlier text");
     const prompts = h("div", { class: "oba-draft-prompts" });
     const togglePrompts = h("button", { class: "oba-btn", type: "button", "aria-pressed": "false" }, "Hide prompts");
+    const partBreak = h("button", { class: "oba-btn", type: "button" }, "Start a new part");
     const conflict = h("div", { class: "oba-draft-conflict", role: "group", "aria-labelledby": `${prefix}-conflict-heading`, hidden: true });
     const sharing = h("div", { class: "oba-draft-sharing", hidden: true });
     const editor = h("div", { class: "oba-draft-editor", hidden: true });
@@ -5178,6 +5362,14 @@ export class ObAdmin extends AdminElement {
         ),
       );
     };
+    partBreak.addEventListener("click", () => {
+      const result = insertAtSelection(text.value, text.selectionStart, text.selectionEnd, partBreakInsertion());
+      text.value = result.text;
+      text.focus();
+      text.setSelectionRange?.(result.caret, result.caret);
+      refreshState();
+      status.textContent = "A new part starts here. A coordinator can place each part in the arrangement. The marker line is never published.";
+    });
     togglePrompts.addEventListener("click", () => {
       hidePrompts = !hidePrompts;
       renderPrompts();
@@ -5289,7 +5481,7 @@ export class ObAdmin extends AdminElement {
       prompts,
       h("div", { class: "oba-field" }, h("label", { for: `${prefix}-text` }, "Your reflection (Markdown)"), text),
       state,
-      h("div", { class: "oba-toolbar" }, togglePrompts, restore, h("span", { class: "oba-spacer" }), save),
+      h("div", { class: "oba-toolbar" }, togglePrompts, partBreak, restore, h("span", { class: "oba-spacer" }), save),
     );
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -5326,7 +5518,10 @@ export class ObAdmin extends AdminElement {
       previewStatus.textContent = "Loading the preview…";
       try {
         const { preview } = await this.api.call("GET", `collaboration/preview?publicationId=${encodeURIComponent(id)}`);
-        previewList.replaceChildren(...(preview.sections || []).map((section) => h("li", {}, previewSectionText(section))));
+        previewList.replaceChildren(
+          ...(preview.sections || []).map((section) => h("li", {}, previewSectionText(section))),
+          ...(preview.items || []).map((item) => h("li", {}, previewItemText(item))),
+        );
         previewList.hidden = false;
         // No scripts, forms, popups or same-origin access: the sandbox has no allowances at all.
         previewHolder.replaceChildren(h("iframe", { class: "oba-preview oba-preview-combined", title: "Combined piece preview, not published", sandbox: "", src: preview.previewUrl }));
@@ -5349,6 +5544,187 @@ export class ObAdmin extends AdminElement {
       previewList,
       previewHolder,
     );
+
+    // ---- layout and arrangement (ADR 0031)
+    const arrangementStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const arrangementProblem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const arrangementBody = h("div", {});
+    const arrangement = h(
+      "div",
+      { class: "oba-arrangement", hidden: true },
+      h("h4", { id: `${prefix}-arrange-heading`, tabindex: "-1" }, "Layout and arrangement"),
+      h("p", { class: "oba-small" }, "The layout and the order of turns decide how readers see the approved piece. Changing either one clears approvals, so every author reads and approves again. Nothing here shows anyone's writing."),
+      arrangementStatus,
+      arrangementProblem,
+      arrangementBody,
+    );
+    let arranged = null;
+    const layoutLabel = (value) => ARRANGEMENT_LAYOUTS.find((item) => item.value === value)?.label || value;
+    const personName = (personId) => arranged.participants.find((person) => person.id === personId)?.displayName || "A participant";
+    const drawArrangement = (focusId) => {
+      const { draft, participants, canArrange } = arranged;
+      if (!canArrange) {
+        arrangementBody.replaceChildren(
+          h("p", { class: "oba-small" }, `Layout: ${layoutLabel(draft.layout)}. Only a coordinator can change it.`),
+          draft.revision
+            ? h(
+                "ol",
+                { class: "oba-member-list", "aria-label": "Rounds in reading order" },
+                draft.rounds.map((round, r) =>
+                  h("li", {}, `Round ${r + 1}${round.prompt ? `: ${round.prompt}` : ""}. `, round.turns.map((turn) => `${personName(turn.draft)}, part ${turn.part + 1}${turn.label ? ` (${turn.label})` : ""}`).join("; ") + "."),
+                ),
+              )
+            : h("p", { class: "oba-small" }, "Nothing is arranged yet. Sections publish one after another in participant order."),
+        );
+        return;
+      }
+      const redraw = (next) => {
+        drawArrangement(next);
+      };
+      const layouts = h(
+        "fieldset",
+        { class: "oba-fieldset" },
+        h("legend", {}, "Layout"),
+        ARRANGEMENT_LAYOUTS.map((item) => {
+          const radio = h("input", { type: "radio", name: `${prefix}-layout`, id: `${prefix}-layout-${item.value}`, value: item.value, checked: draft.layout === item.value, "aria-describedby": `${prefix}-layout-${item.value}-help` });
+          radio.addEventListener("change", () => {
+            draft.layout = item.value;
+          });
+          return h("div", { class: "oba-field oba-check" }, radio, " ", h("label", { for: `${prefix}-layout-${item.value}` }, item.label), h("span", { class: "oba-small", id: `${prefix}-layout-${item.value}-help` }, ` ${item.help}`));
+        }),
+      );
+      const rounds = draft.rounds.map((round, r) => {
+        const promptId = `${prefix}-round-${r}-prompt`;
+        const prompt = h("input", { type: "text", id: promptId, value: round.prompt, maxlength: "1000", autocomplete: "off" });
+        prompt.value = round.prompt;
+        prompt.addEventListener("input", () => {
+          round.prompt = prompt.value;
+        });
+        const turns = round.turns.map((turn, t) => {
+          const base = `${prefix}-round-${r}-turn-${t}`;
+          const who = h(
+            "select",
+            { id: `${base}-who` },
+            participants.map((person) => h("option", { value: person.id, selected: person.id === turn.draft }, person.displayName)),
+          );
+          who.value = turn.draft;
+          who.addEventListener("change", () => {
+            turn.draft = who.value;
+          });
+          const labelInput = h("input", { type: "text", id: `${base}-label`, value: turn.label || "", maxlength: String(TURN_LABEL_MAX_BYTES), autocomplete: "off", placeholder: "none" });
+          labelInput.value = turn.label || "";
+          labelInput.addEventListener("input", () => {
+            turn.label = labelInput.value;
+          });
+          const part = h("input", { type: "number", id: `${base}-part`, min: "1", max: "1000", step: "1", value: String(turn.part + 1), inputmode: "numeric" });
+          part.value = String(turn.part + 1);
+          part.addEventListener("input", () => {
+            turn.part = Number(part.value) - 1;
+          });
+          const label = `round ${r + 1}, turn ${t + 1}`;
+          const up = h("button", { class: "oba-btn", type: "button", "aria-label": `Move ${label} up`, disabled: t === 0 }, "Move up");
+          const down = h("button", { class: "oba-btn", type: "button", "aria-label": `Move ${label} down`, disabled: t === round.turns.length - 1 }, "Move down");
+          const remove = h("button", { class: "oba-btn", type: "button", "aria-label": `Remove ${label}` }, "Remove");
+          up.addEventListener("click", () => {
+            round.turns = moveItem(round.turns, t, -1);
+            redraw(`${prefix}-round-${r}-turn-${Math.max(0, t - 1)}-who`);
+          });
+          down.addEventListener("click", () => {
+            round.turns = moveItem(round.turns, t, 1);
+            redraw(`${prefix}-round-${r}-turn-${Math.min(round.turns.length - 1, t + 1)}-who`);
+          });
+          remove.addEventListener("click", () => {
+            round.turns.splice(t, 1);
+            redraw(`${prefix}-round-${r}-add`);
+          });
+          return h(
+            "li",
+            { class: "oba-arrangement-turn" },
+            h("label", { for: `${base}-who` }, `Turn ${t + 1}: who`),
+            " ",
+            who,
+            " ",
+            h("label", { for: `${base}-part` }, `Round ${r + 1}, turn ${t + 1}: part`),
+            " ",
+            part,
+            " ",
+            h("label", { for: `${base}-label` }, `Round ${r + 1}, turn ${t + 1}: label (optional)`),
+            " ",
+            labelInput,
+            " ",
+            up,
+            down,
+            remove,
+          );
+        });
+        const add = h("button", { class: "oba-btn", type: "button", id: `${prefix}-round-${r}-add` }, `Add a turn to round ${r + 1}`);
+        add.addEventListener("click", () => {
+          round.turns.push({ draft: participants[0]?.id || "", part: 0, label: "" });
+          redraw(`${prefix}-round-${r}-turn-${round.turns.length - 1}-who`);
+        });
+        const dropRound = h("button", { class: "oba-btn", type: "button" }, `Remove round ${r + 1}`);
+        dropRound.addEventListener("click", () => {
+          draft.rounds.splice(r, 1);
+          redraw(`${prefix}-add-round`);
+        });
+        return h(
+          "fieldset",
+          { class: "oba-fieldset" },
+          h("legend", {}, `Round ${r + 1}`),
+          h("div", { class: "oba-field" }, h("label", { for: promptId }, "Round prompt (optional, shown once before the answers)"), prompt),
+          h("ol", { "aria-label": `Turns in round ${r + 1}, in reading order` }, turns),
+          h("div", { class: "oba-toolbar" }, add, dropRound),
+        );
+      });
+      const addRound = h("button", { class: "oba-btn", type: "button", id: `${prefix}-add-round` }, "Add a round");
+      addRound.addEventListener("click", () => {
+        draft.rounds.push({ id: nextRoundId(draft.rounds), prompt: "", turns: participants.slice(0, 1).map((person) => ({ draft: person.id, part: 0 })) });
+        redraw(`${prefix}-round-${draft.rounds.length - 1}-prompt`);
+      });
+      const saveArrangement = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Save layout and arrangement");
+      saveArrangement.addEventListener("click", async () => {
+        arrangementProblem.hidden = true;
+        const mistake = validateArrangement(draft);
+        if (mistake) {
+          arrangementProblem.textContent = mistake;
+          arrangementProblem.hidden = false;
+          arrangementProblem.focus();
+          return;
+        }
+        saveArrangement.disabled = true;
+        try {
+          await this.api.call("PUT", "collaboration/reflection", { json: { publicationId: id, expectedRevision: draft.revision, structure: arrangementPayload(draft) } });
+          arrangementStatus.textContent = "Saved. Approvals that no longer matched were cleared; each author reads the combined piece and approves again.";
+          await loadArrangement();
+          arrangement.querySelector(`#${prefix}-arrange-heading`)?.focus();
+        } catch (error) {
+          const failure = arrangementFailure(error);
+          arrangementProblem.textContent = failure.message;
+          arrangementProblem.hidden = false;
+          arrangementProblem.focus();
+          if (failure.kind === "conflict" || failure.kind === "denied") await loadArrangement();
+        } finally {
+          saveArrangement.disabled = false;
+        }
+      });
+      arrangementBody.replaceChildren(layouts, ...rounds, h("div", { class: "oba-toolbar" }, addRound, h("span", { class: "oba-spacer" }), saveArrangement));
+      if (focusId) arrangementBody.querySelector(`#${focusId}`)?.focus();
+    };
+    // The arrangement loads once when the panel opens and again after its own save, conflict or
+    // denial. Other sharing refreshes (a draft save, an offer) keep the local, unsaved edits.
+    let arrangementRequested = false;
+    const loadArrangement = async () => {
+      arrangementRequested = true;
+      try {
+        const result = await this.api.call("GET", `collaboration/reflection?publicationId=${encodeURIComponent(id)}`);
+        arranged = { draft: arrangementDraft(result.structure, result.participants), participants: result.participants || [], canArrange: result.canArrange === true };
+        drawArrangement();
+        arrangement.hidden = false;
+      } catch {
+        arrangement.hidden = true;
+        arrangementRequested = false; // try again on the next refresh
+      }
+    };
 
     const renderSharing = (reveal) => {
       const policy = REVEAL_POLICIES.find((item) => item.value === reveal.policy) || REVEAL_POLICIES[0];
@@ -5420,8 +5796,12 @@ export class ObAdmin extends AdminElement {
       }
       if (reveal.slots?.length) parts.push(slots);
       if (reveal.slots?.length) parts.push(previewSection);
+      parts.push(arrangement);
+      const focused = arrangement.contains(document.activeElement) ? document.activeElement : null;
       sharing.replaceChildren(...parts);
       sharing.hidden = false;
+      if (focused?.isConnected) focused.focus();
+      if (!arrangementRequested) loadArrangement();
     };
 
     const loadSharing = async () => {
@@ -5433,7 +5813,8 @@ export class ObAdmin extends AdminElement {
     };
 
     renderPrompts();
-    const details = h("details", { class: "oba-invitations oba-draft" }, h("summary", {}, "Your draft"), heading, h("p", { class: "oba-small" }, "Only you can read this draft. Nothing here is published."), status, problem, denied, editor, sharing);
+    const synthesis = (publication.roles || []).includes("contributor") ? this.synthesisPanel(publication, index) : null;
+    const details = h("details", { class: "oba-invitations oba-draft" }, h("summary", {}, "Your draft"), heading, h("p", { class: "oba-small" }, "Only you can read this draft. Nothing here is published."), status, problem, denied, editor, sharing, synthesis?.element);
     let loaded = false;
     details.addEventListener("toggle", async () => {
       if (!details.open || loaded) return;
@@ -5453,8 +5834,260 @@ export class ObAdmin extends AdminElement {
         }
       }
       await loadSharing();
+      await synthesis?.load();
     });
     return details;
+  }
+
+  /**
+   * The continuing conversation: optional items the authors write after comparing their
+   * reflections. Items are attributed, each named author approves their own items, and nothing
+   * is required. Loads only when asked and only for a contributor of this reflection.
+   */
+  synthesisPanel(publication, index) {
+    const id = publication.publicationId;
+    const prefix = `oba-synthesis-${index}`;
+    const heading = h("h4", { id: `${prefix}-heading`, tabindex: "-1" }, "Continuing conversation");
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const list = h("ul", { class: "oba-synthesis-list", "aria-label": "Continuing conversation items" });
+    const form = h("form", { class: "oba-synthesis-form", novalidate: true, "aria-labelledby": `${prefix}-add-heading` });
+    const root = h("div", { class: "oba-synthesis", hidden: true });
+    let current = { revision: 0, items: [], authors: [], you: "" };
+    let dismissed = promptsDismissed();
+    // The item being edited survives a reload after a conflict: its id, kind, text and extra names.
+    let editing = null;
+    // The re-rendered controls, so focus can return to the one that was just used.
+    const controls = new Map();
+    // What the author typed survives a reload after a conflict: the form is rebuilt around it.
+    const typed = { kind: "agreement", text: "" };
+    let submitItem = (event) => event.preventDefault();
+    form.addEventListener("submit", (event) => submitItem(event));
+
+    const fail = (error) => {
+      const failure = synthesisFailure(error);
+      problem.textContent = failure.message;
+      problem.hidden = false;
+      problem.focus();
+      return failure;
+    };
+    const clearProblem = () => {
+      problem.hidden = true;
+      problem.textContent = "";
+    };
+    // Re-rendering drops focus, so after a change it goes to the first enabled control named, else
+    // to the panel heading (ADR 0019).
+    const focusTo = (keys) => {
+      for (const key of [keys].flat()) {
+        const control = key ? controls.get(key) : null;
+        if (control && !control.disabled) {
+          control.focus();
+          return;
+        }
+      }
+      heading.focus();
+    };
+    const send = async (change, done, focusKeys) => {
+      clearProblem();
+      try {
+        current = await this.api.call("POST", "collaboration/synthesis", { json: { publicationId: id, expectedRevision: current.revision, change } });
+        if (change.action === "edit") editing = null;
+        render();
+        status.textContent = done;
+        focusTo(focusKeys);
+        return true;
+      } catch (error) {
+        const failure = fail(error);
+        // A conflict reloads the current items around what was typed. A denial keeps the notice
+        // and the typed text visible, so nothing typed is lost.
+        if (failure.kind === "conflict") await load(false);
+        return false;
+      }
+    };
+
+    const kindSelect = (selectId, value) =>
+      h("select", { id: selectId }, SYNTHESIS_KINDS.map((kind) => h("option", { value: kind.value, selected: kind.value === value }, kind.label)));
+
+    const itemView = (item, position, total) => {
+      const textId = `${prefix}-item-${item.id}`;
+      const actions = h("div", { class: "oba-toolbar" });
+      const body = h("div", { class: "oba-synthesis-body" }, h("pre", { class: "oba-draft-revealed", tabindex: "0", "aria-label": `${synthesisKindLabel(item.kind)} text` }, item.markdown));
+      const ids = current.items.map((entry) => entry.id);
+      const move = (label, delta) => {
+        const button = h("button", { class: "oba-btn", type: "button", "aria-label": `${label}: ${synthesisKindLabel(item.kind)} item ${position + 1} of ${total}` }, label);
+        const next = moveSynthesisItem(ids, item.id, delta);
+        button.disabled = !next;
+        button.addEventListener("click", () => send({ action: "reorder", order: next }, `Moved to position ${position + 1 + delta}.`, [`${item.id}:${delta < 0 ? "up" : "down"}`, `${item.id}:${delta < 0 ? "down" : "up"}`]));
+        controls.set(`${item.id}:${delta < 0 ? "up" : "down"}`, button);
+        return button;
+      };
+      actions.append(move("Move up", -1), move("Move down", 1));
+      if (item.mine) {
+        const approve = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, item.approvedByYou ? "You approved this" : "Approve this item");
+        approve.disabled = item.approvedByYou;
+        approve.addEventListener("click", () => send({ action: "approve", id: item.id }, "You approved this item.", [`${item.id}:edit`]));
+        const edit = h("button", { class: "oba-btn", type: "button" }, "Edit");
+        const openEdit = (focusText) => {
+          const area = h("textarea", { id: `${textId}-edit`, rows: "5", "aria-label": "Edit item text" });
+          area.value = editing.markdown;
+          const kind = kindSelect(`${textId}-kind`, editing.kind);
+          const save = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Save changes");
+          const cancel = h("button", { class: "oba-btn", type: "button" }, "Cancel");
+          const others = current.authors.filter((author) => !item.contributors.some((c) => c.id === author.id));
+          const picks = others.map((author) => {
+            const box = h("input", { type: "checkbox", value: author.id });
+            box.checked = editing.added.includes(author.id);
+            box.addEventListener("change", () => {
+              editing.added = editing.added.filter((value) => value !== author.id);
+              if (box.checked) editing.added.push(author.id);
+            });
+            return h("label", { class: "oba-check" }, box, ` Also name ${author.displayName}`);
+          });
+          area.addEventListener("input", () => {
+            editing.markdown = area.value;
+          });
+          kind.addEventListener("change", () => {
+            editing.kind = kind.value;
+          });
+          save.addEventListener("click", async () => {
+            const added = picks.map((label) => label.querySelector("input")).filter((box) => box.checked).map((box) => box.value);
+            await send({ action: "edit", id: item.id, kind: kind.value, markdown: area.value, addContributors: added }, "Item saved. Everyone named must approve it again.", [`${item.id}:edit`]);
+          });
+          cancel.addEventListener("click", () => {
+            editing = null;
+            render();
+            status.textContent = "Edit cancelled. Nothing was changed.";
+            focusTo(`${item.id}:edit`);
+          });
+          body.replaceChildren(
+            h("p", { class: "oba-small" }, "Changing an item clears every approval of it, and everyone named must approve it again."),
+            h("div", { class: "oba-field" }, h("label", { for: kind.id }, "Kind"), kind),
+            h("div", { class: "oba-field" }, h("label", { for: area.id }, "Text (Markdown)"), area),
+            ...picks,
+            h("div", { class: "oba-toolbar" }, save, cancel),
+          );
+          if (focusText) area.focus();
+        };
+        edit.addEventListener("click", () => {
+          editing = { id: item.id, kind: item.kind, markdown: item.markdown, added: [] };
+          openEdit(true);
+        });
+        const withdraw = h("button", { class: "oba-btn", type: "button" }, "Take my name off");
+        withdraw.addEventListener("click", () => send({ action: "withdraw", id: item.id }, "Your name was taken off this item."));
+        actions.append(approve, edit, withdraw);
+        controls.set(`${item.id}:edit`, edit);
+        if (editing?.id === item.id) openEdit(false);
+      }
+      return h(
+        "li",
+        { class: "oba-synthesis-item" },
+        h("p", { class: "oba-small" }, `Item ${position + 1} of ${total}. ${synthesisItemText(item)}`),
+        body,
+        actions,
+      );
+    };
+
+    const renderForm = () => {
+      const kind = kindSelect(`${prefix}-kind`, typed.kind);
+      const area = h("textarea", { id: `${prefix}-text`, rows: "4", autocomplete: "off", "aria-describedby": `${prefix}-hint` });
+      area.value = typed.text;
+      area.addEventListener("input", () => {
+        typed.text = area.value;
+      });
+      const picks = current.authors
+        .filter((author) => author.id !== current.you)
+        .map((author) => h("label", { class: "oba-check" }, h("input", { type: "checkbox", value: author.id }), ` Also speaks for ${author.displayName}`));
+      const prompt = h("p", { class: "oba-small", id: `${prefix}-prompt` });
+      const usePrompt = h("button", { class: "oba-btn", type: "button" }, "Use this prompt");
+      const dismiss = h("button", { class: "oba-btn", type: "button" }, "Dismiss prompts");
+      const showPrompts = h("button", { class: "oba-btn", type: "button" }, "Show prompts");
+      const promptBox = h("div", { class: "oba-synthesis-prompt" }, prompt, usePrompt, " ", dismiss);
+      const syncPrompt = () => {
+        const kindPrompt = SYNTHESIS_KINDS.find((entry) => entry.value === kind.value)?.prompt || "";
+        prompt.textContent = `Optional prompt: ${kindPrompt}`;
+        promptBox.hidden = dismissed;
+        showPrompts.hidden = !dismissed;
+      };
+      kind.addEventListener("change", () => {
+        typed.kind = kind.value;
+        syncPrompt();
+      });
+      usePrompt.addEventListener("click", () => {
+        const kindPrompt = SYNTHESIS_KINDS.find((entry) => entry.value === kind.value)?.prompt || "";
+        area.value = area.value ? `${area.value}\n\n${kindPrompt}` : kindPrompt;
+        typed.text = area.value;
+        area.focus();
+        status.textContent = "Prompt added. You can edit or delete it.";
+      });
+      dismiss.addEventListener("click", () => {
+        dismissed = true;
+        rememberPromptsDismissed(true);
+        syncPrompt();
+        showPrompts.focus();
+        status.textContent = "Prompts dismissed.";
+      });
+      showPrompts.addEventListener("click", () => {
+        dismissed = false;
+        rememberPromptsDismissed(false);
+        syncPrompt();
+        usePrompt.focus();
+        status.textContent = "Prompts shown.";
+      });
+      const add = h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, "Add item");
+      submitItem = async (event) => {
+        event.preventDefault();
+        const others = picks.map((label) => label.querySelector("input")).filter((box) => box.checked).map((box) => box.value);
+        typed.text = area.value;
+        if (await send({ action: "add", kind: kind.value, markdown: area.value, others }, "Item added. Everyone named must approve it.")) {
+          typed.text = "";
+          const fresh = form.querySelector("textarea");
+          if (fresh) fresh.value = "";
+        }
+      };
+      form.replaceChildren(...[
+        h("h5", { id: `${prefix}-add-heading` }, "Add an item"),
+        h("p", { class: "oba-small", id: `${prefix}-hint` }, "Optional, and any length. Name the authors it speaks for; each of them must approve it before anything is published."),
+        h("div", { class: "oba-field" }, h("label", { for: kind.id }, "Kind"), kind),
+        promptBox,
+        showPrompts,
+        h("div", { class: "oba-field" }, h("label", { for: area.id }, "Text (Markdown)"), area),
+        picks.length ? h("fieldset", {}, h("legend", {}, "Who else it speaks for"), ...picks) : null,
+        add,
+      ].filter(Boolean));
+      syncPrompt();
+    };
+
+    const render = () => {
+      const items = current.items || [];
+      controls.clear();
+      if (editing && !items.some((item) => item.id === editing.id && item.mine)) editing = null;
+      list.replaceChildren(...items.map((item, position) => itemView(item, position, items.length)));
+      list.hidden = items.length === 0;
+      renderForm();
+      root.hidden = false;
+    };
+
+    const load = async (announce = true) => {
+      try {
+        current = await this.api.call("GET", `collaboration/synthesis?publicationId=${encodeURIComponent(id)}`);
+        render();
+        if (announce) status.textContent = "";
+      } catch {
+        // Never hide a panel that already shows a notice or typed text; only a first load that
+        // cannot reach the conversation leaves it out.
+        if (announce) root.hidden = true;
+      }
+    };
+
+    root.append(
+      heading,
+      h("p", { class: "oba-small" }, "After comparing your reflections you may add shared items: where you agree, differ, still wonder, or would apply it. None are required. Only the authors of this reflection can see them."),
+      status,
+      problem,
+      list,
+      form,
+    );
+    return { element: root, load };
   }
 
   /** The page an invitation link opens. The token is sent only when the person chooses. */

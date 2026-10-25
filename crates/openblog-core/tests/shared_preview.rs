@@ -26,10 +26,13 @@ fn build_with(
 ) -> Result<CombinedPreview, PreviewError> {
     openblog_core::preview::build(
         record,
+        None,
         set,
+        &openblog_core::synthesis::SynthesisSet::new(),
         approvals,
         requester,
         active,
+        true,
         config.render_options(),
     )
 }
@@ -124,6 +127,7 @@ fn approve(set: &DraftSet, approvals: &mut ApprovalSet, who: &str, authors: &[&s
         authors,
         sections: &sections,
         metadata: &metadata,
+        attributed: &[],
     };
     approvals
         .approve(who, who, &subject, &seen, true, T)

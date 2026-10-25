@@ -44,6 +44,77 @@ All notable changes to open.blog are recorded here. Releases follow
   `openblog check`, and never reaches the built site, feeds, search or exports. A source that
   a passage or note still uses can no longer be removed from the library.
 
+## [0.24.0] - 2026-10-25
+
+- A shared reflection that has both an arrangement and an approved continuing conversation
+  publishes the arranged sections in reading order and then the conversation, and every portable
+  form (Markdown, text, feeds, llms-full.txt) keeps that order. Approvals bind the arrangement and
+  the conversation together.
+- Fixed: a link with a username or password in shared prose is refused when publishing, with the
+  other unsafe links, instead of failing the whole site build. Syndication plans no longer warn
+  about literal raw HTML for a reflection's own layout markup.
+- A published shared reflection now reads the same in portable HTML, Markdown, plain text, RSS, JSON
+  Feed and llms-full.txt whichever layout it uses: each round prompt, then every turn under its
+  author's name and label, in the published order, with no styles, scripts, placeholders or markers
+  needed. Portable Markdown and text no longer show the page's layout tags as words, and
+  llms-full.txt now keeps prompts, names and labels with their words. The portable HTML check
+  reports that column and stagger placement is the one thing a portable copy does not carry.
+- Fixed: Markdown typed into a turn label, round prompt or participant name (such as
+  `[x](javascript:alert(1))`) could become a live link in the portable Markdown export and could
+  break the build. These values now stay plain text everywhere.
+- Fixed: in an alternating dialogue the side changes only when the speaker changes, so one author's
+  consecutive turns stay on the same side. Point and counterpoint uses two columns only for exactly
+  two people and one column for three or more.
+- Fixed: a last turn that ends in an indented code block is no longer refused when publishing.
+- Shared reflections can also be presented as point and counterpoint, an alternating dialogue or a
+  roundtable. A coordinator picks the layout in Admin and can give any turn an optional short label
+  (such as "Point"); no label is added for you, and no layout implies that anyone disagrees. The
+  roundtable fits any number of participants. Every turn still has its author's name as a heading,
+  the page reads in the same order without styles, and wide-screen placement falls back to one
+  column on narrow screens, at high zoom and in print. If a contribution is missing or withdrawn,
+  its turn and label disappear and the rest read as one honest column.
+- Shared reflections can now be presented sequentially or side by side. A coordinator chooses the
+  layout and the order of turns in Admin (Shared reflections, "Layout and arrangement"); writers can
+  start a new part of their draft with "Start a new part". The published page keeps one reading
+  order in the page itself, so a screen reader, print and a page without styles read it top to
+  bottom, and side by side becomes one column on narrow screens and at high zoom. Changing the
+  layout or the order makes earlier approvals stale, so every author approves what readers will
+  see. The part marker line is never shown anywhere.
+- Added the layout-independent structure of a shared reflection: rounds, round prompts and turns
+  that point at parts of each participant's draft, one deterministic reading order that shows each
+  reader only what they may read, and five layout modes over the same contributions without any
+  gendered or positional field. Nothing is presented differently yet; invalid structures are
+  refused without echoing anyone's text.
+
+## [0.23.0] - 2026-10-25
+
+- The continuing conversation travels with the piece. Full-content RSS, JSON Feed, portable
+  HTML, Markdown and text, and llms files keep its categories, attribution, order, open questions
+  and stable anchors with a canonical link, and carry no drafting or approval state. An automatic
+  summary or excerpt now stops before the conversation, and summary-only feeds export none of it.
+- Fixed: the continuing conversation's generated anchors can no longer be claimed by an author's
+  own heading, and an item's headings must start at level five and not skip a level. Item saves
+  now refuse these (and any heading above level five) up front, and a publish refusal caused by an
+  item names the item and the rule instead of blaming a section.
+- A published shared reflection now ends with a "Continuing the conversation" section holding its
+  approved agreements, differences, questions, applications and uncertainties. Items are grouped by
+  kind, each headed "Speaking for" the authors it names, with stable anchors and no consensus signal.
+  Only items every named author approved at their current text publish; an empty synthesis adds
+  nothing. The combined preview shows the same section, and item Markdown is held to the safety
+  rules of sections (no raw HTML or unsafe links, and no headings above level five). It flows into
+  RSS, JSON Feed and portable output as ordinary post content.
+- Contributors can write, attribute, edit, reorder and approve a shared reflection's continuing
+  conversation in Admin: optional agreements, differences, questions, applications and
+  uncertainties, with dismissible, editable prompts and no minimum length. Each item shows who has
+  approved it, in Admin and in the combined preview (editors and coordinators never see items). Publishing is blocked while a named author has
+  not approved the piece or any item is awaiting approval, and any change to an item makes standing
+  approvals of the piece out of date. Items stay private to the authors; nothing is published yet.
+- Shared reflections have a core model for synthesis items: optional agreements, differences,
+  questions, applications and uncertainties, each attributed to one, some or all authors. Disagreement
+  is never an error, authors can withdraw their own name, and an approval binds to the exact items,
+  order and attribution. Each item records which of its authors approved it, and any change to the
+  item clears those approvals. No Admin screen or public output uses it yet.
+
 ## [0.22.0] - 2026-10-25
 
 - Portable Markdown for a published shared reflection now escapes its title, so a participant-supplied

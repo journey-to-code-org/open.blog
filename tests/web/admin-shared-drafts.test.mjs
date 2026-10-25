@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { ObAdmin, REFLECTION_PROMPTS, draftFailure, draftStateText, insertAtSelection, previewSectionText, previewStateText, promptInsertion, revealSlotText } from "../../web/admin/admin.js";
+import { ARRANGEMENT_LAYOUTS, ObAdmin, REFLECTION_PROMPTS, SYNTHESIS_KINDS, TURN_LABEL_MAX_BYTES, arrangementDraft, arrangementFailure, arrangementPayload, draftFailure, draftStateText, insertAtSelection, moveItem, moveSynthesisItem, nextRoundId, partBreakInsertion, previewItemText, previewSectionText, previewStateText, promptInsertion, revealSlotText, synthesisFailure, synthesisItemText, validateArrangement } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");
@@ -36,9 +36,10 @@ class DomNode {
   set value(value) {
     this._value = String(value);
   }
+  // Like a browser: anything that is not a node becomes a text node of String(value), so an
+  // array shows as "[object HTMLLabelElement]" and null as "null" instead of being skipped.
   append(...children) {
-    for (const child of children.flat()) {
-      if (child === null || child === undefined || child === false) continue;
+    for (const child of children) {
       const node = child instanceof DomNode ? child : Object.assign(new DomNode("#text"), { textContent: String(child) });
       node.parent?.children.splice(node.parent.children.indexOf(node), 1);
       node.parent = this;
@@ -181,9 +182,43 @@ class FakeApiError extends Error {
 const PUBLICATION = "shared-0a1b2c3d4e5f";
 const stampOf = (number) => ({ number, contributionId: "participant-1", digest: "d" });
 
+const ME = { id: "p-me", displayName: "Mikey" };
+const OTHER = { id: "p-grace", displayName: "Grace" };
+
+/** Applies one synthesis change the way the server does: a revision check, then the change. */
+function applySynthesis(state, body) {
+  const current = state.synthesis;
+  if (body.expectedRevision !== current.revision) throw new FakeApiError("The continuing conversation changed since you read it.", 409, { error: "The continuing conversation changed since you read it." });
+  const change = body.change;
+  const items = current.items.map((item) => ({ ...item }));
+  const find = () => items.find((item) => item.id === change.id);
+  const who = (id) => [ME, OTHER].find((person) => person.id === id);
+  if (change.action === "add") {
+    if (!change.markdown.trim()) throw new FakeApiError("empty", 422, { error: "That item is empty." });
+    const contributors = [ME, ...change.others.map(who)];
+    items.push({ id: `syn-${items.length + 1}`, kind: change.kind, markdown: change.markdown, revision: 1, contributors, approved: [], awaiting: contributors, mine: true, approvedByYou: false });
+  } else if (change.action === "approve") {
+    const item = find();
+    item.approved = [...item.approved, ME];
+    item.awaiting = item.awaiting.filter((person) => person.id !== ME.id);
+    item.approvedByYou = true;
+  } else if (change.action === "edit") {
+    const item = find();
+    Object.assign(item, { kind: change.kind, markdown: change.markdown, approved: [], approvedByYou: false });
+    for (const id of change.addContributors) item.contributors = [...item.contributors, who(id)];
+    item.awaiting = item.contributors;
+  } else if (change.action === "withdraw") {
+    items.splice(items.indexOf(find()), 1);
+  } else if (change.action === "reorder") {
+    items.sort((a, b) => change.order.indexOf(a.id) - change.order.indexOf(b.id));
+  }
+  state.synthesis = { ...current, revision: current.revision + 1, items };
+  return state.synthesis;
+}
+
 /** A stand-in for the Admin API: it checks the expected revision like the server does. */
 function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {}) {
-  const state = { number, markdown, calls: [], reveal: { policy: "voluntary", ready: false, canSetPolicy: false, slots: [], ...reveal } };
+  const state = { number, markdown, calls: [], synthesis: { revision: 0, items: [], authors: [ME, OTHER], you: "p-me" }, reveal: { policy: "voluntary", ready: false, canSetPolicy: false, slots: [], ...reveal } };
   return {
     state,
     async call(method, path, options = {}) {
@@ -206,6 +241,16 @@ function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {})
           return { stamp: stampOf(state.number) };
         case "GET collaboration/reveal":
           return state.reveal;
+        case "GET collaboration/reflection":
+          return { structure: state.structure ?? null, participants: [{ id: "p1", displayName: "Ann" }, { id: "p2", displayName: "Bo" }], layouts: [], canArrange: state.canArrange === true };
+        case "PUT collaboration/reflection":
+          if (options.json.expectedRevision !== (state.structure?.revision ?? 0)) throw new FakeApiError("changed", 409, { error: "The arrangement changed." });
+          state.structure = options.json.structure;
+          return { structure: state.structure };
+        case "GET collaboration/synthesis":
+          return state.synthesis;
+        case "POST collaboration/synthesis":
+          return applySynthesis(state, options.json);
         case "GET collaboration/preview":
           if (state.previewFails) throw new FakeApiError("not found", 404, null);
           return { preview: state.preview };
@@ -296,7 +341,7 @@ test("the draft panel is for writers and coordinators and loads only when opened
   await panel.dispatch("toggle");
   await settle();
   assert.equal(textarea(panel).value, "mine");
-  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/reveal"]);
+  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/reveal", "GET collaboration/reflection", "GET collaboration/synthesis"]);
 }));
 
 test("prompts can be added, edited, deleted, hidden, and are never required to save", withDom(async () => {
@@ -599,6 +644,149 @@ test("a failed preview shows a calm message, keeps nothing stale, and changes no
   assert.equal(api.state.calls.filter((call) => call.key.startsWith("PUT")).length, 0);
 }));
 
+// ---------------------------------------------------------------- layout and arrangement (ADR 0031)
+
+test("the part break is the marker alone on its own line, and the starting arrangement reads no draft", () => {
+  assert.equal(partBreakInsertion(), "\n<!-- openblog:part -->\n");
+  assert.deepEqual(insertAtSelection("ab", 1, 1, partBreakInsertion()).text, "a\n<!-- openblog:part -->\nb");
+  const people = [{ id: "p1", displayName: "Ann" }, { id: "p2", displayName: "Bo" }];
+  const start = arrangementDraft(null, people);
+  assert.equal(start.revision, 0);
+  assert.equal(start.layout, "sequential");
+  assert.deepEqual(start.rounds[0].turns, [{ draft: "p1", part: 0, label: "" }, { draft: "p2", part: 0, label: "" }]);
+  const payload = arrangementPayload(start);
+  assert.equal(payload.revision, 1);
+  assert.equal(payload.rounds[0].roundPrompt, undefined, "an empty prompt is omitted");
+  assert.deepEqual(Object.keys(payload).sort(), ["layout", "revision", "rounds", "version"]);
+  assert.deepEqual(Object.keys(payload.rounds[0].turns[0]).sort(), ["draft", "part"], "a turn names a draft and a part, never a side or a person");
+  assert.deepEqual(ARRANGEMENT_LAYOUTS.map((item) => item.value), ["sequential", "sideBySide", "pointCounterpoint", "alternatingDialogue", "roundtable"]);
+});
+
+test("moving and validating an arrangement never loses or repeats a turn", () => {
+  assert.deepEqual(moveItem([1, 2, 3], 0, 1), [2, 1, 3]);
+  assert.deepEqual(moveItem([1, 2, 3], 0, -1), [1, 2, 3]);
+  assert.deepEqual(moveItem([1, 2, 3], 2, 1), [1, 2, 3]);
+  assert.equal(nextRoundId([{ id: "round-1" }, { id: "round-3" }]), "round-4");
+  const draft = arrangementDraft({ revision: 2, layout: "sideBySide", rounds: [{ id: "round-1", roundPrompt: "Why?", turns: [{ draft: "p1", part: 0 }, { draft: "p2", part: 0 }] }] }, []);
+  assert.equal(validateArrangement(draft), "");
+  assert.equal(arrangementPayload(draft).revision, 3);
+  draft.rounds[0].turns.push({ draft: "p1", part: 0 });
+  assert.match(validateArrangement(draft), /only once/);
+  assert.match(validateArrangement({ rounds: [] }), /at least one round/);
+  assert.match(validateArrangement({ rounds: [{ prompt: "", turns: [] }] }), /no turns/);
+  assert.match(validateArrangement({ rounds: [{ prompt: "a\nb", turns: [{ draft: "p1", part: 0 }] }] }), /one line/);
+  assert.equal(arrangementFailure({ status: 409 }).kind, "conflict");
+  assert.equal(arrangementFailure({ status: 404 }).kind, "denied");
+  assert.equal(arrangementFailure({}).kind, "offline");
+});
+
+test("a coordinator sets the layout and order with labelled, keyboard operable controls", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  api.state.canArrange = true;
+  const { panel } = await openDraft(api, ["coordinator"]);
+  assert.match(textOf(panel), /Layout and arrangement/);
+  const radios = panel.querySelectorAll("input").filter((node) => node.attributes.type === "radio");
+  assert.equal(radios.length, 5);
+  for (const radio of radios) assert.ok(panel.querySelectorAll("label").some((label) => label.attributes.for === radio.attributes.id), "every layout has a label");
+  await radios.find((radio) => radio.value === "sideBySide").dispatch("change");
+  await button(panel, "Move round 1, turn 1 down").click();
+  await button(panel, "Save layout and arrangement").click();
+  await settle();
+  const put = api.state.calls.find((call) => call.key === "PUT collaboration/reflection");
+  assert.equal(put.body.expectedRevision, 0);
+  assert.equal(put.body.structure.revision, 1);
+  assert.equal(put.body.structure.layout, "sideBySide");
+  assert.deepEqual(put.body.structure.rounds[0].turns.map((turn) => turn.draft), ["p2", "p1"]);
+  assert.match(textOf(panel), /Approvals that no longer matched were cleared/);
+}));
+
+test("someone without the grant reads the arrangement and has no way to change it", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { slots: SLOTS.slice(0, 1) } });
+  api.state.canArrange = false;
+  api.state.structure = { version: 1, revision: 1, layout: "sideBySide", rounds: [{ id: "round-1", roundPrompt: "Why?", turns: [{ draft: "p2", part: 0 }, { draft: "p1", part: 1 }] }] };
+  const { panel } = await openDraft(api);
+  assert.match(textOf(panel), /Layout: Side by side. Only a coordinator can change it./);
+  assert.match(textOf(panel), /Round 1: Why\?. Bo, part 1; Ann, part 2\./);
+  assert.equal(button(panel, "Save layout and arrangement"), undefined);
+}));
+
+test("a conflicting save shows the server words and reloads the current arrangement", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  api.state.canArrange = true;
+  const { panel } = await openDraft(api, ["coordinator"]);
+  api.state.structure = { version: 1, revision: 4, layout: "sequential", rounds: [{ id: "round-1", turns: [{ draft: "p1", part: 0 }] }] };
+  await button(panel, "Save layout and arrangement").click();
+  await settle();
+  assert.match(panel.querySelectorAll("p").filter((node) => node.attributes.role === "alert").map((node) => node.textContent).join(" "), /arrangement changed/);
+  assert.equal(api.state.structure.revision, 4, "nothing was overwritten");
+}));
+
+test("a writer can start a new part from the editor and the page documents the layout styles", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "first" });
+  const { panel } = await openDraft(api);
+  await button(panel, "Start a new part").click();
+  assert.match(textarea(panel).value, /<!-- openblog:part -->/);
+  assert.match(textOf(panel), /marker line is never published/);
+  assert.match(styles, /\.oba-arrangement-turn/);
+}));
+
+test("a sharing refresh keeps unsaved arrangement edits, and each part input names its round and turn", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  api.state.canArrange = true;
+  const { panel } = await openDraft(api, ["coordinator"]);
+  const labels = panel.querySelectorAll("label").map((node) => node.textContent);
+  assert.ok(labels.includes("Round 1, turn 1: part"));
+  assert.ok(labels.includes("Round 1, turn 2: part"));
+  await panel.querySelectorAll("input").find((node) => node.attributes.type === "radio" && node.value === "sideBySide").dispatch("change");
+  await button(panel, "Move round 1, turn 1 down").click();
+  // A readiness action refreshes the sharing panel; the local edits must survive it.
+  await button(panel, "Change sharing rule").click();
+  await settle();
+  assert.equal(api.state.calls.filter((call) => call.key === "GET collaboration/reflection").length, 1);
+  await button(panel, "Save layout and arrangement").click();
+  await settle();
+  const put = api.state.calls.find((call) => call.key === "PUT collaboration/reflection");
+  assert.equal(put.body.structure.layout, "sideBySide");
+  assert.deepEqual(put.body.structure.rounds[0].turns.map((turn) => turn.draft), ["p2", "p1"]);
+  // Its own save reloads once more.
+  assert.equal(api.state.calls.filter((call) => call.key === "GET collaboration/reflection").length, 2);
+}));
+
+test("turn labels are optional, short, one line, and sent only when written", withDom(async () => {
+  const people = [{ id: "p1", displayName: "Ann" }, { id: "p2", displayName: "Bo" }];
+  const draft = arrangementDraft(null, people);
+  assert.equal(draft.rounds[0].turns[0].label, "");
+  assert.equal(arrangementPayload(draft).rounds[0].turns[0].label, undefined, "no label is invented");
+  draft.rounds[0].turns[0].label = "  Point <b>one</b>  ";
+  assert.equal(arrangementPayload(draft).rounds[0].turns[0].label, "Point <b>one</b>");
+  assert.equal(validateArrangement(draft), "");
+  draft.rounds[0].turns[1].label = "two\nlines";
+  assert.match(validateArrangement(draft), /one line/);
+  draft.rounds[0].turns[1].label = "x".repeat(TURN_LABEL_MAX_BYTES + 1);
+  assert.match(validateArrangement(draft), /at most 80 bytes/);
+  const stored = arrangementDraft({ revision: 1, layout: "pointCounterpoint", rounds: [{ id: "round-1", turns: [{ draft: "p1", part: 0, label: "Point" }, { draft: "p2", part: 0 }] }] }, people);
+  assert.deepEqual(stored.rounds[0].turns.map((turn) => turn.label), ["Point", ""]);
+
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  api.state.canArrange = true;
+  const { panel } = await openDraft(api, ["coordinator"]);
+  const labelInputs = panel.querySelectorAll("input").filter((node) => /-label$/.test(node.attributes.id || ""));
+  assert.equal(labelInputs.length, 2);
+  for (const input of labelInputs) {
+    assert.ok(panel.querySelectorAll("label").some((node) => node.attributes.for === input.attributes.id), "every label field is labelled");
+  }
+  assert.ok(panel.querySelectorAll("label").some((node) => node.textContent === "Round 1, turn 2: label (optional)"));
+  labelInputs[0].value = "Counterpoint";
+  await labelInputs[0].dispatch("input");
+  await panel.querySelectorAll("input").find((node) => node.attributes.type === "radio" && node.value === "pointCounterpoint").dispatch("change");
+  await button(panel, "Save layout and arrangement").click();
+  await settle();
+  const put = api.state.calls.find((call) => call.key === "PUT collaboration/reflection");
+  assert.equal(put.body.structure.layout, "pointCounterpoint");
+  assert.equal(put.body.structure.rounds[0].turns[0].label, "Counterpoint");
+  assert.equal(put.body.structure.rounds[0].turns[1].label, undefined);
+}));
+
 // ---------------------------------------------------------------- source checks
 
 test("the draft panel is wired into the shared reflections view, with labels and small-screen styles", () => {
@@ -606,4 +794,258 @@ test("the draft panel is wired into the shared reflections view, with labels and
   assert.match(admin, /for: `\$\{prefix\}-text`/);
   assert.match(styles, /\.oba-draft-conflict/);
   assert.match(styles, /@media \(max-width: 44rem\)\s*\{\s*\.oba-draft/);
+});
+
+// ---------------------------------------------------------------- continuing conversation
+
+const synthesisRoot = (panel) => panel.querySelector(".oba-synthesis");
+const synthesisSubmit = (panel) => panel.querySelector(".oba-synthesis-form").dispatch("submit");
+const synthesisText = (panel) => panel.querySelector(".oba-synthesis-form").querySelector("textarea");
+const lastCall = (api) => api.state.calls.at(-1);
+
+test("synthesis words say who an item speaks for and who has approved it", () => {
+  const item = { kind: "difference", contributors: [ME, OTHER], approved: [ME], awaiting: [OTHER] };
+  assert.equal(synthesisItemText(item), "Difference, speaking for Mikey, Grace. Approved by: Mikey. Awaiting: Grace.");
+  assert.match(synthesisItemText({ kind: "question", contributors: [ME], approved: [], awaiting: [ME] }), /Approved by: no one yet\. Awaiting: Mikey\./);
+  assert.equal(previewItemText({ kind: "agreement", mine: true, authors: ["Ann", "Bo"], approved: ["Ann"], awaiting: ["Bo"] }), "Agreement (yours): speaks for Ann, Bo. Approved by: Ann. Awaiting: Bo.");
+  assert.equal(SYNTHESIS_KINDS.length, 5);
+  assert.ok(SYNTHESIS_KINDS.every((kind) => kind.prompt.length > 0));
+  assert.deepEqual(moveSynthesisItem(["a", "b", "c"], "b", -1), ["b", "a", "c"]);
+  assert.equal(moveSynthesisItem(["a", "b"], "a", -1), null);
+  assert.equal(moveSynthesisItem(["a", "b"], "b", 1), null);
+  assert.equal(synthesisFailure({ status: 409 }).kind, "conflict");
+  assert.equal(synthesisFailure({ status: 404 }).kind, "denied");
+  assert.equal(synthesisFailure({}).kind, "offline");
+});
+
+test("the continuing conversation is only for contributors and is optional, any length", withDom(async () => {
+  const coordinatorApi = fakeApi();
+  await openDraft(coordinatorApi, ["coordinator"]);
+  assert.equal(coordinatorApi.state.calls.some((call) => call.key.includes("synthesis")), false);
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  assert.equal(synthesisRoot(panel).hidden, false);
+  assert.match(textOf(panel), /None are required/);
+  synthesisText(panel).value = "x";
+  await synthesisSubmit(panel);
+  await settle();
+  assert.equal(lastCall(api).body.change.markdown, "x", "no minimum length");
+  assert.match(textOf(panel), /Item 1 of 1\. Agreement, speaking for Mikey\. Approved by: no one yet\. Awaiting: Mikey\./);
+  assert.equal(synthesisText(panel).value, "", "the form is cleared once the item is stored");
+}));
+
+test("prompts are dismissible, restorable and editable, and never required", withDom(async () => {
+  const { panel } = await openDraft(fakeApi());
+  assert.match(textOf(panel), /Optional prompt: Where did we land/);
+  await button(panel, "Use this prompt").click();
+  assert.equal(synthesisText(panel).value, SYNTHESIS_KINDS[0].prompt);
+  synthesisText(panel).value = "My own words instead.";
+  await button(panel, "Dismiss prompts").click();
+  assert.equal(panel.querySelector(".oba-synthesis-prompt").hidden, true);
+  assert.equal(synthesisText(panel).value, "My own words instead.", "dismissing keeps what was typed");
+  await button(panel, "Show prompts").click();
+  assert.equal(panel.querySelector(".oba-synthesis-prompt").hidden, false);
+}));
+
+test("attribution, partial approval and edits show who approved each item", withDom(async () => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  synthesisText(panel).value = "We both saw it.";
+  panel.querySelector(".oba-synthesis-form").querySelectorAll("input").find((box) => box.value === OTHER.id).checked = true;
+  await synthesisSubmit(panel);
+  await settle();
+  assert.deepEqual(lastCall(api).body.change.others, [OTHER.id]);
+  assert.match(textOf(panel), /speaking for Mikey, Grace\. Approved by: no one yet\. Awaiting: Mikey, Grace/);
+  await button(panel, "Approve this item").click();
+  await settle();
+  assert.match(textOf(panel), /Approved by: Mikey\. Awaiting: Grace/);
+  assert.equal(button(panel, "You approved this").disabled, true);
+  // Editing asks everyone to approve again.
+  await button(panel, "Edit").click();
+  assert.match(textOf(panel), /clears every approval/);
+  const area = panel.querySelectorAll("textarea").find((node) => node.attributes["aria-label"] === "Edit item text");
+  area.value = "We both saw it, differently.";
+  await button(panel, "Save changes").click();
+  await settle();
+  assert.match(textOf(panel), /Approved by: no one yet\. Awaiting: Mikey, Grace/);
+  assert.match(textOf(panel), /Everyone named must approve it again/);
+}));
+
+test("items can be reordered and withdrawn from with plain buttons", withDom(async () => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  for (const text of ["First", "Second"]) {
+    synthesisText(panel).value = text;
+    await synthesisSubmit(panel);
+    await settle();
+  }
+  assert.equal(button(panel, "Move up: Agreement item 1 of 2").disabled, true);
+  await button(panel, "Move up: Agreement item 2 of 2").click();
+  await settle();
+  assert.deepEqual(api.state.synthesis.items.map((item) => item.markdown), ["Second", "First"]);
+  await button(panel, "Take my name off").click();
+  await settle();
+  assert.equal(api.state.synthesis.items.length, 1);
+  assert.match(textOf(panel), /Your name was taken off this item\./);
+}));
+
+test("a conflict keeps the typed text, says so, and reloads the current items", withDom(async () => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  api.state.synthesis = { ...api.state.synthesis, revision: 5 };
+  synthesisText(panel).value = "Typed before the conflict";
+  await synthesisSubmit(panel);
+  await settle();
+  const problem = panel.querySelectorAll("p").find((node) => node.attributes.role === "alert" && !node.hidden);
+  assert.match(problem.textContent, /changed since you read it/);
+  assert.equal(synthesisText(panel).value, "Typed before the conflict");
+  // The reload adopted the new revision, so the next try succeeds.
+  await synthesisSubmit(panel);
+  await settle();
+  assert.equal(api.state.synthesis.items.length, 1);
+}));
+
+test("losing access hides the conversation and untrusted prose is only ever text", withDom(async () => {
+  const api = fakeApi({ failures: { "GET collaboration/synthesis": new FakeApiError("not found", 404, null) } });
+  const { panel } = await openDraft(api);
+  assert.equal(synthesisRoot(panel).hidden, true);
+  const start = admin.indexOf("synthesisPanel(publication, index) {");
+  const end = admin.indexOf("The page an invitation link opens");
+  assert.doesNotMatch(admin.slice(start, end), /innerHTML|insertAdjacentHTML/);
+  assert.match(styles, /\.oba-synthesis-item/);
+}));
+
+test("the combined preview lists who approved each item", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { slots: SLOTS.slice(0, 1) } });
+  api.state.preview = { sections: [], items: [{ id: "syn-1", kind: "question", mine: false, authors: ["Ann"], approved: [], awaiting: ["Ann"] }], previewUrl: "/admin/api/preview/t", ready: false, complete: true };
+  const { panel } = await openDraft(api);
+  await button(panel, "Review the combined piece").click();
+  await settle();
+  assert.match(textOf(panel), /Question: speaks for Ann\. Approved by: no one\. Awaiting: Ann\./);
+}));
+
+// ------------------------------------------------ synthesis: focus, edit survival, denial
+
+const synthesisHeading = "oba-synthesis-0-heading";
+const addItem = async (panel, text) => {
+  synthesisText(panel).value = text;
+  await synthesisSubmit(panel);
+  await settle();
+};
+const activeLabel = (dom) => dom.document.activeElement?.attributes?.["aria-label"] || dom.document.activeElement?.textContent;
+const visibleAlert = (panel) => panel.querySelectorAll("p").find((node) => node.attributes.role === "alert" && !node.hidden);
+
+test("the attribution choices render as real checkboxes, in both the add form and edit mode", withDom(async () => {
+  const { panel } = await openDraft(fakeApi());
+  const form = panel.querySelector(".oba-synthesis-form");
+  assert.doesNotMatch(textOf(form), /object HTML/);
+  assert.match(textOf(form), /Who else it speaks for.*Also speaks for Grace/);
+  assert.equal(form.querySelectorAll("input").length, 1);
+  await addItem(panel, "Mine alone");
+  await button(panel, "Edit").click();
+  const item = panel.querySelector(".oba-synthesis-item");
+  assert.doesNotMatch(textOf(item), /object HTML/);
+  assert.match(textOf(item), /Also name Grace/);
+  assert.equal(item.querySelectorAll("input").length, 1);
+}));
+
+test("after adding, approving, saving, cancelling, reordering and withdrawing, focus is never lost to the page", withDom(async (dom) => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  await addItem(panel, "First");
+  assert.equal(dom.document.activeElement.id, synthesisHeading, "add returns to the panel heading");
+  await addItem(panel, "Second");
+  await button(panel, "Move up: Agreement item 2 of 2").click();
+  await settle();
+  assert.equal(activeLabel(dom), "Move down: Agreement item 1 of 2", "reorder follows the moved item; its own Move up is now disabled, so the other direction");
+  await button(panel, "Move down: Agreement item 1 of 2").click();
+  await settle();
+  assert.equal(activeLabel(dom), "Move up: Agreement item 2 of 2");
+  await button(panel, "Move up: Agreement item 2 of 2").click();
+  await settle();
+  assert.equal(activeLabel(dom), "Move down: Agreement item 1 of 2");
+  await button(panel, "Approve this item").click();
+  await settle();
+  assert.equal(dom.document.activeElement.textContent, "Edit", "approve moves to the item's Edit button");
+  assert.match(textOf(panel), /You approved this item\./);
+  await button(panel, "Edit").click();
+  assert.equal(dom.document.activeElement.attributes["aria-label"], "Edit item text", "opening edit focuses the text");
+  await button(panel, "Cancel").click();
+  assert.equal(dom.document.activeElement.textContent, "Edit", "cancel returns to the Edit button");
+  assert.match(textOf(panel), /Edit cancelled/);
+  await button(panel, "Edit").click();
+  await button(panel, "Save changes").click();
+  await settle();
+  assert.equal(dom.document.activeElement.textContent, "Edit", "saving returns to the Edit button");
+  await button(panel, "Take my name off").click();
+  await settle();
+  assert.equal(dom.document.activeElement.id, synthesisHeading, "withdraw returns to the panel heading");
+}));
+
+test("dismissing and showing prompts, and using one, keep focus on a control that is still there", withDom(async (dom) => {
+  const { panel } = await openDraft(fakeApi());
+  await button(panel, "Use this prompt").click();
+  assert.equal(dom.document.activeElement, synthesisText(panel));
+  await button(panel, "Dismiss prompts").click();
+  assert.equal(dom.document.activeElement.textContent, "Show prompts");
+  assert.equal(dom.document.activeElement.hidden, false);
+  await button(panel, "Show prompts").click();
+  assert.equal(dom.document.activeElement.textContent, "Use this prompt");
+  assert.equal(dom.document.activeElement.hidden, false);
+}));
+
+test("a conflict puts focus on the alert, and the typed text is kept", withDom(async (dom) => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  api.state.synthesis = { ...api.state.synthesis, revision: 5 };
+  await addItem(panel, "Typed before the conflict");
+  assert.equal(dom.document.activeElement, visibleAlert(panel));
+  assert.equal(synthesisText(panel).value, "Typed before the conflict");
+}));
+
+test("a conflict while editing keeps the edited text and the item, and the edit stays open", withDom(async (dom) => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  await addItem(panel, "Original");
+  await button(panel, "Edit").click();
+  const area = () => panel.querySelectorAll("textarea").find((node) => node.attributes["aria-label"] === "Edit item text");
+  area().value = "My careful rewrite";
+  await area().dispatch("input");
+  panel.querySelector(".oba-synthesis-item").querySelectorAll("input")[0].checked = true;
+  await panel.querySelector(".oba-synthesis-item").querySelectorAll("input")[0].dispatch("change");
+  api.state.synthesis = { ...api.state.synthesis, revision: 9 };
+  await button(panel, "Save changes").click();
+  await settle();
+  assert.match(visibleAlert(panel).textContent, /changed since you read it/);
+  assert.equal(dom.document.activeElement, visibleAlert(panel));
+  assert.ok(area(), "edit mode is open again");
+  assert.equal(area().value, "My careful rewrite");
+  assert.equal(panel.querySelector(".oba-synthesis-item").querySelectorAll("input")[0].checked, true);
+  await button(panel, "Save changes").click();
+  await settle();
+  assert.equal(api.state.synthesis.items[0].markdown, "My careful rewrite", "the retry saves the kept text");
+  assert.deepEqual(api.state.synthesis.items[0].contributors.map((person) => person.id), [ME.id, OTHER.id]);
+  assert.equal(area(), undefined, "a saved edit closes");
+}));
+
+test("a denied change keeps the notice and the typed text visible", withDom(async (dom) => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  api.state.failures = null;
+  const failing = { call: api.call.bind(api) };
+  api.call = async (method, path, options) => {
+    if (method === "POST") throw new FakeApiError("not found", 404, null);
+    return failing.call(method, path, options);
+  };
+  await addItem(panel, "Words I do not want to lose");
+  assert.equal(synthesisRoot(panel).hidden, false);
+  const alert = visibleAlert(panel);
+  assert.match(alert.textContent, /Your text is still here/);
+  assert.equal(dom.document.activeElement, alert);
+  assert.equal(synthesisText(panel).value, "Words I do not want to lose");
+}));
+
+test("the dismissed-prompts preference uses the ob-admin key", () => {
+  assert.match(admin, /"ob-admin-synthesis-prompts-dismissed"/);
+  assert.doesNotMatch(admin, /openblog\.admin\.synthesisPromptsDismissed/);
 });

@@ -17,6 +17,8 @@ use openblog_core::collaboration::{
 };
 use openblog_core::draft::{DraftSet, MAX_DRAFT_SET_BYTES};
 use openblog_core::invitation::InvitationState;
+use openblog_core::reflection::ReflectionStructure;
+use openblog_core::synthesis::{SynthesisSet, MAX_SYNTHESIS_SET_BYTES};
 
 use crate::auth;
 
@@ -30,6 +32,9 @@ pub const APPROVALS_DIRECTORY: &str = ".openblog/private/collaboration/approvals
 /// What happened to each publication after approval (scheduled, or published), one small file
 /// per publication. Private like the rest, and written only by the publish gate (ADR 0022).
 pub const OUTCOMES_DIRECTORY: &str = ".openblog/private/collaboration/outcomes";
+/// Private shared synthesis sets (ADR 0025), one file per publication, beside the drafts. Prose
+/// lives here, so the directory stays out of Git, generated output, feeds and exports.
+pub const SYNTHESIS_DIRECTORY: &str = ".openblog/private/collaboration/synthesis";
 const MAX_ID_ATTEMPTS: usize = 8;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -397,6 +402,106 @@ pub fn replace_approvals(
         &previous.text,
         Some(&text),
         MAX_APPROVAL_SET_BYTES,
+    )
+}
+
+/// A shared reflection's private arrangement (ADR 0031), one small file per publication beside
+/// the drafts. Absent means nothing was arranged: the piece publishes in participant order.
+pub const STRUCTURES_DIRECTORY: &str = ".openblog/private/collaboration/structures";
+
+/// An arrangement as read from disk, with the exact text it came from, so a write built on a
+/// stale read is refused.
+pub struct StoredStructure {
+    pub structure: Option<ReflectionStructure>,
+    text: Option<String>,
+}
+
+fn structures_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(STRUCTURES_DIRECTORY))
+        .map_err(|_| "arrangement storage resolves outside the project".to_string())
+}
+
+/// The arrangement, or none when nobody arranged anything. A file that exists but is malformed
+/// is an error, never "no arrangement", so a bad file cannot change what gets published.
+pub fn load_structure(root: &Path, publication_id: &str) -> Result<StoredStructure, String> {
+    let target = structures_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target).map_err(|_| "the arrangement file is not usable")?;
+    let structure = match &text {
+        Some(text) => Some(
+            ReflectionStructure::from_json(text)
+                .map_err(|_| "the arrangement file is not usable".to_string())?,
+        ),
+        None => None,
+    };
+    Ok(StoredStructure { structure, text })
+}
+
+/// Atomically store `next` when the file still holds exactly what `previous` was read from.
+pub fn replace_structure(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredStructure,
+    next: &ReflectionStructure,
+) -> Result<(), ReplaceError> {
+    let directory = structures_directory(root).map_err(ReplaceError::Storage)?;
+    let text = format!(
+        "{}\n",
+        serde_json::to_string(next).expect("a structure serializes")
+    );
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        Some(&text),
+        openblog_core::reflection::MAX_STRUCTURE_BYTES,
+    )
+}
+
+/// A synthesis set as read from disk, with the exact text it came from, so a write built on a
+/// stale read is refused.
+pub struct StoredSynthesis {
+    pub set: SynthesisSet,
+    text: Option<String>,
+}
+
+fn synthesis_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(SYNTHESIS_DIRECTORY))
+        .map_err(|_| "synthesis storage resolves outside the project".to_string())
+}
+
+/// The synthesis for a publication: empty when nothing was stored. A file that exists but is
+/// malformed is an error, never an empty set, so a bad file cannot make a piece look
+/// synthesis-free and publishable.
+pub fn load_synthesis(root: &Path, publication_id: &str) -> Result<StoredSynthesis, String> {
+    let target = synthesis_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target).map_err(|_| "the synthesis file is not usable")?;
+    let set = match &text {
+        Some(text) => SynthesisSet::from_json(text)
+            .map_err(|_| "the synthesis file is not usable".to_string())?,
+        None => SynthesisSet::new(),
+    };
+    Ok(StoredSynthesis { set, text })
+}
+
+/// Atomically store `next` when the file still holds exactly what `previous` was read from.
+pub fn replace_synthesis(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredSynthesis,
+    next: &SynthesisSet,
+) -> Result<(), ReplaceError> {
+    let directory = synthesis_directory(root).map_err(ReplaceError::Storage)?;
+    let text = format!(
+        "{}
+",
+        next.to_json()
+    );
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        Some(&text),
+        MAX_SYNTHESIS_SET_BYTES,
     )
 }
 

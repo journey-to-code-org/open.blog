@@ -102,6 +102,9 @@ pub struct ApprovalSubject<'a> {
     pub authors: &'a [&'a str],
     pub sections: &'a [Section<'a>],
     pub metadata: &'a [&'a str],
+    /// Authors named on a synthesis item (`SynthesisSet::attributed_authors`). Each is a required
+    /// approver under every policy, and each must be one of `authors`.
+    pub attributed: &'a [&'a str],
 }
 
 /// The public, approvable metadata of a record: title and the source attribution that can reach
@@ -195,6 +198,9 @@ impl ApprovalSubject<'_> {
         {
             return false;
         }
+        if !self.attributed.iter().all(|a| self.authors.contains(a)) {
+            return false;
+        }
         let mut sections = HashSet::new();
         self.sections.iter().all(|section| {
             valid_id(section.contribution_id)
@@ -216,6 +222,7 @@ impl ApprovalSubject<'_> {
                 ApprovalRequirement::AllAuthors => true,
                 ApprovalRequirement::ContributingAuthors => {
                     self.sections.iter().any(|section| section.owner == *author)
+                        || self.attributed.contains(author)
                 }
             })
             .collect()
@@ -492,6 +499,7 @@ mod tests {
                 authors: &self.authors,
                 sections: &sections,
                 metadata: &self.metadata,
+                attributed: &[],
             })
         }
     }
