@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-25
+
 - Enforced collaboration roles through one server-side check on the shared reflection record.
   Readers, editors, and contributors cannot invite or manage invitations, accounts that were
   disabled or removed lose every grant at once, and operations without a route stay denied. Site
