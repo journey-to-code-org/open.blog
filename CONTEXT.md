@@ -121,13 +121,14 @@ _Avoid_: Work credit, global job title, site-wide Admin permission
 Untrusted Markdown that one participant owns and offers to a shared publication. It stays private
 collaboration state, never stored on a Post or Document, until an explicit assembly and
 publication path incorporates it, as it appears in an approved collaboration revision, into the
-author-owned Document. A draft has no revision of its own; per-draft revisions would be a later
-decision.
+author-owned Document. A draft changes only by appending numbered, immutable revisions, each
+identified by a prose-free stamp of contribution, number, author, timestamp, and content digest.
 _Avoid_: Post, canonical content, public contribution disclosure
 
 **Reveal**:
-Permission for an ordered collection of participants to receive one contribution draft. A reveal
-does not publish the draft, approve an assembly, or imply a two-person exchange. Only the listed
+Permission for an ordered collection of participants to receive one exact revision of a
+contribution draft, granted only by a mutual exchange that takes effect for all members at once or
+for none. A reveal does not publish the draft, approve an assembly, or imply a two-person exchange. Only the listed
 participants may receive the draft; permission to view revealed drafts in general does not widen
 that list.
 _Avoid_: Publication, approval, left-to-right handoff

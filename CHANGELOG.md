@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined private contribution drafts for shared reflections: append-only revisions with a
+  prose-free identity, conflict checks on save, and a mutual reveal that shows nothing until every
+  member has committed. Revealing is never approval, and no storage or route is added yet.
+
 ## [0.20.0] - 2026-10-25
 
 - Enforced collaboration roles through one server-side check on the shared reflection record.
