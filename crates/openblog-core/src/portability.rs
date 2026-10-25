@@ -662,6 +662,8 @@ impl<'a> PortableProjection<'a> {
                 embeds: false,
                 recipe: post.recipe.is_some(),
                 code_runner: None,
+                // Portable copies show sandboxes as static code, so no libraries load.
+                web_libraries: None,
             },
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),

@@ -59,6 +59,8 @@ pub struct SiteConfig {
     pub code: CodeConfig,
     /// Optional public gateway for executing explicitly opted-in code lessons.
     pub code_runner: CodeRunnerConfig,
+    /// Site-hosted libraries that `web runnable` lessons may opt into with `libs=`.
+    pub web_sandbox: WebSandboxConfig,
     /// Interactive extras on posts with `recipe: true`.
     pub recipes: RecipesConfig,
     /// Optional author-time generation for interactive knowledge checks.
@@ -154,6 +156,15 @@ pub struct CodeRunnerConfig {
     /// Additional runnable fence languages. Rust is always enabled when an
     /// endpoint is configured; `web` keeps its dedicated local sandbox.
     pub languages: Vec<String>,
+}
+
+/// Settings for `web runnable` lessons. Libraries are files the site itself serves;
+/// the page inlines them into the preview, so lessons never fetch from a CDN.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WebSandboxConfig {
+    /// Library name (as written in `libs=`) to root-relative script paths, in load order.
+    pub libraries: BTreeMap<String, Vec<String>>,
 }
 
 /// Normalize one code-runner language identifier shared by configuration and
@@ -317,6 +328,7 @@ impl Default for SiteConfig {
             markdown: MarkdownConfig::default(),
             code: CodeConfig::default(),
             code_runner: CodeRunnerConfig::default(),
+            web_sandbox: WebSandboxConfig::default(),
             recipes: RecipesConfig::default(),
             knowledge_checks: KnowledgeChecksConfig::default(),
             paths: PathsConfig::default(),
@@ -737,6 +749,7 @@ impl SiteConfig {
                     languages: &self.code_runner.languages,
                 },
             ),
+            web_libraries: Some(&self.web_sandbox.libraries),
         }
     }
 
@@ -822,6 +835,28 @@ impl SiteConfig {
             }
         }
         self.code_runner.languages = languages;
+        for (name, files) in &self.web_sandbox.libraries {
+            if name.is_empty()
+                || !name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
+            {
+                return Err(format!(
+                    "webSandbox.libraries: `{name}` must use lowercase letters, digits, `-`, or `.`"
+                ));
+            }
+            if files.is_empty()
+                || files.iter().any(|file| {
+                    !file.starts_with('/')
+                        || file.starts_with("//")
+                        || file.contains(['"', '<', '>', ' ', '#', '?'])
+                })
+            {
+                return Err(format!(
+                    "webSandbox.libraries.{name} must list root-relative files the site serves, like `/vendor/{name}.js`"
+                ));
+            }
+        }
         contributor::normalize_registry(&mut self.contributors)?;
         Ok(())
     }
@@ -970,6 +1005,24 @@ mod tests {
             "https://runner.example/execute"
         );
         assert_eq!(config.code_runner.languages, ["python", "go"]);
+    }
+
+    #[test]
+    fn web_sandbox_libraries_must_be_named_site_files() {
+        let config = SiteConfig::from_json(
+            r#"{"webSandbox":{"libraries":{"react":["/vendor/react.min.js","/vendor/react-dom.min.js"]}}}"#,
+        )
+        .unwrap();
+        assert_eq!(config.web_sandbox.libraries["react"].len(), 2);
+        for source in [
+            r#"{"webSandbox":{"libraries":{"React":["/vendor/react.js"]}}}"#,
+            r#"{"webSandbox":{"libraries":{"react":[]}}}"#,
+            r#"{"webSandbox":{"libraries":{"react":["https://cdn.example/react.js"]}}}"#,
+            r#"{"webSandbox":{"libraries":{"react":["//cdn.example/react.js"]}}}"#,
+            r#"{"webSandbox":{"libraries":{"react":["vendor/react.js"]}}}"#,
+        ] {
+            assert!(SiteConfig::from_json(source).is_err(), "accepted {source}");
+        }
     }
 
     #[test]

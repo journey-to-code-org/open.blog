@@ -6,6 +6,8 @@ use pulldown_cmark::{
     BlockQuoteKind, CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd,
 };
 
+use std::collections::BTreeMap;
+
 use crate::capability::{CapabilityDescriptor, CapabilityDiagnosticCode};
 use crate::escape;
 use crate::recipe::{self, Section};
@@ -67,6 +69,8 @@ pub struct RenderOptions<'a> {
     pub recipe: bool,
     /// Public browser runner configuration; no credentials are accepted here.
     pub code_runner: Option<CodeRunnerRenderOptions<'a>>,
+    /// Site-hosted libraries `web runnable` fences may name with `libs=`.
+    pub web_libraries: Option<&'a BTreeMap<String, Vec<String>>>,
 }
 
 impl Default for RenderOptions<'_> {
@@ -78,6 +82,7 @@ impl Default for RenderOptions<'_> {
             embeds: true,
             recipe: false,
             code_runner: None,
+            web_libraries: None,
         }
     }
 }
@@ -109,6 +114,14 @@ pub(crate) struct FenceInfo {
     line_start: Option<u32>,
     /// `{2,4-6}`: lines to highlight, validated to digits, commas and dashes.
     highlight: Option<String>,
+    /// `module`: run a web sandbox's JavaScript as an ES module.
+    module: bool,
+    /// `network`: let a web sandbox reach HTTPS APIs.
+    network: bool,
+    /// `images`: let a web sandbox load HTTPS images.
+    images: bool,
+    /// `libs=react,vue`: site-hosted libraries to inline into a web sandbox.
+    libs: Vec<String>,
 }
 
 pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
@@ -149,6 +162,18 @@ pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
             first = false;
             continue;
         }
+        if let Some(value) = rest.strip_prefix("libs=") {
+            // Library names are comma-separated, so read up to the next space.
+            let end = value.find(char::is_whitespace).unwrap_or(value.len());
+            out.libs = value[..end]
+                .split(',')
+                .map(|name| name.trim().to_ascii_lowercase())
+                .filter(|name| !name.is_empty())
+                .collect();
+            rest = value[end..].trim_start();
+            first = false;
+            continue;
+        }
         let end = rest
             .find(|c: char| c.is_whitespace() || c == '{' || c == ',')
             .unwrap_or(rest.len());
@@ -167,6 +192,12 @@ pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
             }
         } else if word == "runnable" {
             out.runnable = true;
+        } else if word == "module" {
+            out.module = true;
+        } else if word == "network" {
+            out.network = true;
+        } else if word == "images" {
+            out.images = true;
         } else if let Some(value) = word.strip_prefix("playgroundLink=") {
             out.playground_link = match value {
                 "true" => Some(true),
@@ -646,6 +677,7 @@ fn transform_blocks<'a>(
     events: Vec<Event<'a>>,
     recipe: bool,
     code_runner: Option<CodeRunnerRenderOptions<'_>>,
+    web_libraries: Option<&BTreeMap<String, Vec<String>>>,
     portable: Option<PortableContext<'_>>,
 ) -> (Vec<Event<'a>>, BlockData) {
     let mut out = Vec::with_capacity(events.len());
@@ -835,7 +867,33 @@ fn transform_blocks<'a>(
                     html.push('>');
                 }
                 if web_sandbox {
-                    html.push_str("<ob-web-sandbox>");
+                    html.push_str("<ob-web-sandbox");
+                    for (enabled, attribute) in [
+                        (fence.module, " data-module"),
+                        (fence.network, " data-network"),
+                        (fence.images, " data-images"),
+                    ] {
+                        if enabled {
+                            html.push_str(attribute);
+                        }
+                    }
+                    html.push('>');
+                    for name in &fence.libs {
+                        match web_libraries.and_then(|libraries| libraries.get(name)) {
+                            Some(files) => {
+                                for file in files {
+                                    html.push_str(&format!(
+                                        "<link rel=\"preload\" as=\"fetch\" crossorigin href=\"{}\" data-ob-web-lib=\"{}\">",
+                                        escape::attr(file),
+                                        escape::attr(name)
+                                    ));
+                                }
+                            }
+                            None => data.errors.push(format!(
+                                "a `web runnable` fence names library `{name}`, which is not listed under `webSandbox.libraries` in openblog.json"
+                            )),
+                        }
+                    }
                 }
                 html.push_str("<pre><code");
                 if !fence.lang.is_empty() {
@@ -1759,7 +1817,13 @@ fn render_events<'a>(
     } else {
         events
     };
-    let (events, blocks) = transform_blocks(events, options.recipe, options.code_runner, portable);
+    let (events, blocks) = transform_blocks(
+        events,
+        options.recipe,
+        options.code_runner,
+        options.web_libraries,
+        portable,
+    );
     let mut html = String::with_capacity(source_length * 2);
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
     if options.lazy_images {
@@ -1882,6 +1946,65 @@ mod tests {
             rendered.capabilities[0].native_renderer,
             Some("ob-web-sandbox")
         );
+    }
+
+    #[test]
+    fn web_runnable_options_mark_the_sandbox_and_preload_site_libraries() {
+        let libraries = BTreeMap::from([(
+            "react".to_string(),
+            vec![
+                "/vendor/react.min.js".to_string(),
+                "/vendor/react-dom.min.js".to_string(),
+            ],
+        )]);
+        let options = RenderOptions {
+            web_libraries: Some(&libraries),
+            ..RenderOptions::default()
+        };
+        let source = "```web runnable module network images libs=React title=\"Try it\"\n---js\nawait Promise.resolve();\n```\n";
+        let rendered = render(source, options);
+        assert!(rendered.errors.is_empty(), "{:?}", rendered.errors);
+        assert!(
+            rendered
+                .html
+                .contains("<ob-web-sandbox data-module data-network data-images>"),
+            "{}",
+            rendered.html
+        );
+        let first = rendered
+            .html
+            .find("href=\"/vendor/react.min.js\" data-ob-web-lib=\"react\"")
+            .expect("first library file");
+        let second = rendered
+            .html
+            .find("href=\"/vendor/react-dom.min.js\" data-ob-web-lib=\"react\"")
+            .expect("second library file");
+        assert!(first < second, "library files keep their configured order");
+        assert!(rendered
+            .html
+            .contains("<figcaption class=\"ob-code-title\">Try it</figcaption>"));
+
+        let plain = render(
+            "```web runnable\n---html\n<p>Hi</p>\n```\n",
+            RenderOptions::default(),
+        );
+        assert!(
+            plain.html.contains("<ob-web-sandbox><pre>"),
+            "{}",
+            plain.html
+        );
+    }
+
+    #[test]
+    fn web_runnable_fences_reject_unconfigured_libraries() {
+        let rendered = render(
+            "```web runnable libs=react,vue\n---js\nReact;\n```\n",
+            RenderOptions::default(),
+        );
+        assert_eq!(rendered.errors.len(), 2, "{:?}", rendered.errors);
+        assert!(rendered.errors[0].contains("library `react`"));
+        assert!(rendered.errors[1].contains("library `vue`"));
+        assert!(!rendered.html.contains("data-ob-web-lib"));
     }
 
     #[test]
