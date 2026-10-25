@@ -418,3 +418,52 @@ fn the_public_stylesheet_carries_exactly_the_layout_rules_the_preview_uses() {
     assert!(!LAYOUT_CSS.contains("order:"));
     assert!(!LAYOUT_CSS.contains("float"));
 }
+
+#[test]
+fn an_unclosed_fence_in_the_last_turn_cannot_swallow_the_arrangement_markup() {
+    let record = record();
+    let s = structure(
+        r#"{"version":1,"revision":1,"layout":"sideBySide","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0},{"draft":"bo","part":0}]}]}"#,
+    );
+    let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words\n\n```\nnever closed")]);
+    let approvals = approve_all(&record, Some(&s), &set);
+    assert_eq!(
+        assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE),
+        Err(AssemblyError::UnsafeMarkup)
+    );
+    // The unarranged path refuses it too, so the two paths agree.
+    let approvals = approve_all(&record, None, &set);
+    assert_eq!(
+        assemble(&record, &set, &approvals, &ALL, DATE),
+        Err(AssemblyError::UnsafeMarkup)
+    );
+    // A closed fence is ordinary prose.
+    let set = drafts(&[("ann", "Ann words"), ("bo", "```\nclosed\n```")]);
+    let approvals = approve_all(&record, Some(&s), &set);
+    assert!(assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).is_ok());
+}
+
+#[test]
+fn the_preview_drops_the_turns_of_an_author_with_nothing_written() {
+    let record = record();
+    let s = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0},{"draft":"bo","part":0}]}]}"#,
+    );
+    let set = drafts(&[("ann", "Ann words")]);
+    let approvals = ApprovalSet::new();
+    let config = SiteConfig::default();
+    let shown = build_for(
+        &record,
+        Some(&s),
+        &set,
+        &approvals,
+        "ann",
+        &ALL,
+        config.render_options(),
+    )
+    .unwrap();
+    assert!(shown.complete);
+    assert!(shown.document.contains("Ann words"));
+    assert!(!shown.document.contains("Not shared with you"));
+    assert!(!shown.document.contains(">Bo<"), "{}", shown.document);
+}

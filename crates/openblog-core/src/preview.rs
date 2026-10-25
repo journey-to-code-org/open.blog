@@ -179,9 +179,15 @@ pub fn build_for(
 
     // Complete means every section that exists is shown. An author who owns no section adds no
     // content to be missed, so they can still approve the whole piece (ADR 0020).
+    let written: Vec<&str> = authors
+        .iter()
+        .zip(&stamps)
+        .filter(|(_, stamp)| stamp.is_some())
+        .map(|(author, _)| author.id.as_str())
+        .collect();
     let arranged = structure.map(|structure| {
         arrange(
-            record, structure, drafts, requester, active, &sections, options,
+            record, structure, drafts, requester, active, &sections, &written, options,
         )
     });
     let complete = !subject_sections.is_empty()
@@ -225,6 +231,7 @@ fn arrange(
     requester: &str,
     active: &[&str],
     sections: &[PreviewSection],
+    written: &[&str],
     options: RenderOptions<'_>,
 ) -> Result<String, ()> {
     if !structure.layout.is_presentable() {
@@ -244,7 +251,9 @@ fn arrange(
         .filter(|entry| match shown(entry.participant_id) {
             None => false,
             Some(true) => entry.markdown.is_some(),
-            Some(false) => true,
+            // Assembly drops the turns (and credit) of an author with nothing written, so the
+            // preview does too; only an author whose draft is withheld gets the placeholder.
+            Some(false) => written.contains(&entry.participant_id),
         })
         .collect();
     let placements = ReflectionStructure::placements(structure.layout, &order);
