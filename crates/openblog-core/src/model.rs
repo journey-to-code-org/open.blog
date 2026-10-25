@@ -11,7 +11,7 @@ use crate::contributor::{self, CreditProvenance, ResolvedCredit};
 use crate::date::DateTime;
 use crate::field_journal::FieldJournalMetadata;
 use crate::frontmatter::{self, FrontMatter};
-use crate::markdown::{self, CodeRunnerRenderOptions, Heading, RenderOptions};
+use crate::markdown::{self, Heading, RenderOptions};
 use crate::profile::{self, ProfileBehavior};
 use crate::recipe::Recipe;
 use crate::research::{self, EvidenceFinding, ResearchMetadata};
@@ -323,19 +323,7 @@ impl Site {
         let mut accessibility =
             accessibility::audit_site_language("openblog.json", &config.language);
         let mut evidence = Vec::new();
-        let render_options = RenderOptions {
-            smart_punctuation: config.markdown.smart_punctuation,
-            lazy_images: true,
-            heading_anchors: config.markdown.heading_anchors,
-            embeds: config.markdown.embeds,
-            recipe: false,
-            code_runner: (!config.code_runner.endpoint.is_empty()).then_some(
-                CodeRunnerRenderOptions {
-                    endpoint: &config.code_runner.endpoint,
-                    languages: &config.code_runner.languages,
-                },
-            ),
-        };
+        let render_options = config.render_options();
         let credit_sidecars = associate_credit_sidecars(&sources);
         errors.extend(credit_sidecars.errors.iter().cloned());
 

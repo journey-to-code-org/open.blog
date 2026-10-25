@@ -5837,7 +5837,15 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     };
     let active = active_drafters(&transaction, record);
     let active = active.iter().map(String::as_str).collect::<Vec<_>>();
-    let Ok(preview) = openblog_core::preview::build(record, &set, &approvals, &own, &active) else {
+    let config = site::load_config(&state.root).unwrap_or_default();
+    let Ok(preview) = openblog_core::preview::build(
+        record,
+        &set,
+        &approvals,
+        &own,
+        &active,
+        config.render_options(),
+    ) else {
         return draft_not_found();
     };
     drop(transaction);

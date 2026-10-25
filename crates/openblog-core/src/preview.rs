@@ -14,7 +14,8 @@
 //!
 //! The document is built to run without JavaScript: its policy forbids scripts, frames, forms,
 //! images and every network fetch, and the caller shows it in a sandboxed frame. Prose goes
-//! through the production Markdown renderer ([`render_section`]), so final assembly can share it.
+//! through the production Markdown renderer with the site's own options, so the preview matches
+//! what posts publish; the policy, not the options, stops images, embeds and runners from loading.
 
 use serde::Serialize;
 
@@ -66,8 +67,8 @@ pub struct PreviewSection {
 #[serde(rename_all = "camelCase")]
 pub struct CombinedPreview {
     pub sections: Vec<PreviewSection>,
-    /// Every author's section is shown to the requester. Absent sections look the same whether
-    /// the author wrote nothing or the draft is not shared with the requester.
+    /// Every section that exists is shown to the requester. An author who wrote nothing has no
+    /// section and does not block it.
     pub complete: bool,
     /// Complete, and the approval gate would pass for the piece as it is now.
     pub ready: bool,
@@ -77,19 +78,10 @@ pub struct CombinedPreview {
     pub document: String,
 }
 
-/// Render one section's prose exactly as final assembly does.
-pub fn render_section(markdown_source: &str) -> markdown::Rendered {
-    markdown::render(
-        markdown_source,
-        RenderOptions {
-            smart_punctuation: false,
-            lazy_images: true,
-            heading_anchors: false,
-            embeds: false,
-            recipe: false,
-            code_runner: None,
-        },
-    )
+/// Render one section's prose with the site's production Markdown options (see
+/// [`crate::config::SiteConfig::render_options`]), the same ones `Site::load` uses for posts.
+pub fn render_section(markdown_source: &str, options: RenderOptions<'_>) -> markdown::Rendered {
+    markdown::render(markdown_source, options)
 }
 
 fn approval_label(state: ApprovalState) -> &'static str {
@@ -103,13 +95,15 @@ fn approval_label(state: ApprovalState) -> &'static str {
 /// Build the preview `requester` may see, from the active authors in participant order.
 ///
 /// `active` are the participants who currently hold the draft grant; the requester must be one.
-/// Pure: it never writes drafts or approvals.
+/// `options` are the site's production Markdown options. Pure: it never writes drafts or
+/// approvals.
 pub fn build(
     record: &SharedPublication,
     drafts: &DraftSet,
     approvals: &ApprovalSet,
     requester: &str,
     active: &[&str],
+    options: RenderOptions<'_>,
 ) -> Result<CombinedPreview, PreviewError> {
     if !active.contains(&requester) {
         return Err(PreviewError::Denied);
@@ -155,7 +149,9 @@ pub fn build(
             let view = drafts.view(requester, &author.id, active).ok()?;
             (view.stamp.number == stamp.number && view.stamp.digest == stamp.digest).then_some(view)
         });
-        let prose = entitled.as_ref().map(|view| render_section(&view.markdown));
+        let prose = entitled
+            .as_ref()
+            .map(|view| render_section(&view.markdown, options));
         sections.push(PreviewSection {
             participant_id: author.id.clone(),
             display_name: author.display_name.clone(),
@@ -168,7 +164,13 @@ pub fn build(
         rendered.push(prose.map(|r| r.html));
     }
 
-    let complete = !sections.is_empty() && sections.iter().all(|section| section.shown);
+    // Complete means every section that exists is shown. An author who owns no section adds no
+    // content to be missed, so they can still approve the whole piece (ADR 0020).
+    let complete = !subject_sections.is_empty()
+        && sections
+            .iter()
+            .zip(&stamps)
+            .all(|(section, stamp)| stamp.is_none() || section.shown);
     let ready = complete && approvals.evaluate(&subject) == Ok(Readiness::Ready);
     let seen = if complete {
         approvals.binding_for(&subject, requester).ok()

@@ -2,15 +2,54 @@
 //! prose, and staleness. The preview only reads, so these tests also check that nothing is
 //! returned that the requester could not read through the draft module itself.
 
+use openblog_core::approval::{ApprovalPolicy, ApprovalRequirement};
 use openblog_core::approval::{ApprovalSet, ApprovalState, ApprovalSubject, Section};
 use openblog_core::collaboration::{
     NewParticipant, NewSharedPublication, NewSourceReference, Participant, SharedPublication,
     SourceKind,
 };
+use openblog_core::config::SiteConfig;
 use openblog_core::draft::{DraftSet, RevealPolicy};
-use openblog_core::preview::{build, render_section, PreviewError, PREVIEW_CSP};
+use openblog_core::preview::{CombinedPreview, PreviewError, PREVIEW_CSP};
+use openblog_core::SourceFile;
 
 const T: i64 = 1_800_000_000;
+
+/// The preview under the site's own production Markdown options.
+fn build_with(
+    config: &SiteConfig,
+    record: &SharedPublication,
+    set: &DraftSet,
+    approvals: &ApprovalSet,
+    requester: &str,
+    active: &[&str],
+) -> Result<CombinedPreview, PreviewError> {
+    openblog_core::preview::build(
+        record,
+        set,
+        approvals,
+        requester,
+        active,
+        config.render_options(),
+    )
+}
+
+fn build(
+    record: &SharedPublication,
+    set: &DraftSet,
+    approvals: &ApprovalSet,
+    requester: &str,
+    active: &[&str],
+) -> Result<CombinedPreview, PreviewError> {
+    build_with(
+        &SiteConfig::default(),
+        record,
+        set,
+        approvals,
+        requester,
+        active,
+    )
+}
 
 fn record() -> SharedPublication {
     let mut record = SharedPublication::create(&NewSharedPublication {
@@ -134,10 +173,49 @@ fn a_draft_nobody_wrote_looks_like_a_draft_that_is_not_shared() {
         &["ann", "bo"],
     )
     .unwrap();
+    // Per-section output is identical, so a section never says why it is absent. Whether the
+    // piece is complete follows the sections that exist (ADR 0021), which is what lets an
+    // author who wrote nothing still approve.
     assert_eq!(a.sections, b.sections);
-    assert_eq!(a.complete, b.complete);
-    assert_eq!(a.seen, b.seen);
-    assert_eq!(a.document, b.document);
+    assert!(!a.complete && a.seen.is_none());
+    assert!(b.complete && b.seen.is_some());
+}
+
+#[test]
+fn an_author_who_wrote_nothing_does_not_block_the_others_approving() {
+    let mut set = drafts();
+    set.save("ann", "ann", 0, "Ann", T).unwrap();
+    set.save("bo", "bo", 0, "Bo words", T).unwrap();
+    set.mark_ready("ann", 1, &["ann", "bo", "cy"]).unwrap();
+    set.mark_ready("bo", 1, &["ann", "bo", "cy"]).unwrap();
+    // Ann and Bo can review and approve although Cy wrote nothing. Cy has no draft to offer, so
+    // the reveal rules show Cy nothing and Cy's own preview stays incomplete.
+    let mut approvals = ApprovalSet::new();
+    let ann = build(&record(), &set, &approvals, "ann", &ALL).unwrap();
+    assert!(ann.complete && ann.seen.is_some() && !ann.ready);
+    assert!(ann.document.contains("Bo words"));
+    let cy = build(&record(), &set, &approvals, "cy", &ALL).unwrap();
+    assert!(!cy.complete && cy.seen.is_none());
+    assert!(!cy.document.contains("Bo words"));
+    approve(&set, &mut approvals, "ann", &ALL);
+    approve(&set, &mut approvals, "bo", &ALL);
+    assert!(
+        !build(&record(), &set, &approvals, "ann", &ALL)
+            .unwrap()
+            .ready
+    );
+
+    // Under contributingAuthors the piece is ready without Cy.
+    let mut approvals = ApprovalSet::new();
+    approvals.set_policy(ApprovalPolicy {
+        requirement: ApprovalRequirement::ContributingAuthors,
+        ..ApprovalPolicy::default()
+    });
+    approve(&set, &mut approvals, "ann", &ALL);
+    approve(&set, &mut approvals, "bo", &ALL);
+    let ready = build(&record(), &set, &approvals, "ann", &ALL).unwrap();
+    assert!(ready.complete && ready.ready);
+    assert!(!ready.sections[2].required);
 }
 
 #[test]
@@ -281,12 +359,49 @@ fn hostile_names_are_escaped() {
 }
 
 #[test]
-fn the_preview_renders_prose_as_final_assembly_does() {
-    let markdown = "# Heading\n\nSome *emphasis* and a [link](https://example.org/).\n";
+fn the_preview_renders_prose_as_the_post_pipeline_does() {
+    let markdown = "# Heading
+
+It's \"quoted\" -- and *plain*.
+
+## Part
+
+```rust
+fn main() {}
+```
+";
     let mut set = drafts();
     set.save("ann", "ann", 0, markdown, T).unwrap();
-    let preview = build(&record(), &set, &ApprovalSet::new(), "ann", &["ann"]).unwrap();
-    assert!(preview.document.contains(&render_section(markdown).html));
+    for (smart, anchors) in [(false, false), (true, true), (true, false), (false, true)] {
+        let mut config = SiteConfig::default();
+        config.markdown.smart_punctuation = smart;
+        config.markdown.heading_anchors = anchors;
+        let file = SourceFile {
+            path: "posts/a.md".into(),
+            contents: format!(
+                "---
+title: A
+date: 2026-01-01
+---
+{markdown}"
+            ),
+        };
+        let post = openblog_core::model::load_post(&file, &config, config.render_options())
+            .expect("the post loads");
+        let preview = build_with(
+            &config,
+            &record(),
+            &set,
+            &ApprovalSet::new(),
+            "ann",
+            &["ann"],
+        )
+        .unwrap();
+        assert!(
+            preview.document.contains(&post.html),
+            "smart={smart} anchors={anchors}: preview differs from the published html"
+        );
+    }
 }
 
 #[test]
