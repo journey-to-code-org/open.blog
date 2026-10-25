@@ -46,9 +46,13 @@ const PRIVATE: &[&str] = &[
 ];
 
 fn record() -> SharedPublication {
+    record_titled("Noticing, together")
+}
+
+fn record_titled(title: &str) -> SharedPublication {
     let mut record = SharedPublication::create(&NewSharedPublication {
         publication_id: "shared-0a1b2c3d4e5f".into(),
-        title: "Noticing, together".into(),
+        title: title.into(),
         guiding_question: "What did you notice?".into(),
         sources: vec![NewSourceReference {
             kind: SourceKind::Video,
@@ -82,9 +86,13 @@ fn record() -> SharedPublication {
 }
 
 fn config() -> SiteConfig {
-    let mut config = SiteConfig::from_json(
-        r#"{"title":"T","url":"https://example.test","postPath":"/{slug}/","author":{"name":"Site Owner"},"feeds":{"fullContent":true}}"#,
-    )
+    config_with_full_content(true)
+}
+
+fn config_with_full_content(full: bool) -> SiteConfig {
+    let mut config = SiteConfig::from_json(&format!(
+        r#"{{"title":"T","url":"https://example.test","postPath":"/{{slug}}/","author":{{"name":"Site Owner"}},"feeds":{{"fullContent":{full}}}}}"#
+    ))
     .unwrap();
     for (id, name) in ALL.iter().zip(NAMES) {
         config.contributors.insert(
@@ -100,7 +108,11 @@ fn config() -> SiteConfig {
 }
 
 fn approved(texts: &[(&str, &str)]) -> Assembly {
-    let record = record();
+    approved_titled("Noticing, together", texts)
+}
+
+fn approved_titled(title: &str, texts: &[(&str, &str)]) -> Assembly {
+    let record = record_titled(title);
     let mut set = DraftSet::new(&ALL).unwrap();
     for (who, text) in texts {
         if *who == "bo" {
@@ -242,6 +254,9 @@ fn every_section_author_and_the_source_reach_every_representation_in_order() {
     );
     assert!(!rss.contains("Site Owner</dc:creator>"));
     assert!(rss.contains(&format!("<link>{canonical}</link>")));
+    well_formed_xml(&rss);
+    assert!(page.contains(&format!("<link rel=\"canonical\" href=\"{canonical}\">")));
+    assert!(markdown.contains(&format!("Canonical: <{canonical}>")));
     in_order(
         "rss content",
         &rss,
@@ -318,4 +333,111 @@ fn a_replaced_revision_never_publishes_and_markup_shown_as_code_stays_text() {
             assert!(!file.contents.contains("<b>"), "{}", file.path);
         }
     }
+}
+
+/// A small well-formedness check (no XML dependency): balanced tags, closed CDATA and comments,
+/// no bare `<`, and only the five predefined or numeric entities.
+fn well_formed_xml(xml: &str) {
+    let mut stack: Vec<String> = Vec::new();
+    let mut rest = xml;
+    while let Some(at) = rest.find(['<', '&']) {
+        let (_, here) = rest.split_at(at);
+        if let Some(entity) = here.strip_prefix('&') {
+            let end = entity.find(';').expect("unterminated entity");
+            let name = &entity[..end];
+            assert!(
+                matches!(name, "amp" | "lt" | "gt" | "quot" | "apos")
+                    || name.strip_prefix('#').is_some_and(|n| !n.is_empty()),
+                "bad entity &{name};"
+            );
+            rest = &entity[end + 1..];
+        } else if let Some(cdata) = here.strip_prefix("<![CDATA[") {
+            rest = &cdata[cdata.find("]]>").expect("unterminated CDATA") + 3..];
+        } else if let Some(comment) = here.strip_prefix("<!--") {
+            rest = &comment[comment.find("-->").expect("unterminated comment") + 3..];
+        } else if let Some(pi) = here.strip_prefix("<?") {
+            rest = &pi[pi.find("?>").expect("unterminated declaration") + 2..];
+        } else {
+            let end = here.find('>').expect("unterminated tag");
+            let tag = &here[1..end];
+            assert!(!tag.contains('<'), "bare `<` in {tag}");
+            if let Some(name) = tag.strip_prefix('/') {
+                assert_eq!(
+                    stack.pop().as_deref(),
+                    Some(name.trim()),
+                    "mismatched close"
+                );
+            } else if !tag.ends_with('/') {
+                stack.push(tag.split_whitespace().next().unwrap().to_string());
+            }
+            rest = &here[end + 1..];
+        }
+    }
+    assert!(stack.is_empty(), "unclosed tags {stack:?}");
+}
+
+#[test]
+fn rss_stays_well_formed_with_hostile_content() {
+    let made = approved(&[
+        ("ann", "Ann says ]]> and `<b>` and & more."),
+        ("bo", "Bo words"),
+        ("cy", "Cy words"),
+    ]);
+    well_formed_xml(&feeds::rss(&site(&made)).unwrap());
+}
+
+#[test]
+fn a_hostile_title_never_becomes_markup_in_any_output() {
+    let title = "Hi <img src=x onerror=alert(1)> & more";
+    let made = approved_titled(title, &[("ann", "A"), ("bo", "B"), ("cy", "C")]);
+    let site = site(&made);
+    let projection = PortableProjection::from_post(&site.posts[0], &site.config).unwrap();
+    let markdown = projection.portable_markdown().unwrap();
+    assert!(!markdown.contains(" <img"), "{markdown}");
+    assert!(markdown.starts_with(r"# Hi \<img"), "{markdown}");
+    for file in render::generate(&site, &ThemeSet::new()).unwrap() {
+        if file.path.ends_with(".html") || file.path.ends_with(".xml") {
+            assert!(!file.contents.contains("<img src=x"), "{}", file.path);
+        }
+    }
+    let rss = feeds::rss(&site).unwrap();
+    assert!(!rss.contains("<img src=x"));
+    well_formed_xml(&rss);
+    // JSON Feed titles are plain text by spec; the HTML content must not carry the tag.
+    let json: serde_json::Value = serde_json::from_str(&feeds::json_feed(&site).unwrap()).unwrap();
+    assert!(!json["items"][0]["content_html"]
+        .as_str()
+        .unwrap()
+        .contains("<img src=x"));
+}
+
+#[test]
+fn summary_only_feeds_carry_an_excerpt_and_no_private_values() {
+    let made = approved(&[
+        ("ann", SECTIONS[0]),
+        ("bo", SECTIONS[1]),
+        ("cy", SECTIONS[2]),
+    ]);
+    let site = Site::load(
+        config_with_full_content(false),
+        Sources {
+            posts: vec![SourceFile {
+                path: made.path.clone(),
+                contents: made.source.clone(),
+            }],
+            credits: vec![SourceFile {
+                path: made.credits_path.clone(),
+                contents: made.credits.clone(),
+            }],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap_or_else(|errors| panic!("{errors:?}"));
+    let rss = feeds::rss(&site).unwrap();
+    well_formed_xml(&rss);
+    assert!(rss.contains("Ann noticed"));
+    assert!(rss.contains("<dc:creator>Ann Ames</dc:creator>"));
+    clean("rss", &rss);
+    clean("json feed", &feeds::json_feed(&site).unwrap());
 }

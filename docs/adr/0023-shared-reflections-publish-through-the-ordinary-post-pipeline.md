@@ -23,12 +23,17 @@ projections. It would also need its own authorization, its own escaping and its 
   [ADR 0014](0014-record-level-authorization-and-publish-gate.md)'s gate.
 - Section order is participant order and credit order is the same order, so RSS `dc:creator` and
   JSON Feed `authors` list the same people in the same sequence as the sections. An author who wrote
-  nothing has no section and no credit in any output. Under sequential fallbacks (plain text, summary
-  only feeds) the sections stay in that order and the source is still a link.
+  nothing has no section and no credit in any output. Under the plain-text fallback the sections
+  stay in that order and the source is still a link. Summary-only feeds (`feeds.fullContent: false`)
+  carry only the ordinary excerpt and the credited authors, as for any Post: no guiding question,
+  source title or source link, because those live in the body. A reader follows the canonical link
+  to the full piece.
+- The title comes from a participant, not the site owner, so portable Markdown escapes it like the
+  other untrusted shared values (`<` and `&` as well), and it can never become raw HTML.
 - A shared conclusion is a section like any other, written by an author and approved with the rest.
   Nothing is dropped or summarised between approval and output.
 - The guarantee is tested, not assumed. `shared_publication_output.rs` assembles a three-author
-  piece and checks the page, portable HTML, Markdown and text, RSS, JSON Feed (parsed), `llms` files,
+  piece and checks the page, portable HTML, Markdown and text, RSS, well-formed RSS and JSON Feed (both parsed or checked), `llms` files,
   sitemap and search index for section order, author order, canonical link equality, and absence of
   private values: a replaced draft revision, account names, the publication id, invitation, approval
   and reveal wording. The Admin publish test checks the rebuilt `rss.xml`, `feed.json` and page.
