@@ -239,9 +239,15 @@ you are editing but does not expose unrelated drafts or scheduled posts. Front m
 remains in **Settings** and is never printed into the preview.
 
 For posts, use the **Preview representation or destination** selector to compare the themed site
-output, portable HTML and Markdown, or a DEV, Hashnode, Ghost, WordPress, or Medium policy view.
+output, portable HTML, Markdown, and plain text, or a DEV, Hashnode, Ghost, WordPress, or Medium policy view.
 These projections run through the same conversion used by feeds, export, and syndication;
 warnings include the source, transformation, and recommended action.
+**Copy portable output** and **Download portable output** use the exact selected artifact
+without saving or changing the post. Downloaded previews may contain unsaved draft content;
+review them before sharing. Actions are disabled for the native site view, unavailable policies,
+failed previews, and while edits await a fresh preview. Text and Markdown are displayed as literal
+source, never executed in the Admin shell. The authenticated API also returns capability
+portability levels alongside all three representations.
 
 Warnings can be acknowledged for a specific source revision, capability, representation, and
 destination. Acknowledgements are stored in a tracked sibling `*.portability.json` sidecar and

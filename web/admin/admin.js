@@ -477,6 +477,23 @@ export function portableDiagnosticsForDisplay(diagnostics) {
     : [];
 }
 
+export function portablePreviewArtifact(preview, mode) {
+  const portable = preview?.portablePreview;
+  if (!portable || mode === "site") return null;
+  const representation = mode.startsWith("destination:")
+    ? portable.destinations?.find((policy) => `destination:${policy.provider}` === mode)?.representation
+    : mode;
+  const formats = {
+    "portable-html": ["html", "text/html"],
+    "portable-markdown": ["markdown", "text/markdown"],
+    "manual-markdown": ["markdown", "text/markdown"],
+    "portable-text": ["text", "text/plain"],
+  };
+  const format = formats[representation];
+  if (!format || typeof portable[format[0]] !== "string") return null;
+  return { content: portable[format[0]], extension: { html: "html", markdown: "md", text: "txt" }[format[0]], mime: `${format[1]};charset=utf-8` };
+}
+
 export function destinationPolicyForDisplay(policies, mode) {
   if (!String(mode).startsWith("destination:")) return [];
   const provider = String(mode).slice("destination:".length);
@@ -2948,6 +2965,7 @@ export class Editor {
         ? [
             h("option", { value: "portable-html" }, "Portable HTML"),
             h("option", { value: "portable-markdown" }, "Portable Markdown"),
+            h("option", { value: "portable-text" }, "Portable text"),
             h("option", { value: "destination:dev" }, "DEV"),
             h("option", { value: "destination:hashnode" }, "Hashnode"),
             h("option", { value: "destination:ghost" }, "Ghost"),
@@ -2957,6 +2975,10 @@ export class Editor {
         : []),
     );
     ui.previewMarkdown = h("pre", { class: "oba-portable-markdown", hidden: true, tabindex: "0", "aria-label": "Portable Markdown preview" });
+    ui.previewCopy = h("button", { type: "button", class: "oba-btn", disabled: true }, "Copy portable output");
+    ui.previewDownload = h("button", { type: "button", class: "oba-btn", disabled: true }, "Download portable output");
+    ui.previewCopy.addEventListener("click", () => this.exportPreviewArtifact(false));
+    ui.previewDownload.addEventListener("click", () => this.exportPreviewArtifact(true));
     ui.previewMode.addEventListener("change", () => {
       this.showPreviewRepresentation();
       this.updatePreviewWarnings();
@@ -3454,6 +3476,7 @@ export class Editor {
             { class: "oba-pane oba-preview-pane", "data-pane": "preview", "aria-label": "Live preview" },
             paneHeader("Review", "Site preview", h("div", { class: "oba-preview-tools" }, ui.previewTheme, ui.previewMode, ui.previewWidth)),
             ui.previewWarnings,
+            h("div", { class: "oba-preview-tools", "aria-label": "Portable output actions" }, ui.previewCopy, ui.previewDownload),
             h("div", { class: "oba-preview-canvas" }, ui.preview, ui.previewMarkdown),
           ),
           h(
@@ -4262,6 +4285,10 @@ export class Editor {
 
   schedulePreview() {
     clearTimeout(this.previewTimer);
+    this.previewRequest += 1;
+    this.previewResult = null;
+    this.ui.previewCopy.disabled = true;
+    this.ui.previewDownload.disabled = true;
     if (this.root?.dataset.editorView === "release") {
       this.updateReleaseKit();
       return;
@@ -5015,6 +5042,9 @@ export class Editor {
 
   async renderPreview() {
     const request = ++this.previewRequest;
+    this.previewResult = null;
+    this.ui.previewCopy.disabled = true;
+    this.ui.previewDownload.disabled = true;
     this.ui.previewTheme.textContent = "Rendering site…";
     this.ui.socialStatus.textContent = "Rendering current social metadata…";
     this.ui.accessibilityStatus.textContent = "Checking current source…";
@@ -5060,6 +5090,9 @@ export class Editor {
 
   showPreviewRepresentation(preview = this.previewResult) {
     const mode = this.ui.previewMode.value;
+    const artifact = portablePreviewArtifact(preview, mode);
+    this.ui.previewCopy.disabled = !artifact;
+    this.ui.previewDownload.disabled = !artifact;
     const portable = preview?.portablePreview;
     const destinationMode = mode.startsWith("destination:");
     const destination = destinationMode
@@ -5072,15 +5105,17 @@ export class Editor {
       return;
     }
     const representation = destination?.representation || mode;
-    const markdownMode = representation === "portable-markdown" || representation === "manual-markdown";
+    const textMode = representation === "portable-text";
+    const markdownMode = textMode || representation === "portable-markdown" || representation === "manual-markdown";
     this.ui.previewMarkdown.hidden = !markdownMode || !portable;
-    this.ui.preview.hidden = this.ui.previewMarkdown.hidden;
+    this.ui.preview.hidden = !this.ui.previewMarkdown.hidden;
     if (!preview) return;
     if (markdownMode && portable) {
-      this.ui.previewMarkdown.textContent = portable.markdown;
+      this.ui.previewMarkdown.textContent = textMode ? portable.text : portable.markdown;
+      this.ui.previewMarkdown.setAttribute("aria-label", textMode ? "Portable text preview" : "Portable Markdown preview");
       this.ui.previewTheme.textContent = destination
         ? `${destination.label} · ${representation === "manual-markdown" ? "manual import" : "portable Markdown"}`
-        : "Portable Markdown fallback";
+        : textMode ? "Portable text fallback" : "Portable Markdown fallback";
       return;
     }
     this.ui.preview.removeAttribute("srcdoc");
@@ -5099,6 +5134,32 @@ export class Editor {
     }
     this.ui.preview.src = preview.previewUrl;
     this.ui.previewTheme.textContent = `Theme: ${preview.theme}`;
+  }
+
+  async exportPreviewArtifact(download) {
+    const artifact = portablePreviewArtifact(this.previewResult, this.ui.previewMode.value);
+    if (!artifact) {
+      this.ui.previewTheme.textContent = "Render a current portable preview before exporting.";
+      return;
+    }
+    try {
+      if (download) {
+        const url = URL.createObjectURL(new Blob([artifact.content], { type: artifact.mime }));
+        try {
+          const link = h("a", { href: url, download: `portable-preview.${artifact.extension}` });
+          document.body.append(link);
+          link.click();
+          link.remove();
+        } finally {
+          setTimeout(() => URL.revokeObjectURL(url), 0);
+        }
+      } else {
+        await navigator.clipboard.writeText(artifact.content);
+      }
+      this.ui.previewTheme.textContent = download ? "Portable output downloaded; source unchanged." : "Portable output copied; source unchanged.";
+    } catch (error) {
+      this.ui.previewTheme.textContent = `Portable export failed: ${error.message}`;
+    }
   }
 
   updatePreviewWarnings(preview = this.previewResult) {

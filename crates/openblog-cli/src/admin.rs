@@ -5627,6 +5627,10 @@ fn preview(state: &AppState, req: &Request) -> Response {
             Ok(markdown) => markdown,
             Err(error) => return Response::error(422, &error),
         };
+        let portable_text = match projection.portable_text() {
+            Ok(text) => text,
+            Err(error) => return Response::error(422, &error),
+        };
         let source_revision = match projection.source_revision() {
             Ok(revision) => revision,
             Err(error) => return Response::error(422, &error),
@@ -5645,6 +5649,8 @@ fn preview(state: &AppState, req: &Request) -> Response {
         json!({
             "html": portable_html.html,
             "markdown": portable_markdown,
+            "text": portable_text,
+            "capabilities": portable_html.capabilities,
             "diagnostics": portable_html.diagnostics,
             "destinations": openblog_core::portability::destination_policies(),
             "sourceRevision": source_revision,
@@ -10431,7 +10437,19 @@ mod tests {
             preview["portablePreview"]["markdown"],
             projection.portable_markdown().unwrap()
         );
-        for representation in ["html", "markdown"] {
+        assert_eq!(
+            preview["portablePreview"]["text"],
+            projection.portable_text().unwrap()
+        );
+        assert!(preview["portablePreview"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| {
+                capability["id"] == "knowledge-check"
+                    && capability["portability"] == "gracefully-transformed"
+            }));
+        for representation in ["html", "markdown", "text"] {
             let output = preview["portablePreview"][representation].as_str().unwrap();
             assert!(output.contains("Join the discussion"));
             assert!(output.contains("Open in Rust Playground"));
