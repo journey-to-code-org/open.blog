@@ -10762,6 +10762,42 @@ mod tests {
     }
 
     #[test]
+    fn portability_acknowledgement_files_reject_malformed_versions_scopes_and_bounds() {
+        let f = fixture("portability-sidecar-contract");
+        let path = f.dir.join("invalid.portability.json");
+        let valid = json!({
+            "sourceRevision": "a".repeat(40),
+            "capabilityId": "knowledge-check",
+            "representation": "portable-markdown",
+            "destination": "dev",
+        });
+        let mut renamed = valid.clone();
+        renamed["destination"] = json!("renamed-target");
+        for invalid in [
+            json!({"version": 2, "acknowledgements": []}),
+            json!({"version": 1, "acknowledgements": [], "ignoreErrors": true}),
+            json!({"version": 1, "acknowledgements": [{}]}),
+            json!({"version": 1, "acknowledgements": vec![json!({}); MAX_PORTABILITY_ACKNOWLEDGEMENTS + 1]}),
+            json!({"version": 1, "acknowledgements": [renamed]}),
+        ] {
+            let bytes = serde_json::to_vec(&invalid).unwrap();
+            fs::write(&path, &bytes).unwrap();
+            assert!(load_portability_acknowledgements(&path).is_err());
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
+        for bytes in [b"{invalid JSON".to_vec(), vec![b' '; 128 * 1024 + 1]] {
+            fs::write(&path, &bytes).unwrap();
+            assert!(load_portability_acknowledgements(&path).is_err());
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
+        let sidecar = json!({"version": 1, "acknowledgements": [valid]});
+        fs::write(&path, serde_json::to_vec(&sidecar).unwrap()).unwrap();
+        let (loaded, etag) = load_portability_acknowledgements(&path).unwrap();
+        assert_eq!(loaded.acknowledgements.len(), 1);
+        assert_eq!(load_portability_acknowledgements(&path).unwrap().1, etag);
+    }
+
+    #[test]
     fn portability_acknowledgements_are_tracked_scoped_and_stale_on_source_changes() {
         for representation in ["portable-html", "portable-markdown", "portable-text"] {
             assert_portability_acknowledgement(representation);
@@ -10840,6 +10876,17 @@ mod tests {
         assert_eq!(
             stored["acknowledgements"][0]["representation"],
             representation
+        );
+        let repeated = acknowledge(
+            &source_revision,
+            acknowledgement["etag"].as_str().unwrap(),
+            "portable-export",
+        );
+        assert_eq!(repeated.status, 200);
+        assert_eq!(body_json(&repeated), acknowledgement);
+        assert_eq!(
+            serde_json::from_slice::<Json>(&fs::read(&sidecar).unwrap()).unwrap(),
+            stored
         );
 
         let preview = handle(
