@@ -26,14 +26,42 @@ pub fn is_private_research_file(path: &Path) -> bool {
     if !metadata.is_file() || metadata.len() > (MAX_BUNDLE_BYTES * 2) as u64 {
         return false;
     }
-    let mut bytes = Vec::new();
-    fs::File::open(path)
-        .and_then(|file| {
-            file.take((MAX_BUNDLE_BYTES * 2) as u64)
-                .read_to_end(&mut bytes)
-        })
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    // Only a JSON object can be private research: look at a small prefix first so
+    // ordinary public files (images, fonts, pages) are never read whole.
+    let mut prefix = [0_u8; PREFIX_BYTES];
+    let Ok(read) = read_up_to(&mut file, &mut prefix) else {
+        return false;
+    };
+    if !starts_like_json_object(&prefix[..read]) {
+        return false;
+    }
+    let mut bytes = prefix[..read].to_vec();
+    file.take((MAX_BUNDLE_BYTES * 2) as u64)
+        .read_to_end(&mut bytes)
         .is_ok()
         && looks_like_private_research(&bytes)
+}
+
+const PREFIX_BYTES: usize = 64;
+
+fn read_up_to(file: &mut fs::File, buffer: &mut [u8]) -> std::io::Result<usize> {
+    let mut filled = 0;
+    while filled < buffer.len() {
+        match file.read(&mut buffer[filled..])? {
+            0 => break,
+            count => filled += count,
+        }
+    }
+    Ok(filled)
+}
+
+/// After an optional BOM and whitespace, does the text start with `{`?
+fn starts_like_json_object(prefix: &[u8]) -> bool {
+    let body = prefix.strip_prefix("\u{feff}".as_bytes()).unwrap_or(prefix);
+    body.iter().find(|byte| !byte.is_ascii_whitespace()) == Some(&b'{')
 }
 
 /// Public build inputs that look like private research, as project-relative
@@ -145,6 +173,29 @@ mod tests {
         );
         let error = refuse_private_research_in_public_inputs(&root, &config).unwrap_err();
         assert!(error.contains("content/posts/backup.txt") && !error.contains("observation"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_files_that_start_like_a_json_object_are_read_whole() {
+        assert!(starts_like_json_object(b"{\"a\":1}"));
+        assert!(starts_like_json_object(b" \r\n\t{"));
+        assert!(starts_like_json_object("\u{feff}  {".as_bytes()));
+        assert!(!starts_like_json_object(b"[{\"a\":1}]"));
+        assert!(!starts_like_json_object(b"\x89PNG\r\n"));
+        assert!(!starts_like_json_object(b""));
+
+        let root = temp_root("prefix");
+        let path = root.join("notes.json");
+        fs::write(&path, format!("\u{feff}\n  {NOTEBOOK}")).unwrap();
+        assert!(
+            is_private_research_file(&path),
+            "BOM and whitespace are tolerated"
+        );
+        fs::write(&path, format!("[{NOTEBOOK}]")).unwrap();
+        assert!(!is_private_research_file(&path));
+        fs::write(&path, vec![b'x'; 1 << 20]).unwrap();
+        assert!(!is_private_research_file(&path));
         fs::remove_dir_all(root).unwrap();
     }
 
