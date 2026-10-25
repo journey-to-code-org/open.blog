@@ -210,6 +210,13 @@ output, and shown under the turn's author heading. No layout invents one, and it
 turn (ADR 0033).
 _Avoid_: Side, role, stance, speaker slot
 
+**Portable reflection**:
+The static equivalent of a published reflection in portable HTML, Markdown, text, feeds and llms
+output: each round prompt, then every turn under its author's name and optional label, in reading
+order, whatever the layout. It carries no placement, class, placeholder or part marker, and the
+layout is reported once as a diagnostic instead of lost silently (ADR 0034).
+_Avoid_: Layout export, flattened copy
+
 **Part break**:
 The line `<!-- openblog:part -->` a writer places in their own draft to start a new part. It is
 never rendered or published: the preview, the Post, feeds and exports all drop it (ADR 0032).

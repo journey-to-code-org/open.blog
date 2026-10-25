@@ -881,7 +881,32 @@ impl<'a> PortableProjection<'a> {
             ));
         }
         self.ensure_semantics(RepresentationFormat::Html, &html)?;
-        let diagnostics = portability_diagnostics(self.source_path, self.markdown, &capabilities);
+        let mut diagnostics =
+            portability_diagnostics(self.source_path, self.markdown, &capabilities);
+        // A layout places the same turns differently; no portable form can. Say so, once, rather
+        // than let the placement disappear silently (ADR 0034).
+        if let Some(arrangement) = self.arrangement() {
+            if arrangement.layout != crate::reflection::ReflectionLayout::Sequential {
+                diagnostics.push(PortabilityDiagnostic {
+                    code: "reflection-layout-sequenced".into(),
+                    severity: DiagnosticSeverity::Info,
+                    source_path: self.source_path.into(),
+                    capability_id: Some("reflection".into()),
+                    message: format!(
+                        "The {} layout places turns side by side or staggered on the canonical page; portable copies show the same turns as labeled sections in reading order.",
+                        arrangement.layout.key()
+                    ),
+                    recommended_action: "No action needed: every round prompt, author, label and turn is kept in order; only the placement is not.".into(),
+                    context: DiagnosticContext {
+                        representation: Some("portable-html".into()),
+                        destination: Some("portable-export".into()),
+                        portability_level: Some(PortabilityLevel::GracefullyTransformed),
+                        affected_semantics: Some("Turn placement (columns, stagger) on wide screens; reading order, authorship, labels and prompts are unchanged.".into()),
+                        source_range: None,
+                    },
+                });
+            }
+        }
         Ok(PortableHtmlOutput {
             html,
             capabilities,
@@ -895,7 +920,13 @@ impl<'a> PortableProjection<'a> {
     /// public work metadata. No generated HTML is parsed to reconstruct content.
     pub fn portable_markdown(&self) -> Result<String, String> {
         let html = self.portable_html()?;
-        let (body, raw_html_count) = escape_raw_html(self.markdown);
+        // A shared reflection's arrangement is stated as labeled sequential sections (ADR 0034);
+        // any other body is the authored Markdown itself.
+        let source = self.arrangement().map_or_else(
+            || self.markdown.to_string(),
+            |arrangement| arrangement.to_markdown(shared_markdown_text),
+        );
+        let (body, raw_html_count) = escape_raw_html(&source);
         let body = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
         let mut output = format!(
@@ -1241,6 +1272,20 @@ impl<'a> PortableProjection<'a> {
                 }
             }
         }
+        let arrangement = self.arrangement();
+        if let Some(arrangement) = &arrangement {
+            for round in &arrangement.rounds {
+                if let Some(prompt) = &round.prompt {
+                    facts.push(SemanticFact::new("reflection", "round prompt", prompt));
+                }
+                for turn in &round.turns {
+                    facts.push(SemanticFact::new("reflection", "turn author", &turn.author));
+                    if let Some(label) = &turn.label {
+                        facts.push(SemanticFact::new("reflection", "turn label", label));
+                    }
+                }
+            }
+        }
         if let Some(source) = self.source_url {
             facts.push(SemanticFact::new(
                 "provenance",
@@ -1424,6 +1469,45 @@ impl<'a> PortableProjection<'a> {
                 diagnostics.push(diagnostic);
             }
         }
+        // The same prompts, names and labels must also come in the arrangement's reading order:
+        // an equivalent that reorders turns says something else (ADR 0034).
+        if let Some(arrangement) = &arrangement {
+            let mut from = 0;
+            let mut in_order = true;
+            for round in &arrangement.rounds {
+                let values = round.prompt.iter().chain(
+                    round
+                        .turns
+                        .iter()
+                        .flat_map(|turn| std::iter::once(&turn.author).chain(turn.label.iter())),
+                );
+                for value in values {
+                    let needle = normalize(value);
+                    match content[from..].find(&needle) {
+                        Some(at) => from += at + needle.len(),
+                        None => in_order = false,
+                    }
+                }
+            }
+            if !in_order {
+                diagnostics.push(PortabilityDiagnostic {
+                    code: "reflection-order".into(),
+                    severity: DiagnosticSeverity::Error,
+                    source_path: self.source_path.into(),
+                    capability_id: Some("reflection".into()),
+                    message: format!(
+                        "The {representation} artifact does not keep the reflection's prompts, authors and labels in reading order."
+                    ),
+                    recommended_action: "Repair the projection before publishing; the reading order is part of what each author approved.".into(),
+                    context: DiagnosticContext {
+                        representation: Some(representation.into()),
+                        destination: Some("portable-export".into()),
+                        affected_semantics: Some("reading order".into()),
+                        ..Default::default()
+                    },
+                });
+            }
+        }
         Ok(diagnostics)
     }
 
@@ -1455,61 +1539,29 @@ impl<'a> PortableProjection<'a> {
     /// Produce plain feed text from the portable Markdown, including code and
     /// link destinations instead of inheriting the native search-text omissions.
     pub fn portable_text(&self) -> Result<String, String> {
-        let markdown = self.portable_markdown()?;
-        let mut output = String::new();
-        let mut links: Vec<(usize, String)> = Vec::new();
-        for event in Parser::new_ext(&markdown, crate::markdown::parser_options(false)) {
-            match event {
-                Event::Text(text)
-                | Event::Code(text)
-                | Event::Html(text)
-                | Event::InlineHtml(text) => output.push_str(&text),
-                Event::Start(Tag::Link { dest_url, .. })
-                | Event::Start(Tag::Image { dest_url, .. }) => {
-                    links.push((output.len(), dest_url.to_string()));
-                }
-                Event::End(TagEnd::Link) | Event::End(TagEnd::Image) => {
-                    if let Some((start, destination)) = links.pop() {
-                        let label = output[start..].trim();
-                        if !destination.is_empty() && label != destination {
-                            output.push_str(" (");
-                            output.push_str(&destination);
-                            output.push(')');
-                        }
-                    }
-                }
-                Event::SoftBreak | Event::HardBreak | Event::Rule => output.push('\n'),
-                Event::FootnoteReference(label) => output.push_str(&format!("[{label}]")),
-                Event::Start(Tag::FootnoteDefinition(label)) => {
-                    output.push_str(&format!("[{label}]: "))
-                }
-                Event::End(
-                    TagEnd::Paragraph
-                    | TagEnd::Heading(_)
-                    | TagEnd::Item
-                    | TagEnd::CodeBlock
-                    | TagEnd::BlockQuote(_)
-                    | TagEnd::TableCell
-                    | TagEnd::TableHead,
-                ) => output.push('\n'),
-                _ => {}
-            }
-        }
-        let mut compact = String::new();
-        let mut previous_blank = false;
-        for line in output
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-        {
-            if !compact.is_empty() && !previous_blank {
-                compact.push('\n');
-            }
-            compact.push_str(line);
-            previous_blank = false;
-        }
+        let compact = markdown_to_text(&self.portable_markdown()?);
         self.ensure_semantics(RepresentationFormat::Text, &compact)?;
         Ok(compact)
+    }
+
+    /// The arrangement of a shared reflection as plain text in reading order: round prompts, then
+    /// each turn under its author's name and label. `None` for any other post. It carries the same
+    /// words, names, labels and order as the portable text, without the page's own metadata, for
+    /// callers (llms-full.txt) that print their own header.
+    pub fn reflection_text(&self) -> Result<Option<String>, String> {
+        let Some(arrangement) = self.arrangement() else {
+            return Ok(None);
+        };
+        let (body, _) = escape_raw_html(&arrangement.to_markdown(shared_markdown_text));
+        let markdown = portable_markdown_body(&body, self)
+            .map_err(|error| format!("{}: {error}", self.source_path))?;
+        Ok(Some(markdown_to_text(&markdown)))
+    }
+
+    /// The arrangement recorded in a shared reflection's authored Markdown, if it has one.
+    fn arrangement(&self) -> Option<crate::arrangement::Arrangement> {
+        self.shared?;
+        crate::arrangement::Arrangement::parse(self.markdown)
     }
 
     /// Resolve an authored URL against the post or site base while rejecting
@@ -1700,6 +1752,63 @@ fn transformation_summary(capability: &str) -> &'static str {
         }
         _ => "Interactive behavior is represented by a static fallback",
     }
+}
+
+/// Plain text of Markdown, keeping code and link destinations (shared by the portable text and the
+/// reflection text).
+fn markdown_to_text(markdown: &str) -> String {
+    let mut output = String::new();
+    let mut links: Vec<(usize, String)> = Vec::new();
+    for event in Parser::new_ext(markdown, crate::markdown::parser_options(false)) {
+        match event {
+            Event::Text(text) | Event::Code(text) | Event::Html(text) | Event::InlineHtml(text) => {
+                output.push_str(&text)
+            }
+            Event::Start(Tag::Link { dest_url, .. })
+            | Event::Start(Tag::Image { dest_url, .. }) => {
+                links.push((output.len(), dest_url.to_string()));
+            }
+            Event::End(TagEnd::Link) | Event::End(TagEnd::Image) => {
+                if let Some((start, destination)) = links.pop() {
+                    let label = output[start..].trim();
+                    if !destination.is_empty() && label != destination {
+                        output.push_str(" (");
+                        output.push_str(&destination);
+                        output.push(')');
+                    }
+                }
+            }
+            Event::SoftBreak | Event::HardBreak | Event::Rule => output.push('\n'),
+            Event::FootnoteReference(label) => output.push_str(&format!("[{label}]")),
+            Event::Start(Tag::FootnoteDefinition(label)) => {
+                output.push_str(&format!("[{label}]: "))
+            }
+            Event::End(
+                TagEnd::Paragraph
+                | TagEnd::Heading(_)
+                | TagEnd::Item
+                | TagEnd::CodeBlock
+                | TagEnd::BlockQuote(_)
+                | TagEnd::TableCell
+                | TagEnd::TableHead,
+            ) => output.push('\n'),
+            _ => {}
+        }
+    }
+    let mut compact = String::new();
+    let mut previous_blank = false;
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if !compact.is_empty() && !previous_blank {
+            compact.push('\n');
+        }
+        compact.push_str(line);
+        previous_blank = false;
+    }
+    compact
 }
 
 fn markdown_text(value: &str) -> String {

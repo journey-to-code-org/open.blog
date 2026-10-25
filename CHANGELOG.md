@@ -5,6 +5,19 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A published shared reflection now reads the same in portable HTML, Markdown, plain text, RSS, JSON
+  Feed and llms-full.txt whichever layout it uses: each round prompt, then every turn under its
+  author's name and label, in the published order, with no styles, scripts, placeholders or markers
+  needed. Portable Markdown and text no longer show the page's layout tags as words, and
+  llms-full.txt now keeps prompts, names and labels with their words. The portable HTML check
+  reports that column and stagger placement is the one thing a portable copy does not carry.
+- Fixed: Markdown typed into a turn label, round prompt or participant name (such as
+  `[x](javascript:alert(1))`) could become a live link in the portable Markdown export and could
+  break the build. These values now stay plain text everywhere.
+- Fixed: in an alternating dialogue the side changes only when the speaker changes, so one author's
+  consecutive turns stay on the same side. Point and counterpoint uses two columns only for exactly
+  two people and one column for three or more.
+- Fixed: a last turn that ends in an indented code block is no longer refused when publishing.
 - Shared reflections can also be presented as point and counterpoint, an alternating dialogue or a
   roundtable. A coordinator picks the layout in Admin and can give any turn an optional short label
   (such as "Point"); no label is added for you, and no layout implies that anyone disagrees. The

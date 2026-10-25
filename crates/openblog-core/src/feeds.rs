@@ -361,10 +361,15 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
                 out.push_str(&format!("- Source ({}): {name}\n", source.kind.label()));
             }
         }
-        out.push_str(&format!(
-            "\n{}\n",
-            projection.representation(RepresentationFormat::Text).trim()
-        ));
+        // A shared reflection keeps each round prompt and each author's name and label with the
+        // words they belong to; the page's search text is the words alone (ADR 0034).
+        let body = match projection.reflection_text()? {
+            Some(text) => text,
+            None => projection
+                .representation(RepresentationFormat::Text)
+                .to_string(),
+        };
+        out.push_str(&format!("\n{}\n", body.trim()));
     }
     Ok(out)
 }
