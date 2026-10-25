@@ -2628,3 +2628,30 @@ a.oba-btn-primary {
 .oba-source-import-list li[data-import-action="conflict"] > strong {
   color: var(--oba-danger);
 }
+
+.oba-invitations {
+  margin-top: 1rem;
+}
+
+.oba-invitations summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.oba-invitation-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding-left: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-invitation-result {
+  margin-top: 0.75rem;
+}
+
+.oba-invitation-link {
+  width: 100%;
+  max-width: 100%;
+  font-family: var(--ob-font-mono, monospace);
+}

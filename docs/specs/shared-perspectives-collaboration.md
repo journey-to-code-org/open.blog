@@ -1,8 +1,8 @@
 # Shared perspectives collaboration contract
 
 Status: contract, authorization policy, and private shared publication record established;
-creating a shared reflection works in Admin Studio; invitations, drafting, and quorum behavior are
-not implemented
+creating a shared reflection and inviting collaborators work in Admin Studio; drafting and
+quorum behavior are not implemented
 Date: 2026-10-24
 
 ## Outcome
@@ -209,6 +209,8 @@ publication gate remain separate contracts.
   context. Invitations ([#159](https://github.com/journey-to-code-org/open.blog/issues/159)) and
   member management ([#161](https://github.com/journey-to-code-org/open.blog/issues/161)) add,
   change, and remove bindings this way, and invitations must bind the account that accepts.
+  Accepting an invitation is the one other way a binding is added: it applies the same rules from
+  the invitation, see [ADR 0013](../adr/0013-publication-scoped-invitations.md).
   `from_json` loads a stored policy and takes no requester, so it is not a change path.
 - Treat Admin usernames and registry keys as names that a binding would follow if reused.
   Removing an Admin account or renaming a registry key must also remove that name's bindings in

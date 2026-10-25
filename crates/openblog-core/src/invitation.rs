@@ -494,6 +494,17 @@ impl SharedPublication {
     ) -> Result<Self, InvitationError> {
         let index = self.find_pending(token, acceptor, now)?;
         let invitation = &self.invitations[index];
+        // The inviter must still hold the authority that issued the invitation.
+        let inviter_current = self
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.participant_id == invitation.invited_by)
+            .and_then(|binding| self.inviter(&binding.admin_user, identities).ok())
+            .is_some_and(|inviter| Self::may_grant(inviter, &invitation.roles));
+        if !inviter_current {
+            return Err(InvitationError::Unavailable);
+        }
         let participants = &self.collaboration.participants;
         let taken = |id: &str| {
             participants

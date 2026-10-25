@@ -791,6 +791,49 @@ export async function submitSharedReflection(draft, { post, created, failed }) {
   }
 }
 
+export const INVITATION_ROLES = Object.freeze([
+  { value: "contributor", label: "Contributor", help: "Writes their own part." },
+  { value: "editor", label: "Editor", help: "Edits drafts revealed to them." },
+  { value: "reader", label: "Reader", help: "Reads what is revealed to them." },
+  { value: "coordinator", label: "Coordinator", help: "Invites people and manages roles below owner." },
+  { value: "siteOwner", label: "Site owner", help: "Full control. Only site owners can grant this.", ownerOnly: true },
+]);
+
+/** The invitation request body. The inviter always comes from the session, never from here. */
+export function invitationPayload(publicationId, draft = {}) {
+  const allowed = new Set(INVITATION_ROLES.map((role) => role.value));
+  const payload = {
+    publicationId,
+    adminUser: String(draft.adminUser || "").trim(),
+    contributorId: String(draft.contributorId || ""),
+    roles: [...new Set(draft.roles || [])].filter((role) => allowed.has(role)),
+  };
+  const days = Number(draft.lifetimeDays);
+  if (Number.isInteger(days) && days > 0) payload.lifetimeDays = days;
+  return payload;
+}
+
+/** The first problem in an invitation draft, as { field, message }, or null. */
+export function validateInvitationDraft(draft = {}) {
+  if (!String(draft.adminUser || "").trim()) return { field: "adminUser", message: "Enter the sign-in name of the person to invite." };
+  if (!draft.contributorId) return { field: "contributorId", message: "Choose the contributor profile they will appear as." };
+  if (!(draft.roles || []).length) return { field: "roles", message: "Choose at least one role." };
+  return null;
+}
+
+/** An absolute copyable link, only ever for a path inside this Admin. */
+export function invitationShareLink(origin, link) {
+  return typeof link === "string" && link.startsWith("/admin/#/shared/accept/") ? `${origin}${link}` : "";
+}
+
+/** The token in an accept route's hash, or "". It is never read from anywhere else. */
+export function invitationTokenFromHash(hash) {
+  const { head, tail } = parseAdminHash(hash);
+  if (head !== "shared" || !tail.startsWith("accept/")) return "";
+  const token = tail.slice("accept/".length);
+  return /^[a-z0-9-]{1,128}\.[0-9a-f]{64}$/.test(token) ? token : "";
+}
+
 const SUGGESTED_SOURCE_FIELDS = ["title", "creator", "publisher"];
 
 /**
@@ -2522,6 +2565,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "contributors") await this.showContributors();
       else if (head === "sources") await this.showSources();
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
+      else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
       else if (head === "shared") await this.showSharedReflections();
       else if (head === "overview" || !head) await this.showOverview(params.get("focus"));
       else await this.showList(KINDS[head] ? head : "posts", params.get("status"));
@@ -3411,6 +3455,7 @@ export class ObAdmin extends AdminElement {
             );
           }),
         ),
+        this.invitationPanel(publication, index),
       );
     });
     this.mount(
@@ -3638,6 +3683,173 @@ export class ObAdmin extends AdminElement {
     renderSources();
     this.mount(this.shell("shared", form));
     requestAnimationFrame(() => sourceList.querySelector("#oba-shared-source-0-title")?.focus());
+  }
+
+  // ---- shared reflection invitations
+
+  /** Invite people to one reflection. Only site owners and coordinators see it. */
+  invitationPanel(publication, index) {
+    const roles = publication.roles || [];
+    const isOwner = roles.includes("siteOwner");
+    if (!isOwner && !roles.includes("coordinator")) return null;
+    const prefix = `oba-invite-${index}`;
+    const list = h("ul", { class: "oba-invitation-list", "aria-label": "Invitations" });
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", hidden: true });
+    const result = h("div", { class: "oba-invitation-result", hidden: true });
+    const user = h("input", { id: `${prefix}-user`, type: "text", autocomplete: "off", spellcheck: "false", maxlength: "32" });
+    const profile = h("select", { id: `${prefix}-profile` });
+    const days = h("input", { id: `${prefix}-days`, type: "number", min: "1", max: "30", value: "7" });
+    const roleBoxes = INVITATION_ROLES.filter((role) => isOwner || !role.ownerOnly).map((role) =>
+      h("label", { class: "oba-check" }, h("input", { type: "checkbox", name: `${prefix}-role`, value: role.value, checked: role.value === "contributor" }), ` ${role.label}`, h("small", { class: "oba-small" }, ` ${role.help}`)),
+    );
+    const fail = (message) => {
+      problem.textContent = message;
+      problem.hidden = false;
+    };
+    const showToken = (issued) => {
+      const url = invitationShareLink(location.origin, issued.link);
+      const field = h("input", { type: "text", readonly: true, value: url, "aria-label": "Invitation link", class: "oba-invitation-link" });
+      const copy = h("button", { class: "oba-btn", type: "button" }, "Copy link");
+      copy.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          status.textContent = "Link copied.";
+        } catch {
+          field.select();
+          status.textContent = "Select the link and copy it.";
+        }
+      });
+      result.replaceChildren(
+        h("p", {}, "Pass this link to ", h("strong", {}, issued.invitation.adminUser), " yourself. It is shown only now, works once, and nothing is emailed from here."),
+        field,
+        copy,
+      );
+      result.hidden = false;
+    };
+    const load = async () => {
+      const { invitations = [] } = await this.api.call("GET", `collaboration/invitations?publicationId=${encodeURIComponent(publication.publicationId)}`);
+      list.replaceChildren(
+        ...invitations.map((invitation) => {
+          const pending = invitation.state === "pending";
+          const when = new Date(invitation.expiresAt * 1000).toLocaleString();
+          const act = (path, label, extra = {}) => {
+            const button = h("button", { class: "oba-btn", type: "button" }, label);
+            button.addEventListener("click", async () => {
+              problem.hidden = true;
+              try {
+                const response = await this.api.call("POST", `collaboration/invitations/${path}`, { json: { publicationId: publication.publicationId, invitationId: invitation.id, ...extra } });
+                result.hidden = true;
+                if (response.token) showToken(response);
+                await load();
+              } catch (error) {
+                fail(error?.message || "That did not work. Reload and try again.");
+              }
+            });
+            return button;
+          };
+          return h(
+            "li",
+            {},
+            h("strong", {}, invitation.adminUser),
+            ` as ${invitation.contributorId} (${invitation.roles.join(", ")}) — `,
+            h("span", { class: "oba-badge" }, invitation.state),
+            pending ? ` expires ${when} ` : " ",
+            pending ? act("revoke", "Revoke") : null,
+            invitation.state !== "accepted" ? act("reissue", "Issue a new link") : null,
+          );
+        }),
+      );
+      if (!invitations.length) list.replaceChildren(h("li", { class: "oba-small" }, "No invitations yet."));
+    };
+    const form = h(
+      "form",
+      { class: "oba-shared-form", novalidate: true },
+      h("p", { class: "oba-small" }, "Invitations make a private link. Nothing is emailed; you pass the link on yourself, and it works once for the account you name."),
+      h("div", { class: "oba-field" }, h("label", { for: `${prefix}-user` }, "Their sign-in name"), user),
+      h("div", { class: "oba-field" }, h("label", { for: `${prefix}-profile` }, "They will appear as"), profile),
+      h("fieldset", {}, h("legend", {}, "Roles"), roleBoxes),
+      h("div", { class: "oba-field" }, h("label", { for: `${prefix}-days` }, "Valid for (days, 1 to 30)"), days),
+      problem,
+      h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, "Create invitation link"),
+    );
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      problem.hidden = true;
+      const draft = {
+        adminUser: user.value,
+        contributorId: profile.value,
+        roles: [...form.querySelectorAll(`input[name="${prefix}-role"]:checked`)].map((box) => box.value),
+        lifetimeDays: days.value,
+      };
+      const invalid = validateInvitationDraft(draft);
+      if (invalid) {
+        problem.textContent = invalid.message;
+        problem.hidden = false;
+        return;
+      }
+      try {
+        const issued = await this.api.call("POST", "collaboration/invitations", { json: invitationPayload(publication.publicationId, draft) });
+        user.value = "";
+        showToken(issued);
+        await load();
+      } catch (error) {
+        fail(error?.data?.error || error?.message || "The invitation could not be created.");
+      }
+    });
+    const details = h("details", { class: "oba-invitations" }, h("summary", {}, "Invitations"), status, form, result, list);
+    let loaded = false;
+    details.addEventListener("toggle", async () => {
+      if (!details.open || loaded) return;
+      loaded = true;
+      try {
+        const registry = await this.api.call("GET", "contributors");
+        profile.replaceChildren(...Object.entries(registry.contributors || {}).map(([key, value]) => h("option", { value: key }, value.name || key)));
+        await load();
+      } catch (error) {
+        loaded = false;
+        fail(error?.message || "Invitations could not be loaded.");
+      }
+    });
+    return details;
+  }
+
+  /** The page an invitation link opens. The token is sent only when the person chooses. */
+  async showInvitationAccept(token) {
+    const registry = await this.api.call("GET", "contributors");
+    const profiles = Object.entries(registry.contributors || {});
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const profile = h("select", { id: "oba-accept-profile" }, profiles.map(([key, value]) => h("option", { value: key }, value.name || key)));
+    const answer = async (path, body, done) => {
+      problem.hidden = true;
+      try {
+        await this.api.call("POST", `collaboration/invitations/${path}`, { json: body });
+        location.hash = "#/shared";
+        await this.showSharedReflections(done);
+      } catch (error) {
+        problem.textContent = error?.message || "That did not work.";
+        problem.hidden = false;
+        problem.focus();
+      }
+    };
+    const accept = h("button", { class: "oba-btn oba-btn-primary", type: "button", disabled: !token || !profiles.length }, "Accept and join");
+    const decline = h("button", { class: "oba-btn", type: "button", disabled: !token }, "Decline");
+    accept.addEventListener("click", () => answer("accept", { token, contributorId: profile.value }, "You joined the shared reflection."));
+    decline.addEventListener("click", () => answer("decline", { token }, "Invitation declined."));
+    this.mount(
+      this.shell(
+        "shared",
+        h(
+          "section",
+          { class: "oba-contributor-card" },
+          h("h2", {}, "Invitation to a shared reflection"),
+          token ? h("p", {}, `You are signed in as ${this.user}. An invitation only works for the account it names.`) : h("p", { class: "oba-notice" }, "This invitation link is not complete. Ask for a new one."),
+          profiles.length ? h("div", { class: "oba-field" }, h("label", { for: "oba-accept-profile" }, "You will appear as"), profile) : h("p", { class: "oba-notice" }, "Add yourself as a contributor first. ", h("a", { href: "#/contributors" }, "Open Contributors")),
+          problem,
+          h("div", { class: "oba-toolbar" }, decline, h("span", { class: "oba-spacer" }), accept),
+        ),
+      ),
+    );
   }
 
   // ---- analytics

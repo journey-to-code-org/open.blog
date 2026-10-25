@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added invitations to shared reflections in Admin Studio. A site owner or coordinator names an
+  existing Admin account, the contributor profile it will appear as, and roles, and gets a private
+  link to pass on; nothing is emailed. The link works once, only for that account, expires in 1 to
+  30 days, and is stored only as a hash. The invitee accepts or declines after signing in; wrong
+  accounts, spent, expired, revoked, and guessed links all fail the same way, and repeated guesses
+  are rate limited. Owners and coordinators can revoke a link or issue a new one. The Admin API
+  adds `/admin/api/collaboration/invitations` (list, create, revoke, reissue, accept, decline).
+
 ## [0.19.0] - 2026-10-25
 
 - Added import and export to Sources in Admin Studio. Import CSL JSON (for example from

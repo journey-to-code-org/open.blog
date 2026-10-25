@@ -82,6 +82,14 @@ or approval. Its identity is fixed: changing a binding changes only its roles, s
 moves to another account or participant.
 _Avoid_: Contributor registry entry, login, Work credit, invitation
 
+**Invitation**:
+A single-use, expiring offer, scoped to one shared publication, for one named Admin user and
+contributor registry entry to join with stated roles. Its token is shown once as a copyable
+link, stored only as a hash, and never emailed. Accepting it by the named account adds a new
+participant and an explicit publication authorization binding in one write; it never takes over
+an existing participant. An invitation grants nothing until accepted.
+_Avoid_: Binding (the result of accepting), account creation, email invite
+
 **Pair projection**:
 A derived, unpersisted view that presents a shared publication with exactly two ordered
 participants as first and second UI slots. It reads the ordinary group collections and adds no

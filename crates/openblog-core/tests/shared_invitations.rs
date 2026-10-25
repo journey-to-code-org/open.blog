@@ -406,3 +406,36 @@ fn the_invitation_list_is_bounded_and_finished_ones_make_room() {
         .iter()
         .all(|invitation| invitation.id != "invitation-000"));
 }
+
+#[test]
+fn an_invitation_lapses_when_its_inviter_loses_the_authority_to_grant_it() {
+    let (base, token) = invite(
+        &record(),
+        "ada-admin",
+        "linus-admin",
+        "linus",
+        &[Coordinator],
+        'c',
+    )
+    .unwrap();
+    let base = accept(&base, "linus-admin", &token, "linus", NOW).unwrap();
+    let (base, kay_token) =
+        invite(&base, "linus-admin", "kay-admin", "kay", &[Editor], 'd').unwrap();
+
+    // The coordinator's account is removed, or their registry key is, before the invitee answers.
+    let gone = base.without_admin_user("linus-admin").unwrap();
+    assert_eq!(
+        accept(&gone, "kay-admin", &kay_token, "kay", NOW).unwrap_err(),
+        InvitationError::Unavailable
+    );
+    let no_key = Identities {
+        active_admin_users: &USERS,
+        contributor_ids: &["ada", "kay"],
+    };
+    assert_eq!(
+        base.accept_invitation("kay-admin", &no_key, &kay_token, "kay", "Kay", NOW)
+            .unwrap_err(),
+        InvitationError::Unavailable
+    );
+    assert!(accept(&base, "kay-admin", &kay_token, "kay", NOW).is_ok());
+}
