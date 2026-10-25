@@ -196,12 +196,19 @@ reads and the next contract version drops.
 _Avoid_: Role, side, speaker slot, contract layout, region layout
 
 **Arrangement**:
-The stored Reflection structure as a coordinator edits it: the chosen presentable layout (sequential
-or side-by-side), the rounds, round prompts and the order of turns. It is private until published,
+The stored Reflection structure as a coordinator edits it: the chosen layout, the rounds, round
+prompts, the order of turns and each turn's optional label. It is private until published,
 holds no prose, is saved with a revision check, and is part of what every author approves, so
 changing it makes standing approvals stale (ADR 0031, ADR 0032). A reflection with no arrangement
 publishes in participant order.
 _Avoid_: Template, theme, layout setting
+
+**Turn label**:
+An optional short phrase an author-coordinator writes for one turn of an arrangement, such as "Point"
+or "Reply". It is public text, bound to approval with the rest of the arrangement, escaped on
+output, and shown under the turn's author heading. No layout invents one, and it is dropped with its
+turn (ADR 0033).
+_Avoid_: Side, role, stance, speaker slot
 
 **Part break**:
 The line `<!-- openblog:part -->` a writer places in their own draft to start a new part. It is

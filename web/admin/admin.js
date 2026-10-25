@@ -986,7 +986,13 @@ export function partBreakInsertion() {
 export const ARRANGEMENT_LAYOUTS = Object.freeze([
   { value: "sequential", label: "Sequential", help: "One section after another, in reading order." },
   { value: "sideBySide", label: "Side by side", help: "Sections sit in columns on wide screens and read one after another on narrow ones." },
+  { value: "pointCounterpoint", label: "Point and counterpoint", help: "Two columns on wide screens: whoever appears first in one, everyone else in the other. Optional labels are yours; nothing is implied about who agrees." },
+  { value: "alternatingDialogue", label: "Alternating dialogue", help: "Turns alternate like a conversation on wide screens, each under its author's name." },
+  { value: "roundtable", label: "Roundtable", help: "Turns sit in a grid that fits any number of participants and reads in the same order." },
 ]);
+
+/** The longest label a turn may carry, in UTF-8 bytes like the server's limit. */
+export const TURN_LABEL_MAX_BYTES = 80;
 
 /**
  * An editable copy of the stored arrangement, or a starting one: a single round holding the first
@@ -1000,14 +1006,14 @@ export function arrangementDraft(stored, participants) {
       rounds: stored.rounds.map((round) => ({
         id: round.id,
         prompt: round.roundPrompt || "",
-        turns: (round.turns || []).map((turn) => ({ draft: turn.draft, part: Number(turn.part) || 0 })),
+        turns: (round.turns || []).map((turn) => ({ draft: turn.draft, part: Number(turn.part) || 0, label: turn.label || "" })),
       })),
     };
   }
   return {
     revision: 0,
     layout: "sequential",
-    rounds: [{ id: "round-1", prompt: "", turns: (participants || []).map((person) => ({ draft: person.id, part: 0 })) }],
+    rounds: [{ id: "round-1", prompt: "", turns: (participants || []).map((person) => ({ draft: person.id, part: 0, label: "" })) }],
   };
 }
 
@@ -1038,7 +1044,11 @@ export function arrangementPayload(draft) {
     layout: draft.layout,
     rounds: draft.rounds.map((round) => {
       const prompt = String(round.prompt || "").trim();
-      return { id: round.id, ...(prompt ? { roundPrompt: prompt } : {}), turns: round.turns.map((turn) => ({ draft: turn.draft, part: Number(turn.part) })) };
+      return { id: round.id, ...(prompt ? { roundPrompt: prompt } : {}), turns: round.turns.map((turn) => {
+          const label = String(turn.label || "").trim();
+          return { draft: turn.draft, part: Number(turn.part), ...(label ? { label } : {}) };
+        }),
+      };
     }),
   };
 }
@@ -1053,6 +1063,9 @@ export function validateArrangement(draft) {
     for (const turn of round.turns) {
       const part = Number(turn.part);
       if (!Number.isInteger(part) || part < 0 || part > 999) return `Round ${r + 1}: a part is a whole number from 1 up.`;
+      const label = String(turn.label || "");
+      if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(label)) return `Round ${r + 1}: keep a turn label on one line.`;
+      if (new TextEncoder().encode(label.trim()).length > TURN_LABEL_MAX_BYTES) return `Round ${r + 1}: a turn label can be at most ${TURN_LABEL_MAX_BYTES} bytes, which is a short phrase.`;
       const key = `${String(turn.draft).toLowerCase()}:${part}`;
       if (seen.has(key)) return `Round ${r + 1}: each part of each draft can appear only once.`;
       seen.add(key);
@@ -4514,7 +4527,7 @@ export class ObAdmin extends AdminElement {
                 "ol",
                 { class: "oba-member-list", "aria-label": "Rounds in reading order" },
                 draft.rounds.map((round, r) =>
-                  h("li", {}, `Round ${r + 1}${round.prompt ? `: ${round.prompt}` : ""}. `, round.turns.map((turn) => `${personName(turn.draft)}, part ${turn.part + 1}`).join("; ") + "."),
+                  h("li", {}, `Round ${r + 1}${round.prompt ? `: ${round.prompt}` : ""}. `, round.turns.map((turn) => `${personName(turn.draft)}, part ${turn.part + 1}${turn.label ? ` (${turn.label})` : ""}`).join("; ") + "."),
                 ),
               )
             : h("p", { class: "oba-small" }, "Nothing is arranged yet. Sections publish one after another in participant order."),
@@ -4554,6 +4567,11 @@ export class ObAdmin extends AdminElement {
           who.addEventListener("change", () => {
             turn.draft = who.value;
           });
+          const labelInput = h("input", { type: "text", id: `${base}-label`, value: turn.label || "", maxlength: String(TURN_LABEL_MAX_BYTES), autocomplete: "off", placeholder: "none" });
+          labelInput.value = turn.label || "";
+          labelInput.addEventListener("input", () => {
+            turn.label = labelInput.value;
+          });
           const part = h("input", { type: "number", id: `${base}-part`, min: "1", max: "1000", step: "1", value: String(turn.part + 1), inputmode: "numeric" });
           part.value = String(turn.part + 1);
           part.addEventListener("input", () => {
@@ -4586,6 +4604,10 @@ export class ObAdmin extends AdminElement {
             " ",
             part,
             " ",
+            h("label", { for: `${base}-label` }, `Round ${r + 1}, turn ${t + 1}: label (optional)`),
+            " ",
+            labelInput,
+            " ",
             up,
             down,
             remove,
@@ -4593,7 +4615,7 @@ export class ObAdmin extends AdminElement {
         });
         const add = h("button", { class: "oba-btn", type: "button", id: `${prefix}-round-${r}-add` }, `Add a turn to round ${r + 1}`);
         add.addEventListener("click", () => {
-          round.turns.push({ draft: participants[0]?.id || "", part: 0 });
+          round.turns.push({ draft: participants[0]?.id || "", part: 0, label: "" });
           redraw(`${prefix}-round-${r}-turn-${round.turns.length - 1}-who`);
         });
         const dropRound = h("button", { class: "oba-btn", type: "button" }, `Remove round ${r + 1}`);

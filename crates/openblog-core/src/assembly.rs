@@ -198,9 +198,6 @@ pub fn assemble_for(
     let mut credits = Vec::new();
     let mut arranged = None;
     if let Some(structure) = structure {
-        if !structure.layout.is_presentable() {
-            return Err(AssemblyError::Invalid);
-        }
         // The same latest revisions the approval's binding covers, in the one reading order.
         let order = structure
             .reading_order(&record.collaboration, drafts)
@@ -226,6 +223,7 @@ pub fn assemble_for(
                 round: entry.round,
                 round_prompt: structure.rounds[entry.round].round_prompt.as_deref(),
                 display_name: entry.display_name,
+                label: entry.label,
                 placement,
                 body: text.to_string(),
             });

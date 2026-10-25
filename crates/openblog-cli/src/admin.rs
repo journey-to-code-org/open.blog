@@ -6542,6 +6542,9 @@ fn arrangement_layouts() -> Json {
     json!([
         { "value": "sequential", "label": "Sequential", "help": "One section after another, in reading order." },
         { "value": "sideBySide", "label": "Side by side", "help": "Sections sit in columns on wide screens and read one after another on narrow ones." },
+        { "value": "pointCounterpoint", "label": "Point and counterpoint", "help": "Two columns on wide screens: whoever appears first in one, everyone else in the other. Optional labels are yours; nothing is implied about who agrees." },
+        { "value": "alternatingDialogue", "label": "Alternating dialogue", "help": "Turns alternate like a conversation on wide screens, each under its author's name." },
+        { "value": "roundtable", "label": "Roundtable", "help": "Turns sit in a grid that fits any number of participants and reads in the same order." },
     ])
 }
 
@@ -6690,12 +6693,6 @@ fn save_arrangement(state: &AppState, req: &Request, session: &auth::Session) ->
     let Ok(next) = next else {
         return invalid();
     };
-    if !next.layout.is_presentable() {
-        return shared_problem(
-            "layout",
-            "That layout is not available yet. Choose sequential or side by side.",
-        );
-    }
     let known = |id: &str| {
         record
             .collaboration
@@ -16851,7 +16848,7 @@ mod tests {
 
         // A bad layout, an identity-bearing field, a stranger and a wrong revision change nothing.
         for (expected, bad, status) in [
-            (0, arrangement("pointCounterpoint", 1, &order), 422),
+            (0, arrangement("leftRight", 1, &order), 422),
             (0, arrangement("sideBySide", 1, &["nobody"]), 422),
             (0, arrangement("sideBySide", 2, &order), 422),
             (1, arrangement("sideBySide", 1, &order), 409),
@@ -16890,6 +16887,32 @@ mod tests {
         // Nothing in it is prose or identity.
         let text = serde_json::to_string(&read).unwrap();
         assert!(!text.contains("SECRET") && !text.contains("admin"));
+
+        // The three remaining layouts are accepted, with optional labels, and hostile labels are
+        // refused without changing anything.
+        for (revision, layout) in ["pointCounterpoint", "alternatingDialogue", "roundtable"]
+            .into_iter()
+            .enumerate()
+        {
+            let mut labelled = arrangement(layout, 3 + revision as u64, &order);
+            labelled["rounds"][0]["turns"][0]["label"] = json!("Point <b>one</b>");
+            assert_eq!(
+                arrangement_write(&f, &ada, true, &id, 2 + revision as u64, labelled).status,
+                200,
+                "{layout}"
+            );
+        }
+        let before = state_trees(&f);
+        for bad in ["two\nlines", "", &"x".repeat(81), "\u{202e}flip"] {
+            let mut hostile = arrangement("roundtable", 6, &order);
+            hostile["rounds"][0]["turns"][0]["label"] = json!(bad);
+            assert_eq!(
+                arrangement_write(&f, &ada, true, &id, 5, hostile).status,
+                422,
+                "{bad:?}"
+            );
+        }
+        assert_eq!(state_trees(&f), before);
     }
 
     #[test]

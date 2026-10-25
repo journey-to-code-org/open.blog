@@ -101,3 +101,141 @@ test("the sequential layout is one column at every width and keyboard focus foll
   await tab.keyboard.press("Tab");
   await expect(tab.locator("a").nth(1)).toBeFocused();
 });
+
+// ---------------------------------------------------------------- point-counterpoint, dialogue,
+// roundtable (ADR 0033). The same markup rules: the DOM order is the reading order, the h2 names
+// the author, and CSS only places it.
+
+function arrangedPage({ layout, turns, css = true, dir = "ltr" }) {
+  const lanes = Math.max(...turns.map((t) => t.lane)) + 1;
+  const sections = turns
+    .map(
+      (t) =>
+        `<section class="ob-turn ob-lane-${t.lane}">\n<h2 class="ob-turn-author">${t.name}</h2>\n${t.label ? `<p class="ob-turn-label">${t.label}</p>\n` : ""}\n<p>${t.body}</p>\n\n</section>\n`,
+    )
+    .join("");
+  return `<!doctype html><html lang="en" dir="${dir}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+${css ? `<style>${styles}</style>` : ""}</head><body><main><article>
+<div class="ob-reflection ob-reflection-${layout} ob-lanes-${Math.min(lanes, 4)}">
+<div class="ob-round">
+<p class="ob-round-prompt">What stood out?</p>
+${sections}</div>
+</div>
+</article></main></body></html>`;
+}
+
+const duet = [
+  { lane: 0, name: "Ann", body: `ANN-ONE ${LONG}`, label: "Point" },
+  { lane: 1, name: "Bo", body: "BO-ONE short", label: "Counterpoint" },
+  { lane: 0, name: "Ann", body: "ANN-TWO" },
+  { lane: 1, name: "Bo", body: `BO-TWO ${UNBROKEN}` },
+  { lane: 0, name: "Ann", body: "ANN-THREE odd turn out" },
+];
+
+const readingOrder = (tab) => tab.evaluate(() => [...document.querySelectorAll(".ob-turn")].map((n) => n.textContent.match(/[A-Z]+-[A-Z0-9]+/)[0]));
+
+const oneColumn = (list) => {
+  for (const [index, box] of list.entries()) {
+    expect(Math.abs(box.x - list[0].x)).toBeLessThan(2);
+    if (index > 0) expect(box.y).toBeGreaterThanOrEqual(list[index - 1].y + list[index - 1].height - 1);
+  }
+};
+
+test("point and counterpoint sit in two columns by first appearance, with an odd turn and optional labels", async ({ page: tab }) => {
+  await tab.setViewportSize({ width: 1280, height: 900 });
+  await tab.setContent(arrangedPage({ layout: "point-counterpoint", turns: duet }));
+  const [a1, b1, a2, b2, a3] = await boxes(tab);
+  expect(b1.x).toBeGreaterThan(a1.x + a1.width - 1);
+  expect(Math.abs(b1.y - a1.y)).toBeLessThan(2);
+  expect(a2.y).toBeGreaterThanOrEqual(a1.y + a1.height - 1);
+  // The odd last turn sits alone in the first lane below the pair before it.
+  expect(a3.y).toBeGreaterThanOrEqual(b2.y + b2.height - 1);
+  expect(Math.abs(a3.x - a1.x)).toBeLessThan(2);
+  expect(await readingOrder(tab)).toEqual(["ANN-ONE", "BO-ONE", "ANN-TWO", "BO-TWO", "ANN-THREE"]);
+  await expect(tab.locator(".ob-turn-label")).toHaveText(["Point", "Counterpoint"]);
+  const overflow = await tab.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test("point and counterpoint, dialogue and roundtable read as one column when narrow, zoomed or printed", async ({ page: tab }) => {
+  const many = Array.from({ length: 7 }, (_, i) => ({ lane: i, name: `Person ${i}`, body: `TABLE-${i}` }));
+  const cases = [
+    ["point-counterpoint", duet],
+    ["alternating-dialogue", duet],
+    ["roundtable", many],
+  ];
+  for (const [layout, turns] of cases) {
+    await tab.setViewportSize({ width: 320, height: 800 });
+    await tab.emulateMedia({ media: "screen" });
+    await tab.setContent(arrangedPage({ layout, turns }));
+    oneColumn(await boxes(tab));
+    expect(await tab.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    await tab.setViewportSize({ width: 1280, height: 900 });
+    await tab.emulateMedia({ media: "print" });
+    oneColumn(await boxes(tab));
+  }
+});
+
+test("alternating dialogue staggers turns on a wide screen without reordering them", async ({ page: tab }) => {
+  await tab.setViewportSize({ width: 1280, height: 900 });
+  await tab.setContent(arrangedPage({ layout: "alternating-dialogue", turns: duet }));
+  const list = await boxes(tab);
+  // One turn per row, in reading order; every second turn sits toward the other edge.
+  for (const [index, box] of list.entries()) {
+    if (index > 0) expect(box.y).toBeGreaterThanOrEqual(list[index - 1].y + list[index - 1].height - 1);
+  }
+  expect(list[1].x).toBeGreaterThan(list[0].x + 50);
+  expect(Math.abs(list[2].x - list[0].x)).toBeLessThan(2);
+  expect(list[0].width).toBeLessThan(1280 * 0.85);
+  expect(await readingOrder(tab)).toEqual(["ANN-ONE", "BO-ONE", "ANN-TWO", "BO-TWO", "ANN-THREE"]);
+});
+
+test("a roundtable fits any number of participants and its visual rows follow the reading order", async ({ page: tab }) => {
+  await tab.setViewportSize({ width: 1280, height: 900 });
+  for (const count of [1, 2, 3, 7, 12]) {
+    const turns = Array.from({ length: count }, (_, i) => ({ lane: i, name: `Person ${i}`, body: `TABLE-${i}` }));
+    await tab.setContent(arrangedPage({ layout: "roundtable", turns }));
+    const list = await boxes(tab);
+    expect(list).toHaveLength(count);
+    if (count > 1) expect(new Set(list.map((box) => Math.round(box.y))).size).toBeLessThan(count);
+    // Sorted by row then column is exactly the DOM order, so nothing is visually rearranged.
+    const visual = list
+      .map((box, index) => ({ ...box, index }))
+      .sort((a, b) => Math.round(a.y) - Math.round(b.y) || a.x - b.x)
+      .map((box) => box.index);
+    expect(visual).toEqual(list.map((_, index) => index));
+    expect(await tab.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  }
+});
+
+test("columns mirror in a right-to-left page while the reading order stays the same", async ({ page: tab }) => {
+  await tab.setViewportSize({ width: 1280, height: 900 });
+  await tab.setContent(arrangedPage({ layout: "point-counterpoint", turns: duet.slice(0, 2), dir: "rtl" }));
+  const [first, second] = await boxes(tab);
+  expect(first.x).toBeGreaterThan(second.x);
+  expect(await readingOrder(tab)).toEqual(["ANN-ONE", "BO-ONE"]);
+});
+
+test("without styles or scripts the new layouts keep each heading, label and turn in reading order", async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const tab = await context.newPage();
+  for (const layout of ["point-counterpoint", "alternating-dialogue", "roundtable"]) {
+    await tab.setContent(arrangedPage({ layout, turns: duet, css: false }));
+    expect(await tab.locator("h2.ob-turn-author").allTextContents()).toEqual(["Ann", "Bo", "Ann", "Bo", "Ann"]);
+    const text = await tab.locator("article").innerText();
+    const marks = ["What stood out?", "ANN-ONE", "BO-ONE", "ANN-TWO", "BO-TWO", "ANN-THREE"].map((mark) => text.indexOf(mark));
+    expect([...marks].sort((a, b) => a - b)).toEqual(marks);
+    expect(text.indexOf("Point")).toBeLessThan(text.indexOf("ANN-ONE"));
+  }
+  await context.close();
+});
+
+test("a hostile label is shown as text and cannot add elements or leave its turn", async ({ page: tab }) => {
+  const hostile = "&lt;img src=x onerror=alert(1)&gt;&lt;/section&gt;";
+  await tab.setViewportSize({ width: 1280, height: 900 });
+  await tab.setContent(arrangedPage({ layout: "point-counterpoint", turns: [{ lane: 0, name: "Ann", body: "ANN-ONE", label: hostile }, { lane: 1, name: "Bo", body: "BO-ONE" }] }));
+  await expect(tab.locator(".ob-turn-label")).toHaveText("<img src=x onerror=alert(1)></section>");
+  expect(await tab.locator("img").count()).toBe(0);
+  expect(await tab.locator(".ob-turn").count()).toBe(2);
+});

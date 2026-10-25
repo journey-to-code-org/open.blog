@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Shared reflections can also be presented as point and counterpoint, an alternating dialogue or a
+  roundtable. A coordinator picks the layout in Admin and can give any turn an optional short label
+  (such as "Point"); no label is added for you, and no layout implies that anyone disagrees. The
+  roundtable fits any number of participants. Every turn still has its author's name as a heading,
+  the page reads in the same order without styles, and wide-screen placement falls back to one
+  column on narrow screens, at high zoom and in print. If a contribution is missing or withdrawn,
+  its turn and label disappear and the rest read as one honest column.
 - Shared reflections can now be presented sequentially or side by side. A coordinator chooses the
   layout and the order of turns in Admin (Shared reflections, "Layout and arrangement"); writers can
   start a new part of their draft with "Start a new part". The published page keeps one reading

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { ARRANGEMENT_LAYOUTS, ObAdmin, REFLECTION_PROMPTS, arrangementDraft, arrangementFailure, arrangementPayload, draftFailure, moveItem, nextRoundId, partBreakInsertion, validateArrangement, draftStateText, insertAtSelection, previewSectionText, previewStateText, promptInsertion, revealSlotText } from "../../web/admin/admin.js";
+import { ARRANGEMENT_LAYOUTS, TURN_LABEL_MAX_BYTES, ObAdmin, REFLECTION_PROMPTS, arrangementDraft, arrangementFailure, arrangementPayload, draftFailure, moveItem, nextRoundId, partBreakInsertion, validateArrangement, draftStateText, insertAtSelection, previewSectionText, previewStateText, promptInsertion, revealSlotText } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");
@@ -614,13 +614,13 @@ test("the part break is the marker alone on its own line, and the starting arran
   const start = arrangementDraft(null, people);
   assert.equal(start.revision, 0);
   assert.equal(start.layout, "sequential");
-  assert.deepEqual(start.rounds[0].turns, [{ draft: "p1", part: 0 }, { draft: "p2", part: 0 }]);
+  assert.deepEqual(start.rounds[0].turns, [{ draft: "p1", part: 0, label: "" }, { draft: "p2", part: 0, label: "" }]);
   const payload = arrangementPayload(start);
   assert.equal(payload.revision, 1);
   assert.equal(payload.rounds[0].roundPrompt, undefined, "an empty prompt is omitted");
   assert.deepEqual(Object.keys(payload).sort(), ["layout", "revision", "rounds", "version"]);
   assert.deepEqual(Object.keys(payload.rounds[0].turns[0]).sort(), ["draft", "part"], "a turn names a draft and a part, never a side or a person");
-  assert.deepEqual(ARRANGEMENT_LAYOUTS.map((item) => item.value), ["sequential", "sideBySide"]);
+  assert.deepEqual(ARRANGEMENT_LAYOUTS.map((item) => item.value), ["sequential", "sideBySide", "pointCounterpoint", "alternatingDialogue", "roundtable"]);
 });
 
 test("moving and validating an arrangement never loses or repeats a turn", () => {
@@ -647,7 +647,7 @@ test("a coordinator sets the layout and order with labelled, keyboard operable c
   const { panel } = await openDraft(api, ["coordinator"]);
   assert.match(textOf(panel), /Layout and arrangement/);
   const radios = panel.querySelectorAll("input").filter((node) => node.attributes.type === "radio");
-  assert.equal(radios.length, 2);
+  assert.equal(radios.length, 5);
   for (const radio of radios) assert.ok(panel.querySelectorAll("label").some((label) => label.attributes.for === radio.attributes.id), "every layout has a label");
   await radios.find((radio) => radio.value === "sideBySide").dispatch("change");
   await button(panel, "Move round 1, turn 1 down").click();
@@ -711,6 +711,41 @@ test("a sharing refresh keeps unsaved arrangement edits, and each part input nam
   assert.deepEqual(put.body.structure.rounds[0].turns.map((turn) => turn.draft), ["p2", "p1"]);
   // Its own save reloads once more.
   assert.equal(api.state.calls.filter((call) => call.key === "GET collaboration/reflection").length, 2);
+}));
+
+test("turn labels are optional, short, one line, and sent only when written", withDom(async () => {
+  const people = [{ id: "p1", displayName: "Ann" }, { id: "p2", displayName: "Bo" }];
+  const draft = arrangementDraft(null, people);
+  assert.equal(draft.rounds[0].turns[0].label, "");
+  assert.equal(arrangementPayload(draft).rounds[0].turns[0].label, undefined, "no label is invented");
+  draft.rounds[0].turns[0].label = "  Point <b>one</b>  ";
+  assert.equal(arrangementPayload(draft).rounds[0].turns[0].label, "Point <b>one</b>");
+  assert.equal(validateArrangement(draft), "");
+  draft.rounds[0].turns[1].label = "two\nlines";
+  assert.match(validateArrangement(draft), /one line/);
+  draft.rounds[0].turns[1].label = "x".repeat(TURN_LABEL_MAX_BYTES + 1);
+  assert.match(validateArrangement(draft), /at most 80 bytes/);
+  const stored = arrangementDraft({ revision: 1, layout: "pointCounterpoint", rounds: [{ id: "round-1", turns: [{ draft: "p1", part: 0, label: "Point" }, { draft: "p2", part: 0 }] }] }, people);
+  assert.deepEqual(stored.rounds[0].turns.map((turn) => turn.label), ["Point", ""]);
+
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  api.state.canArrange = true;
+  const { panel } = await openDraft(api, ["coordinator"]);
+  const labelInputs = panel.querySelectorAll("input").filter((node) => /-label$/.test(node.attributes.id || ""));
+  assert.equal(labelInputs.length, 2);
+  for (const input of labelInputs) {
+    assert.ok(panel.querySelectorAll("label").some((node) => node.attributes.for === input.attributes.id), "every label field is labelled");
+  }
+  assert.ok(panel.querySelectorAll("label").some((node) => node.textContent === "Round 1, turn 2: label (optional)"));
+  labelInputs[0].value = "Counterpoint";
+  await labelInputs[0].dispatch("input");
+  await panel.querySelectorAll("input").find((node) => node.attributes.type === "radio" && node.value === "pointCounterpoint").dispatch("change");
+  await button(panel, "Save layout and arrangement").click();
+  await settle();
+  const put = api.state.calls.find((call) => call.key === "PUT collaboration/reflection");
+  assert.equal(put.body.structure.layout, "pointCounterpoint");
+  assert.equal(put.body.structure.rounds[0].turns[0].label, "Counterpoint");
+  assert.equal(put.body.structure.rounds[0].turns[1].label, undefined);
 }));
 
 // ---------------------------------------------------------------- source checks

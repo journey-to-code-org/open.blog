@@ -620,3 +620,86 @@ fn binding_frame_changes_with_order_round_prompts_parts_and_layout() {
     bumped.revision += 1;
     assert_eq!(bumped.binding_frame(), frame);
 }
+
+#[test]
+fn turn_labels_are_optional_short_single_line_text_and_part_of_the_binding() {
+    let plain = ReflectionStructure::from_json(&structure("pointCounterpoint", &rounds())).unwrap();
+    // An absent label is not written back, so the stored text and the digest of an arrangement
+    // without labels are what they were before labels existed.
+    assert!(plain.rounds[0].turns[0].label.is_none());
+    assert!(!serde_json::to_string(&plain).unwrap().contains("label"));
+    let mut labelled = plain.clone();
+    labelled.rounds[0].turns[0].label = Some("Point".into());
+    assert_ne!(labelled.binding_frame(), plain.binding_frame());
+    let mut renamed = labelled.clone();
+    renamed.rounds[0].turns[0].label = Some("Counterpoint".into());
+    assert_ne!(renamed.binding_frame(), labelled.binding_frame());
+    let json = |label: &str| {
+        structure(
+            "pointCounterpoint",
+            &format!(
+                r#"[{{"id":"r1","turns":[{{"draft":"p0","part":0,"label":{}}}]}}]"#,
+                serde_json::to_string(label).unwrap()
+            ),
+        )
+    };
+    assert!(ReflectionStructure::from_json(&json("Point")).is_ok());
+    assert!(ReflectionStructure::from_json(&json("Réplique 反論 رد")).is_ok());
+    for bad in [
+        "",
+        "   ",
+        "two\nlines",
+        "\u{202e}flip",
+        "\u{0}",
+        &"x".repeat(81),
+    ] {
+        assert!(
+            ReflectionStructure::from_json(&json(bad)).is_err(),
+            "{bad:?}"
+        );
+    }
+    // Neither a side nor a gender is a field of a turn.
+    let sided = structure(
+        "pointCounterpoint",
+        r#"[{"id":"r1","turns":[{"draft":"p0","part":0,"side":"left"}]}]"#,
+    );
+    assert!(ReflectionStructure::from_json(&sided).is_err());
+}
+
+#[test]
+fn point_counterpoint_and_dialogue_use_only_the_lanes_that_are_present() {
+    use openblog_core::reflection::ReadingEntry;
+    let entry = |id| ReadingEntry {
+        ordinal: 0,
+        round: 0,
+        round_id: "r",
+        round_prompt: None,
+        label: None,
+        participant_id: id,
+        display_name: id,
+        draft_id: id,
+        part: 0,
+        markdown: Some("x".into()),
+    };
+    let one = [entry("a")];
+    for layout in [
+        ReflectionLayout::PointCounterpoint,
+        ReflectionLayout::AlternatingDialogue,
+    ] {
+        assert!(ReflectionStructure::placements(layout, &one)
+            .iter()
+            .all(|p| p.lanes == 1));
+    }
+    // One voice answering twice has no counterpart lane; a dialogue still alternates.
+    let same = [entry("a"), entry("a")];
+    assert!(
+        ReflectionStructure::placements(ReflectionLayout::PointCounterpoint, &same)
+            .iter()
+            .all(|p| p.lanes == 1 && p.lane == 0)
+    );
+    assert!(
+        ReflectionStructure::placements(ReflectionLayout::AlternatingDialogue, &same)
+            .iter()
+            .all(|p| p.lanes == 2)
+    );
+}

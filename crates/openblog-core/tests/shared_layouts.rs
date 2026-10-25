@@ -232,12 +232,6 @@ fn a_stale_or_unsupported_arrangement_publishes_nothing() {
         assemble_for(&record, Some(&missing_part), &set, &approvals, &ALL, DATE),
         Err(AssemblyError::Invalid)
     );
-    let dialogue = interleaved("alternatingDialogue", 1);
-    let approvals = approve_all(&record, Some(&dialogue), &set);
-    assert_eq!(
-        assemble_for(&record, Some(&dialogue), &set, &approvals, &ALL, DATE),
-        Err(AssemblyError::Invalid)
-    );
 }
 
 #[test]
@@ -425,7 +419,10 @@ fn an_unclosed_fence_in_the_last_turn_cannot_swallow_the_arrangement_markup() {
     let s = structure(
         r#"{"version":1,"revision":1,"layout":"sideBySide","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0},{"draft":"bo","part":0}]}]}"#,
     );
-    let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words\n\n```\nnever closed")]);
+    let set = drafts(&[
+        ("ann", "Ann words"),
+        ("bo", "Bo words\n\n```\nnever closed"),
+    ]);
     let approvals = approve_all(&record, Some(&s), &set);
     assert_eq!(
         assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE),
@@ -466,4 +463,172 @@ fn the_preview_drops_the_turns_of_an_author_with_nothing_written() {
     assert!(shown.document.contains("Ann words"));
     assert!(!shown.document.contains("Not shared with you"));
     assert!(!shown.document.contains(">Bo<"), "{}", shown.document);
+}
+
+const NEW_LAYOUTS: [(&str, &str); 3] = [
+    ("pointCounterpoint", "point-counterpoint"),
+    ("alternatingDialogue", "alternating-dialogue"),
+    ("roundtable", "roundtable"),
+];
+
+#[test]
+fn the_other_three_layouts_publish_in_reading_order_with_only_classes_to_place_them() {
+    let record = record();
+    let set = world();
+    for (name, key) in NEW_LAYOUTS {
+        let s = interleaved(name, 1);
+        let approvals = approve_all(&record, Some(&s), &set);
+        let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+        assert!(
+            made.source
+                .contains(&format!("ob-reflection-{key} ob-lanes-")),
+            "{key}"
+        );
+        assert!(in_order(&made.source, &READING), "{key}");
+        // Every turn names its author in its own heading, and nothing positional is written.
+        assert_eq!(
+            made.source.matches("<h2 class=\"ob-turn-author\">").count(),
+            4
+        );
+        for forbidden in ["style=", "<script", "data-", "left", "right"] {
+            assert!(!made.source.contains(forbidden), "{key}: {forbidden}");
+        }
+        assert_eq!(made.credits.matches("\"contributor\"").count(), 2);
+    }
+}
+
+#[test]
+fn point_counterpoint_lanes_follow_first_appearance_not_identity() {
+    let record = record();
+    let set = world();
+    // Bo speaks first this time, so Bo takes the first lane; no field names a side.
+    let s = structure(
+        r#"{"version":1,"revision":1,"layout":"pointCounterpoint","rounds":[
+            {"id":"r1","turns":[{"draft":"bo","part":0},{"draft":"ann","part":0}]},
+            {"id":"r2","turns":[{"draft":"ann","part":1},{"draft":"bo","part":1}]}]}"#,
+    );
+    let approvals = approve_all(&record, Some(&s), &set);
+    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let lanes: Vec<&str> = made
+        .source
+        .split("class=\"ob-turn ob-lane-")
+        .skip(1)
+        .map(|rest| &rest[..1])
+        .collect();
+    assert_eq!(lanes, ["0", "1", "1", "0"]);
+    assert!(made.source.contains("ob-lanes-2"));
+}
+
+#[test]
+fn a_roundtable_has_a_place_for_any_number_of_participants() {
+    use openblog_core::reflection::{compose, ComposedTurn, Placement};
+    let names: Vec<String> = (0..9).map(|i| format!("Person {i}")).collect();
+    let turns: Vec<ComposedTurn<'_>> = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| ComposedTurn {
+            round: 0,
+            round_prompt: (i == 0).then_some("Around the table"),
+            display_name: name,
+            label: None,
+            placement: Placement { lane: i, lanes: 9 },
+            body: format!("<p>WORDS-{i}</p>"),
+        })
+        .collect();
+    let html = compose(ReflectionLayout::Roundtable, &turns);
+    assert!(html.contains("ob-reflection-roundtable ob-lanes-4"));
+    assert_eq!(html.matches("<section").count(), 9);
+    for i in 0..8 {
+        assert!(index(&html, &format!("WORDS-{i}")) < index(&html, &format!("WORDS-{}", i + 1)));
+    }
+    // The stylesheet needs no rule per person: columns come from the width, not the lane.
+    assert!(LAYOUT_CSS.contains("repeat(auto-fit, minmax(min(100%, 16rem), 1fr))"));
+}
+
+#[test]
+fn labels_are_escaped_optional_and_dropped_with_the_turn_they_belong_to() {
+    let record = record();
+    let s = structure(
+        r#"{"version":1,"revision":1,"layout":"pointCounterpoint","rounds":[{"id":"r1","turns":[
+            {"draft":"ann","part":0,"label":"Point <img src=x onerror=alert(1)>"},
+            {"draft":"bo","part":0,"label":"Réplique 反論"},
+            {"draft":"cy","part":0}]}]}"#,
+    );
+    let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words"), ("cy", "Cy words")]);
+    let approvals = approve_all(&record, Some(&s), &set);
+    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    assert!(!made.source.contains("<img"));
+    assert!(made
+        .source
+        .contains("<p class=\"ob-turn-label\">Point &lt;img src=x onerror=alert(1)&gt;</p>"));
+    assert!(made
+        .source
+        .contains("<p class=\"ob-turn-label\">Réplique 反論</p>"));
+    // No label is invented for the unlabelled turn.
+    assert_eq!(made.source.matches("ob-turn-label").count(), 2);
+    // The label reads right after the author's name and before the words.
+    assert!(in_order(
+        &made.source,
+        &[">Ann</h2>", "Point &lt;img", "Ann words"]
+    ));
+    // Bo writes nothing: Bo's turn, label and credit are gone and the others still read fine.
+    let set = drafts(&[("ann", "Ann words"), ("cy", "Cy words")]);
+    let approvals = approve_all(&record, Some(&s), &set);
+    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    assert!(!made.source.contains("Réplique") && !made.source.contains(">Bo<"));
+    assert_eq!(made.credits.matches("\"contributor\"").count(), 2);
+    assert!(made.source.contains("ob-lanes-2"));
+}
+
+#[test]
+fn when_only_one_voice_remains_the_layout_is_one_honest_column() {
+    let record = record();
+    let set = drafts(&[("ann", "Ann words")]);
+    let s = structure(
+        r#"{"version":1,"revision":1,"layout":"pointCounterpoint","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0},{"draft":"bo","part":0}]}]}"#,
+    );
+    let approvals = approve_all(&record, Some(&s), &set);
+    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    assert!(made.source.contains("ob-lanes-1"), "{}", made.source);
+    assert!(!made.source.contains("ob-lane-1"));
+    assert!(!made.source.contains(">Bo<"));
+    // A dialogue of one turn is not staggered either.
+    let s = structure(
+        r#"{"version":1,"revision":1,"layout":"alternatingDialogue","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0}]}]}"#,
+    );
+    let approvals = approve_all(&record, Some(&s), &set);
+    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    assert!(made.source.contains("ob-lanes-1"));
+}
+
+#[test]
+fn the_preview_arranges_the_new_layouts_and_their_labels_like_the_post() {
+    let record = record();
+    let set = world();
+    let config = SiteConfig::default();
+    for (name, key) in NEW_LAYOUTS {
+        let mut s = interleaved(name, 1);
+        s.rounds[0].turns[0].label = Some("Opening <i>words</i>".into());
+        let approvals = ApprovalSet::new();
+        let shown = build_for(
+            &record,
+            Some(&s),
+            &set,
+            &approvals,
+            "ann",
+            &ALL,
+            config.render_options(),
+        )
+        .unwrap();
+        assert!(
+            shown.document.contains(&format!("ob-reflection-{key}")),
+            "{key}"
+        );
+        assert!(shown.document.contains("Opening &lt;i&gt;words&lt;/i&gt;"));
+        assert!(
+            shown.document.contains("auto-fit"),
+            "the preview carries the rules"
+        );
+        assert!(!shown.document.contains("BO-ONE"));
+    }
 }

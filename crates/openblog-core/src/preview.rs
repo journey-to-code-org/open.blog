@@ -179,15 +179,14 @@ pub fn build_for(
 
     // Complete means every section that exists is shown. An author who owns no section adds no
     // content to be missed, so they can still approve the whole piece (ADR 0020).
-    let written: Vec<&str> = authors
+    let by_author: Vec<(&PreviewSection, bool)> = sections
         .iter()
         .zip(&stamps)
-        .filter(|(_, stamp)| stamp.is_some())
-        .map(|(author, _)| author.id.as_str())
+        .map(|(section, stamp)| (section, stamp.is_some()))
         .collect();
     let arranged = structure.map(|structure| {
         arrange(
-            record, structure, drafts, requester, active, &sections, &written, options,
+            record, structure, drafts, requester, active, &by_author, options,
         )
     });
     let complete = !subject_sections.is_empty()
@@ -230,22 +229,15 @@ fn arrange(
     drafts: &DraftSet,
     requester: &str,
     active: &[&str],
-    sections: &[PreviewSection],
-    written: &[&str],
+    sections: &[(&PreviewSection, bool)],
     options: RenderOptions<'_>,
 ) -> Result<String, ()> {
-    if !structure.layout.is_presentable() {
-        return Err(());
-    }
     let order = structure
         .reading_order_for(&record.collaboration, drafts, requester, active)
         .map_err(|_| ())?;
-    let shown = |id: &str| {
-        sections
-            .iter()
-            .find(|s| s.participant_id == id)
-            .map(|s| s.shown)
-    };
+    // Each active author's section and whether they have written anything.
+    let section_of = |id: &str| sections.iter().find(|(s, _)| s.participant_id == id);
+    let shown = |id: &str| section_of(id).map(|(s, _)| s.shown);
     let order: Vec<_> = order
         .into_iter()
         .filter(|entry| match shown(entry.participant_id) {
@@ -253,7 +245,7 @@ fn arrange(
             Some(true) => entry.markdown.is_some(),
             // Assembly drops the turns (and credit) of an author with nothing written, so the
             // preview does too; only an author whose draft is withheld gets the placeholder.
-            Some(false) => written.contains(&entry.participant_id),
+            Some(false) => section_of(entry.participant_id).is_some_and(|(_, written)| *written),
         })
         .collect();
     let placements = ReflectionStructure::placements(structure.layout, &order);
@@ -271,6 +263,7 @@ fn arrange(
                 round: entry.round,
                 round_prompt: structure.rounds[entry.round].round_prompt.as_deref(),
                 display_name: entry.display_name,
+                label: entry.label,
                 placement,
                 body,
             }

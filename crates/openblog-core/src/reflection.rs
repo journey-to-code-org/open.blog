@@ -30,6 +30,8 @@ pub const MAX_TURNS_PER_ROUND: usize = 100;
 pub const MAX_TOTAL_TURNS: usize = 1_000;
 pub const MAX_ROUND_PROMPT_BYTES: usize = 1_000;
 pub const MAX_PART: usize = 999;
+/// The longest optional label an author may put on a turn.
+pub const MAX_TURN_LABEL_BYTES: usize = 80;
 
 /// The part marker: a line that is exactly this text (a trailing carriage return is allowed, and
 /// nothing else, no indentation and no trailing spaces). It splits a draft into ordered parts. It
@@ -79,13 +81,6 @@ impl ReflectionLayout {
         Self::Roundtable,
     ];
 
-    /// The layouts the Admin can choose and public pages render. The other modes are valid
-    /// structure values but are not presented yet (point and counterpoint and dialogue turns are
-    /// out of scope for #171); choosing one is refused rather than silently shown as sequential.
-    pub fn is_presentable(self) -> bool {
-        matches!(self, Self::Sequential | Self::SideBySide)
-    }
-
     /// A stable key usable as a CSS class suffix.
     pub fn key(self) -> &'static str {
         match self {
@@ -126,6 +121,11 @@ pub struct Turn {
     pub draft: String,
     /// Zero-based index of the part within that draft ([`split_parts`]).
     pub part: usize,
+    /// An optional, author-written label shown with the turn, such as "Point" or "Counterpoint".
+    /// Nothing is assumed when it is absent: no layout invents a label, and a label is public
+    /// text the authors approve with the rest of the arrangement (ADR 0033).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,6 +153,8 @@ pub struct ReadingEntry<'a> {
     /// Set on the first entry of a round that has a round prompt, so it is read once, before the
     /// answers.
     pub round_prompt: Option<&'a str>,
+    /// The turn's own optional label.
+    pub label: Option<&'a str>,
     pub participant_id: &'a str,
     pub display_name: &'a str,
     pub draft_id: &'a str,
@@ -184,6 +186,7 @@ impl ReflectionStructure {
                 (0..count.min(MAX_PART + 1)).map(|part| Turn {
                     draft: participant.id.clone(),
                     part,
+                    label: None,
                 })
             })
             .take(MAX_TURNS_PER_ROUND)
@@ -262,6 +265,10 @@ impl ReflectionStructure {
                 && round.turns.iter().all(|turn| {
                     valid_id(&turn.draft)
                         && turn.part <= MAX_PART
+                        && turn
+                            .label
+                            .as_deref()
+                            .is_none_or(|l| valid_text(l, MAX_TURN_LABEL_BYTES))
                         && turns.insert((turn.draft.to_ascii_lowercase(), turn.part))
                 })
         })
@@ -332,6 +339,7 @@ impl ReflectionStructure {
                     } else {
                         None
                     },
+                    label: turn.label.as_deref(),
                     participant_id: &participant.id,
                     display_name: &participant.display_name,
                     draft_id: &participant.id,
@@ -370,6 +378,12 @@ impl ReflectionStructure {
             for turn in &round.turns {
                 put(&mut hasher, turn.draft.as_bytes());
                 hasher.update((turn.part as u64).to_be_bytes());
+                // Only a present label adds bytes, so an arrangement without labels keeps the
+                // digest it had before labels existed.
+                if let Some(label) = &turn.label {
+                    hasher.update([1]);
+                    put(&mut hasher, label.as_bytes());
+                }
             }
         }
         hasher
@@ -404,13 +418,16 @@ impl ReflectionStructure {
                         lane: person,
                         lanes: people,
                     },
+                    // Two lanes only when two voices (or two turns) are actually present, so a
+                    // withdrawn or missing contribution leaves one honest column, never an
+                    // empty counterpart.
                     ReflectionLayout::PointCounterpoint => Placement {
                         lane: usize::from(person != 0),
-                        lanes: 2,
+                        lanes: people.min(2),
                     },
                     ReflectionLayout::AlternatingDialogue => Placement {
                         lane: index % 2,
-                        lanes: 2,
+                        lanes: order.len().clamp(1, 2),
                     },
                 }
             })
@@ -431,19 +448,21 @@ pub struct ComposedTurn<'a> {
     pub round: usize,
     pub round_prompt: Option<&'a str>,
     pub display_name: &'a str,
+    pub label: Option<&'a str>,
     pub placement: Placement,
     pub body: String,
 }
 
 /// The stylesheet for [`compose`] output, identical to the rules in `web/base.css` (a test keeps
 /// them equal). The preview carries it inline because it loads nothing else.
-pub const LAYOUT_CSS: &str = r#"/* Shared reflections: sequential and side-by-side (ADR 0032). The markup is already in reading
+pub const LAYOUT_CSS: &str = r#"/* Shared reflections: every layout (ADR 0032, ADR 0033). The markup is already in reading
    order; this only places it, and only on wide screens. Below 48em, in print and without CSS it
    reads top to bottom in that same order. */
 .ob-reflection .ob-round { margin: 1.5rem 0; }
 .ob-reflection .ob-round-prompt { font-weight: 600; }
 .ob-reflection .ob-turn { min-width: 0; overflow-wrap: anywhere; }
 .ob-reflection .ob-turn-author { font-size: 1.1rem; margin: 0 0 .5rem; }
+.ob-reflection .ob-turn-label { font-size: .9rem; font-style: italic; margin: 0 0 .5rem; }
 .ob-reflection .ob-turn pre, .ob-reflection .ob-turn table { max-width: 100%; overflow-x: auto; }
 .ob-reflection .ob-turn img { max-width: 100%; height: auto; }
 @media screen and (min-width: 48em) {
@@ -455,6 +474,14 @@ pub const LAYOUT_CSS: &str = r#"/* Shared reflections: sequential and side-by-si
   .ob-reflection-side-by-side .ob-lane-0 { grid-column: 1; }
   .ob-reflection-side-by-side .ob-lane-1 { grid-column: 2; }
   .ob-reflection-side-by-side .ob-lane-2 { grid-column: 3; }
+  .ob-reflection-point-counterpoint.ob-lanes-2 .ob-round { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 2rem; align-items: start; grid-auto-flow: row; }
+  .ob-reflection-point-counterpoint .ob-round-prompt { grid-column: 1 / -1; margin: 0; }
+  .ob-reflection-point-counterpoint .ob-lane-0 { grid-column: 1; }
+  .ob-reflection-point-counterpoint .ob-lane-1 { grid-column: 2; }
+  .ob-reflection-alternating-dialogue.ob-lanes-2 .ob-turn { max-width: 80%; margin: 0 0 1rem; }
+  .ob-reflection-alternating-dialogue.ob-lanes-2 .ob-lane-1 { margin-inline-start: auto; }
+  .ob-reflection-roundtable .ob-round { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem 2rem; align-items: start; }
+  .ob-reflection-roundtable .ob-round-prompt { grid-column: 1 / -1; margin: 0; }
 }
 "#;
 
@@ -490,10 +517,17 @@ pub fn compose(layout: ReflectionLayout, turns: &[ComposedTurn<'_>]) -> String {
             out.push('\n');
             open_round = Some(turn.round);
         }
+        let label = turn.label.map_or_else(String::new, |label| {
+            format!(
+                "<p class=\"ob-turn-label\">{}</p>\n",
+                crate::escape::text(label)
+            )
+        });
         out.push_str(&format!(
-            "<section class=\"ob-turn ob-lane-{}\">\n<h2 class=\"ob-turn-author\">{}</h2>\n\n{}\n\n</section>\n\n",
+            "<section class=\"ob-turn ob-lane-{}\">\n<h2 class=\"ob-turn-author\">{}</h2>\n{}\n{}\n\n</section>\n\n",
             turn.placement.lane,
             crate::escape::text(turn.display_name),
+            label,
             turn.body.trim()
         ));
     }
@@ -544,6 +578,7 @@ mod tests {
         s.rounds[0].turns.push(Turn {
             draft: "p2".into(),
             part: 0,
+            label: None,
         });
         let order = s.reading_order(&contract, &drafts).unwrap();
         let text: Vec<Option<&str>> = order.iter().map(|e| e.markdown.as_deref()).collect();
@@ -554,6 +589,7 @@ mod tests {
         s.rounds[0].turns.push(Turn {
             draft: "p0".into(),
             part: 5,
+            label: None,
         });
         assert!(s.reading_order(&contract, &drafts).is_err());
     }
