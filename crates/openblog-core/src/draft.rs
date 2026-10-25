@@ -203,6 +203,25 @@ impl DraftSet {
         serde_json::to_string(self).expect("draft set serializes")
     }
 
+    /// Admit a participant who joined after the set was created. Idempotent; a draft set only
+    /// grows its membership, so removing someone's sign-in never deletes or exposes their draft.
+    pub fn admit(&mut self, participant: &str) -> Result<(), DraftError> {
+        if self.is_member(participant) {
+            return Ok(());
+        }
+        if !valid_id(participant)
+            || self.participants.len() >= MAX_PARTICIPANTS
+            || self
+                .participants
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(participant))
+        {
+            return Err(DraftError::Invalid);
+        }
+        self.participants.push(participant.to_owned());
+        Ok(())
+    }
+
     fn is_member(&self, id: &str) -> bool {
         self.participants
             .iter()
@@ -782,5 +801,19 @@ mod tests {
         s.commit("bo", "e", "b", 1).unwrap();
         // The draft set holds no approval state and cannot reach the contract.
         assert!(contract.approvals.is_empty());
+    }
+
+    #[test]
+    fn a_later_participant_can_be_admitted_without_touching_existing_drafts() {
+        let mut s = set(&["ada"]);
+        s.save("ada", "ada", 0, "mine", T).unwrap();
+        assert_eq!(s.save("bo", "bo", 0, "x", T), Err(DraftError::Denied));
+        s.admit("bo").unwrap();
+        s.admit("bo").unwrap();
+        assert_eq!(s.admit("not valid!"), Err(DraftError::Invalid));
+        s.save("bo", "bo", 0, "theirs", T).unwrap();
+        assert_eq!(s.view("ada", "ada").unwrap().markdown, "mine");
+        assert_eq!(s.view("ada", "bo"), Err(DraftError::Denied));
+        assert!(DraftSet::from_json(&s.to_json()).is_ok());
     }
 }
