@@ -40,6 +40,7 @@ Version 1 of the private passage and research-note contract defined by
 | note | `kind` | Required. `observation` or `question`. |
 | note | `text` | Required author prose, at most 20,000 characters. |
 | note | `status` | Optional, questions only: `open` or `resolved`. Absent means open. |
+| both | `archived` | Optional boolean, written only when `true`. Sets the entry aside; it never changes visibility. |
 | note | `passages`, `sources`, `concepts` | Optional id lists (at most 100, no repeats). Passages must exist in the notebook, sources in the library; concepts are slugs checked for shape only. |
 
 Pages cannot address a work and folios need a witness, resolving a reference through its
@@ -102,3 +103,44 @@ notes that link a passage. `concept` and `state` select notes; `source` and `loc
 note through the passages it links. Bad filters are `422` with a diagnostic on `q`, `source`,
 `locator`, `concept` or `state`; no match is an empty `200`. Both routes are read-only,
 `no-store`, and need an Admin session.
+
+## Archive, export and import
+
+Defined by [ADR 0027](../adr/0027-private-notebook-lifecycle-export-and-leak-guards.md) and
+implemented by `openblog_core::research_bundle` and `notebook_store`.
+
+| Route | Purpose |
+| --- | --- |
+| `POST /admin/api/research/archive` | Body `{ revision, type: "passage" or "note", id, archived }`. Revision-checked; changes only `archived`. |
+| `POST /admin/api/research/export` | Body `{ includePrivate: true }`, refused (`400`) without it. Returns `filename`, `mediaType`, the counts, the `revision` and the bundle as `content`. Read-only and `no-store`. |
+| `POST /admin/api/research/import` | Body `{ revision, bundle, apply }` where `bundle` is the parsed bundle object (at most 4.25 MiB). `apply: false` previews; `apply: true` applies when nothing conflicts and something would be added. Returns `plan` (`counts` and one `entry` per passage or note with `create`, `unchanged` or `conflict`, never any text). A conflict is `422` with the plan; a stale revision is `409`. |
+
+Search accepts `includeArchived: true`; hits and linked entries carry `archived` when set, and
+`counts.archived` totals them while `openQuestions` and `resolvedQuestions` count live entries only.
+
+A bundle is one JSON object, written deterministically with a trailing newline:
+
+```json
+{
+  "format": "open.blog/research-notebook",
+  "version": 1,
+  "private": true,
+  "contains": ["passages", "notes"],
+  "sources": [{ "id": "republic-slings-2003", "kind": "edition", "title": "Platonis Rempublicam" }],
+  "notebook": { "version": 1, "passages": [], "notes": [] }
+}
+```
+
+`notebook` is read by the same rules as the stored file, against the stored source library, so
+unknown sources, non-private entries, credit fields, control characters and oversized or
+newer-version bundles are refused with field-scoped diagnostics that never repeat text. Import only
+adds: an id that exists with different content, or that the other kind of entry holds, is a conflict
+that refuses the whole import. Importing the same bundle again changes nothing.
+
+## Publication guards
+
+Builds never read the notebook. `openblog build`, `serve`, Admin rebuilds and `openblog check`
+also refuse to run when a file under `content`, `static` or `themes` has the shape of a research
+bundle or a notebook copy (the path is reported, never its contents), and `openblog publish`
+refuses to commit one from a publishable folder. Regression tests seed a sentinel into every field
+and prove none reaches any generated or exported artifact, error body or log.

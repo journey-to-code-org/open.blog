@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- You can now archive passages and notes you want out of the way, without deleting them, and export
+  and import your private research notebook. Archived entries stay in the file and in exports and
+  come back with Show archived or Restore. Export saves one versioned file of all your private
+  passages and notes, only when you ask and confirm; import previews first, only adds entries the
+  notebook lacks, and refuses any conflict without changing anything. Building, checking and
+  publishing now also refuse to continue when a research export or a copy of the notebook has been
+  saved into content, static or themes, and automated tests check that private research never
+  reaches pages, feeds, search, llms files, portable exports, CSL or BibTeX, logs, error messages or
+  published history.
 - You can now search the private research notebook and see how it connects. The Notebook view
   filters by source (including its editions and translations), locator kind, concept, and
   question state beside text search, shows each hit with its source, locators and linked notes,

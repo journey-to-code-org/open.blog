@@ -343,6 +343,18 @@ The author's own observation or question, linked to passages, sources, or concep
 private; never a quotation, claim, or citation.
 _Avoid_: Annotation, comment, reader note
 
+**Archived entry**:
+A passage or note the author has set aside. It stays in the notebook file, its links and its
+exports, and is left out of lists, search and the open-question count until the author asks for
+archived entries. Archiving is reversible and never changes who can see the entry.
+_Avoid_: Deleted, hidden, unpublished, private (every entry is private)
+
+**Research bundle**:
+The versioned, explicitly requested export of the whole notebook, marked private so tools can
+recognise and refuse it in public folders. Importing one previews first and only adds entries
+the notebook lacks.
+_Avoid_: Backup of the site, publication, CSL export
+
 **Open question**:
 A research note of kind question that the author has not marked resolved. A question with no
 state written is open. The state is the author's own marking and says nothing about whether an
