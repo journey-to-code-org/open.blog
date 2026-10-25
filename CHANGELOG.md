@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-25
+
 - You can now archive passages and notes you want out of the way, without deleting them, and export
   and import your private research notebook. Archived entries stay in the file and in exports and
   come back with Show archived or Restore. Export saves one versioned file of all your private
