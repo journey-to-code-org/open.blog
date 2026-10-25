@@ -949,6 +949,8 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
     if (!conflict) return;
     const { current } = conflict;
     conflict = null;
+    errorBox.hidden = true;
+    clearInvalid();
     if (useStored) {
       if (!current) {
         touched = false;
@@ -1014,7 +1016,7 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
         field("concepts", "Concepts (optional)", h("input", { type: "text", value: note.concepts, autocomplete: "off", spellcheck: "false", onInput: (event) => { note.concepts = event.target.value; } }), "Lowercase words separated by commas, such as allegory, the-good."),
       );
     }
-    const noSources = type === "passage" && !captureSources(state.sources).length;
+    const noSources = type === "passage" && !sourceChoices().length;
     const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-capture-save": "true", disabled: busy || noSources || Boolean(conflict && editing) }, editing ? "Save changes" : "Save to notebook");
     const cancel = h("button", { class: "oba-btn", type: "button", "data-capture-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
     root.replaceChildren(
