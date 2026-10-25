@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-25
+
 - A shared reflection that has both an arrangement and an approved continuing conversation
   publishes the arranged sections in reading order and then the conversation, and every portable
   form (Markdown, text, feeds, llms-full.txt) keeps that order. Approvals bind the arrangement and
