@@ -36,9 +36,10 @@ class DomNode {
   set value(value) {
     this._value = String(value);
   }
+  // Like a browser: anything that is not a node becomes a text node of String(value), so an
+  // array shows as "[object HTMLLabelElement]" and null as "null" instead of being skipped.
   append(...children) {
-    for (const child of children.flat()) {
-      if (child === null || child === undefined || child === false) continue;
+    for (const child of children) {
       const node = child instanceof DomNode ? child : Object.assign(new DomNode("#text"), { textContent: String(child) });
       node.parent?.children.splice(node.parent.children.indexOf(node), 1);
       node.parent = this;
@@ -773,3 +774,129 @@ test("the combined preview lists who approved each item", withDom(async () => {
   await settle();
   assert.match(textOf(panel), /Question: speaks for Ann\. Approved by: no one\. Awaiting: Ann\./);
 }));
+
+// ------------------------------------------------ synthesis: focus, edit survival, denial
+
+const synthesisHeading = "oba-synthesis-0-heading";
+const addItem = async (panel, text) => {
+  synthesisText(panel).value = text;
+  await synthesisSubmit(panel);
+  await settle();
+};
+const activeLabel = (dom) => dom.document.activeElement?.attributes?.["aria-label"] || dom.document.activeElement?.textContent;
+const visibleAlert = (panel) => panel.querySelectorAll("p").find((node) => node.attributes.role === "alert" && !node.hidden);
+
+test("the attribution choices render as real checkboxes, in both the add form and edit mode", withDom(async () => {
+  const { panel } = await openDraft(fakeApi());
+  const form = panel.querySelector(".oba-synthesis-form");
+  assert.doesNotMatch(textOf(form), /object HTML/);
+  assert.match(textOf(form), /Who else it speaks for.*Also speaks for Grace/);
+  assert.equal(form.querySelectorAll("input").length, 1);
+  await addItem(panel, "Mine alone");
+  await button(panel, "Edit").click();
+  const item = panel.querySelector(".oba-synthesis-item");
+  assert.doesNotMatch(textOf(item), /object HTML/);
+  assert.match(textOf(item), /Also name Grace/);
+  assert.equal(item.querySelectorAll("input").length, 1);
+}));
+
+test("after adding, approving, saving, cancelling, reordering and withdrawing, focus is never lost to the page", withDom(async (dom) => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  await addItem(panel, "First");
+  assert.equal(dom.document.activeElement.id, synthesisHeading, "add returns to the panel heading");
+  await addItem(panel, "Second");
+  await button(panel, "Move up: Agreement item 2 of 2").click();
+  await settle();
+  assert.equal(activeLabel(dom), "Move down: Agreement item 1 of 2", "reorder follows the moved item; its own Move up is now disabled, so the other direction");
+  await button(panel, "Move down: Agreement item 1 of 2").click();
+  await settle();
+  assert.equal(activeLabel(dom), "Move up: Agreement item 2 of 2");
+  await button(panel, "Move up: Agreement item 2 of 2").click();
+  await settle();
+  assert.equal(activeLabel(dom), "Move down: Agreement item 1 of 2");
+  await button(panel, "Approve this item").click();
+  await settle();
+  assert.equal(dom.document.activeElement.textContent, "Edit", "approve moves to the item's Edit button");
+  assert.match(textOf(panel), /You approved this item\./);
+  await button(panel, "Edit").click();
+  assert.equal(dom.document.activeElement.attributes["aria-label"], "Edit item text", "opening edit focuses the text");
+  await button(panel, "Cancel").click();
+  assert.equal(dom.document.activeElement.textContent, "Edit", "cancel returns to the Edit button");
+  assert.match(textOf(panel), /Edit cancelled/);
+  await button(panel, "Edit").click();
+  await button(panel, "Save changes").click();
+  await settle();
+  assert.equal(dom.document.activeElement.textContent, "Edit", "saving returns to the Edit button");
+  await button(panel, "Take my name off").click();
+  await settle();
+  assert.equal(dom.document.activeElement.id, synthesisHeading, "withdraw returns to the panel heading");
+}));
+
+test("dismissing and showing prompts, and using one, keep focus on a control that is still there", withDom(async (dom) => {
+  const { panel } = await openDraft(fakeApi());
+  await button(panel, "Use this prompt").click();
+  assert.equal(dom.document.activeElement, synthesisText(panel));
+  await button(panel, "Dismiss prompts").click();
+  assert.equal(dom.document.activeElement.textContent, "Show prompts");
+  assert.equal(dom.document.activeElement.hidden, false);
+  await button(panel, "Show prompts").click();
+  assert.equal(dom.document.activeElement.textContent, "Use this prompt");
+  assert.equal(dom.document.activeElement.hidden, false);
+}));
+
+test("a conflict puts focus on the alert, and the typed text is kept", withDom(async (dom) => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  api.state.synthesis = { ...api.state.synthesis, revision: 5 };
+  await addItem(panel, "Typed before the conflict");
+  assert.equal(dom.document.activeElement, visibleAlert(panel));
+  assert.equal(synthesisText(panel).value, "Typed before the conflict");
+}));
+
+test("a conflict while editing keeps the edited text and the item, and the edit stays open", withDom(async (dom) => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  await addItem(panel, "Original");
+  await button(panel, "Edit").click();
+  const area = () => panel.querySelectorAll("textarea").find((node) => node.attributes["aria-label"] === "Edit item text");
+  area().value = "My careful rewrite";
+  await area().dispatch("input");
+  panel.querySelector(".oba-synthesis-item").querySelectorAll("input")[0].checked = true;
+  await panel.querySelector(".oba-synthesis-item").querySelectorAll("input")[0].dispatch("change");
+  api.state.synthesis = { ...api.state.synthesis, revision: 9 };
+  await button(panel, "Save changes").click();
+  await settle();
+  assert.match(visibleAlert(panel).textContent, /changed since you read it/);
+  assert.equal(dom.document.activeElement, visibleAlert(panel));
+  assert.ok(area(), "edit mode is open again");
+  assert.equal(area().value, "My careful rewrite");
+  assert.equal(panel.querySelector(".oba-synthesis-item").querySelectorAll("input")[0].checked, true);
+  await button(panel, "Save changes").click();
+  await settle();
+  assert.equal(api.state.synthesis.items[0].markdown, "My careful rewrite", "the retry saves the kept text");
+  assert.deepEqual(api.state.synthesis.items[0].contributors.map((person) => person.id), [ME.id, OTHER.id]);
+  assert.equal(area(), undefined, "a saved edit closes");
+}));
+
+test("a denied change keeps the notice and the typed text visible", withDom(async (dom) => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  api.state.failures = null;
+  const failing = { call: api.call.bind(api) };
+  api.call = async (method, path, options) => {
+    if (method === "POST") throw new FakeApiError("not found", 404, null);
+    return failing.call(method, path, options);
+  };
+  await addItem(panel, "Words I do not want to lose");
+  assert.equal(synthesisRoot(panel).hidden, false);
+  const alert = visibleAlert(panel);
+  assert.match(alert.textContent, /Your text is still here/);
+  assert.equal(dom.document.activeElement, alert);
+  assert.equal(synthesisText(panel).value, "Words I do not want to lose");
+}));
+
+test("the dismissed-prompts preference uses the ob-admin key", () => {
+  assert.match(admin, /"ob-admin-synthesis-prompts-dismissed"/);
+  assert.doesNotMatch(admin, /openblog\.admin\.synthesisPromptsDismissed/);
+});

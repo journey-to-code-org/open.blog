@@ -992,7 +992,7 @@ export function synthesisFailure(error) {
   return { kind: "other", message: text || "That did not work. Your text is still here; try again." };
 }
 
-const PROMPTS_DISMISSED_KEY = "openblog.admin.synthesisPromptsDismissed";
+const PROMPTS_DISMISSED_KEY = "ob-admin-synthesis-prompts-dismissed";
 
 function promptsDismissed() {
   try {
@@ -4581,6 +4581,10 @@ export class ObAdmin extends AdminElement {
     const root = h("div", { class: "oba-synthesis", hidden: true });
     let current = { revision: 0, items: [], authors: [], you: "" };
     let dismissed = promptsDismissed();
+    // The item being edited survives a reload after a conflict: its id, kind, text and extra names.
+    let editing = null;
+    // The re-rendered controls, so focus can return to the one that was just used.
+    const controls = new Map();
     // What the author typed survives a reload after a conflict: the form is rebuilt around it.
     const typed = { kind: "agreement", text: "" };
     let submitItem = (event) => event.preventDefault();
@@ -4597,17 +4601,32 @@ export class ObAdmin extends AdminElement {
       problem.hidden = true;
       problem.textContent = "";
     };
-    const send = async (change, done, focusTarget) => {
+    // Re-rendering drops focus, so after a change it goes to the first enabled control named, else
+    // to the panel heading (ADR 0019).
+    const focusTo = (keys) => {
+      for (const key of [keys].flat()) {
+        const control = key ? controls.get(key) : null;
+        if (control && !control.disabled) {
+          control.focus();
+          return;
+        }
+      }
+      heading.focus();
+    };
+    const send = async (change, done, focusKeys) => {
       clearProblem();
       try {
         current = await this.api.call("POST", "collaboration/synthesis", { json: { publicationId: id, expectedRevision: current.revision, change } });
+        if (change.action === "edit") editing = null;
         render();
         status.textContent = done;
-        if (focusTarget === "heading") root.querySelector(`#${prefix}-heading`)?.focus();
+        focusTo(focusKeys);
         return true;
       } catch (error) {
         const failure = fail(error);
-        if (failure.kind === "conflict" || failure.kind === "denied") await load(false);
+        // A conflict reloads the current items around what was typed. A denial keeps the notice
+        // and the typed text visible, so nothing typed is lost.
+        if (failure.kind === "conflict") await load(false);
         return false;
       }
     };
@@ -4624,43 +4643,66 @@ export class ObAdmin extends AdminElement {
         const button = h("button", { class: "oba-btn", type: "button", "aria-label": `${label}: ${synthesisKindLabel(item.kind)} item ${position + 1} of ${total}` }, label);
         const next = moveSynthesisItem(ids, item.id, delta);
         button.disabled = !next;
-        button.addEventListener("click", () => send({ action: "reorder", order: next }, `Moved to position ${position + 1 + delta}.`));
+        button.addEventListener("click", () => send({ action: "reorder", order: next }, `Moved to position ${position + 1 + delta}.`, [`${item.id}:${delta < 0 ? "up" : "down"}`, `${item.id}:${delta < 0 ? "down" : "up"}`]));
+        controls.set(`${item.id}:${delta < 0 ? "up" : "down"}`, button);
         return button;
       };
       actions.append(move("Move up", -1), move("Move down", 1));
       if (item.mine) {
         const approve = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, item.approvedByYou ? "You approved this" : "Approve this item");
         approve.disabled = item.approvedByYou;
-        approve.addEventListener("click", () => send({ action: "approve", id: item.id }, "You approved this item."));
+        approve.addEventListener("click", () => send({ action: "approve", id: item.id }, "You approved this item.", [`${item.id}:edit`]));
         const edit = h("button", { class: "oba-btn", type: "button" }, "Edit");
-        edit.addEventListener("click", () => {
+        const openEdit = (focusText) => {
           const area = h("textarea", { id: `${textId}-edit`, rows: "5", "aria-label": "Edit item text" });
-          area.value = item.markdown;
-          const kind = kindSelect(`${textId}-kind`, item.kind);
+          area.value = editing.markdown;
+          const kind = kindSelect(`${textId}-kind`, editing.kind);
           const save = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Save changes");
           const cancel = h("button", { class: "oba-btn", type: "button" }, "Cancel");
           const others = current.authors.filter((author) => !item.contributors.some((c) => c.id === author.id));
-          const picks = others.map((author) => h("label", { class: "oba-check" }, h("input", { type: "checkbox", value: author.id }), ` Also name ${author.displayName}`));
+          const picks = others.map((author) => {
+            const box = h("input", { type: "checkbox", value: author.id });
+            box.checked = editing.added.includes(author.id);
+            box.addEventListener("change", () => {
+              editing.added = editing.added.filter((value) => value !== author.id);
+              if (box.checked) editing.added.push(author.id);
+            });
+            return h("label", { class: "oba-check" }, box, ` Also name ${author.displayName}`);
+          });
+          area.addEventListener("input", () => {
+            editing.markdown = area.value;
+          });
+          kind.addEventListener("change", () => {
+            editing.kind = kind.value;
+          });
           save.addEventListener("click", async () => {
             const added = picks.map((label) => label.querySelector("input")).filter((box) => box.checked).map((box) => box.value);
-            await send({ action: "edit", id: item.id, kind: kind.value, markdown: area.value, addContributors: added }, "Item saved. Everyone named must approve it again.");
+            await send({ action: "edit", id: item.id, kind: kind.value, markdown: area.value, addContributors: added }, "Item saved. Everyone named must approve it again.", [`${item.id}:edit`]);
           });
           cancel.addEventListener("click", () => {
+            editing = null;
             render();
             status.textContent = "Edit cancelled. Nothing was changed.";
+            focusTo(`${item.id}:edit`);
           });
           body.replaceChildren(
             h("p", { class: "oba-small" }, "Changing an item clears every approval of it, and everyone named must approve it again."),
             h("div", { class: "oba-field" }, h("label", { for: kind.id }, "Kind"), kind),
             h("div", { class: "oba-field" }, h("label", { for: area.id }, "Text (Markdown)"), area),
-            picks,
+            ...picks,
             h("div", { class: "oba-toolbar" }, save, cancel),
           );
-          area.focus();
+          if (focusText) area.focus();
+        };
+        edit.addEventListener("click", () => {
+          editing = { id: item.id, kind: item.kind, markdown: item.markdown, added: [] };
+          openEdit(true);
         });
         const withdraw = h("button", { class: "oba-btn", type: "button" }, "Take my name off");
         withdraw.addEventListener("click", () => send({ action: "withdraw", id: item.id }, "Your name was taken off this item."));
         actions.append(approve, edit, withdraw);
+        controls.set(`${item.id}:edit`, edit);
+        if (editing?.id === item.id) openEdit(false);
       }
       return h(
         "li",
@@ -4728,21 +4770,23 @@ export class ObAdmin extends AdminElement {
           if (fresh) fresh.value = "";
         }
       };
-      form.replaceChildren(
+      form.replaceChildren(...[
         h("h5", { id: `${prefix}-add-heading` }, "Add an item"),
         h("p", { class: "oba-small", id: `${prefix}-hint` }, "Optional, and any length. Name the authors it speaks for; each of them must approve it before anything is published."),
         h("div", { class: "oba-field" }, h("label", { for: kind.id }, "Kind"), kind),
         promptBox,
         showPrompts,
         h("div", { class: "oba-field" }, h("label", { for: area.id }, "Text (Markdown)"), area),
-        picks.length ? h("fieldset", {}, h("legend", {}, "Who else it speaks for"), picks) : null,
+        picks.length ? h("fieldset", {}, h("legend", {}, "Who else it speaks for"), ...picks) : null,
         add,
-      );
+      ].filter(Boolean));
       syncPrompt();
     };
 
     const render = () => {
       const items = current.items || [];
+      controls.clear();
+      if (editing && !items.some((item) => item.id === editing.id && item.mine)) editing = null;
       list.replaceChildren(...items.map((item, position) => itemView(item, position, items.length)));
       list.hidden = items.length === 0;
       renderForm();
@@ -4755,7 +4799,9 @@ export class ObAdmin extends AdminElement {
         render();
         if (announce) status.textContent = "";
       } catch {
-        root.hidden = true;
+        // Never hide a panel that already shows a notice or typed text; only a first load that
+        // cannot reach the conversation leaves it out.
+        if (announce) root.hidden = true;
       }
     };
 
