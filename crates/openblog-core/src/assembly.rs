@@ -294,13 +294,13 @@ pub fn assemble_for(
     })
 }
 
+const TAIL_SENTINEL: &str = "tail";
+
 /// Whether the joined body would publish anything but each author's own approved prose: raw
 /// HTML, an active link or image address, heading attributes beyond an id and classes, or
 /// Markdown in one section that changes how another renders (an open fence, a reference
 /// definition, a footnote). Checked on the exact parse the site renders with, both with and
 /// without smart punctuation because the site setting is not known here.
-const TAIL_SENTINEL: &str = "tail";
-
 fn has_unsafe_markup(sections: &[String]) -> bool {
     use pulldown_cmark::{Event, Parser, Tag};
     let unsafe_address = |address: &str| {
@@ -324,8 +324,19 @@ fn has_unsafe_markup(sections: &[String]) -> bool {
         let mut all: Vec<&str> = sections.iter().map(String::as_str).collect();
         all.push(TAIL_SENTINEL);
         let joined = all.join(SECTION_BREAK);
+        // Each section ends in the newline the join gives it, so a trailing indented code block
+        // parses the same alone as in place.
+        let terminated: Vec<String> = all
+            .iter()
+            .map(|section| {
+                format!(
+                    "{section}
+"
+                )
+            })
+            .collect();
         let mut separate: Vec<Event<'_>> = Vec::new();
-        for (index, section) in all.iter().enumerate() {
+        for (index, section) in terminated.iter().enumerate() {
             if index > 0 {
                 separate.push(Event::Rule);
             }
