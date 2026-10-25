@@ -7,7 +7,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 - Defined private contribution drafts for shared reflections: append-only revisions with a
   prose-free identity, conflict checks on save, and a mutual reveal that shows nothing until every
-  member has committed. Revealing is never approval, and no storage or route is added yet.
+  member has committed. Revealing is never approval, and no storage or route is added yet. Draft ids are compared ignoring case so a stored set always
+  reloads, and saving over another participant's draft id no longer reveals more than that the id
+  is taken.
 
 ## [0.20.0] - 2026-10-25
 

@@ -12,7 +12,10 @@
 //! never approves, publishes, or credits anything and never touches the collaboration contract.
 //!
 //! Every refusal about another participant's draft is the same [`DraftError::Denied`], so a
-//! caller cannot probe whether a draft, a revision, or an exchange exists.
+//! caller cannot read or probe the content, revisions, or state of a draft or exchange.
+//! Draft and exchange ids are unique across the whole set, so an attempt to create one over an
+//! id that is already taken is refused; that collision (never any content) is the only thing a
+//! participant can learn about an id they do not own.
 
 use std::collections::HashSet;
 use std::fmt;
@@ -207,7 +210,9 @@ impl DraftSet {
     }
 
     fn draft(&self, id: &str) -> Option<&Draft> {
-        self.drafts.iter().find(|draft| draft.id == id)
+        self.drafts
+            .iter()
+            .find(|draft| draft.id.eq_ignore_ascii_case(id))
     }
 
     fn stamp(draft: &Draft, revision: &Revision) -> RevisionStamp {
@@ -233,19 +238,36 @@ impl DraftSet {
         if !self.is_member(requester) {
             return Err(DraftError::Denied);
         }
-        if let Some(draft) = self.draft(contribution_id) {
-            if draft.owner != requester || draft.withdrawn {
-                return Err(DraftError::Denied);
+        // Ids are unique ignoring ASCII case, so look up the same way `is_valid` checks.
+        let existing = self.draft(contribution_id).map(|draft| {
+            (
+                draft.id.clone(),
+                draft.owner == requester,
+                draft.withdrawn,
+                draft.revisions.len() as u64,
+            )
+        });
+        let current = existing
+            .as_ref()
+            .map_or(0, |(_, _, _, revisions)| *revisions);
+        let contribution_id = match &existing {
+            Some((id, ..)) => id.as_str(),
+            None => contribution_id,
+        };
+        match &existing {
+            // Another participant's (or a withdrawn) draft answers exactly like a missing id
+            // would for a non-creating save; only creating over a taken id is refused.
+            Some((_, false, _, _)) if expected_revision != 0 => return Err(DraftError::Stale),
+            Some((_, false, _, _)) | Some((_, true, true, _)) => return Err(DraftError::Denied),
+            Some(_) => {}
+            None if !valid_id(contribution_id) || self.drafts.len() >= MAX_CONTRIBUTIONS => {
+                return Err(DraftError::Invalid)
             }
-        } else if !valid_id(contribution_id) || self.drafts.len() >= MAX_CONTRIBUTIONS {
-            return Err(DraftError::Invalid);
+            None => {}
         }
         if !valid_markdown(markdown) {
             return Err(DraftError::Invalid);
         }
-        let current = self
-            .draft(contribution_id)
-            .map_or(0, |draft| draft.revisions.len() as u64);
         if current != expected_revision {
             return Err(DraftError::Stale);
         }
@@ -284,9 +306,12 @@ impl DraftSet {
         let draft = self
             .drafts
             .iter_mut()
-            .find(|draft| draft.id == contribution_id && draft.owner == requester)
+            .find(|draft| {
+                draft.id.eq_ignore_ascii_case(contribution_id) && draft.owner == requester
+            })
             .ok_or(DraftError::Denied)?;
         draft.withdrawn = true;
+        let contribution_id = draft.id.clone();
         for exchange in &mut self.exchanges {
             if exchange.state == ExchangeState::Pending {
                 exchange
@@ -315,7 +340,7 @@ impl DraftSet {
                 .filter(|e| e.state == ExchangeState::Revealed)
                 .filter(|e| e.members.iter().any(|m| m == requester))
                 .flat_map(|e| &e.commitments)
-                .filter(|c| c.contribution_id == contribution_id)
+                .filter(|c| c.contribution_id.eq_ignore_ascii_case(contribution_id))
                 .map(|c| c.revision)
                 .max()
                 .ok_or(DraftError::Denied)?
@@ -372,6 +397,8 @@ impl DraftSet {
         contribution_id: &str,
         revision: u64,
     ) -> Result<ExchangeStatus, DraftError> {
+        let canonical = self.draft(contribution_id).map(|d| d.id.clone());
+        let contribution_id = canonical.as_deref().unwrap_or(contribution_id);
         let draft_ok = self.draft(contribution_id).is_some_and(|draft| {
             draft.owner == requester
                 && !draft.withdrawn
@@ -557,6 +584,32 @@ mod tests {
     }
 
     #[test]
+    fn case_variant_ids_cannot_collide_and_the_set_reloads() {
+        let mut s = set(&["ada", "bo"]);
+        s.save("ada", "c1", 0, "mine", T).unwrap();
+        assert_eq!(s.save("bo", "C1", 0, "x", T), Err(DraftError::Denied));
+        assert_eq!(s.save("ada", "C1", 1, "again", T).unwrap().number, 2);
+        let reloaded = DraftSet::from_json(&s.to_json()).unwrap();
+        assert_eq!(reloaded.view("ada", "c1").unwrap().stamp.number, 2);
+    }
+
+    #[test]
+    fn foreign_and_missing_ids_answer_alike_for_non_creating_saves() {
+        let mut s = set(&["ada", "bo"]);
+        s.save("ada", "c1", 0, "private", T).unwrap();
+        let before = s.to_json();
+        assert_eq!(
+            s.save("bo", "c1", 9, "x", T),
+            s.save("bo", "nope", 9, "x", T)
+        );
+        assert_eq!(
+            s.save("bo", "c1", 1, "x", T),
+            s.save("bo", "nope", 1, "x", T)
+        );
+        assert_eq!(s.to_json(), before);
+    }
+
+    #[test]
     fn digest_binds_author_and_content() {
         let mut s = set(&["ada", "bo"]);
         let a = s.save("ada", "c1", 0, "same", T).unwrap();
@@ -571,8 +624,8 @@ mod tests {
         let missing = s.view("bo", "nope").unwrap_err();
         assert_eq!(s.view("bo", "c1"), Err(missing));
         assert_eq!(s.view("mallory", "c1"), Err(DraftError::Denied));
-        assert_eq!(s.save("bo", "c1", 1, "hijack", T), Err(DraftError::Denied));
-        assert_eq!(s.save("bo", "c1", 9, "probe", T), Err(DraftError::Denied));
+        assert_eq!(s.save("bo", "c1", 0, "hijack", T), Err(DraftError::Denied));
+        assert_eq!(s.save("bo", "c1", 9, "probe", T), Err(DraftError::Stale));
         assert_eq!(s.save("mallory", "c9", 0, "x", T), Err(DraftError::Denied));
         assert_eq!(s.withdraw("bo", "c1"), Err(DraftError::Denied));
     }
