@@ -137,6 +137,7 @@ fn approval_label(state: ApprovalState) -> &'static str {
 /// the conversation section are left out (readiness still counts them).
 /// `options` are the site's production Markdown options. Pure: it never writes drafts or
 /// approvals.
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     record: &SharedPublication,
     drafts: &DraftSet,

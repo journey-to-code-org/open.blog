@@ -65,3 +65,7 @@ could not stale a standing approval and a named author could be left out.
 - Adding an author to an item, editing it, reordering, or an author leaving all stale standing
   whole-piece approvals; authors re-approve what is now on the page.
 - Contributors only: a coordinator or editor cannot be named on an item or approve one.
+- The combined preview is authorized as a draft author (EditDraft, which editors hold), so it receives
+  the synthesis only when the requester also holds EditSynthesis; for anyone else the items, their
+  names and the conversation section are left out, while readiness still counts every item.
+- This amends ADR 0036: synthesis authors are Contributors only.

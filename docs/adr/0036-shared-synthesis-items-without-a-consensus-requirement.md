@@ -1,6 +1,6 @@
 # ADR 0036: Shared synthesis items without a consensus requirement
 
-- Status: Accepted
+- Status: Accepted (amended by ADR 0037)
 - Date: 2026-10-25
 - Decision issue: [#178](https://github.com/journey-to-code-org/open.blog/issues/178)
 - Parent story: [#150](https://github.com/journey-to-code-org/open.blog/issues/150)
@@ -11,6 +11,10 @@
 Separate drafts (ADR 0016) and a combined piece (ADR 0021) say nothing about what the authors
 conclude together. A synthesis must not force agreement: people who read the same source can differ,
 and a model that rejected that would push them to hide it.
+
+**Amended by ADR 0037:** synthesis authors are Contributors only. Coordinators and editors cannot
+author, be named on, or approve an item, and the combined preview omits items and their prose for
+anyone who is not a synthesis author.
 
 ## Decision
 
@@ -46,7 +50,8 @@ and a model that rejected that would push them to hide it.
 - Everyone named on any item is a required approver of the piece under every policy
   (`attributed_authors`, carried as `ApprovalSubject::attributed`), so an author cannot be bound to
   a statement by another author's edit without approving it. Callers that build an approval subject
-  must pass it; assembly, preview and the admin routes still pass none until they are wired.
+  must pass it. Assembly, the combined preview and the admin routes now do, through one
+  synthesis-aware helper (see ADR 0037).
 - Stored sets are checked: a `syn-N` id ahead of `nextId` is rejected so a counter can never mint a
   duplicate, and counters use checked arithmetic, failing as `Invalid` instead of overflowing.
 - The set is private collaboration state holding prose. This task adds core types only: no route,
