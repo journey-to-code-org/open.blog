@@ -2655,3 +2655,59 @@ a.oba-btn-primary {
   max-width: 100%;
   font-family: var(--ob-font-mono, monospace);
 }
+
+.oba-member-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-member-list > li,
+.oba-invitation-list > li {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--ob-color-border, currentColor);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-invitation-list {
+  padding-left: 0;
+  list-style: none;
+}
+
+.oba-confirm {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 2px solid currentColor;
+  border-radius: 0.5rem;
+}
+
+.oba-confirm-title {
+  margin: 0 0 0.25rem;
+  font-weight: 700;
+}
+
+.oba-confirm:focus-visible,
+.oba-invitations h3:focus-visible {
+  outline: 3px solid var(--ob-color-accent, currentColor);
+  outline-offset: 2px;
+}
+
+.oba-member .oba-toolbar {
+  flex-wrap: wrap;
+}
+
+.oba-member .oba-btn {
+  min-height: 2.75rem;
+}
+
+@media (max-width: 44rem) {
+  .oba-member .oba-toolbar .oba-btn,
+  .oba-confirm .oba-toolbar .oba-btn {
+    flex: 1 1 100%;
+  }
+}

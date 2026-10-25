@@ -17,6 +17,13 @@ All notable changes to open.blog are recorded here. Releases follow
   accounts, spent, expired, revoked, and guessed links all fail the same way, and repeated guesses
   are rate limited. Owners and coordinators can revoke a link or issue a new one. The Admin API
   adds `/admin/api/collaboration/invitations` (list, create, revoke, reissue, accept, decline).
+- Added member management to shared reflections in Admin Studio. Site owners and coordinators see
+  who can sign in, their roles, pending and finished invitations, and warnings when an account or
+  profile no longer exists. They can change roles, remove access, and revoke links, each after an
+  explanation of what changes. Ending access never removes credit for what someone wrote. A change
+  made on a stale view is refused and the list reloads, and the last site owner cannot be removed.
+  The Admin API adds `GET /admin/api/collaboration/members` and `POST .../members/roles` and
+  `.../members/remove`.
 
 ## [0.19.0] - 2026-10-25
 

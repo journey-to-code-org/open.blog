@@ -427,6 +427,22 @@ itself, and only a site owner can invite another site owner. Add the person's Ad
 with `openblog user add`. The design is recorded in
 [ADR 0013](adr/0013-publication-scoped-invitations.md).
 
+### Managing members
+
+The same **Members and invitations** section lists everyone who can sign in to the reflection,
+with their sign-in account, the contributor profile they are credited as, and their roles written
+out. These are separate: *sign-in access* decides who can open the reflection and what they can
+do, while *credit* names who is shown for what they wrote. **Change roles** previews what is added
+and removed before it applies. **Remove access** asks first, and ends only sign-in access: the
+person's name stays credited for what they wrote and approved, and you can invite them again
+later. The last site owner cannot be removed or demoted, and a coordinator cannot change a site
+owner. If someone else changed the members while you were looking, the change is refused, the list
+reloads, and you can try again. A member whose account or profile has been deleted is flagged with
+a warning. If your browser cannot copy to the clipboard, select the link and copy it yourself.
+Everything is reachable by keyboard: **Escape** cancels a confirmation, and results are announced
+to screen readers. The design is recorded in
+[ADR 0015](adr/0015-member-management-separates-access-from-credit.md).
+
 ## Scheduling
 
 A post's status is one of:
