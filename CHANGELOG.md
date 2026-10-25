@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-25
+
 - The continuing conversation travels with the piece. Full-content RSS, JSON Feed, portable
   HTML, Markdown and text, and llms files keep its categories, attribution, order, open questions
   and stable anchors with a canonical link, and carry no drafting or approval state. An automatic
