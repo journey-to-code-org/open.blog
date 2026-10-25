@@ -72,6 +72,14 @@ impl SeriesPlacement {
         })
     }
 
+    /// How a person reads it: "<title>, part N", or the title alone when no position is set.
+    pub fn label(&self) -> String {
+        match self.order {
+            Some(order) => format!("{}, part {order}", self.series),
+            None => self.series.clone(),
+        }
+    }
+
     /// The approvable form. A tag no user text can contain (control characters are refused)
     /// keeps it from ever equalling a title or source value.
     pub(crate) fn binding_values(&self) -> [String; 2] {

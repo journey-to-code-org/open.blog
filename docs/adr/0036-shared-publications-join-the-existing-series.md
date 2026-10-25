@@ -32,7 +32,10 @@ second concept, and what authors must approve when it does.
   multi-line, control or direction characters, over-long and address-less titles are refused, and a
   stored record that holds one fails to load. Refusals name the rule and never the value.
 - Placement is public output, so it is part of the approval binding: `public_metadata` appends the
-  reference and order, under tags no user text can contain, only when a placement exists. Changing,
+  reference and order, under tags no user text can contain, only when a placement exists. The
+  combined preview ([ADR 0021](0021-combined-review-preview.md)) shows it beside the attribution
+  as "Series: <title>, part N" (no part when unordered), so authors approve only a placement they
+  were shown. Changing,
   adding or removing it invalidates every approval through the recomputed binding of
   [ADR 0020](0020-approval-snapshots-bound-to-exact-content.md), and putting it back restores the
   consent that truly covered it. A record without a placement binds, serializes and publishes

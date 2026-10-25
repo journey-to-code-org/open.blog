@@ -426,3 +426,44 @@ fn attribution_is_the_public_subset_only() {
         assert!(!preview.document.contains(private), "{private}");
     }
 }
+
+#[test]
+fn the_series_placement_is_shown_and_bound_into_the_issued_token() {
+    use openblog_core::shared_series::SeriesPlacement;
+    let mut set = drafts();
+    set.save("ann", "ann", 0, "Ann", T).unwrap();
+    let placed = |series: &str, order: Option<u32>| {
+        record()
+            .with_series(Some(SeriesPlacement::new(series, order).unwrap()))
+            .unwrap()
+    };
+    let none = build(&record(), &set, &ApprovalSet::new(), "ann", &["ann"]).unwrap();
+    assert!(!none.document.contains("ob-preview-series"));
+
+    let first = placed("Letters <across> time", Some(2));
+    let first = build(&first, &set, &ApprovalSet::new(), "ann", &["ann"]).unwrap();
+    assert!(first
+        .document
+        .contains("<strong>Series:</strong> Letters &lt;across&gt; time, part 2</p>"));
+    assert!(!first.document.contains("<across>"));
+
+    let unordered = placed("Letters <across> time", None);
+    let unordered = build(&unordered, &set, &ApprovalSet::new(), "ann", &["ann"]).unwrap();
+    assert!(unordered
+        .document
+        .contains("<strong>Series:</strong> Letters &lt;across&gt; time</p>"));
+    assert!(!unordered.document.contains(", part "));
+
+    let renamed = placed("Another series", Some(2));
+    let renamed = build(&renamed, &set, &ApprovalSet::new(), "ann", &["ann"]).unwrap();
+    let tokens = [&none.seen, &first.seen, &unordered.seen, &renamed.seen];
+    for (i, a) in tokens.iter().enumerate() {
+        assert!(a.is_some());
+        for b in &tokens[i + 1..] {
+            assert_ne!(
+                a, b,
+                "every placement change must change the approval binding"
+            );
+        }
+    }
+}
