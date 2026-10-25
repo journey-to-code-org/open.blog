@@ -26,6 +26,7 @@ fn build_with(
 ) -> Result<CombinedPreview, PreviewError> {
     openblog_core::preview::build(
         record,
+        None,
         set,
         &openblog_core::synthesis::SynthesisSet::new(),
         approvals,

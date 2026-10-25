@@ -16,6 +16,7 @@
 
 pub mod accessibility;
 pub mod approval;
+pub mod arrangement;
 pub mod assembly;
 pub mod assistant_guide;
 pub mod capability;
@@ -38,6 +39,7 @@ pub mod preview;
 pub mod profile;
 mod raw_html;
 pub mod recipe;
+pub mod reflection;
 pub mod render;
 pub mod research;
 pub mod search;

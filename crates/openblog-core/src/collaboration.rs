@@ -151,6 +151,9 @@ pub enum AuthorizationAction {
     /// Choose how contribution drafts may be revealed. Targets the publication. Coordinators and
     /// site owners hold it; it reveals nothing and reads no draft.
     SetRevealPolicy,
+    /// Choose a shared reflection's layout and arrangement (ADR 0031). Targets the publication.
+    /// Coordinators and site owners hold it; it reads no draft and changes no prose.
+    ArrangeReflection,
     /// Start an invitation into the publication. Targets the publication.
     Invite,
     /// Reveal one's own contribution draft. Targets a contribution.
@@ -241,8 +244,8 @@ impl AuthorizationAction {
     fn target_kind(self) -> TargetKind {
         use AuthorizationAction::*;
         match self {
-            ViewPublication | ViewPublished | Invite | SetRevealPolicy | Schedule | Publish
-            | Export => TargetKind::Publication,
+            ViewPublication | ViewPublished | Invite | SetRevealPolicy | ArrangeReflection
+            | Schedule | Publish | Export => TargetKind::Publication,
             ApproveContribution | EditDraft | EditSynthesis | RemoveMember | ManageRoles => {
                 TargetKind::Participant
             }
@@ -546,7 +549,11 @@ fn role_allows(
                 ..
             },
         ) => *revealed_to_requester,
-        (SiteOwner | Coordinator, Invite | SetRevealPolicy | Schedule | Publish, _) => true,
+        (
+            SiteOwner | Coordinator,
+            Invite | SetRevealPolicy | ArrangeReflection | Schedule | Publish,
+            _,
+        ) => true,
         (
             SiteOwner,
             RemoveMember,

@@ -1850,3 +1850,31 @@ ob-back-to-top button:hover {
     text-decoration: none;
   }
 }
+/* Shared reflections: every layout (ADR 0031, ADR 0032). The markup is already in reading
+   order; this only places it, and only on wide screens. Below 48em, in print and without CSS it
+   reads top to bottom in that same order. */
+.ob-reflection .ob-round { margin: 1.5rem 0; }
+.ob-reflection .ob-round-prompt { font-weight: 600; }
+.ob-reflection .ob-turn { min-width: 0; overflow-wrap: anywhere; }
+.ob-reflection .ob-turn-author { font-size: 1.1rem; margin: 0 0 .5rem; }
+.ob-reflection .ob-turn-label { font-size: .9rem; font-style: italic; margin: 0 0 .5rem; }
+.ob-reflection .ob-turn pre, .ob-reflection .ob-turn table { max-width: 100%; overflow-x: auto; }
+.ob-reflection .ob-turn img { max-width: 100%; height: auto; }
+@media screen and (min-width: 48em) {
+  .ob-reflection-side-by-side.ob-lanes-2 .ob-round,
+  .ob-reflection-side-by-side.ob-lanes-3 .ob-round { display: grid; gap: 1rem 2rem; align-items: start; grid-auto-flow: row; }
+  .ob-reflection-side-by-side.ob-lanes-2 .ob-round { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ob-reflection-side-by-side.ob-lanes-3 .ob-round { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ob-reflection-side-by-side .ob-round-prompt { grid-column: 1 / -1; margin: 0; }
+  .ob-reflection-side-by-side .ob-lane-0 { grid-column: 1; }
+  .ob-reflection-side-by-side .ob-lane-1 { grid-column: 2; }
+  .ob-reflection-side-by-side .ob-lane-2 { grid-column: 3; }
+  .ob-reflection-point-counterpoint.ob-lanes-2 .ob-round { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 2rem; align-items: start; grid-auto-flow: row; }
+  .ob-reflection-point-counterpoint .ob-round-prompt { grid-column: 1 / -1; margin: 0; }
+  .ob-reflection-point-counterpoint .ob-lane-0 { grid-column: 1; }
+  .ob-reflection-point-counterpoint .ob-lane-1 { grid-column: 2; }
+  .ob-reflection-alternating-dialogue.ob-lanes-2 .ob-turn { max-width: 80%; margin: 0 0 1rem; }
+  .ob-reflection-alternating-dialogue.ob-lanes-2 .ob-lane-1 { margin-inline-start: auto; }
+  .ob-reflection-roundtable .ob-round { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem 2rem; align-items: start; }
+  .ob-reflection-roundtable .ob-round-prompt { grid-column: 1 / -1; margin: 0; }
+}

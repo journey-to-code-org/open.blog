@@ -163,12 +163,22 @@ impl Fixture {
 
     fn approve_piece(&mut self) {
         for who in ALL {
-            let seen = with_subject(&self.record, &self.drafts, &self.synthesis, &ALL, |s| {
-                self.approvals.binding_for(s, who).unwrap()
-            });
-            with_subject(&self.record, &self.drafts, &self.synthesis, &ALL, |s| {
-                self.approvals.approve(who, who, s, &seen, true, T)
-            })
+            let seen = with_subject(
+                &self.record,
+                None,
+                &self.drafts,
+                &self.synthesis,
+                &ALL,
+                |s| self.approvals.binding_for(s, who).unwrap(),
+            );
+            with_subject(
+                &self.record,
+                None,
+                &self.drafts,
+                &self.synthesis,
+                &ALL,
+                |s| self.approvals.approve(who, who, s, &seen, true, T),
+            )
             .unwrap();
         }
     }
@@ -176,6 +186,7 @@ impl Fixture {
     fn assemble(&self) -> Result<Assembly, AssemblyError> {
         assemble(
             &self.record,
+            None,
             &self.drafts,
             &self.synthesis,
             &self.approvals,
@@ -483,6 +494,7 @@ fn the_preview_renders_the_same_markup_the_page_publishes() {
     let options = site_config.render_options();
     let shown = preview(
         &f.record,
+        None,
         &f.drafts,
         &f.synthesis,
         &f.approvals,
@@ -503,6 +515,7 @@ fn the_preview_renders_the_same_markup_the_page_publishes() {
     f.add(SynthesisKind::Application, "ann", "PENDING-ITEM", &[]);
     let shown = preview(
         &f.record,
+        None,
         &f.drafts,
         &f.synthesis,
         &f.approvals,
@@ -520,6 +533,7 @@ fn the_preview_renders_the_same_markup_the_page_publishes() {
     // Someone without synthesis access sees none of it.
     let hidden = preview(
         &f.record,
+        None,
         &f.drafts,
         &f.synthesis,
         &f.approvals,
@@ -1216,4 +1230,130 @@ fn an_ordinary_post_with_a_conversation_heading_keeps_its_description() {
         description.contains("Continuing the conversation"),
         "{description}"
     );
+}
+
+/// A reflection with both an arrangement and approved synthesis goes through the one gate, ends
+/// up as the arranged sections in reading order followed by the conversation, and every portable
+/// form says the same (ADR 0026, 0030, 0031, 0033).
+#[test]
+fn a_reflection_with_a_structure_and_approved_synthesis_publishes_and_exports_in_order() {
+    use openblog_core::reflection::ReflectionStructure;
+    let structure = |layout: &str| {
+        ReflectionStructure::from_json(&format!(
+            r#"{{"version":1,"revision":1,"layout":"{layout}","rounds":[
+                {{"id":"r1","roundPrompt":"What stood out?","turns":[
+                    {{"draft":"cy","part":0,"label":"Opening"}},
+                    {{"draft":"ann","part":0}},
+                    {{"draft":"bo","part":0}}]}}]}}"#
+        ))
+        .unwrap()
+    };
+    let s = structure("sideBySide");
+    let mut f = Fixture::new();
+    f.add(
+        SynthesisKind::Agreement,
+        "ann",
+        "We all noticed the light.",
+        &["bo", "cy"],
+    );
+    f.approve_all_items();
+    // Without approvals bound to the arrangement, the piece does not publish.
+    assert!(matches!(
+        assemble(
+            &f.record,
+            Some(&s),
+            &f.drafts,
+            &f.synthesis,
+            &f.approvals,
+            &ALL,
+            DATE
+        ),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    for who in ALL {
+        let seen = with_subject(&f.record, Some(&s), &f.drafts, &f.synthesis, &ALL, |x| {
+            f.approvals.binding_for(x, who).unwrap()
+        });
+        with_subject(&f.record, Some(&s), &f.drafts, &f.synthesis, &ALL, |x| {
+            f.approvals.approve(who, who, x, &seen, true, T)
+        })
+        .unwrap();
+    }
+    let made = assemble(
+        &f.record,
+        Some(&s),
+        &f.drafts,
+        &f.synthesis,
+        &f.approvals,
+        &ALL,
+        DATE,
+    )
+    .expect("arrangement and synthesis approved");
+    // The approvals bind the arrangement: another layout, or none, is a different piece.
+    for other in [Some(structure("pointCounterpoint")), None] {
+        assert!(matches!(
+            assemble(
+                &f.record,
+                other.as_ref(),
+                &f.drafts,
+                &f.synthesis,
+                &f.approvals,
+                &ALL,
+                DATE
+            ),
+            Err(AssemblyError::Blocked { .. })
+        ));
+    }
+    // Credits follow the reading order, one per author.
+    let credits: serde_json::Value = serde_json::from_str(&made.credits).unwrap();
+    let order: Vec<&str> = credits["credits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["contributor"].as_str().unwrap())
+        .collect();
+    assert_eq!(order, ["cy", "ann", "bo"]);
+
+    let needles = [
+        "What stood out?",
+        "Cy Cole",
+        "Opening",
+        "Cy words.",
+        "Ann Ames",
+        "Ann words.",
+        "Bee",
+        "Bo words.",
+        "Continuing the conversation",
+        "We all noticed the light.",
+    ];
+    let in_order = |label: &str, haystack: &str| {
+        let mut from = 0;
+        for needle in needles {
+            let at = haystack[from..].find(needle).unwrap_or_else(|| {
+                panic!("{label}: `{needle}` missing or out of order\n{haystack}")
+            });
+            from += at + needle.len();
+        }
+    };
+    let body = made
+        .source
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+        .map_or(made.source.as_str(), |(_, body)| body);
+    in_order("post body", body);
+    let site = site(&made);
+    in_order("native page", &page_of(&site));
+    let projection = PortableProjection::from_post(&site.posts[0], &site.config).unwrap();
+    in_order("portable html", &projection.portable_html().unwrap().html);
+    let markdown = projection.portable_markdown().unwrap();
+    in_order("portable markdown", &markdown);
+    for forbidden in ["<div", "<section", "ob-turn", "ob-reflection"] {
+        assert!(
+            !markdown.contains(forbidden),
+            "markdown shows `{forbidden}`\n{markdown}"
+        );
+    }
+    in_order("portable text", &projection.portable_text().unwrap());
+    in_order("llms-full", &feeds::llms_full(&site).unwrap());
+    in_order("rss", &feeds::rss(&site).unwrap());
 }

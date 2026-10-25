@@ -202,6 +202,63 @@ one is credited in that order, and the shared source and guiding question appear
 account name or publication id (ADR 0023).
 _Avoid_: Shared page, collaboration export
 
+**Reflection structure**:
+The ordered rounds, round prompts and turns of a shared reflection, plus one chosen Reflection
+layout, and the only authority for how it is arranged. A turn names one part of one draft, never a
+person, so the structure holds no identity and no gendered or positional field (ADR 0029). A draft
+splits into ordered parts at a line that is exactly `<!-- openblog:part -->`; without it a draft is
+one part. Once wired, its turn order, round prompts and layout are part of what an author approves
+(ADR 0030).
+_Avoid_: Left/right, author A/B, theme, template, the contract's region layout
+
+**Reflection layout**:
+One of sequential, side-by-side, point-counterpoint, alternating dialogue or roundtable: a
+presentation of the same structure. Changing it rewrites no prose, and it never decides identity,
+authority or credit. Every layout reads in the one Reading order (ADR 0030). It is not the
+collaboration contract's `layout` field, a reserved list of contribution-to-region pairs that nothing
+reads and the next contract version drops.
+_Avoid_: Role, side, speaker slot, contract layout, region layout
+
+**Arrangement**:
+The stored Reflection structure as a coordinator edits it: the chosen layout, the rounds, round
+prompts, the order of turns and each turn's optional label. It is private until published,
+holds no prose, is saved with a revision check, and is part of what every author approves, so
+changing it makes standing approvals stale (ADR 0030, ADR 0031). A reflection with no arrangement
+publishes in participant order.
+_Avoid_: Template, theme, layout setting
+
+**Turn label**:
+An optional short phrase an author-coordinator writes for one turn of an arrangement, such as "Point"
+or "Reply". It is public text, bound to approval with the rest of the arrangement, escaped on
+output, and shown under the turn's author heading. No layout invents one, and it is dropped with its
+turn (ADR 0032).
+_Avoid_: Side, role, stance, speaker slot
+
+**Portable reflection**:
+The static equivalent of a published reflection in portable HTML, Markdown, text, feeds and llms
+output: each round prompt, then every turn under its author's name and optional label, in reading
+order, whatever the layout. It carries no placement, class, placeholder or part marker, and the
+layout is reported once as a diagnostic instead of lost silently (ADR 0033).
+_Avoid_: Layout export, flattened copy
+
+**Part break**:
+The line `<!-- openblog:part -->` a writer places in their own draft to start a new part. It is
+never rendered or published: the preview, the Post, feeds and exports all drop it (ADR 0031).
+_Avoid_: Page break, horizontal rule
+
+**Round prompt**:
+The optional public cue or question a round of a reflection structure answers, read once before its
+first answer. It is not an editor prompt (ADR 0019), which is a never-stored hint inside the draft
+editor, and a round is not an exchange, which means a mutual reveal.
+_Avoid_: Editor prompt, exchange
+
+**Reading order**:
+The deterministic linear sequence of a reflection structure: rounds, then turns, with each round's
+round prompt before its first answer. Shared by every layout. The requester-scoped form shows the
+same placeholder for any turn the requester cannot read (ADR 0021); the unscoped form is for the
+publish gate only. The portable equivalent can share it once #173 wires it.
+_Avoid_: Visual order
+
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in
 one approved collaboration revision, that a publication operation incorporates into canonical

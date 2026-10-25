@@ -2773,6 +2773,10 @@ a.oba-btn-primary {
   }
 }
 
+.oba-arrangement { margin-top: 1rem; }
+.oba-arrangement-turn { margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.oba-arrangement-turn input[type="number"] { width: 5rem; }
+
 .oba-synthesis {
   margin-top: 1rem;
   padding-top: 0.5rem;

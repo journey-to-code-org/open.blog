@@ -1046,6 +1046,117 @@ export function previewStateText(preview) {
   return "Incomplete: some sections are not shared with you at their current revision.";
 }
 
+/** The line that starts a new part of a draft (ADR 0029). It is invisible in published output. */
+export const PART_MARKER_LINE = "<!-- openblog:part -->";
+
+/** What to insert at the caret to start a new part: the marker alone on its own line. */
+export function partBreakInsertion() {
+  return `\n${PART_MARKER_LINE}\n`;
+}
+
+/** The layouts a coordinator can choose (ADR 0031). The server decides which exist. */
+export const ARRANGEMENT_LAYOUTS = Object.freeze([
+  { value: "sequential", label: "Sequential", help: "One section after another, in reading order." },
+  { value: "sideBySide", label: "Side by side", help: "Sections sit in columns on wide screens and read one after another on narrow ones." },
+  { value: "pointCounterpoint", label: "Point and counterpoint", help: "Two columns on wide screens when exactly two people take part; with three or more it reads as one column. Optional labels are yours; nothing is implied about who agrees." },
+  { value: "alternatingDialogue", label: "Alternating dialogue", help: "Turns alternate like a conversation on wide screens, switching side when the speaker changes, each under its author's name." },
+  { value: "roundtable", label: "Roundtable", help: "Turns sit in a grid that fits any number of participants and reads in the same order." },
+]);
+
+/** The longest label a turn may carry, in UTF-8 bytes like the server's limit. */
+export const TURN_LABEL_MAX_BYTES = 80;
+
+/**
+ * An editable copy of the stored arrangement, or a starting one: a single round holding the first
+ * part of everyone's draft, in participant order. Nothing here reads a draft.
+ */
+export function arrangementDraft(stored, participants) {
+  if (stored && Array.isArray(stored.rounds)) {
+    return {
+      revision: Number(stored.revision) || 0,
+      layout: stored.layout || "sequential",
+      rounds: stored.rounds.map((round) => ({
+        id: round.id,
+        prompt: round.roundPrompt || "",
+        turns: (round.turns || []).map((turn) => ({ draft: turn.draft, part: Number(turn.part) || 0, label: turn.label || "" })),
+      })),
+    };
+  }
+  return {
+    revision: 0,
+    layout: "sequential",
+    rounds: [{ id: "round-1", prompt: "", turns: (participants || []).map((person) => ({ draft: person.id, part: 0, label: "" })) }],
+  };
+}
+
+/** A new list with the item at `index` moved by `delta`; out-of-range moves change nothing. */
+export function moveItem(list, index, delta) {
+  const target = index + delta;
+  if (!Number.isInteger(index) || index < 0 || index >= list.length || target < 0 || target >= list.length) return list.slice();
+  const next = list.slice();
+  const [item] = next.splice(index, 1);
+  next.splice(target, 0, item);
+  return next;
+}
+
+/** The next round id that no round uses yet. */
+export function nextRoundId(rounds) {
+  const used = new Set(rounds.map((round) => String(round.id).toLowerCase()));
+  for (let n = rounds.length + 1; n < rounds.length + 1000; n += 1) {
+    if (!used.has(`round-${n}`)) return `round-${n}`;
+  }
+  return `round-${Date.now()}`;
+}
+
+/** The request body for saving: the edited draft as a structure one revision after the stored one. */
+export function arrangementPayload(draft) {
+  return {
+    version: 1,
+    revision: draft.revision + 1,
+    layout: draft.layout,
+    rounds: draft.rounds.map((round) => {
+      const prompt = String(round.prompt || "").trim();
+      return { id: round.id, ...(prompt ? { roundPrompt: prompt } : {}), turns: round.turns.map((turn) => {
+          const label = String(turn.label || "").trim();
+          return { draft: turn.draft, part: Number(turn.part), ...(label ? { label } : {}) };
+        }),
+      };
+    }),
+  };
+}
+
+/** A mistake in the draft the server would refuse anyway, found first so the words can be specific. */
+export function validateArrangement(draft) {
+  if (!draft.rounds.length) return "Add at least one round.";
+  const seen = new Set();
+  for (const [r, round] of draft.rounds.entries()) {
+    if (!round.turns.length) return `Round ${r + 1} has no turns. Add a turn or remove the round.`;
+    if (String(round.prompt || "").includes("\n")) return `Round ${r + 1}: keep the round prompt on one line.`;
+    for (const turn of round.turns) {
+      const part = Number(turn.part);
+      if (!Number.isInteger(part) || part < 0 || part > 999) return `Round ${r + 1}: a part is a whole number from 1 up.`;
+      const label = String(turn.label || "");
+      if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(label)) return `Round ${r + 1}: keep a turn label on one line.`;
+      if (new TextEncoder().encode(label.trim()).length > TURN_LABEL_MAX_BYTES) return `Round ${r + 1}: a turn label can be at most ${TURN_LABEL_MAX_BYTES} bytes, which is a short phrase.`;
+      const key = `${String(turn.draft).toLowerCase()}:${part}`;
+      if (seen.has(key)) return `Round ${r + 1}: each part of each draft can appear only once.`;
+      seen.add(key);
+    }
+  }
+  return "";
+}
+
+/** What went wrong saving an arrangement, in words that say nothing about anyone's draft. */
+export function arrangementFailure(error) {
+  const status = error?.status;
+  const text = error?.data?.error || error?.message || "";
+  if (!status) return { kind: "offline", message: "Could not reach the server. Your changes are still here and were not saved; try again when you are back." };
+  if (status === 409) return { kind: "conflict", message: text || "The arrangement changed elsewhere. Reload to see it; nothing was changed." };
+  if (status === 404 || status === 403) return { kind: "denied", message: "You cannot arrange this reflection, or your access changed." };
+  if (status === 422) return { kind: "invalid", message: text || "That arrangement is not valid." };
+  return { kind: "other", message: text || "That did not work. Try again." };
+}
+
 const SUGGESTED_SOURCE_FIELDS = ["title", "creator", "publisher"];
 
 /**
@@ -4231,6 +4342,7 @@ export class ObAdmin extends AdminElement {
     const restore = h("button", { class: "oba-btn", type: "button", hidden: true }, "Restore my earlier text");
     const prompts = h("div", { class: "oba-draft-prompts" });
     const togglePrompts = h("button", { class: "oba-btn", type: "button", "aria-pressed": "false" }, "Hide prompts");
+    const partBreak = h("button", { class: "oba-btn", type: "button" }, "Start a new part");
     const conflict = h("div", { class: "oba-draft-conflict", role: "group", "aria-labelledby": `${prefix}-conflict-heading`, hidden: true });
     const sharing = h("div", { class: "oba-draft-sharing", hidden: true });
     const editor = h("div", { class: "oba-draft-editor", hidden: true });
@@ -4281,6 +4393,14 @@ export class ObAdmin extends AdminElement {
         ),
       );
     };
+    partBreak.addEventListener("click", () => {
+      const result = insertAtSelection(text.value, text.selectionStart, text.selectionEnd, partBreakInsertion());
+      text.value = result.text;
+      text.focus();
+      text.setSelectionRange?.(result.caret, result.caret);
+      refreshState();
+      status.textContent = "A new part starts here. A coordinator can place each part in the arrangement. The marker line is never published.";
+    });
     togglePrompts.addEventListener("click", () => {
       hidePrompts = !hidePrompts;
       renderPrompts();
@@ -4392,7 +4512,7 @@ export class ObAdmin extends AdminElement {
       prompts,
       h("div", { class: "oba-field" }, h("label", { for: `${prefix}-text` }, "Your reflection (Markdown)"), text),
       state,
-      h("div", { class: "oba-toolbar" }, togglePrompts, restore, h("span", { class: "oba-spacer" }), save),
+      h("div", { class: "oba-toolbar" }, togglePrompts, partBreak, restore, h("span", { class: "oba-spacer" }), save),
     );
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -4455,6 +4575,187 @@ export class ObAdmin extends AdminElement {
       previewList,
       previewHolder,
     );
+
+    // ---- layout and arrangement (ADR 0031)
+    const arrangementStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const arrangementProblem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const arrangementBody = h("div", {});
+    const arrangement = h(
+      "div",
+      { class: "oba-arrangement", hidden: true },
+      h("h4", { id: `${prefix}-arrange-heading`, tabindex: "-1" }, "Layout and arrangement"),
+      h("p", { class: "oba-small" }, "The layout and the order of turns decide how readers see the approved piece. Changing either one clears approvals, so every author reads and approves again. Nothing here shows anyone's writing."),
+      arrangementStatus,
+      arrangementProblem,
+      arrangementBody,
+    );
+    let arranged = null;
+    const layoutLabel = (value) => ARRANGEMENT_LAYOUTS.find((item) => item.value === value)?.label || value;
+    const personName = (personId) => arranged.participants.find((person) => person.id === personId)?.displayName || "A participant";
+    const drawArrangement = (focusId) => {
+      const { draft, participants, canArrange } = arranged;
+      if (!canArrange) {
+        arrangementBody.replaceChildren(
+          h("p", { class: "oba-small" }, `Layout: ${layoutLabel(draft.layout)}. Only a coordinator can change it.`),
+          draft.revision
+            ? h(
+                "ol",
+                { class: "oba-member-list", "aria-label": "Rounds in reading order" },
+                draft.rounds.map((round, r) =>
+                  h("li", {}, `Round ${r + 1}${round.prompt ? `: ${round.prompt}` : ""}. `, round.turns.map((turn) => `${personName(turn.draft)}, part ${turn.part + 1}${turn.label ? ` (${turn.label})` : ""}`).join("; ") + "."),
+                ),
+              )
+            : h("p", { class: "oba-small" }, "Nothing is arranged yet. Sections publish one after another in participant order."),
+        );
+        return;
+      }
+      const redraw = (next) => {
+        drawArrangement(next);
+      };
+      const layouts = h(
+        "fieldset",
+        { class: "oba-fieldset" },
+        h("legend", {}, "Layout"),
+        ARRANGEMENT_LAYOUTS.map((item) => {
+          const radio = h("input", { type: "radio", name: `${prefix}-layout`, id: `${prefix}-layout-${item.value}`, value: item.value, checked: draft.layout === item.value, "aria-describedby": `${prefix}-layout-${item.value}-help` });
+          radio.addEventListener("change", () => {
+            draft.layout = item.value;
+          });
+          return h("div", { class: "oba-field oba-check" }, radio, " ", h("label", { for: `${prefix}-layout-${item.value}` }, item.label), h("span", { class: "oba-small", id: `${prefix}-layout-${item.value}-help` }, ` ${item.help}`));
+        }),
+      );
+      const rounds = draft.rounds.map((round, r) => {
+        const promptId = `${prefix}-round-${r}-prompt`;
+        const prompt = h("input", { type: "text", id: promptId, value: round.prompt, maxlength: "1000", autocomplete: "off" });
+        prompt.value = round.prompt;
+        prompt.addEventListener("input", () => {
+          round.prompt = prompt.value;
+        });
+        const turns = round.turns.map((turn, t) => {
+          const base = `${prefix}-round-${r}-turn-${t}`;
+          const who = h(
+            "select",
+            { id: `${base}-who` },
+            participants.map((person) => h("option", { value: person.id, selected: person.id === turn.draft }, person.displayName)),
+          );
+          who.value = turn.draft;
+          who.addEventListener("change", () => {
+            turn.draft = who.value;
+          });
+          const labelInput = h("input", { type: "text", id: `${base}-label`, value: turn.label || "", maxlength: String(TURN_LABEL_MAX_BYTES), autocomplete: "off", placeholder: "none" });
+          labelInput.value = turn.label || "";
+          labelInput.addEventListener("input", () => {
+            turn.label = labelInput.value;
+          });
+          const part = h("input", { type: "number", id: `${base}-part`, min: "1", max: "1000", step: "1", value: String(turn.part + 1), inputmode: "numeric" });
+          part.value = String(turn.part + 1);
+          part.addEventListener("input", () => {
+            turn.part = Number(part.value) - 1;
+          });
+          const label = `round ${r + 1}, turn ${t + 1}`;
+          const up = h("button", { class: "oba-btn", type: "button", "aria-label": `Move ${label} up`, disabled: t === 0 }, "Move up");
+          const down = h("button", { class: "oba-btn", type: "button", "aria-label": `Move ${label} down`, disabled: t === round.turns.length - 1 }, "Move down");
+          const remove = h("button", { class: "oba-btn", type: "button", "aria-label": `Remove ${label}` }, "Remove");
+          up.addEventListener("click", () => {
+            round.turns = moveItem(round.turns, t, -1);
+            redraw(`${prefix}-round-${r}-turn-${Math.max(0, t - 1)}-who`);
+          });
+          down.addEventListener("click", () => {
+            round.turns = moveItem(round.turns, t, 1);
+            redraw(`${prefix}-round-${r}-turn-${Math.min(round.turns.length - 1, t + 1)}-who`);
+          });
+          remove.addEventListener("click", () => {
+            round.turns.splice(t, 1);
+            redraw(`${prefix}-round-${r}-add`);
+          });
+          return h(
+            "li",
+            { class: "oba-arrangement-turn" },
+            h("label", { for: `${base}-who` }, `Turn ${t + 1}: who`),
+            " ",
+            who,
+            " ",
+            h("label", { for: `${base}-part` }, `Round ${r + 1}, turn ${t + 1}: part`),
+            " ",
+            part,
+            " ",
+            h("label", { for: `${base}-label` }, `Round ${r + 1}, turn ${t + 1}: label (optional)`),
+            " ",
+            labelInput,
+            " ",
+            up,
+            down,
+            remove,
+          );
+        });
+        const add = h("button", { class: "oba-btn", type: "button", id: `${prefix}-round-${r}-add` }, `Add a turn to round ${r + 1}`);
+        add.addEventListener("click", () => {
+          round.turns.push({ draft: participants[0]?.id || "", part: 0, label: "" });
+          redraw(`${prefix}-round-${r}-turn-${round.turns.length - 1}-who`);
+        });
+        const dropRound = h("button", { class: "oba-btn", type: "button" }, `Remove round ${r + 1}`);
+        dropRound.addEventListener("click", () => {
+          draft.rounds.splice(r, 1);
+          redraw(`${prefix}-add-round`);
+        });
+        return h(
+          "fieldset",
+          { class: "oba-fieldset" },
+          h("legend", {}, `Round ${r + 1}`),
+          h("div", { class: "oba-field" }, h("label", { for: promptId }, "Round prompt (optional, shown once before the answers)"), prompt),
+          h("ol", { "aria-label": `Turns in round ${r + 1}, in reading order` }, turns),
+          h("div", { class: "oba-toolbar" }, add, dropRound),
+        );
+      });
+      const addRound = h("button", { class: "oba-btn", type: "button", id: `${prefix}-add-round` }, "Add a round");
+      addRound.addEventListener("click", () => {
+        draft.rounds.push({ id: nextRoundId(draft.rounds), prompt: "", turns: participants.slice(0, 1).map((person) => ({ draft: person.id, part: 0 })) });
+        redraw(`${prefix}-round-${draft.rounds.length - 1}-prompt`);
+      });
+      const saveArrangement = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Save layout and arrangement");
+      saveArrangement.addEventListener("click", async () => {
+        arrangementProblem.hidden = true;
+        const mistake = validateArrangement(draft);
+        if (mistake) {
+          arrangementProblem.textContent = mistake;
+          arrangementProblem.hidden = false;
+          arrangementProblem.focus();
+          return;
+        }
+        saveArrangement.disabled = true;
+        try {
+          await this.api.call("PUT", "collaboration/reflection", { json: { publicationId: id, expectedRevision: draft.revision, structure: arrangementPayload(draft) } });
+          arrangementStatus.textContent = "Saved. Approvals that no longer matched were cleared; each author reads the combined piece and approves again.";
+          await loadArrangement();
+          arrangement.querySelector(`#${prefix}-arrange-heading`)?.focus();
+        } catch (error) {
+          const failure = arrangementFailure(error);
+          arrangementProblem.textContent = failure.message;
+          arrangementProblem.hidden = false;
+          arrangementProblem.focus();
+          if (failure.kind === "conflict" || failure.kind === "denied") await loadArrangement();
+        } finally {
+          saveArrangement.disabled = false;
+        }
+      });
+      arrangementBody.replaceChildren(layouts, ...rounds, h("div", { class: "oba-toolbar" }, addRound, h("span", { class: "oba-spacer" }), saveArrangement));
+      if (focusId) arrangementBody.querySelector(`#${focusId}`)?.focus();
+    };
+    // The arrangement loads once when the panel opens and again after its own save, conflict or
+    // denial. Other sharing refreshes (a draft save, an offer) keep the local, unsaved edits.
+    let arrangementRequested = false;
+    const loadArrangement = async () => {
+      arrangementRequested = true;
+      try {
+        const result = await this.api.call("GET", `collaboration/reflection?publicationId=${encodeURIComponent(id)}`);
+        arranged = { draft: arrangementDraft(result.structure, result.participants), participants: result.participants || [], canArrange: result.canArrange === true };
+        drawArrangement();
+        arrangement.hidden = false;
+      } catch {
+        arrangement.hidden = true;
+        arrangementRequested = false; // try again on the next refresh
+      }
+    };
 
     const renderSharing = (reveal) => {
       const policy = REVEAL_POLICIES.find((item) => item.value === reveal.policy) || REVEAL_POLICIES[0];
@@ -4526,8 +4827,12 @@ export class ObAdmin extends AdminElement {
       }
       if (reveal.slots?.length) parts.push(slots);
       if (reveal.slots?.length) parts.push(previewSection);
+      parts.push(arrangement);
+      const focused = arrangement.contains(document.activeElement) ? document.activeElement : null;
       sharing.replaceChildren(...parts);
       sharing.hidden = false;
+      if (focused?.isConnected) focused.focus();
+      if (!arrangementRequested) loadArrangement();
     };
 
     const loadSharing = async () => {

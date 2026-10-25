@@ -635,6 +635,8 @@ fn authenticated_api(
         ("PUT", "collaboration/draft") => save_own_draft(state, req, session),
         ("GET", "collaboration/reveal") => read_reveal_state(state, req, session),
         ("PUT", "collaboration/reveal/policy") => set_reveal_policy(state, req, session),
+        ("GET", "collaboration/reflection") => read_arrangement(state, req, session),
+        ("PUT", "collaboration/reflection") => save_arrangement(state, req, session),
         ("PUT", "collaboration/reveal/ready") => set_reveal_ready(state, req, session),
         ("GET", "collaboration/preview") => read_combined_preview(state, req, session),
         ("GET", "collaboration/synthesis") => read_synthesis(state, req, session),
@@ -5741,6 +5743,7 @@ fn publish_store_problem(error: crate::shared_publications::ReplaceError) -> Res
 /// Everything the gate reads, loaded in the request's transaction.
 struct GateInputs {
     drafts: DraftSet,
+    structure: crate::shared_publications::StoredStructure,
     synthesis: openblog_core::synthesis::SynthesisSet,
     approvals: crate::shared_publications::StoredApprovals,
     outcome: crate::shared_publications::StoredOutcome,
@@ -5761,10 +5764,13 @@ fn gate_inputs(
         .set;
     let approvals = crate::shared_publications::load_approvals_for_update(&state.root, id)
         .map_err(|error| publish_failed(&error))?;
+    let structure = crate::shared_publications::load_structure(&state.root, id)
+        .map_err(|error| publish_failed(&error))?;
     let outcome = crate::shared_publications::load_outcome(&state.root, id)
         .map_err(|error| publish_failed(&error))?;
     Ok(GateInputs {
         drafts,
+        structure,
         synthesis,
         approvals,
         outcome,
@@ -5827,6 +5833,7 @@ fn prepare_post(
     let build = |date: &str| {
         assemble(
             record,
+            inputs.structure.structure.as_ref(),
             &inputs.drafts,
             &inputs.synthesis,
             &inputs.approvals.set,
@@ -6180,6 +6187,7 @@ fn change_approval(
     let result = match approving {
         Some((seen, affirmed)) => openblog_core::assembly::with_subject(
             &record,
+            inputs.structure.structure.as_ref(),
             &inputs.drafts,
             &inputs.synthesis,
             &active,
@@ -6597,9 +6605,11 @@ fn reconcile_approvals(
         }
         let active = active_drafters(transaction, record);
         let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        let structure = crate::shared_publications::load_structure(&state.root, id)?;
         let mut next = stored.set.clone();
         let dropped = openblog_core::assembly::with_subject(
             record,
+            structure.structure.as_ref(),
             &drafts,
             &synthesis.set,
             &active,
@@ -6805,8 +6815,16 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     let active = active.iter().map(String::as_str).collect::<Vec<_>>();
     let show_synthesis = synthesis_owner(&transaction, record, session).is_some();
     let config = site::load_config(&state.root).unwrap_or_default();
+    let structure = match crate::shared_publications::load_structure(&state.root, publication_id) {
+        Ok(structure) => structure,
+        Err(error) => {
+            eprintln!("admin: arrangement not readable for {publication_id}: {error}");
+            return Response::error(500, "The preview could not be built. Nothing was changed.");
+        }
+    };
     let Ok(preview) = openblog_core::preview::build(
         record,
+        structure.structure.as_ref(),
         &set,
         &synthesis,
         &approvals,
@@ -6887,6 +6905,217 @@ fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -
         &set,
         json!({ "policy": set.policy() }),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Layout and arrangement of a shared reflection (ADR 0031)
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ArrangementRequest {
+    publication_id: String,
+    /// The revision of the arrangement the caller read: 0 when none was stored.
+    expected_revision: u64,
+    structure: Json,
+}
+
+/// The layouts the Admin offers, with plain labels.
+fn arrangement_layouts() -> Json {
+    json!([
+        { "value": "sequential", "label": "Sequential", "help": "One section after another, in reading order." },
+        { "value": "sideBySide", "label": "Side by side", "help": "Sections sit in columns on wide screens and read one after another on narrow ones." },
+        { "value": "pointCounterpoint", "label": "Point and counterpoint", "help": "Two columns on wide screens when exactly two people take part; with three or more it reads as one column. Optional labels are yours; nothing is implied about who agrees." },
+        { "value": "alternatingDialogue", "label": "Alternating dialogue", "help": "Turns alternate like a conversation on wide screens, switching side when the speaker changes, each under its author's name." },
+        { "value": "roundtable", "label": "Roundtable", "help": "Turns sit in a grid that fits any number of participants and reads in the same order." },
+    ])
+}
+
+/// Whether the signed-in user may arrange the reflection, decided by the single entry point.
+fn may_arrange(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+) -> bool {
+    transaction
+        .with_identities(|identities| {
+            record.authorize(
+                &session.user,
+                identities,
+                AuthorizationAction::ArrangeReflection,
+                AuthorizationTarget::Publication,
+            )
+        })
+        .is_ok()
+}
+
+/// The stored arrangement, who is in the piece, and whether the caller may change it. It holds no
+/// prose, no part counts and no draft state, so any member may read it; everyone else gets the
+/// same not-found as a missing publication.
+fn read_arrangement(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return draft_not_found();
+    };
+    let Ok(transaction) = invitation_transaction(state, publication_id) else {
+        return draft_not_found();
+    };
+    let Some(record) = &transaction.record else {
+        return draft_not_found();
+    };
+    let member = transaction
+        .with_identities(|identities| {
+            record.authorize(
+                &session.user,
+                identities,
+                AuthorizationAction::ViewPublication,
+                AuthorizationTarget::Publication,
+            )
+        })
+        .is_ok();
+    if !member {
+        return draft_not_found();
+    }
+    let stored = match crate::shared_publications::load_structure(&state.root, publication_id) {
+        Ok(stored) => stored,
+        Err(error) => {
+            eprintln!("admin: arrangement not readable for {publication_id}: {error}");
+            return Response::error(
+                500,
+                "The arrangement could not be read. Nothing was changed.",
+            );
+        }
+    };
+    let participants: Vec<Json> = record
+        .collaboration
+        .participants
+        .iter()
+        .map(|p| json!({ "id": p.id, "displayName": p.display_name }))
+        .collect();
+    Response::json(
+        200,
+        &json!({
+            "structure": stored.structure,
+            "participants": participants,
+            "layouts": arrangement_layouts(),
+            "canArrange": may_arrange(&transaction, record, session),
+        }),
+    )
+}
+
+/// A coordinator stores the layout and arrangement. The write names the revision it was built on
+/// and is refused if another write got there first. It does not read a draft, so it cannot tell
+/// the coordinator whether a part exists; a stale reference is caught by the combined preview and
+/// the publish gate. Standing approvals that no longer match are dropped in the same request.
+fn save_arrangement(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    use openblog_core::reflection::{ReflectionError, ReflectionStructure};
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ArrangementRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This arrangement request is not valid. Reload Admin Studio and try again.",
+        );
+    };
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return draft_not_found();
+    };
+    let Some(record) = transaction.record.clone() else {
+        return draft_not_found();
+    };
+    if !may_arrange(&transaction, &record, session) {
+        return draft_not_found();
+    }
+    if matches!(
+        crate::shared_publications::load_outcome(&state.root, &body.publication_id)
+            .map(|stored| stored.outcome),
+        Ok(Some(openblog_core::assembly::Outcome::Published { .. }))
+    ) {
+        return published_already();
+    }
+    let stored = match crate::shared_publications::load_structure(&state.root, &body.publication_id)
+    {
+        Ok(stored) => stored,
+        Err(error) => {
+            eprintln!(
+                "admin: arrangement not readable for {}: {error}",
+                body.publication_id
+            );
+            return Response::error(
+                500,
+                "The arrangement could not be saved. Nothing was changed.",
+            );
+        }
+    };
+    let current = stored.structure.as_ref().map_or(0, |s| s.revision);
+    if current != body.expected_revision {
+        return Response::error(
+            409,
+            "The arrangement changed while you were editing it. Reload to see the current one; nothing was changed.",
+        );
+    }
+    let invalid = || {
+        shared_problem(
+            "structure",
+            "That arrangement is not valid. Use one or more rounds, each with turns that name a participant and a part, and keep round prompts short and on one line.",
+        )
+    };
+    let Ok(source) = serde_json::to_string(&body.structure) else {
+        return invalid();
+    };
+    let next = match &stored.structure {
+        Some(existing) => existing.replace_from_json(&source, body.expected_revision),
+        None => ReflectionStructure::from_json(&source).and_then(|next| {
+            if next.revision == 1 {
+                Ok(next)
+            } else {
+                Err(ReflectionError::Invalid)
+            }
+        }),
+    };
+    let Ok(next) = next else {
+        return invalid();
+    };
+    let known = |id: &str| {
+        record
+            .collaboration
+            .participants
+            .iter()
+            .any(|p| p.id.eq_ignore_ascii_case(id))
+    };
+    if !next
+        .rounds
+        .iter()
+        .flat_map(|r| &r.turns)
+        .all(|t| known(&t.draft))
+    {
+        return invalid();
+    }
+    match crate::shared_publications::replace_structure(
+        &state.root,
+        &body.publication_id,
+        &stored,
+        &next,
+    ) {
+        Ok(()) => {}
+        Err(crate::shared_publications::ReplaceError::Conflict) => {
+            return Response::error(
+                409,
+                "The arrangement changed while you were saving. Reload to see the current one; nothing was changed.",
+            )
+        }
+        Err(crate::shared_publications::ReplaceError::TooLarge) => return invalid(),
+        Err(crate::shared_publications::ReplaceError::Storage(error)) => {
+            eprintln!("admin: arrangement not stored: {error}");
+            return Response::error(500, "The arrangement could not be saved. Nothing was changed.");
+        }
+    }
+    reconcile_approvals(state, &transaction, &record);
+    eprintln!(
+        "admin: arranged shared publication {} at revision {}",
+        body.publication_id, next.revision
+    );
+    Response::json(200, &json!({ "structure": next }))
 }
 
 /// A drafter offers one exact revision of their own draft, or takes the offer back. When the
@@ -16894,6 +17123,263 @@ mod tests {
         let post = published_post(&f, &id).unwrap();
         assert!(post.contains("MIKEY-NEWER") && post.contains("GRACE-SECRET"));
         assert!(!post.contains("MIKEY-SECRET"));
+    }
+
+    // ---- Layout and arrangement (ADR 0031) ----
+
+    fn arrangement_read(f: &Fixture, who: &(String, String), id: &str) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/reflection?publicationId={id}"),
+                ),
+                who,
+                false,
+            ),
+        )
+    }
+
+    fn arrangement_write(
+        f: &Fixture,
+        who: &(String, String),
+        csrf: bool,
+        id: &str,
+        expected: u64,
+        structure: Json,
+    ) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/collaboration/reflection",
+                    json!({ "publicationId": id, "expectedRevision": expected, "structure": structure }),
+                ),
+                who,
+                csrf,
+            ),
+        )
+    }
+
+    fn arrangement(layout: &str, revision: u64, order: &[&str]) -> Json {
+        json!({
+            "version": 1,
+            "revision": revision,
+            "layout": layout,
+            "rounds": [{
+                "id": "round-1",
+                "roundPrompt": "What stood out?",
+                "turns": order.iter().map(|p| json!({ "draft": p, "part": 0 })).collect::<Vec<_>>(),
+            }],
+        })
+    }
+
+    fn participant_ids(f: &Fixture, who: &(String, String), id: &str) -> Vec<String> {
+        body_json(&arrangement_read(f, who, id))["participants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn arranging_is_deny_by_default_csrf_checked_and_revision_checked() {
+        let (f, mikey, grace, ada, id) = approval_fixture("arrange-gate");
+        let ids = participant_ids(&f, &mikey, &id);
+        let order: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let first = arrangement("sideBySide", 1, &order);
+
+        // Members read it; only the grant holders can change it.
+        let read = body_json(&arrangement_read(&f, &grace, &id));
+        assert_eq!(read["canArrange"], json!(false));
+        assert_eq!(read["structure"], Json::Null);
+        assert_eq!(
+            body_json(&arrangement_read(&f, &ada, &id))["canArrange"],
+            json!(true)
+        );
+        let before = state_trees(&f);
+        assert_eq!(
+            arrangement_write(&f, &grace, true, &id, 0, first.clone()).status,
+            404
+        );
+        // No session token, no CSRF header: refused before anything is read.
+        assert_eq!(
+            arrangement_write(&f, &ada, false, &id, 0, first.clone()).status,
+            403
+        );
+        assert_eq!(
+            handle(
+                &f.state,
+                &json_req(
+                    "PUT",
+                    "/admin/api/collaboration/reflection",
+                    json!({ "publicationId": id, "expectedRevision": 0, "structure": first }),
+                )
+            )
+            .status,
+            401
+        );
+        // An unknown publication reads like a denied one.
+        assert_eq!(
+            arrangement_write(&f, &ada, true, "shared-000000000000", 0, first.clone()).status,
+            404
+        );
+        assert_eq!(state_trees(&f), before);
+
+        // A bad layout, an identity-bearing field, a stranger and a wrong revision change nothing.
+        for (expected, bad, status) in [
+            (0, arrangement("leftRight", 1, &order), 422),
+            (0, arrangement("sideBySide", 1, &["nobody"]), 422),
+            (0, arrangement("sideBySide", 2, &order), 422),
+            (1, arrangement("sideBySide", 1, &order), 409),
+        ] {
+            assert_eq!(
+                arrangement_write(&f, &ada, true, &id, expected, bad).status,
+                status
+            );
+        }
+        let mut gendered = first.clone();
+        gendered["rounds"][0]["turns"][0]["side"] = json!("left");
+        assert_eq!(
+            arrangement_write(&f, &ada, true, &id, 0, gendered).status,
+            422
+        );
+        assert_eq!(state_trees(&f), before);
+
+        // The coordinator stores it; a second write must name the revision it read.
+        let saved = arrangement_write(&f, &ada, true, &id, 0, first.clone());
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let again = arrangement_write(&f, &ada, true, &id, 0, first.clone());
+        assert_eq!(again.status, 409);
+        let next = arrangement("sequential", 2, &order);
+        assert_eq!(
+            arrangement_write(&f, &mikey, true, &id, 1, next).status,
+            200
+        );
+        let read = body_json(&arrangement_read(&f, &grace, &id));
+        assert_eq!(read["structure"]["layout"], json!("sequential"));
+        assert_eq!(read["structure"]["revision"], json!(2));
+        // Nothing in it is prose or identity.
+        let text = serde_json::to_string(&read).unwrap();
+        assert!(!text.contains("SECRET") && !text.contains("admin"));
+
+        // The three remaining layouts are accepted, with optional labels, and hostile labels are
+        // refused without changing anything.
+        for (revision, layout) in ["pointCounterpoint", "alternatingDialogue", "roundtable"]
+            .into_iter()
+            .enumerate()
+        {
+            let mut labelled = arrangement(layout, 3 + revision as u64, &order);
+            labelled["rounds"][0]["turns"][0]["label"] = json!("Point <b>one</b>");
+            assert_eq!(
+                arrangement_write(&f, &ada, true, &id, 2 + revision as u64, labelled).status,
+                200,
+                "{layout}"
+            );
+        }
+        let before = state_trees(&f);
+        for bad in ["two\nlines", "", &"x".repeat(81), "\u{202e}flip"] {
+            let mut hostile = arrangement("roundtable", 6, &order);
+            hostile["rounds"][0]["turns"][0]["label"] = json!(bad);
+            assert_eq!(
+                arrangement_write(&f, &ada, true, &id, 5, hostile).status,
+                422,
+                "{bad:?}"
+            );
+        }
+        assert_eq!(state_trees(&f), before);
+    }
+
+    #[test]
+    fn an_arrangement_change_makes_standing_approvals_stale_at_the_real_gate_and_publishes_in_order(
+    ) {
+        let (f, mikey, grace, ada, id) = approval_fixture("arrange-stale");
+        let ids = participant_ids(&f, &mikey, &id);
+        // Reading order: the other author first.
+        let order: Vec<&str> = ids.iter().rev().map(String::as_str).collect();
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let approvals_path = f.dir.join(format!(
+            ".openblog/private/collaboration/approvals/{id}.json"
+        ));
+        let standing = fs::read(&approvals_path).unwrap();
+
+        assert_eq!(
+            arrangement_write(&f, &ada, true, &id, 0, arrangement("sequential", 1, &order)).status,
+            200
+        );
+        // The write dropped the approvals it invalidated, and publication is refused.
+        let stored: Json = serde_json::from_slice(&fs::read(&approvals_path).unwrap()).unwrap();
+        assert_eq!(stored["approvals"].as_array().unwrap().len(), 0);
+        // Even with the old approvals put back byte for byte, the gate itself sees them stale.
+        fs::write(&approvals_path, &standing).unwrap();
+        let before = state_trees(&f);
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 409);
+        assert_no_prose(&refused);
+        assert_eq!(body_json(&refused)["missing"], json!(["Mikey", "Grace"]));
+        assert_eq!(state_trees(&f), before);
+        assert!(published_post(&f, &id).is_none());
+
+        // The authors read the arranged piece and approve it.
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        let post = published_post(&f, &id).unwrap();
+        assert!(
+            post.find("GRACE-SECRET") < post.find("MIKEY-SECRET"),
+            "{post}"
+        );
+        assert!(post.contains("ob-reflection-sequential"));
+        assert!(!post.contains("openblog:part"));
+        // Once published, the arrangement is closed.
+        assert_eq!(
+            arrangement_write(&f, &ada, true, &id, 1, arrangement("sideBySide", 2, &order)).status,
+            409
+        );
+    }
+
+    #[test]
+    fn a_layout_change_alone_blocks_the_gate_and_the_preview_follows_the_arrangement() {
+        let (f, mikey, grace, ada, id) = approval_fixture("arrange-layout");
+        let ids = participant_ids(&f, &mikey, &id);
+        let order: Vec<&str> = ids.iter().map(String::as_str).collect();
+        assert_eq!(
+            arrangement_write(&f, &ada, true, &id, 0, arrangement("sequential", 1, &order)).status,
+            200
+        );
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let approvals_path = f.dir.join(format!(
+            ".openblog/private/collaboration/approvals/{id}.json"
+        ));
+        let standing = fs::read(&approvals_path).unwrap();
+        assert_eq!(
+            arrangement_write(&f, &ada, true, &id, 1, arrangement("sideBySide", 2, &order)).status,
+            200
+        );
+        fs::write(&approvals_path, &standing).unwrap();
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 409);
+        assert_eq!(body_json(&refused)["missing"], json!(["Mikey", "Grace"]));
+        // The preview is arranged and carries the binding of this arrangement.
+        let shown = preview_call(&f, &mikey, &id);
+        let body = body_json(&shown);
+        let document = preview_document_text(&f, &mikey, &body);
+        assert!(document.contains("ob-reflection-side-by-side"));
+        assert!(!document.contains("openblog:part"));
+        assert_eq!(body["preview"]["complete"], json!(true));
     }
 
     #[test]

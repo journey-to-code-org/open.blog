@@ -36,7 +36,10 @@ single primary source. A two-person experience is only a projection of the same 
 never creates pair-specific persisted or API state. The version 1 `participants`,
 `contributions`, `reveals`, `layout`, and `approvals` collections from #155 realize the
 corresponding workflow vocabulary and retain their existing validation and ordering rules, and the
-version 1 authorization policy's `publicationId` names the Shared publication.
+version 1 authorization policy's `publicationId` names the Shared publication. The `layout` collection
+is the exception: it is a reserved v1 field that no assembly, preview or renderer reads, and
+[ADR 0029](0029-reflection-structure-is-separate-from-layout.md) makes the reflection structure the
+only authority for arrangement. It is dropped at the next contract version.
 
 Participant and Collaboration role describe private workflow involvement. A Participant reaches an
 Admin user and a contributor registry entry (by its contributor ID) only through an explicit
