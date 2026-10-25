@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Included the research source library in the durable hosted editorial workspace so source
+  changes made in Admin survive a Render restart or redeploy.
 - Defined the versioned research source library contract in core: distinct works, editions,
   translations, witnesses, and references with stable identifiers, source locations, lossless
   unknown fields, and source-scoped diagnostics that keep contributor credits out of

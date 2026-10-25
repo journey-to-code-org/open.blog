@@ -13,6 +13,9 @@ use sha2::{Digest, Sha256};
 const MAX_FILES: usize = 2048;
 const MAX_FILE: usize = 16 * 1024 * 1024;
 const MAX_TEXT: usize = 2 * 1024 * 1024;
+/// The research source library may reach the core 4 MiB library limit.
+const MAX_LIBRARY_TEXT: usize = 4 * 1024 * 1024;
+const LIBRARY_PATH: &str = ".openblog/private/research/sources.json";
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
 const BUCKET: &str = "openblog-workspace";
@@ -250,6 +253,7 @@ impl Policy {
             "assistant/context".into(),
             ".openblog/private/context".into(),
             ".openblog/private/admin-preferences".into(),
+            LIBRARY_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
         ]
@@ -260,7 +264,7 @@ impl Policy {
             return false;
         }
         let extension = path.rsplit('.').next().unwrap_or("");
-        if matches!(path, "openblog.json" | ".gitignore") {
+        if matches!(path, "openblog.json" | ".gitignore" | LIBRARY_PATH) {
             return true;
         }
         if let Some(relative) = path.strip_prefix(&format!("{}/", self.content)) {
@@ -304,6 +308,14 @@ impl Policy {
                 || (relative.starts_with("tracks/") && extension == "gpx");
         }
         false
+    }
+
+    fn text_limit(&self, path: &str) -> usize {
+        if path == LIBRARY_PATH {
+            MAX_LIBRARY_TEXT
+        } else {
+            MAX_TEXT
+        }
     }
 
     fn binary(&self, path: &str) -> bool {
@@ -427,10 +439,11 @@ impl Policy {
                     policy.validate_config(&bytes)?;
                 }
                 if !policy.binary(rel)
-                    && (bytes.len() > MAX_TEXT || std::str::from_utf8(&bytes).is_err())
+                    && (bytes.len() > policy.text_limit(rel)
+                        || std::str::from_utf8(&bytes).is_err())
                 {
                     return Err(format!(
-                        "workspace text must be UTF-8 and at most 2 MiB: {rel}"
+                        "workspace text must be UTF-8 and within its size limit: {rel}"
                     ));
                 }
                 files.insert(rel.into(), bytes);
@@ -720,7 +733,7 @@ impl Workspace {
             let value = match &entry.value {
                 None => None,
                 Some(Record::Text { text }) => {
-                    if self.policy.binary(path) || text.len() > MAX_TEXT {
+                    if self.policy.binary(path) || text.len() > self.policy.text_limit(path) {
                         return Err("invalid workspace text record".into());
                     }
                     Some(text.as_bytes().to_vec())
@@ -1249,6 +1262,8 @@ mod tests {
             ".openblog/private/engagement/api-key",
             ".openblog/private/assistant/api-key",
             ".openblog/private/arbitrary.json",
+            ".openblog/private/research/other.json",
+            ".openblog/private/research/sources.json/extra",
             "content/../.git/config",
             "content/posts/../../secret.md",
             "content\\posts\\escape.md",
@@ -1264,12 +1279,42 @@ mod tests {
             "static/images/uploads/2026/cover.png",
             "static/tracks/uploads/2026/trip.gpx",
             ".openblog/private/context/site.md",
+            ".openblog/private/research/sources.json",
             ".openblog/private/admin-preferences/0000000000000000000000000000000000000000000000000000000000000000.json",
             ".openblog/pending-tracks/0000000000000000000000000000000000000000000000000000000000000000.gpx",
             ".openblog/trash/deleted.md",
         ] {
             assert!(policy.allowed(path), "{path}");
         }
+    }
+
+    #[test]
+    fn source_library_is_durable_and_allowed_up_to_the_library_limit() {
+        let fixture = Fixture::new();
+        let library = fixture.0.join(LIBRARY_PATH);
+        fs::create_dir_all(library.parent().unwrap()).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        fs::write(&library, &body).unwrap();
+        let policy = policy();
+        assert_eq!(policy.text_limit("content/posts/a.md"), MAX_TEXT);
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[LIBRARY_PATH], body.as_bytes());
+        fs::write(&library, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
+        assert!(policy.scan(&fixture.0).is_err());
+        let mut workspace =
+            fixture.workspace(backend("http://127.0.0.1:1".into()), Manifest::new());
+        workspace.manifest.insert(
+            LIBRARY_PATH.into(),
+            Entry {
+                base: None,
+                value: Some(Record::Text {
+                    text: "{\"sources\":[]}".into(),
+                }),
+            },
+        );
+        fs::remove_file(&library).unwrap();
+        workspace.restore(&fixture.0).unwrap();
+        assert_eq!(fs::read_to_string(&library).unwrap(), "{\"sources\":[]}");
     }
 
     #[test]

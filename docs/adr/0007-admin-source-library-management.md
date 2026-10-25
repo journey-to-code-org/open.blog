@@ -45,6 +45,10 @@ validator that could disagree with core.
 - **Placement.** Sources is a Research entry beside Evidence Studio, shown with that
   module and always reachable from the command palette. It adds no workspace-preference
   module, so stored preferences remain valid.
+- **Hosted durability.** The hosted editorial workspace includes exactly
+  `.openblog/private/research/sources.json`, with a 4 MiB text limit (the library limit)
+  instead of the general 2 MiB, so a successful source write survives a restart. No other
+  file under `.openblog/private/research/` participates.
 - **Untrusted text.** Titles, creators, identifiers, and server messages reach the page
   only as text nodes, never markup.
 
