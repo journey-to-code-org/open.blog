@@ -1011,7 +1011,8 @@ impl Notebook {
         }
         let mut candidate = self.clone();
         let removed = candidate.passages.remove(index);
-        *self = Self::validated(&candidate, library)?;
+        *self = Self::validated(&candidate, library)
+            .map_err(|diagnostics| unshift("passages", index, diagnostics))?;
         Ok(removed)
     }
 
@@ -1026,9 +1027,30 @@ impl Notebook {
         };
         let mut candidate = self.clone();
         let removed = candidate.notes.remove(index);
-        *self = Self::validated(&candidate, library)?;
+        *self = Self::validated(&candidate, library)
+            .map_err(|diagnostics| unshift("notes", index, diagnostics))?;
         Ok(removed)
     }
+}
+
+/// Report positions in the notebook the caller holds, which still contains
+/// the entry that was to be removed.
+fn unshift(
+    collection: &'static str,
+    removed: usize,
+    mut diagnostics: Vec<NoteDiagnostic>,
+) -> Vec<NoteDiagnostic> {
+    for diagnostic in diagnostics
+        .iter_mut()
+        .filter(|d| d.collection == Some(collection))
+    {
+        if let Some(position) = diagnostic.index.as_mut() {
+            if *position >= removed {
+                *position += 1;
+            }
+        }
+    }
+    diagnostics
 }
 
 fn unknown_entry(collection: &'static str, id: &str) -> NoteDiagnostic {
@@ -1264,6 +1286,37 @@ mod tests {
             .iter()
             .map(|d| d.code)
             .collect()
+    }
+
+    #[test]
+    fn removal_diagnostics_name_the_entry_in_the_callers_notebook() {
+        let full = SourceLibrary::parse(
+            &json!({"version": 1, "sources": [
+                {"id": "a", "kind": "work", "title": "A"},
+                {"id": "b", "kind": "work", "title": "B"}]})
+            .to_string(),
+            &BTreeMap::new(),
+        )
+        .expect("library");
+        let without_b = SourceLibrary::parse(
+            &json!({"version": 1, "sources": [{"id": "a", "kind": "work", "title": "A"}]})
+                .to_string(),
+            &BTreeMap::new(),
+        )
+        .expect("library");
+        let text = json!({"version": 1, "notes": [
+            {"id": "n0", "kind": "question", "text": "zero", "sources": ["a"]},
+            {"id": "n1", "kind": "question", "text": "one", "sources": ["a"]},
+            {"id": "n2", "kind": "question", "text": "two", "sources": ["b"]}]})
+        .to_string();
+        let mut notebook = Notebook::parse(&text, &full).expect("valid");
+        let diagnostics = notebook
+            .remove_note("n0", &without_b)
+            .expect_err("b is gone");
+        assert_eq!(diagnostics[0].collection, Some("notes"));
+        assert_eq!(diagnostics[0].index, Some(2));
+        assert_eq!(diagnostics[0].id.as_deref(), Some("n2"));
+        assert_eq!(notebook.notes.len(), 3);
     }
 
     #[test]
