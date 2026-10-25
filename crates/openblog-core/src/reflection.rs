@@ -1,28 +1,62 @@
 //! Layout-independent structure of a shared reflection (ADR 0030, 0031).
 //!
-//! A [`ReflectionStructure`] says which contributions appear, in which rounds and under which
-//! prompts. It names no participant, so identity always comes from the contribution it points at,
-//! and it names no CSS, side or position. The five requested modes are one [`ReflectionLayout`]
-//! value chosen separately: changing it never touches a round, a prompt or a word of prose.
+//! A [`ReflectionStructure`] says which parts of which drafts appear, in which rounds and under
+//! which round prompts. A turn is `{ draft, part }`: the draft id is the participant id (ADR 0017),
+//! and a draft splits into ordered parts at [`PART_MARKER`]. The structure holds no prose and no
+//! CSS, side or position. The five requested modes are one [`ReflectionLayout`] value chosen
+//! separately: changing it never touches a round, a round prompt or a word of prose.
 //!
-//! [`ReflectionStructure::reading_order`] is the one deterministic linear order every layout, the
-//! portable output and a reader without CSS share. [`Placement`] is derived from that order for a
-//! layout and is never stored. All of it is pure: parsing and validation mutate nothing, and every
-//! failure is one opaque error that carries no prose, name, id or URL.
+//! The reading order is the one deterministic linear order every layout and a reader without CSS
+//! share. [`ReflectionStructure::reading_order_for`] is the requester-scoped, public form that goes
+//! through [`DraftSet::view`]; the unscoped form is crate-private for the publish gate and
+//! assembly. [`Placement`] is derived from that order for a layout and is never stored. All of it
+//! is pure: parsing and validation mutate nothing, and every failure is one opaque error that
+//! carries no prose, name, id or URL.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use blake2::{Blake2s256, Digest};
+
 use crate::collaboration::{valid_id, valid_text, CollaborationContract};
+use crate::draft::DraftSet;
 
 pub const REFLECTION_STRUCTURE_VERSION: u8 = 1;
 pub const MAX_STRUCTURE_BYTES: usize = 128 * 1024;
 pub const MAX_ROUNDS: usize = 200;
 pub const MAX_TURNS_PER_ROUND: usize = 100;
 pub const MAX_TOTAL_TURNS: usize = 1_000;
-pub const MAX_PROMPT_BYTES: usize = 1_000;
+pub const MAX_ROUND_PROMPT_BYTES: usize = 1_000;
+pub const MAX_PART: usize = 999;
+
+/// The part marker: a line that is exactly this text (a trailing carriage return is allowed, and
+/// nothing else, no indentation and no trailing spaces). It splits a draft into ordered parts. It
+/// is an HTML comment so a draft that is previewed unsplit still shows nothing, but splitting
+/// never parses Markdown: the marker counts even inside a code fence. A draft without it is one
+/// part.
+pub const PART_MARKER: &str = "<!-- openblog:part -->";
+
+/// Split a draft into its ordered parts at every [`PART_MARKER`] line. The draft is only read.
+/// Each part is an exact slice of it, the marker lines belong to no part, and joining the parts
+/// with the marker lines gives the draft back byte for byte, so the digest an approval binds
+/// (ADR 0020) never depends on this split. Always returns at least one part.
+pub fn split_parts(markdown: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut offset = 0;
+    for line in markdown.split_inclusive('\n') {
+        let text = line.strip_suffix('\n').unwrap_or(line);
+        if text.strip_suffix('\r').unwrap_or(text) == PART_MARKER {
+            parts.push(&markdown[start..offset]);
+            start = offset + line.len();
+        }
+        offset += line.len();
+    }
+    parts.push(&markdown[start..]);
+    parts
+}
 
 /// The five requested presentation modes. They share one participant and contribution model.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Hash, Serialize)]
@@ -66,21 +100,25 @@ pub struct ReflectionStructure {
     pub rounds: Vec<Round>,
 }
 
-/// One exchange step: an optional prompt and the ordered contributions that answer it. A round
-/// with turns from more than one participant is an exchange.
+/// One step of the reflection: an optional round prompt and the ordered turns that answer it.
+/// A round prompt is a short public question or cue for the round. It is not an editor prompt
+/// (ADR 0019).
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Round {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<String>,
+    pub round_prompt: Option<String>,
     pub turns: Vec<Turn>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Turn {
-    pub contribution_id: String,
+    /// The draft id, which is the participant id that owns it (ADR 0017).
+    pub draft: String,
+    /// Zero-based index of the part within that draft ([`split_parts`]).
+    pub part: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,22 +134,23 @@ impl fmt::Display for ReflectionError {
 
 impl std::error::Error for ReflectionError {}
 
-/// One contribution in reading order.
+/// One turn in reading order. `markdown` is `None` whenever the requester has nothing to read
+/// there, whether the draft is unshared, withdrawn, unwritten or the part is blank, so the
+/// placeholder is identical for all of them (ADR 0021). The entry keeps its place.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReadingEntry<'a> {
     /// Zero-based position in the linear order.
     pub ordinal: usize,
     pub round: usize,
     pub round_id: &'a str,
-    /// Set on the first entry of a round that has a prompt, so the prompt is read once, before
-    /// the answers.
-    pub prompt: Option<&'a str>,
+    /// Set on the first entry of a round that has a round prompt, so it is read once, before the
+    /// answers.
+    pub round_prompt: Option<&'a str>,
     pub participant_id: &'a str,
     pub display_name: &'a str,
-    pub contribution_id: &'a str,
-    pub markdown: &'a str,
-    /// The contribution has no text yet. It keeps its place so the order never shifts.
-    pub empty: bool,
+    pub draft_id: &'a str,
+    pub part: usize,
+    pub markdown: Option<String>,
 }
 
 /// Where a layout may put an entry: a lane out of a count of lanes. It is derived, never stored,
@@ -123,26 +162,36 @@ pub struct Placement {
 }
 
 impl ReflectionStructure {
-    /// One round holding every contribution in `contract` order, the default for a publication
-    /// that has not arranged anything.
-    pub fn from_contract(contract: &CollaborationContract) -> Self {
+    /// One round holding every part of every participant's draft, in participant order, for a
+    /// publication that has not arranged anything. A participant with no draft or a withdrawn
+    /// draft has no turns. It reads prose to count parts, so it is crate-private.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn from_drafts(contract: &CollaborationContract, drafts: &DraftSet) -> Self {
+        let turns: Vec<Turn> = contract
+            .participants
+            .iter()
+            .flat_map(|participant| {
+                let count = drafts
+                    .latest_view(&participant.id)
+                    .map_or(0, |view| split_parts(&view.markdown).len());
+                (0..count.min(MAX_PART + 1)).map(|part| Turn {
+                    draft: participant.id.clone(),
+                    part,
+                })
+            })
+            .take(MAX_TURNS_PER_ROUND)
+            .collect();
         Self {
             version: REFLECTION_STRUCTURE_VERSION,
             revision: 1,
             layout: ReflectionLayout::default(),
-            rounds: if contract.contributions.is_empty() {
+            rounds: if turns.is_empty() {
                 Vec::new()
             } else {
                 vec![Round {
                     id: "round-1".into(),
-                    prompt: None,
-                    turns: contract
-                        .contributions
-                        .iter()
-                        .map(|c| Turn {
-                            contribution_id: c.id.clone(),
-                        })
-                        .collect(),
+                    round_prompt: None,
+                    turns,
                 }]
             },
         }
@@ -177,7 +226,7 @@ impl ReflectionStructure {
         Ok(replacement)
     }
 
-    /// The same rounds, prompts and turns presented another way. Prose is not involved.
+    /// The same rounds, round prompts and turns presented another way. Prose is not involved.
     pub fn with_layout(&self, layout: ReflectionLayout) -> Self {
         Self {
             layout,
@@ -193,67 +242,135 @@ impl ReflectionStructure {
             return false;
         }
         let mut rounds = HashSet::new();
-        let mut contributions = HashSet::new();
+        let mut turns = HashSet::new();
         self.rounds.iter().all(|round| {
             valid_id(&round.id)
                 && rounds.insert(round.id.to_ascii_lowercase())
                 && !round.turns.is_empty()
                 && round.turns.len() <= MAX_TURNS_PER_ROUND
                 && round
-                    .prompt
+                    .round_prompt
                     .as_deref()
-                    .is_none_or(|p| valid_text(p, MAX_PROMPT_BYTES))
+                    .is_none_or(|p| valid_text(p, MAX_ROUND_PROMPT_BYTES))
                 && round.turns.iter().all(|turn| {
-                    valid_id(&turn.contribution_id)
-                        && contributions.insert(turn.contribution_id.to_ascii_lowercase())
+                    valid_id(&turn.draft)
+                        && turn.part <= MAX_PART
+                        && turns.insert((turn.draft.to_ascii_lowercase(), turn.part))
                 })
         })
     }
 
-    /// The deterministic linear order: rounds in order, turns in order. It does not depend on
-    /// [`Self::layout`]. Fails, returning nothing, if any turn names a contribution the contract
-    /// does not hold, so a stale structure can never show part of a reflection.
-    pub fn reading_order<'a>(
+    /// The unscoped reading order with every readable word, for the publish gate and assembly
+    /// only, like [`DraftSet::latest_view`]: it ignores who may read what, so it is crate-private.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn reading_order<'a>(
         &'a self,
         contract: &'a CollaborationContract,
+        drafts: &DraftSet,
     ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
-        let contributions: HashMap<&str, _> = contract
-            .contributions
-            .iter()
-            .map(|c| (c.id.as_str(), c))
-            .collect();
-        let names: HashMap<&str, &str> = contract
-            .participants
-            .iter()
-            .map(|p| (p.id.as_str(), p.display_name.as_str()))
-            .collect();
+        self.order(contract, |draft_id, part| {
+            let Some(view) = drafts.latest_view(draft_id) else {
+                return Ok(None);
+            };
+            let parts = split_parts(&view.markdown);
+            let text = parts.get(part).ok_or(ReflectionError::Invalid)?;
+            Ok(Some((*text).to_owned()))
+        })
+    }
+
+    /// The reading order `requester` may see: rounds in order, turns in order, independent of
+    /// [`Self::layout`]. Each turn's text comes through [`DraftSet::view`], so a draft the
+    /// requester may not read, a withdrawn draft, an unwritten draft and a blank part are all the
+    /// same placeholder entry (`markdown: None`), with nothing that tells them apart. Fails,
+    /// returning nothing, if a turn names a participant the contract lacks, or a part that does
+    /// not exist in a draft the requester can read, so a stale structure never shows part of a
+    /// reflection. A part of a draft the requester cannot read is not checked, so the error says
+    /// nothing about prose they may not see.
+    pub fn reading_order_for<'a>(
+        &'a self,
+        contract: &'a CollaborationContract,
+        drafts: &DraftSet,
+        requester: &str,
+        active: &[&str],
+    ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
+        self.order(contract, |draft_id, part| {
+            let Ok(view) = drafts.view(requester, draft_id, active) else {
+                return Ok(None);
+            };
+            let parts = split_parts(&view.markdown);
+            let text = parts.get(part).ok_or(ReflectionError::Invalid)?;
+            Ok(Some((*text).to_owned()))
+        })
+    }
+
+    fn order<'a>(
+        &'a self,
+        contract: &'a CollaborationContract,
+        read: impl Fn(&str, usize) -> Result<Option<String>, ReflectionError>,
+    ) -> Result<Vec<ReadingEntry<'a>>, ReflectionError> {
         let mut entries = Vec::new();
         for (round_index, round) in self.rounds.iter().enumerate() {
             for (turn_index, turn) in round.turns.iter().enumerate() {
-                let contribution = contributions
-                    .get(turn.contribution_id.as_str())
+                let participant = contract
+                    .participants
+                    .iter()
+                    .find(|p| p.id.eq_ignore_ascii_case(&turn.draft))
                     .ok_or(ReflectionError::Invalid)?;
-                let name = names
-                    .get(contribution.participant_id.as_str())
-                    .ok_or(ReflectionError::Invalid)?;
+                let markdown = read(&participant.id, turn.part)?.filter(|m| !m.trim().is_empty());
                 entries.push(ReadingEntry {
                     ordinal: entries.len(),
                     round: round_index,
                     round_id: &round.id,
-                    prompt: if turn_index == 0 {
-                        round.prompt.as_deref()
+                    round_prompt: if turn_index == 0 {
+                        round.round_prompt.as_deref()
                     } else {
                         None
                     },
-                    participant_id: &contribution.participant_id,
-                    display_name: name,
-                    contribution_id: &contribution.id,
-                    markdown: &contribution.markdown,
-                    empty: contribution.markdown.trim().is_empty(),
+                    participant_id: &participant.id,
+                    display_name: &participant.display_name,
+                    draft_id: &participant.id,
+                    part: turn.part,
+                    markdown,
                 });
             }
         }
         Ok(entries)
+    }
+
+    /// A prose-free digest of everything about the arrangement an author approves: the turn
+    /// order, round ids, round prompts and layout. The revision counter is left out because
+    /// saving an identical arrangement changes nothing a reader sees. Once the structure is wired
+    /// (ADR 0031), a later task appends this to the approval subject's metadata so any change
+    /// invalidates approvals like a change to prose does (ADR 0020).
+    pub fn binding_frame(&self) -> String {
+        fn put(hasher: &mut Blake2s256, part: &[u8]) {
+            hasher.update((part.len() as u64).to_be_bytes());
+            hasher.update(part);
+        }
+        let mut hasher = Blake2s256::new();
+        hasher.update(b"openblog-reflection-frame-v1\0");
+        put(&mut hasher, self.layout.key().as_bytes());
+        hasher.update((self.rounds.len() as u64).to_be_bytes());
+        for round in &self.rounds {
+            put(&mut hasher, round.id.as_bytes());
+            match &round.round_prompt {
+                Some(prompt) => {
+                    hasher.update([1]);
+                    put(&mut hasher, prompt.as_bytes());
+                }
+                None => hasher.update([0]),
+            }
+            hasher.update((round.turns.len() as u64).to_be_bytes());
+            for turn in &round.turns {
+                put(&mut hasher, turn.draft.as_bytes());
+                hasher.update((turn.part as u64).to_be_bytes());
+            }
+        }
+        hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
     }
 
     /// Where `layout` places each entry of `order`. Lanes follow the order participants first
@@ -292,5 +409,60 @@ impl ReflectionStructure {
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn world() -> (CollaborationContract, DraftSet) {
+        let contract = CollaborationContract::from_json(
+            r#"{"version":1,"revision":1,"participants":[{"id":"p0","displayName":"A"},{"id":"p1","displayName":"B"},{"id":"p2","displayName":"C"}],"contributions":[],"reveals":[],"layout":[],"approvals":[]}"#,
+        )
+        .unwrap();
+        let mut drafts = DraftSet::new(&["p0", "p1", "p2"]).unwrap();
+        drafts
+            .save("p0", "p0", 0, &format!("a\n{PART_MARKER}\nb"), 1)
+            .unwrap();
+        drafts.save("p1", "p1", 0, "SECRET unrevealed", 1).unwrap();
+        (contract, drafts)
+    }
+
+    #[test]
+    fn default_structure_lists_every_part_of_every_written_draft() {
+        let (contract, drafts) = world();
+        let s = ReflectionStructure::from_drafts(&contract, &drafts);
+        let turns: Vec<(&str, usize)> = s.rounds[0]
+            .turns
+            .iter()
+            .map(|t| (t.draft.as_str(), t.part))
+            .collect();
+        assert_eq!(turns, [("p0", 0), ("p0", 1), ("p1", 0)]);
+        let empty = DraftSet::new(&["p0", "p1", "p2"]).unwrap();
+        assert!(ReflectionStructure::from_drafts(&contract, &empty)
+            .rounds
+            .is_empty());
+    }
+
+    #[test]
+    fn the_unscoped_order_reads_everything_and_marks_unwritten_turns() {
+        let (contract, drafts) = world();
+        let mut s = ReflectionStructure::from_drafts(&contract, &drafts);
+        s.rounds[0].turns.push(Turn {
+            draft: "p2".into(),
+            part: 0,
+        });
+        let order = s.reading_order(&contract, &drafts).unwrap();
+        let text: Vec<Option<&str>> = order.iter().map(|e| e.markdown.as_deref()).collect();
+        assert_eq!(
+            text,
+            [Some("a\n"), Some("b"), Some("SECRET unrevealed"), None]
+        );
+        s.rounds[0].turns.push(Turn {
+            draft: "p0".into(),
+            part: 5,
+        });
+        assert!(s.reading_order(&contract, &drafts).is_err());
     }
 }
