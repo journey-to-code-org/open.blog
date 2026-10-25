@@ -309,3 +309,29 @@ test("the form offers the optional lookup and shows its outcome politely", () =>
   assert.match(admin, /collaboration\/publications\/source-metadata/);
   assert.match(admin, /lookup-status[\s\S]{0,120}aria-live/);
 });
+
+test("a lookup answer is dropped when the link changes or the source goes away mid-flight", async () => {
+  const source = { ...emptySharedSource("video"), url: "https://youtu.be/dQw4w9WgXcQ" };
+  const changed = await lookupSourceDetails(source, async () => {
+    source.url = "https://youtu.be/other";
+    return { status: "found", suggestion };
+  });
+  assert.deepEqual(changed.applied, []);
+  assert.equal(changed.stale, true);
+  assert.equal(source.creator, "");
+
+  const removed = { ...emptySharedSource("video"), url: "https://youtu.be/dQw4w9WgXcQ" };
+  let present = true;
+  const gone = await lookupSourceDetails(removed, async () => {
+    present = false;
+    return { status: "found", suggestion };
+  }, () => present);
+  assert.deepEqual(gone.applied, []);
+  assert.equal(removed.publisher, "");
+});
+
+test("applied suggestions are written to controls by identity and labelled until edited", () => {
+  assert.match(admin, /suggestedControls\[key\]/);
+  assert.match(admin, /control\?\.isConnected/);
+  assert.match(admin, /Suggested by \$\{outcome\.provider\}/);
+});

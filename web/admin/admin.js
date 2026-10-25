@@ -602,7 +602,7 @@ export function applySourceSuggestion(source, suggestion) {
  * Ask the server for optional details about a source link. It never throws and never blocks
  * authoring: every failure becomes a plain message and the source stays as the author left it.
  */
-export async function lookupSourceDetails(source, call) {
+export async function lookupSourceDetails(source, call, isCurrent = () => true) {
   const url = String(source?.url ?? "").trim();
   if (!url) return { applied: [], message: "Paste a link first. Details are optional; you can always type them yourself." };
   let result;
@@ -611,11 +611,16 @@ export async function lookupSourceDetails(source, call) {
   } catch {
     return { applied: [], message: "Details could not be looked up. Type them yourself; nothing is lost." };
   }
+  // The author may have changed the link or removed the source while we waited: drop the answer.
+  if (!isCurrent() || String(source?.url ?? "").trim() !== url) {
+    return { applied: [], stale: true, message: "The link or source changed while looking up, so nothing was filled in." };
+  }
   if (result?.status === "found" && result.suggestion) {
     const applied = applySourceSuggestion(source, result.suggestion);
     const provider = result.suggestion.publisher || "the provider";
     return {
       applied,
+      provider,
       message: applied.length
         ? `Suggested by ${provider} and filled in: ${applied.join(", ")}. Check them; they are yours to edit.`
         : `${provider} had nothing to add to what you already typed.`,
@@ -2788,6 +2793,9 @@ export class ObAdmin extends AdminElement {
             SHARED_SOURCE_KINDS.map((option) => h("option", { value: option.value, selected: option.value === source.kind }, option.label)),
           );
           const sourceTitle = bind(text(source.title, { required: true, placeholder: kindOf().example }), "title");
+          const creatorInput = bind(text(source.creator), "creator");
+          const publisherInput = bind(text(source.publisher), "publisher");
+          const suggestedControls = { title: sourceTitle, creator: creatorInput, publisher: publisherInput };
           const isbnField = field(`${prefix}-isbn`, "ISBN (optional)", bind(text(source.isbn, { inputmode: "numeric", autocomplete: "off" }), "isbn"), "10 or 13 digits; hyphens are fine.");
           isbnField.hidden = source.kind !== "book";
           kind.addEventListener("change", () => {
@@ -2806,10 +2814,20 @@ export class ObAdmin extends AdminElement {
               onClick: async () => {
                 lookup.disabled = true;
                 lookupStatus.textContent = "Looking up…";
-                const outcome = await lookupSourceDetails(source, (json) => this.api.call("POST", "collaboration/publications/source-metadata", { json }));
+                const outcome = await lookupSourceDetails(
+                  source,
+                  (json) => this.api.call("POST", "collaboration/publications/source-metadata", { json }),
+                  () => sources.includes(source) && sourceTitle.isConnected,
+                );
+                if (outcome.stale && !sourceTitle.isConnected) return;
                 for (const key of outcome.applied) {
-                  const control = sourceList.querySelector(`#${prefix}-${key}`);
-                  if (control) control.value = source[key];
+                  const control = suggestedControls[key];
+                  if (!control?.isConnected) continue;
+                  control.value = source[key];
+                  // Show which values came from the provider until the author edits them.
+                  const note = h("small", { class: "oba-small oba-suggested-note" }, `Suggested by ${outcome.provider}. Check it, or edit to make it yours.`);
+                  control.after(note);
+                  control.addEventListener("input", () => note.remove(), { once: true });
                 }
                 if (outcome.applied.length) markDirty();
                 lookupStatus.textContent = outcome.message;
@@ -2842,8 +2860,8 @@ export class ObAdmin extends AdminElement {
               field(`${prefix}-kind`, "Type of source", kind),
               field(`${prefix}-title`, "Source title", sourceTitle, "The name of the video, article, episode, or book."),
               field(`${prefix}-url`, "Original link (optional)", bind(text(source.url, { inputmode: "url", autocomplete: "url", spellcheck: "false", placeholder: "https://…" }), "url"), "Paste the full address. Leave it empty for a book, talk, or anything without a link."),
-              field(`${prefix}-creator`, "Made by (optional)", bind(text(source.creator), "creator"), "The author, speaker, channel, or host."),
-              field(`${prefix}-publisher`, "Publisher (optional)", bind(text(source.publisher), "publisher")),
+              field(`${prefix}-creator`, "Made by (optional)", creatorInput, "The author, speaker, channel, or host."),
+              field(`${prefix}-publisher`, "Publisher (optional)", publisherInput),
               field(`${prefix}-published`, "Published (optional)", bind(text(source.published, { placeholder: "e.g. 2019" }), "published"), "A year or date, written however you like."),
               isbnField,
             ),

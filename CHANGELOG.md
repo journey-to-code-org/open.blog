@@ -11,7 +11,8 @@ All notable changes to open.blog are recorded here. Releases follow
   telling you what it filled. It never fetches transcripts or pages, refuses redirects and
   non-public addresses, and gives up after six seconds. A timeout, refusal, missing details, or an
   unsupported link changes nothing and never blocks saving. Nothing is stored until you create the
-  reflection.
+  reflection. Suggested fields carry a "Suggested by" note until you edit them, and an answer that
+  arrives after you changed the link or removed the source is discarded.
 - Added a versioned, group-safe collaboration contract in `openblog-core` with ordered
   participant, contribution, reveal, layout, and approval collections, explicit size limits, a
   derived two-person projection, revision-checked replacement, and one non-identifying error for
