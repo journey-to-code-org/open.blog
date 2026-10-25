@@ -16,6 +16,7 @@
 
 pub mod accessibility;
 pub mod approval;
+pub mod assembly;
 pub mod assistant_guide;
 pub mod capability;
 pub mod collaboration;
