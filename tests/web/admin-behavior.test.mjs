@@ -28,6 +28,7 @@ import {
   parseAdminHash,
   preserveProfileFieldDrafts,
   destinationPolicyForDisplay,
+  destinationTagsForDisplay,
   portabilityAcknowledgementScope,
   portableDiagnosticsForDisplay,
   portablePreviewArtifact,
@@ -309,6 +310,11 @@ test("destination preview policy discloses canonical behavior and manual workflo
   assert.deepEqual(destinationPolicyForDisplay([], "destination:unknown"), [
     "Destination policy is unavailable; do not publish until the policy can be loaded.",
   ]);
+  assert.match(destinationPolicyForDisplay([{
+    version: 1, provider: "hashnode", label: "Hashnode",
+    canonicalBehavior: "Canonical URL is retained.", workflow: "Draft only.",
+    maxRequestBodyBytes: 100000,
+  }], "destination:hashnode")[2], /100000-byte limit.*cannot certify request size/);
   const futurePolicy = [{ version: 2, provider: "medium", representation: "manual-markdown" }];
   assert.match(destinationPolicyForDisplay(futurePolicy, "destination:medium")[0], /unavailable/);
   assert.equal(portabilityAcknowledgementScope(futurePolicy, "destination:medium"), null);
@@ -325,6 +331,25 @@ test("destination preview policy discloses canonical behavior and manual workflo
     representation: "portable-text",
   });
   assert.equal(portabilityAcknowledgementScope(policies, "site"), null);
+});
+
+test("destination tag review shows selected metadata, omissions, and blocking errors only for its provider", () => {
+  const plans = [{
+    policy: { version: 1, provider: "dev", label: "DEV" },
+    tags: ["Rust", "<invalid>"],
+    omittedTags: ["fifth"],
+    diagnostics: [{
+      code: "destination-tag-invalid", severity: "error", sourcePath: "posts/lesson.md",
+      message: "Invalid DEV tag.", recommendedAction: "Choose a valid tag.",
+    }],
+  }];
+  const display = destinationTagsForDisplay(plans, "destination:dev");
+  assert.match(display[0], /Rust, <invalid>.*Omitted tags: fifth/);
+  assert.match(display[1], /posts\/lesson.md: error: Invalid DEV tag.*Choose a valid tag/);
+  assert.deepEqual(destinationTagsForDisplay(plans, "portable-markdown"), []);
+  assert.deepEqual(destinationTagsForDisplay(plans, "destination:hashnode"), []);
+  plans[0].policy.version = 2;
+  assert.deepEqual(destinationTagsForDisplay(plans, "destination:dev"), []);
 });
 
 const SAMPLE_GPX = `<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>

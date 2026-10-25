@@ -16,7 +16,8 @@ use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 use openblog_core::config::{SyndicationProvider, SyndicationTargetConfig};
 use openblog_core::frontmatter;
 use openblog_core::portability::{
-    destination_policy, DestinationRepresentation, PortableProjection,
+    destination_payload_plan, destination_policy, destination_tag_plan, DestinationPayloadPlan,
+    DestinationRepresentation, PortableProjection,
 };
 use openblog_core::{Post, SiteConfig};
 use pulldown_cmark::{Event, Options as MarkdownOptions, Parser, Tag, TagEnd};
@@ -294,6 +295,24 @@ fn run_with_transport(
     let mut state = State::load(&state_path)?;
     validate_source_identity(&state, &syndication_post)?;
     validate_plan(&selected, options.publish)?;
+    if options.write {
+        for (name, target) in &selected {
+            destination_tag_plan(
+                target.provider,
+                &syndication_post.source_path,
+                &syndication_post.tags,
+            )
+            .validate()?;
+            if target.provider == SyndicationProvider::Hashnode {
+                hashnode_payload_plan(
+                    &target.publication_id,
+                    &syndication_post,
+                    state.record(&syndication_post.source_id, name),
+                )?
+                .validate()?;
+            }
+        }
+    }
     if options.json {
         let plan = dry_run_json_plan(&syndication_post, &selected, &state, options.publish);
         println!(
@@ -340,6 +359,26 @@ fn run_with_transport(
             println!("  warning: {warning}");
         }
         print_portable_plan(target.provider, &syndication_post);
+        if target.provider == SyndicationProvider::Hashnode {
+            match hashnode_payload_plan(&target.publication_id, &syndication_post, existing) {
+                Ok(plan) => {
+                    println!("  request body: {} UTF-8 bytes", plan.body_bytes);
+                    if let Some(limit) = plan.policy.max_request_body_bytes {
+                        println!("  request body limit: {limit} bytes");
+                    }
+                    for diagnostic in plan.diagnostics {
+                        println!(
+                            "  error: {} [{}] {} Action: {}",
+                            diagnostic.source_path,
+                            diagnostic.code,
+                            diagnostic.message,
+                            diagnostic.recommended_action
+                        );
+                    }
+                }
+                Err(error) => println!("  request body unavailable: {error}"),
+            }
+        }
         if !options.write {
             continue;
         }
@@ -642,6 +681,23 @@ fn print_portable_plan(provider: SyndicationProvider, post: &SyndicationPost) {
             diagnostic.recommended_action
         );
     }
+    if policy.max_tags.is_some() {
+        let tags = destination_tag_plan(provider, &post.source_path, &post.tags);
+        println!(
+            "  tags: selected {:?}; omitted {:?}",
+            tags.tags, tags.omitted_tags
+        );
+        for diagnostic in tags.diagnostics {
+            println!(
+                "  {:?}: {} [{}] {} Action: {}",
+                diagnostic.severity,
+                diagnostic.source_path,
+                diagnostic.code,
+                diagnostic.message,
+                diagnostic.recommended_action,
+            );
+        }
+    }
 }
 
 fn dry_run_json_plan(
@@ -664,6 +720,22 @@ fn dry_run_json_plan(
                 }
             };
             let manual = target.provider == SyndicationProvider::Medium;
+            let tag_plan = policy
+                .max_tags
+                .map(|_| destination_tag_plan(target.provider, &post.source_path, &post.tags));
+            let (payload_plan, payload_plan_error) =
+                if target.provider == SyndicationProvider::Hashnode {
+                    match hashnode_payload_plan(
+                        &target.publication_id,
+                        post,
+                        state.record(&post.source_id, name),
+                    ) {
+                        Ok(plan) => (Some(plan), None),
+                        Err(error) => (None, Some(error)),
+                    }
+                } else {
+                    (None, None)
+                };
             json!({
                 "name": name,
                 "provider": target.provider,
@@ -683,6 +755,9 @@ fn dry_run_json_plan(
                 },
                 "remoteRequestSent": false,
                 "policy": policy,
+                "tagPlan": tag_plan,
+                "payloadPlan": payload_plan,
+                "payloadPlanError": payload_plan_error,
                 "conversion": {
                     "from": {
                         "format": "authored-markdown",
@@ -1150,7 +1225,14 @@ impl ProviderAdapter for HashnodeAdapter<'_> {
         publish: bool,
         credential: &str,
     ) -> Result<Request, String> {
-        hashnode_request(self.publication_id, post, existing, publish, credential)
+        let request = hashnode_request(self.publication_id, post, existing, publish, credential)?;
+        destination_payload_plan(
+            SyndicationProvider::Hashnode,
+            &post.source_path,
+            request.body.to_string().len(),
+        )
+        .validate()?;
+        Ok(request)
     }
     fn outcome(&self, body: &Json) -> Result<Outcome, String> {
         if let Some(message) = body["errors"][0]["message"].as_str() {
@@ -1266,6 +1348,8 @@ fn dev_request(
     publish: bool,
     credential: &str,
 ) -> Result<Request, String> {
+    let tags = destination_tag_plan(SyndicationProvider::Dev, &post.source_path, &post.tags);
+    tags.validate()?;
     let (method, url) = match existing {
         Some(record) if !record.remote_id.is_empty() => (
             "PUT",
@@ -1285,9 +1369,22 @@ fn dev_request(
             "published": publish,
             "canonical_url": post.canonical_url,
             "description": post.description,
-            "tags": post.tags.iter().take(4).cloned().collect::<Vec<_>>().join(",")
+            "tags": tags.tags.join(",")
         }}),
     })
+}
+
+fn hashnode_payload_plan(
+    publication_id: &str,
+    post: &SyndicationPost,
+    existing: Option<&StateRecord>,
+) -> Result<DestinationPayloadPlan, String> {
+    let request = hashnode_request(publication_id, post, existing, false, "")?;
+    Ok(destination_payload_plan(
+        SyndicationProvider::Hashnode,
+        &post.source_path,
+        request.body.to_string().len(),
+    ))
 }
 
 fn hashnode_request(
@@ -1302,17 +1399,19 @@ fn hashnode_request(
             "Hashnode target requires publicationId (and an eligible Pro publication)".into(),
         );
     }
-    let tags: Vec<Json> = post
+    let tag_plan =
+        destination_tag_plan(SyndicationProvider::Hashnode, &post.source_path, &post.tags);
+    tag_plan.validate()?;
+    let tags: Vec<Json> = tag_plan
         .tags
         .iter()
-        .take(15)
         .map(|name| json!({"name": name, "slug": slug(name)}))
         .collect();
     let input = json!({
         "title": post.title,
         "subtitle": post.subtitle.as_deref().unwrap_or(&post.description),
         "slug": post.slug,
-        "contentMarkdown": post.markdown, "canonicalUrl": post.canonical_url, "tags": tags
+        "contentMarkdown": post.markdown, "originalArticleURL": post.canonical_url, "tags": tags
     });
     let (query, variables) = if let Some(record) = existing {
         ("mutation Update($input: UpdateDraftInput!) { updateDraft(input: $input) { draft { id slug } } }",
@@ -1519,6 +1618,137 @@ mod tests {
             source_markdown: "Body".into(),
             portable_diagnostics: Vec::new(),
         }
+    }
+
+    #[test]
+    fn hashnode_drafts_use_the_documented_canonical_input_on_create_and_update() {
+        let post = post_fixture();
+        let record = StateRecord {
+            remote_id: "draft-id".into(),
+            ..Default::default()
+        };
+        for existing in [None, Some(&record)] {
+            let request =
+                hashnode_request("publication", &post, existing, false, "unused").unwrap();
+            let input = &request.body["variables"]["input"];
+            assert_eq!(input["originalArticleURL"], post.canonical_url);
+            assert!(input.get("canonicalUrl").is_none());
+        }
+    }
+
+    #[test]
+    fn hashnode_payload_budget_counts_the_serialized_envelope_on_create_and_update() {
+        let adapter = HashnodeAdapter {
+            publication_id: "publication",
+        };
+        let record = StateRecord {
+            remote_id: "draft".into(),
+            ..Default::default()
+        };
+        for existing in [None, Some(&record)] {
+            let mut post = post_fixture();
+            post.markdown.clear();
+            let overhead = hashnode_request("publication", &post, existing, false, "unused")
+                .unwrap()
+                .body
+                .to_string()
+                .len();
+            post.markdown = "a".repeat(100_000 - overhead);
+            let request = adapter.request(&post, existing, false, "unused").unwrap();
+            assert_eq!(request.body.to_string().len(), 100_000);
+            post.markdown.push('a');
+            assert!(adapter
+                .request(&post, existing, false, "unused")
+                .unwrap_err()
+                .contains("100001 UTF-8 bytes"));
+            post.markdown = "é\n\"".repeat(20_000);
+            let request =
+                hashnode_request("publication", &post, existing, false, "unused").unwrap();
+            let bytes = request.body.to_string().len();
+            assert!(
+                bytes > post.markdown.len(),
+                "JSON escaping and the envelope must count"
+            );
+            let target = SyndicationTargetConfig {
+                provider: SyndicationProvider::Hashnode,
+                publication_id: "publication".into(),
+                ..Default::default()
+            };
+            let mut state = State::default();
+            if let Some(record) = existing {
+                state.insert(&post.source_id, "hashnode", record.clone());
+            }
+            let name = "hashnode".to_string();
+            let plan = dry_run_json_plan(&post, &[(&name, &target)], &state, false);
+            assert_eq!(plan["targets"][0]["payloadPlan"]["bodyBytes"], bytes);
+            assert_eq!(
+                plan["targets"][0]["payloadPlan"]["diagnostics"][0]["code"],
+                "destination-payload-limit"
+            );
+            assert!(plan["targets"][0]["payloadPlanError"].is_null());
+        }
+    }
+
+    #[test]
+    fn destination_tag_plans_match_create_and_update_payloads_and_keep_source_unchanged() {
+        let mut post = post_fixture();
+        post.tags = (0..16).map(|index| format!("tag{index}")).collect();
+        let before = post.clone();
+        let record = StateRecord {
+            remote_id: "remote".into(),
+            ..Default::default()
+        };
+        let selected = [
+            (
+                "dev".to_string(),
+                SyndicationTargetConfig {
+                    provider: SyndicationProvider::Dev,
+                    ..Default::default()
+                },
+            ),
+            (
+                "hashnode".to_string(),
+                SyndicationTargetConfig {
+                    provider: SyndicationProvider::Hashnode,
+                    publication_id: "publication".into(),
+                    ..Default::default()
+                },
+            ),
+        ];
+        let targets = selected
+            .iter()
+            .map(|(name, target)| (name, target))
+            .collect::<Vec<_>>();
+        let plan = dry_run_json_plan(&post, &targets, &State::default(), false);
+        for existing in [None, Some(&record)] {
+            let dev = dev_request(&post, existing, false, "unused").unwrap();
+            let hashnode =
+                hashnode_request("publication", &post, existing, false, "unused").unwrap();
+            for (index, count) in [(0, 4), (1, 15)] {
+                let tags = &plan["targets"][index]["tagPlan"];
+                assert_eq!(tags["tags"].as_array().unwrap().len(), count);
+                assert_eq!(tags["omittedTags"].as_array().unwrap().len(), 16 - count);
+                assert_eq!(tags["diagnostics"][0]["code"], "destination-tag-limit");
+                assert_eq!(
+                    tags["policy"]["provider"],
+                    plan["targets"][index]["provider"]
+                );
+            }
+            assert_eq!(dev.body["article"]["tags"], post.tags[..4].join(","));
+            let hashnode_tags = hashnode.body["variables"]["input"]["tags"]
+                .as_array()
+                .unwrap();
+            assert_eq!(hashnode_tags.len(), 15);
+            for (tag, name) in hashnode_tags.iter().zip(&post.tags) {
+                assert_eq!(tag["name"], *name);
+                assert_eq!(tag["slug"], *name);
+            }
+        }
+        assert_eq!(post, before);
+        post.tags = vec!["invalid-dev".into()];
+        assert!(dev_request(&post, None, false, "unused").is_err());
+        post.tags = vec!["Same Tag".into(), "same-tag".into()];
+        assert!(hashnode_request("publication", &post, None, false, "unused").is_err());
     }
 
     #[test]
@@ -2031,6 +2261,97 @@ const attribute = 'href="/script"';
         fn send(&self, _: &Request) -> Result<Response, String> {
             Ok(self.0.clone())
         }
+    }
+
+    struct NoNetwork;
+    impl Transport for NoNetwork {
+        fn send(&self, _: &Request) -> Result<Response, String> {
+            panic!("destination validation must finish before any network access");
+        }
+    }
+
+    #[test]
+    fn invalid_destination_metadata_blocks_all_selected_writes_without_source_or_state_changes() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-destination-tags-{}",
+            crate::auth::random_token().unwrap(),
+        ));
+        let posts = root.join("content/posts");
+        fs::create_dir_all(&posts).unwrap();
+        fs::write(
+            root.join("openblog.json"),
+            r#"{
+            "url":"https://blog.openblog.dev",
+            "syndication":{"targets":{
+                "a-ghost":{"provider":"ghost","endpoint":"https://ghost.example"},
+                "b-dev":{"provider":"dev"},
+                "c-hashnode":{"provider":"hashnode","publicationId":"publication"}
+            }}
+        }"#,
+        )
+        .unwrap();
+        let source =
+            "---\ntitle: Post\nslug: post\ndate: 2020-01-01\ntags: [invalid-dev]\n---\n\nBody\n";
+        fs::write(posts.join("post.md"), source).unwrap();
+        let error = run_with_transport(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: true,
+                publish: false,
+                json: false,
+            },
+            &NoNetwork,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("posts/post.md: DEV [destination-tag-invalid]"),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(posts.join("post.md")).unwrap(), source);
+        assert!(!root.join(".openblog").exists());
+        run_with_transport(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: false,
+                publish: false,
+                json: true,
+            },
+            &NoNetwork,
+        )
+        .unwrap();
+        assert!(!root.join(".openblog").exists());
+        let source = format!(
+            "---\ntitle: Post\nslug: post\ndate: 2020-01-01\ntags: [rust]\n---\n\n{}\n",
+            "a".repeat(100_000),
+        );
+        fs::write(posts.join("post.md"), &source).unwrap();
+        let error = run_with_transport(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: true,
+                publish: false,
+                json: false,
+            },
+            &NoNetwork,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("posts/post.md: Hashnode [destination-payload-limit]"),
+            "{error}"
+        );
+        assert_eq!(fs::read_to_string(posts.join("post.md")).unwrap(), source);
+        assert!(!root.join(".openblog").exists());
+        fs::remove_file(posts.join("post.md")).unwrap();
+        fs::remove_file(root.join("openblog.json")).unwrap();
+        fs::remove_dir(posts).unwrap();
+        fs::remove_dir(root.join("content")).unwrap();
+        fs::remove_dir(root).unwrap();
     }
 
     #[test]

@@ -248,6 +248,9 @@ review them before sharing. Actions are disabled for the native site view, unava
 failed previews, and while edits await a fresh preview. Text and Markdown are displayed as literal
 source, never executed in the Admin shell. The authenticated API also returns capability
 portability levels alongside all three representations.
+DEV and Hashnode views also show the selected and omitted tags, slug transformations,
+and blocking tag errors from the same core plan used by the CLI. These are payload metadata
+checks; copying a portable body does not validate or include its destination tags.
 
 Warnings can be acknowledged for a specific source revision, capability, representation, and
 destination. Acknowledgements are stored in a tracked sibling `*.portability.json` sidecar and
