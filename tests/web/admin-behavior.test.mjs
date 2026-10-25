@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   ObAdmin,
+  Editor,
   accessibilityReview,
   assistantContextDisclosure,
   postContextFields,
@@ -29,6 +30,7 @@ import {
   destinationPolicyForDisplay,
   portabilityAcknowledgementScope,
   portableDiagnosticsForDisplay,
+  portablePreviewArtifact,
   previewWarningsForDisplay,
   resolveProfileSelection,
   researchSectionIsPresent,
@@ -153,6 +155,126 @@ test("portable preview diagnostics retain source scope and severity in readable 
     ]),
     ["posts/lesson.md: warning: Timeline remains on the canonical article. Action: Keep the canonical link."],
   );
+});
+
+test("portable preview shows exactly the selected representation without changing the draft", () => {
+  const frame = {
+    hidden: false,
+    removeAttribute(name) { delete this[name]; },
+  };
+  const editor = {
+    ui: {
+      preview: frame,
+      previewMarkdown: { hidden: true, textContent: "", setAttribute() {} },
+      previewCopy: { disabled: true },
+      previewDownload: { disabled: true },
+      previewMode: { value: "portable-html" },
+      previewTheme: { textContent: "" },
+    },
+    previewResult: {
+      social: { title: "A <lesson>" },
+      previewUrl: "/admin/preview/native",
+      theme: "paper",
+      portablePreview: { html: "<p>Public</p>", markdown: "**Public**", text: "Public" },
+    },
+  };
+  Editor.prototype.showPreviewRepresentation.call(editor);
+  assert.equal(frame.hidden, false, "HTML preview must be visible");
+  assert.equal(editor.ui.previewMarkdown.hidden, true);
+  assert.match(frame.srcdoc, /A &lt;lesson&gt;/);
+  assert.equal(editor.ui.previewCopy.disabled, false);
+  for (const mode of ["portable-markdown", "portable-text"]) {
+    editor.ui.previewMode.value = mode;
+    Editor.prototype.showPreviewRepresentation.call(editor);
+    assert.equal(frame.hidden, true);
+    assert.equal(editor.ui.previewMarkdown.hidden, false);
+    assert.equal(editor.ui.previewMarkdown.textContent, mode === "portable-text" ? "Public" : "**Public**");
+  }
+  editor.ui.previewMode.value = "site";
+  Editor.prototype.showPreviewRepresentation.call(editor);
+  assert.equal(frame.hidden, false);
+  assert.equal(editor.ui.previewMarkdown.hidden, true);
+  assert.equal(frame.src, "/admin/preview/native");
+  assert.equal(frame.srcdoc, undefined);
+  assert.equal(editor.ui.previewCopy.disabled, true);
+});
+
+test("portable export actions use exact preview bytes and fail closed for unavailable policies", () => {
+  const preview = { portablePreview: {
+    html: "<p>&lt;script&gt;</p>",
+    markdown: "```html\n<script>\n```",
+    text: "Literal <script>",
+    destinations: [
+      { provider: "ghost", representation: "portable-html" },
+      { provider: "medium", representation: "manual-markdown" },
+    ],
+  } };
+  assert.deepEqual(portablePreviewArtifact(preview, "portable-text"), {
+    content: "Literal <script>", extension: "txt", mime: "text/plain;charset=utf-8",
+  });
+  assert.equal(portablePreviewArtifact(preview, "destination:ghost").content, preview.portablePreview.html);
+  assert.equal(portablePreviewArtifact(preview, "destination:medium").content, preview.portablePreview.markdown);
+  assert.equal(portablePreviewArtifact(preview, "destination:unknown"), null);
+  assert.equal(portablePreviewArtifact(preview, "site"), null);
+  assert.equal(portablePreviewArtifact(null, "portable-text"), null);
+  const editor = {
+    previewRequest: 7,
+    previewResult: preview,
+    root: { dataset: { editorView: "write" } },
+    ui: { previewCopy: { disabled: false }, previewDownload: { disabled: false } },
+  };
+  Editor.prototype.schedulePreview.call(editor);
+  assert.equal(editor.previewResult, null);
+  assert.equal(editor.ui.previewCopy.disabled, true);
+  assert.equal(editor.ui.previewDownload.disabled, true);
+  assert.ok(editor.previewRequest > 7);
+});
+
+test("portable copy and download actions preserve bytes, clean URLs, and announce failures", async (t) => {
+  const copied = [];
+  const attributes = {};
+  let clicked = false;
+  let removed = false;
+  let blob;
+  let revoked;
+  for (const [key, value] of Object.entries({
+    navigator: { clipboard: { async writeText(content) { copied.push(content); } } },
+    document: {
+      createElement: () => ({
+        setAttribute(key, value) { attributes[key] = value; },
+        click() { clicked = true; },
+        remove() { removed = true; },
+      }),
+      body: { append() {} },
+    },
+  })) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key);
+    Object.defineProperty(globalThis, key, { value, configurable: true });
+    t.after(() => previous ? Object.defineProperty(globalThis, key, previous) : delete globalThis[key]);
+  }
+  t.mock.method(URL, "createObjectURL", (value) => { blob = value; return "blob:test"; });
+  t.mock.method(URL, "revokeObjectURL", (value) => { revoked = value; });
+  t.mock.method(globalThis, "setTimeout", (callback) => { callback(); return 0; });
+  const editor = {
+    previewResult: { portablePreview: { text: "Literal <script>\n42\n" } },
+    ui: { previewMode: { value: "portable-text" }, previewTheme: {} },
+  };
+  await Editor.prototype.exportPreviewArtifact.call(editor, false);
+  assert.deepEqual(copied, ["Literal <script>\n42\n"]);
+  assert.match(editor.ui.previewTheme.textContent, /copied; source unchanged/);
+  await Editor.prototype.exportPreviewArtifact.call(editor, true);
+  assert.equal(await blob.text(), copied[0]);
+  assert.equal(blob.type, "text/plain;charset=utf-8");
+  assert.equal(attributes.download, "portable-preview.txt");
+  assert.equal(clicked, true);
+  assert.equal(removed, true);
+  assert.equal(revoked, "blob:test");
+  navigator.clipboard.writeText = async () => { throw new Error("permission denied"); };
+  await Editor.prototype.exportPreviewArtifact.call(editor, false);
+  assert.match(editor.ui.previewTheme.textContent, /Portable export failed: permission denied/);
+  editor.previewResult = null;
+  await Editor.prototype.exportPreviewArtifact.call(editor, true);
+  assert.match(editor.ui.previewTheme.textContent, /Render a current portable preview/);
 });
 
 test("destination preview policy discloses canonical behavior and manual workflows", () => {
