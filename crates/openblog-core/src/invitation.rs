@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::collaboration::{
     may_manage, valid_admin_username, valid_contributor_id, valid_id, valid_text,
-    AuthorizationAction, AuthorizationContext, AuthorizationRole, AuthorizationTarget,
-    IdentityBinding, Participant, SharedPublication, MAX_DISPLAY_NAME_BYTES, MAX_PARTICIPANTS,
+    AuthorizationAction, AuthorizationRole, AuthorizationTarget, IdentityBinding, Participant,
+    SharedPublication, MAX_DISPLAY_NAME_BYTES, MAX_PARTICIPANTS,
 };
 
 pub const MAX_INVITATIONS: usize = 100;
@@ -232,33 +232,19 @@ fn sweep(invitations: &mut [Invitation], now: i64) {
 }
 
 impl SharedPublication {
-    fn requester_context<'a>(
-        &'a self,
-        admin_user: &'a str,
-        identities: &'a Identities<'a>,
-    ) -> AuthorizationContext<'a> {
-        AuthorizationContext {
-            publication_id: &self.publication_id,
-            authenticated_admin_user: admin_user,
-            active_admin_users: identities.active_admin_users,
-            contributor_ids: identities.contributor_ids,
-            collaboration: &self.collaboration,
-            target: AuthorizationTarget::Publication,
-        }
-    }
-
     /// The requester's binding when it may invite. Only coordinators and site owners may.
     fn inviter<'a>(
         &'a self,
         admin_user: &'a str,
         identities: &'a Identities<'a>,
     ) -> Result<&'a IdentityBinding, InvitationError> {
-        self.authorization
-            .authorize(
-                &self.requester_context(admin_user, identities),
-                AuthorizationAction::Invite,
-            )
-            .map_err(|_| InvitationError::Denied)
+        self.authorize(
+            admin_user,
+            identities,
+            AuthorizationAction::Invite,
+            AuthorizationTarget::Publication,
+        )
+        .map_err(|_| InvitationError::Denied)
     }
 
     /// Whether the requester may grant or withdraw exactly these roles. Reuses the role-management

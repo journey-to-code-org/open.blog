@@ -183,6 +183,15 @@ pub struct AuthorizationContext<'a> {
     pub target: AuthorizationTarget<'a>,
 }
 
+/// Why [`SharedPublication::authorize_publish`] refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublishError {
+    /// The requester may not publish this record.
+    Denied,
+    /// The requester may publish, but a contributing participant has not approved this revision.
+    Unapproved,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AuthorizationError;
 
@@ -953,6 +962,64 @@ impl SharedPublication {
         };
         record.validate()?;
         Ok(record)
+    }
+
+    /// The one server-side entry point for a collaboration action on this record. It authorizes
+    /// the signed-in Admin account against this record's own policy and contract, so a request can
+    /// never borrow another publication's grants, and every failure is the same private error.
+    /// Callers must load the identities in the same transaction as any change the grant permits.
+    pub fn authorize<'a>(
+        &'a self,
+        admin_user: &str,
+        identities: &crate::invitation::Identities<'_>,
+        action: AuthorizationAction,
+        target: AuthorizationTarget<'_>,
+    ) -> Result<&'a IdentityBinding, AuthorizationError> {
+        self.authorization.authorize(
+            &AuthorizationContext {
+                publication_id: &self.publication_id,
+                authenticated_admin_user: admin_user,
+                active_admin_users: identities.active_admin_users,
+                contributor_ids: identities.contributor_ids,
+                collaboration: &self.collaboration,
+                target,
+            },
+            action,
+        )
+    }
+
+    /// Authorizes publishing. The role grant alone is never enough: every participant who owns a
+    /// contribution must have approved the current contract revision, so a site owner cannot
+    /// publish prose its author has not approved. An unapproved publication reports
+    /// [`PublishError::Unapproved`] only to a requester who already holds the publish grant.
+    pub fn authorize_publish(
+        &self,
+        admin_user: &str,
+        identities: &crate::invitation::Identities<'_>,
+    ) -> Result<(), PublishError> {
+        self.authorize(
+            admin_user,
+            identities,
+            AuthorizationAction::Publish,
+            AuthorizationTarget::Publication,
+        )
+        .map_err(|_| PublishError::Denied)?;
+        let collaboration = &self.collaboration;
+        let approved = |participant_id: &str| {
+            collaboration.approvals.iter().any(|approval| {
+                approval.participant_id == participant_id
+                    && approval.revision == collaboration.revision
+            })
+        };
+        if collaboration
+            .contributions
+            .iter()
+            .all(|contribution| approved(&contribution.participant_id))
+        {
+            Ok(())
+        } else {
+            Err(PublishError::Unapproved)
+        }
     }
 
     /// The record without any binding for `admin_user`, with the policy revision advanced, or

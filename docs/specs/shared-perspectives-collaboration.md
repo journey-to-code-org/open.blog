@@ -195,7 +195,8 @@ private draft. An editor may view and edit their own draft or a draft revealed t
 becoming its author, and cannot reveal or approve for anyone. A grant for Approve only permits the
 bound participant to submit an approval; it does not create one. Authority to schedule or publish
 does not create or bypass participant approvals. Exact-revision consent and the transactional
-publication gate remain separate contracts.
+publication gate remain separate contracts; [ADR 0014](../adr/0014-record-level-authorization-and-publish-gate.md)
+records the single record-level check and the refusal to publish unapproved contributions.
 
 ### Caller obligations
 

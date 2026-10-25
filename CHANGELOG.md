@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Enforced collaboration roles through one server-side check on the shared reflection record.
+  Readers, editors, and contributors cannot invite or manage invitations, accounts that were
+  disabled or removed lose every grant at once, and operations without a route stay denied. Site
+  ownership alone cannot publish a reflection until each contributor has approved the current
+  revision.
 - Added invitations to shared reflections in Admin Studio. A site owner or coordinator names an
   existing Admin account, the contributor profile it will appear as, and roles, and gets a private
   link to pass on; nothing is emailed. The link works once, only for that account, expires in 1 to

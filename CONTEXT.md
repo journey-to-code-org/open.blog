@@ -90,6 +90,12 @@ participant and an explicit publication authorization binding in one write; it n
 an existing participant. An invitation grants nothing until accepted.
 _Avoid_: Binding (the result of accepting), account creation, email invite
 
+**Publish gate**:
+The check that publishing a shared publication needs the publish grant and an approval of the
+current revision from every participant who owns a contribution. Site ownership alone never
+satisfies it.
+_Avoid_: Approval quorum (a separate contract)
+
 **Pair projection**:
 A derived, unpersisted view that presents a shared publication with exactly two ordered
 participants as first and second UI slots. It reads the ordinary group collections and adds no

@@ -20,9 +20,9 @@ use std::time::Duration;
 use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
 use openblog_core::collaboration::{
-    AuthorizationAction, AuthorizationContext, AuthorizationRole, AuthorizationTarget,
-    NewParticipant, NewSharedPublication, NewSourceReference, SharedPublication,
-    SharedPublicationError, SourceField, SourceKind,
+    AuthorizationAction, AuthorizationRole, AuthorizationTarget, NewParticipant,
+    NewSharedPublication, NewSourceReference, SharedPublication, SharedPublicationError,
+    SourceField, SourceKind,
 };
 use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
 use openblog_core::frontmatter::{self, Value};
@@ -4864,17 +4864,17 @@ fn list_shared_publications(state: &AppState, session: &auth::Session) -> Respon
     let publications = records
         .iter()
         .filter_map(|(_, record)| {
-            let context = AuthorizationContext {
-                publication_id: &record.publication_id,
-                authenticated_admin_user: &session.user,
+            let identities = openblog_core::invitation::Identities {
                 active_admin_users: &admin_users,
                 contributor_ids: &contributor_ids,
-                collaboration: &record.collaboration,
-                target: AuthorizationTarget::Publication,
             };
             record
-                .authorization
-                .authorize(&context, AuthorizationAction::ViewPublication)
+                .authorize(
+                    &session.user,
+                    &identities,
+                    AuthorizationAction::ViewPublication,
+                    AuthorizationTarget::Publication,
+                )
                 .ok()
                 .map(|binding| shared_publication_summary(record, &binding.roles))
         })
@@ -13765,5 +13765,98 @@ mod tests {
             json!({ "token": reader_token, "contributorId": "linus" }),
         );
         assert_eq!(resp.status, 400);
+    }
+    #[test]
+    fn collaboration_routes_deny_by_default_and_by_role() {
+        let (f, mikey, id) = invitation_fixture("invite-roles");
+        let grace = login_as(&f, "grace", "another correct horse");
+        let linus = login_as(&f, "linus", "yet another horse");
+        for (user, key, role) in [("grace", "grace", "reader"), ("linus", "linus", "editor")] {
+            let token = body_json(&post_api(
+                &f,
+                &mikey,
+                "invitations",
+                invite_body(&id, user, key, json!([role])),
+            ))["token"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let session = if user == "grace" { &grace } else { &linus };
+            let accepted = post_api(
+                &f,
+                session,
+                "invitations/accept",
+                json!({ "token": token, "contributorId": key }),
+            );
+            assert_eq!(accepted.status, 200);
+        }
+        let before = tree_snapshot(&f.dir.join(".openblog/private"));
+        // Readers and editors see the reflection but cannot invite, list, revoke, or reissue.
+        for session in [&grace, &linus] {
+            assert_eq!(
+                list_shared(&f, session)["publications"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            let listed = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "GET",
+                        &format!("/admin/api/collaboration/invitations?publicationId={id}"),
+                        Json::Null,
+                    ),
+                    session,
+                    true,
+                ),
+            );
+            assert_eq!(listed.status, 404);
+            for path in ["invitations", "invitations/revoke", "invitations/reissue"] {
+                let resp = post_api(
+                    &f,
+                    session,
+                    path,
+                    json!({ "publicationId": id, "invitationId": "invitation-aaaa",
+                            "adminUser": "grace", "contributorId": "grace", "roles": ["reader"] }),
+                );
+                assert!(
+                    resp.status == 404 || resp.status == 422,
+                    "{path}: {}",
+                    resp.status
+                );
+                assert!(!String::from_utf8_lossy(&resp.body).contains("token"));
+            }
+        }
+        // Operations with no route yet are denied for everyone, owner included.
+        for (method, path) in [
+            ("GET", "contribution"),
+            ("PUT", "contribution"),
+            ("POST", "contribution/reveal"),
+            ("POST", "approve"),
+            ("POST", "schedule"),
+            ("POST", "publish"),
+            ("DELETE", "members"),
+            ("PUT", "roles"),
+            ("GET", "export"),
+        ] {
+            for session in [&mikey, &grace, &linus] {
+                let resp = handle(
+                    &f.state,
+                    &authed(
+                        json_req(
+                            method,
+                            &format!("/admin/api/collaboration/{path}"),
+                            json!({ "publicationId": id }),
+                        ),
+                        session,
+                        true,
+                    ),
+                );
+                assert_eq!(resp.status, 404, "{method} {path}");
+            }
+        }
+        assert_eq!(tree_snapshot(&f.dir.join(".openblog/private")), before);
     }
 }
