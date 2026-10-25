@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use openblog_core::citations::{
-    citation_from_csl_item, citation_to_csl_item, csl_field_fate, format_citation,
-    format_reference, parse_citation, resolve_citations, scan_citations, Citation,
-    CitationDiagnosticCode, CitationMention, CslFate, MAX_CITATIONS, MAX_CITATION_LOCATORS,
+    check_citation, citation_from_csl_item, citation_from_parts, citation_to_csl_item,
+    csl_field_fate, format_citation, format_reference, parse_citation, resolve_citations,
+    scan_citations, Citation, CitationDiagnosticCode, CitationMention, CslFate, MAX_CITATIONS,
+    MAX_CITATION_LOCATORS,
 };
 use openblog_core::markdown::{render, RenderOptions};
 use openblog_core::research_notes::{LocatorKind, Notebook};
@@ -483,4 +484,61 @@ fn csl_item_ids_are_normalised_like_reference_import_and_the_change_is_reported(
     assert_eq!(losses[0].field, "id");
     let (_, unchanged) = citation_from_csl_item(&json!({"id": "smith2003"})).unwrap();
     assert!(unchanged.is_empty());
+}
+
+#[test]
+fn citations_built_from_parts_are_checked_by_the_core_resolver() {
+    let parts = json!({"key": "republic-slings-2003", "locators": [
+        {"kind": "page", "value": "514", "to": "520", "privateNote": "no", "visibility": "private"},
+        {"kind": "canonical", "value": "514a"}
+    ]});
+    let citation = citation_from_parts(&parts).unwrap();
+    assert!(citation.locators.iter().all(|l| l.extra.is_empty()));
+    let checked = check_citation(&citation, &library()).unwrap();
+    assert_eq!(
+        checked.markdown,
+        "[@republic-slings-2003, page 514 to 520; canonical 514a]"
+    );
+    assert_eq!(checked.formatted, "Platonis Rempublicam. OUP. 2003");
+    let json = serde_json::to_string(&checked).unwrap();
+    for leaked in ["privateNote", "secretPlan", "private\""] {
+        assert!(!json.contains(leaked), "{leaked} leaked: {json}");
+    }
+
+    let unknown = citation_from_parts(&json!({"key": "nope"})).unwrap();
+    let found = check_citation(&unknown, &library()).unwrap_err();
+    assert_eq!(found[0].code, CitationDiagnosticCode::UnknownKey);
+    assert_eq!(found[0].line, None);
+    let ambiguous = citation_from_parts(&json!({"key": "plato-republic",
+        "locators": [{"kind": "page", "value": "5"}]}))
+    .unwrap();
+    assert_eq!(
+        check_citation(&ambiguous, &library()).unwrap_err()[0].code,
+        CitationDiagnosticCode::AmbiguousLocator
+    );
+    let archived = citation_from_parts(&json!({"key": "paris-gr-1807"})).unwrap();
+    assert_eq!(
+        check_citation(&archived, &library()).unwrap().markdown,
+        "[@paris-gr-1807]"
+    );
+}
+
+#[test]
+fn hostile_citation_parts_are_refused() {
+    for parts in [
+        json!("text"),
+        json!({"key": "Bad Key"}),
+        json!({"key": "../etc"}),
+        json!({"key": "plato-republic", "locators": "page 5"}),
+        json!({"key": "plato-republic", "locators": [{"kind": "zzz", "value": "1"}]}),
+        json!({"key": "plato-republic", "locators": [{"kind": "page", "value": "1]"}]}),
+        json!({"key": "plato-republic", "locators": [{"kind": "page", "value": "1; line 2"}]}),
+        json!({"key": "plato-republic", "locators": [{"kind": "page", "value": 5}]}),
+        json!({"key": "plato-republic", "locators": [{"kind": "page"}]}),
+        json!({"key": "plato-republic", "locators": [{"kind": "page", "value": "1\u{202e}"}]}),
+        json!({"key": "plato-republic",
+            "locators": vec![json!({"kind": "line", "value": "1"}); MAX_CITATION_LOCATORS + 1]}),
+    ] {
+        assert!(citation_from_parts(&parts).is_err(), "{parts}");
+    }
 }

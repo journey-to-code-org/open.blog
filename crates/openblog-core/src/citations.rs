@@ -636,6 +636,108 @@ pub fn resolve_citations(
     out
 }
 
+/// Read a citation an editor built from parts: `{"key": "...", "locators":
+/// [{"kind": "page", "value": "514", "to": "520"}]}`. Only `kind`, `value`
+/// and `to` are read from a locator, so fields a notebook locator carries
+/// (or anything else a client sends) are never copied into the citation.
+pub fn citation_from_parts(value: &Value) -> Result<Citation, CitationDiagnostic> {
+    let key = match value.get("key") {
+        Some(Value::String(key)) if valid_source_id(key) => key.clone(),
+        _ => return Err(diag(CitationDiagnosticCode::InvalidKey, None, KEY_MESSAGE)),
+    };
+    let none = Vec::new();
+    let list = match value.get("locators") {
+        None | Some(Value::Null) => &none,
+        Some(Value::Array(list)) => list,
+        Some(_) => return Err(locator_diag(&key, "locators must be a list")),
+    };
+    if list.len() > MAX_CITATION_LOCATORS {
+        return Err(too_many_locators(&key));
+    }
+    let mut locators = Vec::with_capacity(list.len());
+    for entry in list {
+        let kind = entry
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let kind = LocatorKind::parse(kind).ok_or_else(|| {
+            diag(
+                CitationDiagnosticCode::UnknownLocatorKind,
+                Some(&key),
+                "use page, folio, line, section, chapter, canonical, timestamp, or an `x-` extension kind",
+            )
+        })?;
+        let text = |name: &str| match entry.get(name) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(text)) => Ok(Some(text.clone())),
+            Some(_) => Err(locator_diag(
+                &key,
+                format!("the locator {name} must be text"),
+            )),
+        };
+        let locator = Locator {
+            kind,
+            value: text("value")?.unwrap_or_default(),
+            to: text("to")?.filter(|to| !to.is_empty()),
+            extra: BTreeMap::new(),
+        };
+        check_locator(&locator).map_err(|message| locator_diag(&key, message))?;
+        locators.push(locator);
+    }
+    Ok(Citation { key, locators })
+}
+
+/// A citation that resolves against the library, with the Markdown that
+/// writes it and the reference it points at.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CheckedCitation {
+    /// The canonical `[@key, ...]` text, which scans back to this citation.
+    pub markdown: String,
+    pub key: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub locators: Vec<PublicLocator>,
+    pub reference: PublicReference,
+    /// The plain-text rendering of the reference.
+    pub formatted: String,
+}
+
+/// Check a citation the way a build will read it: write it as Markdown, scan
+/// that Markdown back, and resolve the result against the source library.
+/// Any step that fails is reported for this one citation; nothing is written.
+pub fn check_citation(
+    citation: &Citation,
+    library: &SourceLibrary,
+) -> Result<CheckedCitation, Vec<CitationDiagnostic>> {
+    let markdown = format_citation(citation).map_err(|found| vec![found])?;
+    let scan = scan_citations(&markdown);
+    let reads_back = scan.diagnostics.is_empty()
+        && scan.mentions.len() == 1
+        && scan.mentions[0].span == (0..markdown.len())
+        && scan.mentions[0].citation == *citation;
+    if !reads_back {
+        return Err(vec![diag(
+            CitationDiagnosticCode::MalformedCitation,
+            Some(&citation.key),
+            "this citation cannot be written as Markdown that reads back the same",
+        )]);
+    }
+    let mut resolved = resolve_citations(&scan.mentions, library);
+    if !resolved.diagnostics.is_empty() {
+        for found in &mut resolved.diagnostics {
+            found.line = None;
+        }
+        return Err(resolved.diagnostics);
+    }
+    let reference = resolved.references.remove(0);
+    Ok(CheckedCitation {
+        formatted: format_reference(&reference),
+        markdown,
+        key: citation.key.clone(),
+        locators: public_locators(&citation.locators),
+        reference,
+    })
+}
+
 /// What CSL interchange does with a CSL variable (ADR 0052).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CslFate {
