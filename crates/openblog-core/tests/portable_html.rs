@@ -119,7 +119,7 @@ fn text_without_tags(html: &str) -> String {
 }
 
 /// Static checks a no-JavaScript or no-stylesheet reader depends on. Print is
-/// covered by `quiz_answers_stay_behind_a_closed_disclosure_in_print`.
+/// covered by `quiz_answers_are_visible_without_disclosure_on_screen_and_in_print`.
 fn assert_static_and_accessible(name: &str, html: &str) {
     let tags = tags(html);
     let mut stack: Vec<&str> = Vec::new();
@@ -286,23 +286,20 @@ fn video_lesson_fallbacks_match_the_golden_output() {
     }
 }
 
-/// Print policy: the answer and explanation sit in a closed `<details>`, which
-/// browsers print collapsed. A printed knowledge check therefore shows the
-/// prompt and choices, and the reader opens the disclosure first to print the
-/// answer; the answer is never shown before the reader asks.
 #[test]
-fn quiz_answers_stay_behind_a_closed_disclosure_in_print() {
+fn quiz_answers_are_visible_without_disclosure_on_screen_and_in_print() {
     let (html, _) = portable("video-lesson");
-    assert!(!html.contains("<details open"), "{html}");
+    assert!(!html.contains("<details"), "{html}");
     for answer in ["Answer: B.", "Answer: A. No"] {
         let at = html.find(answer).expect(answer);
         let opened = html[..at]
-            .rfind("<details class=\"ob-quiz-answer\"><summary>Show answer</summary>")
-            .expect("answer outside a disclosure");
+            .rfind("<div class=\"ob-quiz-answer\">")
+            .expect("answer outside a visible answer block");
         assert!(
-            !html[opened..at].contains("</details>"),
-            "{answer} must sit inside its disclosure"
+            !html[opened..at].contains("</div>"),
+            "{answer} must sit inside its visible answer block"
         );
+        assert!(html[..opened].ends_with("</ol>\n"));
     }
 }
 

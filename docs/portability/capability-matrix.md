@@ -64,7 +64,7 @@ private and never enter a public projection.
 | Capability | Authored/public meaning retained | Portable behavior and order | Interaction loss / private state |
 | --- | --- | --- | --- |
 | Knowledge check | Prompt, choices, designated answer, and explanation | Static question, ordered choices, then answer and explanation; Markdown labels the answer explicitly | Scoring, retries, and remembered attempts are unavailable |
-| Runnable code | Caption/title and complete source | Caption, source code block, then canonical run/edit link | Editing and execution remain on the canonical article |
+| Runnable code | Caption/title and complete source | Caption, source code block, optional prefilled Rust Playground link, then canonical run/edit link. `playgroundLink=false` or an encoded URL over 8 KiB omits only the external link | In-copy editing and execution are unavailable; eligible Rust examples can be opened externally |
 | Web sandbox | HTML, CSS, and JavaScript source sections | Each source section is a separately labeled code block; canonical link follows | Live preview and execution are unavailable |
 | Discussion/comments | Canonical article identity and discussion link | A labeled canonical link after article content | Submissions, reader identity, moderation queues, and hosted endpoint details are not exported |
 | Planned public interactions | Existing authored prose and its position | Labeled canonical link after the preserved authored content; planned behavior is not claimed as implemented | Future interactions remain canonical-only until an owning story defines semantics |

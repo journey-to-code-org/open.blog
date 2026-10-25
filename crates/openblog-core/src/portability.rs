@@ -833,7 +833,7 @@ fn transformation_summary(capability: &str) -> &'static str {
             "The question and answer are preserved; scoring, retry, and remembered attempts are unavailable"
         }
         "runnable-code" => {
-            "The source code is preserved; editing and execution remain on the canonical article"
+            "The source code and canonical run/edit link are preserved; eligible Rust examples also link to the external Playground"
         }
         "web-sandbox" => {
             "The HTML, CSS, and JavaScript sources are preserved; the live preview remains on the canonical article"
@@ -949,6 +949,13 @@ fn portable_markdown_body(
             let normalized_language = if language == "web" { "text" } else { language };
             output.push_str(&markdown_code_fence(normalized_language, &source));
             if runnable {
+                if language == "rust" && !tokens.iter().any(|token| token == "playgroundLink=false")
+                {
+                    if let Some(url) = crate::markdown::rust_playground_url(&format!("{source}\n"))
+                    {
+                        output.push_str(&format!("\n[Open in Rust Playground]({url}).\n"));
+                    }
+                }
                 output.push_str(&format!(
                     "\n[Run and edit this example on the canonical article]({}).\n",
                     markdown_destination(canonical_url)
@@ -1453,7 +1460,7 @@ mod tests {
             "---\ntitle: Work\ndate: 2026-10-01\n---\n```quiz\nWhat does `draft: true` do?\n- [ ] Publishes *privately*\n- [x] Excludes the post from public builds\n> Drafts stay in preview.\n```\n",
         );
         assert!(output.html.contains(
-            "<section class=\"ob-knowledge-check\" aria-label=\"Knowledge check\">\n<div class=\"ob-quiz\">\n<p class=\"ob-quiz-prompt\"><strong>What does <code>draft: true</code> do?</strong></p>\n<ol class=\"ob-quiz-choices\" type=\"A\">\n<li>Publishes <em>privately</em></li>\n<li>Excludes the post from public builds</li>\n</ol>\n<details class=\"ob-quiz-answer\"><summary>Show answer</summary>\n<p>Answer: B. Excludes the post from public builds</p>\n<p>Drafts stay in preview.</p>\n</details>\n</div>\n</section>\n"
+            "<section class=\"ob-knowledge-check\" aria-label=\"Knowledge check\">\n<div class=\"ob-quiz\">\n<p class=\"ob-quiz-prompt\"><strong>What does <code>draft: true</code> do?</strong></p>\n<ol class=\"ob-quiz-choices\" type=\"A\">\n<li>Publishes <em>privately</em></li>\n<li>Excludes the post from public builds</li>\n</ol>\n<div class=\"ob-quiz-answer\">\n<p>Answer: B. Excludes the post from public builds</p>\n<p>Drafts stay in preview.</p>\n</div>\n</div>\n</section>\n"
         ), "{}", output.html);
         for runtime in [
             "<ob-quiz",
@@ -1474,8 +1481,9 @@ mod tests {
             "---\ntitle: Work\ndate: 2026-10-01\n---\n```rust runnable title=\"src/<main>.rs\" {2} showLineNumbers\nfn main() {\n    println!(\"<hi> & bye\");\n}\n```\n\n```python runnable\nprint('static')\n```\n",
         );
         assert!(output.html.contains(
-            "<figure class=\"ob-code-block ob-runnable-code\"><figcaption class=\"ob-code-title\">src/&lt;main&gt;.rs</figcaption><pre><code class=\"language-rust\" data-line-numbers=\"true\" data-highlight-lines=\"2\">fn main() {\n    println!(&quot;&lt;hi&gt; &amp; bye&quot;);\n}\n</code></pre><p class=\"ob-portable-note\">Run and edit this example on <a href=\"https://example.test/blog/work/\">the original article</a>.</p></figure>\n"
+            "<figure class=\"ob-code-block ob-runnable-code\"><figcaption class=\"ob-code-title\">src/&lt;main&gt;.rs</figcaption><pre><code class=\"language-rust\" data-line-numbers=\"true\" data-highlight-lines=\"2\">fn main() {\n    println!(&quot;&lt;hi&gt; &amp; bye&quot;);\n}\n</code></pre>"
         ), "{}", output.html);
+        assert!(output.html.contains("<p class=\"ob-portable-note\">Run and edit this example on <a href=\"https://example.test/blog/work/\">the original article</a>.</p></figure>"));
         assert!(
             output
                 .html
@@ -1498,6 +1506,85 @@ mod tests {
                 ("runnable-code", None)
             ]
         );
+    }
+
+    #[test]
+    fn portable_rust_playground_links_preserve_exact_source_and_runner_options() {
+        let source = "fn main() {\n    println!(\"café & + # ? \\\" </script>\");\n}\n";
+        let contents =
+            format!("---\ntitle: Work\ndate: 2026-10-01\n---\n```rust runnable\n{source}```\n");
+        let (config, site) = public_post(&contents);
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let html = projection.portable_html().unwrap().html;
+        let markdown = projection.portable_markdown().unwrap();
+        let markdown_url = markdown
+            .split("[Open in Rust Playground](")
+            .nth(1)
+            .unwrap()
+            .split(')')
+            .next()
+            .unwrap();
+        let url = Url::parse(markdown_url).unwrap();
+        let query = url
+            .query_pairs()
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            url.origin().ascii_serialization(),
+            "https://play.rust-lang.org"
+        );
+        assert_eq!(query.get("code").unwrap(), source);
+        assert_eq!(query.get("version").unwrap(), "stable");
+        assert_eq!(query.get("mode").unwrap(), "debug");
+        assert_eq!(query.get("edition").unwrap(), "2021");
+        assert!(html.contains(&format!("href=\"{}\"", escape::attr(markdown_url))));
+        assert!(html.contains(projection.canonical_url()));
+        assert!(markdown.contains(projection.canonical_url()));
+        assert!(!html.contains("<script>"));
+        assert!(site.posts[0].html.contains("<ob-rust-playground"));
+    }
+
+    #[test]
+    fn portable_playground_links_honor_opt_out_and_keep_long_snippets_without_links() {
+        for info in [
+            "rust runnable playgroundLink=false",
+            "python runnable",
+            "rust",
+        ] {
+            let contents = format!(
+                "---\ntitle: Work\ndate: 2026-10-01\n---\n```{info}\nfn main() {{}}\n```\n"
+            );
+            let (config, site) = public_post(&contents);
+            let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+            assert!(!projection
+                .portable_html()
+                .unwrap()
+                .html
+                .contains("play.rust-lang.org"));
+            assert!(!projection
+                .portable_markdown()
+                .unwrap()
+                .contains("play.rust-lang.org"));
+        }
+        let source = format!("// {}\nfn main() {{}}\n", "x".repeat(8 * 1024));
+        let contents =
+            format!("---\ntitle: Work\ndate: 2026-10-01\n---\n```rust runnable\n{source}```\n");
+        let (config, site) = public_post(&contents);
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let html = projection.portable_html().unwrap().html;
+        let markdown = projection.portable_markdown().unwrap();
+        for output in [&html, &markdown] {
+            assert!(!output.contains("play.rust-lang.org"));
+            assert!(output.contains(&source));
+            assert!(output.contains(projection.canonical_url()));
+        }
+        let prefix = crate::markdown::rust_playground_url("").unwrap().len();
+        assert_eq!(
+            crate::markdown::rust_playground_url(&"x".repeat(8 * 1024 - prefix))
+                .unwrap()
+                .len(),
+            8 * 1024
+        );
+        assert!(crate::markdown::rust_playground_url(&"x".repeat(8 * 1024 - prefix + 1)).is_none());
     }
 
     #[test]
