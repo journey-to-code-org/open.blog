@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added optional mutual reveal for shared reflections. A coordinator chooses whether sharing is off
+  (the default), voluntary, or requires everyone to be ready. Each contributor marks one exact
+  revision ready and can take it back until the reveal happens; then everyone involved sees those
+  revisions together. A comparison lists everyone in order by name and shows a placeholder for any
+  section not revealed to you. Changing the policy never reveals anything, and removed members
+  neither block nor receive a reveal.
 - Added private draft saving for shared reflections: a Contributor or Editor can save and read only
   their own section through Admin. Each save appends a revision; a save made on an out-of-date
   copy is refused with the newer copy and overwrites nothing. Drafts stay under the project's

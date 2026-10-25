@@ -133,6 +133,8 @@ contribution draft, granted only by a mutual exchange that takes effect for all 
 for none. A reveal does not publish the draft, approve an assembly, or imply a two-person exchange. Only the listed
 participants may receive the draft; permission to view revealed drafts in general does not widen
 that list.
+A coordinator-chosen reveal policy (independent, voluntary, all-ready) and each participant's
+per-revision readiness decide when an exchange forms (ADR 0018).
 _Avoid_: Publication, approval, left-to-right handoff
 
 **Approval**:
