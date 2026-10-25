@@ -108,6 +108,14 @@ pub fn entries_using_source(
         })
 }
 
+/// Whether the stored notebook is still valid against a library that is about
+/// to replace the stored one. An absent notebook always is.
+pub fn check_against_library(root: &Path, library: &SourceLibrary) -> Result<(), String> {
+    read(root, library.clone())
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 type Edit<'a, T> = dyn Fn(&mut Notebook, &SourceLibrary) -> Result<T, Vec<NoteDiagnostic>> + 'a;
 
 /// Add a passage whose identifier is not yet in the notebook.

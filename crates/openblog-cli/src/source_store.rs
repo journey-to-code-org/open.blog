@@ -118,7 +118,9 @@ pub fn update(
         if library.get(&record.id).is_none() {
             return Err(vec![unknown_source(&record.id)]);
         }
-        library.upsert(record.clone(), contributors)
+        let before = library.clone();
+        library.upsert(record.clone(), contributors)?;
+        keep_notebook_valid(root, &before, library, Some(&record.id))
     })
     .map(|(snapshot, ())| snapshot)
 }
@@ -153,9 +155,38 @@ pub fn import_csl(
     contributors: &BTreeMap<String, Contributor>,
 ) -> Result<(Snapshot, ImportPlan), StoreError> {
     change(root, expected_revision, contributors, |library| {
+        let before = library.clone();
         let plan = plan_csl_import(library, text, contributors)?;
         *library = plan.apply(library, contributors)?;
+        keep_notebook_valid(root, &before, library, None)?;
         Ok(plan)
+    })
+}
+
+/// A library change must not leave a valid private notebook invalid, for
+/// example by re-pointing a reference so a stored page or folio locator turns
+/// ambiguous. The check runs under the library lock, as removal's does. A
+/// notebook that was already unreadable against the stored library does not
+/// block unrelated library edits; it is reported when it is next read.
+fn keep_notebook_valid(
+    root: &Path,
+    before: &SourceLibrary,
+    after: &SourceLibrary,
+    id: Option<&str>,
+) -> Result<(), Vec<SourceDiagnostic>> {
+    if crate::notebook_store::check_against_library(root, before).is_err() {
+        return Ok(());
+    }
+    crate::notebook_store::check_against_library(root, after).map_err(|message| {
+        vec![SourceDiagnostic {
+            code: SourceDiagnosticCode::StillUsed,
+            index: None,
+            source_id: id.map(str::to_string),
+            field: None,
+            message: format!(
+                "the change would leave the research notebook invalid, so nothing was saved ({message}); adjust or remove the affected notes and passages first"
+            ),
+        }]
     })
 }
 
@@ -1148,6 +1179,59 @@ mod tests {
         for n in 0..6 {
             assert!(library.get(&format!("w{n}")).is_some());
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn repointing_a_reference_cannot_make_stored_locators_ambiguous() {
+        let root = temp_root("notebook-guard");
+        let library = serde_json::json!({"version": 1, "sources": [
+            {"id": "plato", "kind": "work", "title": "Politeia"},
+            {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings"},
+            {"id": "ref", "kind": "reference", "of": "slings"}]});
+        fs::create_dir_all(library_file(&root).parent().unwrap()).unwrap();
+        fs::write(library_file(&root), library.to_string()).unwrap();
+        let notebook = root.join(crate::notebook_store::NOTEBOOK_FILE);
+        let text = serde_json::json!({"version": 1, "notes": [], "passages": [
+            {"id": "p1", "source": "ref", "excerpt": {"text": "q"},
+             "locators": [{"kind": "page", "value": "514"}]}]})
+        .to_string();
+        fs::write(&notebook, &text).unwrap();
+        let before = load(&root, &none()).unwrap();
+        let library_bytes = fs::read(library_file(&root)).unwrap();
+
+        // Pointing the reference at the work makes page 514 ambiguous.
+        let mut moved = before.library.get("ref").unwrap().clone();
+        moved.of = Some("plato".into());
+        let refused = update(&root, &before.revision, moved, &none());
+        let Err(StoreError::Invalid(found)) = refused else {
+            panic!("the change must be refused")
+        };
+        assert_eq!(found[0].source_id.as_deref(), Some("ref"));
+        assert!(
+            found[0].message.contains("research notebook"),
+            "{}",
+            found[0].message
+        );
+        assert!(
+            found[0].message.contains("ambiguous-locator"),
+            "{}",
+            found[0].message
+        );
+        assert_eq!(fs::read(library_file(&root)).unwrap(), library_bytes);
+        assert_eq!(fs::read_to_string(&notebook).unwrap(), text);
+
+        // A change that keeps the notebook valid still goes through.
+        let mut renamed = before.library.get("slings").unwrap().clone();
+        renamed.title = Some("Slings 2003".into());
+        assert!(update(&root, &before.revision, renamed, &none()).is_ok());
+
+        // A notebook that was already unreadable does not freeze the library.
+        fs::write(&notebook, b"{").unwrap();
+        let now = load(&root, &none()).unwrap();
+        let mut again = now.library.get("slings").unwrap().clone();
+        again.title = Some("Slings 2004".into());
+        assert!(update(&root, &now.revision, again, &none()).is_ok());
         fs::remove_dir_all(root).unwrap();
     }
 }
