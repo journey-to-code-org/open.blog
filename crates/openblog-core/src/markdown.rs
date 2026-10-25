@@ -376,7 +376,7 @@ fn render_quiz(
 }
 
 /// A knowledge check without controls: the prompt, lettered choices, and the
-/// author's answer and explanation behind a native disclosure.
+/// author's answer and explanation immediately after the choices.
 fn render_portable_quiz(source: &str) -> Result<String, String> {
     let quiz = parse_quiz(source)?;
     let mut html = format!(
@@ -400,7 +400,7 @@ fn render_portable_quiz(source: &str) -> Result<String, String> {
     }
     html.push_str(&format!(
         "</ol>
-<details class=\"ob-quiz-answer\"><summary>Show answer</summary>
+<div class=\"ob-quiz-answer\">
 <p>Answer: {answer}</p>
 "
     ));
@@ -412,7 +412,7 @@ fn render_portable_quiz(source: &str) -> Result<String, String> {
         ));
     }
     html.push_str(
-        "</details>
+        "</div>
 </div>
 ",
     );
@@ -457,8 +457,19 @@ fn line_attributes(fence: &FenceInfo) -> String {
     attributes
 }
 
-/// A runnable fence without its runtime: the authored source stays visible as code
-/// and the live interaction is pointed at the canonical article.
+pub(crate) fn rust_playground_url(source: &str) -> Option<String> {
+    let mut url = url::Url::parse("https://play.rust-lang.org/").expect("static Playground URL");
+    url.query_pairs_mut()
+        .append_pair("version", "stable")
+        .append_pair("mode", "debug")
+        .append_pair("edition", "2021")
+        .append_pair("code", source);
+    // Keep exported links practical for feed readers and destination importers.
+    (url.as_str().len() <= 8 * 1024).then(|| url.into())
+}
+
+/// A runnable fence without its runtime: source, an optional external Playground
+/// link for Rust, and a link back to the canonical article.
 fn portable_code_html(
     fence: &FenceInfo,
     source: &str,
@@ -526,6 +537,14 @@ fn portable_code_html(
         "Open the live preview on"
     } else {
         html.push_str(&code(&fence.lang, source, &line_attributes(fence)));
+        if fence.lang == "rust" && fence.playground_link != Some(false) {
+            if let Some(url) = rust_playground_url(source) {
+                html.push_str(&format!(
+                    "<p class=\"ob-playground-link\"><a href=\"{}\">Open in Rust Playground</a>.</p>",
+                    escape::attr(&url)
+                ));
+            }
+        }
         "Run and edit this example on"
     };
     html.push_str(&format!(

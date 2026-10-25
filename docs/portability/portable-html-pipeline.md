@@ -22,7 +22,8 @@ transformation, and recommended action. Authored raw HTML follows the
 
 Portable Markdown is a CommonMark-oriented article with a canonical identity header and public
 attribution/provenance metadata. Knowledge checks become a question, choices, answer, and
-explanation; runnable fences become ordinary code with a canonical-run link; web sandboxes become
+explanation; runnable fences become ordinary code with a canonical-run link and, for eligible
+Rust examples, a prefilled Playground link; web sandboxes become
 labelled source fences; callouts become titled blockquotes. Raw HTML is escaped and called out
 rather than executed. Markdown source can be inspected without writing files:
 
@@ -48,8 +49,8 @@ iframe, `hidden` attribute, or stylesheet. Each current capability renders as or
 
 | Capability | Portable fallback | What moves to the canonical article |
 | --- | --- | --- |
-| Knowledge check (`quiz` fence) | The prompt, choices as a lettered list, and the author's answer and explanation inside a native `<details>` disclosure, so the answer stays on request. | Scoring, retry, and remembered answers. |
-| Runnable code (`rust runnable`, configured runner languages) | The authored source in `<pre><code>` with its title and line options (`showLineNumbers`, the start line, and `{2}` highlights as `data-line-*` attributes, as on ordinary fences), plus a link to run and edit it on the canonical article. Fences the canonical page cannot run stay ordinary code. The runner endpoint is never included. | Editing, execution, and output. |
+| Knowledge check (`quiz` fence) | The prompt, choices as a lettered list, then the author's answer and explanation, visible without opening a disclosure. Portable Markdown likewise shows the answer after the choices. | Scoring, retry, and remembered answers. |
+| Runnable code (`rust runnable`, configured runner languages) | The authored source in `<pre><code>` with its title and line options (`showLineNumbers`, the start line, and `{2}` highlights as `data-line-*` attributes, as on ordinary fences), plus a canonical run/edit link. Rust examples also have an **Open in Rust Playground** link with the exact source URL-encoded, using stable/debug/Rust 2021 to match the native runner. `playgroundLink=false` opts out. Encoded URLs over 8 KiB omit the external link, never the source or canonical link. Fences the canonical page cannot run stay ordinary code. The runner endpoint is never included. | In-copy editing, execution, and output; eligible Rust examples can be opened externally. |
 | Web sandbox (`web runnable`) | The HTML, CSS, and JavaScript as separate, labelled, escaped code blocks (text before the first marker is kept), plus a link to the live preview. | The isolated live preview. |
 | CodePen and YouTube embeds | A titled link to the provider: the authored link text and address when present, otherwise the rebuilt provider address. Hashnode `%[url]` syntax never reaches the output. A video post's `videoUrl` becomes a link at the top unless the body already links that video, after the same production notes (season and episode, status, credits) the native page shows. | The embedded frame. |
 | Video chapters | In video posts, a paragraph whose lines (two or more) all start with a timestamp, or a tight bulleted list (`- 00:00 Intro`) whose items all do, becomes an ordered chapter list. Timestamps follow the Admin release kit: `M:SS` or `H:M:SS` with up to two hour and three minute digits, with seconds (and, after an hour, minutes) under 60. The list has `<time>` values, linked to that moment when the post has a YouTube video. | Nothing. |
@@ -57,9 +58,12 @@ iframe, `hidden` attribute, or stylesheet. Each current capability renders as or
 | Comments | When the canonical page offers comments, a link to join (or, when locked, read) the discussion there, reported as a `comments` capability with the canonical-only portability level. Hidden comments or an unconfigured backend add nothing, and the hosted endpoint never appears. | Reading and posting comments. |
 
 open.blog has no authored expected-output field for runnable code: output an author writes as
-ordinary Markdown next to the fence stays visible like any other content. A closed `<details>`
-disclosure may print collapsed, so a reader who wants the answer on paper opens it first: the
-answer is never shown before the reader asks, on screen or in print.
+ordinary Markdown next to the fence stays visible like any other content. Portable quiz answers
+are visible on screen and in print; the native quiz retains its interactive answer-checking flow.
+Generating an external Playground link makes no network request and creates no Gist. The
+reader chooses whether to send the embedded source to the Playground by following the link.
+Web sandboxes remain labeled, copyable HTML/CSS/JavaScript source plus a canonical live-preview
+link; no CodePen export or remote write is attempted.
 
 A `quiz` or `web runnable` fence with no text at all has always built, so it still builds (an
 empty knowledge check, or a sandbox with no source); any written content is validated.

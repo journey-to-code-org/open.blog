@@ -10,7 +10,7 @@
 <aside class="ob-callout ob-callout-note" role="note"><p class="ob-callout-title"><strong>Note</strong></p>
 <p>Nested inside a callout:</p>
 <figure class="ob-code-block ob-runnable-code"><figcaption class="ob-code-title">src/&lt;main&gt; &amp; &#39;lib&#39;.rs</figcaption><pre><code class="language-rust">fn main() { println!(&quot;&lt;/code&gt;&lt;/pre&gt;&lt;script&gt;alert(1)&lt;/script&gt;&quot;); }
-</code></pre><p class="ob-portable-note">Run and edit this example on <a href="https://example.test/blog/video-lesson/">the original article</a>.</p></figure>
+</code></pre><p class="ob-playground-link"><a href="https://play.rust-lang.org/?version=stable&amp;mode=debug&amp;edition=2021&amp;code=fn+main%28%29+%7B+println%21%28%22%3C%2Fcode%3E%3C%2Fpre%3E%3Cscript%3Ealert%281%29%3C%2Fscript%3E%22%29%3B+%7D%0A">Open in Rust Playground</a>.</p><p class="ob-portable-note">Run and edit this example on <a href="https://example.test/blog/video-lesson/">the original article</a>.</p></figure>
 </aside>
 <p>An indented block after a titled runnable fence stays plain code:</p>
 <pre><code>cargo run --release
@@ -23,10 +23,10 @@
 <li><code>&lt;details&gt;</code></li>
 <li><code>&lt;ob-quiz&gt;</code></li>
 </ol>
-<details class="ob-quiz-answer"><summary>Show answer</summary>
+<div class="ob-quiz-answer">
 <p>Answer: B. <code>&lt;details&gt;</code></p>
 <p>Native disclosure works without JavaScript — even in Zürich.</p>
-</details>
+</div>
 </div>
 <div class="ob-quiz">
 <p class="ob-quiz-prompt"><strong>Is the answer shown before the reader asks?</strong></p>
@@ -34,9 +34,9 @@
 <li>No</li>
 <li>Yes</li>
 </ol>
-<details class="ob-quiz-answer"><summary>Show answer</summary>
+<div class="ob-quiz-answer">
 <p>Answer: A. No</p>
-</details>
+</div>
 </div>
 </section>
 <figure class="ob-code-block ob-web-sandbox"><figcaption class="ob-code-title">Try it</figcaption><p class="ob-web-sandbox-label">HTML</p><pre><code class="language-html">&lt;button onclick=&quot;alert(1)&quot;&gt;Hi&lt;/button&gt;
