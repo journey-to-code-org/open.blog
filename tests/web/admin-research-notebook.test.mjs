@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  Editor,
   ObAdmin,
   captureSources,
   createCaptureForm,
@@ -79,6 +80,13 @@ class DomNode {
   }
   contains(node) {
     for (let current = node; current; current = current.parent) if (current === this) return true;
+    return false;
+  }
+  removeAttribute(name) {
+    delete this.attributes[name];
+  }
+  get isConnected() {
+    for (let node = this; node; node = node.parent) if (node === this.owner?.body) return true;
     return false;
   }
   getAttribute(name) {
@@ -580,3 +588,193 @@ test("capture styles keep focus visible, targets large, and add no motion", () =
   assert.doesNotMatch(css, /transition|animation/);
   assert.match(css, /max-width: 100%/);
 });
+
+// ---------------------------------------------------------------- review follow-ups
+
+const conflictApi = (current, over = {}) =>
+  notebookApi({
+    "GET research/notebook": () => notebook({ revision: "r9" }),
+    "PUT research/passages": (body) => {
+      if (body.revision !== "r9") throw new ApiError("changed", 409, { conflict: true, revision: "r9", current });
+      return { revision: "r10", sources: SOURCES(), passages: [body.passage], notes: [], passage: body.passage };
+    },
+    ...over,
+  });
+
+test("an edit conflict blocks saving until the author picks a copy, then rests the draft on the stored one", withDom(async () => {
+  const newer = { ...PASSAGE(), excerpt: { text: "newer words", scan: "p2.png" }, extra: 2, fresh: "from elsewhere" };
+  const api = conflictApi(newer);
+  const form = createCaptureForm({ api, state: formState({ passages: [PASSAGE()] }), entry: PASSAGE(), entryType: "passage" });
+  await type(byId(form.element, "oba-capture-excerpt"), "my words");
+  await submit(form.element);
+  assert.equal(api.calls.length, 1);
+  assert.ok(buttonLabelled(form.element, "Use the stored copy") && buttonLabelled(form.element, "Keep my draft"));
+  assert.equal(buttonLabelled(form.element, "Save changes").disabled, true);
+  await submit(form.element);
+  assert.equal(api.calls.length, 1, "nothing is resubmitted before a choice");
+  assert.match(byId(form.element, "oba-capture-error").textContent, /Choose the stored copy or keep your draft/);
+  await buttonLabelled(form.element, "Keep my draft").click();
+  assert.equal(byId(form.element, "oba-capture-excerpt").value, "my words");
+  await submit(form.element);
+  assert.equal(api.calls[1].body.revision, "r9");
+  assert.equal(api.calls[1].body.passage.fresh, "from elsewhere", "fields added elsewhere are not dropped");
+  assert.equal(api.calls[1].body.passage.extra, 2);
+  assert.equal(api.calls[1].body.passage.excerpt.scan, "p2.png");
+  assert.equal(api.calls[1].body.passage.excerpt.text, "my words");
+}));
+
+test("choosing the stored copy replaces the draft with it; a removed entry can only be discarded", withDom(async () => {
+  const newer = { ...PASSAGE(), excerpt: { text: "newer words" } };
+  const form = createCaptureForm({ api: conflictApi(newer), state: formState({ passages: [PASSAGE()] }), entry: PASSAGE(), entryType: "passage" });
+  await type(byId(form.element, "oba-capture-excerpt"), "my words");
+  await submit(form.element);
+  await buttonLabelled(form.element, "Use the stored copy").click();
+  assert.equal(byId(form.element, "oba-capture-excerpt").value, "newer words");
+  assert.ok(!buttonLabelled(form.element, "Save changes").disabled);
+
+  let cancelled = 0;
+  const gone = createCaptureForm({ api: conflictApi(null), state: formState({ passages: [PASSAGE()] }), entry: PASSAGE(), entryType: "passage", onCancel: () => { cancelled += 1; } });
+  await type(byId(gone.element, "oba-capture-excerpt"), "my words");
+  await submit(gone.element);
+  assert.match(gone.element.textContent, /was removed from the notebook/);
+  assert.equal(buttonLabelled(gone.element, "Keep my draft"), undefined);
+  assert.equal(buttonLabelled(gone.element, "Save changes").disabled, true);
+  await buttonLabelled(gone.element, "Discard my draft").click();
+  assert.equal(cancelled, 1);
+}));
+
+test("a conflict in the notebook view refreshes the lists and a kept draft saves on the new copy", withDom(async () => {
+  const latest = notebook({ revision: "r9", passages: [PASSAGE()], notes: [NOTE(), { id: "note-3", kind: "observation", text: "added elsewhere" }] });
+  let reads = 0;
+  const api = conflictApi({ ...PASSAGE(), extra: 5 });
+  const inner = api.call.bind(api);
+  api.call = async (method, path, options) => (method === "GET" ? (reads++ ? latest : notebook()) : inner(method, path, options));
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  await entryButton(root, "passage-1").click();
+  await submit(root);
+  assert.ok(entryButton(root, "note-3"), "the list shows the notebook as it is now");
+  await buttonLabelled(root, "Keep my draft").click();
+  await submit(root);
+  assert.equal(api.calls.at(-1).body.passage.extra, 5);
+  assert.match(root.textContent, /Saved to the private notebook/);
+}));
+
+test("archived sources are offered only for new choices; an edited entry keeps its own, labelled", withDom(async () => {
+  const archivedPassage = { ...PASSAGE(), source: "old" };
+  const editing = createCaptureForm({ api: notebookApi({}), state: formState({ passages: [archivedPassage] }), entry: archivedPassage, entryType: "passage" });
+  const select = byId(editing.element, "oba-capture-source");
+  assert.equal(select.children.find((option) => option.selected)?.value, "old");
+  assert.ok(select.children.some((option) => option.textContent.includes("(archived)")));
+  const fresh = createCaptureForm({ api: notebookApi({}), state: formState(), prefill: { type: "passage" } });
+  assert.ok(!byId(fresh.element, "oba-capture-source").children.some((option) => option.value === "old"));
+  const note = { ...NOTE(), sources: ["old"] };
+  const noteForm = createCaptureForm({ api: notebookApi({}), state: formState({ notes: [note] }), entry: note, entryType: "note" });
+  assert.ok(byId(noteForm.element, "oba-capture-sources-old"), "the archived source is still checkable");
+  assert.ok(noteForm.element.textContent.includes("(archived)"));
+  const freshNote = createCaptureForm({ api: notebookApi({}), state: formState(), prefill: { type: "note" } });
+  assert.equal(byId(freshNote.element, "oba-capture-sources-old"), null);
+}));
+
+test("a client-side error is not left behind on the next submit and never replaces a hint", withDom(async () => {
+  const form = createCaptureForm({ api: notebookApi({ "POST research/passages": (b) => ({ revision: "r2", sources: SOURCES(), passages: [b.passage], notes: [], passage: b.passage }) }), state: formState() });
+  await submit(form.element);
+  const source = byId(form.element, "oba-capture-source");
+  assert.equal(source.getAttribute("aria-invalid"), "true");
+  assert.equal(source.getAttribute("aria-describedby"), "oba-capture-source-hint oba-capture-error");
+  await type(source, "plato-republic", "change");
+  await submit(form.element);
+  assert.equal(source.getAttribute("aria-invalid"), null, "the stale mark is cleared");
+  assert.equal(source.getAttribute("aria-describedby"), "oba-capture-source-hint");
+  const excerpt = byId(form.element, "oba-capture-excerpt");
+  assert.equal(excerpt.getAttribute("aria-invalid"), "true");
+  assert.equal(form.element.querySelectorAll("[aria-invalid]").length, 1);
+}));
+
+// The editor's capture dialog hands focus and selection back however it closes.
+async function withEditor(run) {
+  const dom = installDom();
+  const previousElement = globalThis.HTMLElement;
+  globalThis.HTMLElement = DomNode;
+  try {
+    const body = Object.assign(new DomNode("textarea", dom.document), { value: "Before quote after", selectionStart: 7, selectionEnd: 12 });
+    const ranges = [];
+    body.setSelectionRange = (start, end) => {
+      ranges.push([start, end]);
+      body.selectionStart = start;
+      body.selectionEnd = end;
+    };
+    const trigger = new DomNode("button", dom.document);
+    const api = notebookApi({
+      "GET research/notebook": () => notebook({ passages: [], notes: [] }),
+      "POST research/passages": (b) => ({ revision: "r2", sources: SOURCES(), passages: [b.passage], notes: [], passage: b.passage }),
+      "POST research/notes": () => {
+        throw new ApiError("bad", 422, { diagnostics: [{ field: "text", message: "rejected" }] });
+      },
+    });
+    const editor = new Editor({ meta: {}, api }, { kind: "posts", fields: {}, body: body.value });
+    editor.ui = { body };
+    editor.editorMode = "markdown";
+    const open = async () => {
+      trigger.focus();
+      await editor.openResearchCapture();
+      return dom.document.body.querySelectorAll("dialog")[0];
+    };
+    await run({ dom, editor, body, open, ranges, api });
+  } finally {
+    if (previousElement === undefined) delete globalThis.HTMLElement;
+    else globalThis.HTMLElement = previousElement;
+    dom.restore();
+  }
+}
+const settled = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+test("the capture dialog quotes the selection and Escape returns to the draft with the selection restored", () => withEditor(async ({ dom, editor, body, open, ranges }) => {
+  const dialog = await open();
+  assert.equal(dialog.open, true);
+  assert.equal(byId(dialog, "oba-capture-excerpt").value, "quote");
+  await dialog.dispatch("cancel");
+  assert.equal(dialog.open, false);
+  assert.equal(dom.document.body.querySelectorAll("dialog").length, 0, "the dialog is removed");
+  assert.equal(dom.document.activeElement, body);
+  assert.deepEqual(ranges.at(-1), [7, 12]);
+  assert.equal(body.value, "Before quote after", "the draft is unchanged");
+  assert.equal(editor.writingSurface(), body);
+}));
+
+test("the Cancel button returns to the draft and saves nothing", () => withEditor(async ({ dom, body, open, ranges, api }) => {
+  const dialog = await open();
+  await buttonLabelled(dialog, "Cancel").click();
+  assert.equal(dialog.open, false);
+  assert.equal(dom.document.activeElement, body);
+  assert.deepEqual(ranges.at(-1), [7, 12]);
+  assert.equal(api.calls.length, 0);
+}));
+
+test("a successful save closes the dialog, returns focus, and leaves the draft alone", () => withEditor(async ({ dom, body, open, ranges, api }) => {
+  const dialog = await open();
+  await type(byId(dialog, "oba-capture-source"), "plato-republic", "change");
+  await submit(dialog);
+  assert.equal(api.calls.length, 1);
+  assert.equal(api.calls[0].body.passage.excerpt.text, "quote");
+  assert.equal(dialog.open, false);
+  assert.equal(dom.document.body.querySelectorAll("dialog").length, 0);
+  assert.equal(dom.document.activeElement, body);
+  assert.deepEqual(ranges.at(-1), [7, 12]);
+  assert.equal(body.value, "Before quote after");
+}));
+
+test("a partial save keeps the dialog open, with focus inside it and the selection untouched", () => withEditor(async ({ dom, body, open, ranges, api }) => {
+  const dialog = await open();
+  await type(byId(dialog, "oba-capture-source"), "plato-republic", "change");
+  await type(byId(dialog, "oba-capture-follow-text"), "my note");
+  await submit(dialog);
+  await settled();
+  assert.deepEqual(api.calls.map((call) => call.path), ["research/passages", "research/notes"]);
+  assert.equal(dialog.open, true, "the dialog stays open so the note can be retried");
+  assert.ok(dialog.isConnected);
+  assert.match(dialog.textContent, /The passage was saved, but the note was not/);
+  assert.notEqual(dom.document.activeElement, body);
+  assert.ok(dialog.contains(dom.document.activeElement), "focus stays inside the dialog");
+  assert.equal(ranges.length, 0, "the selection is only restored when the dialog closes");
+}));

@@ -823,7 +823,7 @@ export function entryPreview(entry, limit = 90) {
  * Nothing is saved until the author submits, and every server message reaches
  * the page as text.
  */
-export function createCaptureForm({ api, state, entry = null, entryType = "passage", prefill = {}, idPrefix = "oba-capture", onSaved, onCancel }) {
+export function createCaptureForm({ api, state, entry = null, entryType = "passage", prefill = {}, idPrefix = "oba-capture", onSaved, onCancel, onRefreshed }) {
   let type = entry ? entryType : prefill.type === "note" ? "note" : "passage";
   const editing = Boolean(entry);
   let passage = type === "passage" ? passageDraft(editing ? entry : null, prefill.source || "") : passageDraft(null, prefill.source || "");
@@ -831,7 +831,9 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
   if (!editing) passage.excerpt = prefill.excerpt || "";
   let followUp = { text: "", kind: "observation" };
   let busy = false;
-  let conflict = false;
+  // null, or { current } once a save of an existing entry hit a newer notebook:
+  // the author must choose before anything is sent again.
+  let conflict = null;
   let touched = false;
   const root = h("form", { class: "oba-capture-form", novalidate: true });
   const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
@@ -840,7 +842,10 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
 
   const field = (name, labelText, input, hint) => {
     input.id = `${idPrefix}-${name}`;
-    if (hint) input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+    if (hint) {
+      input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+      input.setAttribute("data-hint-id", `${idPrefix}-${name}-hint`);
+    }
     return h("div", { class: "oba-field", "data-capture-field": name }, h("label", { for: input.id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint) : null);
   };
   const fail = (message, name = "") => {
@@ -849,16 +854,34 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
     const target = name ? control(name) : null;
     if (target) {
       target.setAttribute("aria-invalid", "true");
-      target.setAttribute("aria-describedby", errorBox.id);
+      // The hint stays; the error is added to it, never in its place.
+      target.setAttribute("aria-describedby", [target.getAttribute("data-hint-id"), errorBox.id].filter(Boolean).join(" "));
       target.focus();
     } else errorBox.focus();
+  };
+  const clearInvalid = () => {
+    for (const target of root.querySelectorAll("[aria-invalid]")) {
+      target.removeAttribute("aria-invalid");
+      const hint = target.getAttribute("data-hint-id");
+      if (hint) target.setAttribute("aria-describedby", hint);
+      else target.removeAttribute("aria-describedby");
+    }
+  };
+  // Archived sources are not offered for new choices, but an entry being
+  // edited keeps the source(s) it already has, marked as archived.
+  const keptSources = editing ? [entry.source, ...(Array.isArray(entry.sources) ? entry.sources : [])].filter(Boolean) : [];
+  const sourceChoices = () => {
+    const live = captureSources(state.sources);
+    const archived = (state.sources || []).filter((source) => source.archived && keptSources.includes(source.id));
+    const label = (source) => `${sourceLabel(source)}${source.archived ? " (archived)" : ""} (${source.kind})`;
+    return [...live, ...archived].map((source) => ({ id: source.id, label: label(source) }));
   };
   const sourceSelect = (current, onPick) =>
     h(
       "select",
       { onChange: (event) => onPick(event.target.value) },
       h("option", { value: "", selected: !current }, "Choose a source"),
-      captureSources(state.sources).map((source) => h("option", { value: source.id, selected: current === source.id }, `${sourceLabel(source)} (${source.kind})`)),
+      sourceChoices().map((source) => h("option", { value: source.id, selected: current === source.id }, source.label)),
     );
   const checkList = (name, legend, options, chosen, onToggle) =>
     h(
@@ -872,6 +895,46 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
           })
         : h("p", { class: "oba-small" }, "None yet."),
     );
+
+  const conflictNotice = () => {
+    if (!editing) return h("p", { class: "oba-notice", role: "alert", "data-capture-conflict": "true" }, "The notebook changed after you opened it, so nothing was saved. Your draft is still here; save again to add it to the latest notebook.");
+    const removed = !conflict.current;
+    return h(
+      "div",
+      { class: "oba-notice", role: "alert", "data-capture-conflict": "true" },
+      h("p", {}, removed ? "This entry was removed from the notebook after you opened it, so nothing was saved. Your draft is still here." : "This entry was changed after you opened it, so nothing was saved. Your draft is still here. Choose which copy to continue with; nothing is overwritten until you save."),
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", "data-capture-conflict-use": "stored", onClick: () => resolveConflict(true) }, removed ? "Discard my draft" : "Use the stored copy"),
+        removed ? null : h("button", { class: "oba-btn", type: "button", "data-capture-conflict-use": "draft", onClick: () => resolveConflict(false) }, "Keep my draft"),
+      ),
+    );
+  };
+
+  const resolveConflict = (useStored) => {
+    if (!conflict) return;
+    const { current } = conflict;
+    conflict = null;
+    if (useStored) {
+      if (!current) {
+        touched = false;
+        onCancel?.();
+        return;
+      }
+      if (type === "passage") passage = passageDraft(current);
+      else note = noteDraft(current);
+      touched = false;
+      say("Showing the stored copy.");
+    } else {
+      // The author has seen the newer copy: the draft now rests on it, and its unknown fields carry over.
+      const draft = type === "passage" ? passage : note;
+      draft.original = structuredClone(current);
+      say("Your draft now rests on the latest copy. Review it, then save.");
+    }
+    render();
+    (root.querySelector(type === "passage" ? `#${idPrefix}-excerpt` : `#${idPrefix}-text`) || root.querySelector("[data-capture-save]"))?.focus();
+  };
 
   const render = () => {
     const fields = [];
@@ -911,18 +974,18 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
         field("kind", "Note type", h("select", { onChange: (event) => { note.kind = event.target.value; } }, NOTE_KINDS.map((item) => h("option", { value: item.kind, selected: note.kind === item.kind }, item.label)))),
         field("text", "Note", h("textarea", { rows: 5, value: note.text, onInput: (event) => { note.text = event.target.value; } }), "Your own observation or question. Quoted text belongs in a passage."),
         checkList("passages", "Passages this note is about (optional)", state.passages.map((item) => [item.id, `${entryPreview(item, 60)} (${item.id})`]), note.passages, (value, on) => { note.passages = on ? [...note.passages, value] : note.passages.filter((id) => id !== value); }),
-        checkList("sources", "Sources this note is about (optional)", captureSources(state.sources).map((item) => [item.id, `${sourceLabel(item)} (${item.kind})`]), note.sources, (value, on) => { note.sources = on ? [...note.sources, value] : note.sources.filter((id) => id !== value); }),
+        checkList("sources", "Sources this note is about (optional)", sourceChoices().map((item) => [item.id, item.label]), note.sources, (value, on) => { note.sources = on ? [...note.sources, value] : note.sources.filter((id) => id !== value); }),
         field("concepts", "Concepts (optional)", h("input", { type: "text", value: note.concepts, autocomplete: "off", spellcheck: "false", onInput: (event) => { note.concepts = event.target.value; } }), "Lowercase words separated by commas, such as allegory, the-good."),
       );
     }
     const noSources = type === "passage" && !captureSources(state.sources).length;
-    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-capture-save": "true", disabled: busy || noSources }, editing ? "Save changes" : "Save to notebook");
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-capture-save": "true", disabled: busy || noSources || Boolean(conflict && editing) }, editing ? "Save changes" : "Save to notebook");
     const cancel = h("button", { class: "oba-btn", type: "button", "data-capture-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
     root.replaceChildren(
       ...fields,
       noSources ? h("p", { class: "oba-notice" }, "Add a source to the library first, then capture passages from it. ", h("a", { href: "#/sources" }, "Open sources")) : null,
       errorBox,
-      conflict ? h("p", { class: "oba-notice", role: "alert", "data-capture-conflict": "true" }, "The notebook changed after you opened it, so nothing was saved. Your draft is still here; save again to add it to the latest notebook.") : null,
+      conflict ? conflictNotice() : null,
       h("div", { class: "oba-toolbar" }, save, cancel),
       status,
     );
@@ -949,8 +1012,13 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
   root.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (busy) return;
+    if (conflict && editing) {
+      fail("Choose the stored copy or keep your draft before saving.");
+      return;
+    }
     errorBox.hidden = true;
-    conflict = false;
+    clearInvalid();
+    conflict = null;
     let problem;
     if (type === "passage") {
       problem = validatePassageDraft(passage, state.sources);
@@ -1009,10 +1077,11 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
         } catch {
           // The next save reports whatever is wrong.
         }
-        conflict = true;
+        conflict = { current: error.data.current ?? null };
         say("Not saved: the notebook changed elsewhere.", "oba-error");
         render();
-        root.querySelector("[data-capture-save]")?.focus();
+        onRefreshed?.();
+        (editing ? root.querySelector("[data-capture-conflict-use]") : root.querySelector("[data-capture-save]"))?.focus();
         return;
       }
       say("Not saved. The stored notebook is unchanged.", "oba-error");
@@ -4021,6 +4090,9 @@ export class ObAdmin extends AdminElement {
         entry,
         entryType: selected === "new" ? "passage" : selected.type,
         idPrefix: "oba-research",
+        onRefreshed: () => {
+          if (this.viewVersion === mountedView) renderLists();
+        },
         onSaved: (result) => {
           if (this.viewVersion !== mountedView) return;
           const target = result.note && !result.partial && result.type === "note" ? { type: "note", id: result.note.id } : result.passage ? { type: "passage", id: result.passage.id } : selected;
