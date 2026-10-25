@@ -5,6 +5,9 @@
 !/web/wasm/openblog_wasm.js
 !/web/wasm/openblog_wasm_bg.wasm
 /.openblog
+/tests/browser/node_modules/
+/tests/browser/test-results/
+/tests/browser/playwright-report/
 *.tmp
 .DS_Store
 Thumbs.db

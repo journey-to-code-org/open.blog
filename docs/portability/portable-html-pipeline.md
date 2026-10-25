@@ -46,6 +46,43 @@ Each record is bound to the portable source revision, capability, representation
 Acknowledging records an author's review but does not hide the warning or bypass projection errors;
 changed source content makes the previous record stale.
 
+Diagnostics carry optional `representation`, `destination`, `portabilityLevel`,
+`affectedSemantics`, and `sourceRange` fields alongside their existing code, severity,
+capability, source path, message, and recommendation. Ranges are relative to the Markdown
+body, not front matter: one-based Unicode-character line/column positions, with an
+exclusive end. Repeated capabilities retain separate locations. Article-level findings
+and capabilities without precise parser locations have no range; no location is invented.
+Admin rebases ranges to the exact unsaved body, including its leading blank lines.
+Excluding private state is a privacy boundary, not a loss that may be acknowledged away.
+
+Markdown conversion edits parser-provided source offsets rather than scanning lines for
+custom fences. Nested list/quote containers, multiline inline destinations and reference
+definitions retain their structure. Literal inline and indented code remain examples,
+not links or executable custom syntax.
+
+## Browser release gates
+
+After building the CLI, run the isolated browser project from the repository root:
+
+```sh
+cargo build -p openblog-cli
+npm ci --prefix tests/browser
+cd tests/browser
+npx playwright install chromium
+npm test
+```
+
+CI installs Chromium and its Linux dependencies and runs these same tests. The fixture
+starts the actual authenticated server on loopback with temporary content and credentials;
+it stops its own server and removes its temporary content afterward. Browser XML/JSON
+parsers independently check RSS/JSON Feed parity, discovery, absolute URLs, substantive
+facts, privacy boundaries, and real native anchors. Script-disabled/no-CSS, print,
+reduced-motion, narrow-viewport, and keyboard checks exercise static fallbacks.
+Authenticated tests exercise real unsaved edits, grouped losses, exact downloads,
+clipboard output, source focus/selection, and fail-closed exports after preview errors.
+Windows clipboard reads normalize line endings; downloaded bytes remain exact.
+These automated checks do not claim screen-reader or WCAG conformance.
+
 ## Static fallbacks for interactive capabilities
 
 Generated markup in the projection needs no open.blog script, custom element, form control,
