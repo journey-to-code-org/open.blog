@@ -5,6 +5,29 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-25
+
+- Enforced collaboration roles through one server-side check on the shared reflection record.
+  Readers, editors, and contributors cannot invite or manage invitations, accounts that were
+  disabled or removed lose every grant at once, and operations without a route stay denied. Site
+  ownership alone cannot publish a reflection until each contributor has approved the current
+  revision.
+- Added invitations to shared reflections in Admin Studio. A site owner or coordinator names an
+  existing Admin account, the contributor profile it will appear as, and roles, and gets a private
+  link to pass on; nothing is emailed. The link works once, only for that account, expires in 1 to
+  30 days, and is stored only as a hash. The invitee accepts or declines after signing in; wrong
+  accounts, spent, expired, revoked, and guessed links all fail the same way, and repeated guesses
+  are rate limited. Owners and coordinators can revoke a link or issue a new one. The Admin API
+  adds `/admin/api/collaboration/invitations` (list, create, revoke, reissue, accept, decline).
+
+- Added member management to shared reflections in Admin Studio. Site owners and coordinators see
+  who can sign in, their roles, pending and finished invitations, and warnings when an account or
+  profile no longer exists. They can change roles, remove access, and revoke links, each after an
+  explanation of what changes. Ending access never removes credit for what someone wrote. A change
+  made on a stale view is refused and the list reloads, and the last site owner cannot be removed.
+  The Admin API adds `GET /admin/api/collaboration/members` and `POST .../members/roles` and
+  `.../members/remove`.
+
 ## [0.19.0] - 2026-10-25
 
 - Added import and export to Sources in Admin Studio. Import CSL JSON (for example from

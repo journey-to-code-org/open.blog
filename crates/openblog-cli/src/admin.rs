@@ -20,13 +20,17 @@ use std::time::Duration;
 use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
 use openblog_core::collaboration::{
-    AuthorizationAction, AuthorizationContext, AuthorizationRole, AuthorizationTarget,
-    NewParticipant, NewSharedPublication, NewSourceReference, SharedPublication,
-    SharedPublicationError, SourceField, SourceKind,
+    AuthorizationAction, AuthorizationRole, AuthorizationTarget, NewParticipant,
+    NewSharedPublication, NewSourceReference, SharedPublication, SharedPublicationError,
+    SourceField, SourceKind,
 };
 use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
 use openblog_core::frontmatter::{self, Value};
+use openblog_core::invitation::{
+    Identities, Invitation, InvitationError, InvitationField, NewInvitation,
+};
 use openblog_core::markdown::RenderOptions;
+use openblog_core::members::MemberError;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
 use openblog_core::slug::slugify;
 use openblog_core::source_interchange::{self, plan_csl_import};
@@ -615,6 +619,19 @@ fn authenticated_api(
         ("GET", "collaboration/publications") => list_shared_publications(state, session),
         ("POST", "collaboration/publications") => create_shared_publication(state, req, session),
         ("POST", "collaboration/publications/source-metadata") => shared_source_metadata(req),
+        ("GET", "collaboration/invitations") => list_invitations(state, req, session),
+        ("POST", "collaboration/invitations") => create_invitation(state, req, session),
+        ("POST", "collaboration/invitations/revoke") => revoke_invitation(state, req, session),
+        ("POST", "collaboration/invitations/reissue") => reissue_invitation(state, req, session),
+        ("GET", "collaboration/members") => list_members(state, req, session),
+        ("POST", "collaboration/members/roles") => change_member_roles(state, req, session),
+        ("POST", "collaboration/members/remove") => remove_member(state, req, session),
+        ("POST", "collaboration/invitations/accept") => {
+            answer_invitation(state, req, session, true)
+        }
+        ("POST", "collaboration/invitations/decline") => {
+            answer_invitation(state, req, session, false)
+        }
         ("GET", "status") => status(state),
         ("GET", "analytics") => {
             if !state.analytics_enabled {
@@ -4851,17 +4868,17 @@ fn list_shared_publications(state: &AppState, session: &auth::Session) -> Respon
     let publications = records
         .iter()
         .filter_map(|(_, record)| {
-            let context = AuthorizationContext {
-                publication_id: &record.publication_id,
-                authenticated_admin_user: &session.user,
+            let identities = openblog_core::invitation::Identities {
                 active_admin_users: &admin_users,
                 contributor_ids: &contributor_ids,
-                collaboration: &record.collaboration,
-                target: AuthorizationTarget::Publication,
             };
             record
-                .authorization
-                .authorize(&context, AuthorizationAction::ViewPublication)
+                .authorize(
+                    &session.user,
+                    &identities,
+                    AuthorizationAction::ViewPublication,
+                    AuthorizationTarget::Publication,
+                )
                 .ok()
                 .map(|binding| shared_publication_summary(record, &binding.roles))
         })
@@ -4979,6 +4996,547 @@ fn create_shared_publication(state: &AppState, req: &Request, session: &auth::Se
             )
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Shared publication invitations
+// ---------------------------------------------------------------------------
+
+/// Invitation requests name the publication and the invited account; the inviter always comes
+/// from the session. Unknown fields are refused.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct InviteRequest {
+    publication_id: String,
+    admin_user: String,
+    contributor_id: String,
+    roles: Vec<AuthorizationRole>,
+    #[serde(default)]
+    lifetime_days: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct InvitationActionRequest {
+    publication_id: String,
+    invitation_id: String,
+    #[serde(default)]
+    lifetime_days: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct InvitationTokenRequest {
+    token: String,
+    #[serde(default)]
+    contributor_id: String,
+}
+
+const INVITATION_UNAVAILABLE: &str = "This invitation cannot be used. It may have expired, been withdrawn, already been answered, or be meant for a different account.";
+
+fn invitation_not_found() -> Response {
+    Response::error(
+        404,
+        "That shared reflection was not found, or you cannot invite people to it.",
+    )
+}
+
+fn invitation_problem(error: InvitationError) -> Response {
+    match error {
+        InvitationError::Denied => invitation_not_found(),
+        InvitationError::Unavailable => Response::error(400, INVITATION_UNAVAILABLE),
+        InvitationError::Invalid(field) => {
+            let (name, message) = match field {
+                InvitationField::AdminUser => (
+                    "adminUser",
+                    "Choose an Admin account that is not already taking part or invited.",
+                ),
+                InvitationField::ContributorId => (
+                    "contributorId",
+                    "Choose a contributor profile that is not already taking part or invited.",
+                ),
+                InvitationField::Roles => {
+                    ("roles", "Choose at least one role, without repeating any.")
+                }
+                InvitationField::Lifetime => {
+                    ("lifetimeDays", "An invitation can last from 1 to 30 days.")
+                }
+                InvitationField::Capacity => (
+                    "",
+                    "This shared reflection has too many invitations or participants. Revoke some and try again.",
+                ),
+            };
+            shared_problem(name, message)
+        }
+    }
+}
+
+fn invitation_summary(invitation: &Invitation, now: i64) -> Json {
+    json!({
+        "id": invitation.id,
+        "adminUser": invitation.admin_user,
+        "contributorId": invitation.contributor_id,
+        "roles": invitation.roles,
+        "state": invitation.status(now),
+        "createdAt": invitation.created_at,
+        "expiresAt": invitation.expires_at,
+    })
+}
+
+fn new_invitation_ids() -> Result<(String, String), String> {
+    let bytes: [u8; 6] = auth::random_bytes()?;
+    let id = format!(
+        "invitation-{}",
+        bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    );
+    Ok((id, auth::random_token()?))
+}
+
+/// Everything a request to change invitations needs, loaded in one transaction: the record, the
+/// current identities, and the lock guards. The guards drop with this value.
+struct InvitationTransaction<'a> {
+    _build: MutexGuard<'a, BuildStatus>,
+    _filesystem: Option<crate::transaction::ContentTransactionLock>,
+    record: Option<SharedPublication>,
+    admin_users: Vec<String>,
+    contributor_ids: Vec<String>,
+    contributors: std::collections::BTreeMap<String, String>,
+}
+
+fn invitation_transaction<'a>(
+    state: &'a AppState,
+    publication_id: &str,
+) -> Result<InvitationTransaction<'a>, Response> {
+    let build = lock(&state.build);
+    let filesystem = content_transaction(state)?;
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    let (admin_users, contributor_ids) = collaboration_identities(&state.root, &config)?;
+    let record = crate::shared_publications::load(&state.root, publication_id)
+        .map_err(|error| Response::error(500, &error))?;
+    Ok(InvitationTransaction {
+        _build: build,
+        _filesystem: filesystem,
+        record,
+        admin_users,
+        contributor_ids,
+        contributors: config
+            .contributors
+            .iter()
+            .map(|(key, contributor)| (key.clone(), contributor.name.clone()))
+            .collect(),
+    })
+}
+
+impl InvitationTransaction<'_> {
+    fn with_identities<T>(&self, run: impl FnOnce(&Identities<'_>) -> T) -> T {
+        let admin_users = self
+            .admin_users
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let contributor_ids = self
+            .contributor_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        run(&Identities {
+            active_admin_users: &admin_users,
+            contributor_ids: &contributor_ids,
+        })
+    }
+
+    fn store(&self, root: &Path, next: &SharedPublication) -> Result<(), Response> {
+        let previous = self.record.as_ref().ok_or_else(invitation_not_found)?;
+        match crate::shared_publications::replace(root, previous, next) {
+            Ok(()) => Ok(()),
+            Err(crate::shared_publications::ReplaceError::Conflict) => Err(Response::error(
+                409,
+                "This shared reflection changed while you were working. Reload and try again.",
+            )),
+            Err(crate::shared_publications::ReplaceError::Storage(error)) => {
+                eprintln!("admin: invitation not stored: {error}");
+                Err(Response::error(
+                    500,
+                    "The invitation could not be saved. Nothing changed; try again.",
+                ))
+            }
+        }
+    }
+}
+
+fn invitation_link(token: &str) -> String {
+    format!("/admin/#/shared/accept/{token}")
+}
+
+fn list_invitations(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return invitation_not_found();
+    };
+    let transaction = match invitation_transaction(state, publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = &transaction.record else {
+        return invitation_not_found();
+    };
+    let now = clock::now().unix();
+    transaction.with_identities(|identities| {
+        match record.invitations_for(&session.user, identities) {
+            Ok(invitations) => Response::json(
+                200,
+                &json!({
+                    "invitations": invitations
+                        .iter()
+                        .map(|invitation| invitation_summary(invitation, now))
+                        .collect::<Vec<_>>(),
+                }),
+            ),
+            Err(error) => invitation_problem(error),
+        }
+    })
+}
+
+fn bad_invitation_request() -> Response {
+    shared_problem(
+        "",
+        "This invitation request is not valid. Reload Admin Studio and try again.",
+    )
+}
+
+fn create_invitation(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<InviteRequest>(&req.body) else {
+        return bad_invitation_request();
+    };
+    let transaction = match invitation_transaction(state, &body.publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = &transaction.record else {
+        return invitation_not_found();
+    };
+    let (id, secret) = match new_invitation_ids() {
+        Ok(ids) => ids,
+        Err(error) => return Response::error(500, &error),
+    };
+    let new = NewInvitation {
+        id,
+        secret,
+        admin_user: body.admin_user,
+        contributor_id: body.contributor_id,
+        roles: body.roles,
+        lifetime_days: body.lifetime_days,
+    };
+    let now = clock::now().unix();
+    let invited = transaction
+        .with_identities(|identities| record.invite(&session.user, identities, &new, now));
+    finish_invitation(state, &transaction, invited, &new.id, now)
+}
+
+fn finish_invitation(
+    state: &AppState,
+    transaction: &InvitationTransaction<'_>,
+    result: Result<(SharedPublication, String), InvitationError>,
+    invitation_id: &str,
+    now: i64,
+) -> Response {
+    let (next, token) = match result {
+        Ok(result) => result,
+        Err(error) => return invitation_problem(error),
+    };
+    if let Err(response) = transaction.store(&state.root, &next) {
+        return response;
+    }
+    eprintln!("admin: issued shared publication invitation {invitation_id}");
+    let Some(invitation) = next
+        .invitations
+        .iter()
+        .find(|invitation| invitation.id == invitation_id)
+    else {
+        return Response::error(500, "The invitation could not be prepared.");
+    };
+    Response::json(
+        201,
+        &json!({
+            "invitation": invitation_summary(invitation, now),
+            "token": token,
+            "link": invitation_link(&token),
+        }),
+    )
+    .with_header("Cache-Control", "no-store")
+}
+
+fn revoke_invitation(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<InvitationActionRequest>(&req.body) else {
+        return bad_invitation_request();
+    };
+    let transaction = match invitation_transaction(state, &body.publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = &transaction.record else {
+        return invitation_not_found();
+    };
+    let now = clock::now().unix();
+    let result = transaction.with_identities(|identities| {
+        record.revoke_invitation(&session.user, identities, &body.invitation_id, now)
+    });
+    let next = match result {
+        Ok(next) => next,
+        Err(error) => return invitation_problem(error),
+    };
+    if let Err(response) = transaction.store(&state.root, &next) {
+        return response;
+    }
+    eprintln!(
+        "admin: revoked shared publication invitation {}",
+        body.invitation_id
+    );
+    let summary = next
+        .invitations
+        .iter()
+        .find(|invitation| invitation.id == body.invitation_id)
+        .map(|invitation| invitation_summary(invitation, now));
+    Response::json(200, &json!({ "invitation": summary }))
+}
+
+fn reissue_invitation(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<InvitationActionRequest>(&req.body) else {
+        return bad_invitation_request();
+    };
+    let transaction = match invitation_transaction(state, &body.publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = &transaction.record else {
+        return invitation_not_found();
+    };
+    let (id, secret) = match new_invitation_ids() {
+        Ok(ids) => ids,
+        Err(error) => return Response::error(500, &error),
+    };
+    let replacement = NewInvitation {
+        id,
+        secret,
+        lifetime_days: body.lifetime_days,
+        ..NewInvitation::default()
+    };
+    let now = clock::now().unix();
+    let result = transaction.with_identities(|identities| {
+        record.reissue_invitation(
+            &session.user,
+            identities,
+            &body.invitation_id,
+            &replacement,
+            now,
+        )
+    });
+    finish_invitation(state, &transaction, result, &replacement.id, now)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct MemberRequest {
+    publication_id: String,
+    participant_id: String,
+    expected_revision: u64,
+    #[serde(default)]
+    roles: Vec<AuthorizationRole>,
+}
+
+fn member_problem(error: MemberError) -> Response {
+    match error {
+        MemberError::Denied => Response::error(
+            404,
+            "That shared reflection or member was not found, or you cannot manage it.",
+        ),
+        MemberError::Stale => Response::error(
+            409,
+            "The members changed while you were working. Reload to see the current list, then try again.",
+        ),
+        MemberError::Roles => {
+            shared_problem("roles", "Choose at least one role, without repeating any.")
+        }
+        MemberError::Invalid => Response::error(
+            400,
+            "That change would leave the shared reflection in an invalid state.",
+        ),
+    }
+}
+
+fn list_members(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return invitation_not_found();
+    };
+    let transaction = match invitation_transaction(state, publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = &transaction.record else {
+        return invitation_not_found();
+    };
+    transaction.with_identities(
+        |identities| match record.members_for(&session.user, identities) {
+            Ok(members) => Response::json(
+                200,
+                &json!({ "revision": record.authorization.revision, "members": members }),
+            ),
+            Err(error) => member_problem(error),
+        },
+    )
+}
+
+/// Changes who can sign in to one reflection. Only the policy changes; the participant, their
+/// drafts, approvals, and credit stay as they were.
+fn change_member(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+    remove: bool,
+) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<MemberRequest>(&req.body) else {
+        return bad_invitation_request();
+    };
+    let transaction = match invitation_transaction(state, &body.publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = &transaction.record else {
+        return invitation_not_found();
+    };
+    let result = transaction.with_identities(|identities| {
+        if remove {
+            record.remove_member(
+                &session.user,
+                identities,
+                &body.participant_id,
+                body.expected_revision,
+            )
+        } else {
+            record.change_member_roles(
+                &session.user,
+                identities,
+                &body.participant_id,
+                &body.roles,
+                body.expected_revision,
+            )
+        }
+    });
+    let next = match result {
+        Ok(next) => next,
+        Err(error) => return member_problem(error),
+    };
+    if let Err(response) = transaction.store(&state.root, &next) {
+        return response;
+    }
+    eprintln!(
+        "admin: {} a member of shared publication {}",
+        if remove {
+            "removed"
+        } else {
+            "changed roles of"
+        },
+        body.publication_id
+    );
+    Response::json(200, &json!({ "revision": next.authorization.revision }))
+}
+
+fn change_member_roles(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    change_member(state, req, session, false)
+}
+
+fn remove_member(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    change_member(state, req, session, true)
+}
+
+/// Accepting and declining only need the token. Every attempt counts against a per-account
+/// limit and a success refunds it, so guessing tokens is bounded without locking a real invitee
+/// out for long.
+fn answer_invitation(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+    accept: bool,
+) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let key = format!("invitation:{}", session.user);
+    if let Err(wait) = lock(&state.throttle).reserve(&key) {
+        return Response::error(
+            429,
+            &format!("Too many invitation attempts. Try again in {wait} seconds."),
+        )
+        .with_header("Retry-After", &wait.to_string());
+    }
+    let Ok(body) = serde_json::from_slice::<InvitationTokenRequest>(&req.body) else {
+        return Response::error(400, INVITATION_UNAVAILABLE);
+    };
+    let Some(publication_id) = openblog_core::invitation::token_publication_id(&body.token) else {
+        return Response::error(400, INVITATION_UNAVAILABLE);
+    };
+    let transaction = match invitation_transaction(state, publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = &transaction.record else {
+        return Response::error(400, INVITATION_UNAVAILABLE);
+    };
+    let now = clock::now().unix();
+    let result = if accept {
+        match transaction.contributors.get(&body.contributor_id) {
+            Some(display_name) => transaction.with_identities(|identities| {
+                record.accept_invitation(
+                    &session.user,
+                    identities,
+                    &body.token,
+                    &body.contributor_id,
+                    display_name,
+                    now,
+                )
+            }),
+            None => Err(InvitationError::Unavailable),
+        }
+    } else {
+        record.decline_invitation(&session.user, &body.token, now)
+    };
+    let next = match result {
+        Ok(next) => next,
+        Err(error) => return invitation_problem(error),
+    };
+    if let Err(response) = transaction.store(&state.root, &next) {
+        return response;
+    }
+    lock(&state.throttle).clear(&key);
+    eprintln!(
+        "admin: {} a shared publication invitation for {publication_id}",
+        if accept { "accepted" } else { "declined" }
+    );
+    if !accept {
+        return Response::json(200, &json!({ "declined": true }));
+    }
+    let roles = next
+        .authorization
+        .bindings
+        .iter()
+        .find(|binding| binding.admin_user == session.user)
+        .map(|binding| binding.roles.clone())
+        .unwrap_or_default();
+    Response::json(
+        200,
+        &json!({ "publication": shared_publication_summary(&next, &roles) }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -12921,5 +13479,673 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&unbound_removed.body)
         );
+    }
+    // ---- shared publication invitations
+
+    fn post_api(f: &Fixture, session: &(String, String), path: &str, body: Json) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                json_req("POST", &format!("/admin/api/collaboration/{path}"), body),
+                session,
+                true,
+            ),
+        )
+    }
+
+    /// An owner (mikey), two invitable accounts (grace, linus), and one shared reflection.
+    fn invitation_fixture(tag: &str) -> (Fixture, (String, String), String) {
+        let f = fixture(tag);
+        register_contributors(
+            &f,
+            json!({
+                "mikey-writer": { "name": "Mikey" },
+                "grace": { "name": "Grace" },
+                "linus": { "name": "Linus" },
+                "ada": { "name": "Ada" }
+            }),
+        );
+        add_admin_user(&f, "grace", "another correct horse");
+        add_admin_user(&f, "linus", "yet another horse");
+        add_admin_user(&f, "ada", "a fourth correct horse");
+        let mikey = login_ok(&f);
+        let created = create_shared(&f, &mikey, reflection_request());
+        let id = body_json(&created)["publication"]["publicationId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        (f, mikey, id)
+    }
+
+    fn invite_body(id: &str, user: &str, key: &str, roles: Json) -> Json {
+        json!({ "publicationId": id, "adminUser": user, "contributorId": key, "roles": roles })
+    }
+
+    fn stored_record(f: &Fixture, id: &str) -> SharedPublication {
+        let path = f
+            .dir
+            .join(crate::shared_publications::DIRECTORY)
+            .join(format!("{id}.json"));
+        SharedPublication::from_json(&fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn an_invitation_is_issued_once_stored_hashed_and_accepted_by_the_named_account_only() {
+        let (f, mikey, id) = invitation_fixture("invite-lifecycle");
+        let grace = login_as(&f, "grace", "another correct horse");
+        let linus = login_as(&f, "linus", "yet another horse");
+        let content_before = tree_snapshot(&f.dir.join("content"));
+
+        let issued = post_api(
+            &f,
+            &mikey,
+            "invitations",
+            invite_body(&id, "grace", "grace", json!(["contributor"])),
+        );
+        assert_eq!(
+            issued.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&issued.body)
+        );
+        assert!(issued
+            .headers
+            .iter()
+            .any(|(k, v)| k == "Cache-Control" && v == "no-store"));
+        let issued = body_json(&issued);
+        let token = issued["token"].as_str().unwrap().to_string();
+        let secret = token.split_once('.').unwrap().1.to_string();
+        assert!(token.starts_with(&id));
+        assert_eq!(issued["link"], format!("/admin/#/shared/accept/{token}"));
+        assert_eq!(issued["invitation"]["state"], "pending");
+        // Neither the token nor its secret is on disk, and no content or email-like effect.
+        assert!(tree_contains(&f.dir, &secret).is_empty());
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+
+        let listed = handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/invitations?publicationId={id}"),
+                ),
+                &mikey,
+                false,
+            ),
+        );
+        let listed = body_json(&listed);
+        assert_eq!(listed["invitations"].as_array().unwrap().len(), 1);
+        assert!(!listed.to_string().contains(&secret));
+        assert!(!listed.to_string().contains("tokenHash"));
+
+        let accept = |session: &(String, String), key: &str| {
+            post_api(
+                &f,
+                session,
+                "invitations/accept",
+                json!({ "token": token, "contributorId": key }),
+            )
+        };
+        // The wrong account and the wrong key are refused and consume nothing.
+        assert_eq!(accept(&linus, "grace").status, 400);
+        assert_eq!(accept(&grace, "linus").status, 400);
+        assert_eq!(accept(&mikey, "grace").status, 400);
+        assert_eq!(list_shared(&f, &grace)["publications"], json!([]));
+        assert_eq!(stored_record(&f, &id).authorization.bindings.len(), 1);
+
+        let accepted = accept(&grace, "grace");
+        assert_eq!(
+            accepted.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&accepted.body)
+        );
+        assert_eq!(
+            body_json(&accepted)["publication"]["roles"],
+            json!(["contributor"])
+        );
+        let record = stored_record(&f, &id);
+        let binding = record.authorization.bindings.last().unwrap();
+        assert_eq!(binding.admin_user, "grace");
+        assert_eq!(binding.contributor_id, "grace");
+        assert_eq!(
+            record
+                .collaboration
+                .participants
+                .last()
+                .unwrap()
+                .display_name,
+            "Grace"
+        );
+        assert_eq!(
+            list_shared(&f, &grace)["publications"][0]["publicationId"],
+            json!(id)
+        );
+        // Replay fails, a contributor cannot invite, and the content never changed.
+        assert_eq!(accept(&grace, "grace").status, 400);
+        assert_eq!(
+            post_api(
+                &f,
+                &grace,
+                "invitations",
+                invite_body(&id, "linus", "linus", json!(["reader"])),
+            )
+            .status,
+            404
+        );
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+    }
+
+    #[test]
+    fn invitation_requests_need_a_session_and_csrf_and_fail_without_changing_anything() {
+        let (f, mikey, id) = invitation_fixture("invite-reject");
+        let before = tree_snapshot(&f.dir.join(".openblog/private"));
+        let path = "/admin/api/collaboration/invitations";
+        let body = invite_body(&id, "grace", "grace", json!(["reader"]));
+        assert_eq!(
+            handle(&f.state, &json_req("POST", path, body.clone())).status,
+            401
+        );
+        let no_csrf = handle(
+            &f.state,
+            &authed(json_req("POST", path, body.clone()), &mikey, false),
+        );
+        assert_eq!(no_csrf.status, 403);
+
+        let not_found = post_api(
+            &f,
+            &mikey,
+            "invitations",
+            invite_body("shared-ffffffffffff", "grace", "grace", json!(["reader"])),
+        );
+        assert_eq!(not_found.status, 404);
+        for (bad, status) in [
+            (invite_body(&id, "ghost", "grace", json!(["reader"])), 422),
+            (invite_body(&id, "grace", "ghost", json!(["reader"])), 422),
+            (invite_body(&id, "mikey", "linus", json!(["reader"])), 422),
+            (invite_body(&id, "grace", "grace", json!([])), 422),
+            (
+                invite_body(&id, "grace", "grace", json!(["reader", "reader"])),
+                422,
+            ),
+            (invite_body(&id, "grace", "grace", json!(["admin"])), 422),
+            (
+                json!({ "publicationId": id, "adminUser": "grace", "contributorId": "grace",
+                        "roles": ["reader"], "token": "x" }),
+                422,
+            ),
+            (
+                json!({ "publicationId": id, "adminUser": "grace", "contributorId": "grace",
+                        "roles": ["reader"], "lifetimeDays": 31 }),
+                422,
+            ),
+        ] {
+            let resp = post_api(&f, &mikey, "invitations", bad.clone());
+            assert_eq!(
+                resp.status,
+                status,
+                "{bad}: {}",
+                String::from_utf8_lossy(&resp.body)
+            );
+        }
+        let wrong_type = handle(
+            &f.state,
+            &authed(
+                {
+                    let mut r = json_req("POST", path, body);
+                    r.headers.insert("content-type".into(), "text/plain".into());
+                    r
+                },
+                &mikey,
+                true,
+            ),
+        );
+        assert_eq!(wrong_type.status, 415);
+        assert_eq!(tree_snapshot(&f.dir.join(".openblog/private")), before);
+        assert!(stored_record(&f, &id).invitations.is_empty());
+    }
+
+    #[test]
+    fn revoked_expired_declined_and_reissued_invitations_stop_working() {
+        let (f, mikey, id) = invitation_fixture("invite-states");
+        let grace = login_as(&f, "grace", "another correct horse");
+        let issue = |session: &(String, String)| {
+            let resp = post_api(
+                &f,
+                session,
+                "invitations",
+                invite_body(&id, "grace", "grace", json!(["editor"])),
+            );
+            assert_eq!(resp.status, 201);
+            body_json(&resp)
+        };
+        let accept = |token: &str| {
+            post_api(
+                &f,
+                &grace,
+                "invitations/accept",
+                json!({ "token": token, "contributorId": "grace" }),
+            )
+            .status
+        };
+
+        let first = issue(&mikey);
+        let first_id = first["invitation"]["id"].as_str().unwrap().to_string();
+        let first_token = first["token"].as_str().unwrap().to_string();
+        let revoked = post_api(
+            &f,
+            &mikey,
+            "invitations/revoke",
+            json!({ "publicationId": id, "invitationId": first_id }),
+        );
+        assert_eq!(revoked.status, 200);
+        assert_eq!(body_json(&revoked)["invitation"]["state"], "revoked");
+        assert_eq!(accept(&first_token), 400);
+
+        let second = issue(&mikey);
+        let reissued = post_api(
+            &f,
+            &mikey,
+            "invitations/reissue",
+            json!({ "publicationId": id,
+                    "invitationId": second["invitation"]["id"], "lifetimeDays": 2 }),
+        );
+        assert_eq!(reissued.status, 201);
+        let reissued = body_json(&reissued);
+        assert_eq!(accept(second["token"].as_str().unwrap()), 400);
+        let expires = reissued["invitation"]["expiresAt"].as_i64().unwrap();
+        let created = reissued["invitation"]["createdAt"].as_i64().unwrap();
+        assert_eq!(expires - created, 2 * 86_400);
+
+        // Age the stored invitation past its expiry: the token is refused and can be reissued.
+        let path = f
+            .dir
+            .join(crate::shared_publications::DIRECTORY)
+            .join(format!("{id}.json"));
+        let mut stored: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        for invitation in stored["invitations"].as_array_mut().unwrap() {
+            if invitation["state"] == "pending" {
+                invitation["createdAt"] = json!(1_000);
+                invitation["expiresAt"] = json!(2_000);
+            }
+        }
+        fs::write(&path, serde_json::to_string_pretty(&stored).unwrap()).unwrap();
+        assert_eq!(accept(reissued["token"].as_str().unwrap()), 400);
+        let third = post_api(
+            &f,
+            &mikey,
+            "invitations/reissue",
+            json!({ "publicationId": id, "invitationId": reissued["invitation"]["id"] }),
+        );
+        assert_eq!(third.status, 201);
+        let third = body_json(&third);
+        let declined = post_api(
+            &f,
+            &grace,
+            "invitations/decline",
+            json!({ "token": third["token"] }),
+        );
+        assert_eq!(declined.status, 200);
+        assert_eq!(accept(third["token"].as_str().unwrap()), 400);
+        assert_eq!(stored_record(&f, &id).authorization.bindings.len(), 1);
+    }
+
+    #[test]
+    fn guessing_tokens_is_bounded_per_account_and_a_coordinator_cannot_grant_ownership() {
+        let (f, mikey, id) = invitation_fixture("invite-bounds");
+        let grace = login_as(&f, "grace", "another correct horse");
+        let linus = login_as(&f, "linus", "yet another horse");
+        let issued = post_api(
+            &f,
+            &mikey,
+            "invitations",
+            invite_body(&id, "grace", "grace", json!(["coordinator"])),
+        );
+        let token = body_json(&issued)["token"].as_str().unwrap().to_string();
+        let guess = format!("{id}.{}", "0".repeat(64));
+        for _ in 0..auth::MAX_FAILURES {
+            let resp = post_api(
+                &f,
+                &grace,
+                "invitations/accept",
+                json!({ "token": guess, "contributorId": "grace" }),
+            );
+            assert_eq!(resp.status, 400);
+        }
+        let locked = post_api(
+            &f,
+            &grace,
+            "invitations/accept",
+            json!({ "token": token, "contributorId": "grace" }),
+        );
+        assert_eq!(locked.status, 429);
+        assert!(locked.headers.iter().any(|(k, _)| k == "Retry-After"));
+        assert!(!locked.body.is_empty() && !String::from_utf8_lossy(&locked.body).contains(&token));
+        // Other accounts and malformed tokens are not affected by, or distinguishable from, misses.
+        for bad in ["", "nonsense", "shared-ffffffffffff.00"] {
+            let resp = post_api(
+                &f,
+                &linus,
+                "invitations/accept",
+                json!({ "token": bad, "contributorId": "linus" }),
+            );
+            assert_eq!(resp.status, 400);
+            assert_eq!(body_json(&resp)["error"], INVITATION_UNAVAILABLE);
+        }
+        assert_eq!(stored_record(&f, &id).authorization.bindings.len(), 1);
+    }
+
+    #[test]
+    fn a_coordinator_invites_below_themselves_and_removed_accounts_lose_their_invitations() {
+        let (f, mikey, id) = invitation_fixture("invite-coordinator");
+        let grace = login_as(&f, "grace", "another correct horse");
+        let token = |resp: Response| body_json(&resp)["token"].as_str().unwrap().to_string();
+        let coordinator = token(post_api(
+            &f,
+            &mikey,
+            "invitations",
+            invite_body(&id, "grace", "grace", json!(["coordinator"])),
+        ));
+        assert_eq!(
+            post_api(
+                &f,
+                &grace,
+                "invitations/accept",
+                json!({ "token": coordinator, "contributorId": "grace" }),
+            )
+            .status,
+            200
+        );
+        let owner = post_api(
+            &f,
+            &grace,
+            "invitations",
+            invite_body(&id, "linus", "linus", json!(["siteOwner"])),
+        );
+        assert_eq!(owner.status, 404);
+        let reader = post_api(
+            &f,
+            &grace,
+            "invitations",
+            invite_body(&id, "linus", "linus", json!(["reader"])),
+        );
+        assert_eq!(reader.status, 201);
+        let reader_token = token(reader);
+
+        // Pending invitations keep their registry key from being freed, and removing the account
+        // withdraws the invitation so a re-created account cannot redeem it.
+        assert!(crate::shared_publications::bound_contributor_ids(&f.dir)
+            .unwrap()
+            .contains("linus"));
+        assert_eq!(
+            crate::shared_publications::revoke_admin_user(&f.dir, "linus").unwrap(),
+            1
+        );
+        let linus = login_as(&f, "linus", "yet another horse");
+        let resp = post_api(
+            &f,
+            &linus,
+            "invitations/accept",
+            json!({ "token": reader_token, "contributorId": "linus" }),
+        );
+        assert_eq!(resp.status, 400);
+    }
+    #[test]
+    fn collaboration_routes_deny_by_default_and_by_role() {
+        let (f, mikey, id) = invitation_fixture("invite-roles");
+        let grace = login_as(&f, "grace", "another correct horse");
+        let linus = login_as(&f, "linus", "yet another horse");
+        for (user, key, role) in [("grace", "grace", "reader"), ("linus", "linus", "editor")] {
+            let token = body_json(&post_api(
+                &f,
+                &mikey,
+                "invitations",
+                invite_body(&id, user, key, json!([role])),
+            ))["token"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let session = if user == "grace" { &grace } else { &linus };
+            let accepted = post_api(
+                &f,
+                session,
+                "invitations/accept",
+                json!({ "token": token, "contributorId": key }),
+            );
+            assert_eq!(accepted.status, 200);
+        }
+        let pending = post_api(
+            &f,
+            &mikey,
+            "invitations",
+            invite_body(&id, "ada", "ada", json!(["contributor"])),
+        );
+        assert_eq!(
+            pending.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&pending.body)
+        );
+        let pending_id = body_json(&pending)["invitation"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let before = tree_snapshot(&f.dir.join(".openblog/private"));
+        // Readers and editors see the reflection but cannot invite, list, revoke, or reissue.
+        for session in [&grace, &linus] {
+            assert_eq!(
+                list_shared(&f, session)["publications"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            let listed = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "GET",
+                        &format!("/admin/api/collaboration/invitations?publicationId={id}"),
+                        Json::Null,
+                    ),
+                    session,
+                    true,
+                ),
+            );
+            assert_eq!(listed.status, 404);
+            for path in ["invitations", "invitations/revoke", "invitations/reissue"] {
+                // A well-formed body, so the request reaches the authorization check.
+                let body = if path == "invitations" {
+                    invite_body(&id, "someone", "key", json!(["reader"]))
+                } else {
+                    json!({ "publicationId": id, "invitationId": pending_id })
+                };
+                let resp = post_api(&f, session, path, body);
+                assert_eq!(resp.status, 404, "{path}");
+                assert!(!String::from_utf8_lossy(&resp.body).contains("token"));
+            }
+        }
+        // Operations with no route yet are denied for everyone, owner included.
+        for (method, path) in [
+            ("GET", "contribution"),
+            ("PUT", "contribution"),
+            ("POST", "contribution/reveal"),
+            ("POST", "approve"),
+            ("POST", "schedule"),
+            ("POST", "publish"),
+            ("DELETE", "members"),
+            ("PUT", "roles"),
+            ("GET", "export"),
+        ] {
+            for session in [&mikey, &grace, &linus] {
+                let resp = handle(
+                    &f.state,
+                    &authed(
+                        json_req(
+                            method,
+                            &format!("/admin/api/collaboration/{path}"),
+                            json!({ "publicationId": id }),
+                        ),
+                        session,
+                        true,
+                    ),
+                );
+                assert_eq!(resp.status, 404, "{method} {path}");
+            }
+        }
+        assert_eq!(tree_snapshot(&f.dir.join(".openblog/private")), before);
+    }
+
+    fn join_via_api(
+        f: &Fixture,
+        owner: &(String, String),
+        id: &str,
+        user: &str,
+        pass: &str,
+        roles: Json,
+    ) -> (String, String) {
+        let issued = post_api(f, owner, "invitations", invite_body(id, user, user, roles));
+        assert_eq!(issued.status, 201);
+        let token = body_json(&issued)["token"].as_str().unwrap().to_string();
+        let session = login_as(f, user, pass);
+        let accepted = post_api(
+            f,
+            &session,
+            "invitations/accept",
+            json!({ "token": token, "contributorId": user }),
+        );
+        assert_eq!(
+            accepted.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&accepted.body)
+        );
+        session
+    }
+
+    fn members_of(f: &Fixture, session: &(String, String), id: &str) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/members?publicationId={id}"),
+                ),
+                session,
+                false,
+            ),
+        )
+    }
+
+    #[test]
+    fn members_are_listed_changed_and_removed_safely() {
+        let (f, mikey, id) = invitation_fixture("member-management");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["coordinator"]),
+        );
+        let content_before = tree_snapshot(&f.dir.join("content"));
+
+        // Plain contributors cannot list or change anything, and learn nothing.
+        assert_eq!(members_of(&f, &grace, &id).status, 404);
+        let listed = body_json(&members_of(&f, &mikey, &id));
+        let revision = listed["revision"].as_u64().unwrap();
+        let members = listed["members"].as_array().unwrap();
+        assert_eq!(members.len(), 3);
+        let text = listed.to_string();
+        assert!(!text.contains("tokenHash") && !text.contains("token\""));
+        let participant = |user: &str| {
+            members.iter().find(|m| m["adminUser"] == user).unwrap()["participantId"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let (grace_id, mikey_id) = (participant("grace"), participant("mikey"));
+        let change = |session: &(String, String), who: &str, roles: Json, rev: u64| {
+            post_api(
+                &f,
+                session,
+                "members/roles",
+                json!({ "publicationId": id, "participantId": who, "roles": roles, "expectedRevision": rev }),
+            )
+        };
+        let remove = |session: &(String, String), who: &str, rev: u64| {
+            post_api(
+                &f,
+                session,
+                "members/remove",
+                json!({ "publicationId": id, "participantId": who, "expectedRevision": rev }),
+            )
+        };
+        let before = tree_snapshot(&f.dir.join(".openblog/private"));
+        // Unauthorized, last owner, unknown, empty roles, and unknown fields change nothing.
+        assert_eq!(
+            change(&grace, &grace_id, json!(["siteOwner"]), revision).status,
+            404
+        );
+        assert_eq!(remove(&grace, &grace_id, revision).status, 404);
+        assert_eq!(
+            change(&linus, &grace_id, json!(["siteOwner"]), revision).status,
+            404
+        );
+        assert_eq!(remove(&linus, &mikey_id, revision).status, 404);
+        assert_eq!(remove(&mikey, &mikey_id, revision).status, 404);
+        assert_eq!(
+            change(&mikey, &mikey_id, json!(["reader"]), revision).status,
+            404
+        );
+        assert_eq!(remove(&mikey, "participant-99", revision).status, 404);
+        assert_eq!(change(&mikey, &grace_id, json!([]), revision).status, 422);
+        assert_eq!(
+            post_api(&f, &mikey, "members/remove", json!({ "publicationId": id, "participantId": grace_id, "expectedRevision": revision, "adminUser": "x" })).status,
+            422
+        );
+        assert_eq!(tree_snapshot(&f.dir.join(".openblog/private")), before);
+
+        // A role change succeeds once; replaying the same revision is a conflict.
+        assert_eq!(
+            change(&mikey, &grace_id, json!(["reader"]), revision).status,
+            200
+        );
+        let stale = change(&mikey, &grace_id, json!(["editor"]), revision);
+        assert_eq!(stale.status, 409);
+        assert!(String::from_utf8_lossy(&stale.body).contains("changed while you were working"));
+        assert_eq!(remove(&mikey, &grace_id, revision).status, 409);
+        let revision = revision + 1;
+        assert_eq!(
+            body_json(&members_of(&f, &mikey, &id))["revision"],
+            revision
+        );
+
+        // Removal ends access, keeps the participant, and leaves content untouched.
+        assert_eq!(remove(&linus, &grace_id, revision).status, 200);
+        let stored = stored_record(&f, &id);
+        assert!(stored
+            .authorization
+            .bindings
+            .iter()
+            .all(|b| b.admin_user != "grace"));
+        assert!(stored
+            .collaboration
+            .participants
+            .iter()
+            .any(|p| p.id == grace_id));
+        assert!(list_shared(&f, &grace)["publications"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
     }
 }

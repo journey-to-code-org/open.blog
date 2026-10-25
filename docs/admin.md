@@ -409,10 +409,39 @@ it under **Shared reflections**; signing in to Admin Studio or being in the cont
 is not enough. You are its site owner. Removing your account with `openblog user remove` removes
 you from every shared reflection, and so does adding a new account under a name that was used
 before. A contributor who takes part in one cannot be removed from the registry; the Contributors
-message names each entry that is in use. Inviting other writers, writing contributions, and publishing the result arrive in
-later releases. The design is recorded in
+message names each entry that is in use. Writing contributions and publishing the result arrive in later releases. The design is recorded in
 [ADR 0007](adr/0007-private-shared-publication-records.md) and the
 [collaboration contract](specs/shared-perspectives-collaboration.md#shared-publication-record).
+
+### Inviting other writers
+
+Site owners and coordinators see an **Invitations** section on each shared reflection. Enter the
+sign-in name of an existing Admin account, choose the contributor profile they will appear as, pick
+their roles, and choose how long the link lasts (1 to 30 days, 7 by default). Admin Studio shows a
+private link once. Copy it and pass it on yourself: open.blog never sends email or contacts
+anyone. The link works once, only for the account you named, and only after that person signs in
+and chooses **Accept and join** or **Decline**. A lost link cannot be shown again; use **Issue a
+new link**, which also stops the old one working. **Revoke** withdraws a link at once.
+Invitations are kept inside the shared reflection's private file as hashes, never the link
+itself, and only a site owner can invite another site owner. Add the person's Admin account first
+with `openblog user add`. The design is recorded in
+[ADR 0013](adr/0013-publication-scoped-invitations.md).
+
+### Managing members
+
+The same **Members and invitations** section lists everyone who can sign in to the reflection,
+with their sign-in account, the contributor profile they are credited as, and their roles written
+out. These are separate: *sign-in access* decides who can open the reflection and what they can
+do, while *credit* names who is shown for what they wrote. **Change roles** previews what is added
+and removed before it applies. **Remove access** asks first, and ends only sign-in access: the
+person's name stays credited for what they wrote and approved, and you can invite them again
+later. The last site owner cannot be removed or demoted, and a coordinator cannot change a site
+owner. If someone else changed the members while you were looking, the change is refused, the list
+reloads, and you can try again. A member whose account or profile has been deleted is flagged with
+a warning. If your browser cannot copy to the clipboard, select the link and copy it yourself.
+Everything is reachable by keyboard: **Escape** cancels a confirmation, and results are announced
+to screen readers. The design is recorded in
+[ADR 0015](adr/0015-member-management-separates-access-from-credit.md).
 
 ## Scheduling
 

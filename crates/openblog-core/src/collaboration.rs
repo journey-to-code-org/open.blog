@@ -25,7 +25,7 @@ pub const MAX_AUTHORIZATION_BINDINGS: usize = MAX_PARTICIPANTS;
 pub const MAX_ADMIN_USERNAME_BYTES: usize = 32;
 pub const SHARED_PUBLICATION_VERSION: u8 = 1;
 pub const MAX_SHARED_PUBLICATION_BYTES: usize =
-    MAX_CONTRACT_BYTES + MAX_AUTHORIZATION_POLICY_BYTES + 64 * 1024;
+    MAX_CONTRACT_BYTES + MAX_AUTHORIZATION_POLICY_BYTES + 192 * 1024;
 pub const MAX_SOURCES: usize = 20;
 pub const MAX_PUBLICATION_TITLE_BYTES: usize = 300;
 pub const MAX_GUIDING_QUESTION_BYTES: usize = 1_000;
@@ -181,6 +181,15 @@ pub struct AuthorizationContext<'a> {
     pub contributor_ids: &'a [&'a str],
     pub collaboration: &'a CollaborationContract,
     pub target: AuthorizationTarget<'a>,
+}
+
+/// Why [`SharedPublication::authorize_publish`] refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublishError {
+    /// The requester may not publish this record.
+    Denied,
+    /// The requester may publish, but a contributing participant has not approved this revision.
+    Unapproved,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -442,7 +451,7 @@ fn is_current(binding: &IdentityBinding, context: &AuthorizationContext<'_>) -> 
             .any(|participant| participant.id == binding.participant_id)
 }
 
-fn holds_site_owner(binding: &IdentityBinding) -> bool {
+pub(crate) fn holds_site_owner(binding: &IdentityBinding) -> bool {
     binding.roles.contains(&AuthorizationRole::SiteOwner)
 }
 
@@ -482,7 +491,7 @@ fn references_participant(collaboration: &CollaborationContract, participant_id:
 /// replacement that grants or strips `siteOwner` needs a site owner either way. A binding in a
 /// replacement need not resolve in the contract yet, because an accepted invitation adds the
 /// participant and the binding in one transaction.
-fn may_manage(requester: &IdentityBinding, binding: &IdentityBinding) -> bool {
+pub(crate) fn may_manage(requester: &IdentityBinding, binding: &IdentityBinding) -> bool {
     let target = ResolvedTarget::Participant {
         id: binding.participant_id.as_str(),
         site_owner: holds_site_owner(binding),
@@ -692,6 +701,10 @@ pub struct SharedPublication {
     pub sources: Vec<SourceReference>,
     pub collaboration: CollaborationContract,
     pub authorization: AuthorizationPolicy,
+    /// Publication-scoped invitations. They live in the record so accepting one adds the
+    /// participant, the binding, and the invitation outcome in one atomic write.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invitations: Vec<crate::invitation::Invitation>,
 }
 
 /// Author-entered attribution for material that prompted a shared publication. It is not a
@@ -945,29 +958,92 @@ impl SharedPublication {
                     roles: vec![AuthorizationRole::SiteOwner, AuthorizationRole::Contributor],
                 }],
             },
+            invitations: Vec::new(),
         };
         record.validate()?;
         Ok(record)
+    }
+
+    /// The one server-side entry point for a collaboration action on this record. It authorizes
+    /// the signed-in Admin account against this record's own policy and contract, so a request can
+    /// never borrow another publication's grants, and every failure is the same private error.
+    /// Callers must load the identities in the same transaction as any change the grant permits.
+    pub fn authorize<'a>(
+        &'a self,
+        admin_user: &str,
+        identities: &crate::invitation::Identities<'_>,
+        action: AuthorizationAction,
+        target: AuthorizationTarget<'_>,
+    ) -> Result<&'a IdentityBinding, AuthorizationError> {
+        self.authorization.authorize(
+            &AuthorizationContext {
+                publication_id: &self.publication_id,
+                authenticated_admin_user: admin_user,
+                active_admin_users: identities.active_admin_users,
+                contributor_ids: identities.contributor_ids,
+                collaboration: &self.collaboration,
+                target,
+            },
+            action,
+        )
+    }
+
+    /// Authorizes publishing. The role grant alone is never enough: every participant who owns a
+    /// contribution must have approved the current contract revision, so a site owner cannot
+    /// publish prose its author has not approved. An unapproved publication reports
+    /// [`PublishError::Unapproved`] only to a requester who already holds the publish grant.
+    pub fn authorize_publish(
+        &self,
+        admin_user: &str,
+        identities: &crate::invitation::Identities<'_>,
+    ) -> Result<(), PublishError> {
+        self.authorize(
+            admin_user,
+            identities,
+            AuthorizationAction::Publish,
+            AuthorizationTarget::Publication,
+        )
+        .map_err(|_| PublishError::Denied)?;
+        let collaboration = &self.collaboration;
+        let approved = |participant_id: &str| {
+            collaboration.approvals.iter().any(|approval| {
+                approval.participant_id == participant_id
+                    && approval.revision == collaboration.revision
+            })
+        };
+        if collaboration
+            .contributions
+            .iter()
+            .all(|contribution| approved(&contribution.participant_id))
+        {
+            Ok(())
+        } else {
+            Err(PublishError::Unapproved)
+        }
     }
 
     /// The record without any binding for `admin_user`, with the policy revision advanced, or
     /// `None` when the account holds no binding here. Removing or adding an Admin account calls
     /// this for every record, so a reused username can never inherit an old binding.
     pub fn without_admin_user(&self, admin_user: &str) -> Option<Self> {
-        if !self
+        let bound = self
             .authorization
             .bindings
             .iter()
-            .any(|binding| binding.admin_user == admin_user)
-        {
+            .any(|binding| binding.admin_user == admin_user);
+        let mut record = self.clone();
+        let invited =
+            crate::invitation::withdraw_for_admin_user(&mut record.invitations, admin_user);
+        if !bound && !invited {
             return None;
         }
-        let mut record = self.clone();
-        record
-            .authorization
-            .bindings
-            .retain(|binding| binding.admin_user != admin_user);
-        record.authorization.revision = record.authorization.revision.saturating_add(1);
+        if bound {
+            record
+                .authorization
+                .bindings
+                .retain(|binding| binding.admin_user != admin_user);
+            record.authorization.revision = record.authorization.revision.saturating_add(1);
+        }
         Some(record)
     }
 
@@ -978,6 +1054,9 @@ impl SharedPublication {
             || !self.collaboration.is_valid()
             || !self.authorization.is_valid()
         {
+            return Err(SharedPublicationError::InvalidRecord);
+        }
+        if !crate::invitation::valid_invitations(self) {
             return Err(SharedPublicationError::InvalidRecord);
         }
         if self.title.is_none() && self.guiding_question.is_none() {
@@ -1096,7 +1175,7 @@ fn valid_isbn(value: &str) -> bool {
     }
 }
 
-fn valid_id(value: &str) -> bool {
+pub(crate) fn valid_id(value: &str) -> bool {
     valid_slug(value, MAX_IDENTIFIER_BYTES)
 }
 
@@ -1113,7 +1192,7 @@ pub fn valid_admin_username(name: &str) -> bool {
 }
 
 /// A binding names an existing contributor registry key, so it uses the registry key rule.
-fn valid_contributor_id(value: &str) -> bool {
+pub(crate) fn valid_contributor_id(value: &str) -> bool {
     value.len() <= MAX_IDENTIFIER_BYTES && contributor::valid_registry_key(value)
 }
 
@@ -1143,7 +1222,7 @@ fn is_windows_device_stem(stem: &str) -> bool {
 
 /// Identity text keeps ordinary Unicode, including joiners used by scripts and emoji, but
 /// rejects controls that could reorder another participant's name or make it invisible.
-fn valid_text(value: &str, max_bytes: usize) -> bool {
+pub(crate) fn valid_text(value: &str, max_bytes: usize) -> bool {
     value.len() <= max_bytes
         && !value.chars().any(|character| {
             character.is_control() || is_line_break(character) || is_bidi_control(character)
