@@ -41,7 +41,7 @@ destination policy.
 | Destination | Representation | Canonical behavior | Workflow |
 | --- | --- | --- | --- |
 | DEV | Portable Markdown | Canonical URL is sent | Remote draft by default; public publishing requires explicit CLI approval |
-| Hashnode | Portable Markdown | Canonical URL is sent | Remote draft by default; public publishing requires explicit CLI approval |
+| Hashnode | Portable Markdown | Canonical URL is sent | Draft create/update only; public-publish requests are rejected |
 | Ghost | Portable HTML | Sent as Ghost canonical URL | Remote draft by default; public publishing requires explicit CLI approval |
 | WordPress | Portable HTML | WordPress core cannot set an external canonical URL | Remote draft by default; verify an SEO plugin before public publishing |
 | Medium | Portable Markdown | Verify canonical URL during import | Manual import only; no remote write |
@@ -76,6 +76,13 @@ private and never enter a public projection.
 The portable representations are readable without JavaScript. Any warning associated with a
 transformation includes a recommended review action; no warning can authorize exporting private
 state or suppress an unsafe-markup failure.
+
+Discussion links target the generated `#ob-discussion` region only when that region is enabled
+on the native article. Hidden discussions and sites without a backend expose no participation
+link. Approved public contributions are not currently imported into exports: any future opt-in
+must use the owning moderation/publication story's exact approved public projection, attribution
+and privacy review. Pending/rejected material, deleted passages and author-only responses are
+never fetched by an exporter. Article prose alone cannot opt private state into publication.
 
 ## Native capability audit (baseline)
 

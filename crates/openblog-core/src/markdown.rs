@@ -1433,6 +1433,169 @@ pub fn render_portable(
     Ok(rendered)
 }
 
+pub(crate) fn portable_semantic_facts(
+    markdown: &str,
+    options: RenderOptions<'_>,
+    projection: &crate::portability::PortableProjection<'_>,
+) -> Result<Vec<crate::portability::SemanticFact>, String> {
+    use crate::portability::SemanticFact;
+    let events = Parser::new_ext(markdown, parser_options(options.smart_punctuation));
+    let sanitized = crate::raw_html::sanitize(events.collect(), projection)?;
+    let mut facts = Vec::new();
+    let mut semantic_events = Vec::new();
+    let mut index = 0;
+    while index < sanitized.events.len() {
+        if matches!(sanitized.events[index], Event::Start(Tag::Paragraph)) {
+            if let Some(length) = sanitized.events[index + 1..]
+                .iter()
+                .position(|event| matches!(event, Event::End(TagEnd::Paragraph)))
+            {
+                let inner = &sanitized.events[index + 1..index + 1 + length];
+                if inner.iter().all(|event| matches!(event, Event::Text(_))) {
+                    if let Some(embed) = standalone_embed(inner) {
+                        facts.push(SemanticFact::new("media", "source link", embed.link));
+                        index += length + 2;
+                        continue;
+                    }
+                }
+            }
+        }
+        semantic_events.push(sanitized.events[index].clone());
+        index += 1;
+    }
+    let mut code: Option<(String, String)> = None;
+    for event in semantic_events {
+        match event {
+            Event::Start(Tag::CodeBlock(kind)) => {
+                let info = match kind {
+                    CodeBlockKind::Fenced(info) => info.to_string(),
+                    CodeBlockKind::Indented => String::new(),
+                };
+                code = Some((info, String::new()));
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                let Some((info, source)) = code.take() else {
+                    continue;
+                };
+                if source.trim().is_empty() {
+                    continue;
+                }
+                let fence = parse_fence_info(&info);
+                if info.trim() == "quiz" {
+                    let quiz = parse_quiz(&source)?;
+                    for (field, value) in std::iter::once(("prompt", quiz.prompt.as_str()))
+                        .chain(
+                            quiz.choices
+                                .iter()
+                                .map(|choice| ("choice", choice.text.as_str())),
+                        )
+                        .chain(
+                            quiz.explanation
+                                .as_deref()
+                                .map(|value| ("explanation", value)),
+                        )
+                    {
+                        facts.push(SemanticFact::new(
+                            "knowledge-check",
+                            field,
+                            crate::raw_html::semantic_content(&quiz_inline(value)?),
+                        ));
+                    }
+                    facts.push(SemanticFact::new(
+                        "knowledge-check",
+                        "answer label",
+                        "Answer:",
+                    ));
+                    let (index, answer) = quiz
+                        .choices
+                        .iter()
+                        .enumerate()
+                        .find(|(_, choice)| choice.correct)
+                        .unwrap();
+                    let answer = crate::raw_html::semantic_content(&quiz_inline(&answer.text)?);
+                    facts.push(
+                        SemanticFact::new(
+                            "knowledge-check",
+                            "answer",
+                            format!("Answer: {}. {answer}", char::from(b'A' + index as u8)),
+                        )
+                        .with_markdown_value(format!("Answer: {}. {answer}", index + 1)),
+                    );
+                } else if fence.runnable && fence.lang.eq_ignore_ascii_case("web") {
+                    for line in source.lines() {
+                        let label = match line.trim() {
+                            "---html" => Some("HTML"),
+                            "---css" => Some("CSS"),
+                            "---js" => Some("JavaScript"),
+                            _ => None,
+                        };
+                        facts.push(SemanticFact::new(
+                            "web-sandbox",
+                            if label.is_some() {
+                                "source label"
+                            } else {
+                                "source"
+                            },
+                            label.unwrap_or(line),
+                        ));
+                    }
+                } else {
+                    facts.push(SemanticFact::new("runnable-code", "source", source));
+                }
+                if let Some(title) = fence.title {
+                    facts.push(SemanticFact::new("runnable-code", "title", title));
+                }
+            }
+            Event::Text(text) | Event::Code(text) => {
+                if let Some((_, source)) = &mut code {
+                    source.push_str(&text);
+                } else if let Some(url) = text
+                    .trim()
+                    .strip_prefix("%[")
+                    .and_then(|s| s.strip_suffix(']'))
+                {
+                    facts.push(SemanticFact::new(
+                        "media",
+                        "source link",
+                        projection.resolve_link(url)?,
+                    ));
+                } else {
+                    facts.push(SemanticFact::new("content", "text", text.to_string()));
+                }
+            }
+            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                facts.push(SemanticFact::new(
+                    "content",
+                    "link or media target",
+                    projection.resolve_link(&dest_url)?,
+                ));
+            }
+            Event::Start(Tag::BlockQuote(Some(kind))) => {
+                facts.push(SemanticFact::new("callout", "label", callout_label(kind).1));
+            }
+            Event::FootnoteReference(label) => {
+                facts.push(
+                    SemanticFact::new(
+                        "references",
+                        "citation target",
+                        projection.resolve_link(&format!("#{label}"))?,
+                    )
+                    .with_markdown_value(label.to_string()),
+                );
+            }
+            Event::Html(html) | Event::InlineHtml(html) => {
+                facts.push(SemanticFact::new(
+                    "raw-html",
+                    "retained content",
+                    crate::raw_html::semantic_content(&html),
+                ));
+            }
+            _ => {}
+        }
+    }
+    Ok(facts)
+}
+
 fn render_events<'a>(
     parsed_events: Vec<Event<'a>>,
     source_length: usize,

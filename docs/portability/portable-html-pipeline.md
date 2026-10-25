@@ -210,7 +210,7 @@ or "10-15 min". Runnable language names follow the native renderer's case-insens
 recognition, so `WEB runnable` and `web runnable` both produce labeled HTML/CSS/JavaScript
 sources and the canonical live-preview link.
 
-Reviewed Markdown golden artifacts for the video lesson, recipe, and hostile imported HTML
+Reviewed Markdown golden artifacts for the video lesson, recipe, translated research, and hostile imported HTML
 live beside their source fixtures under
 [`tests/fixtures/portable-html/`](../../tests/fixtures/portable-html/).
 `current_markdown_fallbacks_match_reviewed_golden_artifacts` parses these artifacts as plain
@@ -219,6 +219,26 @@ stable bytes, and unchanged canonical/native content. Set `OPENBLOG_UPDATE_GOLDE
 when intentionally regenerating and reviewing golden changes; ordinary test runs compare
 against the committed artifacts without updating them. Core regressions additionally cover
 fence collisions inside nested containers and malformed capability failures.
+
+### Semantic-loss gate
+
+Every portable HTML, Markdown and text artifact is checked against required public facts
+from the canonical model and the existing parsed/sanitized source events before it is returned.
+This is an output validation pass, not reconstruction of authored semantics from native HTML.
+Missing facts produce blocking `missing-semantic-fact` errors with the source path, capability,
+representation and affected field. They cannot be acknowledged away. Mutation regressions remove
+choices, designated answers (even when the answer remains among the choices), explanations,
+source code, captions, timestamps, contributor names/roles/identifier provenance, work identifiers,
+license links, evidence links, uncertainty and recipe facts from each representation.
+
+The gate checks content presence after whitespace normalization, not layout, factual correctness,
+or a proof of accessibility. Order, nesting, anchor resolution and readable static presentation
+have separate golden/browser gates. Raw HTML deliberately has different policies: HTML checks
+the allowlist's retained content, while Markdown/text show literal authored markup and disclose
+that transformation instead of promising the HTML allowlist's reconstructed elements. Private
+comments and hidden active content are excluded before deriving HTML obligations, so they cannot
+be exposed in diagnostic messages. Diagnostic messages name fields, never missing private values.
+Plain-text citations retain their authored note identifiers alongside readable note definitions.
 
 ## Research, attribution, and planned structures
 

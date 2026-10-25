@@ -213,6 +213,36 @@ fn next_token(source: &str, at: usize) -> (Token<'_>, usize) {
     }
 }
 
+/// Read facts from a derived artifact for validation, never for reconstruction.
+pub(crate) fn semantic_content(html: &str) -> String {
+    let mut output = String::new();
+    let mut at = 0;
+    while at < html.len() {
+        let (token, next) = next_token(html, at);
+        at = next;
+        match token {
+            Token::Text(text) => output.push_str(&decode(text)),
+            Token::Start { attributes, .. } => {
+                for (name, value) in attributes {
+                    if matches!(name.as_str(), "href" | "src" | "alt") {
+                        output.push('\n');
+                        output.push_str(&value);
+                        output.push('\n');
+                        if name != "alt" {
+                            if let Ok(url) = url::Url::parse(&value) {
+                                output.push_str(url.as_str());
+                                output.push('\n');
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    output
+}
+
 /// Where a comment that is open at the start of `text` ends: the length
 /// through its `-->` (or `--!>`), or `None` when `text` does not end it.
 pub(crate) fn comment_end(text: &str) -> Option<usize> {

@@ -41,4 +41,4 @@ Keeps 3 days.
 
 > **Portable fallback:** The question and answer are preserved; scoring, retry, and remembered attempts are unavailable. Review: Review the static question and answer; keep the canonical link when scoring or retries matter.
 
-[Read the discussion on the canonical article](https://example.test/blog/recipe/)
+[Read the discussion on the canonical article](https://example.test/blog/recipe/#ob-discussion)

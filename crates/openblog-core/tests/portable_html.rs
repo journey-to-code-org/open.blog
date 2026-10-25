@@ -216,9 +216,16 @@ fn assert_static_and_accessible(name: &str, html: &str) {
         }
     }
     assert!(stack.is_empty(), "{name}: unclosed {stack:?}");
+    let (_, site) = load(name);
+    let native = openblog_core::render::generate_document(
+        &site,
+        &openblog_core::theme::ThemeSet::new(),
+        &format!("posts/{name}.md"),
+    )
+    .unwrap();
     for fragment in fragments {
         assert!(
-            ids.contains(&fragment),
+            ids.contains(&fragment) || native.contents.contains(&format!("id=\"{fragment}\"")),
             "{name}: anchor #{fragment} has no target"
         );
     }
@@ -242,7 +249,7 @@ fn assert_golden(name: &str, html: &str) {
 fn current_markdown_fallbacks_match_reviewed_golden_artifacts() {
     use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
 
-    for name in ["video-lesson", "recipe", "hostile-html"] {
+    for name in ["video-lesson", "recipe", "research", "hostile-html"] {
         let (config, site) = load(name);
         let post = &site.posts[0];
         let authored = post.authored_markdown().to_string();
@@ -317,12 +324,137 @@ fn current_markdown_fallbacks_match_reviewed_golden_artifacts() {
                     assert!(markdown.contains(fact), "{name}: missing {fact}");
                 }
             }
+            "research" => {
+                for fact in [
+                    "Mira Øster",
+                    "José Ramírez",
+                    "Author, Investigation",
+                    "Translator",
+                    "(unauthenticated)",
+                    "10.5555/zürich.bridges/2026",
+                    "https://creativecommons.org/licenses/by/4.0/",
+                    "https://journal.example/bridges?lang=de&v=2",
+                    "date uncertain",
+                    "https://archive.example/annals?folio=12v#line-4",
+                    "https://doi.org/10.1000/survey.42#page=42",
+                    "print edition only",
+                    "the year is written over an erasure",
+                ] {
+                    assert!(markdown.contains(fact), "{name}: missing {fact}");
+                }
+                assert!(!markdown.contains("Reviewer 2"));
+                let references = markdown
+                    .split("## References")
+                    .nth(1)
+                    .unwrap()
+                    .split("## Contributions")
+                    .next()
+                    .unwrap();
+                for credit in ["Mira", "Lantern", "José", "orcid"] {
+                    assert!(!references.contains(credit), "{credit} in references");
+                }
+                assert_eq!(markdown.matches("[^annals]").count(), 3);
+            }
             _ => {
                 assert!(markdown.contains("Portable export note"));
                 assert!(markdown.contains("A hand-written custom element keeps its text."));
                 assert!(!markdown.contains("Join the discussion"));
             }
         }
+    }
+}
+
+#[test]
+fn semantic_loss_analysis_detects_mutated_facts_in_every_portable_representation() {
+    use openblog_core::portability::{DiagnosticSeverity, RepresentationFormat};
+    for (name, mutations) in [
+        (
+            "video-lesson",
+            vec![
+                (
+                    "Native disclosure works without JavaScript",
+                    "knowledge-check",
+                ),
+                ("Yes", "knowledge-check"),
+                ("cargo run --release", "runnable-code"),
+                ("button { color: red; }", "web-sandbox"),
+                ("00:14", "content"),
+                ("The café gate", "content"),
+                ("dQw4w9WgXcQ", "video"),
+            ],
+        ),
+        (
+            "research",
+            vec![
+                ("José Ramírez", "credits"),
+                ("Investigation", "credits"),
+                ("unauthenticated", "credits"),
+                ("https://lantern.example/", "credits"),
+                ("10.5555/zürich.bridges/2026", "research"),
+                ("https://creativecommons.org/licenses/by/4.0/", "research"),
+                ("https://archive.example/annals?folio=12v#line-4", "content"),
+                ("date uncertain", "content"),
+            ],
+        ),
+        ("recipe", vec![("10 min", "recipe"), ("2 bowls", "recipe")]),
+    ] {
+        let (config, site) = load(name);
+        let post = &site.posts[0];
+        let source = post.authored_markdown().to_string();
+        let native = post.html.clone();
+        let projection = PortableProjection::from_post(post, &config).unwrap();
+        for (format, artifact) in [
+            (
+                RepresentationFormat::Html,
+                projection.portable_html().unwrap().html,
+            ),
+            (
+                RepresentationFormat::Markdown,
+                projection.portable_markdown().unwrap(),
+            ),
+            (
+                RepresentationFormat::Text,
+                projection.portable_text().unwrap(),
+            ),
+        ] {
+            assert!(projection
+                .analyze_portable_artifact(format, &artifact)
+                .unwrap()
+                .is_empty());
+            for (value, capability) in &mutations {
+                let encoded = openblog_core::escape::attr(value);
+                let mutated = artifact
+                    .replace(value, "REMOVED")
+                    .replace(&encoded, "REMOVED");
+                assert_ne!(artifact, mutated, "{name}: mutation did not reach {value}");
+                let findings = projection
+                    .analyze_portable_artifact(format, &mutated)
+                    .unwrap();
+                assert!(
+                    findings.iter().any(|finding| {
+                        finding.code == "missing-semantic-fact"
+                            && finding.severity == DiagnosticSeverity::Error
+                            && finding.capability_id.as_deref() == Some(*capability)
+                            && finding.source_path == post.source
+                            && finding.context.representation.is_some()
+                    }),
+                    "{name} {format:?} {value}: {findings:?}"
+                );
+            }
+            if name == "video-lesson" {
+                let mutated = artifact
+                    .replace("Answer: A. No", "Answer: A. WRONG")
+                    .replace("Answer: 1. No", "Answer: 1. WRONG")
+                    .replace("**Answer:** 1. No", "**Answer:** 1. WRONG");
+                assert_ne!(artifact, mutated);
+                assert!(projection.analyze_portable_artifact(format, &mutated).unwrap().iter().any(|finding|
+                    finding.capability_id.as_deref() == Some("knowledge-check")
+                        && finding.context.affected_semantics.as_deref() == Some("answer")
+                ), "an answer still present among the choices must not hide a missing designated answer");
+            }
+        }
+        assert_eq!(post.authored_markdown(), source);
+        assert_eq!(post.html, native);
     }
 }
 

@@ -213,6 +213,33 @@ pub struct PortableImage {
     pub raw_html: bool,
 }
 
+pub(crate) struct SemanticFact {
+    capability: &'static str,
+    field: &'static str,
+    value: String,
+    markdown_value: Option<String>,
+}
+
+impl SemanticFact {
+    pub(crate) fn new(
+        capability: &'static str,
+        field: &'static str,
+        value: impl Into<String>,
+    ) -> Self {
+        Self {
+            capability,
+            field,
+            value: value.into(),
+            markdown_value: None,
+        }
+    }
+
+    pub(crate) fn with_markdown_value(mut self, value: String) -> Self {
+        self.markdown_value = Some(value);
+        self
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiagnosticSeverity {
@@ -801,7 +828,7 @@ impl<'a> PortableProjection<'a> {
         // Discussion stays on the canonical page: link there rather than to a
         // form that cannot work here, and never name the hosted endpoint.
         if let Some(policy) = self.participation {
-            let href = escape::attr(&self.canonical_url);
+            let href = escape::attr(&self.participation_url());
             html.push_str(&if policy == CommentsPolicy::Locked {
                 format!("<p class=\"ob-participation\">Comments are closed. <a href=\"{href}\">Read the discussion on the original article</a>.</p>\n")
             } else {
@@ -820,6 +847,7 @@ impl<'a> PortableProjection<'a> {
                 html.len()
             ));
         }
+        self.ensure_semantics(RepresentationFormat::Html, &html)?;
         let diagnostics = portability_diagnostics(self.source_path, self.markdown, &capabilities);
         Ok(PortableHtmlOutput {
             html,
@@ -1006,7 +1034,7 @@ impl<'a> PortableProjection<'a> {
             };
             output.push_str(&format!(
                 "[{label}]({})\n",
-                markdown_destination(&self.canonical_url)
+                markdown_destination(&self.participation_url())
             ));
         }
 
@@ -1017,7 +1045,247 @@ impl<'a> PortableProjection<'a> {
                 output.len()
             ));
         }
+        self.ensure_semantics(RepresentationFormat::Markdown, &output)?;
         Ok(output)
+    }
+
+    /// Compare a derived artifact with required public facts from canonical data.
+    /// This reads output only to validate it, never to reconstruct authored meaning.
+    pub fn analyze_portable_artifact(
+        &self,
+        format: RepresentationFormat,
+        artifact: &str,
+    ) -> Result<Vec<PortabilityDiagnostic>, String> {
+        let representation = match format {
+            RepresentationFormat::Html => "portable-html",
+            RepresentationFormat::Markdown => "portable-markdown",
+            RepresentationFormat::Text => "portable-text",
+        };
+        if artifact.len() > MAX_PORTABLE_HTML_BYTES {
+            return Err(format!(
+                "{}: {representation} exceeds the artifact size bound",
+                self.source_path
+            ));
+        }
+        let content = match format {
+            RepresentationFormat::Html => crate::raw_html::semantic_content(artifact),
+            RepresentationFormat::Markdown => {
+                let mut html = String::new();
+                pulldown_cmark::html::push_html(
+                    &mut html,
+                    Parser::new_ext(artifact, crate::markdown::parser_options(false)),
+                );
+                crate::raw_html::semantic_content(&html)
+            }
+            RepresentationFormat::Text => artifact.to_string(),
+        };
+        let normalize = |value: &str| {
+            value
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>()
+        };
+        let content = normalize(&content);
+        let mut options = self.render_options;
+        options.smart_punctuation &= format == RepresentationFormat::Html;
+        let mut facts = crate::markdown::portable_semantic_facts(self.markdown, options, self)
+            .map_err(|error| format!("{}: {error}", self.source_path))?;
+        if self.credit_provenance == CreditProvenance::ExplicitSidecar {
+            for credit in self.credits {
+                facts.push(SemanticFact::new(
+                    "credits",
+                    "contributor name",
+                    &credit.contributor.name,
+                ));
+                if !credit.contributor.url.trim().is_empty() {
+                    facts.push(SemanticFact::new(
+                        "credits",
+                        "source link",
+                        self.resolve_link(credit.contributor.url.trim())?,
+                    ));
+                }
+                for role in &credit.roles {
+                    facts.push(SemanticFact::new(
+                        "credits",
+                        "contributor role",
+                        role.label(),
+                    ));
+                }
+                if !credit.contributor.orcid.is_empty() {
+                    facts.push(SemanticFact::new(
+                        "credits",
+                        "contributor identifier",
+                        &credit.contributor.orcid,
+                    ));
+                    facts.push(SemanticFact::new(
+                        "credits",
+                        "identifier provenance",
+                        "unauthenticated",
+                    ));
+                }
+            }
+        }
+        if let Some(research) = self.research {
+            if let (Some(doi), Some(_)) = (&research.doi, &research.doi_url) {
+                facts.push(SemanticFact::new("research", "work identifier", doi));
+            }
+            if let Some(license) = &research.license_url {
+                facts.push(SemanticFact::new(
+                    "research",
+                    "license",
+                    self.resolve_link(license)?,
+                ));
+            }
+        }
+        if let Some(source) = self.source_url {
+            facts.push(SemanticFact::new(
+                "provenance",
+                "source link",
+                self.resolve_link(source)?,
+            ));
+        }
+        if let Some(video) = self.video {
+            if let Some((url, embed)) = video
+                .url
+                .as_deref()
+                .and_then(|url| crate::embed::detect(url).map(|embed| (url, embed)))
+            {
+                facts.push(
+                    SemanticFact::new("video", "source link", embed.link)
+                        .with_markdown_value(self.resolve_link(url)?),
+                );
+            }
+            if let Some(label) = video.production_label() {
+                facts.push(SemanticFact::new("video", "episode label", label));
+            }
+            for (field, value) in [
+                ("production status", video.production_status.as_deref()),
+                ("production credits", video.production_credits.as_deref()),
+            ] {
+                if let Some(value) = value {
+                    facts.push(SemanticFact::new("video", field, value));
+                }
+            }
+        }
+        if let Some(recipe) = self.recipe {
+            for (minutes, written) in [
+                (recipe.prep, &recipe.prep_text),
+                (recipe.cook, &recipe.cook_text),
+                (recipe.total, &recipe.total_text),
+            ] {
+                if let Some(value) = minutes
+                    .map(crate::recipe::format_minutes)
+                    .or_else(|| written.clone())
+                {
+                    facts.push(SemanticFact::new("recipe", "duration", value));
+                }
+            }
+            for value in [
+                &recipe.servings_text,
+                &recipe.yield_text,
+                &recipe.cuisine,
+                &recipe.category,
+                &recipe.calories,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                facts.push(SemanticFact::new("recipe", "summary fact", value));
+            }
+        }
+        if self.participation.is_some() {
+            facts.push(SemanticFact::new(
+                "comments",
+                "participation link",
+                self.participation_url(),
+            ));
+        }
+        for capability in self
+            .capabilities
+            .iter()
+            .filter(|capability| !capability.has_portable_fallback())
+        {
+            if let Some(label) = capability.portable_label() {
+                facts.push(SemanticFact::new(
+                    "canonical-only-interaction",
+                    "capability label",
+                    label,
+                ));
+                facts.push(SemanticFact::new(
+                    "canonical-only-interaction",
+                    "canonical link",
+                    &self.canonical_url,
+                ));
+            }
+        }
+        let mut diagnostics = Vec::new();
+        for fact in facts {
+            // Markdown deliberately shows raw markup literally rather than the
+            // HTML allowlist's reconstructed tags, attributes or replacement notes.
+            if fact.capability == "raw-html" && format != RepresentationFormat::Html {
+                continue;
+            }
+            let expected = if format == RepresentationFormat::Html {
+                &fact.value
+            } else {
+                fact.markdown_value.as_ref().unwrap_or(&fact.value)
+            };
+            let value = if matches!(fact.field, "link or media target" | "source link")
+                || (expected.starts_with("https://") && !expected.chars().any(char::is_whitespace))
+            {
+                Url::parse(expected)
+                    .map(|url| url.to_string())
+                    .unwrap_or_else(|_| expected.clone())
+            } else {
+                expected.clone()
+            };
+            if content.contains(&normalize(&value)) || content.contains(&normalize(expected)) {
+                continue;
+            }
+            let diagnostic = PortabilityDiagnostic {
+                code: "missing-semantic-fact".into(),
+                severity: DiagnosticSeverity::Error,
+                source_path: self.source_path.into(),
+                capability_id: Some(fact.capability.into()),
+                message: format!("The {representation} artifact is missing required {}.", fact.field),
+                recommended_action: "Repair the projection before publishing; an acknowledgement cannot override missing substantive content.".into(),
+                context: DiagnosticContext {
+                    representation: Some(representation.into()),
+                    destination: Some("portable-export".into()),
+                    affected_semantics: Some(fact.field.into()),
+                    ..Default::default()
+                },
+            };
+            if !diagnostics.contains(&diagnostic) {
+                diagnostics.push(diagnostic);
+            }
+        }
+        Ok(diagnostics)
+    }
+
+    fn ensure_semantics(&self, format: RepresentationFormat, artifact: &str) -> Result<(), String> {
+        let diagnostics = self.analyze_portable_artifact(format, artifact)?;
+        if diagnostics.is_empty() {
+            return Ok(());
+        }
+
+        Err(diagnostics
+            .iter()
+            .map(|diagnostic| {
+                format!(
+                    "{} [{}] {}: {}",
+                    diagnostic.source_path,
+                    diagnostic.code,
+                    diagnostic.capability_id.as_deref().unwrap_or("content"),
+                    diagnostic.message
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; "))
+    }
+
+    fn participation_url(&self) -> String {
+        format!("{}#{}", self.canonical_url, crate::model::DISCUSSION_ANCHOR)
     }
 
     /// Produce plain feed text from the portable Markdown, including code and
@@ -1047,6 +1315,10 @@ impl<'a> PortableProjection<'a> {
                     }
                 }
                 Event::SoftBreak | Event::HardBreak | Event::Rule => output.push('\n'),
+                Event::FootnoteReference(label) => output.push_str(&format!("[{label}]")),
+                Event::Start(Tag::FootnoteDefinition(label)) => {
+                    output.push_str(&format!("[{label}]: "))
+                }
                 Event::End(
                     TagEnd::Paragraph
                     | TagEnd::Heading(_)
@@ -1072,6 +1344,7 @@ impl<'a> PortableProjection<'a> {
             compact.push_str(line);
             previous_blank = false;
         }
+        self.ensure_semantics(RepresentationFormat::Text, &compact)?;
         Ok(compact)
     }
 
@@ -1719,6 +1992,36 @@ mod tests {
     use super::*;
     use crate::config::SiteConfig;
     use crate::model::{LoadOptions, Site, SourceFile, Sources};
+
+    #[test]
+    fn semantic_validation_respects_each_representations_punctuation_policy() {
+        let source =
+            "---\ntitle: Punctuation\ndate: 2020-01-01\n---\nHe said \"hello\" -- then waited...\n";
+        let (mut config, _) = public_post(source);
+        config.markdown.smart_punctuation = true;
+        let site = Site::load(
+            config.clone(),
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/work.md".into(),
+                    contents: source.into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        assert!(projection.portable_html().unwrap().html.contains("“hello”"));
+        assert!(projection
+            .portable_markdown()
+            .unwrap()
+            .contains("\"hello\" -- then waited..."));
+        assert!(projection
+            .portable_text()
+            .unwrap()
+            .contains("\"hello\" -- then waited..."));
+    }
 
     #[test]
     fn markdown_web_fallback_matches_case_insensitive_native_language_and_preserves_collisions() {
@@ -2770,11 +3073,11 @@ mod tests {
     fn portable_participation_links_to_the_canonical_discussion() {
         let open = engaged_post("open", "https://engage.example/api");
         assert!(open.html.ends_with(
-            "<p class=\"ob-participation\"><a href=\"https://example.test/posts/talk/\">Join the discussion on the original article</a>.</p>\n"
+            "<p class=\"ob-participation\"><a href=\"https://example.test/posts/talk/#ob-discussion\">Join the discussion on the original article</a>.</p>\n"
         ), "{}", open.html);
         let locked = engaged_post("locked", "https://engage.example/api");
         assert!(locked.html.ends_with(
-            "<p class=\"ob-participation\">Comments are closed. <a href=\"https://example.test/posts/talk/\">Read the discussion on the original article</a>.</p>\n"
+            "<p class=\"ob-participation\">Comments are closed. <a href=\"https://example.test/posts/talk/#ob-discussion\">Read the discussion on the original article</a>.</p>\n"
         ), "{}", locked.html);
         for output in [&open, &locked] {
             assert!(!output.html.contains("engage.example"), "{}", output.html);
@@ -3024,8 +3327,75 @@ A[^a b].
             .capabilities
             .iter()
             .any(|capability| capability.id.contains("reflection")));
+        let markdown = projection.portable_markdown().unwrap();
+        let text = projection.portable_text().unwrap();
+        for artifact in [&markdown, &text] {
+            assert!(artifact.contains("1914 – War begins"));
+            assert!(artifact.contains("date uncertain"));
+            assert!(artifact.contains("Timeline"));
+            assert!(artifact.contains("Interactive content"));
+            assert!(artifact.contains("https://example.test/blog/work/"));
+            assert!(!artifact.contains("protected-reflection"));
+            assert!(!artifact.contains("Bad<id>"));
+        }
+        assert_eq!(markdown.matches("> **Timeline:**").count(), 1);
         assert_eq!(post.html, native);
         assert_eq!(projection.portable_html().unwrap(), output);
+    }
+
+    #[test]
+    fn every_planned_contract_preserves_public_prose_or_excludes_private_state() {
+        let registry: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../docs/portability/planned-capability-contracts.json"
+        ))
+        .unwrap();
+        let (config, site) = public_post(
+            "---\ntitle: Future contract\ndate: 2020-01-01\n---\n## Public context\n\n1. Translator: José; rights: approved quotation only.\n2. Uncertain date: c. 1350; commentary is not evidence.\n\n[Evidence](https://evidence.example/source#passage)\n",
+        );
+        let post = &site.posts[0];
+        let native = post.html.clone();
+        for contract in registry["contracts"].as_array().unwrap() {
+            let id = contract["id"].as_str().unwrap();
+            let registered = [CapabilityDescriptor::describe(id, None)];
+            let mut projection = PortableProjection::from_post(post, &config).unwrap();
+            projection.capabilities = &registered;
+            let html = projection.portable_html().unwrap();
+            let markdown = projection.portable_markdown().unwrap();
+            let text = projection.portable_text().unwrap();
+            for artifact in [&html.html, &markdown, &text] {
+                for fact in [
+                    "José",
+                    "approved quotation only",
+                    "c. 1350",
+                    "commentary is not evidence",
+                    "https://evidence.example/source#passage",
+                ] {
+                    assert!(artifact.contains(fact), "{id}: lost {fact}");
+                }
+                if let Some(label) = registered[0].portable_label() {
+                    assert!(
+                        artifact.contains(label),
+                        "{id}: missing canonical-only label"
+                    );
+                    assert!(artifact.contains("https://example.test/blog/work/"));
+                } else {
+                    assert!(
+                        !artifact.contains(id),
+                        "{id}: private capability disclosure"
+                    );
+                }
+            }
+            if registered[0].portable_label().is_none() {
+                assert!(html.capabilities.is_empty());
+                assert!(html.diagnostics.is_empty());
+            } else {
+                assert!(html
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == "canonical-only-interaction"));
+            }
+        }
+        assert_eq!(post.html, native);
     }
 
     #[test]

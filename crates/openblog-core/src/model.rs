@@ -127,6 +127,8 @@ pub struct TagRef {
     pub slug: String,
 }
 
+pub(crate) const DISCUSSION_ANCHOR: &str = "ob-discussion";
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CommentsPolicy {
     #[default]

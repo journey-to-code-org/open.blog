@@ -91,6 +91,8 @@ test("independent XML/JSON readers preserve feed semantics, absolute URLs, disco
   for (const link of result.links.map((link) => new URL(link)).filter((link) => link.pathname === canonical.pathname && link.hash)) {
     await expect(page.locator(`[id="${decodeURIComponent(link.hash.slice(1))}"]`)).toHaveCount(1);
   }
+  expect(result.links).toContain(`${result.json.url}#ob-discussion`);
+  await expect(page.getByRole("region", { name: "Discussion", exact: true })).toHaveCount(1);
   expect(readFileSync(join(root, "content", "posts", "portable-lesson.md"), "utf8")).toBe(source);
 });
 

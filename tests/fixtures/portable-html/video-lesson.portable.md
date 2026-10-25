@@ -98,4 +98,4 @@ print("runs on the canonical page")
 
 > **Portable fallback:** The source code and canonical run/edit link are preserved; eligible Rust examples also link to the external Playground. Review: Review the preserved source and keep the canonical link for editing or execution.
 
-[Join the discussion on the canonical article](https://example.test/blog/video-lesson/)
+[Join the discussion on the canonical article](https://example.test/blog/video-lesson/#ob-discussion)
