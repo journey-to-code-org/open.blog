@@ -26,6 +26,7 @@ pub mod escape;
 pub mod feeds;
 pub mod field_journal;
 pub mod frontmatter;
+pub mod invitation;
 pub mod markdown;
 pub mod model;
 pub mod portability;
