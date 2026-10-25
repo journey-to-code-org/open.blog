@@ -17,6 +17,11 @@ All notable changes to open.blog are recorded here. Releases follow
   it. In Visual mode every citation, including hand-written ones, is a chip that keeps its exact
   Markdown, and Ctrl+Z right after inserting restores the draft and caret exactly. If the library
   changed meanwhile, nothing is inserted and your choices are kept.
+- Citations are now found with the same Markdown parser the renderer uses, so code, comments,
+  defined `[@label]` links and list continuations are read the same way everywhere. Identifiers in
+  private schemes (such as a local file path) and extra fields on notebook locators are never
+  published with a citation, and CSL citation items keep custom labels and normalise ids the way
+  reference import does.
 
 ## [0.25.0] - 2026-10-25
 
