@@ -22,6 +22,7 @@ let server;
 let origin;
 let store;
 let offline;
+let synthesis;
 
 test.beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), "openblog-drafts-"));
@@ -59,6 +60,7 @@ const json = (route, status, body) => route.fulfill({ status, contentType: "appl
 
 async function install(context) {
   store = { number: 0, markdown: "" };
+  synthesis = { revision: 0, items: [], authors: [{ id: "p-me", displayName: "Writer" }], you: "p-me" };
   offline = false;
   await context.route("**/admin/api/collaboration/**", async (route) => {
     const method = route.request().method();
@@ -76,6 +78,20 @@ async function install(context) {
       }
       store = { number: store.number + 1, markdown: body.markdown };
       return json(route, 200, { stamp: stamp(store.number) });
+    }
+    if (path === "synthesis" && method === "GET") return json(route, 200, synthesis);
+    if (path === "synthesis" && method === "POST") {
+      const body = route.request().postDataJSON();
+      if (body.expectedRevision !== synthesis.revision) return json(route, 409, { error: "The continuing conversation changed since you read it." });
+      const me = synthesis.authors[0];
+      const items = synthesis.items.map((item) => ({ ...item }));
+      if (body.change.action === "add") {
+        items.push({ id: `syn-${items.length + 1}`, kind: body.change.kind, markdown: body.change.markdown, revision: 1, contributors: [me], approved: [], awaiting: [me], mine: true, approvedByYou: false });
+      } else if (body.change.action === "approve") {
+        for (const item of items) if (item.id === body.change.id) Object.assign(item, { approved: [me], awaiting: [], approvedByYou: true });
+      }
+      synthesis = { ...synthesis, revision: synthesis.revision + 1, items };
+      return json(route, 200, synthesis);
     }
     if (path === "reveal") return json(route, 200, { policy: "voluntary", ready: false, canSetPolicy: false, slots: [] });
     return json(route, 404, { error: "not found" });
@@ -236,4 +252,36 @@ test("the combined preview loads in an empty sandbox, runs and fetches nothing, 
   await expect(page.getByRole("status").filter({ hasText: "Preview, not published." })).toContainText("Incomplete");
   await expect(page.getByRole("list", { name: "Authors in the combined piece" })).toContainText("Bo: not shared with you at its current revision");
   await expect(page.getByRole("list", { name: "Authors in the combined piece" })).not.toContainText("private words");
+});
+
+test("the continuing conversation works with the keyboard alone at phone width, and focus is never lost", async ({ page, context }) => {
+  await install(context);
+  await page.setViewportSize({ width: 320, height: 700 });
+  await openPanel(page);
+  const heading = page.getByRole("heading", { name: "Continuing conversation" });
+  await expect(heading).toBeVisible();
+  const text = page.locator(".oba-synthesis-form textarea");
+  await text.focus();
+  await page.keyboard.type("We both noticed the pause.");
+  await page.getByRole("button", { name: "Add item" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText(/Item 1 of 1\. Agreement, speaking for Writer/)).toBeVisible();
+  await expect(heading).toBeFocused();
+  expect(synthesis.items[0].markdown).toBe("We both noticed the pause.");
+  await page.getByRole("button", { name: "Approve this item" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "You approved this" })).toBeDisabled();
+  await expect(page.locator(".oba-synthesis-item").getByRole("button", { name: "Edit", exact: true })).toBeFocused();
+  await page.locator(".oba-synthesis-item").getByRole("button", { name: "Edit", exact: true }).press("Enter");
+  await expect(page.getByLabel("Edit item text")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Edit cancelled. Nothing was changed.")).toBeVisible();
+  await expect(page.locator(".oba-synthesis-item").getByRole("button", { name: "Edit", exact: true })).toBeFocused();
+  const wide = await page.evaluate(() => {
+    const limit = document.documentElement.clientWidth;
+    return [...document.querySelectorAll(".oba-synthesis, .oba-synthesis *")].filter((node) => node.getBoundingClientRect().right > limit + 1).map((node) => node.className || node.tagName);
+  });
+  expect(wide).toEqual([]);
 });

@@ -19,14 +19,14 @@
 
 use serde::Serialize;
 
-use crate::approval::{
-    public_metadata, ApprovalSet, ApprovalState, ApprovalSubject, Readiness, Section,
-};
+use crate::approval::{ApprovalSet, ApprovalState, Readiness, Section};
+use crate::assembly::display_names;
 use crate::collaboration::SharedPublication;
 use crate::draft::DraftSet;
 use crate::escape;
 use crate::markdown::{self, RenderOptions};
 use crate::shared_source::SharedAttribution;
+use crate::synthesis::{SynthesisKind, SynthesisSet};
 
 /// The policy the preview document carries. Nothing loads, nothing runs.
 pub const PREVIEW_CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; \
@@ -63,6 +63,42 @@ pub struct PreviewSection {
     pub errors: Vec<String>,
 }
 
+/// One synthesis item's approval standing, for an author of the piece.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewItem {
+    pub id: String,
+    pub kind: SynthesisKind,
+    pub revision: u64,
+    /// Display names of the authors the item speaks for, in attribution order.
+    pub authors: Vec<String>,
+    pub approved: Vec<String>,
+    pub awaiting: Vec<String>,
+    /// Whether the requester is named on the item.
+    pub mine: bool,
+}
+
+fn preview_items(
+    record: &SharedPublication,
+    synthesis: &SynthesisSet,
+    requester: &str,
+) -> Vec<PreviewItem> {
+    let names = |ids: Vec<&str>| display_names(record, ids);
+    synthesis
+        .items()
+        .iter()
+        .map(|item| PreviewItem {
+            id: item.id().to_string(),
+            kind: item.kind(),
+            revision: item.revision(),
+            authors: names(item.contributors().iter().map(String::as_str).collect()),
+            approved: names(item.approved_by()),
+            awaiting: names(item.awaiting()),
+            mine: item.contributors().iter().any(|c| c == requester),
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CombinedPreview {
@@ -74,6 +110,8 @@ pub struct CombinedPreview {
     pub ready: bool,
     /// The token the requester's own approval would bind to; only issued for a complete piece.
     pub seen: Option<String>,
+    /// The shared synthesis items with who has approved each. Prose is in `document` only.
+    pub items: Vec<PreviewItem>,
     /// A self-contained, script-free HTML document marked as a preview.
     pub document: String,
 }
@@ -95,14 +133,19 @@ fn approval_label(state: ApprovalState) -> &'static str {
 /// Build the preview `requester` may see, from the active authors in participant order.
 ///
 /// `active` are the participants who currently hold the draft grant; the requester must be one.
+/// `show_synthesis` is true only when the requester holds `EditSynthesis`; otherwise the items and
+/// the conversation section are left out (readiness still counts them).
 /// `options` are the site's production Markdown options. Pure: it never writes drafts or
 /// approvals.
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     record: &SharedPublication,
     drafts: &DraftSet,
+    synthesis: &SynthesisSet,
     approvals: &ApprovalSet,
     requester: &str,
     active: &[&str],
+    show_synthesis: bool,
     options: RenderOptions<'_>,
 ) -> Result<CombinedPreview, PreviewError> {
     if !active.contains(&requester) {
@@ -114,7 +157,6 @@ pub fn build(
         .iter()
         .filter(|participant| active.contains(&participant.id.as_str()))
         .collect();
-    let author_ids: Vec<&str> = authors.iter().map(|p| p.id.as_str()).collect();
 
     // The piece as publication would assemble it now: each active author's latest revision.
     let stamps: Vec<_> = authors
@@ -134,63 +176,122 @@ pub fn build(
             })
         })
         .collect();
-    let metadata = public_metadata(record);
-    let metadata_refs: Vec<&str> = metadata.iter().map(String::as_str).collect();
-    let subject = ApprovalSubject {
-        authors: &author_ids,
-        sections: &subject_sections,
-        metadata: &metadata_refs,
-    };
+    crate::assembly::with_subject(record, drafts, synthesis, active, |subject| {
+        let mut sections = Vec::new();
+        let mut rendered = Vec::new();
+        for (author, stamp) in authors.iter().zip(&stamps) {
+            let entitled = stamp.as_ref().and_then(|stamp| {
+                let view = drafts.view(requester, &author.id, active).ok()?;
+                (view.stamp.number == stamp.number && view.stamp.digest == stamp.digest)
+                    .then_some(view)
+            });
+            let prose = entitled
+                .as_ref()
+                .map(|view| render_section(&view.markdown, options));
+            sections.push(PreviewSection {
+                participant_id: author.id.clone(),
+                display_name: author.display_name.clone(),
+                shown: prose.is_some(),
+                revision: entitled.as_ref().map(|view| view.stamp.number),
+                approval: approvals.state(subject, &author.id),
+                required: approvals.is_required(subject, &author.id),
+                errors: prose.as_ref().map(|r| r.errors.clone()).unwrap_or_default(),
+            });
+            rendered.push(prose.map(|r| r.html));
+        }
 
-    let mut sections = Vec::new();
-    let mut rendered = Vec::new();
-    for (author, stamp) in authors.iter().zip(&stamps) {
-        let entitled = stamp.as_ref().and_then(|stamp| {
-            let view = drafts.view(requester, &author.id, active).ok()?;
-            (view.stamp.number == stamp.number && view.stamp.digest == stamp.digest).then_some(view)
-        });
-        let prose = entitled
-            .as_ref()
-            .map(|view| render_section(&view.markdown, options));
-        sections.push(PreviewSection {
-            participant_id: author.id.clone(),
-            display_name: author.display_name.clone(),
-            shown: prose.is_some(),
-            revision: entitled.as_ref().map(|view| view.stamp.number),
-            approval: approvals.state(&subject, &author.id),
-            required: approvals.is_required(&subject, &author.id),
-            errors: prose.as_ref().map(|r| r.errors.clone()).unwrap_or_default(),
-        });
-        rendered.push(prose.map(|r| r.html));
-    }
-
-    // Complete means every section that exists is shown. An author who owns no section adds no
-    // content to be missed, so they can still approve the whole piece (ADR 0020).
-    let complete = !subject_sections.is_empty()
-        && sections
-            .iter()
-            .zip(&stamps)
-            .all(|(section, stamp)| stamp.is_none() || section.shown);
-    let ready = complete && approvals.evaluate(&subject) == Ok(Readiness::Ready);
-    let seen = if complete {
-        approvals.binding_for(&subject, requester).ok()
-    } else {
-        None
-    };
-    let document = document(record, &sections, &rendered, complete, ready);
-    Ok(CombinedPreview {
-        sections,
-        complete,
-        ready,
-        seen,
-        document,
+        // Complete means every section that exists is shown. An author who owns no section adds no
+        // content to be missed, so they can still approve the whole piece (ADR 0020).
+        let complete = !subject_sections.is_empty()
+            && sections
+                .iter()
+                .zip(&stamps)
+                .all(|(section, stamp)| stamp.is_none() || section.shown);
+        let items = preview_items(record, synthesis, requester);
+        let ready = complete
+            && approvals.evaluate(subject) == Ok(Readiness::Ready)
+            && items.iter().all(|item| item.awaiting.is_empty());
+        // Synthesis is for its authors only (EditSynthesis). Readiness above still counts every
+        // item, but anyone who may not edit the synthesis sees neither its prose nor its names.
+        let items = if show_synthesis { items } else { Vec::new() };
+        let seen = if complete {
+            approvals.binding_for(subject, requester).ok()
+        } else {
+            None
+        };
+        let document = document(
+            record,
+            &sections,
+            &rendered,
+            &conversation_html(record, &items, synthesis, options),
+            complete,
+            ready,
+        );
+        Ok(CombinedPreview {
+            sections,
+            complete,
+            ready,
+            seen,
+            items,
+            document,
+        })
     })
+}
+
+/// The conversation as the preview shows it. Approved items come first as the very Markdown the
+/// Post publishes ([`crate::assembly::conversation_markdown`]) through the same renderer, so the
+/// preview and the public page cannot drift. Items still awaiting approval follow in a separate,
+/// plainly labelled block that is never published.
+fn conversation_html(
+    record: &SharedPublication,
+    items: &[PreviewItem],
+    synthesis: &SynthesisSet,
+    options: RenderOptions<'_>,
+) -> String {
+    let mut html = String::new();
+    if items.is_empty() {
+        return html;
+    }
+    let published = crate::assembly::conversation_markdown(record, synthesis);
+    if !published.is_empty() {
+        html.push_str(
+            "<p class=\"ob-preview-status\">Published exactly as shown in this section: items every author they speak for has approved.</p>\n",
+        );
+        html.push_str("<div class=\"ob-preview-prose\">\n");
+        html.push_str(&render_section(&published, options).html);
+        html.push_str("</div>\n");
+    }
+    let pending: Vec<_> = items
+        .iter()
+        .zip(synthesis.items())
+        .filter(|(entry, _)| !entry.awaiting.is_empty())
+        .collect();
+    if !pending.is_empty() {
+        html.push_str(
+            "<section class=\"ob-preview-section\" aria-labelledby=\"ob-preview-pending\">\n<h2 id=\"ob-preview-pending\">Awaiting approval, not published</h2>\n",
+        );
+        for (entry, item) in pending {
+            html.push_str(&format!(
+                "<article class=\"ob-preview-item\">\n<p class=\"ob-preview-status\">{}, speaking for {}. Approved by: {}. Awaiting: {}.</p>\n",
+                escape::text(kind_label(entry.kind)),
+                escape::text(&entry.authors.join(", ")),
+                escape::text(&list_or_none(&entry.approved)),
+                escape::text(&list_or_none(&entry.awaiting)),
+            ));
+            html.push_str("<div class=\"ob-preview-prose\">\n");
+            html.push_str(&render_section(item.markdown(), options).html);
+            html.push_str("</div>\n</article>\n");
+        }
+        html.push_str("</section>\n");
+    }
+    html
 }
 
 fn document(
     record: &SharedPublication,
     sections: &[PreviewSection],
     rendered: &[Option<String>],
+    conversation: &str,
     complete: bool,
     ready: bool,
 ) -> String {
@@ -265,8 +366,27 @@ fn document(
         }
         html.push_str("</section>\n");
     }
+    html.push_str(conversation);
     html.push_str("</body>\n</html>\n");
     html
+}
+
+fn list_or_none(names: &[String]) -> String {
+    if names.is_empty() {
+        "no one".to_string()
+    } else {
+        names.join(", ")
+    }
+}
+
+fn kind_label(kind: SynthesisKind) -> &'static str {
+    match kind {
+        SynthesisKind::Agreement => "Agreement",
+        SynthesisKind::Difference => "Difference",
+        SynthesisKind::Question => "Question",
+        SynthesisKind::Application => "Application",
+        SynthesisKind::Uncertainty => "Uncertainty",
+    }
 }
 
 const STYLE: &str = "<style>\n\

@@ -15,6 +15,7 @@ use openblog_core::feeds;
 use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
 use openblog_core::portability::PortableProjection;
 use openblog_core::render;
+use openblog_core::synthesis::SynthesisSet;
 use openblog_core::theme::ThemeSet;
 
 const T: i64 = 1_800_000_000;
@@ -121,15 +122,15 @@ fn approved_titled(title: &str, texts: &[(&str, &str)]) -> Assembly {
     }
     let mut approvals = ApprovalSet::new();
     for who in ALL {
-        let seen = with_subject(&record, &set, &ALL, |s| {
+        let seen = with_subject(&record, &set, &SynthesisSet::new(), &ALL, |s| {
             approvals.binding_for(s, who).unwrap()
         });
-        with_subject(&record, &set, &ALL, |s| {
+        with_subject(&record, &set, &SynthesisSet::new(), &ALL, |s| {
             approvals.approve(who, who, s, &seen, true, T)
         })
         .unwrap();
     }
-    assemble(&record, &set, &approvals, &ALL, DATE).unwrap()
+    assemble(&record, &set, &SynthesisSet::new(), &approvals, &ALL, DATE).unwrap()
 }
 
 fn site(made: &Assembly) -> Site {

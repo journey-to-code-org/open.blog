@@ -5,6 +5,35 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-25
+
+- The continuing conversation travels with the piece. Full-content RSS, JSON Feed, portable
+  HTML, Markdown and text, and llms files keep its categories, attribution, order, open questions
+  and stable anchors with a canonical link, and carry no drafting or approval state. An automatic
+  summary or excerpt now stops before the conversation, and summary-only feeds export none of it.
+- Fixed: the continuing conversation's generated anchors can no longer be claimed by an author's
+  own heading, and an item's headings must start at level five and not skip a level. Item saves
+  now refuse these (and any heading above level five) up front, and a publish refusal caused by an
+  item names the item and the rule instead of blaming a section.
+- A published shared reflection now ends with a "Continuing the conversation" section holding its
+  approved agreements, differences, questions, applications and uncertainties. Items are grouped by
+  kind, each headed "Speaking for" the authors it names, with stable anchors and no consensus signal.
+  Only items every named author approved at their current text publish; an empty synthesis adds
+  nothing. The combined preview shows the same section, and item Markdown is held to the safety
+  rules of sections (no raw HTML or unsafe links, and no headings above level five). It flows into
+  RSS, JSON Feed and portable output as ordinary post content.
+- Contributors can write, attribute, edit, reorder and approve a shared reflection's continuing
+  conversation in Admin: optional agreements, differences, questions, applications and
+  uncertainties, with dismissible, editable prompts and no minimum length. Each item shows who has
+  approved it, in Admin and in the combined preview (editors and coordinators never see items). Publishing is blocked while a named author has
+  not approved the piece or any item is awaiting approval, and any change to an item makes standing
+  approvals of the piece out of date. Items stay private to the authors; nothing is published yet.
+- Shared reflections have a core model for synthesis items: optional agreements, differences,
+  questions, applications and uncertainties, each attributed to one, some or all authors. Disagreement
+  is never an error, authors can withdraw their own name, and an approval binds to the exact items,
+  order and attribution. Each item records which of its authors approved it, and any change to the
+  item clears those approvals. No Admin screen or public output uses it yet.
+
 ## [0.22.0] - 2026-10-25
 
 - Portable Markdown for a published shared reflection now escapes its title, so a participant-supplied
