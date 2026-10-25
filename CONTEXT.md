@@ -270,14 +270,27 @@ _Avoid_: Collaboration transcript, automatic byline, second Post or canonical do
 ## Evidence and identity
 
 **Citation**:
-An in-text pointer connecting a passage to a reference.
-_Avoid_: Reference, source
+An in-text pointer connecting a passage to a reference, written `[@key]` or
+`[@key, page 514]`. Its key is the reference's source identifier and its locators are the
+notebook's. Only its key, locators and the formatted reference are public; it asserts nothing
+about what the source proves.
+_Avoid_: Reference, source, footnote, link
 
 **Reference**:
 A description or resolvable identifier for a work used as evidence or context. In the
 source library, a reference record points at exactly one work, edition, translation, or
 witness, never at another reference or a contributor.
 _Avoid_: Citation when no in-text pointer is meant; contributor or work credit
+
+**Citation key**:
+The source identifier written after `@` in a citation. There is no separate key registry, so a
+citation resolves to exactly one source-library record, archived or not, or is reported.
+_Avoid_: Cite key table, alias, BibTeX key
+
+**Formatted reference**:
+The public, plain-text rendering of a reference built only from its bibliographic description
+(title, creators, date, identifiers, preserved CSL variables), never from notebook text.
+_Avoid_: Bibliography entry when the source-library record is meant; CSL style output
 
 **Work identifier**:
 A persistent identifier assigned to a published work, distinct from the page URL where a

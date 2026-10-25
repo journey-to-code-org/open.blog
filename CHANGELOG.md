@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined how citations work, ahead of in-post citations: a citation is `[@key]` or
+  `[@key, page 514; canonical 514a to 520a]`, where the key is a source library id and the
+  locators are the notebook's. It is opt-in, so existing posts, links and footnotes render exactly
+  as before. Only the key, the locators and the formatted reference can become public, never
+  notebook text. CSL import and export now state what is stored, kept as-is, or reported as lost,
+  including citation locators. Nothing in Admin or your site changes yet.
+
 ## [0.25.0] - 2026-10-25
 
 - You can now archive passages and notes you want out of the way, without deleting them, and export

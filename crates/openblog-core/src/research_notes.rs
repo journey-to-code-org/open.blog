@@ -586,7 +586,7 @@ impl Reader<'_> {
 
 /// Unicode embedding, override, and isolate controls can reorder displayed
 /// text invisibly. They are refused in every text field.
-fn bidi_override(character: char) -> bool {
+pub(crate) fn bidi_override(character: char) -> bool {
     matches!(character, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
 }
 
@@ -847,7 +847,26 @@ fn parse_note(
 
 /// The kind of source record a locator is checked against: a reference stands
 /// for the edition, translation, witness, or work it points at.
-fn resolved_kind(library: &SourceLibrary, id: &str) -> Option<ResearchSourceKind> {
+/// Why a locator cannot address the source it is attached to, if it cannot.
+/// Shared by notebook passages and citations so both refuse the same
+/// ambiguous page and folio locators.
+pub(crate) fn locator_ambiguity(
+    target: Option<ResearchSourceKind>,
+    source: &str,
+    locator: &Locator,
+) -> Option<String> {
+    match locator.kind {
+        LocatorKind::Page if target == Some(ResearchSourceKind::Work) => Some(format!(
+            "pages differ between editions of a work; point the passage at the edition, translation, or witness whose pages are cited, not `{source}`"
+        )),
+        LocatorKind::Folio if target != Some(ResearchSourceKind::Witness) => Some(format!(
+            "folios belong to one manuscript or copy; point the passage at a witness, not `{source}`"
+        )),
+        _ => None,
+    }
+}
+
+pub(crate) fn resolved_kind(library: &SourceLibrary, id: &str) -> Option<ResearchSourceKind> {
     let mut record = library.get(id)?;
     for _ in 0..4 {
         if record.kind != ResearchSourceKind::Reference {
@@ -1249,17 +1268,7 @@ fn check_relationships(
         let target = resolved_kind(library, &passage.source);
         for (position, locator) in passage.locators.iter().enumerate() {
             let field = format!("locators[{position}].kind");
-            let message = match locator.kind {
-                LocatorKind::Page if target == Some(ResearchSourceKind::Work) => Some(format!(
-                    "pages differ between editions of a work; point the passage at the edition, translation, or witness whose pages are cited, not `{}`",
-                    passage.source
-                )),
-                LocatorKind::Folio if target != Some(ResearchSourceKind::Witness) => Some(format!(
-                    "folios belong to one manuscript or copy; point the passage at a witness, not `{}`",
-                    passage.source
-                )),
-                _ => None,
-            };
+            let message = locator_ambiguity(target, &passage.source, locator);
             if let Some(message) = message {
                 diagnostics.push(report(
                     NoteDiagnosticCode::AmbiguousLocator,

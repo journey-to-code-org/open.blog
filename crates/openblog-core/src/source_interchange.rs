@@ -33,7 +33,7 @@ pub const MAX_IMPORT_ITEMS: usize = 5_000;
 const MAX_ID_BYTES: usize = 64;
 
 /// CSL name variables the library records as creator roles.
-const NAME_ROLES: [&str; 3] = ["author", "editor", "translator"];
+pub(crate) const NAME_ROLES: [&str; 3] = ["author", "editor", "translator"];
 /// Name parts kept on a creator so an export can rebuild the CSL name.
 const NAME_PARTS: [&str; 5] = [
     "family",
@@ -43,7 +43,7 @@ const NAME_PARTS: [&str; 5] = [
     "suffix",
 ];
 /// Identifier schemes with a dedicated CSL variable, in output order.
-const IDENTIFIER_FIELDS: [(&str, &str); 6] = [
+pub(crate) const IDENTIFIER_FIELDS: [(&str, &str); 6] = [
     ("doi", "DOI"),
     ("isbn", "ISBN"),
     ("issn", "ISSN"),
@@ -53,7 +53,7 @@ const IDENTIFIER_FIELDS: [(&str, &str); 6] = [
 ];
 /// CSL variables with no source-library field. Their text or number is kept
 /// verbatim under the record's `csl` field.
-const PRESERVED_FIELDS: &[&str] = &[
+pub(crate) const PRESERVED_FIELDS: &[&str] = &[
     "archive",
     "archive_location",
     "collection-title",
@@ -76,7 +76,7 @@ const PRESERVED_FIELDS: &[&str] = &[
 ];
 /// Private notes never enter the library through an import, so they cannot
 /// reach an export a person shares.
-const NOTE_FIELDS: &[&str] = &["abstract", "annote", "keyword", "note"];
+pub(crate) const NOTE_FIELDS: &[&str] = &["abstract", "annote", "keyword", "note"];
 const CUSTOM_KEYS: [&str; 8] = [
     "openblog-kind",
     "openblog-of",

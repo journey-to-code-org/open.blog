@@ -23,6 +23,7 @@ pub mod arrangement;
 pub mod assembly;
 pub mod assistant_guide;
 pub mod capability;
+pub mod citations;
 pub mod collaboration;
 pub mod config;
 pub mod contributor;
