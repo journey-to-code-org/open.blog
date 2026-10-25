@@ -120,7 +120,7 @@ pub fn update(
         }
         let before = library.clone();
         library.upsert(record.clone(), contributors)?;
-        keep_notebook_valid(root, &before, library, Some(&record.id))
+        keep_notebook_valid(root, &before, library, vec![record.id.clone()])
     })
     .map(|(snapshot, ())| snapshot)
 }
@@ -158,7 +158,18 @@ pub fn import_csl(
         let before = library.clone();
         let plan = plan_csl_import(library, text, contributors)?;
         *library = plan.apply(library, contributors)?;
-        keep_notebook_valid(root, &before, library, None)?;
+        // Name the records the import re-pointed or re-typed: those are what can turn a locator ambiguous.
+        let moved = library
+            .sources
+            .iter()
+            .filter(|after| {
+                before
+                    .get(&after.id)
+                    .is_some_and(|old| old.of != after.of || old.kind != after.kind)
+            })
+            .map(|record| record.id.clone())
+            .collect();
+        keep_notebook_valid(root, &before, library, moved)?;
         Ok(plan)
     })
 }
@@ -172,7 +183,7 @@ fn keep_notebook_valid(
     root: &Path,
     before: &SourceLibrary,
     after: &SourceLibrary,
-    id: Option<&str>,
+    ids: Vec<String>,
 ) -> Result<(), Vec<SourceDiagnostic>> {
     if crate::notebook_store::check_against_library(root, before).is_err() {
         return Ok(());
@@ -181,10 +192,18 @@ fn keep_notebook_valid(
         vec![SourceDiagnostic {
             code: SourceDiagnosticCode::StillUsed,
             index: None,
-            source_id: id.map(str::to_string),
+            source_id: ids.first().cloned(),
             field: None,
             message: format!(
-                "the change would leave the research notebook invalid, so nothing was saved ({message}); adjust or remove the affected notes and passages first"
+                "the change would leave the research notebook invalid, so nothing was saved{} ({message}); adjust or remove the affected notes and passages first",
+                match ids.as_slice() {
+                    [] => String::new(),
+                    [one] => format!(" (source `{one}`)"),
+                    many => format!(
+                        " (sources {})",
+                        many.iter().map(|id| format!("`{id}`")).collect::<Vec<_>>().join(", ")
+                    ),
+                }
             ),
         }]
     })
@@ -1232,6 +1251,36 @@ mod tests {
         let mut again = now.library.get("slings").unwrap().clone();
         again.title = Some("Slings 2004".into());
         assert!(update(&root, &now.revision, again, &none()).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_import_that_repoints_a_reference_is_refused_naming_the_record() {
+        let root = temp_root("notebook-guard-import");
+        let library = serde_json::json!({"version": 1, "sources": [
+            {"id": "plato", "kind": "work", "title": "Politeia"},
+            {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings"},
+            {"id": "ref", "kind": "reference", "of": "slings"}]});
+        fs::create_dir_all(library_file(&root).parent().unwrap()).unwrap();
+        fs::write(library_file(&root), library.to_string()).unwrap();
+        let notebook = root.join(crate::notebook_store::NOTEBOOK_FILE);
+        let text = serde_json::json!({"version": 1, "notes": [], "passages": [
+            {"id": "p1", "source": "ref", "excerpt": {"text": "q"},
+             "locators": [{"kind": "page", "value": "514"}]}]})
+        .to_string();
+        fs::write(&notebook, &text).unwrap();
+        let before = load(&root, &none()).unwrap();
+        let bytes = fs::read(library_file(&root)).unwrap();
+        let items = serde_json::json!([{"id": "ref", "type": "book",
+            "custom": {"openblog-kind": "reference", "openblog-of": "plato"}}]);
+        let refused = import_csl(&root, &before.revision, &items.to_string(), &none());
+        let Err(StoreError::Invalid(found)) = refused else {
+            panic!("the import must be refused")
+        };
+        assert_eq!(found[0].source_id.as_deref(), Some("ref"));
+        assert!(found[0].message.contains("`ref`"), "{}", found[0].message);
+        assert_eq!(fs::read(library_file(&root)).unwrap(), bytes);
+        assert_eq!(fs::read_to_string(&notebook).unwrap(), text);
         fs::remove_dir_all(root).unwrap();
     }
 }

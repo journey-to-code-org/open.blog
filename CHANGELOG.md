@@ -15,7 +15,10 @@ All notable changes to open.blog are recorded here. Releases follow
   draft before saving, so a concurrent change is never silently overwritten. Archived sources stay
   selectable on entries that already use them, and stale field errors clear on the next save.
 - A source edit or import that would leave the research notebook invalid, such as re-pointing a
-  reference so a page locator becomes ambiguous, is now refused with a message naming the source.
+  reference so a page locator becomes ambiguous, is now refused with a message naming the affected source (for an import, each record it
+  re-pointed or re-typed).
+- Notebook search and backlinks now send their text in a request body instead of the URL, so a
+  hosting proxy's access log cannot record private research text.
 
 - Defined the private research notebook contract: quoted passages (verbatim excerpt, compound
   page, folio, line, canonical and custom locators, tied to a source-library record) and
