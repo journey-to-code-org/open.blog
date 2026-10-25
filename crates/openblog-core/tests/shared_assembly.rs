@@ -288,6 +288,8 @@ fn unsafe_markup_in_any_section_refuses_the_whole_piece_even_when_approved() {
         "Bo [odd](java&#115;cript:alert(1)) words",
         "Bo [odd](JaVaScRiPt:alert(1)) words",
         "Bo ![odd](data:text/html;base64,AAAA) words",
+        "Bo [odd](https://user:pw@host.example/) words",
+        "Bo ![odd](https://user@host.example/x.png) words",
         "[odd]
 
 [odd]: vbscript:x",

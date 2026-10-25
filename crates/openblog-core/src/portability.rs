@@ -1589,58 +1589,74 @@ impl<'a> PortableProjection<'a> {
     /// Resolve an authored URL against the post or site base while rejecting
     /// executable schemes and credential-bearing HTTP(S) URLs.
     pub fn resolve_link(&self, value: &str) -> Result<String, String> {
-        if value.chars().any(char::is_control) {
-            return Err(format!(
-                "{}: link must be non-empty and contain no control characters",
-                self.source_path
-            ));
-        }
-        let value = value.trim();
-        if value.is_empty() {
-            return Err(format!(
-                "{}: link must be non-empty and contain no control characters",
-                self.source_path
-            ));
-        }
-
-        let base = Url::parse(&self.canonical_url).map_err(|_| {
-            format!(
-                "{}: portable projection has an invalid URL base",
-                self.source_path
-            )
-        })?;
-
-        let (resolved, was_absolute) = match Url::parse(value) {
-            Ok(absolute) => Ok((absolute, true)),
-            Err(url::ParseError::RelativeUrlWithoutBase) => {
-                if value.starts_with('/') && !value.starts_with("//") {
-                    Url::parse(&format!("{}{}", self.base_url.trim_end_matches('/'), value))
-                        .map(|resolved| (resolved, false))
-                } else {
-                    base.join(value).map(|resolved| (resolved, false))
-                }
-            }
-            Err(_) => return Err(format!("{}: link is not a valid URL", self.source_path)),
-        }
-        .map_err(|_| format!("{}: link is not a valid URL", self.source_path))?;
-
-        validate_http_url(&resolved, true)
-            .or_else(|_| match resolved.scheme() {
-                "mailto" | "tel" if resolved.host_str().is_none() => Ok(()),
-                _ => Err("link must use HTTP(S), mailto, or tel".to_string()),
-            })
-            .map_err(|_| {
-                format!(
-                    "{}: link must use HTTP(S), mailto, or tel",
-                    self.source_path
-                )
-            })?;
-        Ok(if was_absolute {
-            value.to_string()
-        } else {
-            resolved.to_string()
-        })
+        resolve_link_in(self.source_path, &self.canonical_url, &self.base_url, value)
     }
+}
+
+/// Whether an authored link would resolve at all: the same predicate `resolve_link` applies,
+/// against a stand-in base, so a publish gate refuses exactly what the site build would refuse.
+pub(crate) fn link_is_publishable(value: &str) -> bool {
+    resolve_link_in(
+        "",
+        "https://example.invalid/post/",
+        "https://example.invalid",
+        value,
+    )
+    .is_ok()
+}
+
+fn resolve_link_in(
+    source_path: &str,
+    canonical_url: &str,
+    base_url: &str,
+    value: &str,
+) -> Result<String, String> {
+    if value.chars().any(char::is_control) {
+        return Err(format!(
+            "{}: link must be non-empty and contain no control characters",
+            source_path
+        ));
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(format!(
+            "{}: link must be non-empty and contain no control characters",
+            source_path
+        ));
+    }
+
+    let base = Url::parse(&canonical_url).map_err(|_| {
+        format!(
+            "{}: portable projection has an invalid URL base",
+            source_path
+        )
+    })?;
+
+    let (resolved, was_absolute) = match Url::parse(value) {
+        Ok(absolute) => Ok((absolute, true)),
+        Err(url::ParseError::RelativeUrlWithoutBase) => {
+            if value.starts_with('/') && !value.starts_with("//") {
+                Url::parse(&format!("{}{}", base_url.trim_end_matches('/'), value))
+                    .map(|resolved| (resolved, false))
+            } else {
+                base.join(value).map(|resolved| (resolved, false))
+            }
+        }
+        Err(_) => return Err(format!("{}: link is not a valid URL", source_path)),
+    }
+    .map_err(|_| format!("{}: link is not a valid URL", source_path))?;
+
+    validate_http_url(&resolved, true)
+        .or_else(|_| match resolved.scheme() {
+            "mailto" | "tel" if resolved.host_str().is_none() => Ok(()),
+            _ => Err("link must use HTTP(S), mailto, or tel".to_string()),
+        })
+        .map_err(|_| format!("{}: link must use HTTP(S), mailto, or tel", source_path))?;
+    Ok(if was_absolute {
+        value.to_string()
+    } else {
+        resolved.to_string()
+    })
 }
 
 fn portability_diagnostics(

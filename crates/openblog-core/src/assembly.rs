@@ -348,7 +348,7 @@ fn has_unsafe_markup(sections: &[String]) -> bool {
                 Event::Html(_) | Event::InlineHtml(_) => true,
                 Event::Start(Tag::Heading { attrs, .. }) => !attrs.is_empty(),
                 Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
-                    unsafe_address(dest_url)
+                    unsafe_address(dest_url) || !crate::portability::link_is_publishable(dest_url)
                 }
                 _ => false,
             })
