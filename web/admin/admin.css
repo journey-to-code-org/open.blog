@@ -2760,6 +2760,12 @@ a.oba-btn-primary {
   min-height: 2.75rem;
 }
 
+.oba-preview-combined {
+  width: 100%;
+  min-height: 24rem;
+  border: 2px dashed var(--ob-color-border, currentColor);
+}
+
 @media (max-width: 44rem) {
   .oba-draft .oba-toolbar .oba-btn,
   .oba-draft-prompt-list .oba-btn {

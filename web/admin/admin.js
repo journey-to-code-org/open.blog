@@ -959,6 +959,21 @@ export function revealSlotText(slot) {
   return slot?.ready ? `${name}: private. They have offered a revision to share.` : `${name}: private. They have not offered a revision.`;
 }
 
+/** One author's line in the combined preview: what is shown and where their approval stands. */
+export function previewSectionText(section) {
+  const name = section?.displayName || "A participant";
+  const where = section?.shown ? `revision ${section.revision}` : "not shared with you at its current revision";
+  const approval = section?.approval === "approved" ? "approved" : section?.approval === "stale" ? "approval out of date" : "awaiting approval";
+  return `${name}: ${where}; ${approval}${section?.required === false ? " (approval not required)" : ""}.`;
+}
+
+/** The one-line state of the whole preview. */
+export function previewStateText(preview) {
+  if (preview?.ready) return "Every required author has approved this exact piece.";
+  if (preview?.complete) return "Not ready to publish: approvals are missing or out of date.";
+  return "Incomplete: some sections are not shared with you at their current revision.";
+}
+
 const SUGGESTED_SOURCE_FIELDS = ["title", "creator", "publisher"];
 
 /**
@@ -4333,6 +4348,39 @@ export class ObAdmin extends AdminElement {
       }
     };
 
+    const previewStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const previewList = h("ul", { class: "oba-member-list", "aria-label": "Authors in the combined piece", hidden: true });
+    const previewHolder = h("div", {});
+    const previewButton = h("button", { class: "oba-btn", type: "button" }, "Review the combined piece");
+    previewButton.addEventListener("click", async () => {
+      previewButton.disabled = true;
+      previewStatus.textContent = "Loading the preview…";
+      try {
+        const { preview } = await this.api.call("GET", `collaboration/preview?publicationId=${encodeURIComponent(id)}`);
+        previewList.replaceChildren(...(preview.sections || []).map((section) => h("li", {}, previewSectionText(section))));
+        previewList.hidden = false;
+        // No scripts, forms, popups or same-origin access: the sandbox has no allowances at all.
+        previewHolder.replaceChildren(h("iframe", { class: "oba-preview oba-preview-combined", title: "Combined piece preview, not published", sandbox: "", src: preview.previewUrl }));
+        previewStatus.textContent = `Preview, not published. ${previewStateText(preview)}`;
+      } catch {
+        previewList.hidden = true;
+        previewHolder.replaceChildren();
+        previewStatus.textContent = "The preview could not be loaded, or you cannot preview this reflection. Nothing was changed.";
+      } finally {
+        previewButton.disabled = false;
+      }
+    });
+    const previewSection = h(
+      "div",
+      { class: "oba-preview-review" },
+      h("h4", {}, "Combined preview"),
+      h("p", { class: "oba-small" }, "Shows the sections you may read together, with each author's approval. It is not published and only authors of this piece can open it."),
+      previewButton,
+      previewStatus,
+      previewList,
+      previewHolder,
+    );
+
     const renderSharing = (reveal) => {
       const policy = REVEAL_POLICIES.find((item) => item.value === reveal.policy) || REVEAL_POLICIES[0];
       const slots = h(
@@ -4402,6 +4450,7 @@ export class ObAdmin extends AdminElement {
         parts.push(h("div", { class: "oba-field" }, h("label", { for: `${prefix}-policy` }, "Sharing rule (coordinators)"), select), change);
       }
       if (reveal.slots?.length) parts.push(slots);
+      if (reveal.slots?.length) parts.push(previewSection);
       sharing.replaceChildren(...parts);
       sharing.hidden = false;
     };

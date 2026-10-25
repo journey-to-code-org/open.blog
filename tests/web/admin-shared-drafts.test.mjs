@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { ObAdmin, REFLECTION_PROMPTS, draftFailure, draftStateText, insertAtSelection, promptInsertion, revealSlotText } from "../../web/admin/admin.js";
+import { ObAdmin, REFLECTION_PROMPTS, draftFailure, draftStateText, insertAtSelection, previewSectionText, previewStateText, promptInsertion, revealSlotText } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");
@@ -206,6 +206,9 @@ function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {})
           return { stamp: stampOf(state.number) };
         case "GET collaboration/reveal":
           return state.reveal;
+        case "GET collaboration/preview":
+          if (state.previewFails) throw new FakeApiError("not found", 404, null);
+          return { preview: state.preview };
         case "PUT collaboration/reveal/ready":
           state.reveal = { ...state.reveal, ready: options.json.revision !== null };
           return { ready: state.reveal.ready, revealed: false };
@@ -538,6 +541,62 @@ test("with sharing off or nothing saved there is nothing to offer, and coordinat
   await settle();
   assert.deepEqual(api.state.calls.find((call) => call.key === "PUT collaboration/reveal/policy").body, { publicationId: PUBLICATION, policy: "allReady" });
   assert.match(textOf(panel), /sharing rule changed.*nothing was shared/);
+}));
+
+// ---------------------------------------------------------------- combined preview
+
+const PREVIEW = {
+  complete: false,
+  ready: false,
+  previewUrl: "/admin/api/preview/" + "a".repeat(64),
+  sections: [
+    { participantId: "a", displayName: "Ada", shown: true, revision: 2, approval: "approved", required: true },
+    { participantId: "b", displayName: "Grace", shown: false, revision: null, approval: "stale", required: true },
+  ],
+};
+
+test("preview lines say what is shown and where each approval stands, without leaking hidden revisions", () => {
+  assert.equal(previewSectionText(PREVIEW.sections[0]), "Ada: revision 2; approved.");
+  const hidden = previewSectionText(PREVIEW.sections[1]);
+  assert.match(hidden, /Grace: not shared with you at its current revision; approval out of date/);
+  assert.doesNotMatch(hidden, /revision \d/);
+  assert.match(previewSectionText({ displayName: "Linus", shown: true, revision: 1, approval: "awaiting", required: false }), /awaiting approval \(approval not required\)/);
+  assert.match(previewStateText({ ready: true }), /Every required author has approved/);
+  assert.match(previewStateText({ complete: true }), /Not ready to publish/);
+  assert.match(previewStateText({}), /Incomplete/);
+});
+
+test("the combined preview opens on request in a frame with no sandbox allowances, labelled as unpublished", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { slots: SLOTS.slice(0, 1) } });
+  api.state.preview = PREVIEW;
+  const { panel } = await openDraft(api);
+  assert.equal(api.state.calls.some((call) => call.key === "GET collaboration/preview"), false, "nothing is built until asked");
+  assert.equal(panel.querySelector("iframe"), null);
+  await button(panel, "Review the combined piece").click();
+  await settle();
+  const frame = panel.querySelector("iframe");
+  assert.equal(frame.attributes.sandbox, "", "an empty sandbox allows no scripts, forms, popups or same-origin access");
+  assert.equal(frame.attributes.src, PREVIEW.previewUrl);
+  assert.match(frame.attributes.title, /not published/);
+  assert.equal(frame.attributes.srcdoc, undefined, "prose never travels through the Admin page");
+  assert.match(textOf(panel), /Preview, not published. Incomplete/);
+  assert.match(textOf(panel), /Ada: revision 2; approved\./);
+  assert.match(textOf(panel), /Grace: not shared with you.*approval out of date/);
+}));
+
+test("a failed preview shows a calm message, keeps nothing stale, and changes nothing", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { slots: SLOTS.slice(0, 1) } });
+  api.state.preview = PREVIEW;
+  const { panel } = await openDraft(api);
+  await button(panel, "Review the combined piece").click();
+  await settle();
+  assert.ok(panel.querySelector("iframe"));
+  api.state.previewFails = true;
+  await button(panel, "Review the combined piece").click();
+  await settle();
+  assert.equal(panel.querySelector("iframe"), null);
+  assert.match(textOf(panel), /could not be loaded.*Nothing was changed/);
+  assert.equal(api.state.calls.filter((call) => call.key.startsWith("PUT")).length, 0);
 }));
 
 // ---------------------------------------------------------------- source checks

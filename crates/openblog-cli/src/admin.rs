@@ -634,6 +634,7 @@ fn authenticated_api(
         ("GET", "collaboration/reveal") => read_reveal_state(state, req, session),
         ("PUT", "collaboration/reveal/policy") => set_reveal_policy(state, req, session),
         ("PUT", "collaboration/reveal/ready") => set_reveal_ready(state, req, session),
+        ("GET", "collaboration/preview") => read_combined_preview(state, req, session),
         ("POST", "collaboration/invitations/accept") => {
             answer_invitation(state, req, session, true)
         }
@@ -5805,6 +5806,68 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
         200,
         &json!({ "policy": set.policy(), "ready": ready, "slots": slots, "canSetPolicy": coordinator }),
     )
+}
+
+/// The combined review preview for an active author: every author's section at its exact current
+/// revision where the signed-in author is entitled to it, with each author's approval state.
+/// Read-only: it writes no draft, approval or content, and every refusal is the same not-found as
+/// a missing publication, so it never says whether a publication or a draft exists.
+fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return draft_not_found();
+    };
+    let (transaction, own) = match draft_request_target(state, publication_id, session) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let record = transaction.record.as_ref().expect("authorized record");
+    let stored = match load_reveal_drafts(state, publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let Ok(set) = draft_set_for(stored.set.as_ref(), record) else {
+        return Response::error(500, "The preview could not be built. Nothing was changed.");
+    };
+    let approvals = match crate::shared_publications::load_approvals(&state.root, publication_id) {
+        Ok(approvals) => approvals,
+        Err(error) => {
+            eprintln!("admin: approvals not readable for {publication_id}: {error}");
+            return Response::error(500, "The preview could not be built. Nothing was changed.");
+        }
+    };
+    let active = active_drafters(&transaction, record);
+    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    let Ok(preview) = openblog_core::preview::build(record, &set, &approvals, &own, &active) else {
+        return draft_not_found();
+    };
+    drop(transaction);
+    // The document is served from its own address with its own policy, so a sandboxed frame can
+    // show it without the Admin page's policy and without scripts, forms, images or fetches.
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("admin: preview token unavailable: {error}");
+            return Response::error(500, "The preview could not be built. Nothing was changed.");
+        }
+    };
+    let mut summary = serde_json::to_value(&preview).unwrap_or(Json::Null);
+    if let Some(object) = summary.as_object_mut() {
+        object.remove("document");
+        object.insert(
+            "previewUrl".into(),
+            json!(format!("/admin/api/preview/{token}")),
+        );
+    }
+    let mut previews = lock(&state.previews);
+    previews.push(PreviewDocument {
+        token,
+        html: preview.document,
+        csp: openblog_core::preview::PREVIEW_CSP.to_string(),
+    });
+    if previews.len() > 16 {
+        previews.remove(0);
+    }
+    Response::json(200, &json!({ "preview": summary }))
 }
 
 /// A coordinator chooses how drafts may be revealed. Changing it clears every standing offer and
@@ -15297,6 +15360,182 @@ mod tests {
         assert_eq!(view_after["policy"], "allReady");
         assert_eq!(slot(&view_after, "Grace")["kind"], "private");
         assert!(!view_after.to_string().contains("GRACE-SECRET"));
+    }
+
+    fn preview_call(f: &Fixture, session: &(String, String), id: &str) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/preview?publicationId={id}"),
+                ),
+                session,
+                false,
+            ),
+        )
+    }
+
+    /// The served preview document, fetched the way the Admin frame fetches it.
+    fn preview_document_text(f: &Fixture, session: &(String, String), body: &Json) -> String {
+        let url = body["preview"]["previewUrl"].as_str().unwrap();
+        let served = handle(&f.state, &authed(req("GET", url), session, false));
+        assert_eq!(served.status, 200);
+        assert!(served.headers.iter().any(|(name, value)| {
+            name == "Content-Security-Policy"
+                && value.starts_with("default-src 'none'")
+                && !value.contains("script-src")
+        }));
+        assert!(served
+            .headers
+            .iter()
+            .any(|(name, value)| name == "X-Frame-Options" && value == "SAMEORIGIN"));
+        String::from_utf8(served.body).unwrap()
+    }
+
+    #[test]
+    fn the_combined_preview_shows_only_what_the_author_may_read_and_writes_nothing() {
+        let (f, mikey, id) = invitation_fixture("combined-preview");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let reader = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["reader"]),
+        );
+        let ada = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "ada",
+            "a fourth correct horse",
+            json!(["coordinator"]),
+        );
+        for (who, text) in [(&mikey, "MIKEY-SECRET"), (&grace, "GRACE-SECRET")] {
+            assert_eq!(draft_call(&f, who, &id, 0, text).status, 200);
+        }
+        let content_before = tree_snapshot(&f.dir.join("content"));
+        let output_before = tree_snapshot(&f.dir.join("public"));
+
+        // Nothing is shared yet: each author sees only their own section.
+        let mine = preview_call(&f, &mikey, &id);
+        assert_eq!(mine.status, 200);
+        let body = body_json(&mine);
+        let text = body.to_string();
+        // The summary carries statuses only; prose travels solely in the served document.
+        assert!(!text.contains("SECRET"));
+        assert_eq!(body["preview"]["complete"], false);
+        assert_eq!(body["preview"]["ready"], false);
+        assert!(body["preview"]["seen"].is_null());
+        assert!(body["preview"].get("document").is_none());
+        let document = preview_document_text(&f, &mikey, &body);
+        assert!(document.contains("Preview, not published."));
+        assert!(document.contains("MIKEY-SECRET") && !document.contains("GRACE-SECRET"));
+        assert!(!text.contains("grace-admin") && !text.contains("invitation"));
+
+        // A reader or a coordinator who is not a drafter, a stranger and an anonymous caller get
+        // the same not-found as an unknown publication, and learn nothing.
+        let unknown = preview_call(&f, &mikey, "shared-ffffffffffff");
+        assert_eq!(unknown.status, 404);
+        for who in [&reader, &ada] {
+            let denied = preview_call(&f, who, &id);
+            assert_eq!(denied.status, 404);
+            assert_eq!(denied.body, unknown.body);
+        }
+        let anonymous = handle(
+            &f.state,
+            &req(
+                "GET",
+                &format!("/admin/api/collaboration/preview?publicationId={id}"),
+            ),
+        );
+        assert_eq!(anonymous.status, 401);
+        assert_eq!(preview_call(&f, &mikey, "").status, 404);
+
+        // Both mark revision 1 ready under the voluntary rule: both see the whole piece.
+        assert_eq!(
+            reveal_call(&f, &ada, "policy", policy_body(&id, "voluntary")).status,
+            200
+        );
+        for who in [&mikey, &grace] {
+            assert_eq!(
+                reveal_call(&f, who, "ready", ready_body(&id, json!(1))).status,
+                200
+            );
+        }
+        let shared = body_json(&preview_call(&f, &grace, &id));
+        let text = preview_document_text(&f, &grace, &shared);
+        assert!(text.contains("MIKEY-SECRET") && text.contains("GRACE-SECRET"));
+        assert_eq!(shared["preview"]["complete"], true);
+        assert_eq!(shared["preview"]["ready"], false);
+        assert!(shared["preview"]["seen"].is_string());
+        let sections = shared["preview"]["sections"].as_array().unwrap();
+        assert_eq!(sections.len(), 2);
+        assert!(sections
+            .iter()
+            .all(|s| s["shown"] == true && s["revision"] == 1 && s["approval"] == "awaiting"));
+
+        // A newer revision that was not offered is hidden from the other author at once.
+        assert_eq!(draft_call(&f, &mikey, &id, 1, "MIKEY-NEWER").status, 200);
+        let private_before = tree_snapshot(&f.dir.join(".openblog/private"));
+        let after = body_json(&preview_call(&f, &grace, &id));
+        let text = format!("{after}{}", preview_document_text(&f, &grace, &after));
+        assert!(!text.contains("MIKEY-NEWER") && !text.contains("MIKEY-SECRET"));
+        assert_eq!(after["preview"]["complete"], false);
+        let own = body_json(&preview_call(&f, &mikey, &id));
+        assert!(preview_document_text(&f, &mikey, &own).contains("MIKEY-NEWER"));
+
+        // Reading changed no draft, approval, content or public output.
+        assert_eq!(
+            tree_snapshot(&f.dir.join(".openblog/private")),
+            private_before
+        );
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+        assert_eq!(tree_snapshot(&f.dir.join("public")), output_before);
+    }
+
+    #[test]
+    fn a_stored_approval_that_no_longer_matches_is_flagged_and_a_bad_file_fails_safely() {
+        let (f, mikey, id) = invitation_fixture("combined-preview-stale");
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "MIKEY-SECRET").status, 200);
+        let owner = stored_record(&f, &id).collaboration.participants[0]
+            .id
+            .clone();
+        let directory = f.dir.join(".openblog/private/collaboration/approvals");
+        std::fs::create_dir_all(&directory).unwrap();
+        let file = directory.join(format!("{id}.json"));
+        let stale = json!({
+            "version": 1,
+            "policy": {},
+            "policyRevision": 0,
+            "approvals": [{
+                "participantId": owner,
+                "approvedAt": 1,
+                "consentVersion": 1,
+                "binding": "0".repeat(64),
+            }],
+        });
+        std::fs::write(&file, stale.to_string()).unwrap();
+        let body = body_json(&preview_call(&f, &mikey, &id));
+        assert_eq!(body["preview"]["sections"][0]["approval"], "stale");
+        assert_eq!(body["preview"]["ready"], false);
+        assert!(preview_document_text(&f, &mikey, &body).contains("out of date"));
+
+        // A malformed file is an error that says nothing, never an empty or approved set.
+        std::fs::write(&file, "{ not json MIKEY-SECRET").unwrap();
+        let broken = preview_call(&f, &mikey, &id);
+        assert_eq!(broken.status, 500);
+        let text = String::from_utf8_lossy(&broken.body).to_string();
+        assert!(!text.contains("MIKEY-SECRET") && !text.contains("not json"));
     }
 
     #[test]

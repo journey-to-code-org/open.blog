@@ -10,6 +10,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use openblog_core::approval::ApprovalSet;
 use openblog_core::collaboration::{
     NewSharedPublication, SharedPublication, SharedPublicationError, MAX_SHARED_PUBLICATION_BYTES,
 };
@@ -22,6 +23,9 @@ pub const DIRECTORY: &str = ".openblog/private/collaboration/publications";
 /// Private contribution draft sets, one file per publication. Also under `.openblog/private/`,
 /// so they stay out of Git, generated output, feeds, and exports.
 pub const DRAFTS_DIRECTORY: &str = ".openblog/private/collaboration/drafts";
+/// Private approval sets, one file per publication, beside the drafts and kept out of Git,
+/// output, feeds and exports for the same reason. Nothing here writes them yet.
+pub const APPROVALS_DIRECTORY: &str = ".openblog/private/collaboration/approvals";
 const MAX_ID_ATTEMPTS: usize = 8;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -266,6 +270,23 @@ pub fn load_drafts(root: &Path, publication_id: &str) -> Result<StoredDrafts, St
         None => None,
     };
     Ok(StoredDrafts { set, text })
+}
+
+/// The approval set for a publication; an empty set when nothing was stored. A file that exists
+/// but is malformed is an error, never an empty set, so a bad file cannot make a piece look
+/// unapproved or approved. Read-only.
+pub fn load_approvals(root: &Path, publication_id: &str) -> Result<ApprovalSet, String> {
+    let directory =
+        crate::assistant_storage::contained_target(root, Path::new(APPROVALS_DIRECTORY))
+            .map_err(|_| "approval storage resolves outside the project".to_string())?;
+    let target = directory.join(format!("{publication_id}.json"));
+    match read_drafts_file(&target) {
+        Ok(None) => Ok(ApprovalSet::new()),
+        Ok(Some(text)) => {
+            ApprovalSet::from_json(&text).map_err(|_| "the approval file is not usable".to_string())
+        }
+        Err(_) => Err("the approval file is not usable".to_string()),
+    }
 }
 
 /// Atomically store `next` when the file still holds exactly what `previous` was read from. The
