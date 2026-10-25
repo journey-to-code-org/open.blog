@@ -33,6 +33,7 @@ pub mod markdown;
 pub mod members;
 pub mod model;
 pub mod portability;
+pub mod preview;
 pub mod profile;
 mod raw_html;
 pub mod recipe;

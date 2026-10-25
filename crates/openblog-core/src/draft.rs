@@ -461,6 +461,18 @@ impl DraftSet {
         })
     }
 
+    /// The stamp of a draft's latest revision, or none for an unknown or withdrawn draft. It is
+    /// prose-free and says nothing about who may read the revision.
+    pub fn current_stamp(&self, contribution_id: &str) -> Option<RevisionStamp> {
+        let draft = self
+            .draft(contribution_id)
+            .filter(|draft| !draft.withdrawn)?;
+        draft
+            .revisions
+            .last()
+            .map(|revision| Self::stamp(draft, revision))
+    }
+
     /// The revision of `contribution_id` that the voluntary policy shows `requester`, derived
     /// from standing offers alone. Exchanges never feed it.
     fn offered_revision(

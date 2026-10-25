@@ -119,6 +119,18 @@ pub fn public_metadata(record: &SharedPublication) -> Vec<String> {
     metadata
 }
 
+/// Where one author's approval stands against the content as it is now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalState {
+    /// A standing approval whose binding matches the content now.
+    Approved,
+    /// An approval exists but the content, frame or policy changed since, so it no longer counts.
+    Stale,
+    /// No approval is stored.
+    Awaiting,
+}
+
 /// Whether publication may proceed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Readiness {
@@ -375,6 +387,32 @@ impl ApprovalSet {
                     && approval.binding
                         == subject.binding(self.policy, self.policy_revision, participant)
             })
+    }
+
+    /// Where `participant`'s approval stands against the content as it is now. A person who is
+    /// not an author, or an invalid subject, is `Awaiting`: nothing about them is counted.
+    pub fn state(&self, subject: &ApprovalSubject<'_>, participant: &str) -> ApprovalState {
+        if !subject.is_valid() || !subject.has_author(participant) {
+            return ApprovalState::Awaiting;
+        }
+        if self.holds(subject, participant) {
+            ApprovalState::Approved
+        } else if self
+            .approvals
+            .iter()
+            .any(|approval| approval.participant_id == participant)
+        {
+            ApprovalState::Stale
+        } else {
+            ApprovalState::Awaiting
+        }
+    }
+
+    /// Whether the policy needs `participant`'s approval before publication.
+    pub fn is_required(&self, subject: &ApprovalSubject<'_>, participant: &str) -> bool {
+        subject
+            .required(self.policy.requirement)
+            .contains(&participant)
     }
 
     /// Whether `participant` has a standing approval of the content as it is now.
