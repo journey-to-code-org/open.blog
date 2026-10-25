@@ -163,6 +163,18 @@ mutation and requires a successful page whose canonical link points back to that
 A dry run remains network-free, so deployment reachability is checked only when a write is
 explicitly requested.
 
+Provider responses are capped at 1 MiB at both the network transport and adapter execution
+boundary. Authentication, permission/billing, missing-item, conflict, validation, rate-limit,
+and server failures produce actionable errors without echoing response bodies. Hashnode
+GraphQL errors fail even alongside partial draft data; malformed error shapes cannot be
+treated as success. Known error codes map to local guidance rather than printing untrusted
+provider messages. A failed response does not advance saved remote IDs or revisions.
+Ghost updates require the saved `updated_at` revision; a remote conflict is surfaced, not
+automatically retried or replaced with a new draft.
+Successful responses must include a nonempty remote ID, and Ghost must return its update
+revision. A malformed response may follow an actual remote mutation: inspect that remote
+draft before retrying rather than assuming no copy was created.
+
 For feed automation, make sure `feeds.rss`, `feeds.json`, and `feeds.fullContent` are all
 `true`. In either route, begin with drafts rather than unattended publishing.
 

@@ -1271,8 +1271,24 @@ impl ProviderAdapter for HashnodeAdapter<'_> {
         Ok(request)
     }
     fn outcome(&self, body: &Json) -> Result<Outcome, String> {
-        if let Some(message) = body["errors"][0]["message"].as_str() {
-            return Err(format!("Hashnode rejected the request: {message}"));
+        if let Some(errors) = body.get("errors").filter(|errors| !errors.is_null()) {
+            let errors = errors
+                .as_array()
+                .ok_or("Hashnode returned a malformed GraphQL errors field")?;
+            if let Some(error) = errors.first() {
+                let reason = match error["extensions"]["code"].as_str() {
+                    Some("UNAUTHENTICATED") => status_error(401),
+                    Some("FORBIDDEN") => status_error(403),
+                    Some("NOT_FOUND") => status_error(404),
+                    Some("BAD_USER_INPUT") => status_error(422),
+                    Some("INTERNAL_SERVER_ERROR") => status_error(500),
+                    _ => {
+                        "GraphQL returned an error; inspect the provider dashboard before retrying"
+                            .into()
+                    }
+                };
+                return Err(format!("Hashnode rejected the request: {reason}"));
+            }
         }
         let draft = if body["data"]["createDraft"]["draft"].is_object() {
             &body["data"]["createDraft"]["draft"]
@@ -1303,11 +1319,14 @@ impl ProviderAdapter for GhostAdapter<'_> {
         ghost_request(self.endpoint, post, existing, publish, credential)
     }
     fn outcome(&self, body: &Json) -> Result<Outcome, String> {
+        let revision = body["posts"][0]["updated_at"].as_str()
+            .filter(|revision| !revision.trim().is_empty())
+            .ok_or("Ghost response did not contain an updated_at revision; inspect the remote draft before retrying")?;
         outcome_from_fields(
             self.name(),
             &body["posts"][0]["id"],
             &body["posts"][0]["url"],
-            body["posts"][0]["updated_at"].as_str().unwrap_or_default(),
+            revision,
         )
     }
 }
@@ -1608,6 +1627,9 @@ fn execute(
     request: &Request,
 ) -> Result<Outcome, String> {
     let response = transport.send(request)?;
+    if response.body.len() as u64 > MAX_RESPONSE_BYTES {
+        return Err("provider response exceeded 1 MiB or could not be read".into());
+    }
     if !(200..300).contains(&response.status) {
         return Err(status_error(response.status));
     }
@@ -1626,6 +1648,7 @@ fn outcome_from_fields(
         .as_str()
         .map(str::to_string)
         .or_else(|| id.as_u64().map(|id| id.to_string()))
+        .filter(|id| !id.trim().is_empty())
         .ok_or_else(|| format!("{provider} response did not contain a remote ID"))?;
     Ok(Outcome {
         id,
@@ -2432,6 +2455,249 @@ const attribute = 'href="/script"';
         fs::remove_dir(posts).unwrap();
         fs::remove_dir(root.join("content")).unwrap();
         fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_success_outcomes_cannot_lose_remote_identity_or_ghost_revision() {
+        for id in [Json::Null, json!(""), json!("   "), json!({})] {
+            let error = outcome_from_fields("Provider", &id, &Json::Null, "")
+                .err()
+                .expect("remote IDs must be present and nonempty");
+            assert!(error.contains("remote ID"));
+        }
+        for id in [json!("remote-id"), json!(42)] {
+            assert!(outcome_from_fields("Provider", &id, &Json::Null, "").is_ok());
+        }
+        let ghost = GhostAdapter {
+            endpoint: "https://ghost.example",
+        };
+        for revision in [Json::Null, json!(""), json!("  ")] {
+            let error = ghost
+                .outcome(&json!({ "posts": [{
+                "id": "remote-id", "updated_at": revision,
+            }] }))
+                .err()
+                .expect("Ghost success must retain an update revision");
+            assert!(error.contains("updated_at revision"));
+        }
+        let outcome = ghost
+            .outcome(&json!({ "posts": [{
+            "id": "remote-id", "url": "https://ghost.example/post",
+            "updated_at": "2026-10-25T00:00:00.000Z",
+        }] }))
+            .unwrap();
+        assert_eq!(outcome.id, "remote-id");
+        assert_eq!(outcome.remote_revision, "2026-10-25T00:00:00.000Z");
+    }
+
+    #[test]
+    fn provider_http_errors_are_actionable_without_echoing_response_bodies() {
+        let adapters: [&dyn ProviderAdapter; 4] = [
+            &DevAdapter,
+            &HashnodeAdapter {
+                publication_id: "publication",
+            },
+            &GhostAdapter {
+                endpoint: "https://ghost.example",
+            },
+            &WordpressAdapter {
+                endpoint: "https://wordpress.example",
+                publication_id: "",
+            },
+        ];
+        let request = dev_request(&post_fixture(), None, false, "unused").unwrap();
+        for adapter in adapters {
+            for (status, expected) in [
+                (401, "authentication failed"),
+                (402, "billing"),
+                (403, "lacks permission"),
+                (404, "not found"),
+                (409, "remote item changed"),
+                (422, "rejected the post"),
+                (429, "rate limit"),
+                (503, "temporarily unavailable"),
+            ] {
+                let error = execute(
+                    adapter,
+                    &FakeTransport(Response {
+                        status,
+                        body: b"PRIVATE_provider_response".to_vec(),
+                    }),
+                    &request,
+                )
+                .err()
+                .expect("provider errors cannot become outcomes");
+                assert!(error.contains(expected), "{status}: {error}");
+                assert!(!error.contains("PRIVATE_"));
+            }
+            let error = execute(
+                adapter,
+                &FakeTransport(Response {
+                    status: 200,
+                    body: b"PRIVATE_invalid_json".to_vec(),
+                }),
+                &request,
+            )
+            .err()
+            .expect("invalid JSON cannot become an outcome");
+            assert!(error.contains("invalid JSON"), "{error}");
+            assert!(!error.contains("PRIVATE_"));
+        }
+    }
+
+    #[test]
+    fn ghost_revision_and_wordpress_endpoint_contracts_preserve_update_intent() {
+        let post = post_fixture();
+        let mut record = StateRecord {
+            remote_id: "42".into(),
+            ..Default::default()
+        };
+        let error = ghost_request(
+            "https://ghost.example",
+            &post,
+            Some(&record),
+            false,
+            "abc:00112233445566778899aabbccddeeff",
+        )
+        .unwrap_err();
+        assert!(error.contains("no updated_at revision"), "{error}");
+        record.remote_revision = "2026-10-25T00:00:00.000Z".into();
+        let request = ghost_request(
+            "https://ghost.example",
+            &post,
+            Some(&record),
+            false,
+            "abc:00112233445566778899aabbccddeeff",
+        )
+        .unwrap();
+        assert_eq!(request.method, "PUT");
+        assert!(request.url.ends_with("/posts/42/?source=html"));
+        assert_eq!(
+            request.body["posts"][0]["updated_at"],
+            record.remote_revision
+        );
+        let error = execute(
+            &GhostAdapter {
+                endpoint: "https://ghost.example",
+            },
+            &FakeTransport(Response {
+                status: 409,
+                body: br#"{"errors":[{"message":"stale revision"}]}"#.to_vec(),
+            }),
+            &request,
+        )
+        .err()
+        .expect("stale remote revision must fail");
+        assert!(error.contains("remote item changed"));
+        assert_eq!(record.remote_revision, "2026-10-25T00:00:00.000Z");
+        for (endpoint, publication, url) in [
+            (
+                "https://wp.example/wp-json/wp/v2",
+                "",
+                "https://wp.example/wp-json/wp/v2/posts/42",
+            ),
+            (
+                "",
+                "12345",
+                "https://public-api.wordpress.com/wp/v2/sites/12345/posts/42",
+            ),
+        ] {
+            let request =
+                wordpress_request(endpoint, publication, &post, Some(&record), false, "unused")
+                    .unwrap();
+            assert_eq!(request.method, "POST");
+            assert_eq!(request.url, url);
+            assert_eq!(request.body["status"], "draft");
+            assert_eq!(request.body["content"], post.html);
+            assert!(
+                request.body.get("canonical_url").is_none(),
+                "do not invent core external canonical support"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_response_bounds_apply_to_every_transport_before_success_is_recorded() {
+        let request = dev_request(&post_fixture(), None, false, "unused").unwrap();
+        let mut body = br#"{"id":42,"url":"https://dev.to/example"}"#.to_vec();
+        body.resize(MAX_RESPONSE_BYTES as usize, b' ');
+        assert_eq!(
+            execute(
+                &DevAdapter,
+                &FakeTransport(Response {
+                    status: 201,
+                    body: body.clone(),
+                }),
+                &request
+            )
+            .unwrap()
+            .id,
+            "42"
+        );
+        body.push(b' ');
+        let error = execute(
+            &DevAdapter,
+            &FakeTransport(Response { status: 201, body }),
+            &request,
+        )
+        .err()
+        .expect("oversized responses must fail");
+        assert!(error.contains("exceeded 1 MiB"), "{error}");
+    }
+
+    #[test]
+    fn hashnode_partial_or_malformed_graphql_errors_never_count_as_success() {
+        let adapter = HashnodeAdapter {
+            publication_id: "publication",
+        };
+        let request =
+            hashnode_request("publication", &post_fixture(), None, false, "unused").unwrap();
+        for errors in [
+            json!([{}]),
+            json!({"message": "invalid shape"}),
+            json!([{
+                "message": "PRIVATE_provider_echo",
+                "extensions": { "code": "FORBIDDEN" },
+            }]),
+        ] {
+            let body = json!({
+                "errors": errors,
+                "data": { "createDraft": { "draft": { "id": "partial-id", "slug": "partial" } } },
+            });
+            let error = execute(
+                &adapter,
+                &FakeTransport(Response {
+                    status: 200,
+                    body: body.to_string().into_bytes(),
+                }),
+                &request,
+            )
+            .err()
+            .expect("GraphQL errors must fail even alongside partial data");
+            assert!(error.contains("Hashnode"), "{error}");
+            assert!(
+                !error.contains("PRIVATE_"),
+                "provider responses must not echo private content"
+            );
+        }
+        for (code, expected) in [
+            ("UNAUTHENTICATED", "authentication failed"),
+            ("FORBIDDEN", "lacks permission"),
+            ("NOT_FOUND", "not found"),
+            ("BAD_USER_INPUT", "rejected the post"),
+            ("INTERNAL_SERVER_ERROR", "temporarily unavailable"),
+            ("UNKNOWN_FUTURE_CODE", "inspect the provider dashboard"),
+        ] {
+            let error = adapter
+                .outcome(&json!({ "errors": [{
+                "message": "PRIVATE_provider_echo",
+                "extensions": { "code": code },
+            }] }))
+                .err()
+                .expect("GraphQL error codes must fail explicitly");
+            assert!(error.contains(expected), "{error}");
+            assert!(!error.contains("PRIVATE_"));
+        }
     }
 
     #[test]
