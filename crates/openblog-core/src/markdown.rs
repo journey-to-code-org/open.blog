@@ -537,7 +537,7 @@ fn portable_code_html(
         "Open the live preview on"
     } else {
         html.push_str(&code(&fence.lang, source, &line_attributes(fence)));
-        if fence.lang == "rust" && fence.playground_link != Some(false) {
+        if fence.lang.eq_ignore_ascii_case("rust") && fence.playground_link != Some(false) {
             if let Some(url) = rust_playground_url(source) {
                 html.push_str(&format!(
                     "<p class=\"ob-playground-link\"><a href=\"{}\">Open in Rust Playground</a>.</p>",

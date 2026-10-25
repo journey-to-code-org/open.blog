@@ -215,7 +215,7 @@ fn next_token(source: &str, at: usize) -> (Token<'_>, usize) {
 
 /// Where a comment that is open at the start of `text` ends: the length
 /// through its `-->` (or `--!>`), or `None` when `text` does not end it.
-fn comment_end(text: &str) -> Option<usize> {
+pub(crate) fn comment_end(text: &str) -> Option<usize> {
     [
         text.find("-->").map(|index| index + 3),
         text.find("--!>").map(|index| index + 4),
@@ -223,6 +223,21 @@ fn comment_end(text: &str) -> Option<usize> {
     .into_iter()
     .flatten()
     .min()
+}
+
+pub(crate) fn escape_markdown_fragment(source: &str) -> (String, bool) {
+    let mut output = String::new();
+    let mut at = 0;
+    while at < source.len() {
+        let (token, next) = next_token(source, at);
+        match token {
+            Token::Ignored => {}
+            Token::OpenComment => return (output, true),
+            _ => output.push_str(&source[at..next].replace('<', "&lt;").replace('>', "&gt;")),
+        }
+        at = next;
+    }
+    (output, false)
 }
 
 type ParsedTag = (String, Vec<(String, String)>, bool, usize);

@@ -875,14 +875,27 @@ fn escape_raw_html(markdown: &str) -> (String, usize) {
         })
         .collect::<Vec<_>>();
     spans.sort_by_key(|span| span.start);
-    let count = spans.len();
-    let mut output = markdown.to_string();
-    for span in spans.into_iter().rev() {
-        let escaped = output[span.clone()]
-            .replace('<', "&lt;")
-            .replace('>', "&gt;");
-        output.replace_range(span, &escaped);
+    let mut count = 0;
+    let mut output = String::with_capacity(markdown.len());
+    let mut cursor = 0;
+    for span in spans {
+        if span.end <= cursor {
+            continue;
+        }
+        let start = span.start.max(cursor);
+        output.push_str(&markdown[cursor..start]);
+        let (escaped, open_comment) =
+            crate::raw_html::escape_markdown_fragment(&markdown[start..span.end]);
+        count += usize::from(!escaped.trim().is_empty());
+        output.push_str(&escaped);
+        cursor = span.end;
+        if open_comment {
+            // A block comment can span Markdown containers and code fences.
+            let rest = &markdown[cursor..];
+            cursor += crate::raw_html::comment_end(rest).unwrap_or(rest.len());
+        }
     }
+    output.push_str(&markdown[cursor..]);
     (output, count)
 }
 
@@ -949,7 +962,8 @@ fn portable_markdown_body(
             let normalized_language = if language == "web" { "text" } else { language };
             output.push_str(&markdown_code_fence(normalized_language, &source));
             if runnable {
-                if language == "rust" && !tokens.iter().any(|token| token == "playgroundLink=false")
+                if language.eq_ignore_ascii_case("rust")
+                    && !tokens.iter().any(|token| token == "playgroundLink=false")
                 {
                     if let Some(url) = crate::markdown::rust_playground_url(&format!("{source}\n"))
                     {
@@ -1512,7 +1526,7 @@ mod tests {
     fn portable_rust_playground_links_preserve_exact_source_and_runner_options() {
         let source = "fn main() {\n    println!(\"café & + # ? \\\" </script>\");\n}\n";
         let contents =
-            format!("---\ntitle: Work\ndate: 2026-10-01\n---\n```rust runnable\n{source}```\n");
+            format!("---\ntitle: Work\ndate: 2026-10-01\n---\n```RuSt runnable\n{source}```\n");
         let (config, site) = public_post(&contents);
         let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
         let html = projection.portable_html().unwrap().html;
@@ -1585,6 +1599,24 @@ mod tests {
             8 * 1024
         );
         assert!(crate::markdown::rust_playground_url(&"x".repeat(8 * 1024 - prefix + 1)).is_none());
+    }
+
+    #[test]
+    fn portable_markdown_excludes_html_comments_but_keeps_comment_syntax_in_code() {
+        let contents = "---\ntitle: Work\ndate: 2026-10-01\n---\nBefore <!-- PRIVATE_INLINE --> after.\n\n<div>\n<!-- PRIVATE_BLOCK\n\nPRIVATE_CONTINUED\n\n```text\nPRIVATE_CODE_IN_COMMENT\n```\n\n<p>PRIVATE_END --></p>\n</div>\n\nVisible tail.\n\n`<!-- EXAMPLE_INLINE -->`\n\n```html\n<!-- EXAMPLE_FENCED -->\n```\n";
+        let (config, site) = public_post(contents);
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        let text = projection.portable_text().unwrap();
+        for output in [&markdown, &text] {
+            assert!(!output.contains("PRIVATE_"), "{output}");
+            assert!(output.contains("Visible tail."), "{output}");
+            assert!(output.contains("EXAMPLE_INLINE"), "{output}");
+            assert!(output.contains("EXAMPLE_FENCED"), "{output}");
+        }
+        assert!(markdown.contains("&lt;div&gt;"));
+        assert!(markdown.contains("`<!-- EXAMPLE_INLINE -->`"));
+        assert!(markdown.contains("```html\n<!-- EXAMPLE_FENCED -->\n```"));
     }
 
     #[test]
