@@ -39,6 +39,13 @@ If you are new, read these in order; each one stands alone otherwise.
 
 Architecture decisions and their supporting primary-source research live under
 [`docs/adr`](adr/) and [`docs/research`](research/).
+The [shared-publication language decision](adr/0005-shared-publication-language.md) separates
+private collaboration, source material, and draft approval from canonical posts and public credit.
+The [collaborator identity binding decision](adr/0006-collaborator-identity-binding.md) defines
+how an Admin user explicitly becomes a publication participant and what each collaboration role
+may do. The [shared publication record decision](adr/0007-private-shared-publication-records.md)
+keeps each shared reflection's sources, contract, and policy in one private file outside your
+content.
 
 How posts keep their meaning outside open.blog is recorded under
 [`docs/portability`](portability/): the [capability matrix](portability/capability-matrix.md),

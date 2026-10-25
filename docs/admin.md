@@ -35,6 +35,7 @@ immediately.
 | **Field Review** | Analyze GPX locally, derive route facts, and choose hidden, trimmed, approximate, or exact location publication. |
 | **Assistant** | Inspect the configured author-time provider, manage portable or private author/site context, and preview exactly which context is selected. Provider credentials remain on the server. |
 | **Knowledge checks** | Insert one to three multiple-choice questions through a form, with optional author-time generation. Reader attempts stay in the reader's browser. |
+| **Shared reflections** | Start a private shared reflection from a video, article, podcast, book, or other source, with a working title or guiding question. Nothing is published and no post is created. |
 | **Delete** | Moves the file to `.openblog/trash/`; nothing is destroyed. |
 | **Schedule** | See below. |
 | **Analytics** | Views, unique visitors, a per-day chart, top pages and referrers from the built-in counter. See [features.md](features.md). |
@@ -372,6 +373,46 @@ If a sidecar is malformed, Settings shows the error without hiding
 the Markdown and requires an explicit repair choice: inherit to remove the broken sidecar,
 or set new explicit credits to replace it. Credit-only changes participate in unsaved-change
 warnings, production preview, conflict detection, and the normal save validation.
+
+### Start a shared reflection
+
+A shared reflection is a private draft that several writers answer from the same source. Open
+**Content → Shared reflections** and choose **Start a shared reflection** (or search the
+workspace for it). The form asks, in plain words:
+
+1. **What prompted it.** Choose the type of source, then enter its title. Paste the original
+   link if there is one; a book, a talk you attended, or a conversation can be left without a
+   link. You can add who made it, the publisher, a year or date, and an ISBN for a book. Use
+   **Add another source** to list up to 20 sources in the order you want; at 20 the button is
+   turned off and the form says why. With a YouTube or CodePen link, **Suggest details from
+   link** can fill in a title, who made it, and the publisher. It only fills fields you left
+   empty, says what it filled so you can check it, and never asks for a transcript. If the
+   provider is slow, refuses, or has nothing, or the link is from another site, the form tells
+   you and nothing changes; type the details yourself.
+2. **Your reflection.** Give a working title, a guiding question that each writer answers in
+   their own words, or both.
+3. **You will appear as.** Choose your entry from the contributor registry. If you are not in
+   it yet, add yourself under **Site → Contributors** first. Admin Studio does not yet check that
+   the entry you pick is yours, so choose your own.
+
+You don’t need Markdown anywhere in this form. Links must be complete web addresses starting with
+`https://` or `http://` and cannot contain a username or password; a pasted link with non-English
+characters is stored in its standard encoded form. If something needs fixing, the message names
+the field and moves focus to it; a problem that is not about one field, such as a save that
+fails on the server, moves focus to the message itself. What you entered is kept so you can try
+again.
+
+Creating a shared reflection publishes nothing and changes no post, credit, or setting. It is
+saved as a private file under `.openblog/private/collaboration/publications/`, which Git
+ignores, so back up that folder with your other private files. Only the people taking part see
+it under **Shared reflections**; signing in to Admin Studio or being in the contributor registry
+is not enough. You are its site owner. Removing your account with `openblog user remove` removes
+you from every shared reflection, and so does adding a new account under a name that was used
+before. A contributor who takes part in one cannot be removed from the registry; the Contributors
+message names each entry that is in use. Inviting other writers, writing contributions, and publishing the result arrive in
+later releases. The design is recorded in
+[ADR 0007](adr/0007-private-shared-publication-records.md) and the
+[collaboration contract](specs/shared-perspectives-collaboration.md#shared-publication-record).
 
 ## Scheduling
 

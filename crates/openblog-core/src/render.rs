@@ -1069,6 +1069,9 @@ impl<'a> Renderer<'a> {
         if let Some(research) = &post.research {
             body.push_str(&research.work_meta_html());
         }
+        if let Some(shared) = &post.shared_attribution {
+            body.push_str(&shared.html());
+        }
         if let Some(journal) = &post.field_journal {
             body.push_str(&self.field_journal_card(journal));
         }

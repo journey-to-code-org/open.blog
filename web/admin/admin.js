@@ -671,6 +671,183 @@ export function sourceExportLossNotes(losses) {
   return [...bySource].map(([id, fields]) => `${id}: ${[...fields].join(", ")}`);
 }
 
+export const SHARED_SOURCE_KINDS = Object.freeze([
+  { value: "video", label: "Video", example: "e.g. How to Listen, a talk on YouTube" },
+  { value: "article", label: "Article", example: "e.g. The Slow Read, an essay in a magazine" },
+  { value: "podcast", label: "Podcast", example: "e.g. Episode 12: Paying attention" },
+  { value: "book", label: "Book", example: "e.g. Middlemarch" },
+  { value: "other", label: "Other", example: "e.g. A conversation at the river" },
+]);
+
+/** Matches the record's source limit, so the form never offers a source the server would refuse. */
+export const MAX_SHARED_SOURCES = 20;
+
+export function emptySharedSource(kind = "video") {
+  return { kind, title: "", url: "", creator: "", publisher: "", published: "", isbn: "" };
+}
+
+function validIsbnShape(value) {
+  if (!/^[0-9X\- ]+$/i.test(value)) return false;
+  const symbols = value.replace(/[- ]/g, "");
+  return /^\d{9}[\dX]$/i.test(symbols) || /^\d{13}$/.test(symbols);
+}
+
+/**
+ * The first problem in a shared reflection draft, in the form's reading order, named by the same
+ * field keys the server uses.
+ */
+export function validateSharedReflectionDraft(draft = {}) {
+  const text = (value) => String(value ?? "").trim();
+  const sources = Array.isArray(draft.sources) ? draft.sources : [];
+  if (!sources.length) return { field: "sources", message: "Add the source you are reflecting on." };
+  for (const [index, source] of sources.entries()) {
+    const number = index + 1;
+    if (!text(source?.title)) return { field: `sources.${index}.title`, message: `Source ${number}: add a title.` };
+    const url = text(source.url);
+    if (url && !isAbsoluteHttpUrl(url)) {
+      return {
+        field: `sources.${index}.url`,
+        message: `Source ${number}: paste a full web address that starts with https:// or http://, without a username or password.`,
+      };
+    }
+    if (source.kind === "book" && text(source.isbn) && !validIsbnShape(text(source.isbn))) {
+      return { field: `sources.${index}.isbn`, message: `Source ${number}: an ISBN has 10 or 13 digits.` };
+    }
+  }
+  if (!text(draft.title) && !text(draft.guidingQuestion)) {
+    return { field: "title", message: "Add a working title or a guiding question." };
+  }
+  if (!text(draft.contributorId)) return { field: "contributorId", message: "Choose the contributor profile you will appear as." };
+  return null;
+}
+
+/** The request body. Identity beyond the chosen contributor profile comes from the session. */
+export function sharedReflectionPayload(draft = {}) {
+  const text = (value) => String(value ?? "").trim();
+  return {
+    title: text(draft.title),
+    guidingQuestion: text(draft.guidingQuestion),
+    contributorId: text(draft.contributorId),
+    sources: (Array.isArray(draft.sources) ? draft.sources : []).map((source) => ({
+      kind: SHARED_SOURCE_KINDS.some((kind) => kind.value === source.kind) ? source.kind : "other",
+      title: text(source.title),
+      url: text(source.url),
+      creator: text(source.creator),
+      publisher: text(source.publisher),
+      published: text(source.published),
+      isbn: source.kind === "book" ? text(source.isbn) : "",
+    })),
+  };
+}
+
+/** The post paths or registry keys that blocked a Contributors save, ready to append to its message. */
+export function contributorSaveRefusalDetail(data) {
+  const named = [data?.paths, data?.contributors].filter(Array.isArray).flat().filter((item) => typeof item === "string" && item);
+  return named.length ? ` ${named.join(", ")}` : "";
+}
+
+export function sharedReflectionFieldId(field) {
+  const fixed = { title: "oba-shared-title", guidingQuestion: "oba-shared-question", contributorId: "oba-shared-contributor", sources: "oba-shared-add-source" };
+  if (Object.hasOwn(fixed, field)) return fixed[field];
+  const match = /^sources\.(\d{1,2})\.(title|url|creator|publisher|published|isbn)$/.exec(String(field ?? ""));
+  return match ? `oba-shared-source-${match[1]}-${match[2]}` : "";
+}
+
+/** The field and message to show for a failed creation request; the field may be "". */
+export function sharedReflectionProblemFromError(error) {
+  const field = typeof error?.data?.field === "string" ? error.data.field : "";
+  const message = typeof error?.data?.error === "string" && error.data.error ? error.data.error : error?.message || "The shared reflection could not be saved.";
+  return { field, message };
+}
+
+/**
+ * Show a problem in the form's alert and move focus to the field it names, or to the alert when the
+ * field is missing or unknown. Returns the element that received focus.
+ */
+export function showSharedReflectionProblem(root, status, problem) {
+  status.textContent = problem.message;
+  status.hidden = false;
+  const id = sharedReflectionFieldId(problem.field);
+  const control = id ? root.querySelector(`#${id}`) : null;
+  if (control) {
+    control.setAttribute("aria-invalid", "true");
+    control.focus();
+    return control;
+  }
+  status.focus?.();
+  return status;
+}
+
+/**
+ * Send a validated draft. On failure the draft is left as it is so the writer can correct and
+ * resend it; `failed` receives the error and the problem to show.
+ */
+export async function submitSharedReflection(draft, { post, created, failed }) {
+  try {
+    await post(sharedReflectionPayload(draft));
+    await created();
+  } catch (error) {
+    await failed(error, sharedReflectionProblemFromError(error));
+  }
+}
+
+const SUGGESTED_SOURCE_FIELDS = ["title", "creator", "publisher"];
+
+/**
+ * Copy provider suggestions into a source, only into fields the author left empty. Anything the
+ * author typed is kept as is, whatever the provider says. Returns the fields that were filled.
+ */
+export function applySourceSuggestion(source, suggestion) {
+  const applied = [];
+  if (!source || !suggestion || suggestion.provenance !== "provider") return applied;
+  for (const key of SUGGESTED_SOURCE_FIELDS) {
+    const value = suggestion[key];
+    if (typeof value === "string" && value.trim() && !String(source[key] ?? "").trim()) {
+      source[key] = value.trim();
+      applied.push(key);
+    }
+  }
+  return applied;
+}
+
+/**
+ * Ask the server for optional details about a source link. It never throws and never blocks
+ * authoring: every failure becomes a plain message and the source stays as the author left it.
+ */
+export async function lookupSourceDetails(source, call, isCurrent = () => true) {
+  const url = String(source?.url ?? "").trim();
+  if (!url) return { applied: [], message: "Paste a link first. Details are optional; you can always type them yourself." };
+  let result;
+  try {
+    result = await call({ url });
+  } catch {
+    return { applied: [], message: "Details could not be looked up. Type them yourself; nothing is lost." };
+  }
+  // The author may have changed the link or removed the source while we waited: drop the answer.
+  if (!isCurrent() || String(source?.url ?? "").trim() !== url) {
+    return { applied: [], stale: true, message: "The link or source changed while looking up, so nothing was filled in." };
+  }
+  if (result?.status === "found" && result.suggestion) {
+    const applied = applySourceSuggestion(source, result.suggestion);
+    const provider = result.suggestion.publisher || "the provider";
+    return {
+      applied,
+      provider,
+      message: applied.length
+        ? `Suggested by ${provider} and filled in: ${applied.join(", ")}. Check them; they are yours to edit.`
+        : `${provider} had nothing to add to what you already typed.`,
+    };
+  }
+  if (result?.status === "unavailable") {
+    return { applied: [], message: `${result.message || "No details came back."} Type them yourself; nothing is lost.` };
+  }
+  return { applied: [], message: "Details can only be suggested for YouTube and CodePen links. Type them yourself." };
+}
+
+export function sharedSourceHref(value) {
+  return typeof value === "string" && isAbsoluteHttpUrl(value) ? value : "";
+}
+
 export function previewWarningsForDisplay(warnings) {
   return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
 }
@@ -1966,6 +2143,7 @@ export class ObAdmin extends AdminElement {
       ...Object.entries(KINDS).map(([kind, info]) =>
         h("a", { class: "oba-tab", "aria-current": kind === active ? "page" : null, href: `#/${kind}` }, info.label),
       ),
+      h("a", { class: "oba-tab", "aria-current": active === "shared" ? "page" : null, href: "#/shared" }, "Shared reflections"),
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
@@ -1973,6 +2151,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Sources", detail: "Keep private research sources, editions, translations, and references in one library." }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
+      : active === "shared"
+        ? { title: "Shared reflections", detail: "Start a private draft with other writers from a video, article, podcast, book, or other source." }
       : active === "overview"
         ? { title: "Overview", detail: "See what is live, what needs attention, and what to work on next." }
         : { title: KINDS[active]?.label || "Workspace", detail: "Create, review, and publish content from the files you own." };
@@ -2177,6 +2357,7 @@ export class ObAdmin extends AdminElement {
       { label: "New post", category: "Create", keywords: "write article", run: () => go("#/new/posts") },
       { label: "New page", category: "Create", keywords: "write", run: () => go("#/new/pages") },
       { label: "New series", category: "Create", keywords: "collection", run: () => go("#/new/series") },
+      { label: "Start a shared reflection", category: "Create", keywords: "shared reflection collaborate source video book", run: () => go("#/shared/new") },
       { label: "Posts", category: "Content", keywords: "articles", run: () => go("#/posts") },
       { label: "Pages", category: "Content", run: () => go("#/pages") },
       { label: "Series", category: "Content", run: () => go("#/series") },
@@ -2340,6 +2521,8 @@ export class ObAdmin extends AdminElement {
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "contributors") await this.showContributors();
       else if (head === "sources") await this.showSources();
+      else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
+      else if (head === "shared") await this.showSharedReflections();
       else if (head === "overview" || !head) await this.showOverview(params.get("focus"));
       else await this.showList(KINDS[head] ? head : "posts", params.get("status"));
     } catch (err) {
@@ -2698,8 +2881,7 @@ export class ObAdmin extends AdminElement {
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         status.className = "oba-error";
-        const paths = Array.isArray(error.data?.paths) ? ` ${error.data.paths.join(", ")}` : "";
-        status.textContent = `${error.data?.error || error.message}${paths}`;
+        status.textContent = `${error.data?.error || error.message}${contributorSaveRefusalDetail(error.data)}`;
       } finally {
         save.disabled = false;
       }
@@ -3197,6 +3379,265 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-source-layout" }, h("nav", { "aria-label": "Sources" }, list), panel),
       ),
     );
+  }
+
+  // ---- shared reflections
+
+  async showSharedReflections(notice = "") {
+    const { publications = [] } = await this.api.call("GET", "collaboration/publications");
+    const kindLabel = (value) => SHARED_SOURCE_KINDS.find((kind) => kind.value === value)?.label || "Other";
+    const status = h("p", { class: notice ? "oba-ok" : "oba-small", role: "status", "aria-live": "polite" }, notice);
+    const cards = publications.map((publication, index) => {
+      const heading = `oba-shared-${index}-heading`;
+      return h(
+        "section",
+        { class: "oba-contributor-card oba-shared-card", "aria-labelledby": heading },
+        h("p", { class: "oba-eyebrow" }, "Private draft"),
+        h("h2", { id: heading }, publication.title || publication.guidingQuestion),
+        publication.title && publication.guidingQuestion ? h("p", { class: "oba-shared-question" }, publication.guidingQuestion) : null,
+        h(
+          "ol",
+          { class: "oba-shared-sources", "aria-label": "Sources" },
+          (publication.sources || []).map((source) => {
+            const href = sharedSourceHref(source.url);
+            const details = [source.creator, source.publisher, source.published].filter(Boolean).join(" · ");
+            return h(
+              "li",
+              {},
+              h("span", { class: "oba-badge" }, kindLabel(source.kind)),
+              " ",
+              href ? h("a", { href, target: "_blank", rel: "noopener noreferrer" }, source.title) : source.title,
+              details ? h("small", { class: "oba-small" }, ` ${details}`) : null,
+            );
+          }),
+        ),
+      );
+    });
+    this.mount(
+      this.shell(
+        "shared",
+        h(
+          "section",
+          { class: "oba-contributor-intro" },
+          h("p", {}, "A shared reflection starts from something you watched, read, or heard. Each writer will answer in their own words before anything is combined."),
+          h("p", { class: "oba-small" }, "Shared reflections are kept in private server files, never in your posts. Nothing is published from here, and only the people taking part can see each one."),
+        ),
+        h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn oba-btn-primary", href: "#/shared/new" }, "Start a shared reflection")),
+        status,
+        cards.length
+          ? h("div", { class: "oba-contributor-grid" }, cards)
+          : h("p", { class: "oba-notice" }, "You are not part of any shared reflection yet."),
+      ),
+    );
+  }
+
+  async showSharedReflectionForm() {
+    const registry = await this.api.call("GET", "contributors");
+    const contributors = Object.entries(registry.contributors || {});
+    const sources = [emptySharedSource()];
+    const status = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const sourceList = h("div", { class: "oba-shared-source-list" });
+    const markDirty = () => (this.dirty = true);
+
+    const field = (id, label, control, help = "") => {
+      control.id = id;
+      if (help) control.setAttribute("aria-describedby", `${id}-help`);
+      control.addEventListener("input", () => {
+        control.removeAttribute("aria-invalid");
+        markDirty();
+      });
+      return h(
+        "div",
+        { class: "oba-field" },
+        h("label", { for: id }, label),
+        control,
+        help ? h("small", { class: "oba-small", id: `${id}-help` }, help) : null,
+      );
+    };
+    const text = (value, attrs = {}) => h("input", { type: "text", value, ...attrs });
+
+    const title = text("", { placeholder: "e.g. What we noticed about attention" });
+    const question = text("", { placeholder: "e.g. What changed how you see your own work?" });
+    title.addEventListener("input", () => question.removeAttribute("aria-invalid"));
+    question.addEventListener("input", () => title.removeAttribute("aria-invalid"));
+    const contributor = h(
+      "select",
+      { required: true, disabled: !contributors.length },
+      h("option", { value: "" }, contributors.length ? "Choose your profile" : "No contributor profiles yet"),
+      contributors.map(([id, entry]) => h("option", { value: id, selected: id === this.user }, `${entry.name || id} (${id})`)),
+    );
+    const addSource = h("button", { class: "oba-btn", type: "button", id: "oba-shared-add-source" }, "Add another source");
+    const sourceLimit = h("small", { class: "oba-small", id: "oba-shared-source-limit", hidden: true }, `You can add up to ${MAX_SHARED_SOURCES} sources.`);
+    const updateSourceLimit = () => {
+      const full = sources.length >= MAX_SHARED_SOURCES;
+      addSource.disabled = full;
+      sourceLimit.hidden = !full;
+      if (full) addSource.setAttribute("aria-describedby", sourceLimit.id);
+      else addSource.removeAttribute("aria-describedby");
+    };
+    const submit = h("button", { class: "oba-btn oba-btn-primary", type: "submit", disabled: !contributors.length }, "Create shared reflection");
+
+    const renderSources = (focusIndex = -1) => {
+      sourceList.replaceChildren(
+        ...sources.map((source, index) => {
+          const prefix = `oba-shared-source-${index}`;
+          const bind = (control, key) => {
+            control.addEventListener("input", () => (source[key] = control.value));
+            return control;
+          };
+          const kindOf = () => SHARED_SOURCE_KINDS.find((kind) => kind.value === source.kind) || SHARED_SOURCE_KINDS[0];
+          const kind = h(
+            "select",
+            {},
+            SHARED_SOURCE_KINDS.map((option) => h("option", { value: option.value, selected: option.value === source.kind }, option.label)),
+          );
+          const sourceTitle = bind(text(source.title, { required: true, placeholder: kindOf().example }), "title");
+          const creatorInput = bind(text(source.creator), "creator");
+          const publisherInput = bind(text(source.publisher), "publisher");
+          const suggestedControls = { title: sourceTitle, creator: creatorInput, publisher: publisherInput };
+          const isbnField = field(`${prefix}-isbn`, "ISBN (optional)", bind(text(source.isbn, { inputmode: "numeric", autocomplete: "off" }), "isbn"), "10 or 13 digits; hyphens are fine.");
+          isbnField.hidden = source.kind !== "book";
+          kind.addEventListener("change", () => {
+            source.kind = kind.value;
+            sourceTitle.placeholder = kindOf().example;
+            isbnField.hidden = source.kind !== "book";
+            markDirty();
+          });
+          const lookupStatus = h("small", { class: "oba-small", id: `${prefix}-lookup-status`, role: "status", "aria-live": "polite" });
+          const lookup = h(
+            "button",
+            {
+              class: "oba-btn",
+              type: "button",
+              "aria-describedby": lookupStatus.id,
+              onClick: async () => {
+                lookup.disabled = true;
+                lookupStatus.textContent = "Looking up…";
+                const outcome = await lookupSourceDetails(
+                  source,
+                  (json) => this.api.call("POST", "collaboration/publications/source-metadata", { json }),
+                  () => sources.includes(source) && sourceTitle.isConnected,
+                );
+                if (outcome.stale && !sourceTitle.isConnected) return;
+                for (const key of outcome.applied) {
+                  const control = suggestedControls[key];
+                  if (!control?.isConnected) continue;
+                  control.value = source[key];
+                  // Show which values came from the provider until the author edits them.
+                  const note = h("small", { class: "oba-small oba-suggested-note" }, `Suggested by ${outcome.provider}. Check it, or edit to make it yours.`);
+                  control.after(note);
+                  control.addEventListener("input", () => note.remove(), { once: true });
+                }
+                if (outcome.applied.length) markDirty();
+                lookupStatus.textContent = outcome.message;
+                lookup.disabled = false;
+              },
+            },
+            "Suggest details from link",
+          );
+          const remove = sources.length > 1
+            ? h(
+                "button",
+                {
+                  class: "oba-btn oba-btn-danger",
+                  type: "button",
+                  "aria-label": `Remove source ${index + 1}`,
+                  onClick: () => {
+                    sources.splice(index, 1);
+                    markDirty();
+                    renderSources(Math.min(index, sources.length - 1));
+                  },
+                },
+                "Remove",
+              )
+            : null;
+          return h(
+            "fieldset",
+            { class: "oba-contributor-card oba-shared-source" },
+            h("legend", { class: "oba-legend" }, `Source ${index + 1}`),
+            h("div", { class: "oba-contributor-fields" },
+              field(`${prefix}-kind`, "Type of source", kind),
+              field(`${prefix}-title`, "Source title", sourceTitle, "The name of the video, article, episode, or book."),
+              field(`${prefix}-url`, "Original link (optional)", bind(text(source.url, { inputmode: "url", autocomplete: "url", spellcheck: "false", placeholder: "https://…" }), "url"), "Paste the full address. Leave it empty for a book, talk, or anything without a link."),
+              field(`${prefix}-creator`, "Made by (optional)", creatorInput, "The author, speaker, channel, or host."),
+              field(`${prefix}-publisher`, "Publisher (optional)", publisherInput),
+              field(`${prefix}-published`, "Published (optional)", bind(text(source.published, { placeholder: "e.g. 2019" }), "published"), "A year or date, written however you like."),
+              isbnField,
+            ),
+            h("div", { class: "oba-toolbar" }, lookup, lookupStatus),
+            remove,
+          );
+        }),
+      );
+      updateSourceLimit();
+      if (focusIndex >= 0) requestAnimationFrame(() => sourceList.querySelector(`#oba-shared-source-${focusIndex}-title`)?.focus());
+    };
+
+    addSource.addEventListener("click", () => {
+      if (sources.length >= MAX_SHARED_SOURCES) return;
+      sources.push(emptySharedSource(sources.at(-1)?.kind));
+      markDirty();
+      renderSources(sources.length - 1);
+    });
+
+    const showProblem = (problem) => showSharedReflectionProblem(this, status, problem);
+
+    const form = h(
+      "form",
+      {
+        class: "oba-shared-form",
+        novalidate: true,
+        "aria-labelledby": "oba-shared-form-heading",
+        onSubmit: async (event) => {
+          event.preventDefault();
+          status.hidden = true;
+          const draft = { title: title.value, guidingQuestion: question.value, contributorId: contributor.value, sources };
+          const problem = validateSharedReflectionDraft(draft);
+          if (problem) return showProblem(problem);
+          submit.disabled = true;
+          try {
+            await submitSharedReflection(draft, {
+              post: (json) => this.api.call("POST", "collaboration/publications", { json }),
+              created: async () => {
+                this.dirty = false;
+                this.skipRoute = true;
+                location.hash = "#/shared";
+                await this.showSharedReflections("Shared reflection created. It is private to you until you invite others.");
+              },
+              failed: (error, problem) =>
+                error instanceof ApiError && error.status === 401 ? this.showLogin("Your session ended. Sign in again.") : showProblem(problem),
+            });
+          } finally {
+            submit.disabled = !contributors.length;
+          }
+        },
+      },
+      h("h2", { id: "oba-shared-form-heading" }, "Start a shared reflection"),
+      h("p", {}, "Describe what you are reflecting on and the question you will each answer. You don’t need Markdown: plain words are fine everywhere."),
+      h("p", { class: "oba-small" }, "Nothing is published. The reflection is kept in private server files and does not change your posts."),
+      h("h3", {}, "What prompted it"),
+      sourceList,
+      h("div", { class: "oba-toolbar" }, addSource, sourceLimit),
+      h(
+        "fieldset",
+        { class: "oba-contributor-card" },
+        h("legend", { class: "oba-legend" }, "Your reflection"),
+        field("oba-shared-title", "Working title", title, "You need a title, a guiding question, or both."),
+        field("oba-shared-question", "Guiding question", question, "One question each writer answers in their own words."),
+        field(
+          "oba-shared-contributor",
+          "You will appear as",
+          contributor,
+          contributors.length ? "The contributor profile your writing is attributed to. It does not change who can sign in." : "",
+        ),
+        contributors.length ? null : h("p", { class: "oba-notice" }, "Add yourself as a contributor first. ", h("a", { href: "#/contributors" }, "Open Contributors")),
+      ),
+      status,
+      h("div", { class: "oba-toolbar" }, h("a", { class: "oba-btn", href: "#/shared" }, "Cancel"), h("span", { class: "oba-spacer" }), submit),
+    );
+    renderSources();
+    this.mount(this.shell("shared", form));
+    requestAnimationFrame(() => sourceList.querySelector("#oba-shared-source-0-title")?.focus());
   }
 
   // ---- analytics

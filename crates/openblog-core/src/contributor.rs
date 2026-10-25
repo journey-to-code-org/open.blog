@@ -363,7 +363,7 @@ pub(crate) fn valid_registry_key(value: &str) -> bool {
         && !value.contains("--")
 }
 
-fn safe_profile_url(value: &str) -> bool {
+pub(crate) fn safe_profile_url(value: &str) -> bool {
     if value
         .chars()
         .any(|character| character.is_control() || character.is_whitespace())
