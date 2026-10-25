@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A published shared reflection now ends with a "Continuing the conversation" section holding its
+  approved agreements, differences, questions, applications and uncertainties. Items are grouped by
+  kind, each headed "Speaking for" the authors it names, with stable anchors and no consensus signal.
+  Only items every named author approved at their current text publish; an empty synthesis adds
+  nothing. The combined preview shows the same section, and item Markdown is held to the safety
+  rules of sections (no raw HTML or unsafe links, and no headings above level five). It flows into
+  RSS, JSON Feed and portable output as ordinary post content.
 - Contributors can write, attribute, edit, reorder and approve a shared reflection's continuing
   conversation in Admin: optional agreements, differences, questions, applications and
   uncertainties, with dismissible, editable prompts and no minimum length. Each item shows who has

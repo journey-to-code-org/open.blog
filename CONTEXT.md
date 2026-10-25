@@ -160,7 +160,17 @@ everyone named on an item must approve the piece. Approval binds
 to the exact items, order and attribution, and the set stays private until a later step publishes it
 (ADR 0036). Contributors write and approve them in Admin through one `EditSynthesis` grant, and
 the publish gate waits for every item to be approved by every author it names (ADR 0037).
+When the piece publishes, only fully approved items appear, after the authors' sections under
+"Continuing the conversation" (ADR 0038).
 _Avoid_: Consensus, summary, comment
+
+**Continuing the conversation**:
+The published section of a shared reflection holding its approved synthesis items, grouped by kind
+(shared takeaways, where we differ, questions, ways to apply, what we are unsure about), each item
+headed "Speaking for" the authors it names and anchored by kind and ordinal. It is ordinary Post
+Markdown, so it reaches the page, feeds and exports with the rest; it has no heading when nothing
+is approved, and it never signals consensus or lists approvers (ADR 0038).
+_Avoid_: Summary, consensus, comments
 
 **Combined preview**:
 The side-effect-free review of the whole piece an author sees before approving: every author's

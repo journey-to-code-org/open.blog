@@ -223,7 +223,7 @@ pub fn build(
             record,
             &sections,
             &rendered,
-            &conversation_html(&items, synthesis, options),
+            &conversation_html(record, &items, synthesis, options),
             complete,
             ready,
         );
@@ -238,18 +238,39 @@ pub fn build(
     })
 }
 
+/// The conversation as the preview shows it. Approved items come first as the very Markdown the
+/// Post publishes ([`crate::assembly::conversation_markdown`]) through the same renderer, so the
+/// preview and the public page cannot drift. Items still awaiting approval follow in a separate,
+/// plainly labelled block that is never published.
 fn conversation_html(
+    record: &SharedPublication,
     items: &[PreviewItem],
     synthesis: &SynthesisSet,
     options: RenderOptions<'_>,
 ) -> String {
     let mut html = String::new();
-    if !items.is_empty() {
+    if items.is_empty() {
+        return html;
+    }
+    let published = crate::assembly::conversation_markdown(record, synthesis);
+    if !published.is_empty() {
         html.push_str(
-            "<section class=\"ob-preview-section\" aria-label=\"Continuing conversation\">\n",
+            "<p class=\"ob-preview-status\">Published exactly as shown in this section: items every author they speak for has approved.</p>\n",
         );
-        html.push_str("<h2>Continuing conversation</h2>\n");
-        for (entry, item) in items.iter().zip(synthesis.items()) {
+        html.push_str("<div class=\"ob-preview-prose\">\n");
+        html.push_str(&render_section(&published, options).html);
+        html.push_str("</div>\n");
+    }
+    let pending: Vec<_> = items
+        .iter()
+        .zip(synthesis.items())
+        .filter(|(entry, _)| !entry.awaiting.is_empty())
+        .collect();
+    if !pending.is_empty() {
+        html.push_str(
+            "<section class=\"ob-preview-section\" aria-labelledby=\"ob-preview-pending\">\n<h2 id=\"ob-preview-pending\">Awaiting approval, not published</h2>\n",
+        );
+        for (entry, item) in pending {
             html.push_str(&format!(
                 "<article class=\"ob-preview-item\">\n<p class=\"ob-preview-status\">{}, speaking for {}. Approved by: {}. Awaiting: {}.</p>\n",
                 escape::text(kind_label(entry.kind)),

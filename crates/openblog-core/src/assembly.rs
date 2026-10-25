@@ -19,7 +19,7 @@ use crate::shared_source::{
     SharedAttribution, QUESTION_KEY, SOURCE_KIND_KEY, SOURCE_TITLE_KEY, SOURCE_URL_KEY,
 };
 use crate::slug;
-use crate::synthesis::SynthesisSet;
+use crate::synthesis::{SynthesisKind, SynthesisSet};
 
 pub const OUTCOME_VERSION: u8 = 1;
 pub const MAX_OUTCOME_BYTES: usize = 2 * 1024;
@@ -137,6 +137,92 @@ pub fn unapproved_item_authors(synthesis: &SynthesisSet) -> Vec<String> {
     awaited
 }
 
+/// The section heading above everything a synthesis publishes. Its id is the stable permalink.
+const CONVERSATION_HEADING: &str = "## Continuing the conversation {#continuing-the-conversation}";
+
+/// Category order and heading, fixed so a reader finds the same shape in every piece. A kind
+/// nobody wrote has no heading at all.
+const CATEGORIES: [(SynthesisKind, &str, &str); 5] = [
+    (SynthesisKind::Agreement, "agreement", "Shared takeaways"),
+    (SynthesisKind::Difference, "difference", "Where we differ"),
+    (
+        SynthesisKind::Question,
+        "question",
+        "Questions we are left with",
+    ),
+    (
+        SynthesisKind::Application,
+        "application",
+        "Ways to apply this",
+    ),
+    (
+        SynthesisKind::Uncertainty,
+        "uncertainty",
+        "What we are still unsure about",
+    ),
+];
+
+/// Backslash-escape every ASCII punctuation character, which CommonMark always reads as a literal.
+/// A display name is a participant's text and must not become Markdown or HTML.
+fn escape_markdown(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if c.is_ascii_punctuation() {
+            out.push('\\');
+        }
+        out.push(if c.is_control() { ' ' } else { c });
+    }
+    out
+}
+
+/// The Markdown that publishes a synthesis, as chunks: headings, attribution headings and item
+/// prose, the flag marking the prose (untrusted, checked by [`assemble`]). Only items every
+/// attributed author approved at their current digest are included, so an unapproved, withdrawn
+/// or edited item has no path in. There is no consensus signal: each item names only the
+/// authors it speaks for. Empty when nothing qualifies, so there is no empty heading.
+pub fn conversation_parts(
+    record: &SharedPublication,
+    synthesis: &SynthesisSet,
+) -> Vec<(String, bool)> {
+    let mut parts: Vec<(String, bool)> = Vec::new();
+    for (kind, slug, heading) in CATEGORIES {
+        let mut ordinal = 0;
+        for item in synthesis.items().iter().filter(|item| item.kind() == kind) {
+            let names = display_names(record, item.contributors().iter().map(String::as_str));
+            if !item.is_approved() || names.is_empty() {
+                continue;
+            }
+            if ordinal == 0 {
+                if parts.is_empty() {
+                    parts.push((CONVERSATION_HEADING.to_string(), false));
+                }
+                parts.push((format!("### {heading} {{#conversation-{slug}}}"), false));
+            }
+            ordinal += 1;
+            let names: Vec<String> = names.iter().map(|name| escape_markdown(name)).collect();
+            parts.push((
+                format!(
+                    "#### Speaking for {} {{#conversation-{slug}-{ordinal}}}",
+                    names.join(", ")
+                ),
+                false,
+            ));
+            parts.push((item.markdown().trim().to_string(), true));
+        }
+    }
+    parts
+}
+
+/// [`conversation_parts`] as one Markdown block. The Post body and the combined preview both
+/// render exactly this through the production renderer.
+pub fn conversation_markdown(record: &SharedPublication, synthesis: &SynthesisSet) -> String {
+    conversation_parts(record, synthesis)
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 /// Build the Post for `record` dated `date` (RFC 3339), or say why not. Pure.
 pub fn assemble(
     record: &SharedPublication,
@@ -198,8 +284,14 @@ pub fn assemble(
         return Err(AssemblyError::Invalid);
     }
 
-    if has_unsafe_markup(&prose) {
+    let conversation = conversation_parts(record, synthesis);
+    if has_unsafe_markup(&prose, &conversation) {
         return Err(AssemblyError::UnsafeMarkup);
+    }
+    let mut body = prose.join(SECTION_BREAK);
+    if !conversation.is_empty() {
+        body.push_str(SECTION_BREAK);
+        body.push_str(&conversation_markdown(record, synthesis));
     }
 
     let mut fields: BTreeMap<String, Value> = BTreeMap::new();
@@ -236,7 +328,7 @@ pub fn assemble(
     .map_err(|_| AssemblyError::Invalid)?;
     Ok(Assembly {
         path,
-        source: frontmatter::compose(&fields, &prose.join(SECTION_BREAK)),
+        source: frontmatter::compose(&fields, &body),
         credits_path,
         credits: format!("{credits}\n"),
     })
@@ -247,8 +339,13 @@ pub fn assemble(
 /// Markdown in one section that changes how another renders (an open fence, a reference
 /// definition, a footnote). Checked on the exact parse the site renders with, both with and
 /// without smart punctuation because the site setting is not known here.
-fn has_unsafe_markup(sections: &[String]) -> bool {
-    use pulldown_cmark::{Event, Parser, Tag};
+///
+/// `conversation` is the generated synthesis block. Its own headings are trusted. Each prose
+/// chunk is held to the same rules as a section, may not carry a heading of level one to four
+/// (it would break the page outline under the generated headings), and must parse the same
+/// inside the block as alone.
+fn has_unsafe_markup(sections: &[String], conversation: &[(String, bool)]) -> bool {
+    use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
     let unsafe_address = |address: &str| {
         let compact: String = address
             .chars()
@@ -262,26 +359,64 @@ fn has_unsafe_markup(sections: &[String]) -> bool {
             _ => false,
         }
     };
-    [false, true].into_iter().any(|smart| {
-        let options = crate::markdown::parser_options(smart);
-        let joined = sections.join(SECTION_BREAK);
+    let scan = |events: &[Event<'_>], outline: bool| {
+        events.iter().any(|event| match event {
+            Event::Html(_) | Event::InlineHtml(_) => true,
+            Event::Start(Tag::Heading { attrs, level, .. }) => {
+                !attrs.is_empty()
+                    || (outline
+                        && matches!(
+                            level,
+                            HeadingLevel::H1
+                                | HeadingLevel::H2
+                                | HeadingLevel::H3
+                                | HeadingLevel::H4
+                        ))
+            }
+            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                unsafe_address(dest_url)
+            }
+            _ => false,
+        })
+    };
+    // Parsing `parts` joined by `joiner` must equal parsing each alone (with a rule between
+    // them when `rule`), so no part can reach into its neighbour.
+    let isolated = |parts: &[&str], joiner: &str, rule: bool, options| {
+        let joined = parts.join(joiner);
         let mut separate: Vec<Event<'_>> = Vec::new();
-        for (index, section) in sections.iter().enumerate() {
-            if index > 0 {
+        for (index, part) in parts.iter().enumerate() {
+            if index > 0 && rule {
                 separate.push(Event::Rule);
             }
-            separate.extend(Parser::new_ext(section, options));
+            separate.extend(Parser::new_ext(part, options));
         }
-        let together: Vec<Event<'_>> = Parser::new_ext(&joined, options).collect();
-        together != separate
-            || together.iter().any(|event| match event {
-                Event::Html(_) | Event::InlineHtml(_) => true,
-                Event::Start(Tag::Heading { attrs, .. }) => !attrs.is_empty(),
-                Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
-                    unsafe_address(dest_url)
-                }
-                _ => false,
-            })
+        Parser::new_ext(&joined, options).collect::<Vec<_>>() == separate
+    };
+    let block = conversation
+        .iter()
+        .map(|(text, _)| text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    [false, true].into_iter().any(|smart| {
+        let options = crate::markdown::parser_options(smart);
+        let mut blocks: Vec<&str> = sections.iter().map(String::as_str).collect();
+        if !conversation.is_empty() {
+            blocks.push(&block);
+        }
+        if !isolated(&blocks, SECTION_BREAK, true, options) {
+            return true;
+        }
+        let chunks: Vec<&str> = conversation.iter().map(|(text, _)| text.as_str()).collect();
+        if !isolated(&chunks, "\n\n", false, options) {
+            return true;
+        }
+        sections
+            .iter()
+            .any(|text| scan(&Parser::new_ext(text, options).collect::<Vec<_>>(), false))
+            || conversation
+                .iter()
+                .filter(|(_, prose)| *prose)
+                .any(|(text, _)| scan(&Parser::new_ext(text, options).collect::<Vec<_>>(), true))
     })
 }
 

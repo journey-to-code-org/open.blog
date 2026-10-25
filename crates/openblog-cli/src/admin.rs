@@ -17423,8 +17423,15 @@ mod tests {
             );
         }
         assert_eq!(publish_as(&f, &ada, &id).status, 200);
-        // Publishing the synthesis itself is a later step: its prose is not in the post yet.
-        assert!(!published_post(&f, &id).unwrap().contains("SYNTH-PROSE"));
+        // Only the fully approved current text publishes, attributed and under its own heading,
+        // with no approver list or internal id.
+        let post = published_post(&f, &id).unwrap();
+        assert!(post.contains("SYNTH-PROSE changed.") && !post.contains("we differ."));
+        assert!(
+            post.contains("### Shared takeaways")
+                && post.contains("#### Speaking for Mikey, Grace")
+        );
+        assert!(!post.contains("syn-") && !post.contains("Approved by"));
     }
 
     #[test]
@@ -17466,6 +17473,7 @@ mod tests {
         let everything = format!("{body}{document}");
         assert!(!everything.contains("SYNTHESIS-LEAK-PROSE"));
         assert!(!everything.contains("Continuing conversation"));
+        assert!(!everything.contains("Continuing the conversation"));
         assert!(!everything.contains("speaking for"));
     }
 
