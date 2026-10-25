@@ -46,12 +46,20 @@ For a local Markdown artifact, preview it before writing:
 
 ```sh
 openblog export your-post-slug --format markdown
+openblog export your-post-slug --format markdown --json
 openblog export your-post-slug --format markdown --out exports/your-post.md --write
 ```
 
 The export does not replace or modify the canonical post, and it refuses to overwrite an
 existing destination file. Full-content RSS and JSON Feed likewise use portable HTML rather
 than native open.blog component markup; JSON Feed includes a plain-text companion.
+The version-1 JSON export manifest includes exact Markdown bytes, byte count, canonical identity,
+source revision, capability portability levels, and diagnostics. It is dry-run-only, creates no
+manifest file, and cannot be combined with `--write`. An explicit write stages the complete file
+in the selected parent directory and publishes it atomically without replacing an existing file,
+even if another writer creates that name concurrently. Paths containing `..` or symlink
+components are rejected. Filesystems without hard-link support return an explicit error rather
+than falling back to a partial or overwriting write. Only published, due posts are eligible.
 
 After the open.blog URL is deployed and reachable, create or update remote drafts:
 

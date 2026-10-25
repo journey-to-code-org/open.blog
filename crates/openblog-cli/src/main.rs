@@ -76,6 +76,7 @@ export OPTIONS
     --format markdown          Portable format (default: markdown)
     --out <path>               Output file for an explicit --write
     --write                    Write the export (otherwise print a dry-run preview)
+    --json                     Print a versioned dry-run manifest with exact content
 
 new OPTIONS
     --series <slug>            Put the post in a series
@@ -290,7 +291,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         }
         "export" => {
             let slug = args.positional.first().ok_or(
-                "usage: openblog export <slug> [--format markdown] [--out <path>] [--write]",
+                "usage: openblog export <slug> [--format markdown] [--out <path>] [--json] [--write]",
             )?;
             let format = args
                 .options
@@ -307,6 +308,7 @@ fn run(raw: &[String]) -> Result<(), String> {
                 slug,
                 args.options.get("out").map(String::as_str),
                 args.switches.contains("write"),
+                args.switches.contains("json"),
             )
         }
         "build" => {
