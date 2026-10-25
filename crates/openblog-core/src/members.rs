@@ -1,0 +1,252 @@
+//! Member management for a shared publication: who can sign in to it, with which roles.
+//!
+//! Login access lives in the identity bindings of the authorization policy. Credit lives in the
+//! collaboration contract's participants, contributions, and approvals. Changing or ending a
+//! member's access edits bindings only; the participant, their drafts, reveals, approvals, and
+//! name stay exactly as they were (ADR 0015). Every operation takes the whole record and returns
+//! the next one, guarded by the policy revision the requester last saw.
+
+use serde::Serialize;
+
+use crate::collaboration::{
+    AuthorizationAction, AuthorizationContext, AuthorizationRole, AuthorizationTarget,
+    IdentityBinding, SharedPublication,
+};
+use crate::invitation::Identities;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemberError {
+    /// The requester may not do this, or the participant is not a member they can see.
+    Denied,
+    /// The policy changed since the requester loaded it.
+    Stale,
+    /// The roles are empty or repeat.
+    Roles,
+    /// The result is not a valid record.
+    Invalid,
+}
+
+/// One member as the requester may see them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Member {
+    pub participant_id: String,
+    pub display_name: String,
+    pub admin_user: String,
+    pub contributor_id: String,
+    pub roles: Vec<AuthorizationRole>,
+    pub is_you: bool,
+    /// Whether the requester may change this member's roles.
+    pub can_change_roles: bool,
+    /// Whether the requester may end this member's access.
+    pub can_remove: bool,
+    /// Whether the participant has drafts or approvals that stay credited after access ends.
+    pub has_contributions: bool,
+    /// False when the sign-in account or contributor profile no longer exists, so the binding
+    /// cannot act.
+    pub binding_current: bool,
+}
+
+impl SharedPublication {
+    /// The members, visible to a site owner or coordinator only.
+    pub fn members_for(
+        &self,
+        requester: &str,
+        identities: &Identities<'_>,
+    ) -> Result<Vec<Member>, MemberError> {
+        let me = self
+            .authorize(
+                requester,
+                identities,
+                AuthorizationAction::Invite,
+                AuthorizationTarget::Publication,
+            )
+            .map_err(|_| MemberError::Denied)?;
+        Ok(self
+            .authorization
+            .bindings
+            .iter()
+            .map(|binding| {
+                let participant = self
+                    .collaboration
+                    .participants
+                    .iter()
+                    .find(|participant| participant.id == binding.participant_id);
+                let id = binding.participant_id.as_str();
+                Member {
+                    participant_id: binding.participant_id.clone(),
+                    display_name: participant
+                        .map(|participant| participant.display_name.clone())
+                        .unwrap_or_default(),
+                    admin_user: binding.admin_user.clone(),
+                    contributor_id: binding.contributor_id.clone(),
+                    roles: binding.roles.clone(),
+                    is_you: binding.participant_id == me.participant_id,
+                    can_change_roles: self.may(
+                        requester,
+                        identities,
+                        AuthorizationAction::ManageRoles,
+                        id,
+                    ),
+                    can_remove: self.may(
+                        requester,
+                        identities,
+                        AuthorizationAction::RemoveMember,
+                        id,
+                    ),
+                    has_contributions: self
+                        .collaboration
+                        .contributions
+                        .iter()
+                        .any(|contribution| contribution.participant_id == id)
+                        || self
+                            .collaboration
+                            .approvals
+                            .iter()
+                            .any(|approval| approval.participant_id == id),
+                    binding_current: participant.is_some()
+                        && identities
+                            .active_admin_users
+                            .contains(&binding.admin_user.as_str())
+                        && identities
+                            .contributor_ids
+                            .contains(&binding.contributor_id.as_str()),
+                }
+            })
+            .collect())
+    }
+
+    fn may(
+        &self,
+        requester: &str,
+        identities: &Identities<'_>,
+        action: AuthorizationAction,
+        participant_id: &str,
+    ) -> bool {
+        self.authorize(
+            requester,
+            identities,
+            action,
+            AuthorizationTarget::Participant(participant_id),
+        )
+        .is_ok()
+    }
+
+    /// Replace one member's roles. The rules of policy replacement apply, so only a site owner
+    /// can grant or strip `siteOwner` and the last site owner cannot be demoted.
+    pub fn change_member_roles(
+        &self,
+        requester: &str,
+        identities: &Identities<'_>,
+        participant_id: &str,
+        roles: &[AuthorizationRole],
+        expected_revision: u64,
+    ) -> Result<Self, MemberError> {
+        self.guard(requester, identities, participant_id, expected_revision)?;
+        if roles.is_empty()
+            || roles
+                .iter()
+                .enumerate()
+                .any(|(index, role)| roles[..index].contains(role))
+        {
+            return Err(MemberError::Roles);
+        }
+        let mut next = self.clone();
+        next.authorization.revision = expected_revision.saturating_add(1);
+        next.binding_mut(participant_id)
+            .ok_or(MemberError::Denied)?
+            .roles = roles.to_vec();
+        let text = serde_json::to_string(&next.authorization).map_err(|_| MemberError::Invalid)?;
+        next.authorization = self
+            .authorization
+            .replace_from_json(
+                &self.context(requester, identities),
+                &text,
+                expected_revision,
+            )
+            .map_err(|_| MemberError::Denied)?;
+        next.revalidated()
+    }
+
+    /// End one member's login access. Their participant, drafts, reveals, approvals, and name
+    /// are untouched, so credit for what they wrote stays. The last site owner cannot be removed.
+    pub fn remove_member(
+        &self,
+        requester: &str,
+        identities: &Identities<'_>,
+        participant_id: &str,
+        expected_revision: u64,
+    ) -> Result<Self, MemberError> {
+        self.guard(requester, identities, participant_id, expected_revision)?;
+        if !self.may(
+            requester,
+            identities,
+            AuthorizationAction::RemoveMember,
+            participant_id,
+        ) {
+            return Err(MemberError::Denied);
+        }
+        let mut next = self.clone();
+        next.authorization
+            .bindings
+            .retain(|binding| binding.participant_id != participant_id);
+        next.authorization.revision = expected_revision.saturating_add(1);
+        next.revalidated()
+    }
+
+    /// Denied comes before stale, so a probe learns nothing about a record it cannot manage.
+    fn guard(
+        &self,
+        requester: &str,
+        identities: &Identities<'_>,
+        participant_id: &str,
+        expected_revision: u64,
+    ) -> Result<(), MemberError> {
+        self.authorize(
+            requester,
+            identities,
+            AuthorizationAction::Invite,
+            AuthorizationTarget::Publication,
+        )
+        .map_err(|_| MemberError::Denied)?;
+        if self
+            .authorization
+            .bindings
+            .iter()
+            .all(|binding| binding.participant_id != participant_id)
+        {
+            return Err(MemberError::Denied);
+        }
+        if self.authorization.revision != expected_revision {
+            return Err(MemberError::Stale);
+        }
+        Ok(())
+    }
+
+    fn context<'a>(
+        &'a self,
+        requester: &'a str,
+        identities: &'a Identities<'a>,
+    ) -> AuthorizationContext<'a> {
+        AuthorizationContext {
+            publication_id: &self.publication_id,
+            authenticated_admin_user: requester,
+            active_admin_users: identities.active_admin_users,
+            contributor_ids: identities.contributor_ids,
+            collaboration: &self.collaboration,
+            target: AuthorizationTarget::Publication,
+        }
+    }
+
+    fn binding_mut(&mut self, participant_id: &str) -> Option<&mut IdentityBinding> {
+        self.authorization
+            .bindings
+            .iter_mut()
+            .find(|binding| binding.participant_id == participant_id)
+    }
+
+    fn revalidated(self) -> Result<Self, MemberError> {
+        let text = serde_json::to_string(&self).map_err(|_| MemberError::Invalid)?;
+        Self::from_json(&text).map_err(|_| MemberError::Invalid)
+    }
+}

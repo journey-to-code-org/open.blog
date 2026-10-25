@@ -28,6 +28,7 @@ pub mod field_journal;
 pub mod frontmatter;
 pub mod invitation;
 pub mod markdown;
+pub mod members;
 pub mod model;
 pub mod portability;
 pub mod profile;
