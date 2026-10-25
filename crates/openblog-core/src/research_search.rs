@@ -671,7 +671,20 @@ pub fn search(
         .map(|p| (p.id.as_str(), p))
         .collect();
 
-    let mut scored: Vec<(u32, usize, SearchHit)> = Vec::new();
+    // Notes that cite each passage, built once so matching stays linear.
+    let mut notes_by_passage: BTreeMap<&str, Vec<&ResearchNote>> = BTreeMap::new();
+    for note in &notebook.notes {
+        for id in &note.passages {
+            notes_by_passage.entry(id.as_str()).or_default().push(note);
+        }
+    }
+
+    // Score everything first, then build a full hit only for the survivors.
+    enum Matched<'a> {
+        Passage(&'a Passage),
+        Note(&'a ResearchNote),
+    }
+    let mut scored: Vec<(u32, usize, Matched<'_>, Vec<&'static str>)> = Vec::new();
     let mut position = 0;
     for passage in &notebook.passages {
         position += 1;
@@ -681,10 +694,25 @@ pub fn search(
         let Some((points, matched)) = score(&passage_fields(passage, library), &words) else {
             continue;
         };
-        scored.push((
-            points,
-            position,
-            SearchHit {
+        scored.push((points, position, Matched::Passage(passage), matched));
+    }
+    for note in &notebook.notes {
+        position += 1;
+        if !filters.note_matches(note, &passages) {
+            continue;
+        }
+        let Some((points, matched)) = score(&note_fields(note, library), &words) else {
+            continue;
+        };
+        scored.push((points, position, Matched::Note(note), matched));
+    }
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let total = scored.len();
+    let hits = scored
+        .into_iter()
+        .take(MAX_HITS)
+        .map(|(points, _, entry, matched)| match entry {
+            Matched::Passage(passage) => SearchHit {
                 id: passage.id.clone(),
                 entry: EntryType::Passage,
                 kind: None,
@@ -696,65 +724,46 @@ pub fn search(
                 locators: locator_text(passage),
                 concepts: Vec::new(),
                 passages: Vec::new(),
-                notes: notebook
-                    .notes
-                    .iter()
-                    .filter(|note| note.passages.contains(&passage.id))
-                    .map(note_link)
-                    .collect(),
+                notes: notes_by_passage
+                    .get(passage.id.as_str())
+                    .map(|notes| notes.iter().map(|note| note_link(note)).collect())
+                    .unwrap_or_default(),
             },
-        ));
-    }
-    for note in &notebook.notes {
-        position += 1;
-        if !filters.note_matches(note, &passages) {
-            continue;
-        }
-        let Some((points, matched)) = score(&note_fields(note, library), &words) else {
-            continue;
-        };
-        let link = note_link(note);
-        scored.push((
-            points,
-            position,
-            SearchHit {
-                id: note.id.clone(),
-                entry: EntryType::Note,
-                kind: link.kind,
-                state: link.state,
-                score: points,
-                snippet: snippet(&note.text, &words),
-                matched,
-                sources: note
-                    .sources
-                    .iter()
-                    .map(|id| source_context(library, id))
-                    .collect(),
-                locators: Vec::new(),
-                concepts: note.concepts.clone(),
-                passages: note
-                    .passages
-                    .iter()
-                    .map(|id| {
-                        passages
-                            .get(id.as_str())
-                            .map_or_else(|| missing_passage(id), |p| passage_link(p))
-                    })
-                    .collect(),
-                notes: Vec::new(),
-            },
-        ));
-    }
-    scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    let total = scored.len();
+            Matched::Note(note) => {
+                let link = note_link(note);
+                SearchHit {
+                    id: note.id.clone(),
+                    entry: EntryType::Note,
+                    kind: link.kind,
+                    state: link.state,
+                    score: points,
+                    snippet: snippet(&note.text, &words),
+                    matched,
+                    sources: note
+                        .sources
+                        .iter()
+                        .map(|id| source_context(library, id))
+                        .collect(),
+                    locators: Vec::new(),
+                    concepts: note.concepts.clone(),
+                    passages: note
+                        .passages
+                        .iter()
+                        .map(|id| {
+                            passages
+                                .get(id.as_str())
+                                .map_or_else(|| missing_passage(id), |p| passage_link(p))
+                        })
+                        .collect(),
+                    notes: Vec::new(),
+                }
+            }
+        })
+        .collect();
     Ok(SearchResults {
         truncated: total > MAX_HITS,
         total,
-        hits: scored
-            .into_iter()
-            .take(MAX_HITS)
-            .map(|(_, _, hit)| hit)
-            .collect(),
+        hits,
         counts: counts(notebook),
         broken: broken_links(notebook, library),
     })
