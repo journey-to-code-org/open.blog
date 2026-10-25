@@ -425,3 +425,44 @@ fn series_contributors_follow_the_work_credits_as_they_change() {
     assert_eq!(site(None).series_by_slug("notes").unwrap().posts.len(), 2);
     assert_eq!(ids(&site(None)).len(), 3);
 }
+
+#[test]
+fn a_published_shared_reflection_names_its_authors_in_the_series_it_joins() {
+    let (_, made) = placed("shared-0a1b2c3d4e5f", "Notes", Some(2));
+    let solo = file(
+        "posts/solo.md",
+        "---\ntitle: Solo\ndate: 2029-01-01\nseries: notes\nseriesOrder: 1\n---\nx",
+    );
+    let site = load(
+        vec![solo, file(&made.path, &made.source)],
+        vec![file(&made.credits_path, &made.credits)],
+        vec![],
+    );
+    let shared = site.posts.iter().find(|post| post.title != "Solo").unwrap();
+    assert!(shared.is_collaborative());
+    assert!(site.series_is_collaborative(site.series_by_slug("notes").unwrap()));
+    let files = openblog_core::render::generate(&site, &openblog_core::ThemeSet::new()).unwrap();
+    let html = |path: &str| {
+        files
+            .iter()
+            .find(|file| file.path == path)
+            .unwrap_or_else(|| panic!("no {path}"))
+            .contents
+            .as_str()
+    };
+    let series = html("series/notes/index.html");
+    assert!(series.contains("Contributors: Site Owner, Ann, and Bo</p>"));
+    assert!(series.contains("<span class=\"ob-part-credit\">By Ann and Bo</span>"));
+    assert!(series.contains("<span class=\"ob-part-credit\">By Site Owner</span>"));
+    let solo_page = html("solo/index.html");
+    assert!(solo_page.contains("<span class=\"ob-meta ob-part-credit\">By Ann and Bo</span></a>"));
+    // No account, publication id or other collaboration state reaches the navigation.
+    for private in ["ann-admin", "bo-admin", "shared-0a1b2c3d4e5f"] {
+        let nav = &solo_page[solo_page.find("ob-series-box").unwrap()..];
+        assert!(
+            !nav[..nav.find("</aside>").unwrap()].contains(private),
+            "{private}"
+        );
+        assert!(!series.contains(private), "{private}");
+    }
+}

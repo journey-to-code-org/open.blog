@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A series that holds a collaborative work (a published post credited to two or more authors, such
+  as a shared reflection) now says who wrote what. Its page lists the series' contributors, and
+  every part, ordinary posts included, shows "By ..." on the series page, inside the previous and
+  next links and in the list of all parts. Names come from each post's approved credits and are
+  plain text, drafts and scheduled posts never appear, and order and links are unchanged. Every
+  other series renders exactly as before.
 - A shared publication can now carry a series placement: the same `series` and `seriesOrder` an
   ordinary post uses, so it joins the site's existing series, ordering and navigation. Any one-line
   title works, the placement is part of what every author approves (changing it makes approvals

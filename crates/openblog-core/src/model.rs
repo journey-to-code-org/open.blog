@@ -229,6 +229,15 @@ impl Post {
             .filter(|credit| credit.roles.iter().any(|role| role.is_author()))
     }
 
+    /// Whether this is a collaborative work: its approved work credits (an explicit credit
+    /// sidecar, which is what the shared-publication gate writes) name two or more authors
+    /// (ADR 0040). A legacy post's default site-author credit never makes it one, and neither
+    /// does a single credited author.
+    pub fn is_collaborative(&self) -> bool {
+        self.credit_provenance == CreditProvenance::ExplicitSidecar
+            && self.authors().nth(1).is_some()
+    }
+
     /// The escaped "Originally published at" notice for a post first published
     /// elsewhere, shared by the native page and the portable projection.
     pub(crate) fn source_notice_html(&self) -> Option<String> {
@@ -633,6 +642,17 @@ impl Site {
             }
         }
         out
+    }
+
+    /// Whether the series names its parts' authors on its page and in its navigation: only when
+    /// one of its published parts is a collaborative work (ADR 0040). Drafts and scheduled posts
+    /// are not parts, so they never switch it on, and a series without a collaborative part
+    /// renders exactly as before.
+    pub fn series_is_collaborative(&self, series: &Series) -> bool {
+        series
+            .posts
+            .iter()
+            .any(|&index| self.posts[index].is_collaborative())
     }
 
     /// When the next scheduled post becomes public, if any.
