@@ -46,7 +46,8 @@ notebook must stay as private and as hard to corrupt as the source library it po
   revision, and the newer stored copy of the entry. Invalid entries are `422` with
   diagnostics naming the entry and field, never repeating quoted or noted text. Nothing is
   written on any failure. Admin never merges silently: after a conflict it reloads and keeps
-  the draft, and the author saves again.
+  the draft, and the author saves again (amended by ADR 0026: the author first chooses the
+  stored copy or keeps the draft, and a removed entry can only be discarded).
 - **Removal diagnostics name the caller's entries.** Removing an entry reports problems at
   the positions in the notebook the caller holds, as the library already does.
 - **Hosted durability.** The hosted editorial workspace includes exactly
@@ -71,7 +72,7 @@ notebook must stay as private and as hard to corrupt as the source library it po
 ## Consequences
 
 - A conflict costs the author one extra Save press but never loses a draft or overwrites a
-  concurrent change.
+  concurrent change (amended by ADR 0026: the author also chooses which copy to continue with).
 - Removing the last use of a source takes two steps: remove the research, then the source.
 - Taking two locks per change serialises notebook saves with library changes; both are short.
 - Citation insertion, a public excerpt projection, and any concept registry remain

@@ -76,6 +76,7 @@ const MAX_SKILL_BYTES: usize = 256 * 1024;
 const MAX_ASSISTANT_CONTEXT_BYTES: usize = 64 * 1024;
 /// Largest accepted source create, update, or archive request.
 const MAX_SOURCE_REQUEST_BYTES: usize = 256 * 1024;
+const MAX_RESEARCH_READ_BYTES: usize = 16 * 1024;
 const MAX_NOTEBOOK_REQUEST_BYTES: usize = 256 * 1024;
 const MAX_SOURCE_IMPORT_BYTES: usize = 3 * 1024 * 1024;
 const MAX_PORTABILITY_ACKNOWLEDGEMENTS: usize = 500;
@@ -605,8 +606,8 @@ fn authenticated_api(
         ("POST", "sources/import") => import_sources(state, req),
         ("GET", "sources/export") => export_sources(state, req),
         ("GET", "research/notebook") => list_notebook(state),
-        ("GET", "research/search") => search_notebook(state, req),
-        ("GET", "research/backlinks") => notebook_backlinks(state, req),
+        ("POST", "research/search") => search_notebook(state, req),
+        ("POST", "research/backlinks") => notebook_backlinks(state, req),
         ("POST", "research/passages") => save_passage(state, req, true),
         ("PUT", "research/passages") => save_passage(state, req, false),
         ("DELETE", "research/passages") => remove_entry(state, req, true),
@@ -1110,15 +1111,36 @@ fn list_notebook(state: &AppState) -> Response {
     }
 }
 
-/// Search the private notebook. Read-only and recomputed from the stored
-/// files on every call, so it cannot disagree with them. A bad filter is a
-/// field-scoped `422`; no match is an ordinary empty result. Nothing is
-/// written, and the response is `no-store` like the rest of Admin.
+/// Read a search or backlinks request: a small JSON object. Research text
+/// travels in the body, never the URL, so a proxy or access log cannot record it.
+fn research_read_body(req: &Request) -> Result<Json, Response> {
+    require_json(req)?;
+    if req.body.len() > MAX_RESEARCH_READ_BYTES {
+        return Err(Response::error(
+            413,
+            "A notebook search is limited to 16 KiB",
+        ));
+    }
+    match serde_json::from_slice::<Json>(&req.body) {
+        Ok(body) if body.is_object() => Ok(body),
+        _ => Err(Response::error(400, "Invalid JSON")),
+    }
+}
+
+/// Search the private notebook. Read-only (a POST only so the text stays out
+/// of the URL) and recomputed from the stored files on every call, so it
+/// cannot disagree with them. A bad filter is a field-scoped `422`; no match
+/// is an ordinary empty result. Nothing is written, and the response is
+/// `no-store` like the rest of Admin.
 fn search_notebook(state: &AppState, req: &Request) -> Response {
+    let body = match research_read_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
     let param = |name: &str| {
-        req.query
-            .get(name)
-            .map(|value| value.trim())
+        body[name]
+            .as_str()
+            .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
     };
@@ -1145,7 +1167,7 @@ fn search_notebook(state: &AppState, req: &Request) -> Response {
     }
     let query = SearchQuery {
         // Only the query text keeps its inner spacing; the core folds it.
-        text: req.query.get("q").cloned().unwrap_or_default(),
+        text: body["q"].as_str().unwrap_or_default().to_string(),
         source: param("source"),
         locator_kind: param("locator"),
         concept: param("concept"),
@@ -1166,10 +1188,15 @@ fn search_notebook(state: &AppState, req: &Request) -> Response {
     }
 }
 
-/// What points at a source, a passage, or a concept: `?type=source|passage|concept&id=`.
+/// What points at a source, a passage, or a concept: `{"type": "source|passage|concept", "id": ...}`
+/// in the body, since an id can itself be private research vocabulary.
 fn notebook_backlinks(state: &AppState, req: &Request) -> Response {
-    let id = req.query.get("id").cloned().unwrap_or_default();
-    let target = match req.query.get("type").map(String::as_str) {
+    let body = match research_read_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = body["id"].as_str().unwrap_or_default().to_string();
+    let target = match body["type"].as_str() {
         Some("source") => BacklinkTarget::Source(id),
         Some("passage") => BacklinkTarget::Passage(id),
         Some("concept") => BacklinkTarget::Concept(id),
@@ -9425,15 +9452,21 @@ mod tests {
         f
     }
 
+    /// Takes the old query-string spelling and sends it as a POST body, the
+    /// only form the server accepts.
     fn search(f: &Fixture, session: &(String, String), query: &str) -> (u16, Json) {
-        let response = handle(
-            &f.state,
-            &authed(
-                req("GET", &format!("/admin/api/research/{query}")),
-                session,
-                false,
-            ),
-        );
+        let (route, params) = query.split_once('?').unwrap_or((query, ""));
+        let mut body = serde_json::Map::new();
+        for pair in params.split('&').filter(|pair| !pair.is_empty()) {
+            let (key, value) = pair.split_once('=').unwrap();
+            body.insert(key.to_string(), json!(crate::http::percent_decode(value)));
+        }
+        let mut request = req("POST", &format!("/admin/api/research/{route}"));
+        request
+            .headers
+            .insert("content-type".into(), "application/json".into());
+        request.body = serde_json::to_vec(&Json::Object(body)).unwrap();
+        let response = handle(&f.state, &authed(request, session, true));
         (response.status, body_json(&response))
     }
 
@@ -9473,12 +9506,8 @@ mod tests {
     #[test]
     fn notebook_search_and_backlinks_are_private_read_only_and_scoped() {
         let f = fixture_with_sources("notebook-search");
-        for path in [
-            "research/search",
-            "research/search?q=cave",
-            "research/backlinks?type=source&id=plato",
-        ] {
-            let response = handle(&f.state, &req("GET", &format!("/admin/api/{path}")));
+        for path in ["research/search", "research/backlinks"] {
+            let response = handle(&f.state, &req("POST", &format!("/admin/api/{path}")));
             assert_eq!(response.status, 401, "{path}");
         }
         let session = login_ok(&f);
@@ -9561,6 +9590,34 @@ mod tests {
             422
         );
         assert_eq!(search(&f, &session, "backlinks?id=p1").0, 400);
+
+        // Research text never travels in a URL: the old GET spellings are gone,
+        // and a POST needs the CSRF token.
+        for path in ["search?q=cave", "backlinks?type=source&id=plato"] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/research/{path}")),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(response.status, 404, "{path}");
+            let mut post = req("POST", &format!("/admin/api/research/{path}"));
+            post.headers
+                .insert("content-type".into(), "application/json".into());
+            post.body = b"{}".to_vec();
+            let response = handle(&f.state, &authed(post, &session, false));
+            assert_eq!(response.status, 403, "{path}");
+        }
+        let mut wrong = req("POST", "/admin/api/research/search");
+        wrong.body = b"{}".to_vec();
+        assert_eq!(handle(&f.state, &authed(wrong, &session, true)).status, 415);
+        let mut big = req("POST", "/admin/api/research/search");
+        big.headers
+            .insert("content-type".into(), "application/json".into());
+        big.body = vec![b' '; 17 * 1024];
+        assert_eq!(handle(&f.state, &authed(big, &session, true)).status, 413);
 
         // Reading never changes the stored notebook.
         assert_eq!(stored_notebook(&f).unwrap(), bytes);

@@ -51,8 +51,11 @@ error messages leaks what the notebook keeps out of them.
   `q`, `source`, `locator`, `concept` or `state`, never repeating stored text. A damaged
   notebook is reported with its path and is not searched around. No match is an ordinary
   empty result.
-- **Private by construction.** `GET /admin/api/research/search` and `/research/backlinks`
-  sit behind the Admin session like the rest of the notebook API and respond `no-store`.
+- **Private by construction.** `POST /admin/api/research/search` and `/research/backlinks`
+  take a small JSON body (at most 16 KiB) and sit behind the Admin session and CSRF checks like
+  the rest of the notebook API, and respond `no-store`. They are `POST` although they only read:
+  search text and concept ids are private research, and a `GET` query string is recorded by
+  hosting proxies' access logs. Nothing is written.
   Hits carry bounded plain-text context (a snippet around the first match, passage previews,
   source labels, locators) that the page shows only as text. Nothing in the build, feeds,
   site search or exports reads the notebook, so nothing here can reach public output.
@@ -69,7 +72,8 @@ error messages leaks what the notebook keeps out of them.
   draft can only be discarded.
 - **Source edits cannot damage the notebook.** `source_store::update` and `import_csl` check
   the stored notebook against the edited library under the library lock and refuse with a
-  `still-used` diagnostic naming the source when it would turn a locator ambiguous (for
+  `still-used` diagnostic naming the source (for an import, every record whose kind or `of`
+  changed) when it would turn a locator ambiguous (for
   example re-pointing a reference from an edition to its work). A notebook that was already
   unreadable does not freeze library edits.
 

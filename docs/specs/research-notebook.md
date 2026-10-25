@@ -91,8 +91,8 @@ back, and an observation may not carry one.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /admin/api/research/search` | Query `q` (all words must match, at most 200 characters and 16 words), `source` (a source and its editions, translations, witnesses and references), `locator` (a locator kind), `concept`, `state` (`open` or `resolved`). Returns `hits`, `total`, `truncated` (at most 100 hits), `counts`, `broken`, `revision`. |
-| `GET /admin/api/research/backlinks` | Query `type` (`source`, `passage` or `concept`) and `id`. Returns `entries`, each with a `relation` (`quotes`, `notes`, `via-passage`) and the `through` source it goes by, plus `broken`. |
+| `POST /admin/api/research/search` | JSON body (at most 16 KiB, so research text never appears in a URL or access log) with `q` (all words must match, at most 200 characters and 16 words), `source` (a source and its editions, translations, witnesses and references), `locator` (a locator kind), `concept`, `state` (`open` or `resolved`). Returns `hits`, `total`, `truncated` (at most 100 hits), `counts`, `broken`, `revision`. |
+| `POST /admin/api/research/backlinks` | JSON body `type` (`source`, `passage` or `concept`) and `id`. Returns `entries`, each with a `relation` (`quotes`, `notes`, `via-passage`) and the `through` source it goes by, plus `broken`. |
 
 Words are matched case-insensitively with whitespace collapsed and the Greek final sigma folded;
 diacritics are not folded. Hits are ordered by score (prose or quoted text 3, id or concept 2,
