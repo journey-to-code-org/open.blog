@@ -54,7 +54,8 @@ approvals.
 A Contribution draft is untrusted collaboration content. Reveal controls which ordered participant
 IDs may receive a draft. Approval records consent to exactly the containing contract revision,
 which covers every Contribution draft as it appears in that revision; drafts have no revision of
-their own in version 1, and per-draft revisions would need a separate decision. Neither concept
+their own in the contract (amended by [ADR 0016](0016-private-contribution-revisions-and-mutual-reveal.md):
+draft content keeps numbered revisions in a separate draft set). Neither concept
 publishes content, defines a quorum, or authorizes a workflow transition. A Published assembly
 exists only when a separate explicit publication operation incorporates an ordered selection of
 Source references and Contribution drafts, as they appear in one approved collaboration revision,

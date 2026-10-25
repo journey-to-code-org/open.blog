@@ -50,6 +50,8 @@ state cannot change source Markdown, canonical content, feeds, or public output.
 - Array order is authored order and survives parsing and serialization.
 - Participant and contribution IDs are opaque ASCII identifiers. A contribution belongs to one
   participant through `participantId`.
+- Draft content, its revisions, and its mutual reveal are governed by ADR 0016 and the draft set,
+  not by the entries below; they do not grant access to draft content.
 - Each reveal entry names one contribution and an ordered set of participants allowed to receive
   that reveal. It does not imply a pair, a quorum, or publication.
 - Layout is an ordered list of contribution-to-region relationships. Region vocabulary remains a
