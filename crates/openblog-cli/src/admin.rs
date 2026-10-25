@@ -35,7 +35,10 @@ use openblog_core::invitation::{
 use openblog_core::markdown::RenderOptions;
 use openblog_core::members::MemberError;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
-use openblog_core::research_notes::{NoteDiagnostic, Passage, ResearchNote};
+use openblog_core::research_notes::{
+    NoteDiagnostic, NoteDiagnosticCode, Passage, QuestionState, ResearchNote,
+};
+use openblog_core::research_search::{self, BacklinkTarget, SearchQuery};
 use openblog_core::slug::slugify;
 use openblog_core::source_interchange::{self, plan_csl_import};
 use openblog_core::source_library::{SourceDiagnostic, SourceRecord};
@@ -602,6 +605,8 @@ fn authenticated_api(
         ("POST", "sources/import") => import_sources(state, req),
         ("GET", "sources/export") => export_sources(state, req),
         ("GET", "research/notebook") => list_notebook(state),
+        ("GET", "research/search") => search_notebook(state, req),
+        ("GET", "research/backlinks") => notebook_backlinks(state, req),
         ("POST", "research/passages") => save_passage(state, req, true),
         ("PUT", "research/passages") => save_passage(state, req, false),
         ("DELETE", "research/passages") => remove_entry(state, req, true),
@@ -1102,6 +1107,85 @@ fn list_notebook(state: &AppState) -> Response {
     match notebook_store::load(&state.root, &source_contributors(state)) {
         Ok(snapshot) => Response::json(200, &notebook_view(&snapshot)),
         Err(error) => notebook_store_error(state, error, None),
+    }
+}
+
+/// Search the private notebook. Read-only and recomputed from the stored
+/// files on every call, so it cannot disagree with them. A bad filter is a
+/// field-scoped `422`; no match is an ordinary empty result. Nothing is
+/// written, and the response is `no-store` like the rest of Admin.
+fn search_notebook(state: &AppState, req: &Request) -> Response {
+    let param = |name: &str| {
+        req.query
+            .get(name)
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let mut problems = Vec::new();
+    let question = match param("state").as_deref() {
+        None => None,
+        Some(text) => {
+            let parsed = QuestionState::parse(text);
+            if parsed.is_none() {
+                problems.push(NoteDiagnostic {
+                    code: NoteDiagnosticCode::InvalidField,
+                    collection: None,
+                    index: None,
+                    id: None,
+                    field: Some("state".into()),
+                    message: "use open or resolved".into(),
+                });
+            }
+            parsed
+        }
+    };
+    if !problems.is_empty() {
+        return notebook_diagnostics(problems);
+    }
+    let query = SearchQuery {
+        // Only the query text keeps its inner spacing; the core folds it.
+        text: req.query.get("q").cloned().unwrap_or_default(),
+        source: param("source"),
+        locator_kind: param("locator"),
+        concept: param("concept"),
+        state: question,
+    };
+    let snapshot = match notebook_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return notebook_store_error(state, error, None),
+    };
+    match research_search::search(&snapshot.notebook, &snapshot.library, &query) {
+        Ok(results) => {
+            let mut view = json!(results);
+            view["revision"] = json!(snapshot.revision);
+            view["file"] = json!(notebook_store::NOTEBOOK_FILE);
+            Response::json(200, &view)
+        }
+        Err(diagnostics) => notebook_diagnostics(diagnostics),
+    }
+}
+
+/// What points at a source, a passage, or a concept: `?type=source|passage|concept&id=`.
+fn notebook_backlinks(state: &AppState, req: &Request) -> Response {
+    let id = req.query.get("id").cloned().unwrap_or_default();
+    let target = match req.query.get("type").map(String::as_str) {
+        Some("source") => BacklinkTarget::Source(id),
+        Some("passage") => BacklinkTarget::Passage(id),
+        Some("concept") => BacklinkTarget::Concept(id),
+        _ => return Response::error(400, "Name a type: source, passage, or concept"),
+    };
+    let snapshot = match notebook_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return notebook_store_error(state, error, None),
+    };
+    match research_search::backlinks(&snapshot.notebook, &snapshot.library, &target) {
+        Ok(found) => {
+            let mut view = json!(found);
+            view["revision"] = json!(snapshot.revision);
+            Response::json(200, &view)
+        }
+        Err(diagnostics) => notebook_diagnostics(diagnostics),
     }
 }
 
@@ -9339,6 +9423,216 @@ mod tests {
         )
         .unwrap();
         f
+    }
+
+    fn search(f: &Fixture, session: &(String, String), query: &str) -> (u16, Json) {
+        let response = handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/research/{query}")),
+                session,
+                false,
+            ),
+        );
+        (response.status, body_json(&response))
+    }
+
+    fn seeded_notebook(f: &Fixture, session: &(String, String)) -> Json {
+        let empty = notebook(f, session);
+        let (status, with_passage) = notebook_call(
+            f,
+            session,
+            "POST",
+            "/admin/api/research/passages",
+            json!({"revision": empty["revision"], "passage": {"id": "p1", "source": "slings",
+                "excerpt": {"text": "<img src=x onerror=alert(1)> the cave"},
+                "locators": [{"kind": "page", "value": "514"}]}}),
+        );
+        assert_eq!(status, 201, "{with_passage}");
+        let (status, with_note) = notebook_call(
+            f,
+            session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": with_passage["revision"], "note": {"id": "n1", "kind": "question",
+                "text": "Why a cave?", "passages": ["p1"], "concepts": ["allegory"]}}),
+        );
+        assert_eq!(status, 201, "{with_note}");
+        let (status, done) = notebook_call(
+            f,
+            session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": with_note["revision"], "note": {"id": "n2", "kind": "question",
+                "status": "resolved", "text": "Who tends the fire?", "sources": ["plato"]}}),
+        );
+        assert_eq!(status, 201, "{done}");
+        done
+    }
+
+    #[test]
+    fn notebook_search_and_backlinks_are_private_read_only_and_scoped() {
+        let f = fixture_with_sources("notebook-search");
+        for path in [
+            "research/search",
+            "research/search?q=cave",
+            "research/backlinks?type=source&id=plato",
+        ] {
+            let response = handle(&f.state, &req("GET", &format!("/admin/api/{path}")));
+            assert_eq!(response.status, 401, "{path}");
+        }
+        let session = login_ok(&f);
+        // Searching an empty notebook is an empty result, and writes nothing.
+        let (status, empty) = search(&f, &session, "search?q=anything");
+        assert_eq!(status, 200);
+        assert_eq!(empty["total"], 0);
+        assert!(stored_notebook(&f).is_none());
+
+        let stored = seeded_notebook(&f, &session);
+        let bytes = stored_notebook(&f).unwrap();
+        let (status, all) = search(&f, &session, "search");
+        assert_eq!(status, 200);
+        assert_eq!(all["revision"], stored["revision"]);
+        assert_eq!(all["counts"]["openQuestions"], 1);
+        assert_eq!(all["counts"]["resolvedQuestions"], 1);
+        let ids: Vec<_> = all["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| h["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, ["p1", "n1", "n2"]);
+
+        let (_, cave) = search(&f, &session, "search?q=CAVE");
+        let hit = &cave["hits"][0];
+        assert_eq!(hit["id"], "p1");
+        assert_eq!(
+            hit["snippet"], "<img src=x onerror=alert(1)> the cave",
+            "context is text for the page to escape"
+        );
+        assert_eq!(hit["notes"][0]["id"], "n1");
+        assert_eq!(hit["sources"][0]["label"], "Slings");
+
+        let (_, open) = search(&f, &session, "search?state=open");
+        assert_eq!(open["hits"].as_array().unwrap().len(), 1);
+        let (_, family) = search(&f, &session, "search?source=plato&locator=page");
+        let found: Vec<_> = family["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| h["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(found, ["p1", "n1"]);
+        let (_, concept) = search(&f, &session, "search?concept=allegory");
+        assert_eq!(concept["total"], 1);
+
+        // Bad filters are scoped to the field and say nothing about stored text.
+        for (query, field) in [
+            ("search?state=maybe", "state"),
+            ("search?source=ghost", "source"),
+            ("search?locator=pagee", "locator"),
+            ("search?concept=Not%20A%20Slug", "concept"),
+        ] {
+            let (status, refused) = search(&f, &session, query);
+            assert_eq!(status, 422, "{query}");
+            assert_eq!(refused["diagnostics"][0]["field"], field);
+        }
+        let (status, long) = search(&f, &session, &format!("search?q={}", "x".repeat(300)));
+        assert_eq!(status, 422);
+        assert_eq!(long["diagnostics"][0]["field"], "q");
+
+        let (status, backlinks) = search(&f, &session, "backlinks?type=passage&id=p1");
+        assert_eq!(status, 200);
+        assert_eq!(backlinks["entries"][0]["id"], "n1");
+        assert_eq!(backlinks["entries"][0]["relation"], "notes");
+        let (_, source) = search(&f, &session, "backlinks?type=source&id=plato");
+        let linked: Vec<_> = source["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| (e["id"].as_str().unwrap(), e["relation"].as_str().unwrap()))
+            .collect();
+        assert_eq!(
+            linked,
+            [("p1", "quotes"), ("n1", "via-passage"), ("n2", "notes")]
+        );
+        assert_eq!(
+            search(&f, &session, "backlinks?type=source&id=ghost").0,
+            422
+        );
+        assert_eq!(search(&f, &session, "backlinks?id=p1").0, 400);
+
+        // Reading never changes the stored notebook.
+        assert_eq!(stored_notebook(&f).unwrap(), bytes);
+    }
+
+    #[test]
+    fn notebook_search_follows_edits_archives_and_reports_a_damaged_notebook() {
+        let f = fixture_with_sources("notebook-search-edits");
+        let session = login_ok(&f);
+        let stored = seeded_notebook(&f, &session);
+
+        // Archiving the edition keeps the backlinks and marks the source.
+        let sources = source_library(&f, &session);
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/sources/archive",
+            json!({"revision": sources["revision"], "id": "slings", "archived": true}),
+        );
+        assert_eq!(status, 200);
+        let (_, backlinks) = search(&f, &session, "backlinks?type=source&id=plato");
+        assert_eq!(backlinks["entries"].as_array().unwrap().len(), 3);
+        let (_, cave) = search(&f, &session, "search?q=cave");
+        assert_eq!(cave["hits"][0]["sources"][0]["archived"], true);
+
+        // Resolving a question moves it between the states.
+        let mut note = json!({"id": "n1", "kind": "question", "text": "Why a cave?",
+            "passages": ["p1"], "concepts": ["allegory"], "status": "resolved"});
+        let (status, updated) = notebook_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/notes",
+            json!({"revision": stored["revision"], "note": note.clone()}),
+        );
+        assert_eq!(status, 200, "{updated}");
+        assert_eq!(search(&f, &session, "search?state=open").1["total"], 0);
+        assert_eq!(search(&f, &session, "search?state=resolved").1["total"], 2);
+        note["kind"] = json!("observation");
+        let (status, refused) = notebook_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/notes",
+            json!({"revision": updated["revision"], "note": note}),
+        );
+        assert_eq!(
+            status, 422,
+            "an observation has no question state: {refused}"
+        );
+        assert_eq!(refused["diagnostics"][0]["field"], "status");
+
+        // Removing a note removes its backlink.
+        let (status, _) = notebook_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/notes",
+            json!({"revision": updated["revision"], "id": "n1"}),
+        );
+        assert_eq!(status, 200);
+        let (_, after) = search(&f, &session, "backlinks?type=passage&id=p1");
+        assert!(after["entries"].as_array().unwrap().is_empty());
+
+        // A damaged notebook is reported with its path and is never searched around.
+        let path = f.dir.join(crate::notebook_store::NOTEBOOK_FILE);
+        fs::write(&path, b"{").unwrap();
+        let (status, damaged) = search(&f, &session, "search?q=cave");
+        assert_eq!(status, 422);
+        assert_eq!(damaged["file"], crate::notebook_store::NOTEBOOK_FILE);
+        assert_eq!(fs::read(&path).unwrap(), b"{");
     }
 
     #[test]
