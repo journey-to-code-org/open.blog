@@ -5,6 +5,39 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-25
+
+- Added import and export to Sources in Admin Studio. Import CSL JSON (for example from
+  Zotero) after a preview of what would be created, updated, kept, and not imported; conflicts
+  such as duplicate ids or identifiers block the whole import and nothing is saved, and
+  re-importing the same file changes nothing and never discards richer details you already
+  recorded. Private notes and abstracts are never imported. Export CSL JSON (lossless for
+  open.blog) or BibTeX (with a list of what it cannot carry). The Admin API adds
+  `POST /admin/api/sources/import` and `GET /admin/api/sources/export`.
+  Re-imported items may state only the fields they change, an import can no longer give two
+  sources the same DOI, ISBN, ISSN, PMID, or PMCID (including through an update), hand-edited
+  files cannot slip private notes through `custom`, and BibTeX export stays valid when a title
+  holds a lone brace.
+- Included the research source library in the durable hosted editorial workspace so source
+  changes made in Admin survive a Render restart or redeploy.
+- Defined the versioned research source library contract in core: distinct works, editions,
+  translations, witnesses, and references with stable identifiers, source locations, lossless
+  unknown fields, and source-scoped diagnostics that keep contributor credits out of
+  bibliography.
+- Stored the research source library privately at `.openblog/private/research/sources.json`
+  with revision-checked, locked, atomic create, update, and remove. Stale revisions,
+  duplicate or missing ids, symlinked paths, and malformed, oversized, or newer-version
+  files are refused with source-scoped diagnostics and leave the stored file unchanged, and
+  interrupted writes are cleaned up. `openblog check` validates a stored library.
+- Added Sources to Admin Studio for managing the private research source library: create,
+  edit, archive, restore, search, and filter works, editions, translations, witnesses, and
+  references with type-aware fields. Stale edits report a conflict and keep your draft
+  without overwriting newer data, failures name the source and field and leave the stored
+  library unchanged, and archived sources stay in place so records that point at them still
+  resolve. The Admin API is `/admin/api/sources`.
+- Builds no longer copy anything inside `.openblog/` when a static or theme directory
+  contains it or a static file links into it.
+
 ## [0.18.0] - 2026-10-25
 
 - Fixed a guiding question or source title containing a tilde pair, such as `~this~`, stopping the site build and Admin preview; the text now exports literally.

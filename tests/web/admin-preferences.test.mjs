@@ -384,12 +384,13 @@ test("every preset applies its toolbelt modules and the open route always stays 
   const content = ["Overview", "Posts", "Pages", "Series", "Shared reflections"];
   const cases = [
     [{ preset: "simple" }, "overview", content],
-    [{ preset: "guided" }, "posts", content],
-    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics"]],
+    [{ preset: "simple" }, "sources", [...content, "Sources"]],
+    [{ preset: "guided" }, "posts", [...content, "Sources"]],
+    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Sources", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Sources"]],
     [{ preset: "simple" }, "analytics", [...content, "Analytics"]],
-    [{ preset: "guided" }, "contributors", [...content, "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Contributors"]],
+    [{ preset: "guided" }, "contributors", [...content, "Sources", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Sources", "Contributors"]],
   ];
   for (const [preferences, active, expected] of cases) {
     const app = appWith(fakeApi({}));

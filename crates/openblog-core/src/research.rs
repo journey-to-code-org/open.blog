@@ -243,7 +243,7 @@ fn heading_number(level: HeadingLevel) -> u8 {
     }
 }
 
-fn absolute_http_url(value: &str) -> bool {
+pub(crate) fn absolute_http_url(value: &str) -> bool {
     let value = value.trim();
     if value
         .chars()

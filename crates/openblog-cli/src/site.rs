@@ -381,6 +381,9 @@ pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
             h = h.wrapping_mul(0x0100_0000_01b3);
         }
     };
+    // Private project state never feeds the public version, or a private edit
+    // would change every public asset URL.
+    let private = fsutil::PrivateState::of(root);
     for dir in [
         &config.paths.web,
         &config.paths.themes,
@@ -388,6 +391,9 @@ pub fn with_asset_version(root: &Path, mut config: SiteConfig) -> SiteConfig {
     ] {
         let base = root.join(dir);
         for file in fsutil::walk(&base) {
+            if private.contains(&file) {
+                continue;
+            }
             mix(fsutil::relative(&base, &file).as_bytes());
             // Text assets by content; everything else (images, fonts) by size, which is
             // cheap and changes whenever the file is replaced.
@@ -542,9 +548,16 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         Ok(())
     };
 
+    // Private project state (logins, analytics, research) is never copied,
+    // even when a static or theme directory is configured to contain it.
+    let private = fsutil::PrivateState::of(root);
+
     // 1. Static files (images, favicon, CNAME, ...) at the site root.
     let static_dir = root.join(&config.paths.static_dir);
     for file in fsutil::walk(&static_dir) {
+        if private.contains(&file) {
+            continue;
+        }
         let rel = fsutil::relative(&static_dir, &file);
         let bytes = fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
         put(rel, &bytes)?;
@@ -577,6 +590,9 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     // 3. Theme directories (fonts, images, theme.css). Generated tokens come next and win.
     let themes_dir = root.join(&config.paths.themes);
     for file in fsutil::walk(&themes_dir) {
+        if private.contains(&file) {
+            continue;
+        }
         let rel = fsutil::relative(&themes_dir, &file);
         let bytes = fs::read(&file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
         put(format!("themes/{rel}"), &bytes)?;
@@ -767,6 +783,121 @@ mod tests {
 
         let error = read_sources(&root, &SiteConfig::default()).unwrap_err();
         assert!(error.contains("symlink cycle"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    const PRIVATE_MARKER: &str = "ob-private-source-7f3a";
+
+    /// A project with one public post and a private source library whose
+    /// every field carries a marker that must never be published.
+    fn project_with_private_library(tag: &str, config: &str) -> PathBuf {
+        let root = temp_root(tag);
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::write(root.join(CONFIG_FILE), config).unwrap();
+        fs::write(
+            root.join("content/posts/2026-01-05-hello.md"),
+            "---\ntitle: Hello\ndate: 2026-01-05\nprofile: research\n---\n\nA public post.\n",
+        )
+        .unwrap();
+        let library = format!(
+            r#"{{"version":1,"sources":[{{"id":"{PRIVATE_MARKER}","kind":"work","title":"{PRIVATE_MARKER} title","notes":"{PRIVATE_MARKER} note"}}]}}"#
+        );
+        let path = root.join(crate::source_store::LIBRARY_FILE);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, library).unwrap();
+        root
+    }
+
+    fn assert_no_private_output(root: &Path) {
+        let output = root.join("dist");
+        let files = fsutil::walk(&output);
+        assert!(!files.is_empty(), "the build wrote nothing");
+        for file in files {
+            let rel = fsutil::relative(&output, &file);
+            let bytes = fs::read(&file).unwrap();
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains(PRIVATE_MARKER)
+                    && !rel.contains("sources.json")
+                    && !rel.contains(".openblog/private"),
+                "{rel} exposes private source-library data"
+            );
+        }
+    }
+
+    fn production_build(root: &Path) -> BuildReport {
+        build(
+            root,
+            &BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_normal_build_emits_no_private_source_library_data() {
+        let root = project_with_private_library("private-library", "{}");
+        let report = production_build(&root);
+        assert_eq!(report.posts, 1);
+        assert_no_private_output(&root);
+        let search = fs::read_to_string(root.join("dist/search.json")).unwrap();
+        assert!(
+            search.contains("Hello"),
+            "the public search index is still built"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn static_files_never_copy_private_project_state() {
+        // A misconfigured project whose static directory is the project root.
+        let root = project_with_private_library("private-static", r#"{"paths":{"static":"."}}"#);
+        fs::write(root.join("public-note.txt"), "copied").unwrap();
+        production_build(&root);
+        assert_no_private_output(&root);
+        assert!(
+            root.join("dist/public-note.txt").exists(),
+            "other static files still copy"
+        );
+        fs::remove_dir_all(root).unwrap();
+
+        // Nor do private bytes feed the public asset version: editing the
+        // library must not change a single `?v=` asset URL.
+        let root =
+            project_with_private_library("private-static-version", r#"{"paths":{"static":"."}}"#);
+        let version = |root: &Path| {
+            let config = load_config(root).unwrap();
+            with_asset_version(root, config).cdn.version
+        };
+        let before = version(&root);
+        fs::write(
+            root.join(crate::source_store::LIBRARY_FILE),
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"B"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            version(&root),
+            before,
+            "private edits changed the asset version"
+        );
+        fs::remove_dir_all(root).unwrap();
+
+        // A static file that is a symlink into private storage.
+        let root = project_with_private_library("private-static-link", "{}");
+        fs::create_dir_all(root.join("static")).unwrap();
+        let library = root.join(crate::source_store::LIBRARY_FILE);
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&library, root.join("static/leak.json")).is_ok();
+        #[cfg(windows)]
+        let linked =
+            std::os::windows::fs::symlink_file(&library, root.join("static/leak.json")).is_ok();
+        if linked {
+            production_build(&root);
+            assert_no_private_output(&root);
+            assert!(!root.join("dist/leak.json").exists());
+        }
         fs::remove_dir_all(root).unwrap();
     }
 }

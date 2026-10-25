@@ -20,6 +20,7 @@ mod serve;
 mod shared_publications;
 mod site;
 mod source_metadata;
+mod source_store;
 mod syndication;
 mod transaction;
 mod url_context;
@@ -390,6 +391,9 @@ fn run(raw: &[String]) -> Result<(), String> {
             }
             serve::print_accessibility_findings(&site.accessibility);
             serve::print_evidence_findings(&site.evidence);
+            if let Some(summary) = check_source_library(&root, &site.config.contributors)? {
+                println!("{summary}");
+            }
             Ok(())
         }
         "themes" => {
@@ -751,6 +755,23 @@ fn user_command_with(
     }
 }
 
+/// Validate the private source library when one is stored. It is never
+/// built, so a missing library is not mentioned.
+fn check_source_library(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Result<Option<String>, String> {
+    let snapshot = source_store::load(root, contributors).map_err(|error| error.to_string())?;
+    Ok(snapshot.stored.then(|| {
+        let count = snapshot.library.sources.len();
+        format!(
+            "OK: private source library {} has {count} source{}; builds never read or publish it.",
+            source_store::LIBRARY_FILE,
+            if count == 1 { "" } else { "s" }
+        )
+    }))
+}
+
 /// Remove an Admin username from every shared publication binding, under the content
 /// transaction lock so a running Admin server cannot interleave a write.
 fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Result<(), String> {
@@ -769,6 +790,45 @@ fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_reports_the_private_source_library_only_when_it_is_stored() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-sources-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let contributors = std::collections::BTreeMap::new();
+        assert_eq!(check_source_library(&root, &contributors), Ok(None));
+        assert!(!root.join(".openblog").exists());
+
+        let path = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#,
+        )
+        .unwrap();
+        let summary = check_source_library(&root, &contributors).unwrap().unwrap();
+        assert!(summary.contains("has 1 source;"), "{summary}");
+
+        std::fs::write(
+            &path,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"},{"id":"e","kind":"edition","of":"missing","title":"E"}]}"#,
+        )
+        .unwrap();
+        let error = check_source_library(&root, &contributors).unwrap_err();
+        assert!(
+            error.contains(".openblog/private/research/sources.json: sources[1] `e` of")
+                && error.contains("(unresolved-relationship)"),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()

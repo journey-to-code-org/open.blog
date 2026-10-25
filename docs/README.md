@@ -56,9 +56,11 @@ post across exports, feeds, Admin previews, and all destination plans without re
 
 Current design frontiers include
 [contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),
-which defines the incremental path from one site author to ordered, work-specific credit, and
+which defines the incremental path from one site author to ordered, work-specific credit,
 [Assistant provider APIs](research/assistant-provider-apis.md), which records the native-provider
-contracts and why GitHub Copilot is not exposed as a generic API provider.
+contracts and why GitHub Copilot is not exposed as a generic API provider, and the
+[research source library format](specs/research-source-library.md), which keeps works,
+editions, translations, witnesses, and references distinct under stable identifiers.
 
 ## Command reference
 
@@ -68,7 +70,7 @@ openblog init [dir] [--title "..."] [--github-pages]
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
-openblog check                          Validate content and themes, write nothing
+openblog check                          Validate content, themes, and the private source library, write nothing
 openblog export <slug> [--out path] [--write]
                                         Preview or write portable Markdown
 openblog syndicate <slug> [--target a,b] [--write] [--publish]

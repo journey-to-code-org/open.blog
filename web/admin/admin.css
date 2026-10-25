@@ -2407,6 +2407,96 @@ html[data-admin-density="compact"] .oba-pane {
   }
 }
 
+/* Research source library */
+.oba-source-filters {
+  align-items: end;
+}
+
+.oba-source-filters .oba-field {
+  margin-bottom: 0;
+}
+
+.oba-source-layout {
+  display: grid;
+  grid-template-columns: minmax(14rem, 22rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.oba-source-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-source-item {
+  display: grid;
+  width: 100%;
+  min-height: 44px;
+  gap: 0.15rem;
+  padding: 0.65rem 0.8rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.oba-source-item[aria-current="true"] {
+  border-color: var(--ob-color-accent);
+  box-shadow: inset 0.25rem 0 0 var(--ob-color-accent);
+}
+
+.oba-source-item:focus-visible {
+  outline: 3px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+.oba-source-editor {
+  min-width: 0;
+  padding: 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface);
+}
+
+.oba-source-editor h2 {
+  margin-top: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-source-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 1rem;
+}
+
+.oba-source-fields [data-source-field="creators"],
+.oba-source-fields [data-source-field="identifiers"],
+.oba-source-fields [data-source-field="title"],
+.oba-source-location {
+  grid-column: 1 / -1;
+}
+
+.oba-source-location {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 1rem;
+}
+
+@media (max-width: 52rem) {
+  .oba-source-layout,
+  .oba-source-fields,
+  .oba-source-location {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Anchors styled as buttons or tabs should not look like prose links. */
 a.oba-btn,
 a.oba-tab {
@@ -2506,4 +2596,35 @@ a.oba-btn-primary {
   margin: 0;
   padding: 0.3rem 0.6rem;
   font-size: 0.85rem;
+}
+
+.oba-source-interchange {
+  margin-block: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--oba-panel-border);
+  border-radius: 0.5rem;
+}
+
+.oba-source-interchange > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.oba-source-interchange textarea {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+}
+
+.oba-source-import-result:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.oba-source-import-list {
+  padding-inline-start: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-source-import-list li[data-import-action="conflict"] > strong {
+  color: var(--oba-danger);
 }
