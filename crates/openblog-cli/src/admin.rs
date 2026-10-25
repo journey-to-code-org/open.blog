@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
+use openblog_core::citations::{self, PublicLocator};
 use openblog_core::collaboration::{
     AuthorizationAction, AuthorizationRole, AuthorizationTarget, NewParticipant,
     NewSharedPublication, NewSourceReference, PublishError, SharedPublication,
@@ -612,6 +613,8 @@ fn authenticated_api(
         ("POST", "sources/import") => import_sources(state, req),
         ("GET", "sources/export") => export_sources(state, req),
         ("GET", "research/notebook") => list_notebook(state),
+        ("GET", "citations/library") => citation_library(state),
+        ("POST", "citations/check") => check_citation_request(state, req),
         ("POST", "research/search") => search_notebook(state, req),
         ("POST", "research/backlinks") => notebook_backlinks(state, req),
         ("POST", "research/archive") => archive_entry(state, req),
@@ -1107,6 +1110,105 @@ fn source_store_error(state: &AppState, error: StoreError, id: Option<&str>) -> 
         }
         StoreError::Invalid(diagnostics) => source_diagnostics(diagnostics),
         StoreError::Storage(message) => Response::error(500, &message),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Citations: the editor's citation picker
+// ---------------------------------------------------------------------------
+
+const PASSAGE_PREVIEW_CHARS: usize = 160;
+
+/// What the citation picker offers: the source library with the revision a
+/// check must name, and the notebook's live passages so a citation can start
+/// from one. A passage contributes only its id, source, a short excerpt
+/// preview and its locators' kind, value and end. An unreadable notebook
+/// leaves the picker working from the library alone.
+fn citation_library(state: &AppState) -> Response {
+    let contributors = source_contributors(state);
+    let snapshot = match source_store::load(&state.root, &contributors) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return source_store_error(state, error, None),
+    };
+    let notebook = notebook_store::load(&state.root, &contributors).ok();
+    let passages: Vec<Json> = notebook
+        .as_ref()
+        .map(|notebook| {
+            notebook
+                .notebook
+                .passages
+                .iter()
+                .filter(|passage| !passage.archived)
+                .map(|passage| {
+                    let locators: Vec<PublicLocator> =
+                        passage.locators.iter().map(PublicLocator::from).collect();
+                    json!({
+                        "id": passage.id,
+                        "source": passage.source,
+                        "preview": passage.excerpt.text.chars().take(PASSAGE_PREVIEW_CHARS).collect::<String>(),
+                        "locators": locators,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Response::json(
+        200,
+        &json!({
+            "file": source_store::LIBRARY_FILE,
+            "revision": snapshot.revision,
+            "sources": snapshot.library.sources,
+            "passages": passages,
+            "notebookAvailable": notebook.is_some(),
+        }),
+    )
+}
+
+/// Check one citation for insertion. Read-only: it names the library revision
+/// the picker showed, and a newer library is a `409` carrying the latest one
+/// so the picker can refresh without losing the author's choices. The
+/// citation goes through the core parser and resolver, so the Markdown it
+/// returns is exactly what a build will read; a problem is a `422` scoped to
+/// this citation. Nothing is written.
+fn check_citation_request(state: &AppState, req: &Request) -> Response {
+    let body = match research_read_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let Some(revision) = body["revision"].as_str() else {
+        return Response::error(400, "Missing source library revision");
+    };
+    let snapshot = match source_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return source_store_error(state, error, None),
+    };
+    if snapshot.revision != revision {
+        return Response::json(
+            409,
+            &json!({
+                "error": "The source library changed after the citation picker opened. Nothing was inserted; review the refreshed sources and insert again.",
+                "conflict": true,
+                "revision": snapshot.revision,
+                "sources": snapshot.library.sources,
+            }),
+        );
+    }
+    let checked = citations::citation_from_parts(&body["citation"])
+        .map_err(|found| vec![found])
+        .and_then(|citation| citations::check_citation(&citation, &snapshot.library));
+    match checked {
+        Ok(checked) => {
+            let mut view = json!(checked);
+            view["revision"] = json!(snapshot.revision);
+            Response::json(200, &view)
+        }
+        Err(diagnostics) => Response::json(
+            422,
+            &json!({
+                "error": diagnostics.first().map_or("The citation is invalid", |found| found.message.as_str()),
+                "diagnostics": diagnostics,
+            }),
+        ),
     }
 }
 
@@ -10271,6 +10373,110 @@ mod tests {
         );
         assert_eq!(status, 201, "{done}");
         done
+    }
+
+    #[test]
+    fn citation_picker_reads_the_library_and_checks_through_the_core_resolver() {
+        let f = fixture_with_sources("citation-picker");
+        for (method, path) in [("GET", "citations/library"), ("POST", "citations/check")] {
+            let response = handle(&f.state, &req(method, &format!("/admin/api/{path}")));
+            assert_eq!(response.status, 401, "{path}");
+        }
+        let session = login_ok(&f);
+        let empty = notebook(&f, &session);
+        let (status, saved) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/passages",
+            json!({"revision": empty["revision"], "passage": {"id": "p1", "source": "slings",
+                "excerpt": {"text": "the cave"},
+                "locators": [{"kind": "page", "value": "514", "to": "520", "privateNote": "ob-hidden-4417"}]}}),
+        );
+        assert_eq!(status, 201, "{saved}");
+        let library_bytes = fs::read(f.dir.join(crate::source_store::LIBRARY_FILE)).unwrap();
+        let notebook_bytes = stored_notebook(&f).unwrap();
+
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/citations/library"), &session, false),
+        );
+        assert_eq!(response.status, 200);
+        let listed = body_json(&response);
+        assert!(!String::from_utf8_lossy(&response.body).contains("ob-hidden-4417"));
+        assert_eq!(listed["notebookAvailable"], true);
+        assert_eq!(listed["sources"][1]["id"], "slings");
+        assert_eq!(
+            listed["passages"][0]["locators"],
+            json!([{"kind": "page", "value": "514", "to": "520"}])
+        );
+        let revision = listed["revision"].as_str().unwrap().to_string();
+
+        let check = |body: Json, with_csrf: bool| {
+            let mut r = authed(
+                req("POST", "/admin/api/citations/check"),
+                &session,
+                with_csrf,
+            );
+            r.headers
+                .insert("content-type".into(), "application/json".into());
+            r.body = body.to_string().into_bytes();
+            let response = handle(&f.state, &r);
+            (response.status, body_json(&response))
+        };
+        let citation = json!({"key": "slings", "locators": listed["passages"][0]["locators"]});
+        let (status, _) = check(json!({"revision": revision, "citation": citation}), false);
+        assert_eq!(status, 403);
+        let (status, ok) = check(json!({"revision": revision, "citation": citation}), true);
+        assert_eq!(status, 200, "{ok}");
+        assert_eq!(ok["markdown"], "[@slings, page 514 to 520]");
+        assert_eq!(ok["formatted"], "Slings");
+        assert_eq!(ok["revision"], revision.as_str());
+
+        let (status, stale) = check(json!({"revision": "old", "citation": citation}), true);
+        assert_eq!(status, 409, "{stale}");
+        assert_eq!(stale["revision"], revision.as_str());
+        assert_eq!(stale["sources"][0]["id"], "plato");
+
+        for (bad, code) in [
+            (json!({"key": "missing"}), "unknown-key"),
+            (
+                json!({"key": "plato", "locators": [{"kind": "page", "value": "5"}]}),
+                "ambiguous-locator",
+            ),
+            (
+                json!({"key": "slings", "locators": [{"kind": "page", "value": "5]"}]}),
+                "invalid-locator",
+            ),
+            (json!({"key": "Not A Key"}), "invalid-key"),
+        ] {
+            let (status, refused) = check(json!({"revision": revision, "citation": bad}), true);
+            assert_eq!(status, 422, "{refused}");
+            assert_eq!(refused["diagnostics"][0]["code"], code, "{refused}");
+        }
+        let (status, _) = check(json!({"citation": citation}), true);
+        assert_eq!(status, 400);
+        // Checking writes nothing.
+        assert_eq!(
+            fs::read(f.dir.join(crate::source_store::LIBRARY_FILE)).unwrap(),
+            library_bytes
+        );
+        assert_eq!(stored_notebook(&f).unwrap(), notebook_bytes);
+
+        // A damaged notebook leaves the picker working from the library alone.
+        fs::write(
+            f.dir.join(crate::notebook_store::NOTEBOOK_FILE),
+            "{not json",
+        )
+        .unwrap();
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/citations/library"), &session, false),
+        );
+        assert_eq!(response.status, 200);
+        let listed = body_json(&response);
+        assert_eq!(listed["notebookAvailable"], false);
+        assert_eq!(listed["passages"], json!([]));
     }
 
     #[test]
