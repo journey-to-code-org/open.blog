@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A published shared reflection now has checked output everywhere the site publishes: the page,
+  portable HTML and Markdown, RSS and JSON Feed show every author's section in order, credit each
+  author who wrote one in the same order, and link the shared source and guiding question. Replaced
+  draft revisions, invitations, approvals and account names never appear in any of them.
 - Shared reflections can now be approved, scheduled and published (routes only; the Admin screens
   come later). An author approves the exact piece they read, a coordinator or site owner publishes
   it only while every required author's approval still matches, and a missing or stale approval

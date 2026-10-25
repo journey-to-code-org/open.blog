@@ -169,6 +169,15 @@ passes the gate again when it falls due (ADR 0022). The gate also refuses a piec
 would differ from the sections as each author previewed them, or carry active markup (ADR 0022).
 _Avoid_: Auto-publish, scheduled Post written ahead of approval
 
+**Published shared reflection**:
+The Post a publish gate writes, shown as an ordinary Post in every representation: the native page,
+portable HTML, Markdown and text, RSS, JSON Feed and the text discovery files. It has no
+representation of its own. Every written section appears in participant order, each author who wrote
+one is credited in that order, and the shared source and guiding question appear as a plain link
+(ADR 0008). Nothing else of the collaboration reaches it: no draft revision, invitation, approval,
+account name or publication id (ADR 0023).
+_Avoid_: Shared page, collaboration export
+
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in
 one approved collaboration revision, that a publication operation incorporates into canonical
