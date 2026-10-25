@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { NEW_SERIES, NO_SERIES, ObAdmin, seriesFailure, seriesPartText, seriesPlacementRequest, seriesPlacementText } from "../../web/admin/admin.js";
+import { keepStoredSeries, NEW_SERIES, NO_SERIES, ObAdmin, seriesFailure, seriesPartText, seriesPlacementRequest, seriesPlacementText } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");
@@ -296,6 +296,19 @@ test("the request names an existing series by its address and checks the positio
   assert.doesNotMatch(NEW_SERIES, /^[\p{L}\p{N}-]+$/u, "the new-title value can never be a series address");
 });
 
+test("an unchanged choice keeps the stored reference, so saving it changes nothing", () => {
+  const stored = { series: "Letters Across Time", order: 2 };
+  // The select shows the typed title as the series it resolves to; sending that back keeps the title.
+  assert.deepEqual(keepStoredSeries({ series: "letters-across-time", order: 2 }, stored, "letters-across-time"), stored);
+  assert.deepEqual(keepStoredSeries({ series: "letters-across-time", order: 2 }, stored, undefined), stored, "falls back to slugifying the stored title");
+  assert.deepEqual(keepStoredSeries({ series: "letters-across-time", order: null }, { series: "Letters Across Time" }, "letters-across-time"), { series: "Letters Across Time", order: null });
+  // A real change is sent as chosen.
+  assert.deepEqual(keepStoredSeries({ series: "letters-across-time", order: 3 }, stored, "letters-across-time"), { series: "letters-across-time", order: 3 });
+  assert.deepEqual(keepStoredSeries({ series: "guides", order: 2 }, stored, "letters-across-time"), { series: "guides", order: 2 });
+  assert.equal(keepStoredSeries(null, stored, "letters-across-time"), null);
+  assert.deepEqual(keepStoredSeries({ series: "guides", order: null }, null, undefined), { series: "guides", order: null });
+});
+
 test("failures keep what was typed and say what happened", () => {
   assert.equal(seriesFailure(undefined).kind, "offline");
   assert.equal(seriesFailure(new FakeApiError("changed", 409, null)).message, "changed");
@@ -370,6 +383,23 @@ test("a coordinator previews and saves an existing series and position with the 
   await settle();
   assert.deepEqual(api.state.calls.at(-1).body, { publicationId: PUBLICATION, expectedRevision: 2, placement: null });
   assert.match(textOf(panel), /Not part of a series\./);
+}));
+
+test("saving a typed title that names an existing series, unchanged, keeps every approval", withDom(async () => {
+  const api = fakeApi({ placement: { series: "Letters Across Time", order: 2 } });
+  const panel = await openPanel(api);
+  assert.equal(byId(panel, "choice").value, "letters-across-time", "the stored title is shown as the series it joins");
+  await formOf(panel).dispatch("submit");
+  await settle();
+  assert.deepEqual(api.state.calls.at(-1).body.placement, { series: "Letters Across Time", order: 2 });
+  assert.equal(api.state.revision, 0, "nothing changed, so the revision and approvals stand");
+  assert.equal(statusOf(panel).textContent, "Nothing changed.");
+  // Changing the position is a real change and is sent as chosen.
+  byId(panel, "order").value = "3";
+  await formOf(panel).dispatch("submit");
+  await settle();
+  assert.deepEqual(api.state.calls.at(-1).body.placement, { series: "letters-across-time", order: 3 });
+  assert.equal(api.state.revision, 1);
 }));
 
 test("a new title is typed in a labelled field that appears only when chosen", withDom(async () => {

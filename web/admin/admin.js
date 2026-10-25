@@ -1532,6 +1532,21 @@ export function seriesPlacementRequest(choice, title, order) {
   return { placement: { series: choice, order: position } };
 }
 
+/**
+ * The placement to send, keeping the stored reference when nothing really changed. A stored
+ * placement may be a typed title (such as "Letters Home") that the select shows as the existing
+ * series it resolves to ("letters-home"). Sending that address back would look like a change to
+ * the server, which would bump the revision and make every approval stale, so when the chosen
+ * series is the one the stored reference resolves to (`storedSlug`, the server's slug for it) and
+ * the position is the same, the stored placement is sent exactly as it was.
+ */
+export function keepStoredSeries(placement, stored, storedSlug) {
+  if (!placement || !stored) return placement;
+  const slug = storedSlug || slugify(String(stored.series ?? ""));
+  const sameOrder = (placement.order ?? null) === (stored.order ?? null);
+  return placement.series === slug && sameOrder ? { series: stored.series, order: stored.order ?? null } : placement;
+}
+
 /** Sort a failed series request into what to tell the person. What they typed is never lost. */
 export function seriesFailure(error) {
   const status = error?.status;
@@ -5504,7 +5519,8 @@ export class ObAdmin extends AdminElement {
       }
       save.disabled = true;
       try {
-        const next = await this.api.call("PUT", "collaboration/series", { json: { publicationId: id, expectedRevision: view?.revision ?? 0, placement: request.placement } });
+        const placement = keepStoredSeries(request.placement, view?.placement, view?.preview?.slug);
+        const next = await this.api.call("PUT", "collaboration/series", { json: { publicationId: id, expectedRevision: view?.revision ?? 0, placement } });
         const changed = next.revision !== view?.revision;
         render(next, true);
         status.textContent = !changed ? "Nothing changed." : next.placement ? "Series placement saved. Each author approves the piece again, with this placement." : "Removed from the series. Each author approves the piece again.";
