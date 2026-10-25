@@ -21,7 +21,7 @@ pub const MAX_LIBRARY_BYTES: usize = 4 * 1024 * 1024;
 /// Upper bound on the number of records in one library.
 pub const MAX_SOURCES: usize = 10_000;
 const MAX_ID_BYTES: usize = 64;
-const MAX_TEXT_CHARS: usize = 1_000;
+pub(crate) const MAX_TEXT_CHARS: usize = 1_000;
 
 const CREATOR_ROLES: &[&str] = &[
     "author",
@@ -44,7 +44,7 @@ const LOCATION_SCHEMES: &[&str] = &[
 /// describes a researched work; it never carries or points at work credits.
 const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
 const CREDIT_FIELD_MESSAGE: &str = "contributor credits stay in `.credits.json` sidecars; describe a source's makers as `creators`";
-const RECORD_FIELDS: &[&str] = &[
+pub(crate) const RECORD_FIELDS: &[&str] = &[
     "id",
     "kind",
     "title",
@@ -564,6 +564,40 @@ impl SourceLibrary {
         }
         *self = Self::validated(&candidate, contributors)?;
         Ok(())
+    }
+
+    /// The library as it would be with all of these records added or replaced
+    /// in place, validated once as a whole so records may point at each other
+    /// in any order. `self` is never changed; a caller adopts the result.
+    pub fn with_records(
+        &self,
+        records: Vec<SourceRecord>,
+        contributors: &BTreeMap<String, Contributor>,
+    ) -> Result<Self, Vec<SourceDiagnostic>> {
+        let mut candidate = self.clone();
+        for record in records {
+            match candidate
+                .sources
+                .iter()
+                .position(|existing| existing.id == record.id)
+            {
+                Some(index) if candidate.sources[index].kind != record.kind => {
+                    return Err(vec![record_diagnostic(
+                        SourceDiagnosticCode::KindChanged,
+                        index,
+                        &record.id,
+                        "kind",
+                        format!(
+                            "`{}` is a {}; record the {} as a new source with its own id",
+                            record.id, candidate.sources[index].kind, record.kind
+                        ),
+                    )]);
+                }
+                Some(index) => candidate.sources[index] = record,
+                None => candidate.sources.push(record),
+            }
+        }
+        Self::validated(&candidate, contributors)
     }
 
     /// Remove a record. Removal fails, leaving the library unchanged, while
