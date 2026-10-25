@@ -673,6 +673,35 @@ export function sourceExportLossNotes(losses) {
 
 // ---------------------------------------------------------------- research notebook capture
 
+export const QUESTION_STATES = Object.freeze([
+  { value: "open", label: "Open: still needs an answer" },
+  { value: "resolved", label: "Resolved" },
+]);
+
+/** The query string for a notebook search: only the filters that are set. */
+export function notebookSearchPath(filters) {
+  const params = new URLSearchParams();
+  for (const [key, name] of [["query", "q"], ["source", "source"], ["locator", "locator"], ["concept", "concept"], ["state", "state"]]) {
+    const value = String(filters?.[key] ?? "").trim();
+    if (value) params.set(name, value);
+  }
+  const text = params.toString();
+  return text ? `research/search?${text}` : "research/search";
+}
+
+export function searchIsActive(filters) {
+  return ["query", "source", "locator", "concept", "state"].some((key) => String(filters?.[key] ?? "").trim());
+}
+
+/** A one-line description of a search hit's place in the research: source, locators, state. Plain text. */
+export function hitContext(hit) {
+  const parts = [];
+  for (const source of hit.sources || []) parts.push(`${source.label}${source.archived ? " (archived)" : ""}${source.missing ? " (missing)" : ""}`);
+  if (hit.entry === "passage" && hit.locators?.length) parts.push(hit.locators[0]);
+  if (hit.entry === "note") parts.push(hit.kind === "question" ? (hit.state === "resolved" ? "resolved question" : "open question") : "observation");
+  return parts.join(" · ");
+}
+
 export const NOTE_KINDS = Object.freeze([
   { kind: "observation", label: "Observation" },
   { kind: "question", label: "Question" },
@@ -769,6 +798,7 @@ export function noteDraft(record = null) {
     passages: Array.isArray(note.passages) ? [...note.passages] : [],
     sources: Array.isArray(note.sources) ? [...note.sources] : [],
     concepts: (Array.isArray(note.concepts) ? note.concepts : []).join(", "),
+    status: note.status === "resolved" ? "resolved" : "open",
   };
 }
 
@@ -783,6 +813,9 @@ export function noteDraftPayload(draft) {
   if (draft.sources.length) record.sources = [...draft.sources];
   const concepts = parseConceptList(draft.concepts);
   if (concepts.length) record.concepts = concepts;
+  // Only a question has a state, and a question that never had one stays open without writing it.
+  delete record.status;
+  if (draft.kind === "question" && (draft.status === "resolved" || (original.status && draft.status))) record.status = draft.status;
   return record;
 }
 
@@ -971,7 +1004,10 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
       }
     } else {
       fields.push(
-        field("kind", "Note type", h("select", { onChange: (event) => { note.kind = event.target.value; } }, NOTE_KINDS.map((item) => h("option", { value: item.kind, selected: note.kind === item.kind }, item.label)))),
+        field("kind", "Note type", h("select", { onChange: (event) => { note.kind = event.target.value; render(); control("kind")?.focus(); } }, NOTE_KINDS.map((item) => h("option", { value: item.kind, selected: note.kind === item.kind }, item.label)))),
+        note.kind === "question"
+          ? field("status", "Question state", h("select", { onChange: (event) => { note.status = event.target.value; } }, QUESTION_STATES.map((item) => h("option", { value: item.value, selected: note.status === item.value }, item.label))), "Open questions are listed as unresolved in the notebook. Resolving one is your call; nothing checks the answer.")
+          : null,
         field("text", "Note", h("textarea", { rows: 5, value: note.text, onInput: (event) => { note.text = event.target.value; } }), "Your own observation or question. Quoted text belongs in a passage."),
         checkList("passages", "Passages this note is about (optional)", state.passages.map((item) => [item.id, `${entryPreview(item, 60)} (${item.id})`]), note.passages, (value, on) => { note.passages = on ? [...note.passages, value] : note.passages.filter((id) => id !== value); }),
         checkList("sources", "Sources this note is about (optional)", sourceChoices().map((item) => [item.id, item.label]), note.sources, (value, on) => { note.sources = on ? [...note.sources, value] : note.sources.filter((id) => id !== value); }),
@@ -4022,7 +4058,11 @@ export class ObAdmin extends AdminElement {
     let selected = null; // null, "new", or { type, id }
     let form = null;
     let busy = false;
-    const filters = { query: "" };
+    const filters = { query: "", source: "", locator: "", concept: "", state: "" };
+    let results = null; // the last server search, while any filter is set
+    let searchProblem = "";
+    let searchSequence = 0;
+    let panelSequence = 0;
 
     const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     const say = (text, kind = "oba-small") => {
@@ -4031,6 +4071,14 @@ export class ObAdmin extends AdminElement {
     };
     const search = h("input", { id: "oba-research-search", type: "search", autocomplete: "off", "aria-controls": "oba-research-lists", placeholder: "Quoted text, note, source, or ID" });
     const count = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const filterSelect = (id, label, name, options) =>
+      h("div", { class: "oba-field" }, h("label", { for: id }, label), h("select", { id, "data-research-filter": name, onChange: (event) => { filters[name] = event.target.value; runSearch(); } }, options.map(([value, text]) => h("option", { value, selected: filters[name] === value }, text))));
+    const locatorKinds = [...new Set(["page", "folio", "line", "section", "chapter", "canonical", "timestamp", ...state.passages.flatMap((passage) => (passage.locators || []).map((locator) => locator.kind))])];
+    const sourceFilter = filterSelect("oba-research-source-filter", "Source", "source", [["", "Any source"], ...[...state.sources].sort((a, b) => sourceLabel(a).localeCompare(sourceLabel(b))).map((source) => [source.id, `${sourceLabel(source)}${source.archived ? " (archived)" : ""}`])]);
+    const locatorFilter = filterSelect("oba-research-locator-filter", "Locator kind", "locator", [["", "Any locator"], ...locatorKinds.map((kind) => [kind, kind])]);
+    const stateFilter = filterSelect("oba-research-state-filter", "Questions", "state", [["", "All entries"], ["open", "Open questions"], ["resolved", "Resolved questions"]]);
+    const concept = h("input", { id: "oba-research-concept-filter", type: "text", autocomplete: "off", spellcheck: "false", "aria-controls": "oba-research-lists", placeholder: "such as allegory" });
+    const resultsNav = h("nav", { "aria-label": "Notebook" });
     const passageList = h("ul", { class: "oba-source-list", id: "oba-research-passages" });
     const noteList = h("ul", { class: "oba-source-list", id: "oba-research-notes" });
     const panel = h("section", { class: "oba-source-editor", "aria-labelledby": "oba-research-heading" });
@@ -4039,32 +4087,79 @@ export class ObAdmin extends AdminElement {
     const sourceName = (id) => (sourceById(id) ? sourceLabel(sourceById(id)) : id);
 
     const confirmDiscard = () => !form?.isDirty() || globalThis.confirm?.("Discard the unsaved research entry?") !== false;
-    const matches = (entry) => {
-      const terms = filters.query.toLowerCase().split(/\s+/).filter(Boolean);
-      if (!terms.length) return true;
-      const haystack = [entry.id, entry.source, entry.excerpt?.text, entry.text, ...(entry.sources || []), ...(entry.concepts || []), entry.source ? sourceName(entry.source) : ""].filter((part) => typeof part === "string").join("\n").toLowerCase();
-      return terms.every((term) => haystack.includes(term));
+    const runSearch = async () => {
+      const sequence = ++searchSequence;
+      if (!searchIsActive(filters)) {
+        results = null;
+        searchProblem = "";
+        renderLists();
+        return;
+      }
+      try {
+        const found = await this.api.call("GET", notebookSearchPath(filters));
+        if (sequence !== searchSequence || this.viewVersion !== mountedView) return;
+        results = found;
+        searchProblem = "";
+      } catch (error) {
+        if (sequence !== searchSequence || this.viewVersion !== mountedView) return;
+        results = null;
+        searchProblem = `${notebookErrorMessage(error)} The notebook is unchanged.`;
+      }
+      renderLists();
+    };
+    const refreshSearch = () => {
+      if (searchIsActive(filters)) runSearch();
+      else renderLists();
     };
 
     const renderLists = () => {
-      const passages = state.passages.filter(matches);
-      const notes = state.notes.filter(matches);
+      const open_ = state.notes.filter((note) => note.kind === "question" && note.status !== "resolved").length;
+      const summary = `${state.passages.length} passage${state.passages.length === 1 ? "" : "s"}, ${state.notes.length} note${state.notes.length === 1 ? "" : "s"}, ${open_} open question${open_ === 1 ? "" : "s"}.`;
+      if (searchIsActive(filters)) {
+        const hits = results?.hits || [];
+        const row = (hit) =>
+          h(
+            "li",
+            {},
+            h(
+              "button",
+              { class: "oba-source-item", type: "button", "data-entry-id": hit.id, "data-entry-type": hit.entry, "data-search-hit": "true", "aria-current": selected?.id === hit.id ? "true" : null, "aria-label": `${hit.entry === "passage" ? "Passage" : hit.kind === "question" ? (hit.state === "resolved" ? "Resolved question" : "Open question") : "Observation"}: ${entryPreview({ text: hit.snippet }, 60)}`, onClick: () => open({ type: hit.entry, id: hit.id }) },
+              h("strong", {}, hit.snippet),
+              h("span", { class: "oba-small" }, hitContext(hit)),
+              hit.matched?.length && filters.query.trim() ? h("span", { class: "oba-small" }, `Matched in ${hit.matched.join(", ")}`) : null,
+              (hit.passages || []).map((passage) => h("span", { class: "oba-small" }, passage.missing ? `About a missing passage (${passage.id})` : `About: ${entryPreview({ text: passage.preview }, 70)}`)),
+              hit.notes?.length ? h("span", { class: "oba-small" }, `${hit.notes.length} linked note${hit.notes.length === 1 ? "" : "s"}`) : null,
+            ),
+          );
+        const broken = results?.broken?.length ? h("p", { class: "oba-notice", role: "alert" }, `${results.broken.length} link${results.broken.length === 1 ? "" : "s"} in the notebook point to missing entries or sources. Repair the notebook file by hand.`) : null;
+        resultsNav.replaceChildren(
+          h("h2", { class: "oba-small-heading", id: "oba-research-results-heading" }, "Results"),
+          searchProblem ? h("p", { class: "oba-error", role: "alert" }, searchProblem) : null,
+          broken,
+          h("ul", { class: "oba-source-list", id: "oba-research-results", "aria-labelledby": "oba-research-results-heading" }, hits.length ? hits.map(row) : results ? h("li", { class: "oba-notice" }, "No entries match these filters.") : null),
+        );
+        count.textContent = results ? `${results.total} match${results.total === 1 ? "" : "es"}${results.truncated ? `, showing the first ${hits.length}` : ""}. ${summary}` : "";
+        return;
+      }
+      const passages = state.passages;
+      const notes = state.notes;
       const row = (type, entry) =>
         h(
           "li",
           {},
           h(
             "button",
-            { class: "oba-source-item", type: "button", "data-entry-id": entry.id, "data-entry-type": type, "aria-current": selected?.id === entry.id ? "true" : null, "aria-label": `${type === "passage" ? "Passage" : entry.kind === "question" ? "Question" : "Observation"}: ${entryPreview(entry, 60)}`, onClick: () => open({ type, id: entry.id }) },
+            { class: "oba-source-item", type: "button", "data-entry-id": entry.id, "data-entry-type": type, "aria-current": selected?.id === entry.id ? "true" : null, "aria-label": `${type === "passage" ? "Passage" : entry.kind === "question" ? (entry.status === "resolved" ? "Resolved question" : "Open question") : "Observation"}: ${entryPreview(entry, 60)}`, onClick: () => open({ type, id: entry.id }) },
             h("strong", {}, entryPreview(entry)),
-            h("span", { class: "oba-small" }, type === "passage" ? `${sourceName(entry.source)}${entry.locators?.length ? ` · ${formatLocatorLines(entry.locators).split("\n")[0]}` : ""}` : `${entry.kind}${entry.passages?.length ? ` · ${entry.passages.length} passage${entry.passages.length === 1 ? "" : "s"}` : ""}`),
+            h("span", { class: "oba-small" }, type === "passage" ? `${sourceName(entry.source)}${entry.locators?.length ? ` · ${formatLocatorLines(entry.locators).split("\n")[0]}` : ""}` : `${entry.kind === "question" ? (entry.status === "resolved" ? "resolved question" : "open question") : entry.kind}${entry.passages?.length ? ` · ${entry.passages.length} passage${entry.passages.length === 1 ? "" : "s"}` : ""}`),
           ),
         );
       passageList.replaceChildren(...passages.map((entry) => row("passage", entry)));
       noteList.replaceChildren(...notes.map((entry) => row("note", entry)));
-      if (!passages.length) passageList.replaceChildren(h("li", { class: "oba-notice" }, state.passages.length ? "No passages match." : "No passages yet."));
-      if (!notes.length) noteList.replaceChildren(h("li", { class: "oba-notice" }, state.notes.length ? "No notes match." : "No notes yet."));
-      count.textContent = `${state.passages.length} passage${state.passages.length === 1 ? "" : "s"} and ${state.notes.length} note${state.notes.length === 1 ? "" : "s"}.`;
+      if (!passages.length) passageList.replaceChildren(h("li", { class: "oba-notice" }, "No passages yet."));
+      if (!notes.length) noteList.replaceChildren(h("li", { class: "oba-notice" }, "No notes yet."));
+      resultsNav.replaceChildren(h("h2", { class: "oba-small-heading" }, "Passages"), passageList, h("h2", { class: "oba-small-heading" }, "Notes"), noteList);
+      count.textContent = summary;
     };
 
     const entryOf = (target) => (target.type === "passage" ? state.passages : state.notes).find((entry) => entry.id === target.id) || null;
@@ -4091,31 +4186,81 @@ export class ObAdmin extends AdminElement {
         entryType: selected === "new" ? "passage" : selected.type,
         idPrefix: "oba-research",
         onRefreshed: () => {
-          if (this.viewVersion === mountedView) renderLists();
+          if (this.viewVersion === mountedView) refreshSearch();
         },
         onSaved: (result) => {
           if (this.viewVersion !== mountedView) return;
           const target = result.note && !result.partial && result.type === "note" ? { type: "note", id: result.note.id } : result.passage ? { type: "passage", id: result.passage.id } : selected;
           if (result.partial) {
-            renderLists();
+            refreshSearch();
             return;
           }
           selected = target;
-          renderLists();
+          refreshSearch();
           renderPanel(true);
           say("Saved to the private notebook.", "oba-ok");
         },
         onCancel: () => close(),
       });
       const linked = entry && selected.type === "passage" ? state.notes.filter((note) => (note.passages || []).includes(entry.id)) : [];
+      const backlinks = entry ? h("div", { class: "oba-research-backlinks", "data-research-backlinks": "true" }) : null;
       panel.replaceChildren(
         h("h2", { id: "oba-research-heading", tabindex: "-1" }, entry ? (selected.type === "passage" ? "Passage" : entry.kind === "question" ? "Question" : "Observation") : "Capture"),
         entry ? h("p", { class: "oba-small" }, `ID ${entry.id}. Private; never published.`) : null,
         form.element,
         linked.length ? h("p", { class: "oba-small" }, `${linked.length} note${linked.length === 1 ? "" : "s"} link${linked.length === 1 ? "s" : ""} to this passage, so it cannot be removed until they are.`) : null,
+        backlinks,
         entry ? h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-entry-remove": "true", onClick: () => remove() }, selected.type === "passage" ? "Remove passage" : "Remove note")) : null,
       );
       if (moveFocus) panel.querySelector("#oba-research-heading")?.focus();
+      if (backlinks) loadBacklinks(entry, backlinks);
+    };
+
+    /** What points at this entry's passage, source, or concepts, read fresh from the stored notebook. */
+    const loadBacklinks = async (entry, box) => {
+      const sequence = ++panelSequence;
+      const isPassage = selected.type === "passage";
+      const asks = isPassage
+        ? [["passage", entry.id, "Notes about this passage"], ["source", entry.source, `Other research on ${sourceName(entry.source)}`]]
+        : (entry.concepts || []).slice(0, 5).map((concept) => ["concept", concept, `Notes tagged ${concept}`]);
+      const sections = [];
+      for (const [type, id, heading] of asks) {
+        try {
+          const found = await this.api.call("GET", `research/backlinks?type=${type}&id=${encodeURIComponent(id)}`);
+          if (sequence !== panelSequence || this.viewVersion !== mountedView) return;
+          const others = (found.entries || []).filter((item) => item.id !== entry.id);
+          const headingId = `oba-research-backlinks-${type}-${sections.length}`;
+          sections.push(
+            h(
+              "section",
+              { "aria-labelledby": headingId },
+              h("h3", { class: "oba-small-heading", id: headingId }, heading),
+              others.length
+                ? h(
+                    "ul",
+                    { class: "oba-source-list" },
+                    others.map((item) =>
+                      h(
+                        "li",
+                        {},
+                        h(
+                          "button",
+                          { class: "oba-source-item", type: "button", "data-backlink-id": item.id, onClick: () => open({ type: item.entry, id: item.id }) },
+                          h("strong", {}, item.preview),
+                          h("span", { class: "oba-small" }, `${item.entry === "passage" ? "Passage" : item.kind === "question" ? (item.state === "resolved" ? "Resolved question" : "Open question") : "Observation"}${item.through ? ` · through ${sourceName(item.through)}` : ""}`),
+                        ),
+                      ),
+                    ),
+                  )
+                : h("p", { class: "oba-small" }, "Nothing else yet."),
+            ),
+          );
+        } catch {
+          if (sequence !== panelSequence || this.viewVersion !== mountedView) return;
+          sections.push(h("p", { class: "oba-small" }, `${heading} could not be listed.`));
+        }
+      }
+      box.replaceChildren(...sections);
     };
 
     const open = (target) => {
@@ -4142,7 +4287,7 @@ export class ObAdmin extends AdminElement {
         if (this.viewVersion !== mountedView) return;
         Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
         selected = null;
-        renderLists();
+        refreshSearch();
         renderPanel();
         say("Removed from the private notebook.", "oba-ok");
         newButton.focus();
@@ -4154,9 +4299,19 @@ export class ObAdmin extends AdminElement {
       }
     };
 
+    let typing = null;
+    const typed = () => {
+      // Search as the author pauses, so each keystroke is not a request.
+      clearTimeout(typing);
+      typing = setTimeout(runSearch, 150);
+    };
     search.addEventListener("input", () => {
       filters.query = search.value;
-      renderLists();
+      typed();
+    });
+    concept.addEventListener("input", () => {
+      filters.concept = concept.value.trim().toLowerCase();
+      typed();
     });
     renderLists();
     renderPanel();
@@ -4164,13 +4319,22 @@ export class ObAdmin extends AdminElement {
       this.shell(
         "research",
         h("section", { class: "oba-contributor-intro" }, h("p", {}, "Keep quoted passages, with where they sit in a source, apart from your own notes about them."), h("p", { class: "oba-small" }, `Private author research stored in ${loaded.file}. It never reaches the public site, and saving here changes only that file.`)),
-        h("div", { class: "oba-toolbar oba-source-filters", role: "search" }, h("div", { class: "oba-field" }, h("label", { for: "oba-research-search" }, "Search the notebook"), search), newButton),
+        h(
+          "div",
+          { class: "oba-toolbar oba-source-filters", role: "search", "aria-label": "Search the notebook" },
+          h("div", { class: "oba-field" }, h("label", { for: "oba-research-search" }, "Search the notebook"), search),
+          sourceFilter,
+          locatorFilter,
+          h("div", { class: "oba-field" }, h("label", { for: "oba-research-concept-filter" }, "Concept"), concept),
+          stateFilter,
+          newButton,
+        ),
         count,
         status,
         h(
           "div",
           { class: "oba-source-layout", id: "oba-research-lists" },
-          h("nav", { "aria-label": "Notebook" }, h("h2", { class: "oba-small-heading" }, "Passages"), passageList, h("h2", { class: "oba-small-heading" }, "Notes"), noteList),
+          resultsNav,
           panel,
         ),
       ),

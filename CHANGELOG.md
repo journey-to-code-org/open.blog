@@ -5,6 +5,18 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- You can now search the private research notebook and see how it connects. The Notebook view
+  filters by source (including its editions and translations), locator kind, concept, and
+  question state beside text search, shows each hit with its source, locators and linked notes,
+  and lists backlinks for the selected passage, its source and a note's concepts. Questions can
+  be marked open or resolved. Everything is computed from the stored files, so it stays correct
+  after edits and archiving, and it is private: nothing reaches the public site, feeds or exports.
+- Fixed capture edit conflicts: after a conflict you now choose between the stored copy and your
+  draft before saving, so a concurrent change is never silently overwritten. Archived sources stay
+  selectable on entries that already use them, and stale field errors clear on the next save.
+- A source edit or import that would leave the research notebook invalid, such as re-pointing a
+  reference so a page locator becomes ambiguous, is now refused with a message naming the source.
+
 - Defined the private research notebook contract: quoted passages (verbatim excerpt, compound
   page, folio, line, canonical and custom locators, tied to a source-library record) and
   observation or question notes that link to passages, sources, and concepts. Every entry is

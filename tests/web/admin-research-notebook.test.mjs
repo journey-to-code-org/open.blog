@@ -5,6 +5,9 @@ import test from "node:test";
 import {
   Editor,
   ObAdmin,
+  hitContext,
+  notebookSearchPath,
+  searchIsActive,
   captureSources,
   createCaptureForm,
   entryPreview,
@@ -187,6 +190,7 @@ const withDom = (run) => async () => {
   }
 };
 
+const settledSearch = () => new Promise((resolve) => setTimeout(resolve, 250));
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const memoryStorage = (values = {}) => ({
   values,
@@ -480,15 +484,21 @@ function mountResearch(api) {
   return { app, root };
 }
 
-test("the notebook lists passages and notes as text, filters them, and opens an entry for editing", withDom(async () => {
-  const { app, root } = mountResearch(notebookApi({ "GET research/notebook": () => notebook() }));
+test("the notebook lists passages and notes as text, searches them, and opens an entry for editing", withDom(async () => {
+  const { app, root } = mountResearch(notebookApi({
+    "GET research/notebook": () => notebook(),
+    "GET research/search?q=cave": () => ({ total: 1, truncated: false, broken: [], hits: [{ id: "note-2", entry: "note", kind: "question", state: "open", snippet: "Why a cave?", matched: ["text"], sources: [], passages: [], notes: [] }] }),
+  }));
   await app.showResearch();
   assert.deepEqual(entryButtons(root).map((item) => item.dataset.entryId), ["passage-1", "note-2"]);
   assert.equal(root.querySelectorAll("img").length + root.querySelectorAll("script").length, 0, "hostile excerpts render as text");
   assert.ok(root.textContent.includes("<img src=x"), "the characters are shown, not interpreted");
   await type(byId(root, "oba-research-search"), "cave");
+  await settledSearch();
   assert.deepEqual(entryButtons(root).map((item) => item.dataset.entryId), ["note-2"]);
   await type(byId(root, "oba-research-search"), "");
+  await settledSearch();
+  assert.deepEqual(entryButtons(root).map((item) => item.dataset.entryId), ["passage-1", "note-2"]);
   await entryButton(root, "passage-1").click();
   assert.equal(globalThis.document.activeElement.id, "oba-research-heading");
   assert.equal(byId(root, "oba-research-excerpt").value, HOSTILE);
@@ -777,4 +787,143 @@ test("a partial save keeps the dialog open, with focus inside it and the selecti
   assert.notEqual(dom.document.activeElement, body);
   assert.ok(dialog.contains(dom.document.activeElement), "focus stays inside the dialog");
   assert.equal(ranges.length, 0, "the selection is only restored when the dialog closes");
+}));
+
+// ---------------------------------------------------------------- search, backlinks and question state
+
+const HIT = (over = {}) => ({
+  id: "passage-1",
+  entry: "passage",
+  score: 3,
+  snippet: HOSTILE,
+  matched: ["excerpt"],
+  sources: [{ id: "old", label: "Old", archived: true, missing: false }],
+  locators: ["page: 514"],
+  concepts: [],
+  passages: [],
+  notes: [{ id: "note-2", entry: "note", kind: "question", state: "open", preview: "Why a cave?" }],
+  ...over,
+});
+const searchResult = (hits, over = {}) => ({ revision: "r1", total: hits.length, truncated: false, counts: {}, broken: [], hits, ...over });
+const filterControl = (root, name) => root.querySelectorAll("select").find((node) => node.dataset.researchFilter === name);
+const change = async (control, value) => {
+  control.value = value;
+  await control.dispatch("change", { target: control });
+  await tick();
+};
+
+test("search paths carry only the filters that are set", () => {
+  assert.equal(notebookSearchPath({}), "research/search");
+  assert.equal(notebookSearchPath({ query: " the cave ", source: "slings-2003", locator: "page", concept: "allegory", state: "open" }), "research/search?q=the+cave&source=slings-2003&locator=page&concept=allegory&state=open");
+  assert.equal(notebookSearchPath({ query: "a&b=c#" }), "research/search?q=a%26b%3Dc%23");
+  assert.equal(searchIsActive({ query: "  " }), false);
+  assert.equal(searchIsActive({ state: "resolved" }), true);
+  assert.equal(hitContext(HIT()), "Old (archived) · page: 514");
+  assert.equal(hitContext({ entry: "note", kind: "question", state: "resolved", sources: [] }), "resolved question");
+});
+
+test("filters call the server search, show context as text, and clearing them restores the lists", withDom(async () => {
+  const api = notebookApi({
+    "GET research/notebook": () => notebook(),
+    "GET research/search?source=old&locator=page&state=open": () => searchResult([HIT()]),
+    "GET research/search?source=old&locator=page&state=resolved": () => searchResult([]),
+    "GET research/search?source=old&locator=page": () => searchResult([HIT()]),
+    "GET research/search?source=old": () => searchResult([HIT()], { broken: [{ from: "note-9", entry: "note", field: "passages[0]", target: "gone" }] }),
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  for (const name of ["source", "locator", "state"]) assert.ok(filterControl(root, name), `${name} filter exists`);
+  assert.ok(root.querySelectorAll("label").some((label) => label.getAttribute("for") === "oba-research-concept-filter"), "the concept filter is labelled");
+  const archivedOption = filterControl(root, "source").children.find((option) => option.value === "old");
+  assert.ok(archivedOption.textContent.includes("(archived)"));
+  await change(filterControl(root, "source"), "old");
+  assert.match(root.textContent, /1 match\./);
+  assert.match(root.textContent, /link in the notebook point to missing entries|links? in the notebook point to missing/);
+  assert.equal(root.querySelectorAll("img").length + root.querySelectorAll("script").length, 0, "hostile snippets render as text");
+  assert.ok(root.textContent.includes("<img src=x"));
+  assert.ok(root.textContent.includes("Old (archived) · page: 514"));
+  assert.ok(root.textContent.includes("1 linked note"));
+  await change(filterControl(root, "locator"), "page");
+  await change(filterControl(root, "state"), "open");
+  assert.equal(entryButtons(root).length, 1);
+  await change(filterControl(root, "state"), "resolved");
+  assert.match(root.textContent, /No entries match these filters/);
+  assert.match(root.textContent, /0 matches\./);
+  assert.equal(api.calls.length, 0, "searching never writes");
+  await change(filterControl(root, "source"), "");
+  await change(filterControl(root, "locator"), "");
+  await change(filterControl(root, "state"), "");
+  assert.deepEqual(entryButtons(root).map((item) => item.dataset.entryId), ["passage-1", "note-2"]);
+}));
+
+test("a refused search says why in the page and changes nothing", withDom(async () => {
+  const api = notebookApi({
+    "GET research/notebook": () => notebook(),
+    "GET research/search?concept=bad+word": () => {
+      throw new ApiError("bad", 422, { diagnostics: [{ field: "concept", message: "a concept is lowercase words" }] });
+    },
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  const concept = byId(root, "oba-research-concept-filter");
+  concept.value = "Bad Word";
+  await concept.dispatch("input", { target: concept });
+  await settledSearch();
+  assert.match(root.textContent, /concept: a concept is lowercase words/);
+  assert.match(root.textContent, /The notebook is unchanged/);
+  assert.equal(api.calls.length, 0);
+}));
+
+test("the panel lists backlinks for a passage, its source and a note's concepts, and opens them", withDom(async () => {
+  const api = notebookApi({
+    "GET research/notebook": () => notebook(),
+    "GET research/backlinks?type=passage&id=passage-1": () => ({ entries: [{ id: "note-2", entry: "note", kind: "question", state: "open", preview: "Why a cave?", relation: "notes" }] }),
+    "GET research/backlinks?type=source&id=slings-2003": () => ({ entries: [{ id: "passage-1", entry: "passage", preview: "self", relation: "quotes" }, { id: "other", entry: "passage", preview: "another quote", relation: "quotes", through: "slings-2003" }] }),
+    "GET research/backlinks?type=concept&id=allegory": () => ({ entries: [{ id: "note-2", entry: "note", kind: "question", state: "resolved", preview: "me", relation: "notes" }, { id: "note-7", entry: "note", kind: "observation", preview: "Also allegory", relation: "notes" }] }),
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  await entryButton(root, "passage-1").click();
+  await tick();
+  await tick();
+  const listed = root.querySelectorAll("button").filter((button) => button.dataset.backlinkId).map((button) => button.dataset.backlinkId);
+  assert.deepEqual(listed, ["note-2", "other"], "the entry itself is not listed as its own backlink");
+  assert.match(root.textContent, /Notes about this passage/);
+  assert.match(root.textContent, /Other research on/);
+  await entryButton(root, "note-2").click();
+  await tick();
+  await tick();
+  assert.deepEqual(root.querySelectorAll("button").filter((button) => button.dataset.backlinkId).map((button) => button.dataset.backlinkId), ["note-7"]);
+  assert.match(root.textContent, /Notes tagged allegory/);
+}));
+
+test("a question can be marked resolved, an unset state stays unwritten, and an observation never carries one", () => {
+  const question = { id: "q", kind: "question", text: "Why?" };
+  assert.equal(noteDraft(question).status, "open");
+  assert.ok(!("status" in noteDraftPayload(noteDraft(question))), "an untouched question stays as stored");
+  const resolved = noteDraft(question);
+  resolved.status = "resolved";
+  assert.equal(noteDraftPayload(resolved).status, "resolved");
+  const reopened = noteDraft({ ...question, status: "resolved" });
+  reopened.status = "open";
+  assert.equal(noteDraftPayload(reopened).status, "open", "a state the author wrote is kept when reopened");
+  const observation = noteDraft({ ...question, status: "resolved" });
+  observation.kind = "observation";
+  assert.ok(!("status" in noteDraftPayload(observation)));
+});
+
+test("the capture form offers the question state only for questions and sends it", withDom(async () => {
+  const api = notebookApi({
+    "POST research/notes": (body) => ({ revision: "r2", sources: SOURCES(), passages: [], notes: [body.note], note: body.note }),
+  });
+  const form = createCaptureForm({ api, state: formState(), prefill: { type: "note" } });
+  assert.equal(byId(form.element, "oba-capture-status"), null, "an observation has no state");
+  await type(byId(form.element, "oba-capture-kind"), "question", "change");
+  const status = byId(form.element, "oba-capture-status");
+  assert.ok(status && form.element.querySelectorAll("label").some((label) => label.getAttribute("for") === status.id));
+  await type(byId(form.element, "oba-capture-text"), "Is it settled?");
+  await type(status, "resolved", "change");
+  await submit(form.element);
+  assert.equal(api.calls[0].body.note.status, "resolved");
+  assert.equal(api.calls[0].body.note.kind, "question");
 }));

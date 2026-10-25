@@ -343,6 +343,18 @@ The author's own observation or question, linked to passages, sources, or concep
 private; never a quotation, claim, or citation.
 _Avoid_: Annotation, comment, reader note
 
+**Open question**:
+A research note of kind question that the author has not marked resolved. A question with no
+state written is open. The state is the author's own marking and says nothing about whether an
+answer is correct.
+_Avoid_: Todo, unanswered claim, knowledge gap
+
+**Backlink**:
+An entry in the notebook that points at a passage, a source or a concept, found by reading the
+stored notebook rather than from a saved index. A source's backlinks include entries that point
+at its editions, translations, witnesses and references.
+_Avoid_: Citation, reference, mention
+
 **Source identifier**:
 A stable, author-assigned slug naming one source-library record, independent of its title.
 Editing a record never changes its kind; the library does not remember removed ids, so

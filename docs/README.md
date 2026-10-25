@@ -62,7 +62,8 @@ contracts and why GitHub Copilot is not exposed as a generic API provider, and t
 [research source library format](specs/research-source-library.md), which keeps works,
 editions, translations, witnesses, and references distinct under stable identifiers, and the
 [research notebook format](specs/research-notebook.md), which keeps quoted passages and private
-research notes apart from your own prose.
+research notes apart from your own prose, with private search and backlinks
+([ADR 0026](adr/0026-private-notebook-search-and-backlinks.md)).
 
 ## Command reference
 

@@ -9564,6 +9564,24 @@ mod tests {
 
         // Reading never changes the stored notebook.
         assert_eq!(stored_notebook(&f).unwrap(), bytes);
+
+        // Search results and backlinks have no public form: the built site holds none of them.
+        f.state.rebuild().unwrap();
+        for file in crate::fsutil::walk(&f.dir.join("dist")) {
+            let text = String::from_utf8_lossy(&fs::read(&file).unwrap()).to_string();
+            for secret in [
+                "onerror=alert(1)",
+                "Why a cave?",
+                "Who tends the fire?",
+                "allegory",
+            ] {
+                assert!(
+                    !text.contains(secret),
+                    "{} exposes private research",
+                    file.display()
+                );
+            }
+        }
     }
 
     #[test]

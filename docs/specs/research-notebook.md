@@ -39,6 +39,7 @@ Version 1 of the private passage and research-note contract defined by
 | locator | `value`, `to` | Text up to 200 characters; `to` ends a range. Timestamps are seconds or `h:mm:ss`. |
 | note | `kind` | Required. `observation` or `question`. |
 | note | `text` | Required author prose, at most 20,000 characters. |
+| note | `status` | Optional, questions only: `open` or `resolved`. Absent means open. |
 | note | `passages`, `sources`, `concepts` | Optional id lists (at most 100, no repeats). Passages must exist in the notebook, sources in the library; concepts are slugs checked for shape only. |
 
 Pages cannot address a work and folios need a witness, resolving a reference through its
@@ -78,3 +79,26 @@ All routes require an Admin session and, for changes, the CSRF token; requests a
 the saved entry. `409` carries `conflict`, the latest `revision`, and the stored `current`
 copy; `422` carries entry-scoped `diagnostics`. Removing a source-library record that a
 passage or note still uses is refused with `still-used`.
+
+## Search and backlinks
+
+Defined by [ADR 0026](../adr/0026-private-notebook-search-and-backlinks.md) and implemented by
+`openblog_core::research_search`. Nothing is indexed on disk: every request reads the stored
+notebook and library and computes the answer.
+
+A question note may carry `status` (`open` or `resolved`); absent means open and is not written
+back, and an observation may not carry one.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /admin/api/research/search` | Query `q` (all words must match, at most 200 characters and 16 words), `source` (a source and its editions, translations, witnesses and references), `locator` (a locator kind), `concept`, `state` (`open` or `resolved`). Returns `hits`, `total`, `truncated` (at most 100 hits), `counts`, `broken`, `revision`. |
+| `GET /admin/api/research/backlinks` | Query `type` (`source`, `passage` or `concept`) and `id`. Returns `entries`, each with a `relation` (`quotes`, `notes`, `via-passage`) and the `through` source it goes by, plus `broken`. |
+
+Words are matched case-insensitively with whitespace collapsed and the Greek final sigma folded;
+diacritics are not folded. Hits are ordered by score (prose or quoted text 3, id or concept 2,
+source or locator 1), then notebook order. Each hit carries a bounded plain-text snippet, its
+source (with `archived` and `missing`), locators, concepts, the passages a note is about and the
+notes that link a passage. `concept` and `state` select notes; `source` and `locator` apply to a
+note through the passages it links. Bad filters are `422` with a diagnostic on `q`, `source`,
+`locator`, `concept` or `state`; no match is an empty `200`. Both routes are read-only,
+`no-store`, and need an Admin session.
