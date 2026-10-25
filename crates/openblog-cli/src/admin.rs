@@ -15221,6 +15221,80 @@ mod tests {
     }
 
     #[test]
+    fn reveal_changes_that_lose_a_race_are_refused_and_commit_nothing() {
+        let (f, mikey, id) = invitation_fixture("reveal-race");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        for (who, text) in [(&mikey, "MIKEY-SECRET"), (&grace, "GRACE-SECRET")] {
+            assert_eq!(draft_call(&f, who, &id, 0, text).status, 200);
+        }
+        // Mikey turns on allReady and offers; Grace's offer would complete the reveal.
+        assert_eq!(
+            reveal_call(&f, &mikey, "policy", policy_body(&id, "allReady")).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(1))).status,
+            200
+        );
+        let drafts_file = f
+            .dir
+            .join(format!(".openblog/private/collaboration/drafts/{id}.json"));
+
+        // Load a snapshot, then let another writer change the file before this request stores.
+        let stale = crate::shared_publications::load_drafts(&f.state.root, &id).unwrap();
+        let record = stored_record(&f, &id);
+        let ids: Vec<String> = record
+            .collaboration
+            .participants
+            .iter()
+            .map(|p| p.id.clone())
+            .collect();
+        let active: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let grace_id = record
+            .collaboration
+            .participants
+            .iter()
+            .find(|p| p.display_name == "Grace")
+            .unwrap()
+            .id
+            .clone();
+        assert_eq!(
+            draft_call(&f, &grace, &id, 1, "GRACE-SECRET v2").status,
+            200
+        );
+        let after_other_writer = fs::read(&drafts_file).unwrap();
+        let view_before = body_json(&reveal_state(&f, &mikey, &id)).to_string();
+
+        // A ready mark that would commit the reveal loses the race and changes nothing.
+        let mut set = draft_set_for(stale.set.as_ref(), &record).unwrap();
+        let outcome = set.mark_ready(&grace_id, 1, &active).unwrap();
+        assert!(matches!(outcome, ReadyOutcome::Revealed));
+        let lost = store_drafts(&f.state, &id, &stale, &set, json!({ "revealed": true }));
+        assert_eq!(lost.status, 409);
+        assert_eq!(fs::read(&drafts_file).unwrap(), after_other_writer);
+
+        // The same holds for a policy change made from the stale snapshot.
+        let mut set = draft_set_for(stale.set.as_ref(), &record).unwrap();
+        set.set_policy(RevealPolicy::Voluntary);
+        let lost = store_drafts(&f.state, &id, &stale, &set, json!({}));
+        assert_eq!(lost.status, 409);
+        assert_eq!(fs::read(&drafts_file).unwrap(), after_other_writer);
+
+        let view_after = body_json(&reveal_state(&f, &mikey, &id));
+        assert_eq!(view_after.to_string(), view_before);
+        assert_eq!(view_after["policy"], "allReady");
+        assert_eq!(slot(&view_after, "Grace")["kind"], "private");
+        assert!(!view_after.to_string().contains("GRACE-SECRET"));
+    }
+
+    #[test]
     fn reveal_routes_without_the_admin_session_or_csrf_do_nothing() {
         let (f, mikey, id) = invitation_fixture("reveal-auth");
         let before = tree_snapshot(&f.dir.join(".openblog/private"));
