@@ -477,11 +477,17 @@ export function portableDiagnosticsForDisplay(diagnostics) {
     : [];
 }
 
+function previewDestinationPolicy(policies, mode) {
+  return Array.isArray(policies)
+    ? policies.find((policy) => policy?.version === 1 && `destination:${policy.provider}` === mode)
+    : null;
+}
+
 export function portablePreviewArtifact(preview, mode) {
   const portable = preview?.portablePreview;
   if (!portable || mode === "site") return null;
   const representation = mode.startsWith("destination:")
-    ? portable.destinations?.find((policy) => `destination:${policy.provider}` === mode)?.representation
+    ? previewDestinationPolicy(portable.destinations, mode)?.representation
     : mode;
   const formats = {
     "portable-html": ["html", "text/html"],
@@ -496,10 +502,7 @@ export function portablePreviewArtifact(preview, mode) {
 
 export function destinationPolicyForDisplay(policies, mode) {
   if (!String(mode).startsWith("destination:")) return [];
-  const provider = String(mode).slice("destination:".length);
-  const policy = Array.isArray(policies)
-    ? policies.find((candidate) => candidate?.provider === provider)
-    : null;
+  const policy = previewDestinationPolicy(policies, mode);
   if (!policy) return ["Destination policy is unavailable; do not publish until the policy can be loaded."];
   return [
     `${policy.label}: ${policy.canonicalBehavior}`,
@@ -508,14 +511,12 @@ export function destinationPolicyForDisplay(policies, mode) {
 }
 
 export function portabilityAcknowledgementScope(policies, mode) {
-  if (mode === "portable-html" || mode === "portable-markdown") {
+  if (mode === "portable-html" || mode === "portable-markdown" || mode === "portable-text") {
     return { destination: "portable-export", representation: mode };
   }
   if (!String(mode).startsWith("destination:")) return null;
   const provider = String(mode).slice("destination:".length);
-  const policy = Array.isArray(policies)
-    ? policies.find((candidate) => candidate?.provider === provider)
-    : null;
+  const policy = previewDestinationPolicy(policies, mode);
   if (!policy) return null;
   return {
     destination: provider,
@@ -5096,7 +5097,7 @@ export class Editor {
     const portable = preview?.portablePreview;
     const destinationMode = mode.startsWith("destination:");
     const destination = destinationMode
-      ? portable?.destinations?.find((policy) => `destination:${policy.provider}` === mode)
+      ? previewDestinationPolicy(portable?.destinations, mode)
       : null;
     if (destinationMode && !destination) {
       this.ui.previewMarkdown.hidden = true;

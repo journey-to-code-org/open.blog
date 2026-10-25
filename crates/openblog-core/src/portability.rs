@@ -30,11 +30,21 @@ pub enum DestinationRepresentation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DestinationPublication {
+    RemoteDraftByDefault,
+    RemoteDraftOnly,
+    ManualImport,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DestinationPolicy {
+    pub version: u8,
     pub provider: SyndicationProvider,
     pub label: &'static str,
     pub representation: DestinationRepresentation,
+    pub publication: DestinationPublication,
     pub canonical_behavior: &'static str,
     pub workflow: &'static str,
 }
@@ -42,37 +52,47 @@ pub struct DestinationPolicy {
 pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
     match provider {
         SyndicationProvider::Dev => DestinationPolicy {
+            version: 1,
             provider: SyndicationProvider::Dev,
             label: "DEV",
             representation: DestinationRepresentation::PortableMarkdown,
+            publication: DestinationPublication::RemoteDraftByDefault,
             canonical_behavior: "The canonical URL is sent to DEV.",
             workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
         },
         SyndicationProvider::Hashnode => DestinationPolicy {
+            version: 1,
             provider: SyndicationProvider::Hashnode,
             label: "Hashnode",
             representation: DestinationRepresentation::PortableMarkdown,
+            publication: DestinationPublication::RemoteDraftOnly,
             canonical_behavior: "The canonical URL is sent to Hashnode.",
-            workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
+            workflow: "Remote drafts only; publish the saved draft in Hashnode. CLI public publishing is unsupported.",
         },
         SyndicationProvider::Ghost => DestinationPolicy {
+            version: 1,
             provider: SyndicationProvider::Ghost,
             label: "Ghost",
             representation: DestinationRepresentation::PortableHtml,
+            publication: DestinationPublication::RemoteDraftByDefault,
             canonical_behavior: "The canonical URL is sent as Ghost's canonical URL.",
             workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
         },
         SyndicationProvider::Wordpress => DestinationPolicy {
+            version: 1,
             provider: SyndicationProvider::Wordpress,
             label: "WordPress",
             representation: DestinationRepresentation::PortableHtml,
+            publication: DestinationPublication::RemoteDraftByDefault,
             canonical_behavior: "WordPress core cannot set an external canonical URL.",
             workflow: "Remote draft by default; verify an SEO plugin before public publishing.",
         },
         SyndicationProvider::Medium => DestinationPolicy {
+            version: 1,
             provider: SyndicationProvider::Medium,
             label: "Medium",
             representation: DestinationRepresentation::ManualMarkdown,
+            publication: DestinationPublication::ManualImport,
             canonical_behavior: "The canonical URL must be checked during Medium import.",
             workflow: "Manual import only; this adapter does not write remotely.",
         },
@@ -1293,6 +1313,26 @@ mod tests {
     use super::*;
     use crate::config::SiteConfig;
     use crate::model::{LoadOptions, Site, SourceFile, Sources};
+
+    #[test]
+    fn versioned_destination_policies_disclose_the_actual_publication_contract() {
+        for policy in destination_policies() {
+            let json = serde_json::to_value(policy).unwrap();
+            assert_eq!(json["version"], 1);
+            match policy.provider {
+                SyndicationProvider::Hashnode => {
+                    assert_eq!(json["publication"], "remote-draft-only");
+                    assert!(policy
+                        .workflow
+                        .contains("CLI public publishing is unsupported"));
+                }
+                SyndicationProvider::Medium => {
+                    assert_eq!(json["publication"], "manual-import");
+                }
+                _ => assert_eq!(json["publication"], "remote-draft-by-default"),
+            }
+        }
+    }
 
     fn public_post(contents: &str) -> (SiteConfig, Site) {
         let config = SiteConfig::from_json(

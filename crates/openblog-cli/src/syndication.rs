@@ -386,7 +386,10 @@ fn validate_plan(
                 "target `{name}` does not permit publishing; set allowPublish to true as a second explicit opt-in"
             ));
         }
-        if publish && !adapter.supports_public_write() {
+        if publish
+            && destination_policy(target.provider).publication
+                == openblog_core::portability::DestinationPublication::RemoteDraftOnly
+        {
             return Err(format!(
                 "target `{name}` uses {}, whose adapter is draft-only; omit --publish and publish the saved draft in {}",
                 adapter.name(), adapter.name()
@@ -1039,9 +1042,6 @@ trait ProviderAdapter {
         credential: &str,
     ) -> Result<Request, String>;
     fn outcome(&self, body: &Json) -> Result<Outcome, String>;
-    fn supports_public_write(&self) -> bool {
-        true
-    }
     fn warning(&self) -> Option<&'static str> {
         None
     }
@@ -1077,13 +1077,6 @@ impl DestinationAdapter<'_> {
         match self {
             Self::Remote(adapter) => adapter.validate(),
             Self::Manual(_) => Ok(()),
-        }
-    }
-
-    fn supports_public_write(&self) -> bool {
-        match self {
-            Self::Remote(adapter) => adapter.supports_public_write(),
-            Self::Manual(_) => true,
         }
     }
 }
@@ -1169,9 +1162,6 @@ impl ProviderAdapter for HashnodeAdapter<'_> {
             &body["data"]["updateDraft"]["draft"]
         };
         outcome_from_fields(self.name(), &draft["id"], &draft["slug"], "")
-    }
-    fn supports_public_write(&self) -> bool {
-        false
     }
 }
 

@@ -68,6 +68,11 @@ openblog syndicate your-post-slug --write
 ```
 
 The private state file records remote IDs, so later writes update instead of duplicating.
+Admin and CLI conversion plans share a version-1 destination policy with a typed publication
+workflow: remote draft by default, remote draft only, or manual import. The CLI uses that
+same policy for the public-write gate; Admin disables destination output and acknowledgements
+for unknown policy versions rather than guessing.
+
 Public publication requires both `--publish` and `allowPublish: true`. Hashnode remains
 draft-only in this iteration. WordPress core cannot portably set an external canonical, so
 the command warns for those targets. See the complete
