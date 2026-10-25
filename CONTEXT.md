@@ -150,6 +150,15 @@ Only the author can give or withdraw it; a site owner or coordinator cannot, and
 never replaces it; the publish gate checks it again at publication (ADR 0022). It is not an electronic signature, and alone it does not assign public credit.
 _Avoid_: Publication, Work credit, timeless consent
 
+**Synthesis item**:
+An optional statement the authors of a shared reflection make together: an agreement, difference,
+question, application or uncertainty, written as untrusted Markdown and attributed in order to one,
+some or all authors. No kind is required, an empty synthesis is complete, and disagreement is never
+an error. An author can add attributions but removes only their own name (withdrawal). Approval binds
+to the exact items, order and attribution, and the set stays private until a later step publishes it
+(ADR 0036).
+_Avoid_: Consensus, summary, comment
+
 **Combined preview**:
 The side-effect-free review of the whole piece an author sees before approving: every author's
 section in order at its exact latest revision (an author who wrote nothing has no section and
