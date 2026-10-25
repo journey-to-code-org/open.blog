@@ -45,10 +45,6 @@ const PRIVATE: &[&str] = &[
     "/home/",
 ];
 
-fn record() -> SharedPublication {
-    record_titled("Noticing, together")
-}
-
 fn record_titled(title: &str) -> SharedPublication {
     let mut record = SharedPublication::create(&NewSharedPublication {
         publication_id: "shared-0a1b2c3d4e5f".into(),
