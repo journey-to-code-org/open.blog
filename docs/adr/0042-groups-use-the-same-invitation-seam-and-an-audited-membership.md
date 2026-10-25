@@ -25,7 +25,12 @@ Records gain an optional `audit` list, absent when empty, so no stored record ne
 Each entry has an increasing sequence number, a time, the acting participant, an event (invited,
 invitationRevoked, joined, rolesChanged, removed), the subject participant or invitation ID, and
 the roles before and after. Entries never hold a token, account name, contributor key, display
-name, or prose. At 500 entries the oldest is dropped. Site owners and coordinators (the `Invite`
+name, or prose. At 500 entries the oldest is dropped. Sequence numbers are never reused, so a
+gap in `seq` (an oldest kept entry above 1) shows that entries were dropped; readers must not
+treat the trail as complete history. Submitting the roles a member already holds, in any order,
+is a no-op: no entry and no new revision, so nobody can write false entries by resubmitting
+someone else's roles. Eviction remains possible through real changes, which are each recorded
+against the person who made them. Site owners and coordinators (the `Invite`
 grant) read it, newest first, in the member list response; everyone else gets the same 404 as
 for the member list. The record is private, so nothing reaches public output.
 

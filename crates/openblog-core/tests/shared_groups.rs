@@ -217,17 +217,79 @@ fn concurrent_invitations_for_one_identity_cannot_both_land() {
             .err(),
         Some(InvitationError::Unavailable)
     );
-    // Two changes built from the same loaded record both advance to the same revision, so the
-    // storage layer's revision check lets only the first write land.
-    let (other, _) = base
-        .invite(
+    // Two invitations built on the same loaded record are serialized by the store, which compares
+    // the whole stored record; the Admin API test for invitations covers that refusal.
+}
+
+#[test]
+fn an_unchanged_role_set_is_a_no_op_that_records_nothing() {
+    let record = group();
+    let ada = id_of(&record, "ada-admin");
+    let grace = id_of(&record, "grace-admin");
+    let revision = record.authorization.revision;
+    // A coordinator resubmitting the owner's roles (in any order) changes nothing and writes no
+    // entry, however often, so the trail can neither be filled with false entries nor have its
+    // history evicted.
+    let owner_roles = [Contributor, SiteOwner];
+    let mut current = record.clone();
+    for _ in 0..3 {
+        current = current
+            .change_member_roles(
+                "linus-admin",
+                &identities(),
+                &ada,
+                &owner_roles,
+                revision,
+                NOW,
+            )
+            .unwrap();
+    }
+    assert_eq!(current, record);
+    // The same holds for a multi-role set submitted in another order.
+    let both = record
+        .change_member_roles(
             "ada-admin",
             &identities(),
-            &new_invitation("kay-admin", "kay", &[Reader], 'd'),
+            &grace,
+            &[Contributor, Editor],
+            revision,
             NOW,
         )
         .unwrap();
-    assert_eq!(other.audit.len(), with_first.audit.len());
+    let reordered = both
+        .change_member_roles(
+            "ada-admin",
+            &identities(),
+            &grace,
+            &[Editor, Contributor],
+            both.authorization.revision,
+            NOW + 1,
+        )
+        .unwrap();
+    assert_eq!(reordered, both);
+    // A no-op is still guarded: a stale revision or an outsider is refused as before.
+    assert_eq!(
+        both.change_member_roles(
+            "linus-admin",
+            &identities(),
+            &ada,
+            &owner_roles,
+            revision,
+            NOW
+        ),
+        Err(MemberError::Stale)
+    );
+    assert_eq!(
+        record.change_member_roles(
+            "kay-admin",
+            &identities(),
+            &ada,
+            &owner_roles,
+            revision,
+            NOW
+        ),
+        Err(MemberError::Denied)
+    );
 }
 
 #[test]

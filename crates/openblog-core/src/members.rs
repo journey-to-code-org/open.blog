@@ -246,6 +246,20 @@ impl SharedPublication {
         {
             return Err(MemberError::Roles);
         }
+        // Submitting the roles a member already holds, in any order, changes nothing: no audit
+        // entry and no new revision. Policy replacement lets anyone who manages members resubmit
+        // unchanged bindings, so recording these would let a coordinator write false entries
+        // about the owner and push real history out of the bounded trail.
+        let current = self
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.participant_id == participant_id)
+            .map(|binding| binding.roles.as_slice())
+            .unwrap_or_default();
+        if current.len() == roles.len() && roles.iter().all(|role| current.contains(role)) {
+            return Ok(self.clone());
+        }
         let mut next = self.clone();
         next.authorization.revision = expected_revision.saturating_add(1);
         let binding = next
