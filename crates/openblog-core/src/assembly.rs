@@ -19,6 +19,7 @@ use crate::shared_source::{
     SharedAttribution, QUESTION_KEY, SOURCE_KIND_KEY, SOURCE_TITLE_KEY, SOURCE_URL_KEY,
 };
 use crate::slug;
+use crate::synthesis::SynthesisSet;
 
 pub const OUTCOME_VERSION: u8 = 1;
 pub const MAX_OUTCOME_BYTES: usize = 2 * 1024;
@@ -58,11 +59,14 @@ pub fn post_path(record: &SharedPublication) -> String {
 }
 
 /// Run `ask` against the approval subject for the active authors as the content is now. This is
-/// the one place the subject is built from the record and drafts, so the approval binding a
-/// preview hands out and the one the gate checks cannot drift apart.
+/// the one place the subject is built from the record, drafts and synthesis, so the approval
+/// binding a preview hands out, the one the gate checks and the one a route stores cannot drift
+/// apart. The synthesis contributes its prose-free binding frame (items, order, attribution) and
+/// its attributed authors, each of whom must approve the piece (ADR 0036, 0037).
 pub fn with_subject<R>(
     record: &SharedPublication,
     drafts: &DraftSet,
+    synthesis: &SynthesisSet,
     active: &[&str],
     ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
 ) -> R {
@@ -90,44 +94,75 @@ pub fn with_subject<R>(
             })
         })
         .collect();
-    let metadata = public_metadata(record);
+    let mut metadata = public_metadata(record);
+    metadata.extend(synthesis.binding_frame());
     let metadata: Vec<&str> = metadata.iter().map(String::as_str).collect();
+    let attributed = synthesis.attributed_authors();
     ask(&ApprovalSubject {
         authors: &authors,
         sections: &sections,
         metadata: &metadata,
-        attributed: &[],
+        attributed: &attributed,
     })
+}
+
+/// Display names for participant ids, in the order given; unknown ids are skipped.
+pub fn display_names<'a>(
+    record: &SharedPublication,
+    ids: impl IntoIterator<Item = &'a str>,
+) -> Vec<String> {
+    ids.into_iter()
+        .filter_map(|id| {
+            record
+                .collaboration
+                .participants
+                .iter()
+                .find(|participant| participant.id == id)
+        })
+        .map(|participant| participant.display_name.clone())
+        .collect()
+}
+
+/// Authors who still owe approval of at least one item they are named on, in first-appearance
+/// order. Empty when every item is fully approved (or there are none).
+pub fn unapproved_item_authors(synthesis: &SynthesisSet) -> Vec<String> {
+    let mut awaited: Vec<String> = Vec::new();
+    for status in synthesis.all_item_statuses() {
+        for author in status.awaiting {
+            if !awaited.contains(&author) {
+                awaited.push(author);
+            }
+        }
+    }
+    awaited
 }
 
 /// Build the Post for `record` dated `date` (RFC 3339), or say why not. Pure.
 pub fn assemble(
     record: &SharedPublication,
     drafts: &DraftSet,
+    synthesis: &SynthesisSet,
     approvals: &ApprovalSet,
     active: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
-    match with_subject(record, drafts, active, |subject| {
+    match with_subject(record, drafts, synthesis, active, |subject| {
         approvals.evaluate(subject)
     }) {
         Ok(Readiness::Ready) => {}
         Ok(Readiness::Blocked { missing }) => {
             return Err(AssemblyError::Blocked {
-                missing: missing
-                    .iter()
-                    .filter_map(|id| {
-                        record
-                            .collaboration
-                            .participants
-                            .iter()
-                            .find(|participant| &participant.id == id)
-                    })
-                    .map(|participant| participant.display_name.clone())
-                    .collect(),
+                missing: display_names(record, missing.iter().map(String::as_str)),
             })
         }
         Err(_) => return Err(AssemblyError::Invalid),
+    }
+    // Shared prose publishes only with every named author's approval of that exact item.
+    let awaited = unapproved_item_authors(synthesis);
+    if !awaited.is_empty() {
+        return Err(AssemblyError::Blocked {
+            missing: display_names(record, awaited.iter().map(String::as_str)),
+        });
     }
     let title = record
         .title

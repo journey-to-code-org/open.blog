@@ -27,6 +27,7 @@ fn build_with(
     openblog_core::preview::build(
         record,
         set,
+        &openblog_core::synthesis::SynthesisSet::new(),
         approvals,
         requester,
         active,

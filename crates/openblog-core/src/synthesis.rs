@@ -316,6 +316,12 @@ impl SynthesisSet {
         self.items.is_empty()
     }
 
+    /// The items in publication order, for callers that have already authorized an author (the
+    /// preview and the publish gate). Never hand this to a request that has not.
+    pub fn items(&self) -> &[SynthesisItem] {
+        &self.items
+    }
+
     /// The items in publication order, for an author only. Anyone else gets `Denied`.
     pub fn view(
         &self,
@@ -505,6 +511,12 @@ impl SynthesisSet {
     ) -> Result<Vec<ItemApprovalStatus>, SynthesisError> {
         check_author(requester, authors)?;
         Ok(self.items.iter().map(SynthesisItem::status).collect())
+    }
+
+    /// Approval status of every item in publication order, for the gate and for server-side
+    /// summaries that have already authorized their audience. Carries no prose.
+    pub fn all_item_statuses(&self) -> Vec<ItemApprovalStatus> {
+        self.items.iter().map(SynthesisItem::status).collect()
     }
 
     /// Every author named on any item, in first-appearance order. Whatever the approval policy,
