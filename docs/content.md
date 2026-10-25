@@ -287,10 +287,41 @@ document.querySelector("#reveal").onclick = () => { document.body.textContent = 
 ````
 
 The preview runs locally in an opaque-origin iframe. Its content-security policy blocks external
-resources, network APIs, forms, frames, plugins, fonts, and navigation bases, while the iframe
-sandbox prevents access to the host page. Browser sandboxes still let authored code navigate its own
-preview, so never enter secrets there. No source is uploaded or persisted by open.blog. These are
-dependency-free single-document lessons, not package-manager or multi-file projects.
+resources, network APIs, form submission, frames, plugins, fonts, and navigation bases, while the
+iframe sandbox prevents access to the host page. Browser sandboxes still let authored code navigate
+its own preview, so never enter secrets there. No source is uploaded or persisted by open.blog.
+
+Inside that boundary, ordinary lesson code works:
+
+- `console.log`, warnings, errors, uncaught exceptions, and anything the sandbox blocks appear in a
+  **Console** panel under the preview.
+- Forms fire their `submit` event (call `preventDefault()` as usual; real submission stays blocked),
+  and `alert`, `confirm`, and `prompt` work.
+- `localStorage` and `sessionStorage` work in memory for the life of the preview.
+- `eval`, WebAssembly, blob workers, and `AudioWorklet` modules the lesson creates itself all run.
+
+Add options after `web runnable` when a lesson needs more:
+
+| Option | Effect |
+| --- | --- |
+| `module` | Runs the JavaScript as an ES module, for `import`/`export` syntax or top-level `await`. There is nothing to import from, so keep the lesson in one file. |
+| `network` | Lets the lesson `fetch` HTTPS APIs. Readers see that the preview may contact external services. |
+| `images` | Lets the lesson show HTTPS images. Readers see that the preview may load external images. |
+| `libs=react` | Loads site-hosted libraries listed under `webSandbox.libraries` in `openblog.json` (see [Configuration](configuration.md#web-sandbox)) before the lesson, for example React's UMD build as the global `React`. Separate several names with commas. |
+
+````markdown
+```web runnable network libs=react title="Load a user"
+---html
+<div id="root"></div>
+---js
+fetch("https://jsonplaceholder.typicode.com/users/1")
+  .then((response) => response.json())
+  .then((user) => ReactDOM.render(React.createElement("h2", null, user.name), document.getElementById("root")));
+```
+````
+
+`openblog check` reports a `libs=` name that is not configured. See the
+[web sandbox capabilities specification](specs/web-sandbox-capabilities.md) for the exact policy.
 
 #### Runnable Rust examples
 

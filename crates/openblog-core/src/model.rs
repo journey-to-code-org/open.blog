@@ -335,6 +335,7 @@ impl Site {
                     languages: &config.code_runner.languages,
                 },
             ),
+            web_libraries: Some(&config.web_sandbox.libraries),
         };
         let credit_sidecars = associate_credit_sidecars(&sources);
         errors.extend(credit_sidecars.errors.iter().cloned());
