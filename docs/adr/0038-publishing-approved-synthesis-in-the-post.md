@@ -39,7 +39,7 @@ Post carried none of them. ADR 0023 settled that a shared reflection has no proj
 - Feeds: because the synthesis is body Markdown, it reaches full-content RSS and JSON Feed,
   portable HTML/Markdown/text, `llms` files and the search index. Tests check these for internal
   ids, approver wording and withdrawn or stale text. Summary-only feeds carry only the ordinary
-  excerpt, which can begin with body text. Dedicated portable fallbacks are #181.
+  excerpt, which can begin with body text. Portable output is settled in ADR 0040, and the item and anchor rules in ADR 0039.
 - Labels are English constants in the core. Item prose and names publish in any script.
 
 ## Consequences

@@ -46,6 +46,18 @@ pub struct Rendered {
     pub recipe_ingredients: Vec<String>,
     pub recipe_steps: Vec<String>,
     pub recipe_anchor: Option<String>,
+    /// Byte offset in `text` where the generated "Continuing the conversation" heading begins,
+    /// when the body has one. Summaries stop there (ADR 0039).
+    pub conversation_text_start: Option<usize>,
+}
+
+impl Rendered {
+    /// The body text a summary or excerpt may draw on: everything before the generated
+    /// conversation block, so a short piece's automatic summary never runs into attribution
+    /// headings and unfinished item prose.
+    pub fn lead_text(&self) -> &str {
+        self.text[..self.conversation_text_start.unwrap_or(self.text.len())].trim_end()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1734,6 +1746,8 @@ fn render_events<'a>(
 
     let mut in_code_block = false;
     let mut heading: Option<(HeadingLevel, usize, String)> = None;
+    let mut conversation_text_start: Option<usize> = None;
+    let mut heading_text_start = 0usize;
 
     for event in parsed_events {
         match &event {
@@ -1755,6 +1769,7 @@ fn render_events<'a>(
             }
             Event::Start(Tag::Heading { level, .. }) => {
                 heading = Some((*level, events.len(), String::new()));
+                heading_text_start = text.len();
             }
             Event::Text(t) | Event::Code(t) => {
                 if let Some((_, _, buf)) = heading.as_mut() {
@@ -1784,6 +1799,10 @@ fn render_events<'a>(
                     _ => "section".to_string(),
                 };
                 let level_num = heading_level(level);
+                if conversation_text_start.is_none() && id == crate::synthesis::CONVERSATION_ANCHOR
+                {
+                    conversation_text_start = Some(heading_text_start);
+                }
                 if options.heading_anchors && level_num >= 2 {
                     let href = portable
                         .map(|context| canonical_fragment(context.canonical_url, &id))
@@ -1847,6 +1866,7 @@ fn render_events<'a>(
         recipe_ingredients: blocks.ingredients,
         recipe_steps: blocks.steps,
         recipe_anchor: blocks.recipe_anchor,
+        conversation_text_start,
     }
 }
 

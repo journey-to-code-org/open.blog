@@ -169,7 +169,9 @@ The published section of a shared reflection holding its approved synthesis item
 (shared takeaways, where we differ, questions, ways to apply, what we are unsure about), each item
 headed "Speaking for" the authors it names and anchored by kind and ordinal. It is ordinary Post
 Markdown, so it reaches the page, feeds and exports with the rest; it has no heading when nothing
-is approved, and it never signals consensus or lists approvers (ADR 0038).
+is approved, and it never signals consensus or lists approvers (ADR 0038). Its anchors are
+reserved and item headings start at level five (ADR 0039). Portable output carries it with
+attribution and stable anchors; summaries stop before it and summary-only feeds omit it (ADR 0040).
 _Avoid_: Summary, consensus, comments
 
 **Combined preview**:

@@ -11,7 +11,7 @@ use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
     Participant, SharedPublication, SourceKind,
 };
-use openblog_core::config::SiteConfig;
+use openblog_core::config::{SiteConfig, SyndicationProvider};
 use openblog_core::contributor::Contributor;
 use openblog_core::draft::DraftSet;
 use openblog_core::feeds;
@@ -192,8 +192,12 @@ impl Fixture {
 }
 
 fn site(made: &Assembly) -> Site {
+    site_with(made, config())
+}
+
+fn site_with(made: &Assembly, config: SiteConfig) -> Site {
     Site::load(
-        config(),
+        config,
         Sources {
             posts: vec![SourceFile {
                 path: made.path.clone(),
@@ -873,4 +877,249 @@ h4",
             assert!(!selector.contains(prose), "print hides `{selector}`");
         }
     }
+}
+
+/// The semantic facts every full representation must carry, in this order.
+const FACTS: [&str; 12] = [
+    "Continuing the conversation",
+    "Shared takeaways",
+    "Speaking for Ann Ames, Bo <Bee> & *Co*, Cy Cole",
+    "We all slowed down.",
+    "Where we differ",
+    "Ann leans toward the light.",
+    "Bo leans toward the sound.",
+    "Questions we are left with",
+    "Would silence change it?",
+    "What we are still unsure about",
+    "Speaking for Cy Cole",
+    "We cannot tell whether the rain mattered.",
+];
+
+/// Fields that must never be in any output: ids, approval state and tokens, and the drafting
+/// history around the items.
+const PRIVATE: &[&str] = &[
+    "syn-",
+    "ann-admin",
+    "bo-admin",
+    "cy-admin",
+    "shared-0a1b2c3d4e5f",
+    "approv",
+    "awaiting",
+    "digest",
+    "revision",
+    "nextid",
+    "token",
+    "private",
+];
+
+fn assert_in_order(label: &str, output: &str, needles: &[&str]) {
+    let mut from = 0;
+    for needle in needles {
+        let at = output[from..]
+            .find(needle)
+            .unwrap_or_else(|| panic!("{label} lost or reordered `{needle}`"));
+        from += at + needle.len();
+    }
+}
+
+fn assert_private_free(label: &str, output: &str) {
+    let lower = output.to_ascii_lowercase();
+    for needle in PRIVATE {
+        assert!(!lower.contains(needle), "{label} leaked `{needle}`");
+    }
+}
+
+/// Undo the escaping and markup each format adds, leaving the words.
+fn plain(output: &str) -> String {
+    let mut text = output
+        .replace("<strong>", "")
+        .replace("</strong>", "")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("**", "");
+    for escaped in ["<", ">", "&", "*"] {
+        text = text.replace(&format!("\\{escaped}"), escaped);
+    }
+    text
+}
+
+#[test]
+fn every_portable_format_keeps_categories_attribution_order_and_open_questions() {
+    let mut f = mixed();
+    // Private negotiation around the items: a withdrawn item leaves no trace.
+    let gone = f.add(
+        SynthesisKind::Difference,
+        "cy",
+        "PRIVATE withdrawn thought.",
+        &[],
+    );
+    let revision = f.synthesis.revision();
+    f.synthesis.withdraw("cy", &ALL, revision, &gone).unwrap();
+    let made = f.published();
+    let site = site(&made);
+    let projection = PortableProjection::from_post(&site.posts[0], &site.config).unwrap();
+    let html = projection.portable_html().unwrap();
+    let markdown = projection.portable_markdown().unwrap();
+    let text = projection.portable_text().unwrap();
+    let canonical = "https://example.test/noticing-together/";
+    for (label, output) in [
+        ("html", &html.html),
+        ("markdown", &markdown),
+        ("text", &text),
+    ] {
+        let words = plain(output);
+        let facts: Vec<&str> = if label == "html" {
+            // The HTML marks the rain emphasis up, so compare the plain words.
+            FACTS.to_vec()
+        } else {
+            FACTS.to_vec()
+        };
+        let words = words.replace("<em>", "").replace("</em>", "");
+        assert_in_order(label, &words, &facts);
+        assert_private_free(label, output);
+        assert!(
+            output.contains(canonical),
+            "{label} lost the canonical link"
+        );
+        assert!(!output.contains("withdrawn thought"), "{label}");
+        assert!(!output.contains("Ways to apply"), "{label}");
+    }
+    // Stable anchors survive where the format has them, and link to the canonical page.
+    for id in [
+        "continuing-the-conversation",
+        "conversation-agreement",
+        "conversation-agreement-1",
+        "conversation-difference-2",
+        "conversation-question-1",
+        "conversation-uncertainty-1",
+    ] {
+        assert!(html.html.contains(&format!("id=\"{id}\"")), "html id {id}");
+        assert!(
+            html.html.contains(&format!("{canonical}#{id}")),
+            "html link {id}"
+        );
+        assert!(markdown.contains(&format!("{{#{id}}}")), "markdown id {id}");
+    }
+    // Plain prose loses no presentation, so there is nothing to diagnose.
+    assert!(html.diagnostics.is_empty(), "{:?}", html.diagnostics);
+}
+
+#[test]
+fn feeds_and_llms_carry_the_conversation_and_summary_only_feeds_stop_before_it() {
+    let mut f = mixed();
+    let made = f.published();
+    let full = site(&made);
+    let rss = feeds::rss(&full).unwrap();
+    let json = feeds::json_feed(&full).unwrap();
+    let llms = feeds::llms_full(&full).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let item = &value["items"][0];
+    let content_text = item["content_text"].as_str().unwrap();
+    let content_html = item["content_html"].as_str().unwrap();
+    for (label, output) in [
+        ("rss", rss.as_str()),
+        ("json html", content_html),
+        ("json text", content_text),
+        ("llms-full", llms.as_str()),
+    ] {
+        assert!(output.contains("Where we differ"), "{label}");
+        assert!(output.contains("Bo leans toward the sound."), "{label}");
+        assert!(output.contains("Would silence change it?"), "{label}");
+        assert_private_free(label, output);
+    }
+    assert!(
+        content_html.contains("https://example.test/noticing-together/#conversation-difference")
+    );
+    // The automatic summary stops before the generated block, in every feed.
+    assert_eq!(item["summary"], "Ann words. Bo words. Cy words.");
+    assert!(rss.contains("<description>Ann words. Bo words. Cy words.</description>"));
+    // A summary-only feed exports no body, so none of the conversation: only the summary,
+    // the title and the canonical link.
+    let summary_only = site_with(&made, config_with_full_content(false));
+    let rss = feeds::rss(&summary_only).unwrap();
+    let json = feeds::json_feed(&summary_only).unwrap();
+    let index = feeds::llms_index(&summary_only).unwrap();
+    for (label, output) in [("rss", &rss), ("json", &json), ("llms index", &index)] {
+        for hidden in [
+            "Where we differ",
+            "Speaking for",
+            "slowed down",
+            "Continuing the conversation",
+        ] {
+            assert!(!output.contains(hidden), "{label} exported `{hidden}`");
+        }
+        assert!(
+            output.contains("https://example.test/noticing-together/"),
+            "{label}"
+        );
+        assert_private_free(label, output);
+    }
+}
+
+#[test]
+fn a_long_piece_summary_never_runs_into_the_generated_block() {
+    let mut f = Fixture::new();
+    f.add(SynthesisKind::Agreement, "ann", "We agree.", &["bo", "cy"]);
+    let long = "word ".repeat(60);
+    f.drafts.save("ann", "ann", 1, long.trim(), T).unwrap();
+    let made = f.published();
+    let site = site(&made);
+    assert!(!site.posts[0].description.contains("Speaking"));
+    assert!(!site.posts[0].description.contains("conversation"));
+    // The body text (search, llms) still has it.
+    assert!(site.posts[0].text.contains("We agree."));
+}
+
+#[test]
+fn destination_plans_report_only_presentation_and_never_conversation_text() {
+    let mut f = Fixture::new();
+    f.add(
+        SynthesisKind::Agreement,
+        "ann",
+        "A table:\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n![a chart](https://example.org/chart.png)",
+        &["bo", "cy"],
+    );
+    f.add(SynthesisKind::Question, "bo", "Why? SECRET-ITEM-TEXT", &[]);
+    let made = f.published();
+    let site = site(&made);
+    let projection = PortableProjection::from_post(&site.posts[0], &site.config).unwrap();
+    let output = projection.portable_html().unwrap();
+    for provider in [
+        SyndicationProvider::Dev,
+        SyndicationProvider::Hashnode,
+        SyndicationProvider::Ghost,
+        SyndicationProvider::Wordpress,
+        SyndicationProvider::Medium,
+    ] {
+        let plan = openblog_core::portability::destination_content_plan(
+            provider,
+            "posts/example.md",
+            &output,
+        );
+        assert!(plan.validate().is_ok(), "{provider:?}");
+        let rendered = serde_json::to_string(&plan).unwrap();
+        for hidden in ["SECRET-ITEM-TEXT", "Speaking for", "Ann Ames"] {
+            assert!(
+                !rendered.contains(hidden),
+                "{provider:?} plan echoed `{hidden}`"
+            );
+        }
+        // The policy text legitimately says "CLI approval"; nothing else may mention approval.
+        assert_private_free(
+            &format!("{provider:?} plan"),
+            &rendered.replace("explicit CLI approval", ""),
+        );
+        for diagnostic in &plan.diagnostics {
+            assert!(
+                diagnostic.code.starts_with("destination-"),
+                "{}",
+                diagnostic.code
+            );
+        }
+    }
+    // The hosted image and the table in an item are kept as written.
+    let markdown = projection.portable_markdown().unwrap();
+    assert!(markdown.contains("![a chart](https://example.org/chart.png)"));
+    assert!(markdown.contains("| a | b |"));
 }

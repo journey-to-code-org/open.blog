@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- The continuing conversation travels with the piece. Full-content RSS, JSON Feed, portable
+  HTML, Markdown and text, and llms files keep its categories, attribution, order, open questions
+  and stable anchors with a canonical link, and carry no drafting or approval state. An automatic
+  summary or excerpt now stops before the conversation, and summary-only feeds export none of it.
+- Fixed: the continuing conversation's generated anchors can no longer be claimed by an author's
+  own heading, and an item's headings must start at level five and not skip a level. Item saves
+  now refuse these (and any heading above level five) up front, and a publish refusal caused by an
+  item names the item and the rule instead of blaming a section.
 - A published shared reflection now ends with a "Continuing the conversation" section holding its
   approved agreements, differences, questions, applications and uncertainties. Items are grouped by
   kind, each headed "Speaking for" the authors it names, with stable anchors and no consensus signal.
