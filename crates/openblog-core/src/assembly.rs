@@ -202,7 +202,7 @@ const CATEGORIES: [(SynthesisKind, &str, &str); 5] = [
 
 /// Backslash-escape every ASCII punctuation character, which CommonMark always reads as a literal.
 /// A display name is a participant's text and must not become Markdown or HTML.
-fn escape_markdown(text: &str) -> String {
+pub(crate) fn escape_markdown(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         if c.is_ascii_punctuation() {

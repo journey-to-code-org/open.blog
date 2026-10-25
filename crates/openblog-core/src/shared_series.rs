@@ -7,7 +7,10 @@
 //! the private record is the reference itself, which is public output and therefore part of what
 //! every author approves (ADR 0020).
 
-use crate::collaboration::{valid_text, SharedPublication};
+use crate::collaboration::{
+    valid_text, AuthorizationAction, AuthorizationTarget, SharedPublication,
+};
+use crate::model::Site;
 use crate::slug;
 
 /// Front matter keys, identical to the ones an ordinary Post uses.
@@ -105,4 +108,213 @@ impl SharedPublication {
         record.series = placement;
         Ok(record)
     }
+
+    /// Set, change or remove the placement as `admin_user`, against the placement revision they
+    /// read (ADR 0037). Only a holder of [`AuthorizationAction::PlaceInSeries`] may do it. A
+    /// request that changes nothing returns the record unchanged, with the same revision. The
+    /// caller stores the result and reconciles approvals in the same write (ADR 0036).
+    pub fn place_in_series(
+        &self,
+        admin_user: &str,
+        identities: &crate::invitation::Identities<'_>,
+        placement: Option<SeriesPlacement>,
+        expected_revision: u64,
+    ) -> Result<Self, PlacementError> {
+        self.authorize(
+            admin_user,
+            identities,
+            AuthorizationAction::PlaceInSeries,
+            AuthorizationTarget::Publication,
+        )
+        .map_err(|_| PlacementError::Denied)?;
+        if self.series_revision != expected_revision {
+            return Err(PlacementError::Stale);
+        }
+        if placement == self.series {
+            return Ok(self.clone());
+        }
+        let mut next = self
+            .with_series(placement)
+            .map_err(PlacementError::Invalid)?;
+        next.series_revision = self
+            .series_revision
+            .checked_add(1)
+            .ok_or(PlacementError::Stale)?;
+        Ok(next)
+    }
+}
+
+pub(crate) fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+/// Why a placement change was refused (ADR 0037). None of them repeats a value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlacementError {
+    /// The requester may not arrange this publication. Callers answer it exactly as they answer
+    /// an unknown publication.
+    Denied,
+    /// The placement changed since the requester read it.
+    Stale,
+    Invalid(SeriesError),
+}
+
+/// One existing series a coordinator can choose, from the public site only.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesChoice {
+    pub slug: String,
+    pub name: String,
+    /// Published parts. Drafts, scheduled posts and unpublished shared publications are not in
+    /// the public site this is read from, so they are never counted.
+    pub parts: usize,
+    /// Whether the site has a `content/series/<slug>.md` for it.
+    pub defined: bool,
+}
+
+/// The series readers of `site` can see, in the site's own listing order.
+pub fn series_choices(site: &Site) -> Vec<SeriesChoice> {
+    site.series
+        .iter()
+        .map(|series| SeriesChoice {
+            slug: series.slug.clone(),
+            name: series.name.clone(),
+            parts: series.posts.len(),
+            defined: series.source.is_some(),
+        })
+        .collect()
+}
+
+/// One part in a previewed reading order.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewPart {
+    /// A published part's title and address; absent for this publication, which has neither yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    pub order: Option<u32>,
+    pub this_publication: bool,
+}
+
+/// Where a placement would put this publication in its series, read from the public site.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesOrderPreview {
+    pub slug: String,
+    pub name: String,
+    pub defined: bool,
+    /// The site owner's plain-text description, empty when there is none.
+    pub description: String,
+    pub parts: Vec<PreviewPart>,
+}
+
+/// The reading order `placement` would produce, by the ordering the site already applies:
+/// explicit positions first (ties by date), then unordered parts by date. This publication is not
+/// published yet, so it is placed as the newest part. `include_self` is false once it has been
+/// published and is already one of the site's posts.
+pub fn order_preview(
+    site: &Site,
+    placement: &SeriesPlacement,
+    include_self: bool,
+) -> SeriesOrderPreview {
+    let slug = slug::slugify(&placement.series);
+    let existing = site.series_by_slug(&slug);
+    let mut parts: Vec<PreviewPart> = existing
+        .map(|series| {
+            series
+                .posts
+                .iter()
+                .map(|&index| {
+                    let post = &site.posts[index];
+                    PreviewPart {
+                        title: Some(post.title.clone()),
+                        url: Some(post.url.clone()),
+                        order: post.series_order,
+                        this_publication: false,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if include_self {
+        let position = match placement.order {
+            Some(order) => parts
+                .iter()
+                .take_while(|part| part.order.is_some_and(|other| other <= order))
+                .count(),
+            None => parts.len(),
+        };
+        parts.insert(
+            position,
+            PreviewPart {
+                title: None,
+                url: None,
+                order: placement.order,
+                this_publication: true,
+            },
+        );
+    }
+    SeriesOrderPreview {
+        name: existing
+            .map(|series| series.name.clone())
+            .unwrap_or_else(|| crate::model::humanize(&slug)),
+        defined: existing.is_some_and(|series| series.source.is_some()),
+        description: existing
+            .map(|series| series.description_text.clone())
+            .unwrap_or_default(),
+        slug,
+        parts,
+    }
+}
+
+pub const MAX_SERIES_PREMISE_BYTES: usize = 500;
+
+/// Why a new series definition was refused. It never repeats a value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefinitionError {
+    Title(SeriesError),
+    /// Over-long, multi-line, or made of control or direction characters.
+    Premise,
+}
+
+/// A new `content/series/<slug>.md`, written by a site owner (ADR 0037).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeriesDefinition {
+    pub slug: String,
+    /// The content-relative path, `series/<slug>.md`.
+    pub path: String,
+    pub source: String,
+}
+
+/// The series file for `title` and an optional one-line recurring premise. The title is checked
+/// like a placement reference, so a placement with the same title addresses this file. The
+/// premise becomes the `description` and, with every ASCII punctuation character escaped, the
+/// page's prose, so it reads exactly as written and never becomes markup.
+pub fn series_definition(title: &str, premise: &str) -> Result<SeriesDefinition, DefinitionError> {
+    let title = SeriesPlacement::new(title, None).map_err(DefinitionError::Title)?;
+    let premise = premise.trim();
+    if !premise.is_empty() && !valid_text(premise, MAX_SERIES_PREMISE_BYTES) {
+        return Err(DefinitionError::Premise);
+    }
+    let slug = slug::slugify(&title.series);
+    let mut fields = std::collections::BTreeMap::new();
+    fields.insert(
+        "name".to_string(),
+        crate::frontmatter::Value::Scalar(title.series.clone()),
+    );
+    let mut body = String::new();
+    if !premise.is_empty() {
+        fields.insert(
+            "description".to_string(),
+            crate::frontmatter::Value::Scalar(premise.to_string()),
+        );
+        body = crate::assembly::escape_markdown(premise);
+    }
+    Ok(SeriesDefinition {
+        path: format!("series/{slug}.md"),
+        source: crate::frontmatter::compose(&fields, &body),
+        slug,
+    })
 }

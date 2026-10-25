@@ -171,6 +171,14 @@ pub enum AuthorizationAction {
     /// Export the published projection, never private collaboration state. Targets the
     /// publication.
     Export,
+    /// Set, change or remove the publication's series placement (ADR 0036, ADR 0037). Targets
+    /// the publication. An arrangement decision, so Site owners and Coordinators hold it and
+    /// participants do not; authors consent to the placement through approval.
+    PlaceInSeries,
+    /// Create a new series definition (`content/series/<slug>.md`: name and premise) from this
+    /// publication's Admin view. Targets the publication. Series are site-owned, so only Site
+    /// owners hold it (ADR 0037).
+    CreateSeries,
 }
 
 /// What a request acts on. Participant and contribution IDs come from the request and resolve
@@ -242,7 +250,7 @@ impl AuthorizationAction {
         use AuthorizationAction::*;
         match self {
             ViewPublication | ViewPublished | Invite | SetRevealPolicy | Schedule | Publish
-            | Export => TargetKind::Publication,
+            | Export | PlaceInSeries | CreateSeries => TargetKind::Publication,
             ApproveContribution | EditDraft | EditSynthesis | RemoveMember | ManageRoles => {
                 TargetKind::Participant
             }
@@ -546,7 +554,12 @@ fn role_allows(
                 ..
             },
         ) => *revealed_to_requester,
-        (SiteOwner | Coordinator, Invite | SetRevealPolicy | Schedule | Publish, _) => true,
+        (
+            SiteOwner | Coordinator,
+            Invite | SetRevealPolicy | Schedule | Publish | PlaceInSeries,
+            _,
+        ) => true,
+        (SiteOwner, CreateSeries, _) => true,
         (
             SiteOwner,
             RemoveMember,
@@ -727,6 +740,10 @@ pub struct SharedPublication {
     /// The ordinary series this publication joins (ADR 0036). Absent for every legacy record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub series: Option<crate::shared_series::SeriesPlacement>,
+    /// Counts placement changes, so a change made against an older read is refused (ADR 0037).
+    /// Zero, and absent from the file, until the first change.
+    #[serde(default, skip_serializing_if = "crate::shared_series::is_zero")]
+    pub series_revision: u64,
 }
 
 /// Author-entered attribution for material that prompted a shared publication. It is not a
@@ -982,6 +999,7 @@ impl SharedPublication {
             },
             invitations: Vec::new(),
             series: None,
+            series_revision: 0,
         };
         record.validate()?;
         Ok(record)
