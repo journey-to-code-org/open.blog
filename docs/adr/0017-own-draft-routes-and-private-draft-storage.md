@@ -33,6 +33,11 @@ left the edit route deny-by-default. Draft ids are not contract contributions, s
 - A draft file that is malformed, oversized, a symlink or a directory is an error. It is never
   treated as empty and never replaced, so a bad file cannot silently lose drafts.
 - Logs name the publication and revision number, never prose or identities.
+- A save that would make the stored set reach the 8 MiB load limit (counting JSON escapes) or add
+  a 201st revision to one draft is refused with 422 and its own message, and changes nothing, so
+  a file the server wrote can always be read back and one person's saves cannot lock others out.
+  Replacing or compacting revisions for long autosave sessions is deferred to the browser editor
+  work; restoring an earlier revision has no route yet.
 
 ## Consequences
 

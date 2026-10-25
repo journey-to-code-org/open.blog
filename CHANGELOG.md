@@ -9,6 +9,8 @@ All notable changes to open.blog are recorded here. Releases follow
   their own section through Admin. Each save appends a revision; a save made on an out-of-date
   copy is refused with the newer copy and overwrites nothing. Drafts stay under the project's
   private folder and never reach content, generated output, feeds, exports or Git.
+- A shared draft that reaches its revision or storage limit is now refused with a clear message
+  and nothing is lost, instead of making every participant's drafts unreadable.
 - Defined private contribution drafts for shared reflections: append-only revisions with a
   prose-free identity, conflict checks on save, and a mutual reveal that shows nothing until every
   member has committed. Revealing is never approval, and no storage or route is added yet. Draft ids are compared ignoring case so a stored set always
