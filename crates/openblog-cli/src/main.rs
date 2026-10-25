@@ -12,7 +12,9 @@ mod fsutil;
 mod git;
 mod hashnode;
 mod http;
+mod notebook_store;
 mod portable_export;
+mod private_guard;
 mod publish;
 mod safe_http;
 mod scaffold;
@@ -374,6 +376,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         "analytics" => analytics_command(&root, &args),
         "check" => {
             let (site, themes) = site::load_site(&root, true, None)?;
+            private_guard::refuse_private_research_in_public_inputs(&root, &site.config)?;
             let files = openblog_core::generate(&site, &themes)?;
             println!(
                 "OK: {} posts, {} series, {} tags, {} pages; would write {} generated files.",
@@ -392,6 +395,9 @@ fn run(raw: &[String]) -> Result<(), String> {
             serve::print_accessibility_findings(&site.accessibility);
             serve::print_evidence_findings(&site.evidence);
             if let Some(summary) = check_source_library(&root, &site.config.contributors)? {
+                println!("{summary}");
+            }
+            if let Some(summary) = check_research_notebook(&root, &site.config.contributors)? {
                 println!("{summary}");
             }
             Ok(())
@@ -772,6 +778,23 @@ fn check_source_library(
     }))
 }
 
+/// Validate the private research notebook when one is stored. Like the
+/// source library it is never built, so a missing notebook is not mentioned.
+fn check_research_notebook(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Result<Option<String>, String> {
+    let snapshot = notebook_store::load(root, contributors).map_err(|error| error.to_string())?;
+    Ok(snapshot.stored.then(|| {
+        format!(
+            "OK: private research notebook {} has {} passage(s) and {} note(s); builds never read or publish it.",
+            notebook_store::NOTEBOOK_FILE,
+            snapshot.notebook.passages.len(),
+            snapshot.notebook.notes.len()
+        )
+    }))
+}
+
 /// Remove an Admin username from every shared publication binding, under the content
 /// transaction lock so a running Admin server cannot interleave a write.
 fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Result<(), String> {
@@ -790,6 +813,53 @@ fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_reports_the_private_notebook_only_when_it_is_stored() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-notebook-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let contributors = std::collections::BTreeMap::new();
+        assert_eq!(check_research_notebook(&root, &contributors), Ok(None));
+        assert!(!root.join(".openblog").exists());
+
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#,
+        )
+        .unwrap();
+        let path = root.join(notebook_store::NOTEBOOK_FILE);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"notes":[{"id":"n","kind":"question","text":"Why?","sources":["w"]}]}"#,
+        )
+        .unwrap();
+        let summary = check_research_notebook(&root, &contributors)
+            .unwrap()
+            .unwrap();
+        assert!(summary.contains("0 passage(s) and 1 note(s)"), "{summary}");
+
+        std::fs::write(
+            &path,
+            r#"{"version":1,"notes":[{"id":"n","kind":"question","text":"Why?","sources":["gone"]}]}"#,
+        )
+        .unwrap();
+        let error = check_research_notebook(&root, &contributors).unwrap_err();
+        assert!(
+            error.contains(".openblog/private/research/notebook.json: notes[0] `n`")
+                && error.contains("(unknown-source)"),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn check_reports_the_private_source_library_only_when_it_is_stored() {

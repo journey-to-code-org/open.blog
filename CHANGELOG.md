@@ -5,6 +5,47 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-25
+
+- You can now archive passages and notes you want out of the way, without deleting them, and export
+  and import your private research notebook. Archived entries stay in the file and in exports and
+  come back with Show archived or Restore. Export saves one versioned file of all your private
+  passages and notes, only when you ask and confirm; import previews first, only adds entries the
+  notebook lacks, and refuses any conflict without changing anything. Building, checking and
+  publishing now also refuse to continue when a research export or a copy of the notebook has been
+  saved into content, static or themes, and automated tests check that private research never
+  reaches pages, feeds, search, llms files, portable exports, CSL or BibTeX, logs, error messages or
+  published history.
+- You can now search the private research notebook and see how it connects. The Notebook view
+  filters by source (including its editions and translations), locator kind, concept, and
+  question state beside text search, shows each hit with its source, locators and linked notes,
+  and lists backlinks for the selected passage, its source and a note's concepts. Questions can
+  be marked open or resolved. Everything is computed from the stored files, so it stays correct
+  after edits and archiving, and it is private: nothing reaches the public site, feeds or exports.
+- Fixed capture edit conflicts: after a conflict you now choose between the stored copy and your
+  draft before saving, so a concurrent change is never silently overwritten. Archived sources stay
+  selectable on entries that already use them, and stale field errors clear on the next save.
+- A source edit or import that would leave the research notebook invalid, such as re-pointing a
+  reference so a page locator becomes ambiguous, is now refused with a message naming the affected source (for an import, each record it
+  re-pointed or re-typed).
+- Notebook search and backlinks now send their text in a request body instead of the URL, so a
+  hosting proxy's access log cannot record private research text.
+
+- Defined the private research notebook contract: quoted passages (verbatim excerpt, compound
+  page, folio, line, canonical and custom locators, tied to a source-library record) and
+  observation or question notes that link to passages, sources, and concepts. Every entry is
+  always private with no publication path, quoted text stays apart from your own prose, and a
+  failed change leaves the notebook untouched.
+- You can now capture passages and notes from Admin. A new Notebook view under Research
+  lists, edits and removes them, and a Capture research button in the post editor opens a
+  dialog prefilled with your selected text where you pick a source, add locators and an
+  optional note, then return to exactly where you were writing. Saving needs a real source and
+  the current notebook revision; a stale save keeps your draft and writes nothing. Quoted text
+  is stored as typed and shown only as text. The notebook lives in
+  `.openblog/private/research/notebook.json`, is kept in the hosted workspace, is checked by
+  `openblog check`, and never reaches the built site, feeds, search or exports. A source that
+  a passage or note still uses can no longer be removed from the library.
+
 ## [0.24.0] - 2026-10-25
 
 - A shared reflection that has both an arrangement and an approved continuing conversation

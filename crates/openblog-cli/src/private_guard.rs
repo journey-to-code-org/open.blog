@@ -1,0 +1,210 @@
+//! Guards that keep private research from being published by accident.
+//!
+//! The notebook itself is never read by a build. What can still go wrong is
+//! that its bytes arrive in public input some other way: an exported research
+//! bundle saved into `static/` or `content/`, a copy of the notebook file, or a
+//! symlink. These guards recognise such files by structure (see
+//! [`openblog_core::research_bundle::looks_like_private_research`]), not by any
+//! particular words, so a post that quotes the same passage is never flagged,
+//! and they report only the file's path, never its contents.
+
+use std::fs;
+use std::io::Read;
+use std::path::Path;
+
+use openblog_core::research_bundle::{looks_like_private_research, MAX_BUNDLE_BYTES};
+use openblog_core::SiteConfig;
+
+use crate::fsutil;
+
+/// Whether the file at `path` looks like private research. Unreadable and
+/// oversized files are not private research (they fail where they are read).
+pub fn is_private_research_file(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() > (MAX_BUNDLE_BYTES * 2) as u64 {
+        return false;
+    }
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    // Only a JSON object can be private research: look at a small prefix first so
+    // ordinary public files (images, fonts, pages) are never read whole.
+    let mut prefix = [0_u8; PREFIX_BYTES];
+    let Ok(read) = read_up_to(&mut file, &mut prefix) else {
+        return false;
+    };
+    if !starts_like_json_object(&prefix[..read]) {
+        return false;
+    }
+    let mut bytes = prefix[..read].to_vec();
+    file.take((MAX_BUNDLE_BYTES * 2) as u64)
+        .read_to_end(&mut bytes)
+        .is_ok()
+        && looks_like_private_research(&bytes)
+}
+
+const PREFIX_BYTES: usize = 64;
+
+fn read_up_to(file: &mut fs::File, buffer: &mut [u8]) -> std::io::Result<usize> {
+    let mut filled = 0;
+    while filled < buffer.len() {
+        match file.read(&mut buffer[filled..])? {
+            0 => break,
+            count => filled += count,
+        }
+    }
+    Ok(filled)
+}
+
+/// After an optional BOM and whitespace, does the text start with `{`?
+fn starts_like_json_object(prefix: &[u8]) -> bool {
+    let body = prefix.strip_prefix("\u{feff}".as_bytes()).unwrap_or(prefix);
+    body.iter().find(|byte| !byte.is_ascii_whitespace()) == Some(&b'{')
+}
+
+/// Public build inputs that look like private research, as project-relative
+/// paths. Files inside the private `.openblog` directory are never public
+/// input and are skipped, as the build skips them.
+pub fn public_inputs_with_private_research(root: &Path, config: &SiteConfig) -> Vec<String> {
+    let private = fsutil::PrivateState::of(root);
+    let mut found = Vec::new();
+    for dir in [
+        &config.paths.content,
+        &config.paths.static_dir,
+        &config.paths.themes,
+    ] {
+        let base = root.join(dir);
+        for file in fsutil::walk(&base) {
+            if private.contains(&file) || !is_private_research_file(&file) {
+                continue;
+            }
+            found.push(fsutil::relative(root, &file));
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
+
+/// The build, `check` and `serve` refusal for [`public_inputs_with_private_research`].
+pub fn refuse_private_research_in_public_inputs(
+    root: &Path,
+    config: &SiteConfig,
+) -> Result<(), String> {
+    let found = public_inputs_with_private_research(root, config);
+    if found.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "refusing to build: {} look{} like private research (a research export or a copy of the notebook) inside a public folder, so it would be published. Move {} outside content, static and themes; builds never publish private research.",
+        found
+            .iter()
+            .map(|path| format!("`{path}`"))
+            .collect::<Vec<_>>()
+            .join(", "),
+        if found.len() == 1 { "s" } else { "" },
+        if found.len() == 1 { "it" } else { "them" },
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_root(tag: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-guard-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    const NOTEBOOK: &str = r#"{"version":1,"notes":[{"id":"n","kind":"observation","text":"t"}]}"#;
+
+    #[test]
+    fn a_bundle_or_notebook_copy_in_a_public_folder_is_found_by_path_alone() {
+        let root = temp_root("found");
+        let config = SiteConfig::default();
+        for dir in [
+            "content/posts",
+            "static/downloads",
+            "themes/mine",
+            "elsewhere",
+        ] {
+            fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        fs::write(root.join("content/posts/backup.txt"), NOTEBOOK).unwrap();
+        fs::write(root.join("static/downloads/notes.json"), NOTEBOOK).unwrap();
+        fs::write(
+            root.join("themes/mine/export.json"),
+            r#"{"format":"open.blog/research-notebook","version":1}"#,
+        )
+        .unwrap();
+        fs::write(root.join("elsewhere/notes.json"), NOTEBOOK).unwrap();
+        fs::write(
+            root.join("static/downloads/site.json"),
+            r#"{"version":1,"posts":[]}"#,
+        )
+        .unwrap();
+        fs::write(root.join("content/posts/a.md"), "---\ntitle: A\n---\nt\n").unwrap();
+        // Private storage itself is not public input.
+        fs::create_dir_all(root.join(".openblog/private/research")).unwrap();
+        fs::write(
+            root.join(".openblog/private/research/notebook.json"),
+            NOTEBOOK,
+        )
+        .unwrap();
+
+        let found = public_inputs_with_private_research(&root, &config);
+        assert_eq!(
+            found,
+            [
+                "content/posts/backup.txt",
+                "static/downloads/notes.json",
+                "themes/mine/export.json"
+            ]
+        );
+        let error = refuse_private_research_in_public_inputs(&root, &config).unwrap_err();
+        assert!(error.contains("content/posts/backup.txt") && !error.contains("observation"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_files_that_start_like_a_json_object_are_read_whole() {
+        assert!(starts_like_json_object(b"{\"a\":1}"));
+        assert!(starts_like_json_object(b" \r\n\t{"));
+        assert!(starts_like_json_object("\u{feff}  {".as_bytes()));
+        assert!(!starts_like_json_object(b"[{\"a\":1}]"));
+        assert!(!starts_like_json_object(b"\x89PNG\r\n"));
+        assert!(!starts_like_json_object(b""));
+
+        let root = temp_root("prefix");
+        let path = root.join("notes.json");
+        fs::write(&path, format!("\u{feff}\n  {NOTEBOOK}")).unwrap();
+        assert!(
+            is_private_research_file(&path),
+            "BOM and whitespace are tolerated"
+        );
+        fs::write(&path, format!("[{NOTEBOOK}]")).unwrap();
+        assert!(!is_private_research_file(&path));
+        fs::write(&path, vec![b'x'; 1 << 20]).unwrap();
+        assert!(!is_private_research_file(&path));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_clean_project_passes() {
+        let root = temp_root("clean");
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::write(root.join("content/posts/a.md"), "---\ntitle: A\n---\nt\n").unwrap();
+        assert!(refuse_private_research_in_public_inputs(&root, &SiteConfig::default()).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+}
