@@ -253,7 +253,7 @@ fn hostile_names_and_markup_cannot_break_out_of_the_arrangement() {
     assert!(!made.source.contains("<script>"));
     assert!(made
         .source
-        .contains("&lt;script&gt;alert(1)&lt;/script&gt; Ann"));
+        .contains("&lt;script&gt;alert&#40;1&#41;&lt;/script&gt; Ann"));
 }
 
 #[test]
@@ -558,9 +558,9 @@ fn labels_are_escaped_optional_and_dropped_with_the_turn_they_belong_to() {
     let approvals = approve_all(&record, Some(&s), &set);
     let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
     assert!(!made.source.contains("<img"));
-    assert!(made
-        .source
-        .contains("<p class=\"ob-turn-label\">Point &lt;img src=x onerror=alert(1)&gt;</p>"));
+    assert!(made.source.contains(
+        "<p class=\"ob-turn-label\">Point &lt;img src=x onerror=alert&#40;1&#41;&gt;</p>"
+    ));
     assert!(made
         .source
         .contains("<p class=\"ob-turn-label\">Réplique 反論</p>"));
@@ -631,4 +631,58 @@ fn the_preview_arranges_the_new_layouts_and_their_labels_like_the_post() {
         );
         assert!(!shown.document.contains("BO-ONE"));
     }
+}
+
+#[test]
+fn a_last_turn_ending_in_an_indented_code_block_is_published_not_refused() {
+    let record = record();
+    let s = structure(
+        r#"{"version":1,"revision":1,"layout":"sideBySide","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0},{"draft":"bo","part":0}]}]}"#,
+    );
+    let set = drafts(&[("ann", "Ann words"), ("bo", "Bo shows:\n\n    code line")]);
+    let approvals = approve_all(&record, Some(&s), &set);
+    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    assert!(made.source.contains("    code line"));
+    // The unarranged path agrees.
+    let approvals = approve_all(&record, None, &set);
+    assert!(assemble(&record, &set, &approvals, &ALL, DATE).is_ok());
+}
+
+#[test]
+fn a_dialogue_changes_side_only_when_the_speaker_changes() {
+    let record = record();
+    let set = drafts(&[
+        ("ann", &two_part("ANN-ONE", "ANN-TWO")),
+        ("bo", "BO-ONE"),
+        ("cy", "CY-ONE"),
+    ]);
+    let s = structure(
+        r#"{"version":1,"revision":1,"layout":"alternatingDialogue","rounds":[{"id":"r1","turns":[
+            {"draft":"ann","part":0},{"draft":"ann","part":1},{"draft":"bo","part":0},{"draft":"cy","part":0}]}]}"#,
+    );
+    let approvals = approve_all(&record, Some(&s), &set);
+    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let lanes: Vec<&str> = made
+        .source
+        .split("class=\"ob-turn ob-lane-")
+        .skip(1)
+        .map(|rest| &rest[..1])
+        .collect();
+    assert_eq!(lanes, ["0", "0", "1", "0"]);
+    assert!(made.source.contains("ob-lanes-2"));
+}
+
+#[test]
+fn point_counterpoint_with_three_voices_is_one_column() {
+    let record = record();
+    let set = drafts(&[("ann", "ANN-ONE"), ("bo", "BO-ONE"), ("cy", "CY-ONE")]);
+    let s = structure(
+        r#"{"version":1,"revision":1,"layout":"pointCounterpoint","rounds":[{"id":"r1","turns":[
+            {"draft":"ann","part":0},{"draft":"bo","part":0},{"draft":"cy","part":0}]}]}"#,
+    );
+    let approvals = approve_all(&record, Some(&s), &set);
+    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    assert!(made.source.contains("ob-lanes-1"), "{}", made.source);
+    assert!(!made.source.contains("ob-lane-1"));
+    assert_eq!(made.source.matches("ob-lane-0").count(), 3);
 }

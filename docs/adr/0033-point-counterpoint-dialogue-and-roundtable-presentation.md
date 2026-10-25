@@ -21,19 +21,23 @@ binding, and without letting a layout say anything about the people in it.
   with an `h2.ob-turn-author` per turn, in reading order). A layout only changes classes and the
   stylesheet. Columns, stagger and grid apply under `@media screen and (min-width: 48em)` only, so
   narrow screens, 400% zoom, print and a reader without CSS or JavaScript read the same sequence.
-- **Point and counterpoint.** Two lanes from first appearance (`placements`): the participant who
-  appears first takes the first lane and everyone else the second. No field says who, and the lane
-  is derived, never stored. A turn is placed in its lane column in reading order, so a pair shares
-  a row and a lone turn sits alone. The layout carries no claim that anyone opposes anyone.
-- **Alternating dialogue.** Lane is the parity of the turn's place in reading order, not the person:
-  one turn per row, every second turn toward the other edge, at most 80% wide. It is a visual
-  stagger only; each turn is still headed by its author's name.
+- **Point and counterpoint.** Two columns only when exactly two distinct participants are present
+  (`placements`): the one who appears first takes the first lane, the other the second. With three
+  or more voices it is one column (`lanes: 1`), because one speaker alone against everyone else
+  would claim a split nobody chose. No field says who, and the lane is derived, never stored. A
+  turn is placed in its lane column in reading order, so a pair shares a row and a lone turn sits
+  alone. The layout carries no claim that anyone opposes anyone.
+- **Alternating dialogue.** The lane flips only when the speaker differs from the previous turn's
+  speaker, and stays when the same author continues, so an author's consecutive turns share an
+  edge and A, B, C puts C on the edge opposite B. One turn per row, at most 80% wide. With one
+  participant there is one lane. It is a visual stagger only; each turn is still headed by its
+  author's name.
 - **Roundtable.** Every participant has a place without a rule per person. The round is an
   auto-fitting grid (`repeat(auto-fit, minmax(min(100%, 16rem), 1fr))`) filled in reading order, so
   any number of participants wraps into rows whose row-major order is the DOM order.
 - **Degrade honestly.** Placements are computed after missing and withdrawn turns are dropped, and
   lane counts are the lanes in use: point and counterpoint with one voice left is one lane, and a
-  dialogue of one turn is not staggered. Nothing is added to stand in for the missing side; a
+  dialogue of one participant is not staggered. Nothing is added to stand in for the missing side; a
   published Post carries no placeholder, and the preview keeps the single uniform "Not shared with
   you" placeholder for a withheld draft only (ADR 0021).
 - **Optional turn labels.** A `Turn` may carry `label`, an optional single line of at most 80 bytes

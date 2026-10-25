@@ -6542,8 +6542,8 @@ fn arrangement_layouts() -> Json {
     json!([
         { "value": "sequential", "label": "Sequential", "help": "One section after another, in reading order." },
         { "value": "sideBySide", "label": "Side by side", "help": "Sections sit in columns on wide screens and read one after another on narrow ones." },
-        { "value": "pointCounterpoint", "label": "Point and counterpoint", "help": "Two columns on wide screens: whoever appears first in one, everyone else in the other. Optional labels are yours; nothing is implied about who agrees." },
-        { "value": "alternatingDialogue", "label": "Alternating dialogue", "help": "Turns alternate like a conversation on wide screens, each under its author's name." },
+        { "value": "pointCounterpoint", "label": "Point and counterpoint", "help": "Two columns on wide screens when exactly two people take part; with three or more it reads as one column. Optional labels are yours; nothing is implied about who agrees." },
+        { "value": "alternatingDialogue", "label": "Alternating dialogue", "help": "Turns alternate like a conversation on wide screens, switching side when the speaker changes, each under its author's name." },
         { "value": "roundtable", "label": "Roundtable", "help": "Turns sit in a grid that fits any number of participants and reads in the same order." },
     ])
 }

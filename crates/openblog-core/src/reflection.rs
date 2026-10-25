@@ -404,10 +404,13 @@ impl ReflectionStructure {
             }
         }
         let people = seen.len().max(1);
+        // A dialogue changes side when the speaker changes, never between one author's
+        // consecutive turns (ADR 0033).
+        let mut dialogue_lane = 0;
+        let mut previous: Option<&str> = None;
         order
             .iter()
-            .enumerate()
-            .map(|(index, entry)| {
+            .map(|entry| {
                 let person = seen
                     .iter()
                     .position(|id| *id == entry.participant_id)
@@ -418,17 +421,24 @@ impl ReflectionStructure {
                         lane: person,
                         lanes: people,
                     },
-                    // Two lanes only when two voices (or two turns) are actually present, so a
-                    // withdrawn or missing contribution leaves one honest column, never an
-                    // empty counterpart.
-                    ReflectionLayout::PointCounterpoint => Placement {
-                        lane: usize::from(person != 0),
-                        lanes: people.min(2),
+                    // Two columns only for exactly two voices. With three or more, one speaker
+                    // alone against everyone else would imply a split nobody chose, so they read
+                    // as one column; a withdrawn contribution leaves one honest column too.
+                    ReflectionLayout::PointCounterpoint if people == 2 => Placement {
+                        lane: person,
+                        lanes: 2,
                     },
-                    ReflectionLayout::AlternatingDialogue => Placement {
-                        lane: index % 2,
-                        lanes: order.len().clamp(1, 2),
-                    },
+                    ReflectionLayout::PointCounterpoint => Placement { lane: 0, lanes: 1 },
+                    ReflectionLayout::AlternatingDialogue => {
+                        if previous.is_some_and(|last| last != entry.participant_id) {
+                            dialogue_lane = 1 - dialogue_lane;
+                        }
+                        previous = Some(entry.participant_id);
+                        Placement {
+                            lane: dialogue_lane,
+                            lanes: people.min(2),
+                        }
+                    }
                 }
             })
             .collect()
@@ -488,6 +498,29 @@ pub const LAYOUT_CSS: &str = r#"/* Shared reflections: every layout (ADR 0032, A
 /// The widest side-by-side the styles lay out. More lanes read sequentially at every width.
 pub const MAX_LAID_OUT_LANES: usize = 3;
 
+/// Untrusted one-line text for the arrangement's own markup. Besides HTML escaping, every ASCII
+/// character Markdown can act on is a numeric character reference: the portable Markdown export
+/// shows this raw HTML block as literal Markdown (it escapes only `<` and `>`), so a label like
+/// `[x](javascript:alert(1))` would otherwise become a live link there (ADR 0034). An HTML parser
+/// and a Markdown parser both decode the references back to the same visible text.
+fn markup_text(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            '&' | '[' | ']' | '(' | ')' | '*' | '_' | '`' | '!' | '\\' | '~' | '#' | '|' | ':'
+            | '@' => {
+                out.push_str(&format!("&#{};", ch as u32));
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// The arranged markup shared by the published Post and the preview (ADR 0032). The DOM order is
 /// exactly the order of `turns`, which is the reading order: a layout only adds classes, and
 /// the stylesheet places them, so a reader without CSS, a screen reader and the narrow-width
@@ -511,22 +544,19 @@ pub fn compose(layout: ReflectionLayout, turns: &[ComposedTurn<'_>]) -> String {
             if let Some(prompt) = turn.round_prompt {
                 out.push_str(&format!(
                     "<p class=\"ob-round-prompt\">{}</p>\n",
-                    crate::escape::text(prompt)
+                    markup_text(prompt)
                 ));
             }
             out.push('\n');
             open_round = Some(turn.round);
         }
         let label = turn.label.map_or_else(String::new, |label| {
-            format!(
-                "<p class=\"ob-turn-label\">{}</p>\n",
-                crate::escape::text(label)
-            )
+            format!("<p class=\"ob-turn-label\">{}</p>\n", markup_text(label))
         });
         out.push_str(&format!(
             "<section class=\"ob-turn ob-lane-{}\">\n<h2 class=\"ob-turn-author\">{}</h2>\n{}\n{}\n\n</section>\n\n",
             turn.placement.lane,
-            crate::escape::text(turn.display_name),
+            markup_text(turn.display_name),
             label,
             turn.body.trim()
         ));

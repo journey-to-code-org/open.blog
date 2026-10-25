@@ -225,8 +225,8 @@ fn placements_follow_first_appearance_for_many_participants() {
         (0..10).collect::<Vec<_>>()
     );
     let pc = ReflectionStructure::placements(ReflectionLayout::PointCounterpoint, &order);
-    assert_eq!(pc[0].lane, 0);
-    assert!(pc[1..].iter().all(|p| p.lane == 1 && p.lanes == 2));
+    // Ten voices are one column, not the first speaker against nine others.
+    assert!(pc.iter().all(|p| p.lane == 0 && p.lanes == 1));
     let alt = ReflectionStructure::placements(ReflectionLayout::AlternatingDialogue, &order);
     assert_eq!(
         alt.iter().map(|p| p.lane).collect::<Vec<_>>(),
@@ -690,7 +690,8 @@ fn point_counterpoint_and_dialogue_use_only_the_lanes_that_are_present() {
             .iter()
             .all(|p| p.lanes == 1));
     }
-    // One voice answering twice has no counterpart lane; a dialogue still alternates.
+    // One voice answering twice has one lane in both layouts, and a dialogue does not stagger an
+    // author's own consecutive turns.
     let same = [entry("a"), entry("a")];
     assert!(
         ReflectionStructure::placements(ReflectionLayout::PointCounterpoint, &same)
@@ -700,6 +701,31 @@ fn point_counterpoint_and_dialogue_use_only_the_lanes_that_are_present() {
     assert!(
         ReflectionStructure::placements(ReflectionLayout::AlternatingDialogue, &same)
             .iter()
-            .all(|p| p.lanes == 2)
+            .all(|p| p.lanes == 1 && p.lane == 0)
+    );
+    let lanes = |layout, ids: &[&'static str]| {
+        let entries: Vec<_> = ids.iter().map(|id| entry(id)).collect();
+        ReflectionStructure::placements(layout, &entries)
+            .iter()
+            .map(|p| (p.lane, p.lanes))
+            .collect::<Vec<_>>()
+    };
+    // The lane flips only when the speaker changes: a a b a c reads 0 0 1 0 1, and A, B, C puts
+    // C on the edge opposite B, not on A's.
+    assert_eq!(
+        lanes(
+            ReflectionLayout::AlternatingDialogue,
+            &["a", "a", "b", "a", "c"]
+        ),
+        [(0, 2), (0, 2), (1, 2), (0, 2), (1, 2)]
+    );
+    // Three voices are one column; exactly two are two columns by first appearance.
+    assert_eq!(
+        lanes(ReflectionLayout::PointCounterpoint, &["a", "b", "c", "b"]),
+        [(0, 1); 4]
+    );
+    assert_eq!(
+        lanes(ReflectionLayout::PointCounterpoint, &["b", "a", "b"]),
+        [(0, 2), (1, 2), (0, 2)]
     );
 }
