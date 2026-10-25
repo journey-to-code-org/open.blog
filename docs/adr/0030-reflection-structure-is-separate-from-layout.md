@@ -46,8 +46,11 @@ reads it from there.
   member.
 - Placement (`lane` of `lanes`) is derived from the reading order and the layout, from the order
   participants first appear, and is never stored. Side-by-side and roundtable give each participant a
-  lane; point-counterpoint uses two lanes (the first speaker, then everyone else); alternating
-  dialogue alternates by turn; sequential has one lane. Any number of participants works.
+  lane; point-counterpoint uses two lanes only when exactly two distinct participants are present
+  (the first to appear, then the other) and one lane with three or more voices; alternating
+  dialogue flips the lane only when the speaker changes; sequential has one lane. Any number of
+  participants works. ADR 0033 holds the exact rules, including how lanes degrade when turns are
+  missing.
 - The structure is private collaboration state and is not wired to storage, routes, Admin or the
   publish gate here.
 
