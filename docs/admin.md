@@ -22,7 +22,7 @@ immediately.
 | --- | --- |
 | **Edit** | Every post, page, and series. Front matter fields become a form; unknown fields you added by hand are kept. |
 | **Create** | New posts, pages, and series. The file is named from the date and slug. |
-| **Preview** | A full-page preview produced by the same site model, document renderer, theme inheritance, metadata, and components as a real build. Front matter stays in the settings form and is never printed into the preview. |
+| **Preview** | A full-page site preview plus portable HTML and Markdown projections for posts, all generated from the current unsaved source. Portable warnings identify transformed or canonical-only behavior; front matter stays in Settings and is never printed into a preview. |
 | **Social preview** | A card built from the generated OpenGraph title, description, canonical URL, type, image, and X card mode—not a separate browser-side approximation. |
 | **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
 | **Accessibility Studio** | Production-backed source findings grouped as detected, potential, or needs review, with exact locations and repair guidance. It also keeps rendered-site checks visible without claiming WCAG conformance. |
@@ -237,6 +237,19 @@ unset, and open **Site preview** on a post in that series. To compare a one-off 
 select a theme on the post instead. The preview includes unsaved changes to the document
 you are editing but does not expose unrelated drafts or scheduled posts. Front matter
 remains in **Settings** and is never printed into the preview.
+
+For posts, use the **Preview representation or destination** selector to compare the themed site
+output, portable HTML and Markdown, or a DEV, Hashnode, Ghost, WordPress, or Medium policy view.
+These projections run through the same conversion used by feeds, export, and syndication;
+warnings include the source, transformation, and recommended action.
+
+Warnings can be acknowledged for a specific source revision, capability, representation, and
+destination. Acknowledgements are stored in a tracked sibling `*.portability.json` sidecar and
+remain visible beside the warning; they never bypass unsafe-markup errors, private-state rules, or
+canonical-identity requirements. Editing the post makes older acknowledgements visibly stale.
+The portable views are computed from the authenticated, unsaved preview request and are not saved
+to the document or exposed at a public URL. Acknowledging is allowed only when the preview matches
+the saved source revision.
 
 ### Review accessibility while writing
 
