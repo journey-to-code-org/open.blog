@@ -188,7 +188,7 @@ test("the combined preview loads in an empty sandbox, runs and fetches nothing, 
   await install(context);
   const trackerRequests = [];
   page.on("request", (request) => { if (request.url().startsWith("https://tracker.invalid/")) trackerRequests.push(request.url()); });
-  await context.route("**/admin/api/collaboration/reveal", (route) => json(route, 200, {
+  await context.route("**/admin/api/collaboration/reveal?**", (route) => json(route, 200, {
     policy: "voluntary", ready: false, canSetPolicy: false,
     slots: [
       { participantId: "p1", displayName: "Writer", kind: "own", ready: false, stamp: stamp(1), markdown: "Writer's own words." },
