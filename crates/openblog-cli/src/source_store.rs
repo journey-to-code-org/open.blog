@@ -116,17 +116,41 @@ pub fn update(
 ) -> Result<Snapshot, StoreError> {
     change(root, expected_revision, contributors, |library| {
         if library.get(&record.id).is_none() {
-            return Err(vec![SourceDiagnostic {
-                code: SourceDiagnosticCode::UnknownSource,
-                index: None,
-                source_id: Some(record.id.clone()),
-                field: None,
-                message: format!("no source has the id `{}`", record.id),
-            }]);
+            return Err(vec![unknown_source(&record.id)]);
         }
         library.upsert(record.clone(), contributors)
     })
     .map(|(snapshot, ())| snapshot)
+}
+
+/// Archive or restore a record without touching any other field, so a
+/// caller that never saw its unknown fields cannot drop them.
+pub fn set_archived(
+    root: &Path,
+    expected_revision: &str,
+    id: &str,
+    archived: bool,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, StoreError> {
+    change(root, expected_revision, contributors, |library| {
+        let mut record = library
+            .get(id)
+            .cloned()
+            .ok_or_else(|| vec![unknown_source(id)])?;
+        record.archived = archived;
+        library.upsert(record, contributors)
+    })
+    .map(|(snapshot, ())| snapshot)
+}
+
+fn unknown_source(id: &str) -> SourceDiagnostic {
+    SourceDiagnostic {
+        code: SourceDiagnosticCode::UnknownSource,
+        index: None,
+        source_id: Some(id.into()),
+        field: None,
+        message: format!("no source has the id `{id}`"),
+    }
 }
 
 /// Remove a record that no other record depends on.
@@ -448,6 +472,7 @@ mod tests {
             based_on: None,
             location: None,
             identifiers: Vec::new(),
+            archived: false,
             extra: BTreeMap::new(),
         }
     }
@@ -485,6 +510,39 @@ mod tests {
         assert_eq!(reloaded.library, created.library);
         assert_eq!(reloaded.revision, created.revision);
         assert!(reloaded.library.get("plato-republic").is_some());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn archiving_changes_only_the_flag_and_keeps_dependents_resolvable() {
+        let root = temp_root("archive");
+        store(
+            &root,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"Πολιτεία","shelf":{"room":"B"}},{"id":"e","kind":"edition","of":"w","title":"E"}]}"#.as_bytes(),
+        );
+        let before = load(&root, &none()).unwrap();
+        let archived = set_archived(&root, &before.revision, "w", true, &none()).unwrap();
+        let work = archived.library.get("w").unwrap();
+        assert!(work.archived);
+        assert_eq!(work.title.as_deref(), Some("Πολιτεία"));
+        assert_eq!(work.extra["shelf"], serde_json::json!({"room": "B"}));
+        assert!(archived.library.get("e").is_some(), "dependents stay valid");
+
+        let stale = set_archived(&root, &before.revision, "w", false, &none()).unwrap_err();
+        assert_eq!(stale, StoreError::Conflict);
+        let missing = set_archived(&root, &archived.revision, "gone", true, &none()).unwrap_err();
+        assert_eq!(
+            missing,
+            StoreError::Invalid(vec![SourceDiagnostic {
+                code: SourceDiagnosticCode::UnknownSource,
+                index: None,
+                source_id: Some("gone".into()),
+                field: None,
+                message: "no source has the id `gone`".into(),
+            }])
+        );
+        let restored = set_archived(&root, &archived.revision, "w", false, &none()).unwrap();
+        assert_eq!(restored.library, before.library);
         fs::remove_dir_all(root).unwrap();
     }
 

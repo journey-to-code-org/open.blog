@@ -459,6 +459,183 @@ export function contributorSaveState(saveVersion, editVersion, mountedView, curr
   return { active: true, ...saveStateForVersions(saveVersion, editVersion) };
 }
 
+// ---------------------------------------------------------------- research source library
+
+export const SOURCE_KINDS = Object.freeze([
+  { kind: "work", label: "Work", detail: "An intellectual or creative creation, independent of any copy." },
+  { kind: "edition", label: "Edition", detail: "A published form of a work or translation." },
+  { kind: "translation", label: "Translation", detail: "A rendering of a work into another language." },
+  { kind: "witness", label: "Witness", detail: "A manuscript, recording, or other surviving copy." },
+  { kind: "reference", label: "Reference", detail: "A place inside a work, edition, translation, or witness." },
+]);
+
+const SOURCE_PARENT_KINDS = Object.freeze({
+  edition: ["work", "translation"],
+  translation: ["work"],
+  witness: ["work", "edition", "translation"],
+  reference: ["work", "edition", "translation", "witness"],
+});
+const SOURCE_BASED_ON_KINDS = Object.freeze(["edition", "witness", "translation"]);
+const SOURCE_CREATOR_ROLES = Object.freeze(["author", "editor", "translator", "compiler", "scribe", "other"]);
+export const SOURCE_LOCATION_SCHEMES = Object.freeze(["page", "folio", "line", "section", "chapter", "canonical", "timestamp"]);
+
+/** Which type-aware fields a source of this kind shows. */
+export function sourceFieldsForKind(kind) {
+  return {
+    of: kind in SOURCE_PARENT_KINDS,
+    basedOn: kind === "translation",
+    location: kind === "reference",
+    titleRequired: kind !== "reference",
+    languageRequired: kind === "translation",
+  };
+}
+
+/** Records that may be named as the parent (`of`) or `basedOn` of a kind, never the record itself. */
+export function sourceRelationOptions(sources, kind, field, selfId = "") {
+  const allowed = field === "basedOn" ? SOURCE_BASED_ON_KINDS : SOURCE_PARENT_KINDS[kind] || [];
+  return (Array.isArray(sources) ? sources : []).filter((source) => allowed.includes(source.kind) && source.id !== selfId);
+}
+
+export function sourceLabel(source) {
+  return String(source?.title || "").trim() || `Untitled ${source?.kind || "source"} (${source?.id || "new"})`;
+}
+
+/**
+ * Filter and search the library in memory. The query matches the id, title,
+ * creator names, and identifier values, ignoring case; the archive filter
+ * defaults to hiding archived records.
+ */
+export function filterSources(sources, { query = "", kind = "all", archived = "active" } = {}) {
+  const terms = String(query).toLowerCase().split(/\s+/).filter(Boolean);
+  return (Array.isArray(sources) ? sources : []).filter((source) => {
+    if (kind !== "all" && source.kind !== kind) return false;
+    if (archived === "active" && source.archived) return false;
+    if (archived === "archived" && !source.archived) return false;
+    if (!terms.length) return true;
+    const haystack = [
+      source.id,
+      source.title,
+      source.language,
+      source.issued,
+      ...(Array.isArray(source.creators) ? source.creators.map((creator) => creator?.name) : []),
+      ...(Array.isArray(source.identifiers) ? source.identifiers.map((identifier) => identifier?.value) : []),
+    ]
+      .filter((part) => typeof part === "string")
+      .join("\n")
+      .toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+/** Records that point at this one, so archiving or editing can say what depends on it. */
+export function sourceDependents(sources, id) {
+  return (Array.isArray(sources) ? sources : []).filter((source) => source.of === id || source.basedOn === id);
+}
+
+export function sourceDraft(record = null, kind = "work") {
+  const source = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof source.id === "string" ? source.id : "",
+    kind: typeof source.kind === "string" ? source.kind : kind,
+    title: typeof source.title === "string" ? source.title : "",
+    of: typeof source.of === "string" ? source.of : "",
+    basedOn: typeof source.basedOn === "string" ? source.basedOn : "",
+    language: typeof source.language === "string" ? source.language : "",
+    issued: typeof source.issued === "string" ? source.issued : "",
+    creators: (Array.isArray(source.creators) ? source.creators : [])
+      .map((creator) => (creator?.role ? `${creator?.name ?? ""} | ${creator.role}` : String(creator?.name ?? "")))
+      .join("\n"),
+    identifiers: (Array.isArray(source.identifiers) ? source.identifiers : []).map((entry) => `${entry?.scheme ?? ""}: ${entry?.value ?? ""}`).join("\n"),
+    locationScheme: typeof source.location?.scheme === "string" ? source.location.scheme : "",
+    locationValue: typeof source.location?.value === "string" ? source.location.value : "",
+  };
+}
+
+function textLines(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+export function parseSourceCreators(value) {
+  return textLines(value).map((line) => {
+    const cut = line.lastIndexOf("|");
+    const role = cut >= 0 ? line.slice(cut + 1).trim() : "";
+    return role && SOURCE_CREATOR_ROLES.includes(role) ? { name: line.slice(0, cut).trim(), role } : { name: line };
+  });
+}
+
+export function parseSourceIdentifiers(value) {
+  return textLines(value).map((line) => {
+    const cut = line.indexOf(":");
+    return cut < 0 ? { scheme: "", value: line } : { scheme: line.slice(0, cut).trim().toLowerCase(), value: line.slice(cut + 1).trim() };
+  });
+}
+
+// An entry the author did not change keeps its stored object, so fields this
+// release does not understand survive a round trip through the text boxes.
+function keepUnchanged(parsed, original, same) {
+  return parsed.map((entry, index) => (Array.isArray(original) && original[index] && same(original[index], entry) ? original[index] : entry));
+}
+
+/** The full record to send. Unknown fields of the stored record are carried over unchanged. */
+export function sourceDraftPayload(draft) {
+  const original = draft.original || {};
+  const record = { ...original };
+  for (const field of ["title", "of", "basedOn", "language", "issued", "creators", "identifiers", "location"]) delete record[field];
+  record.id = String(draft.id || "").trim();
+  record.kind = draft.kind;
+  const fields = sourceFieldsForKind(draft.kind);
+  const set = (name, value) => {
+    const text = String(value || "").trim();
+    if (text) record[name] = text;
+  };
+  set("title", draft.title);
+  if (fields.of) set("of", draft.of);
+  if (fields.basedOn) set("basedOn", draft.basedOn);
+  set("language", draft.language);
+  set("issued", draft.issued);
+  const creators = keepUnchanged(parseSourceCreators(draft.creators), original.creators, (a, b) => a.name === b.name && (a.role ?? "") === (b.role ?? ""));
+  if (creators.length) record.creators = creators;
+  const identifiers = keepUnchanged(parseSourceIdentifiers(draft.identifiers), original.identifiers, (a, b) => a.scheme === b.scheme && a.value === b.value);
+  if (identifiers.length) record.identifiers = identifiers;
+  const locationValue = String(draft.locationValue || "").trim();
+  if (fields.location && (draft.locationScheme || locationValue)) {
+    const stored = original.location;
+    record.location = stored && stored.scheme === draft.locationScheme && stored.value === locationValue ? stored : { scheme: draft.locationScheme, value: locationValue };
+  }
+  return record;
+}
+
+/** A quick, advisory check; the server's validation stays authoritative. */
+export function validateSourceDraft(draft, sources = []) {
+  const id = String(draft.id || "").trim();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) || id.length > 64) return { field: "id", message: "The ID must be a lowercase ASCII slug of at most 64 characters, such as plato-republic." };
+  if (!draft.original && sources.some((source) => source.id === id)) return { field: "id", message: `The ID “${id}” is already used by another source.` };
+  const fields = sourceFieldsForKind(draft.kind);
+  if (fields.titleRequired && !String(draft.title || "").trim()) return { field: "title", message: "Give this source a title." };
+  if (fields.of && !draft.of) return { field: "of", message: `A ${draft.kind} must say which source it belongs to.` };
+  if (fields.languageRequired && !String(draft.language || "").trim()) return { field: "language", message: "A translation needs a language tag such as en." };
+  if (fields.location && Boolean(draft.locationScheme) !== Boolean(String(draft.locationValue || "").trim())) {
+    return { field: "locationValue", message: "Choose a location type and enter its value, or clear both." };
+  }
+  return null;
+}
+
+/** Map a server diagnostic's field path (`identifiers[0]`) to the form control that edits it. */
+export function sourceDiagnosticControl(field) {
+  const name = String(field || "").replace(/\[\d+\].*$/, "").split(".")[0];
+  return { creators: "creators", identifiers: "identifiers", location: "locationValue", id: "id", kind: "kind-field", title: "title", of: "of", basedOn: "basedOn", language: "language", issued: "issued" }[name] || "";
+}
+
+export function sourceErrorMessage(error) {
+  const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
+  if (!diagnostics.length) return error?.data?.error || error?.message || "The source could not be saved.";
+  return diagnostics.map((item) => `${item.field ? `${item.field}: ` : ""}${item.message}`).join(" ");
+}
+
 export function previewWarningsForDisplay(warnings) {
   return Array.isArray(warnings) ? warnings.filter((warning) => typeof warning === "string" && warning.trim()) : [];
 }
@@ -1618,6 +1795,7 @@ export class ObAdmin extends AdminElement {
   shownShellModules() {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
+    if (this.activeRoute === "sources") visible.add("evidence");
     return visible;
   }
 
@@ -1756,6 +1934,8 @@ export class ObAdmin extends AdminElement {
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
+      : active === "sources"
+        ? { title: "Sources", detail: "Keep private research sources, editions, translations, and references in one library." }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "overview"
@@ -1786,6 +1966,7 @@ export class ObAdmin extends AdminElement {
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
@@ -1965,6 +2146,7 @@ export class ObAdmin extends AdminElement {
       { label: "Pages", category: "Content", run: () => go("#/pages") },
       { label: "Series", category: "Content", run: () => go("#/series") },
       { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
+      { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go("#/sources") },
       { label: "Contributors", category: "Site", keywords: "authors credits orcid identity", run: () => go("#/contributors") },
       { label: "View site", category: "Site", keywords: "public blog", run: () => open("/", "_blank", "noopener") },
       { label: "Advanced tools", category: "Workspace", keywords: "more optional hidden ai assistant research distribution", run: () => this.openAdvancedTools() },
@@ -2122,6 +2304,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "contributors") await this.showContributors();
+      else if (head === "sources") await this.showSources();
       else if (head === "overview" || !head) await this.showOverview(params.get("focus"));
       else await this.showList(KINDS[head] ? head : "posts", params.get("status"));
     } catch (err) {
@@ -2498,6 +2681,364 @@ export class ObAdmin extends AdminElement {
       ),
     );
     mountedView = this.viewVersion;
+  }
+
+  // ---- research source library
+
+  async showSources() {
+    let library;
+    try {
+      library = await this.api.call("GET", "sources");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      // A damaged library is reported, never replaced: show where to repair it.
+      this.mount(
+        this.shell(
+          "sources",
+          h("p", { class: "oba-error", role: "alert" }, `The source library could not be read. ${sourceErrorMessage(error)}`),
+          error.data?.file ? h("p", { class: "oba-small" }, `Repair ${error.data.file} by hand, then reload this view. Nothing was changed.`) : null,
+        ),
+      );
+      return;
+    }
+    let sources = library.sources;
+    let revision = library.revision;
+    let selected = null; // null: nothing open, "new": unsaved record, otherwise a source id
+    let draft = null;
+    let conflict = null;
+    let dirty = false;
+    let busy = false;
+    const filters = { query: "", kind: "all", archived: "active" };
+    const mountedView = this.viewVersion + 1;
+
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const say = (text, kind = "oba-small") => {
+      status.className = kind;
+      status.textContent = text;
+    };
+    const search = h("input", { id: "oba-source-search", type: "search", autocomplete: "off", "aria-controls": "oba-source-list", placeholder: "Title, creator, ID, or identifier" });
+    const kindFilter = h("select", { id: "oba-source-kind" }, h("option", { value: "all" }, "All types"), SOURCE_KINDS.map((item) => h("option", { value: item.kind }, `${item.label}s`)));
+    const archivedFilter = h("select", { id: "oba-source-archived" }, [["active", "Active"], ["archived", "Archived"], ["all", "Active and archived"]].map(([value, label]) => h("option", { value }, label)));
+    const count = h("p", { class: "oba-small", id: "oba-source-count", role: "status", "aria-live": "polite" });
+    const list = h("ul", { class: "oba-source-list", id: "oba-source-list" });
+    const panel = h("section", { class: "oba-source-editor", "aria-labelledby": "oba-source-heading" });
+    const newButton = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "New source");
+
+    const confirmDiscard = () => !dirty || globalThis.confirm?.("Discard the unsaved source changes?") !== false;
+
+    const renderList = () => {
+      const visible = filterSources(sources, filters);
+      const label = (source) => `${sourceLabel(source)}, ${SOURCE_KINDS.find((item) => item.kind === source.kind)?.label.toLowerCase() || source.kind}${source.archived ? ", archived" : ""}`;
+      list.replaceChildren(
+        ...visible.map((source) =>
+          h(
+            "li",
+            {},
+            h(
+              "button",
+              { class: "oba-source-item", type: "button", "data-source-id": source.id, "aria-current": selected === source.id ? "true" : null, "aria-label": label(source), onClick: () => open(source.id) },
+              h("strong", {}, sourceLabel(source)),
+              h("span", { class: "oba-small" }, `${source.kind}${source.language ? ` · ${source.language}` : ""}${source.issued ? ` · ${source.issued}` : ""}`),
+              source.archived ? h("span", { class: "oba-badge" }, "Archived") : null,
+            ),
+          ),
+        ),
+      );
+      const filtered = filters.query.trim() || filters.kind !== "all" || filters.archived !== "active";
+      count.textContent = sources.length
+        ? `${visible.length} of ${sources.length} source${sources.length === 1 ? "" : "s"} shown.`
+        : "";
+      if (!visible.length) {
+        list.replaceChildren(
+          h(
+            "li",
+            { class: "oba-notice", "data-source-empty": "true" },
+            sources.length
+              ? filtered
+                ? "No sources match these filters. Clear the search or choose another type."
+                : "Every source is archived. Show archived sources to reopen one."
+              : "Your source library is empty. Add a work first, then editions, translations, witnesses, and references that point at it.",
+          ),
+        );
+      }
+    };
+
+    const open = (id) => {
+      if (!confirmDiscard()) return;
+      selected = id;
+      conflict = null;
+      dirty = false;
+      this.dirty = false;
+      draft = id === "new" ? sourceDraft(null, "work") : sourceDraft(sources.find((source) => source.id === id));
+      say("");
+      renderList();
+      renderPanel(true);
+    };
+
+    const field = (name, labelText, control, hint) => {
+      const id = `oba-source-${name}`;
+      control.id = id;
+      const described = hint ? `${id}-hint` : null;
+      if (described) control.setAttribute("aria-describedby", described);
+      return h("div", { class: "oba-field", "data-source-field": name }, h("label", { for: id }, labelText), control, hint ? h("p", { class: "oba-small", id: described }, hint) : null);
+    };
+
+    const renderPanel = (moveFocus = false) => {
+      if (!draft) {
+        panel.replaceChildren(
+          h("h2", { id: "oba-source-heading", tabindex: "-1" }, "Source details"),
+          h("p", { class: "oba-notice" }, sources.length ? "Choose a source to edit it, or add a new one." : "Add your first source to start the library."),
+        );
+        return;
+      }
+      const isNew = !draft.original;
+      const fields = sourceFieldsForKind(draft.kind);
+      const touch = () => {
+        dirty = true;
+        this.dirty = true;
+      };
+      const text = (name, props = {}) =>
+        h("input", { type: "text", value: draft[name], autocomplete: "off", onInput: (event) => { draft[name] = event.target.value; touch(); }, ...props });
+      const area = (name, rows) => h("textarea", { rows, spellcheck: "false", value: draft[name], onInput: (event) => { draft[name] = event.target.value; touch(); } });
+      const select = (name, options, emptyLabel) =>
+        h(
+          "select",
+          { onChange: (event) => { draft[name] = event.target.value; touch(); } },
+          emptyLabel ? h("option", { value: "", selected: !draft[name] }, emptyLabel) : null,
+          options.map(([value, label]) => h("option", { value, selected: draft[name] === value }, label)),
+        );
+      const relation = (name) =>
+        select(
+          name,
+          sourceRelationOptions(sources, draft.kind, name, draft.id).map((source) => [source.id, `${sourceLabel(source)} (${source.kind})`]),
+          name === "of" ? "Choose a source" : "None",
+        );
+      const kindControl = h(
+        "select",
+        {
+          disabled: !isNew,
+          onChange: (event) => {
+            draft.kind = event.target.value;
+            draft.of = "";
+            draft.basedOn = "";
+            touch();
+            renderPanel();
+            document.getElementById?.("oba-source-kind-field")?.focus?.();
+          },
+        },
+        SOURCE_KINDS.map((item) => h("option", { value: item.kind, selected: draft.kind === item.kind }, item.label)),
+      );
+      const errorBox = h("p", { class: "oba-error", id: "oba-source-error", role: "alert", hidden: true });
+      const fail = (message, control) => {
+        errorBox.hidden = false;
+        errorBox.textContent = message;
+        const target = control && panel.querySelector(`#oba-source-${control}`);
+        if (target) {
+          target.setAttribute("aria-invalid", "true");
+          target.setAttribute("aria-describedby", "oba-source-error");
+          target.focus();
+        } else errorBox.focus?.();
+      };
+      const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, isNew ? "Create source" : "Save changes");
+      const dependents = isNew ? [] : sourceDependents(sources, draft.id);
+      const archive = isNew
+        ? null
+        : h(
+            "button",
+            { class: "oba-btn", type: "button", "data-source-archive": "true", onClick: () => toggleArchive() },
+            draft.original.archived ? "Restore source" : "Archive source",
+          );
+      const form = h(
+        "form",
+        { class: "oba-source-form", novalidate: true },
+        h("div", { class: "oba-source-fields" },
+          field("id", "ID", text("id", { readonly: !isNew, spellcheck: "false" }), isNew ? "A lowercase slug that stays the same for this source, such as plato-republic." : "The ID cannot change after the source is created."),
+          field("kind-field", "Type", kindControl, SOURCE_KINDS.find((item) => item.kind === draft.kind)?.detail),
+          field("title", fields.titleRequired ? "Title" : "Title (optional)", text("title", { required: fields.titleRequired })),
+          fields.of ? field("of", draft.kind === "reference" ? "Points at" : "Belongs to", relation("of")) : null,
+          fields.basedOn ? field("basedOn", "Translated from (optional)", relation("basedOn"), "An edition, witness, or translation this translation was made from.") : null,
+          field("language", fields.languageRequired ? "Language" : "Language (optional)", text("language", { spellcheck: "false" }), "A language tag such as en or grc."),
+          field("issued", "Issued (optional)", text("issued"), "A date or period, kept as you write it."),
+          fields.location
+            ? h(
+                "div",
+                { class: "oba-source-location", "data-source-field": "location" },
+                field("locationScheme", "Location type", select("locationScheme", SOURCE_LOCATION_SCHEMES.map((scheme) => [scheme, scheme]), "None")),
+                field("locationValue", "Location", text("locationValue", { spellcheck: "false" }), "For example 514a, 12r, or 1:02:30."),
+              )
+            : null,
+          field("creators", "Creators (optional)", area("creators", 3), "One per line. Add a role after a bar, such as Plato | author. Creators are descriptive only and are not site contributors."),
+          field("identifiers", "Identifiers (optional)", area("identifiers", 3), "One per line as scheme: value, such as doi: 10.1000/182 or url: https://example.org/text."),
+        ),
+        errorBox,
+        h("div", { class: "oba-toolbar" }, save, archive, h("span", { class: "oba-spacer" }), h("button", { class: "oba-btn", type: "button", onClick: close }, "Close")),
+        dependents.length ? h("p", { class: "oba-small" }, `${dependents.length} other source${dependents.length === 1 ? "" : "s"} point${dependents.length === 1 ? "s" : ""} at this one and keep resolving even when it is archived.`) : null,
+        conflict
+          ? h(
+              "div",
+              { class: "oba-notice", role: "alert", "data-source-conflict": "true" },
+              h("p", {}, "This library changed after you opened it, so nothing was saved. Your draft is still here."),
+              h(
+                "div",
+                { class: "oba-toolbar" },
+                h("button", { class: "oba-btn", type: "button", "data-source-conflict-use": "stored", onClick: () => resolveConflict(true) }, conflict.current ? "Use the stored copy" : "Discard my draft"),
+                h("button", { class: "oba-btn", type: "button", "data-source-conflict-use": "draft", onClick: () => resolveConflict(false) }, "Keep my draft on the latest library"),
+              ),
+            )
+          : null,
+      );
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (conflict || busy) return;
+        const problem = validateSourceDraft(draft, sources);
+        if (problem) return fail(problem.message, problem.field === "kind-field" ? "kind-field" : problem.field);
+        busy = true;
+        save.disabled = true;
+        errorBox.hidden = true;
+        say(isNew ? "Creating source…" : "Saving source…");
+        try {
+          const result = await this.api.call(isNew ? "POST" : "PUT", "sources", { json: { revision, source: sourceDraftPayload(draft) } });
+          if (this.viewVersion !== mountedView) return;
+          sources = isNew ? [...sources, result.source] : sources.map((source) => (source.id === result.source.id ? result.source : source));
+          revision = result.revision;
+          selected = result.source.id;
+          draft = sourceDraft(result.source);
+          dirty = false;
+          this.dirty = false;
+          renderList();
+          renderPanel();
+          say(`${sourceLabel(result.source)} saved.`, "oba-ok");
+        } catch (error) {
+          if (this.viewVersion !== mountedView) return;
+          if (error.status === 409 && error.data?.conflict) {
+            conflict = { revision: error.data.revision, current: error.data.current };
+            renderPanel();
+            panel.querySelector("[data-source-conflict]")?.querySelector("button")?.focus();
+            say("Not saved: the library changed elsewhere.", "oba-error");
+            return;
+          }
+          const first = error.data?.diagnostics?.[0];
+          fail(sourceErrorMessage(error), first ? sourceDiagnosticControl(first.field) : "");
+          say("Not saved. The stored library is unchanged.", "oba-error");
+        } finally {
+          busy = false;
+          save.disabled = false;
+        }
+      });
+      panel.replaceChildren(
+        h("h2", { id: "oba-source-heading", tabindex: "-1" }, isNew ? "New source" : sourceLabel(draft.original)),
+        draft.original?.archived ? h("p", { class: "oba-badge" }, "Archived") : null,
+        form,
+      );
+      if (moveFocus) panel.querySelector("#oba-source-heading")?.focus();
+    };
+
+    const resolveConflict = async (useStored) => {
+      if (busy) return;
+      busy = true;
+      try {
+        // Reload the whole library so relationship choices and the revision match what is stored now.
+        const latest = await this.api.call("GET", "sources");
+        if (this.viewVersion !== mountedView) return;
+        sources = latest.sources;
+        revision = latest.revision;
+        conflict = null;
+        const current = sources.find((source) => source.id === draft.id) || null;
+        if (useStored) {
+          draft = current ? sourceDraft(current) : null;
+          selected = current ? current.id : null;
+          dirty = false;
+          this.dirty = false;
+          say(current ? "Showing the stored copy." : "Draft discarded.");
+        } else {
+          // The author has seen that the library changed; the draft now rests on the latest revision.
+          if (current && draft.original) draft.original = structuredClone(current);
+          say("Your draft now rests on the latest library. Review it, then save.");
+        }
+        renderList();
+        renderPanel(true);
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(`${sourceErrorMessage(error)} The stored library is unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    const toggleArchive = async () => {
+      if (busy || !draft?.original) return;
+      if (dirty && !confirmDiscard()) return;
+      busy = true;
+      const archived = !draft.original.archived;
+      say(archived ? "Archiving source…" : "Restoring source…");
+      try {
+        const result = await this.api.call("POST", "sources/archive", { json: { revision, id: draft.original.id, archived } });
+        if (this.viewVersion !== mountedView) return;
+        sources = sources.map((source) => (source.id === result.source.id ? result.source : source));
+        revision = result.revision;
+        draft = sourceDraft(result.source);
+        dirty = false;
+        this.dirty = false;
+        renderList();
+        renderPanel();
+        say(`${sourceLabel(result.source)} ${archived ? "archived" : "restored"}.`, "oba-ok");
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        if (error.status === 409 && error.data?.conflict) {
+          conflict = { revision: error.data.revision, current: error.data.current };
+          renderPanel();
+          say("Not changed: the library changed elsewhere.", "oba-error");
+        } else say(`${sourceErrorMessage(error)} The stored library is unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    const close = () => {
+      if (!confirmDiscard()) return;
+      selected = null;
+      draft = null;
+      conflict = null;
+      dirty = false;
+      this.dirty = false;
+      renderList();
+      renderPanel();
+      search.focus();
+    };
+
+    search.addEventListener("input", () => {
+      filters.query = search.value;
+      renderList();
+    });
+    kindFilter.addEventListener("change", () => {
+      filters.kind = kindFilter.value;
+      renderList();
+    });
+    archivedFilter.addEventListener("change", () => {
+      filters.archived = archivedFilter.value;
+      renderList();
+    });
+    newButton.addEventListener("click", () => open("new"));
+
+    renderList();
+    renderPanel();
+    this.mount(
+      this.shell(
+        "sources",
+        h("section", { class: "oba-contributor-intro" }, h("p", {}, "Keep works, editions, translations, witnesses, and references as separate records, each with a stable ID."), h("p", { class: "oba-small" }, `Private author research stored in ${library.file}. It never reaches the public site, and saving here changes only that file.`)),
+        h(
+          "div",
+          { class: "oba-toolbar oba-source-filters", role: "search" },
+          h("div", { class: "oba-field" }, h("label", { for: "oba-source-search" }, "Search sources"), search),
+          h("div", { class: "oba-field" }, h("label", { for: "oba-source-kind" }, "Type"), kindFilter),
+          h("div", { class: "oba-field" }, h("label", { for: "oba-source-archived" }, "Show"), archivedFilter),
+          newButton,
+        ),
+        count,
+        status,
+        h("div", { class: "oba-source-layout" }, h("nav", { "aria-label": "Sources" }, list), panel),
+      ),
+    );
   }
 
   // ---- analytics

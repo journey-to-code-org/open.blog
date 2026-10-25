@@ -124,6 +124,11 @@ The fingerprint of the source library as stored, which every change must name so
 change based on an older read is refused instead of overwriting newer work.
 _Avoid_: Version, which names the file format; edition
 
+**Archived source**:
+A source-library record hidden from everyday lists but kept in place, so records that
+point at it still resolve. Archiving is reversible and is not removal.
+_Avoid_: Deleted, removed, hidden source
+
 **Source identifier**:
 A stable, author-assigned slug naming one source-library record, independent of its title.
 Editing a record never changes its kind; the library does not remember removed ids, so

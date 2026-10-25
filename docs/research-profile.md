@@ -115,6 +115,11 @@ as it was, and a damaged or newer-version file is reported rather than replaced.
 [format and storage contract](specs/research-source-library.md) and
 [ADR 0006](adr/0006-private-source-library-storage.md).
 
+Admin Studio manages the library under **Sources** (`#/sources`, also in the command
+palette): create, edit, archive, restore, search, and filter each source type. A stale edit
+shows a conflict and keeps your draft without overwriting newer data; see
+[ADR 0007](adr/0007-admin-source-library-management.md).
+
 For the product boundary and supporting standards research, see
 [Research and evidence publishing](research/research-evidence-publishing.md) and
 [ADR 0002](adr/0002-research-profile-and-evidence-capability.md).

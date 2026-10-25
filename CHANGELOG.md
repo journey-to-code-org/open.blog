@@ -14,6 +14,12 @@ All notable changes to open.blog are recorded here. Releases follow
   duplicate or missing ids, symlinked paths, and malformed, oversized, or newer-version
   files are refused with source-scoped diagnostics and leave the stored file unchanged, and
   interrupted writes are cleaned up. `openblog check` validates a stored library.
+- Added Sources to Admin Studio for managing the private research source library: create,
+  edit, archive, restore, search, and filter works, editions, translations, witnesses, and
+  references with type-aware fields. Stale edits report a conflict and keep your draft
+  without overwriting newer data, failures name the source and field and leave the stored
+  library unchanged, and archived sources stay in place so records that point at them still
+  resolve. The Admin API is `/admin/api/sources`.
 - Builds no longer copy anything inside `.openblog/` when a static or theme directory
   contains it or a static file links into it.
 

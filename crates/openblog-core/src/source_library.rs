@@ -55,6 +55,7 @@ const RECORD_FIELDS: &[&str] = &[
     "basedOn",
     "location",
     "identifiers",
+    "archived",
 ];
 
 /// What a source-library record is. Distinct from the crate-root
@@ -177,6 +178,10 @@ pub struct SourceRecord {
     pub location: Option<SourceLocation>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub identifiers: Vec<SourceIdentifier>,
+    /// Hidden from everyday lists but kept in place, so records that point
+    /// at it still resolve. `false` is written as an absent field.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     /// Fields this release does not understand, preserved verbatim.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -297,6 +302,23 @@ impl fmt::Display for SourceDiagnostic {
             write!(formatter, " {field}")?;
         }
         write!(formatter, ": {} ({})", self.message, self.code)
+    }
+}
+
+impl SourceRecord {
+    /// Read one record from untrusted JSON, such as an Admin request, with
+    /// the same field checks as a stored record. Relationships are checked
+    /// only once the record joins a library, so diagnostics carry no index.
+    pub fn from_json(value: Value) -> Result<Self, Vec<SourceDiagnostic>> {
+        let mut diagnostics = Vec::new();
+        let (_, record) = parse_record(0, value, &mut diagnostics);
+        for diagnostic in &mut diagnostics {
+            diagnostic.index = None;
+        }
+        match record {
+            Some(record) if diagnostics.is_empty() => Ok(record),
+            _ => Err(diagnostics),
+        }
     }
 }
 
@@ -1197,6 +1219,19 @@ fn parse_record(
         });
     }
 
+    let archived = match reader.fields.remove("archived") {
+        Some(Value::Bool(archived)) => archived,
+        Some(_) => {
+            reader.report(
+                SourceDiagnosticCode::InvalidField,
+                Some("archived".into()),
+                "must be true or false".into(),
+            );
+            false
+        }
+        None => false,
+    };
+
     let location = match reader.fields.remove("location") {
         Some(Value::Object(mut object)) => {
             let scheme = reader.nested_text(&mut object, "location", "scheme", true);
@@ -1267,6 +1302,7 @@ fn parse_record(
         based_on,
         location,
         identifiers,
+        archived,
         extra: fields.into_iter().collect(),
     };
     (id, Some(record))

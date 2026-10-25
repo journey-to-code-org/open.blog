@@ -875,3 +875,87 @@ fn the_derived_index_finds_records_by_id_kind_and_dependents_deterministically()
         "the index is a pure function of the library"
     );
 }
+
+#[test]
+fn archived_sources_stay_in_place_and_remain_resolvable() {
+    let text = library(
+        r#"{"id":"w","kind":"work","title":"Work","archived":true},
+           {"id":"e","kind":"edition","of":"w","title":"Edition","archived":false}"#,
+    );
+    let parsed = SourceLibrary::parse(&text, &no_contributors()).unwrap();
+    assert!(parsed.sources[0].archived, "an archived work is kept");
+    assert!(!parsed.sources[1].archived);
+    assert!(parsed.sources[0].extra.is_empty() && parsed.sources[1].extra.is_empty());
+    let written = parsed.to_json();
+    assert_eq!(written.matches("\"archived\": true").count(), 1);
+    assert!(
+        !written.contains("\"archived\": false"),
+        "false carries no data and is written back as an absent field"
+    );
+    assert_eq!(
+        SourceLibrary::parse(&written, &no_contributors()).unwrap(),
+        parsed
+    );
+
+    let invalid = only(&library(
+        r#"{"id":"w","kind":"work","title":"W","archived":"yes"}"#,
+    ));
+    assert_eq!(invalid.code, SourceDiagnosticCode::InvalidField);
+    assert_eq!(invalid.field.as_deref(), Some("archived"));
+
+    // `archived` is a defined field, so an unknown value cannot shadow it.
+    let mut edited = parsed.clone();
+    edited.sources[1]
+        .extra
+        .insert("archived".into(), serde_json::json!(true));
+    let shadowed = edited
+        .upsert(edited.sources[1].clone(), &no_contributors())
+        .unwrap_err();
+    assert_eq!(shadowed[0].field.as_deref(), Some("archived"));
+}
+
+#[test]
+fn a_single_record_is_read_from_untrusted_json_with_record_scoped_diagnostics() {
+    let record = SourceRecord::from_json(serde_json::json!({
+        "id": "republic-bloom",
+        "kind": "translation",
+        "of": "plato-republic",
+        "language": "en",
+        "title": "The Republic <script>alert(1)</script>",
+        "shelfMark": {"room": "B"}
+    }))
+    .unwrap();
+    assert_eq!(record.kind, ResearchSourceKind::Translation);
+    assert_eq!(
+        record.title.as_deref(),
+        Some("The Republic <script>alert(1)</script>"),
+        "text is data, kept verbatim for the caller to escape"
+    );
+    assert_eq!(record.extra["shelfMark"], serde_json::json!({"room": "B"}));
+
+    let problems = SourceRecord::from_json(serde_json::json!({
+        "id": "bad-url",
+        "kind": "witness",
+        "title": "W",
+        "identifiers": [{"scheme": "url", "value": "javascript:alert(1)"}],
+        "credits": []
+    }))
+    .unwrap_err();
+    assert!(problems
+        .iter()
+        .all(|problem| problem.index.is_none() && problem.source_id.as_deref() == Some("bad-url")));
+    let fields: Vec<_> = problems
+        .iter()
+        .map(|problem| (problem.code, problem.field.as_deref()))
+        .collect();
+    assert!(fields.contains(&(
+        SourceDiagnosticCode::InvalidIdentifier,
+        Some("identifiers[0]")
+    )));
+    assert!(fields.contains(&(SourceDiagnosticCode::ContributorCredit, Some("credits"))));
+    assert!(fields.contains(&(SourceDiagnosticCode::MissingField, Some("of"))));
+
+    let not_object = SourceRecord::from_json(serde_json::json!(["w"])).unwrap_err();
+    assert_eq!(not_object[0].code, SourceDiagnosticCode::InvalidField);
+    assert_eq!(not_object[0].index, None);
+}

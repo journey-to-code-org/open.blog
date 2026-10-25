@@ -46,6 +46,7 @@ data and is written back as an absent field.
 | `issued` | every record | Authored date text, kept as written. |
 | `creators` | every record | `{ "name", "role"? }`, where role is `author`, `editor`, `translator`, `compiler`, `scribe`, or `other`. Descriptive only; never a contributor reference. |
 | `identifiers` | every record | `{ "scheme", "value" }`. `doi`, `isbn`, `issn`, and `url` are checked offline; other schemes need a lowercase slug name. Values must not start or end with whitespace. |
+| `archived` | every record | Optional `true`. Hides the record from everyday lists and keeps it in place; records that point at it still resolve. `false` is written as an absent field. |
 | `location` | reference | `{ "scheme", "value" }` with scheme `page`, `folio`, `line`, `section`, `chapter`, `canonical`, or `timestamp`. Pages cannot point at a work; folios need a witness; timestamps are seconds or `h:mm:ss`. |
 
 `credit`, `credits`, `contributor`, and `contributors` are rejected as field names at any
@@ -92,3 +93,14 @@ revision still covers the stored bytes, and the next change writes the canonical
 without it. A stored file that is malformed, not UTF-8, larger than 4 MiB, invalid, or of a
 newer version is reported with the diagnostics above and is never overwritten. Lookups by id,
 kind, and dependent record are derived in memory from the file and never stored.
+
+## Admin API
+
+Admin manages the library through authenticated, CSRF-protected endpoints; see
+[ADR 0007](../adr/0007-admin-source-library-management.md). `GET /admin/api/sources`
+returns `file`, `revision`, `stored`, and `sources`. `POST` creates and `PUT` updates one
+record sent as `{ "revision", "source" }`; `POST /admin/api/sources/archive` sends
+`{ "revision", "id", "archived" }` and changes only that field. Bodies are limited to
+256 KiB. A stale revision returns `409` with `conflict`, the latest `revision`, and the
+newer stored `current` record; an invalid or unknown record returns `422` with
+source-scoped `diagnostics`. Neither writes anything.
