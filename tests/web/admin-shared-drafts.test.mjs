@@ -691,6 +691,28 @@ test("a writer can start a new part from the editor and the page documents the l
   assert.match(styles, /\.oba-arrangement-turn/);
 }));
 
+test("a sharing refresh keeps unsaved arrangement edits, and each part input names its round and turn", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  api.state.canArrange = true;
+  const { panel } = await openDraft(api, ["coordinator"]);
+  const labels = panel.querySelectorAll("label").map((node) => node.textContent);
+  assert.ok(labels.includes("Round 1, turn 1: part"));
+  assert.ok(labels.includes("Round 1, turn 2: part"));
+  await panel.querySelectorAll("input").find((node) => node.attributes.type === "radio" && node.value === "sideBySide").dispatch("change");
+  await button(panel, "Move round 1, turn 1 down").click();
+  // A readiness action refreshes the sharing panel; the local edits must survive it.
+  await button(panel, "Change sharing rule").click();
+  await settle();
+  assert.equal(api.state.calls.filter((call) => call.key === "GET collaboration/reflection").length, 1);
+  await button(panel, "Save layout and arrangement").click();
+  await settle();
+  const put = api.state.calls.find((call) => call.key === "PUT collaboration/reflection");
+  assert.equal(put.body.structure.layout, "sideBySide");
+  assert.deepEqual(put.body.structure.rounds[0].turns.map((turn) => turn.draft), ["p2", "p1"]);
+  // Its own save reloads once more.
+  assert.equal(api.state.calls.filter((call) => call.key === "GET collaboration/reflection").length, 2);
+}));
+
 // ---------------------------------------------------------------- source checks
 
 test("the draft panel is wired into the shared reflections view, with labels and small-screen styles", () => {

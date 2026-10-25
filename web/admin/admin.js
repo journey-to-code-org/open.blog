@@ -4582,7 +4582,7 @@ export class ObAdmin extends AdminElement {
             " ",
             who,
             " ",
-            h("label", { for: `${base}-part` }, "part"),
+            h("label", { for: `${base}-part` }, `Round ${r + 1}, turn ${t + 1}: part`),
             " ",
             part,
             " ",
@@ -4644,7 +4644,11 @@ export class ObAdmin extends AdminElement {
       arrangementBody.replaceChildren(layouts, ...rounds, h("div", { class: "oba-toolbar" }, addRound, h("span", { class: "oba-spacer" }), saveArrangement));
       if (focusId) arrangementBody.querySelector(`#${focusId}`)?.focus();
     };
+    // The arrangement loads once when the panel opens and again after its own save, conflict or
+    // denial. Other sharing refreshes (a draft save, an offer) keep the local, unsaved edits.
+    let arrangementRequested = false;
     const loadArrangement = async () => {
+      arrangementRequested = true;
       try {
         const result = await this.api.call("GET", `collaboration/reflection?publicationId=${encodeURIComponent(id)}`);
         arranged = { draft: arrangementDraft(result.structure, result.participants), participants: result.participants || [], canArrange: result.canArrange === true };
@@ -4652,6 +4656,7 @@ export class ObAdmin extends AdminElement {
         arrangement.hidden = false;
       } catch {
         arrangement.hidden = true;
+        arrangementRequested = false; // try again on the next refresh
       }
     };
 
@@ -4726,9 +4731,11 @@ export class ObAdmin extends AdminElement {
       if (reveal.slots?.length) parts.push(slots);
       if (reveal.slots?.length) parts.push(previewSection);
       parts.push(arrangement);
+      const focused = arrangement.contains(document.activeElement) ? document.activeElement : null;
       sharing.replaceChildren(...parts);
       sharing.hidden = false;
-      loadArrangement();
+      if (focused?.isConnected) focused.focus();
+      if (!arrangementRequested) loadArrangement();
     };
 
     const loadSharing = async () => {
