@@ -5671,8 +5671,8 @@ fn preview(state: &AppState, req: &Request) -> Response {
             .map(|tag| tag.name.clone())
             .collect::<Vec<_>>();
         let destination_tag_plans =
-            [SyndicationProvider::Dev, SyndicationProvider::Hashnode].map(|provider| {
-                openblog_core::portability::destination_tag_plan(provider, &rel, &tags)
+            openblog_core::portability::destination_policies().map(|policy| {
+                openblog_core::portability::destination_tag_plan(policy.provider, &rel, &tags)
             });
         let diagnostics_by_representation = ["portable-html", "portable-markdown", "portable-text"]
             .into_iter()
@@ -5687,6 +5687,16 @@ fn preview(state: &AppState, req: &Request) -> Response {
                 )
             })
             .collect::<std::collections::BTreeMap<_, _>>();
+        let destination_content_plans = openblog_core::portability::destination_policies()
+            .into_iter()
+            .map(|policy| {
+                openblog_core::portability::destination_content_plan(
+                    policy.provider,
+                    &rel,
+                    &portable_html,
+                )
+            })
+            .collect::<Vec<_>>();
         json!({
             "html": portable_html.html,
             "markdown": portable_markdown,
@@ -5696,6 +5706,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "diagnosticsByRepresentation": diagnostics_by_representation,
             "destinations": openblog_core::portability::destination_policies(),
             "destinationTagPlans": destination_tag_plans,
+            "destinationContentPlans": destination_content_plans,
             "sourceRevision": source_revision,
             "acknowledgements": acknowledgements.acknowledgements,
             "acknowledgementEtag": acknowledgement_etag,
@@ -10523,6 +10534,21 @@ mod tests {
         let projection =
             openblog_core::portability::PortableProjection::from_post(post, &public_site.config)
                 .unwrap();
+        let output = projection.portable_html().unwrap();
+        let content_plans = openblog_core::portability::destination_policies()
+            .into_iter()
+            .map(|policy| {
+                openblog_core::portability::destination_content_plan(
+                    policy.provider,
+                    "posts/portable-lesson.md",
+                    &output,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            preview["portablePreview"]["destinationContentPlans"],
+            json!(content_plans)
+        );
         assert_eq!(
             preview["portablePreview"]["html"],
             projection.portable_html().unwrap().html

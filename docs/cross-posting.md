@@ -75,8 +75,8 @@ for unknown policy versions rather than guessing.
 
 ### Destination tag conversion
 
-DEV and Hashnode tag metadata uses the same core plan in Admin, CLI dry runs, and request
-payloads. `tagPlan` in syndication JSON names the selected tags, `omittedTags`, the versioned
+Destination tag metadata uses the same core plan in Admin and CLI dry runs; DEV and
+Hashnode payloads use its selected tags. `tagPlan` in syndication JSON names the selected tags, `omittedTags`, the versioned
 policy, and source-scoped diagnostics. Authenticated previews return the same plans under
 `destinationTagPlans`; selecting DEV or Hashnode displays their findings as literal text.
 This is adapter metadata, not a feed tag policy.
@@ -89,6 +89,9 @@ This is adapter metadata, not a feed tag policy.
   selected slugs block writes rather than silently merging tags.
 - Trailing tags retain the existing omission behavior, now with a warning and an explicit
   omitted list. Canonical sources are never rewritten.
+- Ghost, WordPress, and Medium currently do not receive tag metadata from these adapters.
+  Their plans show every source tag as omitted with `destination-tags-not-mapped`. This is
+  an adapter limitation, not an invented provider cap; assign tags manually after review.
 - All selected destinations are checked for blocking tag errors **before credentials,
   canonical network preflight, or any remote write**. Dry runs still show invalid plans
   without sending requests. Copying a preview body does not include payload metadata or
@@ -110,11 +113,44 @@ credentials or network access, without truncating content. Request preparation f
 are explicit in `payloadPlanError`. Admin shows the limit but cannot certify an exact
 request size from a body-only preview with no target/revision envelope.
 
-Media constraints are not yet fully preflighted. Images remain absolute
-hosted URLs in the portable body; the adapters do not fetch, inspect, upload, or guarantee
-provider acceptance of their bytes. Hashnode documents separate image-upload limits
-(8 MB, image types only, no SVG); linked inline images are
-not an upload operation, and URL-only checks cannot certify an image's type or size.
+### Content subsets and media review
+
+Each version-1 policy declares `contentSubset`, `mediaDelivery`, and `conversionReview`.
+These describe the adapter boundary, not an assurance that a provider preserves every
+element or accepts every hosted image. `contentPlan` in each CLI JSON target and
+`destinationContentPlans` in the authenticated Admin preview carry the same core plan:
+
+| Destination | Content subset | Required review |
+| --- | --- | --- |
+| DEV / Hashnode | Static CommonMark, with visible quiz answers, code examples, and canonical interaction links. Authored raw HTML is literal text; custom component/Hashnode embed syntax is converted. | Review the saved draft for Markdown-extension differences. Hashnode stays draft-only. |
+| Ghost | Allowlisted static HTML through `source=html`. No authored forms, iframes, scripts, or native components pass through. | Ghost converts HTML to Lexical **lossily**; review headings, tables, anchors, attribution, and code. No Lexical payload or HTML-card workaround is generated. |
+| WordPress | The same allowlisted static HTML as post `content`, for self-hosted and WordPress.com endpoints. | Permissions, filters, plugins, and themes may alter rendering. Core has no external-canonical field; verify an SEO plugin separately. |
+| Medium | Portable Markdown review artifact plus canonical URL; no API payload or remote write. | Use Medium's canonical-URL importer, then verify content, images, attribution, and canonical settings manually. |
+
+Every plan inventories retained hosted image references in source order, including repeated
+references and absolute Unicode/query/fragment URLs. Raw HTML images enter HTML plans only;
+Markdown plans show their authored markup literally and report `destination-raw-html-literal`.
+Code examples, comments, and removed active markup do not become media references.
+Inventory is collected during the shared parser/raw-HTML boundary, never by reconstructing
+authored content from generated production HTML.
+
+`mediaDelivery: hosted-urls-only` means adapters do **not** fetch, inspect, upload, resize, or
+certify image bytes. Image-bearing plans emit `destination-media-unverified` before a write
+and beside Admin's destination preview. Non-HTTP(S) image references produce a blocking
+`destination-image-url-invalid`; all selected targets are checked before credentials or
+network requests, with no truncation, source rewrite, or earlier-target mutation.
+Other unsupported/malformed URLs continue to fail the shared portable projection.
+
+Hashnode documents separate image-upload limits (8 MB, image types only, no SVG).
+Linked inline images are not an upload operation: a `.svg` or extensionless HTTP(S) URL
+is not proof of its bytes, so the adapter neither invents a URL-extension restriction nor
+claims type/size validation. Review the remote draft. Other providers' hosted-media
+acceptance likewise remains unverified; copying a preview body is not a network preflight.
+
+Conversion behavior was checked against Ghost's
+[source HTML contract](https://docs.ghost.org/admin-api/posts/creating-a-post),
+WordPress's [post schema](https://developer.wordpress.org/rest-api/reference/posts/), and
+Hashnode's official limits linked above on 2026-10-25.
 
 Public publication requires both `--publish` and `allowPublish: true`. Hashnode remains
 draft-only in this iteration. WordPress core cannot portably set an external canonical, so

@@ -16,7 +16,8 @@ use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 use openblog_core::config::{SyndicationProvider, SyndicationTargetConfig};
 use openblog_core::frontmatter;
 use openblog_core::portability::{
-    destination_payload_plan, destination_policy, destination_tag_plan, DestinationPayloadPlan,
+    destination_content_plan, destination_payload_plan, destination_policies, destination_policy,
+    destination_tag_plan, DestinationContentPlan, DestinationPayloadPlan,
     DestinationRepresentation, PortableProjection,
 };
 use openblog_core::{Post, SiteConfig};
@@ -56,6 +57,7 @@ struct SyndicationPost {
     canonical_url: String,
     revision: String,
     portable_diagnostics: Vec<openblog_core::portability::PortabilityDiagnostic>,
+    content_plans: Vec<DestinationContentPlan>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -297,6 +299,13 @@ fn run_with_transport(
     validate_plan(&selected, options.publish)?;
     if options.write {
         for (name, target) in &selected {
+            for plan in syndication_post
+                .content_plans
+                .iter()
+                .filter(|plan| plan.policy.provider == target.provider)
+            {
+                plan.validate()?;
+            }
             destination_tag_plan(
                 target.provider,
                 &syndication_post.source_path,
@@ -626,6 +635,10 @@ fn syndication_post(
         return Err("set the site's real public URL before syndication".into());
     }
     let portable_html = projection.portable_html()?;
+    let content_plans = destination_policies()
+        .into_iter()
+        .map(|policy| destination_content_plan(policy.provider, &post.source, &portable_html))
+        .collect();
     let markdown = absolutize_markdown(&projection.portable_markdown()?, config)?;
     let portable_diagnostics = portable_html.diagnostics.clone();
     let mut hasher = Blake2b512::new();
@@ -657,6 +670,7 @@ fn syndication_post(
         canonical_url,
         revision,
         portable_diagnostics,
+        content_plans,
     })
 }
 
@@ -672,6 +686,23 @@ fn print_portable_plan(provider: SyndicationProvider, post: &SyndicationPost) {
         policy.canonical_behavior
     );
     println!("  workflow: {}", policy.workflow);
+    println!("  content policy: {}", policy.conversion_review);
+    if let Some(plan) = post
+        .content_plans
+        .iter()
+        .find(|plan| plan.policy.provider == provider)
+    {
+        for diagnostic in &plan.diagnostics {
+            println!(
+                "  {:?}: {} [{}] {} Action: {}",
+                diagnostic.severity,
+                diagnostic.source_path,
+                diagnostic.code,
+                diagnostic.message,
+                diagnostic.recommended_action
+            );
+        }
+    }
     for diagnostic in &post.portable_diagnostics {
         println!(
             "  portability: {} [{}] {} Action: {}",
@@ -681,7 +712,7 @@ fn print_portable_plan(provider: SyndicationProvider, post: &SyndicationPost) {
             diagnostic.recommended_action
         );
     }
-    if policy.max_tags.is_some() {
+    {
         let tags = destination_tag_plan(provider, &post.source_path, &post.tags);
         println!(
             "  tags: selected {:?}; omitted {:?}",
@@ -720,9 +751,7 @@ fn dry_run_json_plan(
                 }
             };
             let manual = target.provider == SyndicationProvider::Medium;
-            let tag_plan = policy
-                .max_tags
-                .map(|_| destination_tag_plan(target.provider, &post.source_path, &post.tags));
+            let tag_plan = destination_tag_plan(target.provider, &post.source_path, &post.tags);
             let (payload_plan, payload_plan_error) =
                 if target.provider == SyndicationProvider::Hashnode {
                     match hashnode_payload_plan(
@@ -755,6 +784,7 @@ fn dry_run_json_plan(
                 },
                 "remoteRequestSent": false,
                 "policy": policy,
+                "contentPlan": post.content_plans.iter().find(|plan| plan.policy.provider == target.provider),
                 "tagPlan": tag_plan,
                 "payloadPlan": payload_plan,
                 "payloadPlanError": payload_plan_error,
@@ -1623,6 +1653,7 @@ mod tests {
             revision: "abc".into(),
             source_markdown: "Body".into(),
             portable_diagnostics: Vec::new(),
+            content_plans: Vec::new(),
         }
     }
 
@@ -1872,6 +1903,16 @@ mod tests {
         let plan = dry_run_json_plan(&post, &selected, &State::default(), false);
         assert_eq!(plan["targets"].as_array().unwrap().len(), 5);
         for target in plan["targets"].as_array().unwrap() {
+            let content_plan = &target["contentPlan"];
+            assert_eq!(content_plan["policy"], target["policy"]);
+            assert_eq!(content_plan["policy"]["mediaDelivery"], "hosted-urls-only");
+            assert!(!content_plan["images"].as_array().unwrap().is_empty());
+            assert!(content_plan["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|finding| finding["code"] == "destination-media-unverified"
+                    && finding["destination"] == target["provider"]));
             let artifact = &target["conversion"]["to"];
             let expected = if target["provider"] == "ghost" || target["provider"] == "wordpress" {
                 &post.html
@@ -2317,6 +2358,39 @@ const attribute = 'href="/script"';
         );
         assert_eq!(fs::read_to_string(posts.join("post.md")).unwrap(), source);
         assert!(!root.join(".openblog").exists());
+        let invalid_image = "---\ntitle: Post\nslug: post\ndate: 2020-01-01\ntags: [rust]\n---\n\n![Not an image](mailto:author@example.test)\n";
+        fs::write(posts.join("post.md"), invalid_image).unwrap();
+        let error = run_with_transport(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: true,
+                publish: false,
+                json: false,
+            },
+            &NoNetwork,
+        )
+        .unwrap_err();
+        assert!(error.contains("destination-image-url-invalid"), "{error}");
+        assert_eq!(
+            fs::read_to_string(posts.join("post.md")).unwrap(),
+            invalid_image
+        );
+        assert!(!root.join(".openblog").exists());
+        run_with_transport(
+            &root,
+            "post",
+            Options {
+                target_names: Vec::new(),
+                write: false,
+                publish: false,
+                json: true,
+            },
+            &NoNetwork,
+        )
+        .unwrap();
+        fs::write(posts.join("post.md"), source).unwrap();
         run_with_transport(
             &root,
             "post",

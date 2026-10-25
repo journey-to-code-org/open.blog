@@ -38,6 +38,20 @@ pub enum DestinationPublication {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DestinationContentSubset {
+    StaticCommonmark,
+    AllowlistedStaticHtml,
+    ManualCommonmark,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DestinationMediaDelivery {
+    HostedUrlsOnly,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DestinationPolicy {
     pub version: u8,
@@ -47,6 +61,9 @@ pub struct DestinationPolicy {
     pub publication: DestinationPublication,
     pub canonical_behavior: &'static str,
     pub workflow: &'static str,
+    pub content_subset: DestinationContentSubset,
+    pub media_delivery: DestinationMediaDelivery,
+    pub conversion_review: &'static str,
     pub max_tags: Option<usize>,
     pub max_tag_name_chars: Option<usize>,
     pub max_request_body_bytes: Option<usize>,
@@ -62,6 +79,9 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             publication: DestinationPublication::RemoteDraftByDefault,
             canonical_behavior: "The canonical URL is sent to DEV.",
             workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
+            content_subset: DestinationContentSubset::StaticCommonmark,
+            media_delivery: DestinationMediaDelivery::HostedUrlsOnly,
+            conversion_review: "Static CommonMark with visible answers and source examples; authored raw HTML is literal text, not active markup. Review the remote draft for Markdown extension differences.",
             max_tags: Some(4),
             max_tag_name_chars: Some(30),
             max_request_body_bytes: None,
@@ -74,6 +94,9 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             publication: DestinationPublication::RemoteDraftOnly,
             canonical_behavior: "The canonical URL is sent to Hashnode.",
             workflow: "Remote drafts only; publish the saved draft in Hashnode. CLI public publishing is unsupported.",
+            content_subset: DestinationContentSubset::StaticCommonmark,
+            media_delivery: DestinationMediaDelivery::HostedUrlsOnly,
+            conversion_review: "Static CommonMark with no open.blog components or Hashnode embed directives; authored raw HTML is literal text. Review the saved draft before publishing.",
             max_tags: Some(15),
             max_tag_name_chars: None,
             max_request_body_bytes: Some(100_000),
@@ -86,6 +109,9 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             publication: DestinationPublication::RemoteDraftByDefault,
             canonical_behavior: "The canonical URL is sent as Ghost's canonical URL.",
             workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
+            content_subset: DestinationContentSubset::AllowlistedStaticHtml,
+            media_delivery: DestinationMediaDelivery::HostedUrlsOnly,
+            conversion_review: "Ghost source=html converts allowlisted static HTML to Lexical and is lossy. Review headings, tables, anchors, attribution and code in the remote draft; identical rendered HTML is not guaranteed.",
             max_tags: None,
             max_tag_name_chars: None,
             max_request_body_bytes: None,
@@ -98,6 +124,9 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             publication: DestinationPublication::RemoteDraftByDefault,
             canonical_behavior: "WordPress core cannot set an external canonical URL.",
             workflow: "Remote draft by default; verify an SEO plugin before public publishing.",
+            content_subset: DestinationContentSubset::AllowlistedStaticHtml,
+            media_delivery: DestinationMediaDelivery::HostedUrlsOnly,
+            conversion_review: "Allowlisted static HTML is sent as content. WordPress permissions, filters, plugins and themes may change it; review the remote draft and external canonical configuration.",
             max_tags: None,
             max_tag_name_chars: None,
             max_request_body_bytes: None,
@@ -110,6 +139,9 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             publication: DestinationPublication::ManualImport,
             canonical_behavior: "The canonical URL must be checked during Medium import.",
             workflow: "Manual import only; this adapter does not write remotely.",
+            content_subset: DestinationContentSubset::ManualCommonmark,
+            media_delivery: DestinationMediaDelivery::HostedUrlsOnly,
+            conversion_review: "Portable Markdown and a canonical URL are review artifacts, not a Medium API payload. Use the canonical URL in Medium's importer and check attribution, structure, images and canonical settings manually.",
             max_tags: None,
             max_tag_name_chars: None,
             max_request_body_bytes: None,
@@ -171,6 +203,14 @@ pub struct PortableHtmlOutput {
     pub html: String,
     pub capabilities: Vec<CapabilityDescriptor>,
     pub diagnostics: Vec<PortabilityDiagnostic>,
+    pub images: Vec<PortableImage>,
+    pub has_raw_html: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PortableImage {
+    pub url: String,
+    pub raw_html: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -272,6 +312,104 @@ impl DestinationPayloadPlan {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DestinationContentPlan {
+    pub policy: DestinationPolicy,
+    /// Resolved retained image URLs; no remote media bytes have been inspected.
+    pub images: Vec<String>,
+    pub diagnostics: Vec<PortabilityDiagnostic>,
+}
+
+impl DestinationContentPlan {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_destination_diagnostics(self.policy, &self.diagnostics)
+    }
+}
+
+pub fn destination_content_plan(
+    provider: SyndicationProvider,
+    source_path: &str,
+    output: &PortableHtmlOutput,
+) -> DestinationContentPlan {
+    let policy = destination_policy(provider);
+    let representation = match policy.representation {
+        DestinationRepresentation::PortableMarkdown => "portable-markdown",
+        DestinationRepresentation::PortableHtml => "portable-html",
+        DestinationRepresentation::ManualMarkdown => "manual-markdown",
+    };
+    let mut diagnostics = Vec::new();
+    let images = output
+        .images
+        .iter()
+        .filter(|image| {
+            policy.representation == DestinationRepresentation::PortableHtml || !image.raw_html
+        })
+        .map(|image| image.url.clone())
+        .collect::<Vec<_>>();
+    let mut report = |code: &str,
+                      severity,
+                      capability_id: Option<&str>,
+                      message: String,
+                      action: &str| {
+        diagnostics.push(PortabilityDiagnostic {
+            code: code.into(),
+            severity,
+            source_path: source_path.into(),
+            capability_id: capability_id.map(str::to_string),
+            message,
+            recommended_action: action.into(),
+            context: DiagnosticContext {
+                destination: Some(policy.label.to_lowercase()),
+                representation: Some(representation.into()),
+                affected_semantics: Some("The canonical article and portable artifact remain unchanged; remote rendering and hosted-media acceptance require review.".into()),
+                ..Default::default()
+            },
+        });
+    };
+    if !images.is_empty() {
+        for image in &images {
+            if !Url::parse(image).is_ok_and(|url| matches!(url.scheme(), "http" | "https")) {
+                report("destination-image-url-invalid", DiagnosticSeverity::Error, Some("media"),
+                    format!("{} cannot use image URL {image:?}; hosted images must use HTTP(S).", policy.label),
+                    "Replace this image destination with a public HTTP(S) image URL. No image is dropped or rewritten to make the request pass.");
+            }
+        }
+        report(
+            "destination-media-unverified",
+            DiagnosticSeverity::Warning,
+            Some("media"),
+            format!("{} receives hosted image references only. {} retained image reference(s) have not been fetched, uploaded or checked for reachability, type or byte size. URLs cannot certify destination media limits.", policy.label, images.len()),
+            if provider == SyndicationProvider::Hashnode {
+                "Inspect images in the remote draft. Hashnode's separate 8 MB image-upload limit (image types only, no SVG) is not certification of linked inline images."
+            } else {
+                "Inspect images in the remote draft or manual import; this adapter does not upload media or certify provider-specific media limits."
+            },
+        );
+    }
+    if matches!(
+        provider,
+        SyndicationProvider::Ghost | SyndicationProvider::Wordpress | SyndicationProvider::Medium
+    ) {
+        report("destination-conversion-review", DiagnosticSeverity::Warning, None, policy.conversion_review.into(),
+            "Review the destination copy before publication; do not assume source HTML, anchors or canonical settings survive unchanged.");
+    }
+    if provider == SyndicationProvider::Wordpress {
+        report("destination-canonical-unsupported", DiagnosticSeverity::Warning, None, policy.canonical_behavior.into(),
+            "Configure and verify a supported SEO plugin manually; the adapter cannot set an external canonical URL through WordPress core.");
+    }
+    if policy.representation != DestinationRepresentation::PortableHtml && output.has_raw_html {
+        report("destination-raw-html-literal", DiagnosticSeverity::Warning, Some("raw-html"),
+            "Authored raw HTML is shown as literal text in the Markdown artifact, not rendered media or layout. Markdown images remain image references.".into(),
+            "Review literal HTML examples in the Markdown copy; author important images and structure in Markdown when they must render on this destination.");
+    }
+    DestinationContentPlan {
+        policy,
+        images,
+        diagnostics,
+    }
+}
+
 /// Measure serialized UTF-8 request bytes, including provider envelope overhead.
 pub fn destination_payload_plan(
     provider: SyndicationProvider,
@@ -313,7 +451,15 @@ pub fn destination_tag_plan(
     tags: &[String],
 ) -> DestinationTagPlan {
     let policy = destination_policy(provider);
-    let limit = policy.max_tags.unwrap_or(tags.len()).min(tags.len());
+    let maps_tags = matches!(
+        provider,
+        SyndicationProvider::Dev | SyndicationProvider::Hashnode
+    );
+    let limit = if maps_tags {
+        policy.max_tags.unwrap_or(tags.len()).min(tags.len())
+    } else {
+        0
+    };
     let mut plan = DestinationTagPlan {
         policy,
         tags: tags[..limit].to_vec(),
@@ -336,7 +482,14 @@ pub fn destination_tag_plan(
             },
         });
     };
-    if !plan.omitted_tags.is_empty() {
+    if !maps_tags && !plan.omitted_tags.is_empty() {
+        report(
+            "destination-tags-not-mapped",
+            DiagnosticSeverity::Warning,
+            format!("{} does not receive tag metadata from this adapter; all {} source tags are omitted. This is an adapter limitation, not a provider tag-count limit.", policy.label, plan.omitted_tags.len()),
+            "Review and assign tags manually in the destination. The canonical source tags remain unchanged.",
+        );
+    } else if !plan.omitted_tags.is_empty() {
         report(
             "destination-tag-limit",
             DiagnosticSeverity::Warning,
@@ -672,6 +825,8 @@ impl<'a> PortableProjection<'a> {
             html,
             capabilities,
             diagnostics,
+            images: rendered.portable_images,
+            has_raw_html: rendered.portable_has_raw_html,
         })
     }
 
@@ -1551,6 +1706,117 @@ mod tests {
     use crate::model::{LoadOptions, Site, SourceFile, Sources};
 
     #[test]
+    fn destination_content_plans_inventory_retained_media_and_disclose_unverified_conversion() {
+        let body = "![日本語](../media/diagram.svg?size=1#view)\n\n> ![Again](../media/diagram.svg?size=1#view)\n\n<img src='/images/raw.png' alt='Raw'>\n\n<!-- <img src='/PRIVATE_comment.png'> -->\n\n<script><img src='/PRIVATE_script.png'></script>\n\n`![example](../literal.png)`\n\n```html\n<img src='/literal-code.png'>\n```\n";
+        let (config, site) =
+            public_post(&format!("---\ntitle: Media\ndate: 2020-01-01\n---\n{body}"));
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let output = projection.portable_html().unwrap();
+        assert_eq!(output.images.len(), 3);
+        assert!(!output.images[0].raw_html);
+        assert!(output.images[2].raw_html);
+        for policy in destination_policies() {
+            let plan = destination_content_plan(policy.provider, "posts/work.md", &output);
+            assert_eq!(
+                plan,
+                destination_content_plan(policy.provider, "posts/work.md", &output)
+            );
+            assert_eq!(
+                plan.policy.content_subset,
+                match policy.provider {
+                    SyndicationProvider::Ghost | SyndicationProvider::Wordpress =>
+                        DestinationContentSubset::AllowlistedStaticHtml,
+                    SyndicationProvider::Medium => DestinationContentSubset::ManualCommonmark,
+                    _ => DestinationContentSubset::StaticCommonmark,
+                }
+            );
+            assert_eq!(
+                plan.policy.media_delivery,
+                DestinationMediaDelivery::HostedUrlsOnly
+            );
+            let html = policy.representation == DestinationRepresentation::PortableHtml;
+            assert_eq!(plan.images.len(), if html { 3 } else { 2 });
+            assert_eq!(
+                plan.images[0],
+                "https://example.test/blog/media/diagram.svg?size=1#view"
+            );
+            assert_eq!(
+                plan.images[0], plan.images[1],
+                "duplicate media references remain ordered"
+            );
+            if html {
+                assert_eq!(plan.images[2], "https://example.test/blog/images/raw.png");
+            }
+            assert!(plan
+                .diagnostics
+                .iter()
+                .any(|finding| finding.code == "destination-media-unverified"));
+            assert_eq!(
+                plan.diagnostics
+                    .iter()
+                    .any(|finding| finding.code == "destination-raw-html-literal"),
+                !html
+            );
+            plan.validate().unwrap();
+            let serialized = serde_json::to_string(&plan).unwrap();
+            assert!(!serialized.contains("PRIVATE_"));
+            assert!(!serialized.contains("literal-code"));
+            assert!(!serialized.contains("literal.png"));
+            for finding in &plan.diagnostics {
+                assert_eq!(finding.source_path, "posts/work.md");
+                assert_eq!(
+                    finding.context.destination.as_deref(),
+                    Some(policy.label.to_lowercase().as_str())
+                );
+                assert!(finding.context.representation.is_some());
+                assert_eq!(finding.severity, DiagnosticSeverity::Warning);
+            }
+        }
+        assert_eq!(
+            projection.representation(RepresentationFormat::Markdown),
+            body.trim_end_matches('\n')
+        );
+        assert!(destination_policy(SyndicationProvider::Ghost)
+            .conversion_review
+            .contains("lossy"));
+    }
+
+    #[test]
+    fn destination_media_plans_reject_non_image_schemes_without_inventing_byte_limits() {
+        let (config, site) = public_post("---\ntitle: Media\ndate: 2020-01-01\n---\n![Not an image](mailto:author@example.test)\n");
+        let output = PortableProjection::from_post(&site.posts[0], &config)
+            .unwrap()
+            .portable_html()
+            .unwrap();
+        for policy in destination_policies() {
+            let plan = destination_content_plan(policy.provider, "posts/work.md", &output);
+            assert!(plan
+                .validate()
+                .unwrap_err()
+                .contains("destination-image-url-invalid"));
+            assert_eq!(plan.images, vec!["mailto:author@example.test"]);
+            assert!(plan
+                .diagnostics
+                .iter()
+                .any(|finding| finding.severity == DiagnosticSeverity::Error));
+        }
+        let (config, site) =
+            public_post("---\ntitle: Text only\ndate: 2020-01-01\n---\nNo images.\n");
+        let output = PortableProjection::from_post(&site.posts[0], &config)
+            .unwrap()
+            .portable_html()
+            .unwrap();
+        for policy in destination_policies() {
+            let plan = destination_content_plan(policy.provider, "posts/work.md", &output);
+            assert!(!plan
+                .diagnostics
+                .iter()
+                .any(|finding| finding.code == "destination-media-unverified"));
+            plan.validate().unwrap();
+        }
+    }
+
+    #[test]
     fn loss_diagnostics_keep_duplicate_nested_source_ranges_and_explicit_semantics() {
         let body = "😀 Intro\n\n> ```quiz\n> Question?\n> - [x] Answer\n> - [ ] Other\n> ```\n\n```quiz\nAgain?\n- [x] Yes\n- [ ] No\n```\n";
         let (config, site) =
@@ -1716,6 +1982,18 @@ mod tests {
             assert_eq!(plan.diagnostics[0].source_path, "posts/tags.md");
             plan.validate().unwrap();
             assert_eq!(plan, destination_tag_plan(provider, "posts/tags.md", &tags));
+        }
+        for provider in [
+            SyndicationProvider::Ghost,
+            SyndicationProvider::Wordpress,
+            SyndicationProvider::Medium,
+        ] {
+            let plan = destination_tag_plan(provider, "posts/tags.md", &tags);
+            assert!(plan.tags.is_empty());
+            assert_eq!(plan.omitted_tags, tags);
+            assert_eq!(plan.policy.max_tags, None);
+            assert_eq!(plan.diagnostics[0].code, "destination-tags-not-mapped");
+            plan.validate().unwrap();
         }
         let unicode = vec!["日本語".into(), "é".repeat(30)];
         destination_tag_plan(SyndicationProvider::Dev, "posts/tags.md", &unicode)

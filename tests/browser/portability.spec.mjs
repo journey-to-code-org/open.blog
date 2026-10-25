@@ -125,7 +125,17 @@ test("authenticated unsaved previews group losses, copy/download exact output, a
   await page.getByRole("link", { name: /A lesson that travels/ }).click();
   await page.getByRole("button", { name: "Site preview", exact: true }).click();
   const mode = page.getByLabel("Preview representation or destination");
+  await mode.selectOption("destination:ghost");
+  await expect(page.getByText(/Ghost source=html converts.*lossy/).first()).toBeVisible();
+  await expect(page.getByText(/Ghost receives hosted image references only/)).toBeVisible();
+  await expect(page.getByText(/adapter limitation, not a provider tag-count limit/)).toBeVisible();
+  await mode.selectOption("destination:wordpress");
+  await expect(page.getByText(/WordPress core cannot set an external canonical URL/).first()).toBeVisible();
+  await mode.selectOption("destination:hashnode");
+  await expect(page.getByText(/Hashnode receives hosted image references only/)).toBeVisible();
+  await expect(page.getByText(/Ghost receives hosted image references only/)).toHaveCount(0);
   await mode.selectOption("portable-text");
+  await expect(page.getByText(/receives hosted image references only/)).toHaveCount(0);
   await page.getByRole("button", { name: "Acknowledge this warning", exact: true }).first().click();
   await expect(page.getByText("Acknowledged for this revision.", { exact: true }).first()).toBeVisible();
   await mode.selectOption("portable-markdown");

@@ -89,6 +89,12 @@ Findings without an exact source location remain visible without a navigation bu
 Warning acknowledgements remain revision- and destination-scoped. A failed preview shows
 the validation error and disables copy/download until a current preview succeeds.
 
+Destination views also show shared content-policy findings: retained image references
+have not been inspected or uploaded, Ghost's HTML-to-Lexical conversion is lossy, and
+WordPress's external canonical needs separate configuration. Unmapped destination tags
+are disclosed, not silently discarded. These are draft-review requirements, not claims
+that a browser preview certifies provider rendering or media type/size acceptance.
+
 Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace
 commands. The palette opens content lists, creates documents, switches editor panes,
 saves the current document, changes the color scheme, and reaches account actions. Use

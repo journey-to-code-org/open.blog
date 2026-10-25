@@ -572,6 +572,8 @@ struct Skip {
 
 struct RawHtml<'p, 'a> {
     projection: &'p PortableProjection<'a>,
+    images: Vec<crate::portability::PortableImage>,
+    has_raw_html: bool,
     /// Ids the projection writes itself (headings and footnotes).
     reserved: HashSet<String>,
     ids: HashSet<String>,
@@ -672,7 +674,7 @@ fn unique_heading_ids(events: &mut [Event<'_>]) -> usize {
 pub(crate) fn sanitize<'e>(
     mut events: Vec<Event<'e>>,
     projection: &PortableProjection<'_>,
-) -> Result<(Vec<Event<'e>>, Option<CapabilityDescriptor>), String> {
+) -> Result<Sanitized<'e>, String> {
     let heading_ids = unique_heading_ids(&mut events);
     // A footnote named in the reserved `ob-` namespace is written without an
     // id; its citations still point at the note on the canonical article.
@@ -692,6 +694,8 @@ pub(crate) fn sanitize<'e>(
         .collect();
     let mut state = RawHtml {
         projection,
+        images: Vec::new(),
+        has_raw_html: false,
         reserved,
         ids: HashSet::new(),
         open: Vec::new(),
@@ -732,14 +736,18 @@ pub(crate) fn sanitize<'e>(
                 state.in_block = true;
                 let html = state.fragment(&source);
                 state.in_block = false;
-                out.push(Event::Html(CowStr::from(html?)));
+                let html = html?;
+                state.has_raw_html |= !html.trim().is_empty();
+                out.push(Event::Html(CowStr::from(html)));
                 out.push(Event::End(TagEnd::HtmlBlock));
                 if let Some(skip) = state.skip.as_mut() {
                     skip.outlived |= skip.in_block;
                 }
             }
             Event::Html(html) | Event::InlineHtml(html) => {
-                out.push(Event::InlineHtml(CowStr::from(state.fragment(&html)?)));
+                let html = state.fragment(&html)?;
+                state.has_raw_html |= !html.trim().is_empty();
+                out.push(Event::InlineHtml(CowStr::from(html)));
             }
             Event::Start(mut tag) => {
                 state.depth += 1;
@@ -756,6 +764,12 @@ pub(crate) fn sanitize<'e>(
                 }
                 if matches!(tag, Tag::Paragraph) {
                     paragraphs.push(out.len());
+                }
+                if let Tag::Image { dest_url, .. } = &tag {
+                    state.images.push(crate::portability::PortableImage {
+                        url: dest_url.to_string(),
+                        raw_html: false,
+                    });
                 }
                 out.push(Event::Start(tag));
             }
@@ -799,7 +813,19 @@ pub(crate) fn sanitize<'e>(
     if !closes.is_empty() {
         out.push(Event::Html(CowStr::from(closes)));
     }
-    Ok((out, state.losses.report()))
+    Ok(Sanitized {
+        events: out,
+        capability: state.losses.report(),
+        images: state.images,
+        has_raw_html: state.has_raw_html,
+    })
+}
+
+pub(crate) struct Sanitized<'a> {
+    pub events: Vec<Event<'a>>,
+    pub capability: Option<CapabilityDescriptor>,
+    pub images: Vec<crate::portability::PortableImage>,
+    pub has_raw_html: bool,
 }
 
 impl RawHtml<'_, '_> {
@@ -1058,6 +1084,12 @@ impl RawHtml<'_, '_> {
             } else {
                 value
             };
+            if name == "img" && attribute == "src" {
+                self.images.push(crate::portability::PortableImage {
+                    url: value.clone(),
+                    raw_html: true,
+                });
+            }
             if value.is_empty() && matches!(attribute.as_str(), "open" | "reversed") {
                 html.push_str(&format!(" {attribute}"));
             } else {

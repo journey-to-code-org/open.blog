@@ -29,6 +29,7 @@ import {
   preserveProfileFieldDrafts,
   destinationPolicyForDisplay,
   destinationTagsForDisplay,
+  destinationContentForDisplay,
   portabilityAcknowledgementScope,
   portabilityGroups,
   portabilitySourceSelection,
@@ -393,6 +394,25 @@ test("portable findings group deterministic capability levels without scores and
   Editor.prototype.navigatePortabilitySource.call(editor, range, {});
   assert.deepEqual(calls, []);
   assert.match(editor.ui.previewTheme.textContent, /Source changed/);
+});
+
+test("destination content findings disclose hosted-media uncertainty and stay scoped and literal", () => {
+  const plans = [
+    { policy: { version: 1, provider: "ghost" }, diagnostics: [
+      { sourcePath: "posts/media.md", severity: "warning", message: "Ghost source=html is lossy; <script>literal</script>." },
+      { sourcePath: "posts/media.md", severity: "warning", message: "Hosted media bytes remain unverified." },
+    ] },
+    { policy: { version: 2, provider: "dev" }, diagnostics: [{ message: "Unknown policy" }] },
+  ];
+  const messages = destinationContentForDisplay(plans, "destination:ghost");
+  assert.equal(messages.length, 2);
+  assert.match(messages[0], /<script>literal<\/script>/);
+  assert.match(messages[1], /unverified/);
+  assert.deepEqual(destinationContentForDisplay(plans, "destination:dev"), []);
+  assert.deepEqual(destinationContentForDisplay(plans, "site"), []);
+  assert.deepEqual(destinationContentForDisplay(null, "destination:ghost"), []);
+  const policies = [{ version: 1, provider: "ghost", label: "Ghost", conversionReview: "Lossy HTML to Lexical conversion." }];
+  assert.ok(destinationPolicyForDisplay(policies, "destination:ghost").some((message) => message.includes("Lossy HTML")));
 });
 
 const SAMPLE_GPX = `<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>

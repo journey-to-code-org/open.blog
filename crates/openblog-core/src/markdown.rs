@@ -22,6 +22,9 @@ pub struct Heading {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Rendered {
     pub html: String,
+    /// Image destinations retained by the portable raw-HTML boundary, in source order.
+    pub portable_images: Vec<crate::portability::PortableImage>,
+    pub portable_has_raw_html: bool,
     /// Semantic capabilities detected in authored Markdown, in source order.
     pub capabilities: Vec<CapabilityDescriptor>,
     /// Content errors discovered by Markdown extensions such as quiz blocks.
@@ -1414,9 +1417,9 @@ pub fn render_portable(
             *destination = CowStr::from(projection.resolve_link(destination)?);
         }
     }
-    let (parsed_events, raw_html) = crate::raw_html::sanitize(parsed_events, projection)?;
+    let sanitized = crate::raw_html::sanitize(parsed_events, projection)?;
     let mut rendered = render_events(
-        parsed_events,
+        sanitized.events,
         markdown.len(),
         options,
         Some(projection.markdown_context()),
@@ -1424,7 +1427,9 @@ pub fn render_portable(
     // Recipe sections are added after raw HTML is balanced inside its own
     // containers, so the finished body is balanced once more as a whole.
     rendered.html = crate::raw_html::balance(&rendered.html);
-    rendered.capabilities.extend(raw_html);
+    rendered.capabilities.extend(sanitized.capability);
+    rendered.portable_images = sanitized.images;
+    rendered.portable_has_raw_html = sanitized.has_raw_html;
     Ok(rendered)
 }
 
@@ -1532,6 +1537,8 @@ fn render_events<'a>(
     let word_count = text.split_whitespace().count();
     Rendered {
         html,
+        portable_images: Vec::new(),
+        portable_has_raw_html: false,
         capabilities: blocks.capabilities,
         errors: blocks.errors,
         headings,
