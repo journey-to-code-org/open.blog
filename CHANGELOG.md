@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined the private research notebook contract: quoted passages (verbatim excerpt, compound
+  page, folio, line, canonical and custom locators, tied to a source-library record) and
+  observation or question notes that link to passages, sources, and concepts. Every entry is
+  always private with no publication path, quoted text stays apart from your own prose, and a
+  failed change leaves the notebook untouched. No screen or storage uses it yet.
+
 ## [0.22.0] - 2026-10-25
 
 - Portable Markdown for a published shared reflection now escapes its title, so a participant-supplied

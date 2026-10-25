@@ -60,7 +60,9 @@ which defines the incremental path from one site author to ordered, work-specifi
 [Assistant provider APIs](research/assistant-provider-apis.md), which records the native-provider
 contracts and why GitHub Copilot is not exposed as a generic API provider, and the
 [research source library format](specs/research-source-library.md), which keeps works,
-editions, translations, witnesses, and references distinct under stable identifiers.
+editions, translations, witnesses, and references distinct under stable identifiers, and the
+[research notebook format](specs/research-notebook.md), which keeps quoted passages and private
+research notes apart from your own prose.
 
 ## Command reference
 

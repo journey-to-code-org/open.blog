@@ -31,7 +31,7 @@ const CREATOR_ROLES: &[&str] = &[
     "scribe",
     "other",
 ];
-const LOCATION_SCHEMES: &[&str] = &[
+pub(crate) const LOCATION_SCHEMES: &[&str] = &[
     "page",
     "folio",
     "line",
@@ -1409,12 +1409,12 @@ fn check_kind_fields(
     }
 }
 
-fn valid_source_id(value: &str) -> bool {
+pub(crate) fn valid_source_id(value: &str) -> bool {
     value.len() <= MAX_ID_BYTES && valid_registry_key(value)
 }
 
 /// BCP 47 shape only: a 2–8 letter primary subtag and 1–8 character subtags.
-fn valid_language_tag(value: &str) -> bool {
+pub(crate) fn valid_language_tag(value: &str) -> bool {
     let mut subtags = value.split('-');
     let primary = subtags.next().unwrap_or_default();
     (2..=8).contains(&primary.len())
@@ -1425,7 +1425,7 @@ fn valid_language_tag(value: &str) -> bool {
         })
 }
 
-fn valid_timestamp(value: &str) -> bool {
+pub(crate) fn valid_timestamp(value: &str) -> bool {
     let (clock, fraction) = value.split_once('.').unwrap_or((value, "0"));
     let parts: Vec<&str> = clock.split(':').collect();
     let digits = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());

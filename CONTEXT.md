@@ -305,6 +305,34 @@ unchanged, or conflict with a source, what it keeps, and which fields cannot be 
 Nothing is written until a plan with no conflicts is applied.
 _Avoid_: Dry run when the result of applying it is meant
 
+**Notebook**:
+An author's private, versioned collection of quoted passages and research notes that point
+into the source library. It is never content and has no public form of its own; research
+becomes public only through an explicit projection.
+_Avoid_: Source library, bibliography, journal
+
+**Passage**:
+An excerpt of one source-library record together with where in it the excerpt sits. A
+passage keeps its source for life and holds quoted text, never the author's prose.
+_Avoid_: Quote block, citation, annotation
+
+**Quoted excerpt**:
+The verbatim text of a passage, stored exactly as quoted and apart from every field of
+author prose. It is someone else's words and carries no claim that it is accurate or
+permitted to republish.
+_Avoid_: Note text, summary, content
+
+**Locator**:
+One position inside a source, with a kind such as page, folio, line, canonical reference,
+or an `x-` extension kind, and an optional range end. A passage lists several in order for a
+compound location.
+_Avoid_: Location when the single source-library record location is meant; citation
+
+**Research note**:
+The author's own observation or question, linked to passages, sources, or concepts. Always
+private; never a quotation, claim, or citation.
+_Avoid_: Annotation, comment, reader note
+
 **Source identifier**:
 A stable, author-assigned slug naming one source-library record, independent of its title.
 Editing a record never changes its kind; the library does not remember removed ids, so

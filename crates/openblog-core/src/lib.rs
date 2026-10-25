@@ -12,6 +12,7 @@
 //! - [`feeds`]: RSS 2.0, JSON Feed, sitemap, and the latest-posts snapshot
 //! - [`search`]: a small ranked search over a JSON index
 //! - [`source_library`]: private research sources with stable, versioned identities
+//! - [`research_notes`]: private passages and research notes that point into the source library
 //! - [`source_interchange`]: dry-run CSL JSON import and deterministic CSL JSON / BibTeX export
 
 pub mod accessibility;
@@ -40,6 +41,7 @@ mod raw_html;
 pub mod recipe;
 pub mod render;
 pub mod research;
+pub mod research_notes;
 pub mod search;
 pub mod shared_source;
 pub mod slug;
