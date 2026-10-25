@@ -104,3 +104,38 @@ record sent as `{ "revision", "source" }`; `POST /admin/api/sources/archive` sen
 256 KiB. A stale revision returns `409` with `conflict`, the latest `revision`, and the
 newer stored `current` record; an invalid or unknown record returns `422` with
 source-scoped `diagnostics`. Neither writes anything.
+
+## Interchange
+
+CSL JSON import and CSL JSON / BibTeX export; see
+[ADR 0008](../adr/0008-source-library-interchange.md). `POST /admin/api/sources/import`
+sends `{ "revision", "content", "apply" }` (at most 3 MiB). With `apply: false` it returns
+a `plan` and writes nothing: `counts`, and per item the `action` (`create`, `update`,
+`unchanged`, `conflict`), `changes`, `kept`, `unsupported` (item fields the library does
+not store, with reasons), `diagnostics`, and `duplicateOf`. With `apply: true` it applies a
+plan with no conflicts as one revision-checked atomic change, or returns `422` with the
+plan and source-scoped diagnostics and writes nothing. Import limits are 2 MiB and 5,000
+items.
+
+| CSL JSON | Library |
+| --- | --- |
+| `id` | `id`: lowercase ASCII slug, or `csl-` plus 16 hex digits of a digest when there is none |
+| `title`, `language` | `title`, `language` |
+| `author`, `editor`, `translator` | `creators` with that role; family, given, particles, and suffix kept beside the display name |
+| `issued` | `issued` text: `date-parts` as `2003`, `1968-05`, `1810-03-07`, or `2003/2005`; `literal` and `raw` verbatim |
+| `DOI`, `ISBN`, `ISSN`, `URL`, `PMID`, `PMCID` | `identifiers` (several ISBNs or ISSNs are separated by `, `) |
+| `container-title`, `publisher`, `edition`, `volume`, `page`, and similar text or numbers | `csl` field, verbatim |
+| `custom["openblog-*"]` | kind, `of`, `basedOn`, `location`, `archived`, unknown fields, and full creator and identifier lists |
+| `note`, `abstract`, `annote`, `keyword` | never imported |
+| anything else | reported as unsupported |
+
+A matching id merges rather than replaces: stated title, language, date, relationships,
+location, and archived flag are replaced; creators and identifiers are added when missing;
+unknown fields are overlaid; everything else is kept. An import never changes a kind and
+never removes anything. A shared DOI, ISBN, ISSN, PMID, or PMCID under a different id, or
+two items with one id, is a conflict.
+
+`GET /admin/api/sources/export?format=csl-json|bibtex` returns `content`, `filename`,
+`revision`, `count`, and `losses`. Both are deterministic for a library revision. CSL JSON
+keeps everything (`custom` holds what CSL cannot express). BibTeX is keyed by source id and
+lists in `losses`, per source and field, what an entry omits.

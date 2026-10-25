@@ -120,6 +120,11 @@ palette): create, edit, archive, restore, search, and filter each source type. A
 shows a conflict and keeps your draft without overwriting newer data; see
 [ADR 0007](adr/0007-admin-source-library-management.md).
 
+Sources also imports CSL JSON (for example from Zotero) after a preview that lists what would
+be created, updated, kept, and not imported, and exports CSL JSON or BibTeX. Importing never
+removes anything or discards richer details and is safe to repeat; see
+[ADR 0008](adr/0008-source-library-interchange.md).
+
 For the product boundary and supporting standards research, see
 [Research and evidence publishing](research/research-evidence-publishing.md) and
 [ADR 0002](adr/0002-research-profile-and-evidence-capability.md).

@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added import and export to Sources in Admin Studio. Import CSL JSON (for example from
+  Zotero) after a preview of what would be created, updated, kept, and not imported; conflicts
+  such as duplicate ids or identifiers block the whole import and nothing is saved, and
+  re-importing the same file changes nothing and never discards richer details you already
+  recorded. Private notes and abstracts are never imported. Export CSL JSON (lossless for
+  open.blog) or BibTeX (with a list of what it cannot carry). The Admin API adds
+  `POST /admin/api/sources/import` and `GET /admin/api/sources/export`.
 - Included the research source library in the durable hosted editorial workspace so source
   changes made in Admin survive a Render restart or redeploy.
 - Defined the versioned research source library contract in core: distinct works, editions,

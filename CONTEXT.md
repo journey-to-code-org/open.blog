@@ -129,6 +129,12 @@ A source-library record hidden from everyday lists but kept in place, so records
 point at it still resolve. Archiving is reversible and is not removal.
 _Avoid_: Deleted, removed, hidden source
 
+**Import plan**:
+The preview of a CSL JSON import: for each item whether it would create, update, leave
+unchanged, or conflict with a source, what it keeps, and which fields cannot be stored.
+Nothing is written until a plan with no conflicts is applied.
+_Avoid_: Dry run when the result of applying it is meant
+
 **Source identifier**:
 A stable, author-assigned slug naming one source-library record, independent of its title.
 Editing a record never changes its kind; the library does not remember removed ids, so
