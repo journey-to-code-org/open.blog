@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-25
+
 - Fixed the shared draft sharing controls: the revision you confirm to share is now always the one
   sent, even if the draft changes in another tab, and keyboard focus stays in the Sharing section
   after you offer, take back or change the rule.
