@@ -482,6 +482,49 @@ test("offering a revision asks first, names the revision, and Escape or Cancel c
   assert.equal(api.state.reveal.ready, false);
 }));
 
+test("the offer box can never send a revision the writer did not confirm", withDom(async () => {
+  const api = fakeApi({ number: 3, markdown: "mine", reveal: { slots: SLOTS.slice(0, 2).map((slot) => ({ ...slot, ready: false })) } });
+  const { panel } = await openDraft(api);
+  await button(panel, "Offer revision 3 to the group").click();
+  const stale = button(panel.querySelector(".oba-confirm"), "Share revision 3");
+  assert.ok(stale);
+  api.state.number = 4;
+  api.state.markdown = "from another tab";
+  await typeInto(panel, "my unsaved text");
+  await save(panel);
+  await settle();
+  await button(panel.querySelector(".oba-draft-conflict"), "Use the newer copy instead").click();
+  await settle();
+  // A detached button cannot be clicked in a browser; if it were, it still carries revision 3.
+  await stale.click();
+  await settle();
+  const sent = api.state.calls.filter((call) => call.key === "PUT collaboration/reveal/ready");
+  assert.ok(sent.every((call) => call.body.revision === 3), "only the confirmed revision may be sent");
+  api.state.reveal = { ...api.state.reveal, ready: false };
+  await button(panel, "Take back my offer")?.click();
+  await settle();
+  assert.equal(panel.querySelector(".oba-confirm"), null, "the stale box is gone once the draft changes");
+  assert.ok(button(panel, "Offer revision 4 to the group"));
+}));
+
+test("after offering, taking back or changing the rule, focus stays inside the sharing section", withDom(async (dom) => {
+  const api = fakeApi({ number: 2, markdown: "mine", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 2).map((slot) => ({ ...slot, ready: false })) } });
+  const { panel } = await openDraft(api, ["coordinator"]);
+  const sharing = panel.querySelector(".oba-draft-sharing");
+  const inSharing = () => sharing.contains(dom.document.activeElement) && dom.document.activeElement.attributes.tabindex === "-1";
+  await button(panel, "Offer revision 2 to the group").click();
+  await button(panel.querySelector(".oba-confirm"), "Share revision 2").click();
+  await settle();
+  assert.ok(inSharing(), "after offering");
+  await button(panel, "Take back my offer").click();
+  await settle();
+  assert.ok(inSharing(), "after taking back");
+  dom.document.activeElement = null;
+  await button(panel, "Change sharing rule").click();
+  await settle();
+  assert.ok(inSharing(), "after changing the rule");
+}));
+
 test("with sharing off or nothing saved there is nothing to offer, and coordinators can change the rule", withDom(async () => {
   const off = await openDraft(fakeApi({ number: 1, markdown: "x", reveal: { policy: "independent", slots: SLOTS.slice(0, 1) } }));
   assert.equal(button(off.panel, "Offer revision 1 to the group"), undefined);

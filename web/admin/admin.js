@@ -4223,6 +4223,7 @@ export class ObAdmin extends AdminElement {
       const later = h("button", { class: "oba-btn", type: "button" }, "Decide later");
       keepMine.addEventListener("click", async () => {
         saved = { number: current?.stamp?.number || 0, markdown: current?.markdown || "" };
+        loadSharing(); // an open offer box names the old revision
         closeConflict(false);
         await doSave();
         if (conflict.hidden && problem.hidden) text.focus();
@@ -4231,6 +4232,7 @@ export class ObAdmin extends AdminElement {
         stash = mine;
         text.value = current?.markdown || "";
         adoptDraft(current);
+        loadSharing(); // an open offer box names the old revision
         restore.hidden = false;
         closeConflict();
         refreshState();
@@ -4318,6 +4320,8 @@ export class ObAdmin extends AdminElement {
         const result = await this.api.call(method, path, { json });
         status.textContent = done(result);
         await loadSharing();
+        // The control that was pressed is gone; keep keyboard and screen-reader users in place.
+        sharing.querySelector(`#${prefix}-sharing-heading`)?.focus();
         return true;
       } catch (error) {
         const failure = fail(error);
@@ -4344,7 +4348,7 @@ export class ObAdmin extends AdminElement {
         ),
       );
       const parts = [
-        h("h4", {}, "Sharing"),
+        h("h4", { id: `${prefix}-sharing-heading`, tabindex: "-1" }, "Sharing"),
         h("p", { class: "oba-small" }, h("strong", {}, `${policy.label}. `), policy.help, " Until a revision is shared, only its writer can read it."),
       ];
       if (reveal.slots?.length && saved.number) {
@@ -4356,12 +4360,13 @@ export class ObAdmin extends AdminElement {
           const offer = h("button", { class: "oba-btn", type: "button" }, `Offer revision ${saved.number} to the group`);
           const holder = h("div", {});
           offer.addEventListener("click", () => {
-            const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, `Share revision ${saved.number}`);
+            const revision = saved.number; // what the writer confirms is exactly what is sent
+            const yes = h("button", { class: "oba-btn oba-btn-danger", type: "button" }, `Share revision ${revision}`);
             const no = h("button", { class: "oba-btn", type: "button" }, "Cancel");
             const box = h(
               "div",
               { class: "oba-confirm", role: "group", "aria-labelledby": `${prefix}-offer-title`, tabindex: "-1" },
-              h("p", { id: `${prefix}-offer-title`, class: "oba-confirm-title" }, `Share revision ${saved.number}?`),
+              h("p", { id: `${prefix}-offer-title`, class: "oba-confirm-title" }, `Share revision ${revision}?`),
               h("p", { class: "oba-small" }, "When the sharing rule is met, everyone who offered will read the revisions offered. A copy that has been read cannot be taken back. Later edits stay private."),
               h("div", { class: "oba-toolbar" }, yes, no),
             );
@@ -4376,7 +4381,7 @@ export class ObAdmin extends AdminElement {
               if (event.key === "Escape") close();
             });
             yes.addEventListener("click", () =>
-              runSharing("PUT", "collaboration/reveal/ready", { publicationId: id, revision: saved.number }, (result) =>
+              runSharing("PUT", "collaboration/reveal/ready", { publicationId: id, revision }, (result) =>
                 result?.revealed ? "Revealed. Everyone who offered can now read the offered revisions." : "Offered. Nothing is shared until the rule is met.",
               ),
             );
