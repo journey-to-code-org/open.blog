@@ -1470,22 +1470,38 @@ impl<'a> PortableProjection<'a> {
             }
         }
         // The same prompts, names and labels must also come in the arrangement's reading order:
-        // an equivalent that reorders turns says something else (ADR 0034).
+        // an equivalent that reorders turns says something else (ADR 0034). Only the reflection's
+        // own headings, labels and prompts are compared, never the credits or metadata, which
+        // repeat the same names.
         if let Some(arrangement) = &arrangement {
-            let mut from = 0;
+            let squash = |value: &str| {
+                value
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect::<String>()
+            };
+            let found = reflection_items(format, artifact);
+            let mut candidates = found.iter();
             let mut in_order = true;
-            for round in &arrangement.rounds {
-                let values = round.prompt.iter().chain(
-                    round
-                        .turns
-                        .iter()
-                        .flat_map(|turn| std::iter::once(&turn.author).chain(turn.label.iter())),
-                );
-                for value in values {
-                    let needle = normalize(value);
-                    match content[from..].find(&needle) {
-                        Some(at) => from += at + needle.len(),
-                        None => in_order = false,
+            'expected: for round in &arrangement.rounds {
+                let mut wanted = Vec::new();
+                if let Some(prompt) = &round.prompt {
+                    wanted.push((ReflectionItem::Prompt, squash(prompt)));
+                }
+                for turn in &round.turns {
+                    wanted.push((ReflectionItem::Author, squash(&turn.author)));
+                    if let Some(label) = &turn.label {
+                        wanted.push((ReflectionItem::Label, squash(label)));
+                    }
+                }
+                for (kind, value) in wanted {
+                    let matched = candidates.by_ref().any(|(found_kind, found_value)| {
+                        (format == RepresentationFormat::Text || *found_kind == kind)
+                            && squash(found_value) == value
+                    });
+                    if !matched {
+                        in_order = false;
+                        break 'expected;
                     }
                 }
             }
@@ -2239,6 +2255,135 @@ fn validate_http_url(url: &Url, allow_query_and_fragment: bool) -> Result<(), St
     } else {
         Err("not an absolute HTTP(S) URL".into())
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReflectionItem {
+    Prompt,
+    Author,
+    Label,
+}
+
+/// The reflection's own prompts, author headings and labels in the order a derived artifact
+/// shows them. HTML is read from the arrangement's marked elements, Markdown from the top-level
+/// blocks its arrangement writes (a heading, a lone emphasised label, a lone strong prompt), and
+/// text from its lines. Credits, metadata and the title never count.
+fn reflection_items(format: RepresentationFormat, artifact: &str) -> Vec<(ReflectionItem, String)> {
+    let mut items = Vec::new();
+    match format {
+        RepresentationFormat::Html => {
+            const MARKERS: [(&str, &str, ReflectionItem); 3] = [
+                (
+                    "<h2 class=\"ob-turn-author\">",
+                    "</h2>",
+                    ReflectionItem::Author,
+                ),
+                (
+                    "<p class=\"ob-turn-label\">",
+                    "</p>",
+                    ReflectionItem::Label,
+                ),
+                (
+                    "<p class=\"ob-round-prompt\">",
+                    "</p>",
+                    ReflectionItem::Prompt,
+                ),
+            ];
+            let mut found = Vec::new();
+            for (open, close, kind) in MARKERS {
+                for (at, _) in artifact.match_indices(open) {
+                    let start = at + open.len();
+                    if let Some(len) = artifact[start..].find(close) {
+                        found.push((
+                            at,
+                            kind,
+                            crate::raw_html::semantic_content(&artifact[start..start + len]),
+                        ));
+                    }
+                }
+            }
+            found.sort_by_key(|(at, _, _)| *at);
+            items.extend(found.into_iter().map(|(_, kind, text)| (kind, text)));
+        }
+        RepresentationFormat::Markdown => {
+            #[derive(PartialEq)]
+            enum Block {
+                Heading,
+                Paragraph,
+            }
+            let mut depth = 0usize;
+            let mut block: Option<Block> = None;
+            let mut text = String::new();
+            let mut wrapper: Option<ReflectionItem> = None;
+            let mut mixed = false;
+            for event in Parser::new_ext(artifact, crate::markdown::parser_options(false)) {
+                match event {
+                    Event::Start(tag) => {
+                        if depth == 0 {
+                            block = match tag {
+                                Tag::Heading {
+                                    level: pulldown_cmark::HeadingLevel::H2,
+                                    ..
+                                } => Some(Block::Heading),
+                                Tag::Paragraph => Some(Block::Paragraph),
+                                _ => None,
+                            };
+                            text.clear();
+                            wrapper = None;
+                            mixed = false;
+                        } else if depth == 1 && block == Some(Block::Paragraph) {
+                            match tag {
+                                Tag::Strong if wrapper.is_none() && text.is_empty() => {
+                                    wrapper = Some(ReflectionItem::Prompt);
+                                }
+                                Tag::Emphasis if wrapper.is_none() && text.is_empty() => {
+                                    wrapper = Some(ReflectionItem::Label);
+                                }
+                                _ => mixed = true,
+                            }
+                        }
+                        depth += 1;
+                    }
+                    Event::End(_) => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            match block.take() {
+                                Some(Block::Heading) => {
+                                    items.push((ReflectionItem::Author, std::mem::take(&mut text)));
+                                }
+                                Some(Block::Paragraph) if !mixed => {
+                                    if let Some(kind) = wrapper {
+                                        items.push((kind, std::mem::take(&mut text)));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Event::Text(value) | Event::Code(value) if block.is_some() => {
+                        if depth == 1 && block == Some(Block::Paragraph) {
+                            // Text beside (or after) the wrapper is an ordinary paragraph.
+                            if wrapper.is_some() && !text.is_empty() {
+                                mixed = true;
+                            }
+                        }
+                        text.push_str(&value);
+                    }
+                    Event::SoftBreak | Event::HardBreak if block.is_some() => text.push(' '),
+                    _ => {}
+                }
+            }
+        }
+        RepresentationFormat::Text => {
+            items.extend(
+                artifact
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .map(|line| (ReflectionItem::Author, line.to_string())),
+            );
+        }
+    }
+    items
 }
 
 #[cfg(test)]

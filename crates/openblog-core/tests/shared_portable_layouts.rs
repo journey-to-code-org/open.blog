@@ -539,3 +539,61 @@ fn only_what_compose_writes_is_read_back_as_an_arrangement() {
         assert!(Arrangement::parse(&bad).is_none(), "{bad}");
     }
 }
+
+#[test]
+fn a_tampered_equivalent_with_reordered_or_missing_turns_is_refused() {
+    use openblog_core::portability::RepresentationFormat;
+    let record = record(NAMES);
+    let made = publish(
+        &record,
+        &structure("sequential", LABELS, PROMPTS),
+        &default_drafts(),
+    );
+    let site = site(&made, NAMES);
+    let projection = PortableProjection::from_post(&site.posts[0], &site.config).unwrap();
+    let html = projection.portable_html().unwrap().html;
+    let markdown = projection.portable_markdown().unwrap();
+    // The credits repeat every name, so they must not satisfy a missing or moved heading.
+    assert!(markdown.contains("Contributions") && html.contains("Cy Cole"));
+    for (format, artifact) in [
+        (RepresentationFormat::Html, &html),
+        (RepresentationFormat::Markdown, &markdown),
+    ] {
+        assert!(projection
+            .analyze_portable_artifact(format, artifact)
+            .unwrap()
+            .is_empty());
+    }
+    let heading = |format: RepresentationFormat, name: &str| match format {
+        RepresentationFormat::Html => format!("<h2 class=\"ob-turn-author\">{name}</h2>"),
+        _ => format!("## {name}"),
+    };
+    for (format, artifact) in [
+        (RepresentationFormat::Html, html),
+        (RepresentationFormat::Markdown, markdown),
+    ] {
+        let ann = heading(format, "Ann Ames");
+        let bo = heading(format, "Bo Bee");
+        let swapped = artifact
+            .replacen(&ann, "@@A@@", 1)
+            .replacen(&bo, &ann, 1)
+            .replacen("@@A@@", &bo, 1);
+        let dropped = artifact.replacen(&bo, "", 1);
+        let last = artifact.rfind(&bo).unwrap();
+        let dropped_last = format!("{}{}", &artifact[..last], &artifact[last + bo.len()..]);
+        for (what, tampered) in [
+            ("swapped", swapped),
+            ("dropped", dropped),
+            ("dropped last", dropped_last),
+        ] {
+            assert_ne!(tampered, artifact, "{format:?} {what}");
+            let findings = projection.analyze_portable_artifact(format, &tampered).unwrap();
+            assert!(
+                findings
+                    .iter()
+                    .any(|f| f.code == "reflection-order" || f.code == "missing-semantic-fact"),
+                "{format:?} {what} was accepted"
+            );
+        }
+    }
+}
