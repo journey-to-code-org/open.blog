@@ -2772,3 +2772,47 @@ a.oba-btn-primary {
     flex: 1 1 100%;
   }
 }
+
+.oba-synthesis {
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--ob-color-border, currentColor);
+}
+
+.oba-synthesis-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-synthesis-item {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--ob-color-border, currentColor);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-synthesis-form textarea,
+.oba-synthesis-body textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.oba-synthesis .oba-btn {
+  min-height: 2.75rem;
+}
+
+.oba-synthesis h4:focus-visible {
+  outline: 3px solid var(--ob-color-accent, currentColor);
+  outline-offset: 2px;
+}
+
+@media (max-width: 44rem) {
+  .oba-synthesis .oba-toolbar .oba-btn,
+  .oba-synthesis-prompt .oba-btn {
+    flex: 1 1 100%;
+  }
+}

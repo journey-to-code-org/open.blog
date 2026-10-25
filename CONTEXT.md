@@ -158,7 +158,8 @@ an error. An author can add attributions but removes only their own name (withdr
 records which attributed authors approved it, bound to its revision (any change clears them), and
 everyone named on an item must approve the piece. Approval binds
 to the exact items, order and attribution, and the set stays private until a later step publishes it
-(ADR 0036).
+(ADR 0036). Contributors write and approve them in Admin through one `EditSynthesis` grant, and
+the publish gate waits for every item to be approved by every author it names (ADR 0037).
 _Avoid_: Consensus, summary, comment
 
 **Combined preview**:

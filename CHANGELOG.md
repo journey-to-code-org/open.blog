@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Contributors can write, attribute, edit, reorder and approve a shared reflection's continuing
+  conversation in Admin: optional agreements, differences, questions, applications and
+  uncertainties, with dismissible, editable prompts and no minimum length. Each item shows who has
+  approved it, in Admin and in the combined preview. Publishing is blocked while a named author has
+  not approved the piece or any item is awaiting approval, and any change to an item makes standing
+  approvals of the piece out of date. Items stay private to the authors; nothing is published yet.
 - Shared reflections have a core model for synthesis items: optional agreements, differences,
   questions, applications and uncertainties, each attributed to one, some or all authors. Disagreement
   is never an error, authors can withdraw their own name, and an approval binds to the exact items,
