@@ -25,7 +25,9 @@ use openblog_core::collaboration::{
     SourceField, SourceKind,
 };
 use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
-use openblog_core::draft::{DraftError, DraftSet, DraftView};
+use openblog_core::draft::{
+    ComparisonSlot, DraftError, DraftSet, DraftView, ReadyOutcome, RevealPolicy,
+};
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::invitation::{
     Identities, Invitation, InvitationError, InvitationField, NewInvitation,
@@ -629,6 +631,9 @@ fn authenticated_api(
         ("POST", "collaboration/members/remove") => remove_member(state, req, session),
         ("GET", "collaboration/draft") => read_own_draft(state, req, session),
         ("PUT", "collaboration/draft") => save_own_draft(state, req, session),
+        ("GET", "collaboration/reveal") => read_reveal_state(state, req, session),
+        ("PUT", "collaboration/reveal/policy") => set_reveal_policy(state, req, session),
+        ("PUT", "collaboration/reveal/ready") => set_reveal_ready(state, req, session),
         ("POST", "collaboration/invitations/accept") => {
             answer_invitation(state, req, session, true)
         }
@@ -5646,6 +5651,252 @@ fn save_own_draft(state: &AppState, req: &Request, session: &auth::Session) -> R
         Err(DraftError::LimitReached) => draft_limit_problem(),
         Err(DraftError::Denied) => draft_not_found(),
     }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct RevealPolicyRequest {
+    publication_id: String,
+    policy: RevealPolicy,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct RevealReadyRequest {
+    publication_id: String,
+    /// The exact revision of the caller's own draft to offer, or null to take the offer back.
+    revision: Option<u64>,
+}
+
+/// Participants who currently hold the draft grant, decided by the single entry point for each
+/// binding. A removed or downgraded member is absent, so they neither block nor join a reveal.
+fn active_drafters(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+) -> Vec<String> {
+    record
+        .authorization
+        .bindings
+        .iter()
+        .filter(|binding| {
+            transaction
+                .with_identities(|identities| {
+                    record.authorize(
+                        &binding.admin_user,
+                        identities,
+                        AuthorizationAction::EditDraft,
+                        AuthorizationTarget::Participant(&binding.participant_id),
+                    )
+                })
+                .is_ok()
+        })
+        .map(|binding| binding.participant_id.clone())
+        .collect()
+}
+
+fn store_drafts(
+    state: &AppState,
+    publication_id: &str,
+    stored: &crate::shared_publications::StoredDrafts,
+    set: &DraftSet,
+    success: Json,
+) -> Response {
+    match crate::shared_publications::replace_drafts(&state.root, publication_id, stored, set) {
+        Ok(()) => Response::json(200, &success),
+        Err(crate::shared_publications::ReplaceError::Conflict) => Response::error(
+            409,
+            "Sharing changed while you were saving. Reload to see the current state; nothing was changed.",
+        ),
+        Err(crate::shared_publications::ReplaceError::TooLarge) => draft_limit_problem(),
+        Err(crate::shared_publications::ReplaceError::Storage(error)) => {
+            eprintln!("admin: reveal state not stored: {error}");
+            Response::error(500, "Sharing could not be changed. Nothing was changed.")
+        }
+    }
+}
+
+fn load_reveal_drafts(
+    state: &AppState,
+    publication_id: &str,
+) -> Result<crate::shared_publications::StoredDrafts, Response> {
+    crate::shared_publications::load_drafts(&state.root, publication_id).map_err(|error| {
+        eprintln!("admin: drafts not readable for {publication_id}: {error}");
+        Response::error(500, "Sharing could not be read. Nothing was changed.")
+    })
+}
+
+/// Whether the signed-in user may choose the reveal policy, decided by the single entry point.
+fn may_set_policy(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+) -> bool {
+    transaction
+        .with_identities(|identities| {
+            record.authorize(
+                &session.user,
+                identities,
+                AuthorizationAction::SetRevealPolicy,
+                AuthorizationTarget::Publication,
+            )
+        })
+        .is_ok()
+}
+
+/// The comparison for the signed-in participant: one slot per contract participant, in contract
+/// order, each their own latest revision, a revision revealed to them, or a placeholder. A
+/// coordinator who is not a drafter gets the policy only.
+fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return draft_not_found();
+    };
+    let Ok(transaction) = invitation_transaction(state, publication_id) else {
+        return draft_not_found();
+    };
+    let Some(record) = &transaction.record else {
+        return draft_not_found();
+    };
+    let own = draft_owner(&transaction, record, session);
+    let coordinator = may_set_policy(&transaction, record, session);
+    if own.is_none() && !coordinator {
+        return draft_not_found();
+    }
+    let stored = match load_reveal_drafts(state, publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let Ok(set) = draft_set_for(stored.set.as_ref(), record) else {
+        return Response::error(500, "Sharing could not be read. Nothing was changed.");
+    };
+    let mut slots = Vec::new();
+    let mut ready = false;
+    if let Some(own) = &own {
+        ready = set.is_ready(own);
+        let participants = &record.collaboration.participants;
+        let order = participants
+            .iter()
+            .map(|p| p.id.as_str())
+            .collect::<Vec<_>>();
+        let Ok(compared) = set.compare(own, &order) else {
+            return draft_not_found();
+        };
+        for (participant, slot) in participants.iter().zip(compared) {
+            let (kind, view, offered) = match &slot {
+                ComparisonSlot::Own(view) => ("own", Some(view), false),
+                ComparisonSlot::Revealed(view) => ("revealed", Some(view), false),
+                ComparisonSlot::Private { ready } => ("private", None, *ready),
+            };
+            slots.push(json!({
+                "participantId": participant.id,
+                "displayName": participant.display_name,
+                "kind": kind,
+                "ready": offered,
+                "stamp": view.map(|v| &v.stamp),
+                "markdown": view.map(|v| &v.markdown),
+            }));
+        }
+    }
+    Response::json(
+        200,
+        &json!({ "policy": set.policy(), "ready": ready, "slots": slots, "canSetPolicy": coordinator }),
+    )
+}
+
+/// A coordinator chooses how drafts may be revealed. Changing it clears every standing offer and
+/// reveals nothing.
+fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<RevealPolicyRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This sharing request is not valid. Reload Admin Studio and try again.",
+        );
+    };
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return draft_not_found();
+    };
+    let Some(record) = &transaction.record else {
+        return draft_not_found();
+    };
+    if !may_set_policy(&transaction, record, session) {
+        return draft_not_found();
+    }
+    let stored = match load_reveal_drafts(state, &body.publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let Ok(mut set) = draft_set_for(stored.set.as_ref(), record) else {
+        return Response::error(500, "Sharing could not be changed. Nothing was changed.");
+    };
+    set.set_policy(body.policy);
+    eprintln!(
+        "admin: changed the reveal policy of shared publication {}",
+        body.publication_id
+    );
+    store_drafts(
+        state,
+        &body.publication_id,
+        &stored,
+        &set,
+        json!({ "policy": set.policy() }),
+    )
+}
+
+/// A drafter offers one exact revision of their own draft, or takes the offer back. When the
+/// policy condition is met the same write commits the reveal for everyone involved.
+fn set_reveal_ready(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<RevealReadyRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This sharing request is not valid. Reload Admin Studio and try again.",
+        );
+    };
+    let (transaction, own) = match draft_request_target(state, &body.publication_id, session) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let record = transaction.record.as_ref().expect("authorized record");
+    let stored = match load_reveal_drafts(state, &body.publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let Ok(mut set) = draft_set_for(stored.set.as_ref(), record) else {
+        return Response::error(500, "Sharing could not be changed. Nothing was changed.");
+    };
+    let active = active_drafters(&transaction, record);
+    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    let outcome = match body.revision {
+        Some(revision) => set.mark_ready(&own, revision, &active),
+        None => set
+            .unready(&own)
+            .map(|()| ReadyOutcome::Waiting { waiting_for: 0 }),
+    };
+    let success = match outcome {
+        Ok(ReadyOutcome::Revealed) => json!({ "ready": false, "revealed": true }),
+        Ok(ReadyOutcome::Waiting { waiting_for }) => json!({
+            "ready": body.revision.is_some(),
+            "revealed": false,
+            "waitingFor": if body.revision.is_some() { json!(waiting_for) } else { Json::Null },
+        }),
+        Err(DraftError::Invalid) => {
+            return shared_problem(
+                "revision",
+                "Sharing is off for this reflection. Ask a coordinator to turn it on first.",
+            )
+        }
+        Err(DraftError::LimitReached) => return draft_limit_problem(),
+        Err(_) => return draft_not_found(),
+    };
+    eprintln!(
+        "admin: reveal readiness changed in shared publication {}",
+        body.publication_id
+    );
+    store_drafts(state, &body.publication_id, &stored, &set, success)
 }
 
 /// No room for another revision. Saved revisions are intact; only this change was refused.
@@ -14739,5 +14990,255 @@ mod tests {
             .unwrap()
             .is_empty());
         assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+    }
+
+    fn reveal_call(f: &Fixture, session: &(String, String), path: &str, body: Json) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    &format!("/admin/api/collaboration/reveal/{path}"),
+                    body,
+                ),
+                session,
+                true,
+            ),
+        )
+    }
+
+    fn reveal_state(f: &Fixture, session: &(String, String), id: &str) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/reveal?publicationId={id}"),
+                ),
+                session,
+                false,
+            ),
+        )
+    }
+
+    fn slot<'a>(state: &'a Json, name: &str) -> &'a Json {
+        state["slots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["displayName"] == name || s["participantId"] == name)
+            .unwrap()
+    }
+
+    fn ready_body(id: &str, revision: Json) -> Json {
+        json!({ "publicationId": id, "revision": revision })
+    }
+
+    fn policy_body(id: &str, policy: &str) -> Json {
+        json!({ "publicationId": id, "policy": policy })
+    }
+
+    #[test]
+    fn mutual_reveal_obeys_the_policy_and_never_exposes_an_unrevealed_draft() {
+        let (f, mikey, id) = invitation_fixture("reveal-policy");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["editor"]),
+        );
+        let ada = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "ada",
+            "a fourth correct horse",
+            json!(["coordinator"]),
+        );
+        for (who, text) in [
+            (&mikey, "MIKEY-SECRET"),
+            (&grace, "GRACE-SECRET"),
+            (&linus, "LINUS-SECRET"),
+        ] {
+            assert_eq!(draft_call(&f, who, &id, 0, text).status, 200);
+        }
+        let content_before = tree_snapshot(&f.dir.join("content"));
+        let output_before = tree_snapshot(&f.dir.join("public"));
+        let contract_before = stored_record(&f, &id).collaboration;
+        let participants = contract_before.participants.clone();
+
+        // Sharing starts off: nothing can be offered and every other slot is a placeholder.
+        let off = reveal_call(&f, &grace, "ready", ready_body(&id, json!(1)));
+        assert_eq!(off.status, 422);
+        let state = body_json(&reveal_state(&f, &grace, &id));
+        assert_eq!(state["policy"], "independent");
+        assert_eq!(state["canSetPolicy"], false);
+        let names: Vec<_> = state["slots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["displayName"].as_str().unwrap().to_string())
+            .collect();
+        let contract_names: Vec<_> = participants
+            .iter()
+            .map(|p| p.display_name.clone())
+            .collect();
+        assert_eq!(names, contract_names);
+        let text = state.to_string();
+        assert!(text.contains("GRACE-SECRET"));
+        assert!(!text.contains("MIKEY-SECRET") && !text.contains("LINUS-SECRET"));
+
+        // Only a coordinator or owner picks the policy; bad values and fields are refused.
+        for who in [&grace, &linus] {
+            let denied = reveal_call(&f, who, "policy", policy_body(&id, "voluntary"));
+            assert_eq!(denied.status, 404);
+        }
+        let bad = reveal_call(&f, &ada, "policy", policy_body(&id, "everyone"));
+        assert_eq!(bad.status, 422);
+        let mut extra = policy_body(&id, "voluntary");
+        extra["x"] = json!(1);
+        assert_eq!(reveal_call(&f, &ada, "policy", extra).status, 422);
+        let unknown = reveal_call(&f, &ada, "policy", policy_body("nope", "voluntary"));
+        assert_eq!(unknown.status, 404);
+        assert_eq!(
+            body_json(&reveal_state(&f, &ada, &id))["policy"],
+            "independent"
+        );
+        let set = reveal_call(&f, &ada, "policy", policy_body(&id, "allReady"));
+        assert_eq!(set.status, 200);
+
+        // A coordinator without a draft sees the policy only and cannot offer or read prose.
+        let coordinator_view = body_json(&reveal_state(&f, &ada, &id));
+        assert_eq!(coordinator_view["policy"], "allReady");
+        assert_eq!(coordinator_view["slots"].as_array().unwrap().len(), 0);
+        let coordinator_ready = reveal_call(&f, &ada, "ready", ready_body(&id, json!(1)));
+        assert_eq!(coordinator_ready.status, 404);
+        assert_eq!(reveal_state(&f, &linus, "missing-id").status, 404);
+
+        // Offers are private and reversible; a wrong revision is refused.
+        let wrong = reveal_call(&f, &grace, "ready", ready_body(&id, json!(9)));
+        assert_eq!(wrong.status, 404);
+        let waiting = body_json(&reveal_call(&f, &grace, "ready", ready_body(&id, json!(1))));
+        assert_eq!(waiting["ready"], true);
+        assert_eq!(waiting["revealed"], false);
+        let seen = body_json(&reveal_state(&f, &mikey, &id));
+        assert_eq!(slot(&seen, "Grace")["ready"], true);
+        assert!(!seen.to_string().contains("GRACE-SECRET"));
+        let back = body_json(&reveal_call(
+            &f,
+            &grace,
+            "ready",
+            ready_body(&id, Json::Null),
+        ));
+        assert_eq!(back["ready"], false);
+        let after = body_json(&reveal_state(&f, &mikey, &id));
+        assert_eq!(slot(&after, "Grace")["ready"], false);
+
+        // Changing the policy drops standing offers and reveals nothing.
+        for who in [&grace, &mikey] {
+            reveal_call(&f, who, "ready", ready_body(&id, json!(1)));
+        }
+        let changed = reveal_call(&f, &ada, "policy", policy_body(&id, "voluntary"));
+        assert_eq!(changed.status, 200);
+        let hidden = body_json(&reveal_state(&f, &mikey, &id)).to_string();
+        assert!(!hidden.contains("GRACE-SECRET"));
+        let back_again = reveal_call(&f, &ada, "policy", policy_body(&id, "allReady"));
+        assert_eq!(back_again.status, 200);
+
+        // Removing a participant mid-way: they no longer block the reveal or receive it.
+        let listed = body_json(&members_of(&f, &mikey, &id));
+        let linus_id = listed["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["adminUser"] == "linus")
+            .unwrap()["participantId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let removed = post_api(
+            &f,
+            &mikey,
+            "members/remove",
+            json!({ "publicationId": id, "participantId": linus_id, "expectedRevision": listed["revision"] }),
+        );
+        assert_eq!(
+            removed.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&removed.body)
+        );
+        let first = reveal_call(&f, &grace, "ready", ready_body(&id, json!(1)));
+        assert_eq!(first.status, 200);
+        let done = body_json(&reveal_call(&f, &mikey, "ready", ready_body(&id, json!(1))));
+        assert_eq!(done["revealed"], true);
+
+        let mikey_name = participants[0].display_name.clone();
+        let mine = body_json(&reveal_state(&f, &mikey, &id));
+        assert_eq!(slot(&mine, "Grace")["kind"], "revealed");
+        assert_eq!(slot(&mine, "Grace")["markdown"], "GRACE-SECRET");
+        assert_eq!(slot(&mine, "Grace")["stamp"]["number"], 1);
+        assert_eq!(slot(&mine, &linus_id)["kind"], "private");
+        assert!(!mine.to_string().contains("LINUS-SECRET"));
+        let hers = body_json(&reveal_state(&f, &grace, &id));
+        assert_eq!(slot(&hers, &mikey_name)["markdown"], "MIKEY-SECRET");
+
+        // A later edit stays private even after the reveal.
+        assert_eq!(
+            draft_call(&f, &mikey, &id, 1, "MIKEY-SECRET v2").status,
+            200
+        );
+        let later = body_json(&reveal_state(&f, &grace, &id));
+        assert_eq!(slot(&later, &mikey_name)["markdown"], "MIKEY-SECRET");
+
+        // The removed participant and a malformed request learn nothing.
+        assert_eq!(reveal_state(&f, &linus, &id).status, 404);
+        let removed_ready = reveal_call(&f, &linus, "ready", ready_body(&id, json!(1)));
+        assert_eq!(removed_ready.status, 404);
+        let malformed = reveal_call(&f, &grace, "ready", Json::Null);
+        assert_eq!(malformed.status, 422);
+
+        // Content, public output, and the contract never changed; prose lives only in the store.
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+        assert_eq!(tree_snapshot(&f.dir.join("public")), output_before);
+        assert_eq!(stored_record(&f, &id).collaboration, contract_before);
+        assert_eq!(
+            tree_contains(&f.dir, "GRACE-SECRET"),
+            [PathBuf::from(format!(
+                ".openblog/private/collaboration/drafts/{id}.json"
+            ))]
+        );
+    }
+
+    #[test]
+    fn reveal_routes_without_the_admin_session_or_csrf_do_nothing() {
+        let (f, mikey, id) = invitation_fixture("reveal-auth");
+        let before = tree_snapshot(&f.dir.join(".openblog/private"));
+        let body = policy_body(&id, "voluntary");
+        let path = "/admin/api/collaboration/reveal/policy";
+        let no_csrf = handle(
+            &f.state,
+            &authed(json_req("PUT", path, body.clone()), &mikey, false),
+        );
+        assert!(
+            no_csrf.status == 403 || no_csrf.status == 401,
+            "{}",
+            no_csrf.status
+        );
+        let anonymous = handle(&f.state, &json_req("PUT", path, body));
+        assert_eq!(anonymous.status, 401);
+        let read = format!("/admin/api/collaboration/reveal?publicationId={id}");
+        assert_eq!(handle(&f.state, &req("GET", &read)).status, 401);
+        assert_eq!(tree_snapshot(&f.dir.join(".openblog/private")), before);
     }
 }
