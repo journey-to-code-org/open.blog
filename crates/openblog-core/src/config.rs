@@ -145,6 +145,9 @@ pub struct CodeConfig {
     pub line_numbers: Option<bool>,
     /// A "Copy" button on every code block.
     pub copy_button: bool,
+    /// An "Open in Rust Playground" link beside Rust examples. A fence can override it with
+    /// `playgroundLink=true` or `playgroundLink=false`.
+    pub playground_link: bool,
 }
 
 /// Browser-facing code execution gateway. The endpoint is public configuration;
@@ -193,6 +196,7 @@ impl Default for CodeConfig {
             highlight: None,
             line_numbers: None,
             copy_button: true,
+            playground_link: true,
         }
     }
 }
@@ -750,6 +754,7 @@ impl SiteConfig {
                 },
             ),
             web_libraries: Some(&self.web_sandbox.libraries),
+            playground_link: self.code.playground_link,
         }
     }
 

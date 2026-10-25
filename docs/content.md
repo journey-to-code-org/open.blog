@@ -263,7 +263,7 @@ fn main() {}
 | `showLineNumbers=10` | Number this block starting at 10. |
 | `showLineNumbers=false` | No numbers on this block. |
 | `runnable` | Make Rust, web, or an explicitly configured runner language editable and runnable. Unsupported languages stay static. |
-| `playgroundLink=false` | On a runnable Rust block, hide the separate **Open in Rust Playground** link. |
+| `playgroundLink=false` | On a runnable Rust block, hide the separate **Open in Rust Playground** link. `playgroundLink=true` shows it when the site setting `code.playgroundLink` is off. |
 
 Colours can be turned off for a post (`highlight: false`) or the whole blog, but not for
 one block; mark a block `text` to leave it plain. Copying a block, with the button or by

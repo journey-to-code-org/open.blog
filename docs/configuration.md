@@ -37,7 +37,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "feeds": { "rss": true, "json": true, "sitemap": true, "llms": true, "portfolioSnapshot": true, "limit": 20, "fullContent": true },
   "seo": { "aiSearch": true, "aiTraining": true },
   "markdown": { "smartPunctuation": false, "headingAnchors": true, "tocDepth": 3, "tocMinHeadings": 3 },
-  "code": { "highlight": null, "lineNumbers": null, "copyButton": true },
+  "code": { "highlight": null, "lineNumbers": null, "copyButton": true, "playgroundLink": true },
   "codeRunner": { "endpoint": "", "languages": [] },
   "recipes": { "scaling": true, "checklists": true, "timers": true, "cookMode": true, "print": true, "jumpLink": true },
   "knowledgeChecks": { "generationEndpoint": "", "model": "" },
@@ -128,6 +128,10 @@ for the publishing checklist and analytics limitations.
   Leave them `null` (or out) to follow the theme, which turns both on by default. Set
   `true` or `false` to decide for the whole blog whatever the theme says.
 - `copyButton` adds a Copy button to every code block.
+- `playgroundLink` offers an **Open in Rust Playground** link beside runnable Rust examples, in the
+  page, in portable copies, and in exports. Set it to `false` to hide the link everywhere; a single
+  fence can still choose with `playgroundLink=true` or `playgroundLink=false`. The **Run Rust**
+  button is separate and stays.
 
 A post can override `highlight` and `lineNumbers` in its front matter, and one code block
 can override line numbers with its fence options (see [Writing content](content.md#code-blocks)).

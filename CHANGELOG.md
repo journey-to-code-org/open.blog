@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A new `code.playgroundLink` setting (default on) hides the **Open in Rust Playground** link from every
+  runnable Rust example, portable copy, and export at once. A fence can still override it with
+  `playgroundLink=true` or `playgroundLink=false`.
+
 ## [0.22.0] - 2026-10-25
 
 - Portable Markdown for a published shared reflection now escapes its title, so a participant-supplied
