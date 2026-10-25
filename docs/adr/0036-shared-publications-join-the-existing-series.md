@@ -50,11 +50,11 @@ second concept, and what authors must approve when it does.
   participant's private data can reach it. Rendering it on the series page is left out because
   every legacy post carries a default credit and that would change legacy output.
 - `SharedPublication::with_series` returns a new record or an error, so a refused change leaves
-  the stored record, content and output unchanged. No Admin route or screen sets it yet; the
-  route that does must call `ApprovalSet::reconcile` in the same write, as other metadata changes
-  do.
+  the stored record, content and output unchanged. The route that sets it must call
+  `ApprovalSet::reconcile` in the same write, as other metadata changes do; the Admin route and
+  screen are [ADR 0037](0037-arranging-a-shared-reflections-series-in-admin.md).
 
 ## Consequences
 
 - Named built-in series templates remain out of scope.
-- An Admin control for choosing the series, and showing its approval impact, is later work.
+- The Admin control for choosing the series, and who may use it, is [ADR 0037](0037-arranging-a-shared-reflections-series-in-admin.md).

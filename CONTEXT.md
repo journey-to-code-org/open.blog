@@ -206,7 +206,16 @@ _Avoid_: Shared page, collaboration export
 The optional series reference and position a shared publication carries, written as an ordinary
 Post's `series` and `seriesOrder`. It is not a collaborative series: the site's existing series
 supplies name, description, theme, ordering and navigation. It is public, so it is part of what
-every author approves (ADR 0036).
+every author approves (ADR 0036). Site owners and coordinators set it (`PlaceInSeries`) against
+its revision, every participant sees it with the reading order it would join, and only site owners
+add a new series definition (`CreateSeries`); the list and order come from published posts only
+(ADR 0037).
+_Avoid_: Collaborative series, series template
+
+**Series definition**:
+The site-owned `content/series/<slug>.md` that names a series and describes its recurring premise.
+A shared publication never writes one; a site owner may add a new one from its Series panel, and
+it is not public until a part is published (ADR 0037).
 _Avoid_: Collaborative series, series template
 
 **Published assembly**:

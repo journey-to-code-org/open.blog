@@ -10,6 +10,12 @@ All notable changes to open.blog are recorded here. Releases follow
   title works, the placement is part of what every author approves (changing it makes approvals
   out of date), and records without one publish exactly as before. A series' contributors can be
   derived from its posts' work credits.
+- The Shared reflections view has a Series panel. Every participant sees the reflection's series,
+  position and the reading order it would join; site owners and coordinators choose an existing
+  series or type a new title, set or clear the position, preview the order and save; site owners
+  can add a new series with its recurring premise. The list and order come from published posts
+  only, a change made against an older read is refused without losing what was typed, and the
+  combined preview now shows the series and position authors are approving.
 
 ## [0.23.0] - 2026-10-25
 
