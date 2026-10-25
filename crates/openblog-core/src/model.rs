@@ -210,6 +210,11 @@ pub struct Post {
 }
 
 impl Post {
+    /// Canonical authored Markdown used to derive portable representations.
+    pub fn authored_markdown(&self) -> &str {
+        &self.authored_markdown
+    }
+
     /// Actual authors only, in authored credit order. Secondary contributors
     /// remain available through `credits` but never leak into author metadata.
     pub fn authors(&self) -> impl Iterator<Item = &ResolvedCredit> {

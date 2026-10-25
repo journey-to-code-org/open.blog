@@ -1,7 +1,7 @@
 //! Destination-neutral views over one public, canonical post.
 
-use crate::capability::CapabilityDescriptor;
-use crate::config::SiteConfig;
+use crate::capability::{CapabilityDescriptor, CapabilityDiagnosticCode, PortabilityLevel};
+use crate::config::{SiteConfig, SyndicationProvider};
 use crate::contributor::{CreditProvenance, ResolvedCredit};
 use crate::escape;
 use crate::markdown::{CodeRunnerRenderOptions, PortableContext, RenderOptions};
@@ -9,6 +9,8 @@ use crate::model::{CommentsPolicy, Post};
 use crate::recipe::Recipe;
 use crate::research::{ResearchMetadata, ResearchReference};
 use crate::video::VideoMetadata;
+use blake2::{Blake2b512, Digest};
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use url::Url;
 
 /// The largest portable HTML body a projection produces. A post that would be
@@ -18,6 +20,75 @@ pub const MAX_PORTABLE_HTML_BYTES: usize = 2 * 1024 * 1024;
 /// The deepest element nesting (Markdown containers plus kept raw HTML
 /// elements) a portable HTML body may have.
 pub const MAX_PORTABLE_NESTING_DEPTH: usize = 64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DestinationRepresentation {
+    PortableMarkdown,
+    PortableHtml,
+    ManualMarkdown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DestinationPolicy {
+    pub provider: SyndicationProvider,
+    pub label: &'static str,
+    pub representation: DestinationRepresentation,
+    pub canonical_behavior: &'static str,
+    pub workflow: &'static str,
+}
+
+pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
+    match provider {
+        SyndicationProvider::Dev => DestinationPolicy {
+            provider: SyndicationProvider::Dev,
+            label: "DEV",
+            representation: DestinationRepresentation::PortableMarkdown,
+            canonical_behavior: "The canonical URL is sent to DEV.",
+            workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
+        },
+        SyndicationProvider::Hashnode => DestinationPolicy {
+            provider: SyndicationProvider::Hashnode,
+            label: "Hashnode",
+            representation: DestinationRepresentation::PortableMarkdown,
+            canonical_behavior: "The canonical URL is sent to Hashnode.",
+            workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
+        },
+        SyndicationProvider::Ghost => DestinationPolicy {
+            provider: SyndicationProvider::Ghost,
+            label: "Ghost",
+            representation: DestinationRepresentation::PortableHtml,
+            canonical_behavior: "The canonical URL is sent as Ghost's canonical URL.",
+            workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
+        },
+        SyndicationProvider::Wordpress => DestinationPolicy {
+            provider: SyndicationProvider::Wordpress,
+            label: "WordPress",
+            representation: DestinationRepresentation::PortableHtml,
+            canonical_behavior: "WordPress core cannot set an external canonical URL.",
+            workflow: "Remote draft by default; verify an SEO plugin before public publishing.",
+        },
+        SyndicationProvider::Medium => DestinationPolicy {
+            provider: SyndicationProvider::Medium,
+            label: "Medium",
+            representation: DestinationRepresentation::ManualMarkdown,
+            canonical_behavior: "The canonical URL must be checked during Medium import.",
+            workflow: "Manual import only; this adapter does not write remotely.",
+        },
+    }
+}
+
+pub fn destination_policies() -> [DestinationPolicy; 5] {
+    [
+        SyndicationProvider::Dev,
+        SyndicationProvider::Hashnode,
+        SyndicationProvider::Ghost,
+        SyndicationProvider::Wordpress,
+        SyndicationProvider::Medium,
+    ]
+    .map(destination_policy)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RepresentationFormat {
@@ -35,6 +106,7 @@ pub struct PortableProjection<'a> {
     canonical_url: String,
     base_url: String,
     title: &'a str,
+    subtitle: Option<&'a str>,
     source_path: &'a str,
     source_url: Option<&'a str>,
     /// The native page's "Originally published at" notice, when it has one.
@@ -60,11 +132,41 @@ pub struct PortableProjection<'a> {
 pub struct PortableHtmlOutput {
     pub html: String,
     pub capabilities: Vec<CapabilityDescriptor>,
+    pub diagnostics: Vec<PortabilityDiagnostic>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiagnosticSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortabilityDiagnostic {
+    pub code: String,
+    pub severity: DiagnosticSeverity,
+    pub source_path: String,
+    pub capability_id: Option<String>,
+    pub message: String,
+    pub recommended_action: String,
 }
 
 impl<'a> PortableProjection<'a> {
     pub fn from_post(post: &'a Post, config: &SiteConfig) -> Result<Self, String> {
-        if post.draft {
+        Self::new(post, config, false)
+    }
+
+    /// Build an unpublished projection for the authenticated Admin preview only.
+    /// Public feeds and exports must use `from_post`, which rejects drafts.
+    pub fn for_authenticated_preview(post: &'a Post, config: &SiteConfig) -> Result<Self, String> {
+        Self::new(post, config, true)
+    }
+
+    fn new(post: &'a Post, config: &SiteConfig, allow_draft: bool) -> Result<Self, String> {
+        if post.draft && !allow_draft {
             return Err(format!(
                 "{}: drafts cannot be included in a public portable projection",
                 post.source
@@ -93,6 +195,7 @@ impl<'a> PortableProjection<'a> {
             canonical_url,
             base_url: config.url.clone(),
             title: &post.title,
+            subtitle: post.subtitle.as_deref(),
             source_path: &post.source,
             source_url: post.source_url.as_deref(),
             source_notice: post.source_notice_html(),
@@ -134,6 +237,21 @@ impl<'a> PortableProjection<'a> {
 
     pub fn canonical_url(&self) -> &str {
         &self.canonical_url
+    }
+
+    pub fn source_revision(&self) -> Result<String, String> {
+        let markdown = self.portable_markdown()?;
+        let mut hasher = Blake2b512::new();
+        hasher.update(b"openblog-portability-source-v1\0");
+        hasher.update(self.canonical_url.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(markdown.as_bytes());
+        Ok(hasher
+            .finalize()
+            .iter()
+            .take(20)
+            .map(|byte| format!("{byte:02x}"))
+            .collect())
     }
 
     pub fn base_url(&self) -> &str {
@@ -317,7 +435,248 @@ impl<'a> PortableProjection<'a> {
                 html.len()
             ));
         }
-        Ok(PortableHtmlOutput { html, capabilities })
+        let diagnostics = portability_diagnostics(self.source_path, &capabilities);
+        Ok(PortableHtmlOutput {
+            html,
+            capabilities,
+            diagnostics,
+        })
+    }
+
+    /// Derive a CommonMark-oriented article from the authored Markdown and
+    /// public work metadata. No generated HTML is parsed to reconstruct content.
+    pub fn portable_markdown(&self) -> Result<String, String> {
+        let html = self.portable_html()?;
+        let (body, raw_html_count) = escape_raw_html(self.markdown);
+        let body = portable_markdown_body(&body, self)
+            .map_err(|error| format!("{}: {error}", self.source_path))?;
+        let mut output = format!(
+            "# {}\n\nCanonical: <{}>\n\n",
+            markdown_text(self.title),
+            self.canonical_url
+        );
+        if let Some(subtitle) = self.subtitle {
+            if !subtitle.trim().is_empty() {
+                output.push_str(&format!("{}\n\n", markdown_text(subtitle)));
+            }
+        }
+        output.push_str(body.trim());
+        output.push('\n');
+
+        if self.credit_provenance == CreditProvenance::ExplicitSidecar && !self.credits.is_empty() {
+            output.push_str("\n## Contributions\n\n");
+            for credit in self.credits {
+                let name = markdown_text(&credit.contributor.name);
+                let name = if credit.contributor.url.trim().is_empty() {
+                    name
+                } else {
+                    format!(
+                        "[{name}]({})",
+                        markdown_destination(&self.resolve_link(credit.contributor.url.trim())?)
+                    )
+                };
+                let roles = credit
+                    .roles
+                    .iter()
+                    .map(|role| role.label())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let orcid = if credit.contributor.orcid.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!("; ORCID {} (unauthenticated)", credit.contributor.orcid)
+                };
+                output.push_str(&format!("- {name} — {roles}{orcid}\n"));
+            }
+            output.push('\n');
+        }
+
+        if let Some(research) = self.research {
+            let mut facts = Vec::new();
+            if let (Some(doi), Some(url)) = (&research.doi, &research.doi_url) {
+                facts.push(format!(
+                    "- DOI: [{}]({})",
+                    markdown_text(doi),
+                    markdown_destination(&self.resolve_link(url)?)
+                ));
+            }
+            if let Some(url) = &research.license_url {
+                facts.push(format!(
+                    "- License: [{}]({})",
+                    markdown_text(url),
+                    markdown_destination(&self.resolve_link(url)?)
+                ));
+            }
+            if !facts.is_empty() {
+                output.push_str("## Work details\n\n");
+                output.push_str(&facts.join("\n"));
+                output.push_str("\n\n");
+            }
+        }
+
+        if let Some(video) = self.video {
+            let mut facts = Vec::new();
+            if let Some(label) = video.production_label() {
+                facts.push(format!("- Episode: {}", markdown_text(&label)));
+            }
+            if let Some(status) = &video.production_status {
+                facts.push(format!("- Production status: {}", markdown_text(status)));
+            }
+            if let Some(credits) = &video.production_credits {
+                facts.push(format!("- Production credits: {}", markdown_text(credits)));
+            }
+            if let Some(url) = &video.url {
+                facts.push(format!(
+                    "- Video: [{}]({})",
+                    markdown_text(self.title),
+                    markdown_destination(&self.resolve_link(url)?)
+                ));
+            }
+            if !facts.is_empty() {
+                output.push_str("## Video details\n\n");
+                output.push_str(&facts.join("\n"));
+                output.push_str("\n\n");
+            }
+        }
+
+        if let Some(recipe) = self.recipe {
+            let mut facts = Vec::new();
+            for (label, value) in [
+                ("Prep", recipe.prep_text.as_deref()),
+                ("Cook", recipe.cook_text.as_deref()),
+                ("Total", recipe.total_text.as_deref()),
+                ("Serves", recipe.servings_text.as_deref()),
+                ("Makes", recipe.yield_text.as_deref()),
+                ("Cuisine", recipe.cuisine.as_deref()),
+                ("Course", recipe.category.as_deref()),
+                ("Calories", recipe.calories.as_deref()),
+            ] {
+                if let Some(value) = value {
+                    facts.push(format!("- {label}: {}", markdown_text(value)));
+                }
+            }
+            if !facts.is_empty() {
+                output.push_str("## Recipe details\n\n");
+                output.push_str(&facts.join("\n"));
+                output.push_str("\n\n");
+            }
+        }
+
+        if let (Some(source_url), Some(_)) = (self.source_url, &self.source_notice) {
+            output.push_str(&format!(
+                "Originally published at <{}>.\n\n",
+                markdown_destination(&self.resolve_link(source_url)?)
+            ));
+        }
+
+        if raw_html_count > 0 {
+            output.push_str(&format!(
+                "> **Portable export note:** {raw_html_count} raw HTML fragment(s) are shown as literal source because this Markdown export does not execute or preserve raw HTML. View the [canonical article]({}).\n\n",
+                markdown_destination(&self.canonical_url)
+            ));
+        }
+        for diagnostic in html
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code == "graceful-transformation")
+        {
+            let capability = diagnostic.capability_id.as_deref().unwrap_or_default();
+            output.push_str(&format!(
+                "> **Portable fallback:** {}. Review: {}\n\n",
+                markdown_text(transformation_summary(capability)),
+                markdown_text(&diagnostic.recommended_action)
+            ));
+        }
+        for capability in &html.capabilities {
+            if capability.has_portable_fallback() || capability.portable_label().is_none() {
+                continue;
+            }
+            let Some(label) = capability.portable_label() else {
+                continue;
+            };
+            let note = format!(
+                "> **{label}:** this interaction is available on the [canonical article]({}).\n\n",
+                markdown_destination(&self.canonical_url)
+            );
+            if !output.contains(&note) {
+                output.push_str(&note);
+            }
+        }
+        if let Some(policy) = self.participation {
+            let label = if policy == CommentsPolicy::Locked {
+                "Read the discussion on the canonical article"
+            } else {
+                "Join the discussion on the canonical article"
+            };
+            output.push_str(&format!(
+                "[{label}]({})\n",
+                markdown_destination(&self.canonical_url)
+            ));
+        }
+
+        if output.len() > MAX_PORTABLE_HTML_BYTES {
+            return Err(format!(
+                "{}: portable Markdown is {} bytes, over the {MAX_PORTABLE_HTML_BYTES}-byte bound; split the post or move large inline content into files (nothing was truncated)",
+                self.source_path,
+                output.len()
+            ));
+        }
+        Ok(output)
+    }
+
+    /// Produce plain feed text from the portable Markdown, including code and
+    /// link destinations instead of inheriting the native search-text omissions.
+    pub fn portable_text(&self) -> Result<String, String> {
+        let markdown = self.portable_markdown()?;
+        let mut output = String::new();
+        let mut links: Vec<(usize, String)> = Vec::new();
+        for event in Parser::new_ext(&markdown, crate::markdown::parser_options(false)) {
+            match event {
+                Event::Text(text)
+                | Event::Code(text)
+                | Event::Html(text)
+                | Event::InlineHtml(text) => output.push_str(&text),
+                Event::Start(Tag::Link { dest_url, .. })
+                | Event::Start(Tag::Image { dest_url, .. }) => {
+                    links.push((output.len(), dest_url.to_string()));
+                }
+                Event::End(TagEnd::Link) | Event::End(TagEnd::Image) => {
+                    if let Some((start, destination)) = links.pop() {
+                        let label = output[start..].trim();
+                        if !destination.is_empty() && label != destination {
+                            output.push_str(" (");
+                            output.push_str(&destination);
+                            output.push(')');
+                        }
+                    }
+                }
+                Event::SoftBreak | Event::HardBreak | Event::Rule => output.push('\n'),
+                Event::End(
+                    TagEnd::Paragraph
+                    | TagEnd::Heading(_)
+                    | TagEnd::Item
+                    | TagEnd::CodeBlock
+                    | TagEnd::BlockQuote(_)
+                    | TagEnd::TableCell
+                    | TagEnd::TableHead,
+                ) => output.push('\n'),
+                _ => {}
+            }
+        }
+        let mut compact = String::new();
+        let mut previous_blank = false;
+        for line in output
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+        {
+            if !compact.is_empty() && !previous_blank {
+                compact.push('\n');
+            }
+            compact.push_str(line);
+            previous_blank = false;
+        }
+        Ok(compact)
     }
 
     /// Resolve an authored URL against the post or site base while rejecting
@@ -375,6 +734,524 @@ impl<'a> PortableProjection<'a> {
             resolved.to_string()
         })
     }
+}
+
+fn portability_diagnostics(
+    source_path: &str,
+    capabilities: &[CapabilityDescriptor],
+) -> Vec<PortabilityDiagnostic> {
+    let mut diagnostics = Vec::new();
+    for capability in capabilities {
+        for diagnostic in &capability.diagnostics {
+            let code = match diagnostic.code {
+                CapabilityDiagnosticCode::UnknownCapability => "unknown-capability",
+                CapabilityDiagnosticCode::MalformedIdentifier => "malformed-identifier",
+                CapabilityDiagnosticCode::MalformedContent => "malformed-content",
+                CapabilityDiagnosticCode::RemovedMarkup => "removed-markup",
+            };
+            diagnostics.push(PortabilityDiagnostic {
+                code: code.into(),
+                severity: if diagnostic.code == CapabilityDiagnosticCode::MalformedContent {
+                    DiagnosticSeverity::Error
+                } else {
+                    DiagnosticSeverity::Warning
+                },
+                source_path: source_path.to_string(),
+                capability_id: Some(capability.id.clone()),
+                message: diagnostic.message.clone(),
+                recommended_action: diagnostic_recommended_action(code, &capability.id),
+            });
+        }
+        if capability.portability == PortabilityLevel::GracefullyTransformed {
+            diagnostics.push(PortabilityDiagnostic {
+                code: "graceful-transformation".into(),
+                severity: DiagnosticSeverity::Warning,
+                source_path: source_path.to_string(),
+                capability_id: Some(capability.id.clone()),
+                message: format!(
+                    "{} is transformed to the `{}` fallback; review the result for this destination.",
+                    capability.id,
+                    capability.fallback_renderer.unwrap_or("static-content")
+                ),
+                recommended_action: diagnostic_recommended_action(
+                    "graceful-transformation",
+                    &capability.id,
+                ),
+            });
+        }
+        if capability.portability == PortabilityLevel::CanonicalOnlyInteraction {
+            if let Some(label) = capability.portable_label() {
+                diagnostics.push(PortabilityDiagnostic {
+                    code: "canonical-only-interaction".into(),
+                    severity: DiagnosticSeverity::Warning,
+                    source_path: source_path.to_string(),
+                    capability_id: Some(capability.id.clone()),
+                    message: format!(
+                        "{label} has no portable interaction; readers need the canonical article."
+                    ),
+                    recommended_action: diagnostic_recommended_action(
+                        "canonical-only-interaction",
+                        &capability.id,
+                    ),
+                });
+            }
+        }
+    }
+    diagnostics
+}
+
+fn diagnostic_recommended_action(code: &str, capability: &str) -> String {
+    match code {
+        "graceful-transformation" => match capability {
+            "knowledge-check" => {
+                "Review the static question and answer; keep the canonical link when scoring or retries matter.".into()
+            }
+            "runnable-code" | "web-sandbox" => {
+                "Review the preserved source and keep the canonical link for editing or execution.".into()
+            }
+            _ => "Review the static fallback in the destination preview.".into(),
+        },
+        "canonical-only-interaction" => {
+            "Keep the canonical article reachable and use its link for this interaction.".into()
+        }
+        "removed-markup" => {
+            "Move substantive content into Markdown or supported markup, then review the portable result.".into()
+        }
+        "malformed-content" | "malformed-identifier" => {
+            "Correct the source block or identifier and rerun the portability check.".into()
+        }
+        "unknown-capability" => {
+            "Register the capability and define its fallback before relying on portable output.".into()
+        }
+        _ => "Review the source and the destination preview before publishing.".into(),
+    }
+}
+
+fn transformation_summary(capability: &str) -> &'static str {
+    match capability {
+        "knowledge-check" => {
+            "The question and answer are preserved; scoring, retry, and remembered attempts are unavailable"
+        }
+        "runnable-code" => {
+            "The source code is preserved; editing and execution remain on the canonical article"
+        }
+        "web-sandbox" => {
+            "The HTML, CSS, and JavaScript sources are preserved; the live preview remains on the canonical article"
+        }
+        "raw-html" => {
+            "Authored raw HTML is constrained by the portable allowlist and may be shown as literal source"
+        }
+        _ => "Interactive behavior is represented by a static fallback",
+    }
+}
+
+fn markdown_text(value: &str) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut escaped = String::new();
+    for character in normalized.chars() {
+        if matches!(
+            character,
+            '\\' | '[' | ']' | '*' | '_' | '`' | '#' | '>' | '|'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
+}
+
+fn markdown_destination(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('(', "\\(")
+        .replace(')', "\\)")
+}
+
+fn escape_raw_html(markdown: &str) -> (String, usize) {
+    let mut spans = Parser::new_ext(markdown, crate::markdown::parser_options(false))
+        .into_offset_iter()
+        .filter_map(|(event, range)| {
+            matches!(event, Event::Html(_) | Event::InlineHtml(_)).then_some(range)
+        })
+        .collect::<Vec<_>>();
+    spans.sort_by_key(|span| span.start);
+    let count = spans.len();
+    let mut output = markdown.to_string();
+    for span in spans.into_iter().rev() {
+        let escaped = output[span.clone()]
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        output.replace_range(span, &escaped);
+    }
+    (output, count)
+}
+
+fn portable_markdown_body(
+    markdown: &str,
+    projection: &PortableProjection<'_>,
+) -> Result<String, String> {
+    let canonical_url = projection.canonical_url();
+    let lines = markdown.lines().collect::<Vec<_>>();
+    let mut output = String::new();
+    let mut index = 0;
+    let mut code_fence: Option<(char, usize)> = None;
+    while index < lines.len() {
+        let line = lines[index];
+        if let Some((marker, length)) = code_fence {
+            output.push_str(line);
+            output.push('\n');
+            if markdown_fence_close(line, marker, length) {
+                code_fence = None;
+            }
+            index += 1;
+            continue;
+        }
+        if let Some(kind) = callout_kind(line) {
+            output.push_str(&format!("> **{kind}:**\n"));
+            index += 1;
+            continue;
+        }
+        let Some((marker, fence_len, info)) = markdown_fence_open(line) else {
+            output.push_str(&resolve_markdown_line(line, projection)?);
+            output.push('\n');
+            index += 1;
+            continue;
+        };
+        let close = (index + 1..lines.len())
+            .find(|line_index| markdown_fence_close(lines[*line_index], marker, fence_len));
+        let Some(close) = close else {
+            output.push_str(line);
+            output.push('\n');
+            code_fence = Some((marker, fence_len));
+            index += 1;
+            continue;
+        };
+        let source = lines[index + 1..close].join("\n");
+        let tokens = fence_tokens(info);
+        let language = tokens.first().map(String::as_str).unwrap_or_default();
+        if language == "quiz" {
+            output.push_str(
+                &crate::markdown::portable_quiz_markdown(&source).map_err(|error| {
+                    format!("portable knowledge-check fallback failed: {error}")
+                })?,
+            );
+        } else if language == "web" && tokens.iter().any(|token| *token == "runnable") {
+            output.push_str(&portable_web_markdown(&source, &tokens, canonical_url));
+        } else {
+            let runnable = tokens.iter().any(|token| *token == "runnable");
+            let title = tokens.iter().find_map(|token| token.strip_prefix("title="));
+            if let Some(title) = title {
+                output.push_str(&format!(
+                    "**{}**\n\n",
+                    markdown_text(title.trim_matches(['"', '\'']))
+                ));
+            }
+            let normalized_language = if language == "web" { "text" } else { language };
+            output.push_str(&markdown_code_fence(normalized_language, &source));
+            if runnable {
+                output.push_str(&format!(
+                    "\n[Run and edit this example on the canonical article]({}).\n",
+                    markdown_destination(canonical_url)
+                ));
+            }
+        }
+        output.push('\n');
+        index = close + 1;
+    }
+    Ok(output)
+}
+
+fn resolve_markdown_line(
+    line: &str,
+    projection: &PortableProjection<'_>,
+) -> Result<String, String> {
+    let bytes = line.as_bytes();
+    let mut output = String::with_capacity(line.len());
+    let mut index = 0;
+    let mut inline_code: Option<usize> = None;
+    while index < bytes.len() {
+        if bytes[index] == b'`' {
+            let count = bytes[index..]
+                .iter()
+                .take_while(|byte| **byte == b'`')
+                .count();
+            if inline_code.is_none() {
+                inline_code = Some(count);
+            } else if inline_code == Some(count) {
+                inline_code = None;
+            }
+            output.push_str(&line[index..index + count]);
+            index += count;
+            continue;
+        }
+        if inline_code.is_none() && bytes[index] == b']' && !is_markdown_escaped(bytes, index) {
+            if let Some((start, end, angled)) = markdown_destination_range(line, index + 1) {
+                let authored = &line[start..end];
+                let destination = unescape_markdown_destination(authored);
+                let resolved = projection.resolve_link(&destination)?;
+                output.push_str(&line[index..start]);
+                if angled {
+                    output.push('<');
+                    output.push_str(&resolved);
+                    output.push('>');
+                } else {
+                    output.push_str(&markdown_destination(&resolved));
+                }
+                index = end + usize::from(angled);
+                continue;
+            }
+        }
+        let character = line[index..].chars().next().unwrap_or_default();
+        output.push(character);
+        index += character.len_utf8();
+    }
+    if let Some(resolved) = resolve_reference_definition(&output, projection)? {
+        return Ok(resolved);
+    }
+    Ok(output)
+}
+
+fn markdown_destination_range(line: &str, after_label: usize) -> Option<(usize, usize, bool)> {
+    let bytes = line.as_bytes();
+    let mut cursor = after_label;
+    while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+        cursor += 1;
+    }
+    if bytes.get(cursor) != Some(&b'(') {
+        return None;
+    }
+    cursor += 1;
+    while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+        cursor += 1;
+    }
+    let angled = bytes.get(cursor) == Some(&b'<');
+    if angled {
+        cursor += 1;
+    }
+    let start = cursor;
+    let mut parentheses = 0usize;
+    while let Some(byte) = bytes.get(cursor) {
+        if *byte == b'\\' {
+            cursor = (cursor + 2).min(bytes.len());
+            continue;
+        }
+        if angled && *byte == b'>' {
+            return Some((start, cursor, true));
+        }
+        if !angled {
+            if *byte == b'(' {
+                parentheses += 1;
+            } else if *byte == b')' {
+                if parentheses == 0 {
+                    return (cursor > start).then_some((start, cursor, false));
+                }
+                parentheses -= 1;
+            } else if byte.is_ascii_whitespace() && parentheses == 0 {
+                return (cursor > start).then_some((start, cursor, false));
+            }
+        }
+        cursor += 1;
+    }
+    None
+}
+
+fn resolve_reference_definition(
+    line: &str,
+    projection: &PortableProjection<'_>,
+) -> Result<Option<String>, String> {
+    let trimmed = line.trim_start();
+    let offset = line.len() - trimmed.len();
+    if !trimmed.starts_with('[') {
+        return Ok(None);
+    }
+    let Some(close) = trimmed.find("]:") else {
+        return Ok(None);
+    };
+    let mut start = offset + close + 2;
+    let bytes = line.as_bytes();
+    while bytes.get(start).is_some_and(u8::is_ascii_whitespace) {
+        start += 1;
+    }
+    let angled = bytes.get(start) == Some(&b'<');
+    if angled {
+        start += 1;
+    }
+    let mut end = start;
+    while let Some(byte) = bytes.get(end) {
+        if (*byte == b'>' && angled) || (!angled && byte.is_ascii_whitespace()) {
+            break;
+        }
+        end += 1;
+    }
+    if end == start {
+        return Ok(None);
+    }
+    let destination = unescape_markdown_destination(&line[start..end]);
+    let resolved = markdown_destination(&projection.resolve_link(&destination)?);
+    let resolved = if angled {
+        format!("<{resolved}>")
+    } else {
+        resolved
+    };
+    let mut output = String::with_capacity(line.len() + resolved.len());
+    output.push_str(&line[..start]);
+    output.push_str(&resolved);
+    output.push_str(&line[end..]);
+    Ok(Some(output))
+}
+
+fn is_markdown_escaped(bytes: &[u8], index: usize) -> bool {
+    let mut preceding = index;
+    while preceding > 0 && bytes[preceding - 1] == b'\\' {
+        preceding -= 1;
+    }
+    (index - preceding) % 2 == 1
+}
+
+fn unescape_markdown_destination(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut characters = value.chars();
+    while let Some(character) = characters.next() {
+        if character == '\\' {
+            if let Some(escaped) = characters.next() {
+                output.push(escaped);
+            }
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
+fn callout_kind(line: &str) -> Option<&'static str> {
+    let value = line.trim().strip_prefix("> ")?.trim();
+    if value.len() < 5 || !value.starts_with("[!") || !value.ends_with(']') {
+        return None;
+    }
+    match value[2..value.len() - 1].to_ascii_uppercase().as_str() {
+        "NOTE" => Some("Note"),
+        "TIP" => Some("Tip"),
+        "IMPORTANT" => Some("Important"),
+        "WARNING" => Some("Warning"),
+        "CAUTION" => Some("Caution"),
+        _ => None,
+    }
+}
+
+fn markdown_fence_open(line: &str) -> Option<(char, usize, &str)> {
+    let trimmed = line.trim_start_matches(' ');
+    if line.len() - trimmed.len() > 3 {
+        return None;
+    }
+    let marker = trimmed.chars().next()?;
+    if marker != '`' && marker != '~' {
+        return None;
+    }
+    let fence_len = trimmed.chars().take_while(|ch| *ch == marker).count();
+    (fence_len >= 3).then_some((marker, fence_len, trimmed[fence_len..].trim()))
+}
+
+fn markdown_fence_close(line: &str, marker: char, minimum_length: usize) -> bool {
+    let trimmed = line.trim_start_matches(' ');
+    if line.len() - trimmed.len() > 3 {
+        return false;
+    }
+    let count = trimmed.chars().take_while(|ch| *ch == marker).count();
+    count >= minimum_length && trimmed[count..].trim().is_empty()
+}
+
+fn fence_tokens(info: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut token = String::new();
+    let mut quote = None;
+    for character in info.chars() {
+        match character {
+            '"' | '\'' if quote.is_none() => {
+                quote = Some(character);
+                token.push(character);
+            }
+            character if quote == Some(character) => {
+                quote = None;
+                token.push(character);
+            }
+            character if character.is_whitespace() && quote.is_none() => {
+                if !token.is_empty() {
+                    tokens.push(std::mem::take(&mut token));
+                }
+            }
+            _ => token.push(character),
+        }
+    }
+    if !token.is_empty() {
+        tokens.push(token);
+    }
+    tokens
+}
+
+fn markdown_code_fence(language: &str, source: &str) -> String {
+    let mut longest = 0;
+    let mut run = 0;
+    for character in source.chars() {
+        if character == '`' {
+            run += 1;
+            longest = longest.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    let fence = "`".repeat(3.max(longest + 1));
+    format!("{fence}{language}\n{source}\n{fence}\n")
+}
+
+fn portable_web_markdown(source: &str, tokens: &[String], canonical_url: &str) -> String {
+    let labels = [("html", "HTML"), ("css", "CSS"), ("js", "JavaScript")];
+    let mut sections = [
+        ("html", String::new()),
+        ("css", String::new()),
+        ("js", String::new()),
+    ];
+    let mut preamble = Vec::new();
+    let mut active: Option<usize> = None;
+    for line in source.lines() {
+        let marker = line
+            .trim()
+            .strip_prefix("---")
+            .and_then(|name| sections.iter().position(|(language, _)| *language == name));
+        if marker.is_some() {
+            active = marker;
+            continue;
+        }
+        if let Some(index) = active {
+            sections[index].1.push_str(line);
+            sections[index].1.push('\n');
+        } else {
+            preamble.push(line);
+        }
+    }
+    let mut output = String::new();
+    if !preamble.iter().all(|line| line.trim().is_empty()) {
+        output.push_str(&markdown_code_fence("text", &preamble.join("\n")));
+        output.push('\n');
+    }
+    for ((_, label), (language, source)) in labels.iter().zip(sections) {
+        if source.trim().is_empty() {
+            continue;
+        }
+        output.push_str(&format!("**{label}**\n\n"));
+        output.push_str(&markdown_code_fence(language, source.trim_end()));
+        output.push('\n');
+    }
+    let title = tokens
+        .iter()
+        .find_map(|token| token.strip_prefix("title="))
+        .map(|title| title.trim_matches(['"', '\'']));
+    let label = title.unwrap_or("Open the live preview");
+    output.push_str(&format!(
+        "[{} on the canonical article]({}).\n",
+        markdown_text(label),
+        markdown_destination(canonical_url)
+    ));
+    output
 }
 
 fn validate_http_url(url: &Url, allow_query_and_fragment: bool) -> Result<(), String> {
@@ -447,6 +1324,22 @@ mod tests {
     }
 
     #[test]
+    fn source_revision_is_stable_and_changes_with_portable_source() {
+        let (config, site) = public_post("---\ntitle: Work\ndate: 2026-10-01\n---\nBody\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let revision = projection.source_revision().unwrap();
+        assert_eq!(revision.len(), 40);
+        assert!(revision.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(revision, projection.source_revision().unwrap());
+
+        let (changed_config, changed_site) =
+            public_post("---\ntitle: Work\ndate: 2026-10-01\n---\nChanged body\n");
+        let changed =
+            PortableProjection::from_post(&changed_site.posts[0], &changed_config).unwrap();
+        assert_ne!(revision, changed.source_revision().unwrap());
+    }
+
+    #[test]
     fn projection_url_resolution_is_safe_and_base_path_aware() {
         let (config, site) = public_post("---\ntitle: Work\ndate: 2026-10-01\n---\nBody");
         let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
@@ -505,6 +1398,32 @@ mod tests {
         assert!(!output.html.contains("<script type=\"module\""));
         assert_eq!(post.html, native_html);
         assert_eq!(projection.portable_html().unwrap(), output);
+    }
+
+    #[test]
+    fn portable_markdown_transforms_custom_blocks_and_keeps_public_context() {
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\nprofile: research\nsourceUrl: https://origin.example/work\ndoi: 10.1234/example\nlicense: https://creativecommons.org/licenses/by/4.0/\n---\n            > [!TIP]\n> Keep the source.\n\n[Parent](../reference/), [section](#chapter).\n\n```quiz\nWhat is portable?\n- [ ] A second source\n- [x] A derived representation\n> It comes from the canonical work.\n```\n\n```rust runnable title=\"Try the example\"\nfn main() { let text = \"[literal](../not-a-link)\"; }\n```\n\n<script>alert(1)</script>\n",
+        );
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        assert!(markdown.starts_with("# Work\n\nCanonical: <https://example.test/blog/work/>"));
+        assert!(markdown.contains("> **Tip:**\n> Keep the source."));
+        assert!(markdown.contains("[Parent](https://example.test/blog/reference/)"));
+        assert!(markdown.contains("[section](https://example.test/blog/work/#chapter)"));
+        assert!(markdown.contains("**Question:** What is portable?"));
+        assert!(markdown.contains("**Answer:** 2. A derived representation"));
+        assert!(markdown.contains("Portable fallback"));
+        assert!(markdown.contains("scoring or retries matter"));
+        assert!(markdown.contains("**Try the example**"));
+        assert!(markdown
+            .contains("```rust\nfn main() { let text = \"[literal](../not-a-link)\"; }\n```"));
+        assert!(markdown.contains("[Run and edit this example on the canonical article]"));
+        assert!(markdown.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(markdown.contains("10.1234/example"), "{markdown}");
+        assert!(markdown.contains("Originally published at <https://origin.example/work>."));
+        assert!(!markdown.contains("```quiz"));
+        assert!(!markdown.contains("<script>"));
     }
 
     #[test]
@@ -1088,6 +2007,19 @@ A[^a b].
              <p class=\"ob-portable-note\"><strong>Interactive content</strong>: see it on <a href=\"https://example.test/blog/work/\">the original article</a>.</p>\n",
             "authored content stays visible; private drafts add nothing"
         );
+        assert!(output.diagnostics.iter().all(|diagnostic| {
+            diagnostic.source_path == "posts/work.md"
+                && diagnostic.severity == DiagnosticSeverity::Warning
+        }));
+        assert!(output
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.capability_id.as_deref()
+                != Some("protected-reflection-drafts")));
+        assert!(output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == "canonical-only-interaction"));
         assert_eq!(
             output
                 .capabilities

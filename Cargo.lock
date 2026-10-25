@@ -423,6 +423,7 @@ dependencies = [
 name = "openblog-core"
 version = "0.17.2"
 dependencies = [
+ "blake2",
  "http",
  "pulldown-cmark",
  "serde",
