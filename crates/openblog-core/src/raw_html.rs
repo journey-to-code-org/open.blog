@@ -213,6 +213,73 @@ fn next_token(source: &str, at: usize) -> (Token<'_>, usize) {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct SemanticLink {
+    pub kind: crate::portability::SemanticLinkKind,
+    pub target: String,
+    pub label: String,
+}
+
+/// Read facts from a derived artifact for validation, never for reconstruction.
+pub(crate) fn semantic_links(html: &str) -> Vec<SemanticLink> {
+    use crate::portability::SemanticLinkKind;
+    let mut links = Vec::new();
+    let mut anchor: Option<(String, String)> = None;
+    let mut at = 0;
+    while at < html.len() {
+        let (token, next) = next_token(html, at);
+        at = next;
+        match token {
+            Token::Start {
+                name, attributes, ..
+            } if name == "a" => {
+                anchor = attributes
+                    .into_iter()
+                    .find(|(name, _)| name == "href")
+                    .map(|(_, href)| (href, String::new()));
+            }
+            Token::End { name } if name == "a" => {
+                if let Some((target, label)) = anchor.take() {
+                    links.push(SemanticLink {
+                        kind: SemanticLinkKind::Anchor,
+                        target,
+                        label,
+                    });
+                }
+            }
+            Token::Start {
+                name, attributes, ..
+            } if name == "img" => {
+                let get = |key| {
+                    attributes
+                        .iter()
+                        .find(|(name, _)| name == key)
+                        .map(|(_, value)| value.clone())
+                        .unwrap_or_default()
+                };
+                let alt = get("alt");
+                if let Some((_, label)) = &mut anchor {
+                    label.push_str(&alt);
+                }
+                if attributes.iter().any(|(name, _)| name == "src") {
+                    links.push(SemanticLink {
+                        kind: SemanticLinkKind::Image,
+                        target: get("src"),
+                        label: alt,
+                    });
+                }
+            }
+            Token::Text(text) => {
+                if let Some((_, label)) = &mut anchor {
+                    label.push_str(&decode(text));
+                }
+            }
+            _ => {}
+        }
+    }
+    links
+}
+
 /// Read facts from a derived artifact for validation, never for reconstruction.
 pub(crate) fn semantic_content(html: &str) -> String {
     let mut output = String::new();

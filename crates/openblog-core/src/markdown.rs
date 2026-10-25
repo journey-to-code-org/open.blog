@@ -25,6 +25,8 @@ pub struct Rendered {
     /// Image destinations retained by the portable raw-HTML boundary, in source order.
     pub portable_images: Vec<crate::portability::PortableImage>,
     pub portable_has_raw_html: bool,
+    /// YouTube identities detected from source paragraphs with portable embed fallbacks.
+    pub portable_video_ids: Vec<String>,
     /// Semantic capabilities detected in authored Markdown, in source order.
     pub capabilities: Vec<CapabilityDescriptor>,
     /// Content errors discovered by Markdown extensions such as quiz blocks.
@@ -94,13 +96,13 @@ pub(crate) struct PortableContext<'a> {
 /// Options written after a fence's language, in the style other site
 /// generators use: ```` ```rust title="src/main.rs" {2,4-6} showLineNumbers=10 ````.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct FenceInfo {
-    lang: String,
-    title: Option<String>,
+pub(crate) struct FenceInfo {
+    pub(crate) lang: String,
+    pub(crate) title: Option<String>,
     /// `runnable`: let readers edit and run this Rust example.
-    runnable: bool,
+    pub(crate) runnable: bool,
     /// `playgroundLink=false`: omit the external Playground fallback link.
-    playground_link: Option<bool>,
+    pub(crate) playground_link: Option<bool>,
     /// `showLineNumbers` / `showLineNumbers=false`.
     line_numbers: Option<bool>,
     /// `showLineNumbers=10` starts counting at 10.
@@ -109,7 +111,7 @@ struct FenceInfo {
     highlight: Option<String>,
 }
 
-fn parse_fence_info(info: &str) -> FenceInfo {
+pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
     let mut out = FenceInfo::default();
     let mut rest = info.trim();
     let mut first = true;
@@ -1102,6 +1104,7 @@ fn apply_embeds(events: Vec<Event<'_>>) -> Vec<Event<'_>> {
 fn apply_portable_paragraphs<'a>(
     events: Vec<Event<'a>>,
     context: PortableContext<'_>,
+    video_ids: &mut Vec<String>,
 ) -> Vec<Event<'a>> {
     let mut out = Vec::with_capacity(events.len());
     let mut i = 0;
@@ -1113,7 +1116,12 @@ fn apply_portable_paragraphs<'a>(
             {
                 let inner = &events[i + 1..i + 1 + len];
                 let replacement = standalone_embed(inner)
-                    .map(|embed| portable_embed_html(inner, &embed))
+                    .map(|embed| {
+                        if let Some(id) = crate::embed::youtube_video_id(&embed.link) {
+                            video_ids.push(id);
+                        }
+                        portable_embed_html(inner, &embed)
+                    })
                     .or_else(|| {
                         context
                             .chapters
@@ -1453,7 +1461,10 @@ pub(crate) fn portable_semantic_facts(
                 let inner = &sanitized.events[index + 1..index + 1 + length];
                 if inner.iter().all(|event| matches!(event, Event::Text(_))) {
                     if let Some(embed) = standalone_embed(inner) {
-                        facts.push(SemanticFact::new("media", "source link", embed.link));
+                        facts.push(
+                            SemanticFact::new("media", "source link", embed.link)
+                                .with_link_label(embed.link_label),
+                        );
                         index += length + 2;
                         continue;
                     }
@@ -1462,6 +1473,68 @@ pub(crate) fn portable_semantic_facts(
         }
         semantic_events.push(sanitized.events[index].clone());
         index += 1;
+    }
+    for (index, event) in semantic_events.iter().enumerate() {
+        let (destination, end) = match event {
+            Event::Start(Tag::Link { dest_url, .. }) => (dest_url, TagEnd::Link),
+            Event::Start(Tag::Image { dest_url, .. }) => (dest_url, TagEnd::Image),
+            _ => continue,
+        };
+        let mut label = String::new();
+        let mut text_label = String::new();
+        let mut image = None;
+        for inner in semantic_events[index + 1..]
+            .iter()
+            .take_while(|event| **event != Event::End(end))
+        {
+            match inner {
+                Event::Text(text) | Event::Code(text) => {
+                    label.push_str(text);
+                    text_label.push_str(text);
+                }
+                Event::SoftBreak | Event::HardBreak => {
+                    label.push(' ');
+                    text_label.push(' ');
+                }
+                Event::Start(Tag::Image { dest_url, .. }) => {
+                    image = Some((text_label.len(), projection.resolve_link(dest_url)?));
+                }
+                Event::End(TagEnd::Image) => {
+                    if let Some((start, destination)) = image.take() {
+                        if text_label[start..].trim() != destination {
+                            text_label.push_str(&format!(" ({destination})"));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut fact = SemanticFact::new(
+            "content",
+            "link or media target",
+            projection.resolve_link(destination)?,
+        )
+        .with_link_label(label.clone())
+        .with_text_link_label(text_label)
+        .with_link_kind(if end == TagEnd::Image {
+            crate::portability::SemanticLinkKind::Image
+        } else {
+            crate::portability::SemanticLinkKind::Anchor
+        });
+        if label == destination.as_ref()
+            && index > 0
+            && matches!(semantic_events[index - 1], Event::Start(Tag::Paragraph))
+        {
+            if let Some(length) = semantic_events[index..]
+                .iter()
+                .position(|event| *event == Event::End(TagEnd::Paragraph))
+            {
+                if let Some(embed) = standalone_embed(&semantic_events[index..index + length]) {
+                    fact = fact.with_html_link_label(embed.link_label);
+                }
+            }
+        }
+        facts.push(fact);
     }
     let mut code: Option<(String, String)> = None;
     for event in semantic_events {
@@ -1562,13 +1635,6 @@ pub(crate) fn portable_semantic_facts(
                 } else {
                     facts.push(SemanticFact::new("content", "text", text.to_string()));
                 }
-            }
-            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
-                facts.push(SemanticFact::new(
-                    "content",
-                    "link or media target",
-                    projection.resolve_link(&dest_url)?,
-                ));
             }
             Event::Start(Tag::BlockQuote(Some(kind))) => {
                 facts.push(SemanticFact::new("callout", "label", callout_label(kind).1));
@@ -1682,8 +1748,12 @@ fn render_events<'a>(
         events.push(event);
     }
 
+    let mut portable_video_ids = Vec::new();
     let events = if let Some(context) = portable {
-        apply_portable_footnotes(apply_portable_paragraphs(events, context), context)
+        apply_portable_footnotes(
+            apply_portable_paragraphs(events, context, &mut portable_video_ids),
+            context,
+        )
     } else if options.embeds {
         apply_embeds(events)
     } else {
@@ -1702,6 +1772,7 @@ fn render_events<'a>(
         html,
         portable_images: Vec::new(),
         portable_has_raw_html: false,
+        portable_video_ids,
         capabilities: blocks.capabilities,
         errors: blocks.errors,
         headings,

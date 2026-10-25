@@ -118,10 +118,27 @@ fn export_plan(
 }
 
 pub fn diagnostics(site: &Site) -> Result<Vec<String>, String> {
+    collect_diagnostics(site, false)
+}
+
+pub fn build_diagnostics(site: &Site) -> Result<Vec<String>, String> {
+    collect_diagnostics(site, true)
+}
+
+fn collect_diagnostics(site: &Site, optional: bool) -> Result<Vec<String>, String> {
     let mut warnings = Vec::new();
     for post in site.posts.iter().filter(|post| !post.draft) {
-        let projection = PortableProjection::from_post(post, &site.config)?;
-        for diagnostic in projection.portable_html()?.diagnostics {
+        let portable = PortableProjection::from_post(post, &site.config)
+            .and_then(|projection| projection.portable_html());
+        let portable = match portable {
+            Ok(portable) => portable,
+            Err(error) if optional => {
+                warnings.push(format!("portable HTML unavailable: {error}. Native output is unaffected; repair this source before using portable destinations."));
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        for diagnostic in portable.diagnostics {
             warnings.push(format!(
                 "{} [{}] {} Action: {}",
                 diagnostic.source_path,

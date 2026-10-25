@@ -10,6 +10,10 @@ links and image destinations against the canonical article URL (or the site base
 paths), and returns the capability descriptors discovered during rendering. Absolute URLs,
 fragments, query strings, and Unicode destinations are covered by tests. Invalid or executable
 links fail with a source-scoped error instead of silently producing a successful projection.
+Native builds report optional portable projection failures as source-scoped warnings.
+Explicit checks/exports still fail for those projections. Required portable destinations,
+including full-content feeds, are generated before any output writes or stale-file cleanup;
+their failure leaves existing generated output intact.
 
 The HTML projection is a body, not a complete page. Full-content RSS and JSON Feed now use its
 static HTML fallbacks; JSON Feed also includes text derived from the portable Markdown projection.
@@ -231,7 +235,19 @@ choices, designated answers (even when the answer remains among the choices), ex
 source code, captions, timestamps, contributor names/roles/identifier provenance, work identifiers,
 license links, evidence links, uncertainty and recipe facts from each representation.
 
-The gate checks content presence after whitespace normalization, not layout, factual correctness,
+Ordinary authored links and images additionally require a matching destination/label relationship
+in HTML and parsed Markdown, consuming one output occurrence per source occurrence. An unrelated
+link, image source, or visible URL text cannot stand in for a lost anchor relationship.
+Repeated metadata link obligations also require distinct anchors; intentionally deduplicated
+canonical-only notes and a video's body/metadata identity retain their shared fallback.
+Text requires the readable
+label-and-destination fallback, also with occurrence counts. Recognized standalone embed
+autolinks may use their declared provider label in HTML; authored link labels stay intact.
+Bare recognized embed URLs become explicitly labeled Markdown links to their provider.
+Video identities come from source embed detection, never presentation markup. Portable
+Markdown uses the native fence-option parser, including comma-separated runnable options.
+
+The gate otherwise checks content presence after whitespace normalization, not layout, factual correctness,
 or a proof of accessibility. Order, nesting, anchor resolution and readable static presentation
 have separate golden/browser gates. Raw HTML deliberately has different policies: HTML checks
 the allowlist's retained content, while Markdown/text show literal authored markup and disclose

@@ -218,6 +218,16 @@ pub(crate) struct SemanticFact {
     field: &'static str,
     value: String,
     markdown_value: Option<String>,
+    link_label: Option<String>,
+    html_link_label: Option<String>,
+    text_link_label: Option<String>,
+    link_kind: SemanticLinkKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SemanticLinkKind {
+    Anchor,
+    Image,
 }
 
 impl SemanticFact {
@@ -231,11 +241,35 @@ impl SemanticFact {
             field,
             value: value.into(),
             markdown_value: None,
+            link_label: None,
+            html_link_label: None,
+            text_link_label: None,
+            link_kind: SemanticLinkKind::Anchor,
         }
     }
 
     pub(crate) fn with_markdown_value(mut self, value: String) -> Self {
         self.markdown_value = Some(value);
+        self
+    }
+
+    pub(crate) fn with_link_label(mut self, label: String) -> Self {
+        self.link_label = Some(label);
+        self
+    }
+
+    pub(crate) fn with_html_link_label(mut self, label: String) -> Self {
+        self.html_link_label = Some(label);
+        self
+    }
+
+    pub(crate) fn with_text_link_label(mut self, label: String) -> Self {
+        self.text_link_label = Some(label);
+        self
+    }
+
+    pub(crate) fn with_link_kind(mut self, kind: SemanticLinkKind) -> Self {
+        self.link_kind = kind;
         self
     }
 }
@@ -756,15 +790,7 @@ impl<'a> PortableProjection<'a> {
                 .and_then(crate::embed::detect),
             video_id,
         ) {
-            let embedded = rendered
-                .html
-                .split("<p class=\"ob-embed-link ob-embed-youtube\">")
-                .skip(1)
-                .any(|link| {
-                    link.split("</p>")
-                        .next()
-                        .is_some_and(|link| link.contains(id))
-                });
+            let embedded = rendered.portable_video_ids.iter().any(|known| known == id);
             if !embedded {
                 embed.link_label = format!("{} on YouTube", self.title);
                 html.push_str(&format!(
@@ -1067,18 +1093,28 @@ impl<'a> PortableProjection<'a> {
                 self.source_path
             ));
         }
-        let content = match format {
-            RepresentationFormat::Html => crate::raw_html::semantic_content(artifact),
+        let html = match format {
+            RepresentationFormat::Html => Some(artifact.to_string()),
             RepresentationFormat::Markdown => {
                 let mut html = String::new();
                 pulldown_cmark::html::push_html(
                     &mut html,
                     Parser::new_ext(artifact, crate::markdown::parser_options(false)),
                 );
-                crate::raw_html::semantic_content(&html)
+                Some(html)
             }
-            RepresentationFormat::Text => artifact.to_string(),
+            RepresentationFormat::Text => None,
         };
+        let content = html
+            .as_deref()
+            .map(crate::raw_html::semantic_content)
+            .unwrap_or_else(|| artifact.to_string());
+        let all_links = html
+            .as_deref()
+            .map(crate::raw_html::semantic_links)
+            .unwrap_or_default();
+        let mut links = all_links.clone();
+        let mut metadata_links = all_links;
         let normalize = |value: &str| {
             value
                 .chars()
@@ -1086,6 +1122,7 @@ impl<'a> PortableProjection<'a> {
                 .collect::<String>()
         };
         let content = normalize(&content);
+        let mut text_link_obligations = std::collections::HashMap::new();
         let mut options = self.render_options;
         options.smart_punctuation &= format == RepresentationFormat::Html;
         let mut facts = crate::markdown::portable_semantic_facts(self.markdown, options, self)
@@ -1200,12 +1237,16 @@ impl<'a> PortableProjection<'a> {
                 self.participation_url(),
             ));
         }
+        let mut fallback_labels = std::collections::HashSet::new();
         for capability in self
             .capabilities
             .iter()
             .filter(|capability| !capability.has_portable_fallback())
         {
             if let Some(label) = capability.portable_label() {
+                if !fallback_labels.insert(label) {
+                    continue;
+                }
                 facts.push(SemanticFact::new(
                     "canonical-only-interaction",
                     "capability label",
@@ -1239,7 +1280,63 @@ impl<'a> PortableProjection<'a> {
             } else {
                 expected.clone()
             };
-            if content.contains(&normalize(&value)) || content.contains(&normalize(expected)) {
+            let retained = if let Some(label) = &fact.link_label {
+                if format == RepresentationFormat::Text {
+                    let label = fact.text_link_label.as_ref().unwrap_or(label);
+                    let target = if label == expected {
+                        normalize(expected)
+                    } else {
+                        normalize(&format!("{label} ({expected})"))
+                    };
+                    let required = text_link_obligations
+                        .entry(target.clone())
+                        .or_insert(0usize);
+                    *required += 1;
+                    content.match_indices(&target).count() >= *required
+                } else if let Some(index) = links.iter().position(|link| {
+                    let target = Url::parse(&link.target)
+                        .map(|url| url.to_string())
+                        .unwrap_or_else(|_| link.target.clone());
+                    let label = if format == RepresentationFormat::Html {
+                        fact.html_link_label.as_ref().unwrap_or(label)
+                    } else {
+                        label
+                    };
+                    link.kind == fact.link_kind
+                        && (target == value || target == *expected)
+                        && normalize(&link.label) == normalize(label)
+                }) {
+                    links.remove(index);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                let is_url = matches!(
+                    fact.field,
+                    "source link"
+                        | "canonical link"
+                        | "participation link"
+                        | "license"
+                        | "citation target"
+                ) && Url::parse(expected).is_ok();
+                if is_url && format != RepresentationFormat::Text {
+                    if let Some(index) = metadata_links.iter().position(|link| {
+                        link.kind == SemanticLinkKind::Anchor
+                            && (link.target == *expected
+                                || Url::parse(&link.target)
+                                    .is_ok_and(|target| target.as_str() == value))
+                    }) {
+                        metadata_links.remove(index);
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    content.contains(&normalize(&value)) || content.contains(&normalize(expected))
+                }
+            };
+            if retained {
                 continue;
             }
             let diagnostic = PortabilityDiagnostic {
@@ -1686,7 +1783,7 @@ fn portable_markdown_body(
         match event {
             Event::Start(Tag::Paragraph) => {
                 let raw = markdown[range.clone()].trim();
-                if raw.starts_with("%[") && raw.ends_with(']') {
+                if (raw.starts_with("%[") && raw.ends_with(']')) || raw.starts_with("http") {
                     if let Some(embed) = crate::embed::detect(raw) {
                         let url = projection.resolve_link(&embed.link)?;
                         edits.push((
@@ -1711,8 +1808,20 @@ fn portable_markdown_body(
                 ..
             }) => {
                 let raw = &markdown[range.clone()];
+                let mut brackets = 0usize;
                 for (index, character) in raw.char_indices() {
-                    if character != ']' || is_markdown_escaped(raw.as_bytes(), index) {
+                    if is_markdown_escaped(raw.as_bytes(), index) {
+                        continue;
+                    }
+                    if character == '[' {
+                        brackets += 1;
+                        continue;
+                    }
+                    if character != ']' {
+                        continue;
+                    }
+                    brackets = brackets.saturating_sub(1);
+                    if brackets != 0 {
                         continue;
                     }
                     if literal_ranges
@@ -1784,25 +1893,22 @@ fn portable_fence_markdown(
 ) -> Result<String, String> {
     let canonical_url = projection.canonical_url();
     let mut output = String::new();
-    let tokens = fence_tokens(info);
-    let language = tokens.first().map(String::as_str).unwrap_or_default();
-    if language == "quiz" {
+    let fence = crate::markdown::parse_fence_info(info);
+    let language = fence.lang.as_str();
+    if info.trim() == "quiz" {
         output.push_str(
             &crate::markdown::portable_quiz_markdown(source)
                 .map_err(|error| format!("portable knowledge-check fallback failed: {error}"))?,
         );
-    } else if language.eq_ignore_ascii_case("web")
-        && tokens.iter().any(|token| *token == "runnable")
-    {
-        output.push_str(&portable_web_markdown(source, &tokens, canonical_url));
+    } else if language.eq_ignore_ascii_case("web") && fence.runnable {
+        output.push_str(&portable_web_markdown(
+            source,
+            fence.title.as_deref(),
+            canonical_url,
+        ));
     } else {
-        let runnable = tokens.iter().any(|token| *token == "runnable");
-        let title = tokens.iter().find_map(|token| token.strip_prefix("title="));
-        if let Some(title) = title {
-            output.push_str(&format!(
-                "**{}**\n\n",
-                markdown_text(title.trim_matches(['"', '\'']))
-            ));
+        if let Some(title) = fence.title.as_deref() {
+            output.push_str(&format!("**{}**\n\n", markdown_text(title)));
         }
         let normalized_language = if language.eq_ignore_ascii_case("web") {
             "text"
@@ -1810,10 +1916,8 @@ fn portable_fence_markdown(
             language
         };
         output.push_str(&markdown_code_fence(normalized_language, source));
-        if runnable {
-            if language.eq_ignore_ascii_case("rust")
-                && !tokens.iter().any(|token| token == "playgroundLink=false")
-            {
+        if fence.runnable {
+            if language.eq_ignore_ascii_case("rust") && fence.playground_link != Some(false) {
                 if let Some(url) = crate::markdown::rust_playground_url(&format!("{source}\n")) {
                     output.push_str(&format!("\n[Open in Rust Playground]({url}).\n"));
                 }
@@ -1880,34 +1984,6 @@ fn is_markdown_escaped(bytes: &[u8], index: usize) -> bool {
     (index - preceding) % 2 == 1
 }
 
-fn fence_tokens(info: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut token = String::new();
-    let mut quote = None;
-    for character in info.chars() {
-        match character {
-            '"' | '\'' if quote.is_none() => {
-                quote = Some(character);
-                token.push(character);
-            }
-            character if quote == Some(character) => {
-                quote = None;
-                token.push(character);
-            }
-            character if character.is_whitespace() && quote.is_none() => {
-                if !token.is_empty() {
-                    tokens.push(std::mem::take(&mut token));
-                }
-            }
-            _ => token.push(character),
-        }
-    }
-    if !token.is_empty() {
-        tokens.push(token);
-    }
-    tokens
-}
-
 fn markdown_code_fence(language: &str, source: &str) -> String {
     let mut longest = 0;
     let mut run = 0;
@@ -1923,7 +1999,7 @@ fn markdown_code_fence(language: &str, source: &str) -> String {
     format!("{fence}{language}\n{source}\n{fence}\n")
 }
 
-fn portable_web_markdown(source: &str, tokens: &[String], canonical_url: &str) -> String {
+fn portable_web_markdown(source: &str, title: Option<&str>, canonical_url: &str) -> String {
     let labels = [("html", "HTML"), ("css", "CSS"), ("js", "JavaScript")];
     let mut sections = [
         ("html", String::new()),
@@ -1961,10 +2037,6 @@ fn portable_web_markdown(source: &str, tokens: &[String], canonical_url: &str) -
         output.push_str(&markdown_code_fence(language, source.trim_end()));
         output.push('\n');
     }
-    let title = tokens
-        .iter()
-        .find_map(|token| token.strip_prefix("title="))
-        .map(|title| title.trim_matches(['"', '\'']));
     let label = title.unwrap_or("Open the live preview");
     output.push_str(&format!(
         "[{} on the canonical article]({}).\n",
@@ -1992,6 +2064,143 @@ mod tests {
     use super::*;
     use crate::config::SiteConfig;
     use crate::model::{LoadOptions, Site, SourceFile, Sources};
+
+    #[test]
+    fn review_regression_fence_options_share_the_native_grammar() {
+        let (config, site) = public_post("---\ntitle: Options\ndate: 2020-01-01\n---\n```rust,runnable,playgroundLink=false title=\"Try commas\"\nfn main() {}\n```\n\n```WEB,runnable title=\"Web commas\"\n---html\n<p>Hello</p>\n```\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        assert!(markdown.contains("Run and edit this example on the canonical article"));
+        assert!(!markdown.contains("Open in Rust Playground"));
+        assert!(markdown.contains("**HTML**"));
+        assert!(markdown.contains("Web commas on the canonical article"));
+    }
+
+    #[test]
+    fn review_regression_video_identity_is_not_inferred_from_link_labels() {
+        let (config, site) = public_post("---\ntitle: Video\ndate: 2020-01-01\nprofile: video\nvideoUrl: https://youtu.be/dQw4w9WgXcQ\n---\n[dQw4w9WgXcQ is discussed here](https://www.youtube.com/watch?v=abcdefghijk)\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        assert!(projection
+            .portable_html()
+            .unwrap()
+            .html
+            .contains("href=\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\""));
+        let (config, site) = public_post("---\ntitle: Video\ndate: 2020-01-01\nprofile: video\nvideoUrl: https://youtu.be/dQw4w9WgXcQ\n---\n[Watch this video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let html = projection.portable_html().unwrap().html;
+        assert_eq!(
+            html.matches("href=\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"")
+                .count(),
+            1
+        );
+        let broken = html.replace(
+            "href=\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"",
+            "href=\"https://wrong.example/\"",
+        ) + " https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+        assert!(!projection
+            .analyze_portable_artifact(RepresentationFormat::Html, &broken)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn review_regression_link_relationships_cannot_be_masked_by_url_text_or_other_links() {
+        let (config, site) = public_post("---\ntitle: Links\ndate: 2020-01-01\n---\n[First](https://evidence.example/study) and [Second](https://evidence.example/study).\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        for (format, artifact) in [
+            (RepresentationFormat::Html, "<p><a href=\"https://evidence.example/study\">First</a> and Second. https://evidence.example/study</p>"),
+            (RepresentationFormat::Markdown, "[First](https://evidence.example/study) and Second. https://evidence.example/study"),
+            (RepresentationFormat::Html, "<p><a href=\"https://evidence.example/study\">First</a> and <a href=\"https://wrong.example/\">Second</a>. https://evidence.example/study</p>"),
+            (RepresentationFormat::Html, "<p><a href=\"https://evidence.example/study\">First</a> and <a href=\"https://evidence.example/study\">First</a>. Second.</p>"),
+            (RepresentationFormat::Markdown, "[First](https://evidence.example/study) and [Second](https://wrong.example/). https://evidence.example/study"),
+            (RepresentationFormat::Text, "First (https://evidence.example/study) and Second. https://evidence.example/study"),
+        ] {
+            assert!(projection.analyze_portable_artifact(format, artifact).unwrap().iter().any(|finding| finding.code == "missing-semantic-fact"), "{format:?}: lost link was accepted");
+        }
+        for (format, artifact) in [
+            (
+                RepresentationFormat::Html,
+                projection.portable_html().unwrap().html,
+            ),
+            (
+                RepresentationFormat::Markdown,
+                projection.portable_markdown().unwrap(),
+            ),
+            (
+                RepresentationFormat::Text,
+                projection.portable_text().unwrap(),
+            ),
+        ] {
+            assert!(projection
+                .analyze_portable_artifact(format, &artifact)
+                .unwrap()
+                .is_empty());
+        }
+        let (config, site) = public_post("---\ntitle: Links\ndate: 2020-01-01\n---\n[Same](https://evidence.example/study) and [Same](https://evidence.example/study).\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        assert!(!projection
+            .analyze_portable_artifact(
+                RepresentationFormat::Html,
+                "<p><a href=\"https://evidence.example/study\">Same</a> and Same.</p>"
+            )
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn review_regression_required_links_are_not_satisfied_by_image_sources() {
+        let (config, site) = public_post("---\ntitle: Source\ndate: 2020-01-01\nprofile: research\nsourceUrl: https://evidence.example/shared\nlicense: https://evidence.example/shared\n---\nBody.\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        assert!(projection.portable_html().is_ok());
+        assert!(projection.portable_markdown().is_ok());
+        for artifact in [
+            "<p>Body.</p><img src=\"https://evidence.example/shared\" alt=\"Source\">",
+            "<p>Body.</p><a href=\"https://evidence.example/shared\">Source</a>",
+            "<p>Body.</p><a href=\"https://evidence.example/shared\">Source</a><img src=\"https://evidence.example/shared\" alt=\"License\">",
+        ] {
+            assert!(!projection.analyze_portable_artifact(RepresentationFormat::Html, artifact).unwrap().is_empty());
+        }
+        let (config, site) = public_post("---\ntitle: Image\ndate: 2020-01-01\n---\n![Diagram](https://images.example/diagram.png)\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        assert!(!projection
+            .analyze_portable_artifact(
+                RepresentationFormat::Html,
+                "<a href=\"https://images.example/diagram.png\">Diagram</a>"
+            )
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn review_regression_bare_embeds_require_the_declared_provider_label() {
+        let (config, site) = public_post("---\ntitle: Embed\ndate: 2020-01-01\n---\nhttps://codepen.io/u/pen/abc\n\nhttps://codepen.io/u/pen/abc\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        assert_eq!(
+            markdown
+                .matches("[See the Pen on CodePen](https://codepen.io/u/pen/abc)")
+                .count(),
+            2
+        );
+        assert!(projection.portable_html().is_ok());
+        assert!(projection.portable_text().is_ok());
+        for (format, artifact) in [
+            (RepresentationFormat::Html, "<a href=\"https://codepen.io/u/pen/abc\">Wrong label</a><a href=\"https://codepen.io/u/pen/abc\">Wrong label</a>"),
+            (RepresentationFormat::Markdown, "[Wrong label](https://codepen.io/u/pen/abc)\n\n[Wrong label](https://codepen.io/u/pen/abc)"),
+            (RepresentationFormat::Html, "<a href=\"https://codepen.io/u/pen/abc\">See the Pen on CodePen</a>"),
+        ] {
+            assert!(!projection.analyze_portable_artifact(format, artifact).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn review_regression_linked_images_keep_their_nested_text_fallbacks() {
+        let (config, site) = public_post("---\ntitle: Linked image\ndate: 2020-01-01\n---\n[![A useful diagram](https://images.example/diagram.png)](https://evidence.example/study)\n");
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        assert!(projection.portable_html().is_ok());
+        assert!(projection.portable_markdown().is_ok());
+        assert!(projection.portable_text().is_ok());
+    }
 
     #[test]
     fn semantic_validation_respects_each_representations_punctuation_policy() {
