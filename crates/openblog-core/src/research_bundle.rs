@@ -356,12 +356,13 @@ pub fn looks_like_private_research(bytes: &[u8]) -> bool {
     if bytes.len() > MAX_BUNDLE_BYTES * 2 {
         return false;
     }
+    // An optional BOM, then whitespace, then the object.
+    let bytes = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(bytes);
     let start = bytes
         .iter()
         .position(|byte| !byte.is_ascii_whitespace())
         .unwrap_or(0);
     let body = bytes.get(start..).unwrap_or_default();
-    let body = body.strip_prefix("\u{feff}".as_bytes()).unwrap_or(body);
     if body.first() != Some(&b'{') {
         return false;
     }
