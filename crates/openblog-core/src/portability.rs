@@ -1701,7 +1701,7 @@ fn markdown_text(value: &str) -> String {
     for character in normalized.chars() {
         if matches!(
             character,
-            '\\' | '[' | ']' | '*' | '_' | '`' | '#' | '>' | '|'
+            '\\' | '[' | ']' | '*' | '_' | '~' | '`' | '#' | '>' | '|'
         ) {
             escaped.push('\\');
         }

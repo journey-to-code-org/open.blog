@@ -17,6 +17,8 @@ const CONFIG: &str = r#"{"title":"T","url":"https://example.test","postPath":"/{
 /// Private values that must never appear in any public output.
 const PRIVATE: &[&str] = &[
     "ada-admin",
+    "Ada Private",
+    "Private working title",
     "shared-0a1b2c3d4e5f",
     "978-0-14-143954-9",
     "George Eliot",
@@ -327,4 +329,25 @@ fn a_record_whose_link_is_no_longer_public_drops_the_link_not_the_title() {
     let source = attribution.source.unwrap();
     assert!(source.url.is_none());
     assert_eq!(source.title, "Middlemarch & <Marriage>");
+}
+
+#[test]
+fn tildes_in_public_text_stay_literal_and_never_break_the_build() {
+    let source = "---
+title: R
+date: 2026-10-01
+guidingQuestion: \"Is ~this~ fine?\"
+sharedSourceTitle: \"About ~5 to ~10 mins\"
+---
+Body
+";
+    let site = load(source, LoadOptions::default()).unwrap();
+    let projection = PortableProjection::from_post(&site.posts[0], &site.config).unwrap();
+    let markdown = projection.portable_markdown().unwrap();
+    assert!(markdown.contains(r"Is \~this\~ fine?"), "{markdown}");
+    let text = projection.portable_text().unwrap();
+    assert!(text.contains("Is ~this~ fine?"), "{text}");
+    let json = feeds::json_feed(&site).unwrap();
+    assert!(json.contains("Is ~this~ fine?"), "{json}");
+    assert!(render::generate(&site, &ThemeSet::new()).is_ok());
 }

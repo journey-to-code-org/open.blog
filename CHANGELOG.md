@@ -5,6 +5,7 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Fixed a guiding question or source title containing a tilde pair, such as `~this~`, stopping the site build and Admin preview; the text now exports literally.
 - Posts can now publish the source of a shared reflection. `guidingQuestion`, `sharedSourceTitle`,
   `sharedSourceUrl`, and `sharedSourceType` in front matter show the guiding question and the
   original source's title, link, and type beside the work, in Admin preview, the built page, RSS,
