@@ -6234,7 +6234,7 @@ fn change_approval(
 }
 
 // ---------------------------------------------------------------------------
-// Shared synthesis: the continuing conversation (ADR 0037)
+// Shared synthesis: the continuing conversation (ADR 0025)
 // ---------------------------------------------------------------------------
 
 /// Every refusal reads the same, so a request cannot confirm that a reflection, an item or an
@@ -6584,7 +6584,7 @@ fn reconcile_approvals(
         let drafts = load_reveal_drafts(state, id).map_err(|_| "drafts are not usable")?;
         let drafts =
             draft_set_for(drafts.set.as_ref(), record).map_err(|_| "drafts are not usable")?;
-        // The synthesis follows the author set in the same write (ADR 0037): attribution to
+        // The synthesis follows the author set in the same write (ADR 0025): attribution to
         // someone who can no longer author it goes, and so does an item nobody speaks for.
         let mut synthesis = crate::shared_publications::load_synthesis(&state.root, id)?;
         let authors = synthesis_authors(transaction, record);
@@ -17207,7 +17207,7 @@ mod tests {
         assert_eq!(state_trees(&f), before);
     }
 
-    // ---- shared synthesis (ADR 0037)
+    // ---- shared synthesis (ADR 0025)
 
     fn participant_of(f: &Fixture, id: &str, admin_user: &str) -> String {
         stored_record(f, id)

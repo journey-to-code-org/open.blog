@@ -99,7 +99,7 @@ pub fn post_path(record: &SharedPublication) -> String {
 /// the one place the subject is built from the record, drafts and synthesis, so the approval
 /// binding a preview hands out, the one the gate checks and the one a route stores cannot drift
 /// apart. The synthesis contributes its prose-free binding frame (items, order, attribution) and
-/// its attributed authors, each of whom must approve the piece (ADR 0036, 0037).
+/// its attributed authors, each of whom must approve the piece (ADR 0024, 0025).
 pub fn with_subject<R>(
     record: &SharedPublication,
     drafts: &DraftSet,

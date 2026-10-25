@@ -1,4 +1,4 @@
-# ADR 0038: Publishing approved synthesis in the Post
+# ADR 0026: Publishing approved synthesis in the Post
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -8,7 +8,7 @@
 
 ## Context
 
-Synthesis items (ADR 0036) are approved per item and gate publishing (ADR 0037), but the assembled
+Synthesis items (ADR 0024) are approved per item and gate publishing (ADR 0025), but the assembled
 Post carried none of them. ADR 0023 settled that a shared reflection has no projection of its own.
 
 ## Decision
@@ -39,7 +39,7 @@ Post carried none of them. ADR 0023 settled that a shared reflection has no proj
 - Feeds: because the synthesis is body Markdown, it reaches full-content RSS and JSON Feed,
   portable HTML/Markdown/text, `llms` files and the search index. Tests check these for internal
   ids, approver wording and withdrawn or stale text. Summary-only feeds carry only the ordinary
-  excerpt, which can begin with body text. Portable output is settled in ADR 0040, and the item and anchor rules in ADR 0039.
+  excerpt, which can begin with body text. Portable output is settled in ADR 0028, and the item and anchor rules in ADR 0027.
 - Labels are English constants in the core. Item prose and names publish in any script.
 
 ## Consequences

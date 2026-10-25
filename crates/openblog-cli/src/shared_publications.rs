@@ -31,7 +31,7 @@ pub const APPROVALS_DIRECTORY: &str = ".openblog/private/collaboration/approvals
 /// What happened to each publication after approval (scheduled, or published), one small file
 /// per publication. Private like the rest, and written only by the publish gate (ADR 0022).
 pub const OUTCOMES_DIRECTORY: &str = ".openblog/private/collaboration/outcomes";
-/// Private shared synthesis sets (ADR 0037), one file per publication, beside the drafts. Prose
+/// Private shared synthesis sets (ADR 0025), one file per publication, beside the drafts. Prose
 /// lives here, so the directory stays out of Git, generated output, feeds and exports.
 pub const SYNTHESIS_DIRECTORY: &str = ".openblog/private/collaboration/synthesis";
 const MAX_ID_ATTEMPTS: usize = 8;

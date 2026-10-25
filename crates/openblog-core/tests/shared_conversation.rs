@@ -1,4 +1,4 @@
-//! Approved shared synthesis publishes through the ordinary Post pipeline (ADR 0038): grouped,
+//! Approved shared synthesis publishes through the ordinary Post pipeline (ADR 0026): grouped,
 //! attributed, anchored, rendered by the one production renderer the preview also uses, and
 //! nothing unapproved, stale or internal reaches any public output.
 

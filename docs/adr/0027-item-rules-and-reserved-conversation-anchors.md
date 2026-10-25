@@ -1,4 +1,4 @@
-# ADR 0039: Item rules and reserved conversation anchors
+# ADR 0027: Item rules and reserved conversation anchors
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -8,7 +8,7 @@
 
 ## Context
 
-ADR 0038 appends generated headings with fixed anchors to the Post body and holds item prose to
+ADR 0026 appends generated headings with fixed anchors to the Post body and holds item prose to
 the section safety rules. Review found three gaps: an author's own heading (by text or explicit
 `{#id}`) could duplicate or take over a generated anchor, an item's `######` directly under the
 generated `####` skipped a level, and item save accepted Markdown that publishing then refused,

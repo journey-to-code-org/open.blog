@@ -1,4 +1,4 @@
-# ADR 0037: Storing, authorizing and approving shared synthesis
+# ADR 0025: Storing, authorizing and approving shared synthesis
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -8,7 +8,7 @@
 
 ## Context
 
-ADR 0036 modelled synthesis items in core only. Authors now need to write, attribute, approve,
+ADR 0024 modelled synthesis items in core only. Authors now need to write, attribute, approve,
 reorder and withdraw from them in Admin, and the approval and publish gates must account for them.
 Three places built the approval subject separately (the publish gate, the combined preview and the
 approval routes), and all passed no attributed authors and no synthesis frame, so a synthesis edit
@@ -68,4 +68,4 @@ could not stale a standing approval and a named author could be left out.
 - The combined preview is authorized as a draft author (EditDraft, which editors hold), so it receives
   the synthesis only when the requester also holds EditSynthesis; for anyone else the items, their
   names and the conversation section are left out, while readiness still counts every item.
-- This amends ADR 0036: synthesis authors are Contributors only.
+- This amends ADR 0024: synthesis authors are Contributors only.

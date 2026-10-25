@@ -1,4 +1,4 @@
-# ADR 0040: The conversation in portable output
+# ADR 0028: The conversation in portable output
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -8,7 +8,7 @@
 
 ## Context
 
-ADR 0038 makes the conversation ordinary Post body Markdown, so the portable projection (ADR
+ADR 0026 makes the conversation ordinary Post body Markdown, so the portable projection (ADR
 0004) already carries it. #181 asks that categories, attribution, order and open questions
 survive in every format, that no drafting or approval state exports, and that losses are reported
 only for unsupported presentation.
@@ -16,7 +16,7 @@ only for unsupported presentation.
 ## Decision
 
 - No separate export path. The conversation is exported only because it is body Markdown, and
-  only approved items are ever in that Markdown (ADR 0038), so there is no second place where
+  only approved items are ever in that Markdown (ADR 0026), so there is no second place where
   private state could be added. Withdrawn, unapproved and edited-away text, item ids, approver
   lists, revisions, digests and tokens have no path to any output.
 - Per format: portable HTML keeps the semantic headings, the stable ids and a canonical-page
@@ -35,7 +35,7 @@ only for unsupported presentation.
   Ghost, WordPress, Medium) are computed from the same output, so they carry the conversation
   and never echo its text; Hashnode's payload limit reports an error rather than truncating.
 - Failure leaves canonical content and public output unchanged: assembly refuses before anything
-  is written (ADR 0022, 0039).
+  is written (ADR 0022, 0027).
 
 ## Consequences
 

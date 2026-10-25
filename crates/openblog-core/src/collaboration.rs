@@ -143,7 +143,7 @@ pub enum AuthorizationAction {
     /// Contributors and Editors hold it, and only for themselves: revealed drafts are read
     /// through `DraftSet::view`, never through this grant.
     EditDraft,
-    /// Read and change the shared synthesis items (ADR 0037) as the requester's own participant:
+    /// Read and change the shared synthesis items (ADR 0025) as the requester's own participant:
     /// add, edit, withdraw from, reorder and approve items. Targets the requester's own
     /// participant. Only Contributors hold it, and only for themselves, because a named author
     /// must be able to approve the piece, which Editors cannot.

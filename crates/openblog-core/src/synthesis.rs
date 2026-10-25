@@ -5,7 +5,7 @@
 //! Markdown, and an ordered list of the authors it speaks for: one, some or all of them. Nothing
 //! is required: an empty synthesis is valid, no kind has to appear, and the model never compares
 //! items, so authors who disagree simply write a difference (or two overlapping ones) and
-//! nothing is ever rejected for it (ADR 0036).
+//! nothing is ever rejected for it (ADR 0024).
 //!
 //! The set is private collaboration state. It stores prose, so it never reaches a Post, page,
 //! feed or export until a later assembly step publishes it, and [`SynthesisSet::binding_frame`]

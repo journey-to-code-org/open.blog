@@ -158,10 +158,10 @@ an error. An author can add attributions but removes only their own name (withdr
 records which attributed authors approved it, bound to its revision (any change clears them), and
 everyone named on an item must approve the piece. Approval binds
 to the exact items, order and attribution, and the set stays private until a later step publishes it
-(ADR 0036). Contributors write and approve them in Admin through one `EditSynthesis` grant, and
-the publish gate waits for every item to be approved by every author it names (ADR 0037).
+(ADR 0024). Contributors write and approve them in Admin through one `EditSynthesis` grant, and
+the publish gate waits for every item to be approved by every author it names (ADR 0025).
 When the piece publishes, only fully approved items appear, after the authors' sections under
-"Continuing the conversation" (ADR 0038).
+"Continuing the conversation" (ADR 0026).
 _Avoid_: Consensus, summary, comment
 
 **Continuing the conversation**:
@@ -169,9 +169,9 @@ The published section of a shared reflection holding its approved synthesis item
 (shared takeaways, where we differ, questions, ways to apply, what we are unsure about), each item
 headed "Speaking for" the authors it names and anchored by kind and ordinal. It is ordinary Post
 Markdown, so it reaches the page, feeds and exports with the rest; it has no heading when nothing
-is approved, and it never signals consensus or lists approvers (ADR 0038). Its anchors are
-reserved and item headings start at level five (ADR 0039). Portable output carries it with
-attribution and stable anchors; summaries stop before it and summary-only feeds omit it (ADR 0040).
+is approved, and it never signals consensus or lists approvers (ADR 0026). Its anchors are
+reserved and item headings start at level five (ADR 0027). Portable output carries it with
+attribution and stable anchors; summaries stop before it and summary-only feeds omit it (ADR 0028).
 _Avoid_: Summary, consensus, comments
 
 **Combined preview**:

@@ -395,7 +395,7 @@ fn markup_that_only_the_joined_page_would_make_active_or_different_is_refused() 
     assert!(assemble(&record, &set, &SynthesisSet::new(), &approvals, &ALL, DATE).is_ok());
 }
 
-// ---- Shared synthesis through the real gate (ADR 0037) ----
+// ---- Shared synthesis through the real gate (ADR 0025) ----
 
 fn approve_with(
     record: &SharedPublication,
