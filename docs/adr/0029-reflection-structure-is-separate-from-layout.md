@@ -1,4 +1,4 @@
-# ADR 0030: A reflection's structure is separate from its layout and carries no identity
+# ADR 0029: A reflection's structure is separate from its layout and carries no identity
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -49,7 +49,7 @@ reads it from there.
   lane; point-counterpoint uses two lanes only when exactly two distinct participants are present
   (the first to appear, then the other) and one lane with three or more voices; alternating
   dialogue flips the lane only when the speaker changes; sequential has one lane. Any number of
-  participants works. ADR 0033 holds the exact rules, including how lanes degrade when turns are
+  participants works. ADR 0032 holds the exact rules, including how lanes degrade when turns are
   missing.
 - The structure is private collaboration state and is not wired to storage, routes, Admin or the
   publish gate here.
@@ -80,4 +80,4 @@ Round prompts and prose stay untrusted text for the renderer to escape.
   sequential equivalent from the same order.
 - Because a structure is not tied to a revision of prose, switching layouts never needs re-approval
   of prose. Whether the arrangement itself is approved is decided in
-  [ADR 0031](0031-one-deterministic-reading-order.md): it is.
+  [ADR 0030](0030-one-deterministic-reading-order.md): it is.

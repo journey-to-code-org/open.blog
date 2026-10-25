@@ -135,7 +135,7 @@ fn approval_label(state: ApprovalState) -> &'static str {
 ///
 /// `active` are the participants who currently hold the draft grant; the requester must be one.
 /// With a `structure` the piece is arranged in its reading order and layout, as the published Post
-/// is (ADR 0031, 0032); without one the sections follow participant order.
+/// is (ADR 0030, 0031); without one the sections follow participant order.
 /// `show_synthesis` is true only when the requester holds `EditSynthesis`; otherwise the items and
 /// the conversation section are left out (readiness still counts them).
 /// `options` are the site's production Markdown options. Pure: it never writes drafts or

@@ -405,7 +405,7 @@ pub fn replace_approvals(
     )
 }
 
-/// A shared reflection's private arrangement (ADR 0032), one small file per publication beside
+/// A shared reflection's private arrangement (ADR 0031), one small file per publication beside
 /// the drafts. Absent means nothing was arranged: the piece publishes in participant order.
 pub const STRUCTURES_DIRECTORY: &str = ".openblog/private/collaboration/structures";
 

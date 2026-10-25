@@ -1046,7 +1046,7 @@ export function previewStateText(preview) {
   return "Incomplete: some sections are not shared with you at their current revision.";
 }
 
-/** The line that starts a new part of a draft (ADR 0030). It is invisible in published output. */
+/** The line that starts a new part of a draft (ADR 0029). It is invisible in published output. */
 export const PART_MARKER_LINE = "<!-- openblog:part -->";
 
 /** What to insert at the caret to start a new part: the marker alone on its own line. */
@@ -1054,7 +1054,7 @@ export function partBreakInsertion() {
   return `\n${PART_MARKER_LINE}\n`;
 }
 
-/** The layouts a coordinator can choose (ADR 0032). The server decides which exist. */
+/** The layouts a coordinator can choose (ADR 0031). The server decides which exist. */
 export const ARRANGEMENT_LAYOUTS = Object.freeze([
   { value: "sequential", label: "Sequential", help: "One section after another, in reading order." },
   { value: "sideBySide", label: "Side by side", help: "Sections sit in columns on wide screens and read one after another on narrow ones." },
@@ -4576,7 +4576,7 @@ export class ObAdmin extends AdminElement {
       previewHolder,
     );
 
-    // ---- layout and arrangement (ADR 0032)
+    // ---- layout and arrangement (ADR 0031)
     const arrangementStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     const arrangementProblem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const arrangementBody = h("div", {});

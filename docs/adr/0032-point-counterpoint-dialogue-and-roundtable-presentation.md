@@ -1,4 +1,4 @@
-# ADR 0033: Point and counterpoint, alternating dialogue and roundtable place the same markup differently
+# ADR 0032: Point and counterpoint, alternating dialogue and roundtable place the same markup differently
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -8,7 +8,7 @@
 
 ## Context
 
-[ADR 0032](0032-sequential-and-side-by-side-presentation.md) published two layouts and refused the
+[ADR 0031](0031-sequential-and-side-by-side-presentation.md) published two layouts and refused the
 other three. This enables them without changing the structure, the reading order or the approval
 binding, and without letting a layout say anything about the people in it.
 
@@ -17,7 +17,7 @@ binding, and without letting a layout say anything about the people in it.
 - **All five layouts are presentable.** The 422 for the other three is gone. A layout the structure
   does not name is still refused as invalid, and nothing positional or gendered is a layout or a
   field.
-- **Same markup, same order.** `compose` writes what it wrote for ADR 0032 (one `section.ob-turn`
+- **Same markup, same order.** `compose` writes what it wrote for ADR 0031 (one `section.ob-turn`
   with an `h2.ob-turn-author` per turn, in reading order). A layout only changes classes and the
   stylesheet. Columns, stagger and grid apply under `@media screen and (min-width: 48em)` only, so
   narrow screens, 400% zoom, print and a reader without CSS or JavaScript read the same sequence.

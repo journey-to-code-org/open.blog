@@ -6908,7 +6908,7 @@ fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -
 }
 
 // ---------------------------------------------------------------------------
-// Layout and arrangement of a shared reflection (ADR 0032)
+// Layout and arrangement of a shared reflection (ADR 0031)
 // ---------------------------------------------------------------------------
 
 #[derive(serde::Deserialize)]
@@ -17125,7 +17125,7 @@ mod tests {
         assert!(!post.contains("MIKEY-SECRET"));
     }
 
-    // ---- Layout and arrangement (ADR 0032) ----
+    // ---- Layout and arrangement (ADR 0031) ----
 
     fn arrangement_read(f: &Fixture, who: &(String, String), id: &str) -> Response {
         handle(

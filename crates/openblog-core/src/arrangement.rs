@@ -1,5 +1,5 @@
 //! The arrangement of a published reflection, read back from the Post's authored Markdown so the
-//! portable projections can state it without a layout, a class or a stylesheet (ADR 0034).
+//! portable projections can state it without a layout, a class or a stylesheet (ADR 0033).
 //!
 //! [`Arrangement::parse`] is the exact inverse of [`crate::reflection::compose`] for a Markdown
 //! body and nothing more: a closed grammar over the lines `compose` writes. Anything else (a

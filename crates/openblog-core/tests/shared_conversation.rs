@@ -1234,7 +1234,7 @@ fn an_ordinary_post_with_a_conversation_heading_keeps_its_description() {
 
 /// A reflection with both an arrangement and approved synthesis goes through the one gate, ends
 /// up as the arranged sections in reading order followed by the conversation, and every portable
-/// form says the same (ADR 0026, 0031, 0032, 0034).
+/// form says the same (ADR 0026, 0030, 0031, 0033).
 #[test]
 fn a_reflection_with_a_structure_and_approved_synthesis_publishes_and_exports_in_order() {
     use openblog_core::reflection::ReflectionStructure;

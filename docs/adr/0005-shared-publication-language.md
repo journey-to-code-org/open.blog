@@ -38,7 +38,7 @@ never creates pair-specific persisted or API state. The version 1 `participants`
 corresponding workflow vocabulary and retain their existing validation and ordering rules, and the
 version 1 authorization policy's `publicationId` names the Shared publication. The `layout` collection
 is the exception: it is a reserved v1 field that no assembly, preview or renderer reads, and
-[ADR 0030](0030-reflection-structure-is-separate-from-layout.md) makes the reflection structure the
+[ADR 0029](0029-reflection-structure-is-separate-from-layout.md) makes the reflection structure the
 only authority for arrangement. It is dropped at the next contract version.
 
 Participant and Collaboration role describe private workflow involvement. A Participant reaches an

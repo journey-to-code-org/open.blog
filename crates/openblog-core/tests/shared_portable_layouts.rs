@@ -1,5 +1,5 @@
 //! Every layout of a published reflection has a faithful static equivalent in portable HTML,
-//! Markdown, text, RSS, JSON Feed and llms-full.txt (ADR 0034): the same prompts, authors,
+//! Markdown, text, RSS, JSON Feed and llms-full.txt (ADR 0033): the same prompts, authors,
 //! labels and words in the same reading order, with no CSS, placeholder, part marker, layout
 //! class in the plain forms, or private value, and hostile labels, prompts and names stay inert.
 

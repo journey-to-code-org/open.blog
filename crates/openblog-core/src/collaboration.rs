@@ -151,7 +151,7 @@ pub enum AuthorizationAction {
     /// Choose how contribution drafts may be revealed. Targets the publication. Coordinators and
     /// site owners hold it; it reveals nothing and reads no draft.
     SetRevealPolicy,
-    /// Choose a shared reflection's layout and arrangement (ADR 0032). Targets the publication.
+    /// Choose a shared reflection's layout and arrangement (ADR 0031). Targets the publication.
     /// Coordinators and site owners hold it; it reads no draft and changes no prose.
     ArrangeReflection,
     /// Start an invitation into the publication. Targets the publication.

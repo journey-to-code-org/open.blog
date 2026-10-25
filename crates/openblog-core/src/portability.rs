@@ -884,7 +884,7 @@ impl<'a> PortableProjection<'a> {
         let mut diagnostics =
             portability_diagnostics(self.source_path, self.markdown, &capabilities);
         // A layout places the same turns differently; no portable form can. Say so, once, rather
-        // than let the placement disappear silently (ADR 0034).
+        // than let the placement disappear silently (ADR 0033).
         if let Some(arrangement) = self.arrangement() {
             if arrangement.layout != crate::reflection::ReflectionLayout::Sequential {
                 diagnostics.push(PortabilityDiagnostic {
@@ -926,7 +926,7 @@ impl<'a> PortableProjection<'a> {
     /// public work metadata. No generated HTML is parsed to reconstruct content.
     pub fn portable_markdown(&self) -> Result<String, String> {
         let html = self.portable_html()?;
-        // A shared reflection's arrangement is stated as labeled sequential sections (ADR 0034);
+        // A shared reflection's arrangement is stated as labeled sequential sections (ADR 0033);
         // any other body is the authored Markdown itself.
         let source = self.arrangement().map_or_else(
             || self.markdown.to_string(),
@@ -1476,7 +1476,7 @@ impl<'a> PortableProjection<'a> {
             }
         }
         // The same prompts, names and labels must also come in the arrangement's reading order:
-        // an equivalent that reorders turns says something else (ADR 0034). Only the reflection's
+        // an equivalent that reorders turns says something else (ADR 0033). Only the reflection's
         // own headings, labels and prompts are compared, never the credits or metadata, which
         // repeat the same names.
         if let Some(arrangement) = &arrangement {

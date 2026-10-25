@@ -1,4 +1,4 @@
-//! Sequential and side-by-side presentation of one approved reflection (ADR 0032): the arranged
+//! Sequential and side-by-side presentation of one approved reflection (ADR 0031): the arranged
 //! Post, the arranged preview, the approval binding of the arrangement, and the part marker.
 
 use openblog_core::approval::ApprovalSet;

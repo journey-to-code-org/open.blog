@@ -1,4 +1,4 @@
-# ADR 0032: Sequential and side-by-side presentation is markup in reading order, placed by CSS
+# ADR 0031: Sequential and side-by-side presentation is markup in reading order, placed by CSS
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -8,8 +8,8 @@
 
 ## Context
 
-[ADR 0030](0030-reflection-structure-is-separate-from-layout.md) and
-[ADR 0031](0031-one-deterministic-reading-order.md) defined the structure, the reading order and the
+[ADR 0029](0029-reflection-structure-is-separate-from-layout.md) and
+[ADR 0030](0030-one-deterministic-reading-order.md) defined the structure, the reading order and the
 digest that binds the arrangement to approval, and wired none of it. This is the first task that
 stores a structure, lets someone choose it, publishes it and shows it.
 
@@ -29,7 +29,7 @@ stores a structure, lets someone choose it, publishes it and shows it.
   draft whether a part exists. It checks shape, participants and that the layout is presentable. A
   turn naming a part that is not there is caught by the combined preview and the publish gate, which
   read as the requester or as the gate.
-- **Presentable layouts.** (Superseded by [ADR 0033](0033-point-counterpoint-dialogue-and-roundtable-presentation.md): all five layouts are now presentable.) Only sequential and side-by-side are chosen or rendered
+- **Presentable layouts.** (Superseded by [ADR 0032](0032-point-counterpoint-dialogue-and-roundtable-presentation.md): all five layouts are now presentable.) Only sequential and side-by-side are chosen or rendered
   (`ReflectionLayout::is_presentable`). The other three are valid structure values that are refused
   rather than silently shown as sequential; point-counterpoint and dialogue turns are out of scope.
 - **Approval.** One subject builder, `assembly::with_subject`, binds the public metadata, then the

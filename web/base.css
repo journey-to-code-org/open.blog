@@ -1850,7 +1850,7 @@ ob-back-to-top button:hover {
     text-decoration: none;
   }
 }
-/* Shared reflections: every layout (ADR 0032, ADR 0033). The markup is already in reading
+/* Shared reflections: every layout (ADR 0031, ADR 0032). The markup is already in reading
    order; this only places it, and only on wide screens. Below 48em, in print and without CSS it
    reads top to bottom in that same order. */
 .ob-reflection .ob-round { margin: 1.5rem 0; }

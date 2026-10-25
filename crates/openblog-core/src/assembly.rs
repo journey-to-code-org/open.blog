@@ -101,7 +101,7 @@ pub fn post_path(record: &SharedPublication) -> String {
 /// approval binding a preview hands out, the one the gate checks and the one a route stores cannot
 /// drift apart. The metadata it binds is the public record fields, then the reflection
 /// `structure`'s prose-free binding frame when there is one (layout, turn order, round prompts and
-/// labels; ADR 0031), then the synthesis's prose-free binding frame (items, order, attribution).
+/// labels; ADR 0030), then the synthesis's prose-free binding frame (items, order, attribution).
 /// A change to any of them makes standing approvals stale exactly as a change of prose does; with
 /// no structure nothing is appended for it, so approvals given before one existed stay valid. The
 /// synthesis's attributed authors must each approve the piece (ADR 0024, 0025).
@@ -285,7 +285,7 @@ pub fn conversation_markdown(record: &SharedPublication, synthesis: &SynthesisSe
 
 /// Build the Post for `record` dated `date` (RFC 3339), or say why not. Pure. With a `structure`
 /// the sections follow its reading order and are wrapped in the arranged markup of [`compose`]
-/// (ADR 0032), and credits are one per participant at their first appearance (ADR 0031); without
+/// (ADR 0031), and credits are one per participant at their first appearance (ADR 0030); without
 /// one the sections are the participants' drafts in participant order. Part marker lines never
 /// reach the Post either way. The approved conversation block follows the sections.
 pub fn assemble(

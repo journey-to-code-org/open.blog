@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Sequential and side-by-side presentation of one approved reflection (ADR 0032). The markup is
+// Sequential and side-by-side presentation of one approved reflection (ADR 0031). The markup is
 // what the publish gate writes (crates/openblog-core/src/reflection.rs, `compose`); the styles are
 // the real public stylesheet. The DOM order is the reading order and CSS only places it.
 
@@ -103,7 +103,7 @@ test("the sequential layout is one column at every width and keyboard focus foll
 });
 
 // ---------------------------------------------------------------- point-counterpoint, dialogue,
-// roundtable (ADR 0033). The same markup rules: the DOM order is the reading order, the h2 names
+// roundtable (ADR 0032). The same markup rules: the DOM order is the reading order, the h2 names
 // the author, and CSS only places it.
 
 function arrangedPage({ layout, turns, css = true, dir = "ltr" }) {

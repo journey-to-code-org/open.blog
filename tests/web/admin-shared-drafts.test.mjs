@@ -644,7 +644,7 @@ test("a failed preview shows a calm message, keeps nothing stale, and changes no
   assert.equal(api.state.calls.filter((call) => call.key.startsWith("PUT")).length, 0);
 }));
 
-// ---------------------------------------------------------------- layout and arrangement (ADR 0032)
+// ---------------------------------------------------------------- layout and arrangement (ADR 0031)
 
 test("the part break is the marker alone on its own line, and the starting arrangement reads no draft", () => {
   assert.equal(partBreakInsertion(), "\n<!-- openblog:part -->\n");

@@ -362,7 +362,7 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
             }
         }
         // A shared reflection keeps each round prompt and each author's name and label with the
-        // words they belong to; the page's search text is the words alone (ADR 0034).
+        // words they belong to; the page's search text is the words alone (ADR 0033).
         let body = match projection.reflection_text()? {
             Some(text) => text,
             None => projection

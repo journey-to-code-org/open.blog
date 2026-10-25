@@ -1,4 +1,4 @@
-# ADR 0031: One deterministic reading order serves every layout, and the arrangement is approved
+# ADR 0030: One deterministic reading order serves every layout, and the arrangement is approved
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -35,7 +35,7 @@
   prose or to the author set. This decision wires nothing; it fixes what the digest covers.
 - This amends the participant-order rule of
   [ADR 0023](0023-shared-reflections-publish-through-the-ordinary-post-pipeline.md) for structured
-  reflections (see the "Amended by 0031" note there): when a structure exists, section and credit
+  reflections (see the "Amended by 0030" note there): when a structure exists, section and credit
   order follow its reading order, and credits stay one entry per participant, at their first
   appearance. A publication without a structure keeps participant order.
 

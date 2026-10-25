@@ -1,4 +1,4 @@
-# ADR 0034: Every reflection layout has the same static portable equivalent
+# ADR 0033: Every reflection layout has the same static portable equivalent
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -10,7 +10,7 @@
 
 [ADR 0004](0004-portable-projections-from-canonical-work.md) derives portable HTML, Markdown, text
 and feed content from the canonical work. A published reflection's body is the arrangement markup
-[`compose`](0032-sequential-and-side-by-side-presentation.md) writes (a `div`, round `div`s,
+[`compose`](0031-sequential-and-side-by-side-presentation.md) writes (a `div`, round `div`s,
 `section.ob-turn` with an `h2` author, optional `p` label and prompt) around each author's own
 Markdown. Portable HTML kept that markup, which already reads in order without CSS. Portable
 Markdown, however, shows raw HTML as literal source, so Markdown, text, JSON Feed `content_text`

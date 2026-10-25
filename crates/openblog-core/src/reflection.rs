@@ -1,4 +1,4 @@
-//! Layout-independent structure of a shared reflection (ADR 0030, 0031).
+//! Layout-independent structure of a shared reflection (ADR 0029, 0030).
 //!
 //! A [`ReflectionStructure`] says which parts of which drafts appear, in which rounds and under
 //! which round prompts. A turn is `{ draft, part }`: the draft id is the participant id (ADR 0017),
@@ -123,7 +123,7 @@ pub struct Turn {
     pub part: usize,
     /// An optional, author-written label shown with the turn, such as "Point" or "Counterpoint".
     /// Nothing is assumed when it is absent: no layout invents a label, and a label is public
-    /// text the authors approve with the rest of the arrangement (ADR 0033).
+    /// text the authors approve with the rest of the arrangement (ADR 0032).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
@@ -354,7 +354,7 @@ impl ReflectionStructure {
     /// A prose-free digest of everything about the arrangement an author approves: the turn
     /// order, round ids, round prompts and layout. The revision counter is left out because
     /// saving an identical arrangement changes nothing a reader sees. Once the structure is wired
-    /// (ADR 0031), a later task appends this to the approval subject's metadata so any change
+    /// (ADR 0030), a later task appends this to the approval subject's metadata so any change
     /// invalidates approvals like a change to prose does (ADR 0020).
     pub fn binding_frame(&self) -> String {
         fn put(hasher: &mut Blake2s256, part: &[u8]) {
@@ -405,7 +405,7 @@ impl ReflectionStructure {
         }
         let people = seen.len().max(1);
         // A dialogue changes side when the speaker changes, never between one author's
-        // consecutive turns (ADR 0033).
+        // consecutive turns (ADR 0032).
         let mut dialogue_lane = 0;
         let mut previous: Option<&str> = None;
         order
@@ -447,7 +447,7 @@ impl ReflectionStructure {
 
 /// Join a draft's parts back into one text without its [`PART_MARKER`] lines, for a draft that is
 /// shown whole (no structure). A draft without the marker comes back unchanged. The marker never
-/// reaches rendered output (ADR 0032).
+/// reaches rendered output (ADR 0031).
 pub fn strip_part_markers(markdown: &str) -> String {
     split_parts(markdown).join("\n")
 }
@@ -465,7 +465,7 @@ pub struct ComposedTurn<'a> {
 
 /// The stylesheet for [`compose`] output, identical to the rules in `web/base.css` (a test keeps
 /// them equal). The preview carries it inline because it loads nothing else.
-pub const LAYOUT_CSS: &str = r#"/* Shared reflections: every layout (ADR 0032, ADR 0033). The markup is already in reading
+pub const LAYOUT_CSS: &str = r#"/* Shared reflections: every layout (ADR 0031, ADR 0032). The markup is already in reading
    order; this only places it, and only on wide screens. Below 48em, in print and without CSS it
    reads top to bottom in that same order. */
 .ob-reflection .ob-round { margin: 1.5rem 0; }
@@ -501,7 +501,7 @@ pub const MAX_LAID_OUT_LANES: usize = 3;
 /// Untrusted one-line text for the arrangement's own markup. Besides HTML escaping, every ASCII
 /// character Markdown can act on is a numeric character reference: the portable Markdown export
 /// shows this raw HTML block as literal Markdown (it escapes only `<` and `>`), so a label like
-/// `[x](javascript:alert(1))` would otherwise become a live link there (ADR 0034). An HTML parser
+/// `[x](javascript:alert(1))` would otherwise become a live link there (ADR 0033). An HTML parser
 /// and a Markdown parser both decode the references back to the same visible text.
 fn markup_text(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
@@ -521,7 +521,7 @@ fn markup_text(input: &str) -> String {
     out
 }
 
-/// The arranged markup shared by the published Post and the preview (ADR 0032). The DOM order is
+/// The arranged markup shared by the published Post and the preview (ADR 0031). The DOM order is
 /// exactly the order of `turns`, which is the reading order: a layout only adds classes, and
 /// the stylesheet places them, so a reader without CSS, a screen reader and the narrow-width
 /// layout all read the same sequence. Every turn has its own heading with the participant's name,
