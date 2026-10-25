@@ -731,6 +731,9 @@ pub struct SharedPublication {
     /// participant, the binding, and the invitation outcome in one atomic write.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invitations: Vec<crate::invitation::Invitation>,
+    /// Who changed membership and when (ADR 0042). Absent in records written before it existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audit: Vec<crate::members::AuditEntry>,
 }
 
 /// Author-entered attribution for material that prompted a shared publication. It is not a
@@ -985,6 +988,7 @@ impl SharedPublication {
                 }],
             },
             invitations: Vec::new(),
+            audit: Vec::new(),
         };
         record.validate()?;
         Ok(record)
@@ -1082,7 +1086,8 @@ impl SharedPublication {
         {
             return Err(SharedPublicationError::InvalidRecord);
         }
-        if !crate::invitation::valid_invitations(self) {
+        if !crate::invitation::valid_invitations(self) || !crate::members::valid_audit(&self.audit)
+        {
             return Err(SharedPublicationError::InvalidRecord);
         }
         if self.title.is_none() && self.guiding_question.is_none() {

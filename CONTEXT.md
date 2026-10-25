@@ -95,6 +95,17 @@ A person whose Admin account holds an explicit binding on one shared publication
 member's access removes only the binding; the participant and the credit for what they wrote stay.
 _Avoid_: User (account administration is separate), contributor (credit, not access)
 
+**Group**:
+The members of one shared publication, from one to the participant cap, all admitted through
+the same invitation seam with no pair-only path. Two is not a special case.
+_Avoid_: Team, organization (out of scope)
+
+**Membership audit**:
+A bounded, newest-first record on a shared publication of who invited, revoked, joined, changed
+roles, or removed whom and when. It names participants and invitation IDs only, never tokens,
+accounts, or prose, and only site owners and coordinators can read it.
+_Avoid_: Activity feed, access log
+
 **Publish gate**:
 The check that publishing a shared publication needs the publish grant and an approval of the
 current revision from every participant who owns a contribution. Site ownership alone never

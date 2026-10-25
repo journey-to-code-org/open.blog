@@ -5410,7 +5410,11 @@ fn list_members(state: &AppState, req: &Request, session: &auth::Session) -> Res
         |identities| match record.members_for(&session.user, identities) {
             Ok(members) => Response::json(
                 200,
-                &json!({ "revision": record.authorization.revision, "members": members }),
+                &json!({
+                    "revision": record.authorization.revision,
+                    "members": members,
+                    "audit": record.audit_for(&session.user, identities).unwrap_or_default(),
+                }),
             ),
             Err(error) => member_problem(error),
         },
@@ -5445,6 +5449,7 @@ fn change_member(
                 identities,
                 &body.participant_id,
                 body.expected_revision,
+                clock::now().unix(),
             )
         } else {
             record.change_member_roles(
@@ -5453,6 +5458,7 @@ fn change_member(
                 &body.participant_id,
                 &body.roles,
                 body.expected_revision,
+                clock::now().unix(),
             )
         }
     });
@@ -16264,6 +16270,15 @@ mod tests {
             .unwrap()
             .is_empty());
         assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+
+        // Both changes are in the audit trail the managers see, and no one else sees it.
+        let listed = body_json(&members_of(&f, &mikey, &id));
+        let audit = listed["audit"].as_array().unwrap();
+        assert_eq!(audit[0]["event"], "removed");
+        assert_eq!(audit[1]["event"], "rolesChanged");
+        assert_eq!(audit[1]["to"], json!(["reader"]));
+        assert!(!listed["audit"].to_string().contains("grace\""));
+        assert_eq!(members_of(&f, &grace, &id).status, 404);
     }
 
     fn reveal_call(f: &Fixture, session: &(String, String), path: &str, body: Json) -> Response {
