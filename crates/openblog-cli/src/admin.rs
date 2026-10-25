@@ -30,6 +30,7 @@ use openblog_core::invitation::{
     Identities, Invitation, InvitationError, InvitationField, NewInvitation,
 };
 use openblog_core::markdown::RenderOptions;
+use openblog_core::members::MemberError;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
 use openblog_core::slug::slugify;
 use openblog_core::source_interchange::{self, plan_csl_import};
@@ -622,6 +623,9 @@ fn authenticated_api(
         ("POST", "collaboration/invitations") => create_invitation(state, req, session),
         ("POST", "collaboration/invitations/revoke") => revoke_invitation(state, req, session),
         ("POST", "collaboration/invitations/reissue") => reissue_invitation(state, req, session),
+        ("GET", "collaboration/members") => list_members(state, req, session),
+        ("POST", "collaboration/members/roles") => change_member_roles(state, req, session),
+        ("POST", "collaboration/members/remove") => remove_member(state, req, session),
         ("POST", "collaboration/invitations/accept") => {
             answer_invitation(state, req, session, true)
         }
@@ -5336,6 +5340,124 @@ fn reissue_invitation(state: &AppState, req: &Request, session: &auth::Session) 
         )
     });
     finish_invitation(state, &transaction, result, &replacement.id, now)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct MemberRequest {
+    publication_id: String,
+    participant_id: String,
+    expected_revision: u64,
+    #[serde(default)]
+    roles: Vec<AuthorizationRole>,
+}
+
+fn member_problem(error: MemberError) -> Response {
+    match error {
+        MemberError::Denied => Response::error(
+            404,
+            "That shared reflection or member was not found, or you cannot manage it.",
+        ),
+        MemberError::Stale => Response::error(
+            409,
+            "The members changed while you were working. Reload to see the current list, then try again.",
+        ),
+        MemberError::Roles => {
+            shared_problem("roles", "Choose at least one role, without repeating any.")
+        }
+        MemberError::Invalid => Response::error(
+            400,
+            "That change would leave the shared reflection in an invalid state.",
+        ),
+    }
+}
+
+fn list_members(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return invitation_not_found();
+    };
+    let transaction = match invitation_transaction(state, publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = &transaction.record else {
+        return invitation_not_found();
+    };
+    transaction.with_identities(
+        |identities| match record.members_for(&session.user, identities) {
+            Ok(members) => Response::json(
+                200,
+                &json!({ "revision": record.authorization.revision, "members": members }),
+            ),
+            Err(error) => member_problem(error),
+        },
+    )
+}
+
+/// Changes who can sign in to one reflection. Only the policy changes; the participant, their
+/// drafts, approvals, and credit stay as they were.
+fn change_member(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+    remove: bool,
+) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<MemberRequest>(&req.body) else {
+        return bad_invitation_request();
+    };
+    let transaction = match invitation_transaction(state, &body.publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = &transaction.record else {
+        return invitation_not_found();
+    };
+    let result = transaction.with_identities(|identities| {
+        if remove {
+            record.remove_member(
+                &session.user,
+                identities,
+                &body.participant_id,
+                body.expected_revision,
+            )
+        } else {
+            record.change_member_roles(
+                &session.user,
+                identities,
+                &body.participant_id,
+                &body.roles,
+                body.expected_revision,
+            )
+        }
+    });
+    let next = match result {
+        Ok(next) => next,
+        Err(error) => return member_problem(error),
+    };
+    if let Err(response) = transaction.store(&state.root, &next) {
+        return response;
+    }
+    eprintln!(
+        "admin: {} a member of shared publication {}",
+        if remove {
+            "removed"
+        } else {
+            "changed roles of"
+        },
+        body.publication_id
+    );
+    Response::json(200, &json!({ "revision": next.authorization.revision }))
+}
+
+fn change_member_roles(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    change_member(state, req, session, false)
+}
+
+fn remove_member(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    change_member(state, req, session, true)
 }
 
 /// Accepting and declining only need the token. Every attempt counts against a per-account
@@ -13872,5 +13994,158 @@ mod tests {
             }
         }
         assert_eq!(tree_snapshot(&f.dir.join(".openblog/private")), before);
+    }
+
+    fn join_via_api(
+        f: &Fixture,
+        owner: &(String, String),
+        id: &str,
+        user: &str,
+        pass: &str,
+        roles: Json,
+    ) -> (String, String) {
+        let issued = post_api(f, owner, "invitations", invite_body(id, user, user, roles));
+        assert_eq!(issued.status, 201);
+        let token = body_json(&issued)["token"].as_str().unwrap().to_string();
+        let session = login_as(f, user, pass);
+        let accepted = post_api(
+            f,
+            &session,
+            "invitations/accept",
+            json!({ "token": token, "contributorId": user }),
+        );
+        assert_eq!(
+            accepted.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&accepted.body)
+        );
+        session
+    }
+
+    fn members_of(f: &Fixture, session: &(String, String), id: &str) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/members?publicationId={id}"),
+                ),
+                session,
+                false,
+            ),
+        )
+    }
+
+    #[test]
+    fn members_are_listed_changed_and_removed_safely() {
+        let (f, mikey, id) = invitation_fixture("member-management");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["coordinator"]),
+        );
+        let content_before = tree_snapshot(&f.dir.join("content"));
+
+        // Plain contributors cannot list or change anything, and learn nothing.
+        assert_eq!(members_of(&f, &grace, &id).status, 404);
+        let listed = body_json(&members_of(&f, &mikey, &id));
+        let revision = listed["revision"].as_u64().unwrap();
+        let members = listed["members"].as_array().unwrap();
+        assert_eq!(members.len(), 3);
+        let text = listed.to_string();
+        assert!(!text.contains("tokenHash") && !text.contains("token\""));
+        let participant = |user: &str| {
+            members.iter().find(|m| m["adminUser"] == user).unwrap()["participantId"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let (grace_id, mikey_id) = (participant("grace"), participant("mikey"));
+        let change = |session: &(String, String), who: &str, roles: Json, rev: u64| {
+            post_api(
+                &f,
+                session,
+                "members/roles",
+                json!({ "publicationId": id, "participantId": who, "roles": roles, "expectedRevision": rev }),
+            )
+        };
+        let remove = |session: &(String, String), who: &str, rev: u64| {
+            post_api(
+                &f,
+                session,
+                "members/remove",
+                json!({ "publicationId": id, "participantId": who, "expectedRevision": rev }),
+            )
+        };
+        let before = tree_snapshot(&f.dir.join(".openblog/private"));
+        // Unauthorized, last owner, unknown, empty roles, and unknown fields change nothing.
+        assert_eq!(
+            change(&grace, &grace_id, json!(["siteOwner"]), revision).status,
+            404
+        );
+        assert_eq!(remove(&grace, &grace_id, revision).status, 404);
+        assert_eq!(
+            change(&linus, &grace_id, json!(["siteOwner"]), revision).status,
+            404
+        );
+        assert_eq!(remove(&linus, &mikey_id, revision).status, 404);
+        assert_eq!(remove(&mikey, &mikey_id, revision).status, 404);
+        assert_eq!(
+            change(&mikey, &mikey_id, json!(["reader"]), revision).status,
+            404
+        );
+        assert_eq!(remove(&mikey, "participant-99", revision).status, 404);
+        assert_eq!(change(&mikey, &grace_id, json!([]), revision).status, 422);
+        assert_eq!(
+            post_api(&f, &mikey, "members/remove", json!({ "publicationId": id, "participantId": grace_id, "expectedRevision": revision, "adminUser": "x" })).status,
+            422
+        );
+        assert_eq!(tree_snapshot(&f.dir.join(".openblog/private")), before);
+
+        // A role change succeeds once; replaying the same revision is a conflict.
+        assert_eq!(
+            change(&mikey, &grace_id, json!(["reader"]), revision).status,
+            200
+        );
+        let stale = change(&mikey, &grace_id, json!(["editor"]), revision);
+        assert_eq!(stale.status, 409);
+        assert!(String::from_utf8_lossy(&stale.body).contains("changed while you were working"));
+        assert_eq!(remove(&mikey, &grace_id, revision).status, 409);
+        let revision = revision + 1;
+        assert_eq!(
+            body_json(&members_of(&f, &mikey, &id))["revision"],
+            revision
+        );
+
+        // Removal ends access, keeps the participant, and leaves content untouched.
+        assert_eq!(remove(&linus, &grace_id, revision).status, 200);
+        let stored = stored_record(&f, &id);
+        assert!(stored
+            .authorization
+            .bindings
+            .iter()
+            .all(|b| b.admin_user != "grace"));
+        assert!(stored
+            .collaboration
+            .participants
+            .iter()
+            .any(|p| p.id == grace_id));
+        assert!(list_shared(&f, &grace)["publications"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
     }
 }

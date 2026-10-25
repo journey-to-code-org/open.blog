@@ -90,6 +90,11 @@ participant and an explicit publication authorization binding in one write; it n
 an existing participant. An invitation grants nothing until accepted.
 _Avoid_: Binding (the result of accepting), account creation, email invite
 
+**Member**:
+A person whose Admin account holds an explicit binding on one shared publication. Ending a
+member's access removes only the binding; the participant and the credit for what they wrote stay.
+_Avoid_: User (account administration is separate), contributor (credit, not access)
+
 **Publish gate**:
 The check that publishing a shared publication needs the publish grant and an approval of the
 current revision from every participant who owns a contribution. Site ownership alone never
