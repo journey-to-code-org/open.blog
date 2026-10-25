@@ -1625,7 +1625,7 @@ fn resolve_link_in(
         ));
     }
 
-    let base = Url::parse(&canonical_url).map_err(|_| {
+    let base = Url::parse(canonical_url).map_err(|_| {
         format!(
             "{}: portable projection has an invalid URL base",
             source_path
