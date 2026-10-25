@@ -345,6 +345,14 @@ pub fn sidecar_path(post_path: &str) -> Option<String> {
     Some(format!("{stem}.credits.json"))
 }
 
+pub fn portability_sidecar_path(post_path: &str) -> Option<String> {
+    let normalized = post_path.replace('\\', "/");
+    let stem = normalized
+        .strip_suffix(".markdown")
+        .or_else(|| normalized.strip_suffix(".md"))?;
+    Some(format!("{stem}.portability.json"))
+}
+
 fn valid_registry_key(value: &str) -> bool {
     !value.is_empty()
         && !value.starts_with('-')
@@ -475,6 +483,15 @@ mod tests {
             sidecar_path("posts/a.markdown").as_deref(),
             Some("posts/a.credits.json")
         );
+        assert_eq!(
+            portability_sidecar_path("posts/a.md").as_deref(),
+            Some("posts/a.portability.json")
+        );
+        assert_eq!(
+            portability_sidecar_path("posts/a.markdown").as_deref(),
+            Some("posts/a.portability.json")
+        );
+        assert_eq!(portability_sidecar_path("posts/a.txt"), None);
         assert_eq!(sidecar_path("posts/a.txt"), None);
     }
 

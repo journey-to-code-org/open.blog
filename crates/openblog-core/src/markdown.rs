@@ -419,6 +419,25 @@ fn render_portable_quiz(source: &str) -> Result<String, String> {
     Ok(html)
 }
 
+pub(crate) fn portable_quiz_markdown(source: &str) -> Result<String, String> {
+    let quiz = parse_quiz(source)?;
+    let mut markdown = format!("**Question:** {}\n\n", quiz.prompt);
+    let mut answer = None;
+    for (index, choice) in quiz.choices.iter().enumerate() {
+        markdown.push_str(&format!("{}. {}\n", index + 1, choice.text));
+        if choice.correct {
+            answer = Some((index + 1, choice.text.as_str()));
+        }
+    }
+    if let Some((number, text)) = answer {
+        markdown.push_str(&format!("\n**Answer:** {number}. {text}\n"));
+    }
+    if let Some(explanation) = quiz.explanation {
+        markdown.push_str(&format!("\n> **Explanation:** {explanation}\n"));
+    }
+    Ok(markdown)
+}
+
 /// The fence's authored line options (`showLineNumbers`, the start line, and
 /// `{2,4-5}` highlights) as `data-line-*` attributes.
 fn line_attributes(fence: &FenceInfo) -> String {
