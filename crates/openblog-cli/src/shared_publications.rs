@@ -13,11 +13,15 @@ use std::path::{Path, PathBuf};
 use openblog_core::collaboration::{
     NewSharedPublication, SharedPublication, SharedPublicationError, MAX_SHARED_PUBLICATION_BYTES,
 };
+use openblog_core::draft::{DraftSet, MAX_DRAFT_SET_BYTES};
 use openblog_core::invitation::InvitationState;
 
 use crate::auth;
 
 pub const DIRECTORY: &str = ".openblog/private/collaboration/publications";
+/// Private contribution draft sets, one file per publication. Also under `.openblog/private/`,
+/// so they stay out of Git, generated output, feeds, and exports.
+pub const DRAFTS_DIRECTORY: &str = ".openblog/private/collaboration/drafts";
 const MAX_ID_ATTEMPTS: usize = 8;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -218,6 +222,77 @@ pub fn revoke_admin_user(root: &Path, admin_user: &str) -> Result<usize, String>
         changed += 1;
     }
     Ok(changed)
+}
+
+/// A draft set as read from disk, with the exact text it came from. Storing compares that text,
+/// so a save built on a stale read is refused instead of overwriting a newer file.
+pub struct StoredDrafts {
+    pub set: Option<DraftSet>,
+    text: Option<String>,
+}
+
+fn drafts_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(DRAFTS_DIRECTORY))
+        .map_err(|_| "draft storage resolves outside the project".to_string())
+}
+
+fn read_drafts_file(target: &Path) -> Result<Option<String>, String> {
+    let metadata = match fs::symlink_metadata(target) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("cannot read the draft file".into()),
+    };
+    // A symlink, directory, or oversized file is never followed or replaced: refusing keeps
+    // whatever drafts it holds intact for recovery.
+    if !metadata.is_file() || metadata.len() > MAX_DRAFT_SET_BYTES as u64 {
+        return Err("the draft file is not usable".into());
+    }
+    fs::read_to_string(target)
+        .map(Some)
+        .map_err(|_| "cannot read the draft file".to_string())
+}
+
+/// The draft set for a publication, or none when nobody has saved yet. A file that exists but
+/// is malformed is an error, never an empty set, so a bad file cannot silently lose drafts.
+pub fn load_drafts(root: &Path, publication_id: &str) -> Result<StoredDrafts, String> {
+    let target = drafts_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target)?;
+    let set = match &text {
+        Some(text) => Some(
+            DraftSet::from_json(text).map_err(|_| "the draft file is not usable".to_string())?,
+        ),
+        None => None,
+    };
+    Ok(StoredDrafts { set, text })
+}
+
+/// Atomically store `next` when the file still holds exactly what `previous` was read from. The
+/// caller holds the Admin content transaction lock; the comparison also catches outside changes.
+/// A crash leaves either the old complete file or the new one, never a partial draft.
+pub fn replace_drafts(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredDrafts,
+    next: &DraftSet,
+) -> Result<(), ReplaceError> {
+    let directory = drafts_directory(root).map_err(ReplaceError::Storage)?;
+    let target = directory.join(format!("{publication_id}.json"));
+    let current = read_drafts_file(&target).map_err(|_| ReplaceError::Conflict)?;
+    if current != previous.text {
+        return Err(ReplaceError::Conflict);
+    }
+    let text = format!(
+        "{}
+",
+        next.to_json()
+    );
+    create_private_directory(&directory).map_err(ReplaceError::Storage)?;
+    let temporary = temporary_path(&directory, publication_id).map_err(ReplaceError::Storage)?;
+    write_private_file(&temporary, text.as_bytes()).map_err(ReplaceError::Storage)?;
+    fs::rename(&temporary, &target).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        ReplaceError::Storage(format!("cannot update the draft file: {error}"))
+    })
 }
 
 fn record_text(record: &SharedPublication) -> Result<String, String> {

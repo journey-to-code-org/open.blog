@@ -123,6 +123,8 @@ collaboration state, never stored on a Post or Document, until an explicit assem
 publication path incorporates it, as it appears in an approved collaboration revision, into the
 author-owned Document. A draft changes only by appending numbered, immutable revisions, each
 identified by a prose-free stamp of contribution, number, author, timestamp, and content digest.
+Its owner reads and saves it through Admin; each participant has one, kept in private project storage
+(ADR 0017).
 _Avoid_: Post, canonical content, public contribution disclosure
 
 **Reveal**:

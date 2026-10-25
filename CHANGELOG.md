@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added private draft saving for shared reflections: a Contributor or Editor can save and read only
+  their own section through Admin. Each save appends a revision; a save made on an out-of-date
+  copy is refused with the newer copy and overwrites nothing. Drafts stay under the project's
+  private folder and never reach content, generated output, feeds, exports or Git.
 - Defined private contribution drafts for shared reflections: append-only revisions with a
   prose-free identity, conflict checks on save, and a mutual reveal that shows nothing until every
   member has committed. Revealing is never approval, and no storage or route is added yet. Draft ids are compared ignoring case so a stored set always
