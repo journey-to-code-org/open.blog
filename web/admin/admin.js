@@ -524,6 +524,40 @@ export function destinationTagsForDisplay(plans, mode) {
   ];
 }
 
+export function portabilityGroups(preview, mode) {
+  const portable = preview?.portablePreview;
+  const scope = portabilityAcknowledgementScope(portable?.destinations, mode)
+    || (mode === "site" ? { representation: "portable-html", destination: "portable-export" } : null);
+  if (!scope) return [];
+  const representation = scope.representation === "manual-markdown" ? "portable-markdown" : scope.representation;
+  const diagnostics = portable?.diagnosticsByRepresentation?.[representation] || portable?.diagnostics || [];
+  const groups = new Map();
+  for (const diagnostic of diagnostics) {
+    const key = diagnostic.capabilityId || "document";
+    if (!groups.has(key)) groups.set(key, {
+      capabilityId: key, representation: scope.representation, destination: scope.destination,
+      level: diagnostic.portabilityLevel || "unclassified", diagnostics: [],
+    });
+    groups.get(key).diagnostics.push(diagnostic);
+  }
+  return [...groups.values()];
+}
+
+export function portabilitySourceSelection(body, range) {
+  if (!range) return null;
+  const lines = body.split("\n");
+  const offset = (line, column) => {
+    if (!Number.isInteger(line) || !Number.isInteger(column) || line < 1 || column < 1 || line > lines.length) return null;
+    const characters = Array.from(lines[line - 1]);
+    if (column > characters.length + 1) return null;
+    return lines.slice(0, line - 1).reduce((length, text) => length + text.length + 1, 0)
+      + characters.slice(0, column - 1).join("").length;
+  };
+  const start = offset(range.startLine, range.startColumn);
+  const end = offset(range.endLine, range.endColumn);
+  return start !== null && end !== null && end >= start ? { start, end } : null;
+}
+
 export function portabilityAcknowledgementScope(policies, mode) {
   if (mode === "portable-html" || mode === "portable-markdown" || mode === "portable-text") {
     return { destination: "portable-export", representation: mode };
@@ -5088,7 +5122,7 @@ export class Editor {
       this.ui.preview.srcdoc = "<!doctype html><html><body><p>Preview unavailable. Check the editor for validation problems.</p></body></html>";
       this.ui.preview.hidden = false;
       this.ui.previewMarkdown.hidden = true;
-      this.ui.previewTheme.textContent = "Preview unavailable";
+      this.ui.previewTheme.textContent = `Preview unavailable: ${error.message}`;
       this.ui.previewWarnings.replaceChildren();
       this.ui.previewWarnings.hidden = true;
       this.updateSocialPreview({ siteName: this.meta.siteTitle, title: "Preview unavailable", description: "Fix the document validation problems, then try again.", url: "", image: null, imageAlt: "", type: "—", card: "—" });
@@ -5190,45 +5224,57 @@ export class Editor {
       ...(staleCount
         ? [h("li", {}, `${staleCount} previous portability acknowledgement${staleCount === 1 ? " is" : "s are"} stale after source changes. Review the current warnings; stale records never suppress them.`)]
         : []),
-      ...(Array.isArray(portable?.diagnostics) ? portable.diagnostics : []).map((diagnostic) => {
-        const children = [portableDiagnosticsForDisplay([diagnostic])[0] || diagnostic.message];
-        if (!scope || diagnostic.severity !== "warning" || !diagnostic.capabilityId || !portable?.sourceRevision) {
+      ...portabilityGroups(preview, mode).map((group) => {
+        const labels = {
+          "fully-portable": "Fully portable",
+          "gracefully-transformed": "Gracefully transformed",
+          "canonical-only-interaction": "Canonical-only interaction",
+        };
+        const findings = group.diagnostics.map((diagnostic) => {
+          const children = [portableDiagnosticsForDisplay([diagnostic])[0] || diagnostic.message];
+          if (diagnostic.affectedSemantics) children.push(h("p", {}, diagnostic.affectedSemantics));
+          if (diagnostic.sourceRange) {
+            children.push(h("button", { type: "button", class: "oba-btn", onClick: () => this.navigatePortabilitySource(diagnostic.sourceRange, preview) }, `Edit source at line ${diagnostic.sourceRange.startLine}`));
+          }
+          if (!scope || diagnostic.severity !== "warning" || !diagnostic.capabilityId || !portable?.sourceRevision) {
+            return h("li", {}, ...children);
+          }
+          const sameScope = acknowledgements.filter((acknowledgement) =>
+            acknowledgement.capabilityId === diagnostic.capabilityId
+            && acknowledgement.representation === scope.representation
+            && acknowledgement.destination === scope.destination);
+          const acknowledged = sameScope.some((acknowledgement) =>
+            acknowledgement.sourceRevision === portable.sourceRevision);
+          if (acknowledged) {
+            children.push(h("span", { class: "oba-small" }, " Acknowledged for this revision."));
+          } else {
+            const button = h("button", { type: "button", class: "oba-btn" }, "Acknowledge this warning");
+            button.addEventListener("click", async () => {
+              button.disabled = true;
+              try {
+                const result = await this.app.api.call("POST", "portability/acknowledge", {
+                  json: {
+                    path: this.doc.path,
+                    sourceRevision: portable.sourceRevision,
+                    capabilityId: diagnostic.capabilityId,
+                    representation: scope.representation,
+                    destination: scope.destination,
+                    expectedEtag: portable.acknowledgementEtag,
+                  },
+                });
+                portable.acknowledgements = result.acknowledgements;
+                portable.acknowledgementEtag = result.etag;
+                this.updatePreviewWarnings(preview);
+              } catch (error) {
+                button.disabled = false;
+                this.ui.previewTheme.textContent = `Acknowledgement failed: ${error.message}`;
+              }
+            });
+            children.push(button);
+          }
           return h("li", {}, ...children);
-        }
-        const sameScope = acknowledgements.filter((acknowledgement) =>
-          acknowledgement.capabilityId === diagnostic.capabilityId
-          && acknowledgement.representation === scope.representation
-          && acknowledgement.destination === scope.destination);
-        const acknowledged = sameScope.some((acknowledgement) =>
-          acknowledgement.sourceRevision === portable.sourceRevision);
-        if (acknowledged) {
-          children.push(h("span", { class: "oba-small" }, " Acknowledged for this revision."));
-        } else {
-          const button = h("button", { type: "button", class: "oba-btn" }, "Acknowledge this warning");
-          button.addEventListener("click", async () => {
-            button.disabled = true;
-            try {
-              const result = await this.app.api.call("POST", "portability/acknowledge", {
-                json: {
-                  path: this.doc.path,
-                  sourceRevision: portable.sourceRevision,
-                  capabilityId: diagnostic.capabilityId,
-                  representation: scope.representation,
-                  destination: scope.destination,
-                  expectedEtag: portable.acknowledgementEtag,
-                },
-              });
-              portable.acknowledgements = result.acknowledgements;
-              portable.acknowledgementEtag = result.etag;
-              this.updatePreviewWarnings(preview);
-            } catch (error) {
-              button.disabled = false;
-              this.ui.previewTheme.textContent = `Acknowledgement failed: ${error.message}`;
-            }
-          });
-          children.push(button);
-        }
-        return h("li", {}, ...children);
+        });
+        return h("li", {}, h("strong", {}, `${group.capabilityId} · ${labels[group.level] || "Review required"} · ${group.representation} · ${group.destination}`), h("ul", {}, ...findings));
       }),
       ...destinationPolicyForDisplay(portable?.destinations, mode).map((warning) => h("li", {}, warning)),
       ...destinationTagsForDisplay(portable?.destinationTagPlans, mode).map((warning) => h("li", {}, warning)),
@@ -5237,6 +5283,24 @@ export class Editor {
       ...(items.length ? [h("strong", {}, "Publishing warnings"), h("ul", {}, ...items)] : []),
     );
     this.ui.previewWarnings.hidden = items.length === 0;
+  }
+
+  navigatePortabilitySource(range, preview) {
+    if (preview !== this.previewResult) {
+      this.ui.previewTheme.textContent = "Source changed; render a current preview before navigating.";
+      return;
+    }
+    this.syncRichToMarkdown();
+    const selection = portabilitySourceSelection(this.ui.body.value, range);
+    if (!selection) {
+      this.ui.previewTheme.textContent = "Source location is unavailable; render a current preview.";
+      return;
+    }
+    this.setEditorMode("markdown");
+    this.activatePane("write");
+    this.ui.body.setSelectionRange(selection.start, selection.end);
+    this.ui.body.focus();
+    this.ui.live.textContent = `Editing portability source at line ${range.startLine}. Unsaved content is unchanged.`;
   }
 
   updateAccessibility(findings) {

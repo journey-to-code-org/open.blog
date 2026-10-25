@@ -80,6 +80,15 @@ Inside the editor, Social, Release kit, Field Review, Optimize, Accessibility, E
 Assistant are separate full-width views, so writing is not squeezed beside a permanent preview.
 Switching views never loses edits, and opening Site preview refreshes it from the current draft.
 
+Portable preview findings are grouped by capability, representation, and destination, with
+**Fully portable**, **Gracefully transformed**, or **Canonical-only interaction** labels
+rather than a score. Findings explain what the copy preserves and which interactions stay
+on the canonical article. **Edit source at line …** opens Markdown, focuses and selects the
+relevant source, and announces the navigation without saving or changing unsaved content.
+Findings without an exact source location remain visible without a navigation button.
+Warning acknowledgements remain revision- and destination-scoped. A failed preview shows
+the validation error and disables copy/download until a current preview succeeds.
+
 Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace
 commands. The palette opens content lists, creates documents, switches editor panes,
 saves the current document, changes the color scheme, and reaches account actions. Use

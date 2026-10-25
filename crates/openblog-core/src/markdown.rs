@@ -176,6 +176,51 @@ fn parse_fence_info(info: &str) -> FenceInfo {
     out
 }
 
+pub(crate) fn capability_source_ranges(
+    markdown: &str,
+) -> Vec<(String, crate::portability::SourceRange)> {
+    let mut starts = vec![0];
+    starts.extend(markdown.match_indices('\n').map(|(offset, _)| offset + 1));
+    let position = |offset: usize| {
+        let line = starts.partition_point(|start| *start <= offset);
+        let column = markdown[starts[line - 1]..offset]
+            .trim_end_matches('\r')
+            .chars()
+            .count()
+            + 1;
+        (line, column)
+    };
+    Parser::new_ext(markdown, parser_options(false))
+        .into_offset_iter()
+        .filter_map(|(event, range)| {
+            let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = event else {
+                return None;
+            };
+            let fence = parse_fence_info(&info);
+            let id = if info.trim() == "quiz" {
+                "knowledge-check"
+            } else if fence.runnable && fence.lang.eq_ignore_ascii_case("web") {
+                "web-sandbox"
+            } else if fence.runnable {
+                "runnable-code"
+            } else {
+                return None;
+            };
+            let (start_line, start_column) = position(range.start);
+            let (end_line, end_column) = position(range.end);
+            Some((
+                id.into(),
+                crate::portability::SourceRange {
+                    start_line,
+                    start_column,
+                    end_line,
+                    end_column,
+                },
+            ))
+        })
+        .collect()
+}
+
 fn valid_web_sandbox_source(source: &str) -> bool {
     source.len() <= 100_000
         && source

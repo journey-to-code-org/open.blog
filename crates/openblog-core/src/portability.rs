@@ -190,6 +190,37 @@ pub struct PortabilityDiagnostic {
     pub capability_id: Option<String>,
     pub message: String,
     pub recommended_action: String,
+    #[serde(flatten)]
+    pub context: DiagnosticContext,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticContext {
+    pub representation: Option<String>,
+    pub destination: Option<String>,
+    pub portability_level: Option<PortabilityLevel>,
+    pub affected_semantics: Option<String>,
+    pub source_range: Option<SourceRange>,
+}
+
+/// One-based Unicode-character positions in the authored Markdown body, not front matter.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceRange {
+    pub start_line: usize,
+    pub start_column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+}
+
+impl PortabilityDiagnostic {
+    pub fn scoped(&self, representation: &str, destination: &str) -> Self {
+        let mut diagnostic = self.clone();
+        diagnostic.context.representation = Some(representation.into());
+        diagnostic.context.destination = Some(destination.into());
+        diagnostic
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
@@ -260,6 +291,12 @@ pub fn destination_payload_plan(
             capability_id: None,
             message: format!("{} request body is {body_bytes} UTF-8 bytes, exceeding the {limit}-byte adapter limit.", policy.label),
             recommended_action: "Reduce the portable content or metadata and review a fresh dry run; content is never truncated to fit.".into(),
+            context: DiagnosticContext {
+                destination: Some(policy.label.to_lowercase()),
+                representation: Some("provider-request".into()),
+                affected_semantics: Some("The complete provider request cannot be sent without exceeding its limit; no content is truncated.".into()),
+                ..Default::default()
+            },
         });
     }
     DestinationPayloadPlan {
@@ -291,6 +328,12 @@ pub fn destination_tag_plan(
             capability_id: None,
             message,
             recommended_action: action.into(),
+            context: DiagnosticContext {
+                destination: Some(policy.label.to_lowercase()),
+                representation: Some("provider-tags".into()),
+                affected_semantics: Some("Destination discovery metadata; the canonical source tags and body remain unchanged.".into()),
+                ..Default::default()
+            },
         });
     };
     if !plan.omitted_tags.is_empty() {
@@ -624,7 +667,7 @@ impl<'a> PortableProjection<'a> {
                 html.len()
             ));
         }
-        let diagnostics = portability_diagnostics(self.source_path, &capabilities);
+        let diagnostics = portability_diagnostics(self.source_path, self.markdown, &capabilities);
         Ok(PortableHtmlOutput {
             html,
             capabilities,
@@ -927,10 +970,31 @@ impl<'a> PortableProjection<'a> {
 
 fn portability_diagnostics(
     source_path: &str,
+    markdown: &str,
     capabilities: &[CapabilityDescriptor],
 ) -> Vec<PortabilityDiagnostic> {
     let mut diagnostics = Vec::new();
+    let mut ranges =
+        std::collections::HashMap::<String, std::collections::VecDeque<SourceRange>>::new();
+    for (id, range) in crate::markdown::capability_source_ranges(markdown) {
+        ranges.entry(id).or_default().push_back(range);
+    }
     for capability in capabilities {
+        let source_range = ranges
+            .get_mut(&capability.id)
+            .and_then(|ranges| ranges.pop_front());
+        let context = DiagnosticContext {
+            representation: Some("portable-html".into()),
+            destination: Some("portable-export".into()),
+            portability_level: Some(capability.portability),
+            affected_semantics: Some(match capability.id.as_str() {
+                "knowledge-check" => "Question, choices, answer and explanation remain readable. Scoring, retries and saved attempts remain on the canonical article.".into(),
+                "runnable-code" | "web-sandbox" => "Source and authored results remain readable. Editing and execution remain on the canonical article; Rust may also link to Playground.".into(),
+                "comments" => "Discussion participation and live state remain on the canonical article; the portable copy provides its link.".into(),
+                _ => capability.authored_semantics.into(),
+            }),
+            source_range,
+        };
         for diagnostic in &capability.diagnostics {
             let code = match diagnostic.code {
                 CapabilityDiagnosticCode::UnknownCapability => "unknown-capability",
@@ -949,6 +1013,7 @@ fn portability_diagnostics(
                 capability_id: Some(capability.id.clone()),
                 message: diagnostic.message.clone(),
                 recommended_action: diagnostic_recommended_action(code, &capability.id),
+                context: context.clone(),
             });
         }
         if capability.portability == PortabilityLevel::GracefullyTransformed {
@@ -966,6 +1031,7 @@ fn portability_diagnostics(
                     "graceful-transformation",
                     &capability.id,
                 ),
+                context: context.clone(),
             });
         }
         if capability.portability == PortabilityLevel::CanonicalOnlyInteraction {
@@ -982,6 +1048,7 @@ fn portability_diagnostics(
                         "canonical-only-interaction",
                         &capability.id,
                     ),
+                    context: context.clone(),
                 });
             }
         }
@@ -1092,132 +1159,229 @@ fn portable_markdown_body(
     markdown: &str,
     projection: &PortableProjection<'_>,
 ) -> Result<String, String> {
-    let canonical_url = projection.canonical_url();
-    let lines = markdown.lines().collect::<Vec<_>>();
-    let mut output = String::new();
-    let mut index = 0;
-    let mut code_fence: Option<(char, usize)> = None;
-    while index < lines.len() {
-        let line = lines[index];
-        if let Some((marker, length)) = code_fence {
-            output.push_str(line);
-            output.push('\n');
-            if markdown_fence_close(line, marker, length) {
-                code_fence = None;
+    let mut edits = Vec::new();
+    let mut fence: Option<(std::ops::Range<usize>, String, String)> = None;
+    let mut parser =
+        Parser::new_ext(markdown, crate::markdown::parser_options(false)).into_offset_iter();
+    let events = parser.by_ref().collect::<Vec<_>>();
+    let literal_ranges = events
+        .iter()
+        .filter_map(|(event, range)| matches!(event, Event::Code(_)).then_some(range.clone()))
+        .collect::<Vec<_>>();
+    for (_, definition) in parser.reference_definitions().iter() {
+        let raw = &markdown[definition.span.clone()];
+        if let Some(after_label) = raw
+            .match_indices("]:")
+            .map(|(index, _)| index)
+            .find(|index| !is_markdown_escaped(raw.as_bytes(), *index))
+        {
+            let mut start = after_label + 2;
+            let mut continuation = false;
+            while let Some(byte) = raw.as_bytes().get(start) {
+                if byte.is_ascii_whitespace() {
+                    continuation |= *byte == b'\n';
+                } else if !continuation || *byte != b'>' {
+                    break;
+                }
+                start += 1;
             }
-            index += 1;
-            continue;
-        }
-        if let Some(kind) = callout_kind(line) {
-            output.push_str(&format!("> **{kind}:**\n"));
-            index += 1;
-            continue;
-        }
-        let Some((marker, fence_len, info)) = markdown_fence_open(line) else {
-            output.push_str(&resolve_markdown_line(line, projection)?);
-            output.push('\n');
-            index += 1;
-            continue;
-        };
-        let close = (index + 1..lines.len())
-            .find(|line_index| markdown_fence_close(lines[*line_index], marker, fence_len));
-        let Some(close) = close else {
-            output.push_str(line);
-            output.push('\n');
-            code_fence = Some((marker, fence_len));
-            index += 1;
-            continue;
-        };
-        let source = lines[index + 1..close].join("\n");
-        let tokens = fence_tokens(info);
-        let language = tokens.first().map(String::as_str).unwrap_or_default();
-        if language == "quiz" {
-            output.push_str(
-                &crate::markdown::portable_quiz_markdown(&source).map_err(|error| {
-                    format!("portable knowledge-check fallback failed: {error}")
-                })?,
-            );
-        } else if language == "web" && tokens.iter().any(|token| *token == "runnable") {
-            output.push_str(&portable_web_markdown(&source, &tokens, canonical_url));
-        } else {
-            let runnable = tokens.iter().any(|token| *token == "runnable");
-            let title = tokens.iter().find_map(|token| token.strip_prefix("title="));
-            if let Some(title) = title {
-                output.push_str(&format!(
-                    "**{}**\n\n",
-                    markdown_text(title.trim_matches(['"', '\'']))
+            let angled = raw[start..].starts_with('<');
+            let start = start + usize::from(angled);
+            let end = if angled {
+                raw[start..].find('>').map(|end| start + end)
+            } else {
+                raw[start..]
+                    .find(char::is_whitespace)
+                    .map(|end| start + end)
+                    .or(Some(raw.len()))
+            };
+            if let Some(end) = end {
+                let resolved = projection.resolve_link(&definition.dest)?;
+                edits.push((
+                    definition.span.start + start..definition.span.start + end,
+                    if angled {
+                        resolved
+                    } else {
+                        markdown_destination(&resolved)
+                    },
                 ));
             }
-            let normalized_language = if language == "web" { "text" } else { language };
-            output.push_str(&markdown_code_fence(normalized_language, &source));
-            if runnable {
-                if language.eq_ignore_ascii_case("rust")
-                    && !tokens.iter().any(|token| token == "playgroundLink=false")
-                {
-                    if let Some(url) = crate::markdown::rust_playground_url(&format!("{source}\n"))
-                    {
-                        output.push_str(&format!("\n[Open in Rust Playground]({url}).\n"));
+        }
+    }
+    for (event, range) in events {
+        if let Some((_, _, source)) = fence.as_mut() {
+            match event {
+                Event::Text(text) => source.push_str(&text),
+                Event::End(TagEnd::CodeBlock) => {
+                    let (start, info, source): (std::ops::Range<usize>, String, String) =
+                        fence.take().unwrap();
+                    let opening = &markdown[start.start..start.end];
+                    let marker = opening.find(['`', '~']).unwrap_or(0);
+                    let edit_start = start.start + marker;
+                    let line_start = markdown[..edit_start]
+                        .rfind('\n')
+                        .map_or(0, |index| index + 1);
+                    let prefix = &markdown[line_start..edit_start];
+                    let continuation = prefix
+                        .chars()
+                        .map(|character| {
+                            if character == '>' || character.is_whitespace() {
+                                character
+                            } else {
+                                ' '
+                            }
+                        })
+                        .collect::<String>();
+                    let converted =
+                        portable_fence_markdown(&info, source.trim_end_matches('\n'), projection)?;
+                    let replacement = converted
+                        .trim_end_matches('\n')
+                        .split('\n')
+                        .collect::<Vec<_>>()
+                        .join(&format!("\n{continuation}"))
+                        + "\n";
+                    edits.push((edit_start..range.end, replacement));
+                }
+                _ => {}
+            }
+            continue;
+        }
+        match event {
+            Event::Start(Tag::Paragraph) => {
+                let raw = markdown[range.clone()].trim();
+                if raw.starts_with("%[") && raw.ends_with(']') {
+                    if let Some(embed) = crate::embed::detect(raw) {
+                        let url = projection.resolve_link(&embed.link)?;
+                        edits.push((
+                            range,
+                            format!(
+                                "[{}]({})\n",
+                                markdown_text(&embed.link_label),
+                                markdown_destination(&url)
+                            ),
+                        ));
                     }
                 }
-                output.push_str(&format!(
-                    "\n[Run and edit this example on the canonical article]({}).\n",
-                    markdown_destination(canonical_url)
-                ));
             }
+            Event::Start(Tag::Link {
+                dest_url,
+                link_type: pulldown_cmark::LinkType::Inline,
+                ..
+            })
+            | Event::Start(Tag::Image {
+                dest_url,
+                link_type: pulldown_cmark::LinkType::Inline,
+                ..
+            }) => {
+                let raw = &markdown[range.clone()];
+                for (index, character) in raw.char_indices() {
+                    if character != ']' || is_markdown_escaped(raw.as_bytes(), index) {
+                        continue;
+                    }
+                    if literal_ranges
+                        .iter()
+                        .any(|literal| literal.contains(&(range.start + index)))
+                    {
+                        continue;
+                    }
+                    if let Some((start, end, angled)) = markdown_destination_range(raw, index + 1) {
+                        let resolved = projection.resolve_link(&dest_url)?;
+                        edits.push((
+                            range.start + start..range.start + end,
+                            if angled {
+                                resolved
+                            } else {
+                                markdown_destination(&resolved)
+                            },
+                        ));
+                        break;
+                    }
+                }
+            }
+            Event::Start(Tag::CodeBlock(pulldown_cmark::CodeBlockKind::Indented)) => {
+                edits.push((range.clone(), markdown[range].to_string()));
+            }
+            Event::Start(Tag::CodeBlock(pulldown_cmark::CodeBlockKind::Fenced(info))) => {
+                fence = Some((range, info.to_string(), String::new()));
+            }
+            Event::Start(Tag::BlockQuote(Some(kind))) => {
+                let line = markdown[range.clone()].lines().next().unwrap_or("");
+                if let Some(marker) = line.find("[!") {
+                    if let Some(close) = line[marker..].find(']') {
+                        let label = match kind {
+                            pulldown_cmark::BlockQuoteKind::Note => "Note",
+                            pulldown_cmark::BlockQuoteKind::Tip => "Tip",
+                            pulldown_cmark::BlockQuoteKind::Important => "Important",
+                            pulldown_cmark::BlockQuoteKind::Warning => "Warning",
+                            pulldown_cmark::BlockQuoteKind::Caution => "Caution",
+                        };
+                        edits.push((
+                            range.start + marker..range.start + marker + close + 1,
+                            format!("**{label}:**"),
+                        ));
+                    }
+                }
+            }
+            _ => {}
         }
-        output.push('\n');
-        index = close + 1;
     }
-    Ok(output)
-}
-
-fn resolve_markdown_line(
-    line: &str,
-    projection: &PortableProjection<'_>,
-) -> Result<String, String> {
-    let bytes = line.as_bytes();
-    let mut output = String::with_capacity(line.len());
-    let mut index = 0;
-    let mut inline_code: Option<usize> = None;
-    while index < bytes.len() {
-        if bytes[index] == b'`' {
-            let count = bytes[index..]
-                .iter()
-                .take_while(|byte| **byte == b'`')
-                .count();
-            if inline_code.is_none() {
-                inline_code = Some(count);
-            } else if inline_code == Some(count) {
-                inline_code = None;
-            }
-            output.push_str(&line[index..index + count]);
-            index += count;
+    edits.sort_by_key(|(range, _)| range.start);
+    let mut output = String::new();
+    let mut cursor = 0;
+    for (range, replacement) in edits {
+        if range.start < cursor {
             continue;
         }
-        if inline_code.is_none() && bytes[index] == b']' && !is_markdown_escaped(bytes, index) {
-            if let Some((start, end, angled)) = markdown_destination_range(line, index + 1) {
-                let authored = &line[start..end];
-                let destination = unescape_markdown_destination(authored);
-                let resolved = projection.resolve_link(&destination)?;
-                output.push_str(&line[index..start]);
-                if angled {
-                    output.push('<');
-                    output.push_str(&resolved);
-                    output.push('>');
-                } else {
-                    output.push_str(&markdown_destination(&resolved));
-                }
-                index = end + usize::from(angled);
-                continue;
-            }
+        output.push_str(&markdown[cursor..range.start]);
+        output.push_str(&replacement);
+        cursor = range.end;
+    }
+    output.push_str(&markdown[cursor..]);
+    Ok(output.replace("\r\n", "\n"))
+}
+
+fn portable_fence_markdown(
+    info: &str,
+    source: &str,
+    projection: &PortableProjection<'_>,
+) -> Result<String, String> {
+    let canonical_url = projection.canonical_url();
+    let mut output = String::new();
+    let tokens = fence_tokens(info);
+    let language = tokens.first().map(String::as_str).unwrap_or_default();
+    if language == "quiz" {
+        output.push_str(
+            &crate::markdown::portable_quiz_markdown(source)
+                .map_err(|error| format!("portable knowledge-check fallback failed: {error}"))?,
+        );
+    } else if language == "web" && tokens.iter().any(|token| *token == "runnable") {
+        output.push_str(&portable_web_markdown(source, &tokens, canonical_url));
+    } else {
+        let runnable = tokens.iter().any(|token| *token == "runnable");
+        let title = tokens.iter().find_map(|token| token.strip_prefix("title="));
+        if let Some(title) = title {
+            output.push_str(&format!(
+                "**{}**\n\n",
+                markdown_text(title.trim_matches(['"', '\'']))
+            ));
         }
-        let character = line[index..].chars().next().unwrap_or_default();
-        output.push(character);
-        index += character.len_utf8();
+        let normalized_language = if language == "web" { "text" } else { language };
+        output.push_str(&markdown_code_fence(normalized_language, source));
+        if runnable {
+            if language.eq_ignore_ascii_case("rust")
+                && !tokens.iter().any(|token| token == "playgroundLink=false")
+            {
+                if let Some(url) = crate::markdown::rust_playground_url(&format!("{source}\n")) {
+                    output.push_str(&format!("\n[Open in Rust Playground]({url}).\n"));
+                }
+            }
+            output.push_str(&format!(
+                "\n[Run and edit this example on the canonical article]({}).\n",
+                markdown_destination(canonical_url)
+            ));
+        }
     }
-    if let Some(resolved) = resolve_reference_definition(&output, projection)? {
-        return Ok(resolved);
-    }
+    output.push('\n');
     Ok(output)
 }
 
@@ -1265,109 +1429,12 @@ fn markdown_destination_range(line: &str, after_label: usize) -> Option<(usize, 
     None
 }
 
-fn resolve_reference_definition(
-    line: &str,
-    projection: &PortableProjection<'_>,
-) -> Result<Option<String>, String> {
-    let trimmed = line.trim_start();
-    let offset = line.len() - trimmed.len();
-    if !trimmed.starts_with('[') {
-        return Ok(None);
-    }
-    let Some(close) = trimmed.find("]:") else {
-        return Ok(None);
-    };
-    let mut start = offset + close + 2;
-    let bytes = line.as_bytes();
-    while bytes.get(start).is_some_and(u8::is_ascii_whitespace) {
-        start += 1;
-    }
-    let angled = bytes.get(start) == Some(&b'<');
-    if angled {
-        start += 1;
-    }
-    let mut end = start;
-    while let Some(byte) = bytes.get(end) {
-        if (*byte == b'>' && angled) || (!angled && byte.is_ascii_whitespace()) {
-            break;
-        }
-        end += 1;
-    }
-    if end == start {
-        return Ok(None);
-    }
-    let destination = unescape_markdown_destination(&line[start..end]);
-    let resolved = markdown_destination(&projection.resolve_link(&destination)?);
-    let resolved = if angled {
-        format!("<{resolved}>")
-    } else {
-        resolved
-    };
-    let mut output = String::with_capacity(line.len() + resolved.len());
-    output.push_str(&line[..start]);
-    output.push_str(&resolved);
-    output.push_str(&line[end..]);
-    Ok(Some(output))
-}
-
 fn is_markdown_escaped(bytes: &[u8], index: usize) -> bool {
     let mut preceding = index;
     while preceding > 0 && bytes[preceding - 1] == b'\\' {
         preceding -= 1;
     }
     (index - preceding) % 2 == 1
-}
-
-fn unescape_markdown_destination(value: &str) -> String {
-    let mut output = String::with_capacity(value.len());
-    let mut characters = value.chars();
-    while let Some(character) = characters.next() {
-        if character == '\\' {
-            if let Some(escaped) = characters.next() {
-                output.push(escaped);
-            }
-        } else {
-            output.push(character);
-        }
-    }
-    output
-}
-
-fn callout_kind(line: &str) -> Option<&'static str> {
-    let value = line.trim().strip_prefix("> ")?.trim();
-    if value.len() < 5 || !value.starts_with("[!") || !value.ends_with(']') {
-        return None;
-    }
-    match value[2..value.len() - 1].to_ascii_uppercase().as_str() {
-        "NOTE" => Some("Note"),
-        "TIP" => Some("Tip"),
-        "IMPORTANT" => Some("Important"),
-        "WARNING" => Some("Warning"),
-        "CAUTION" => Some("Caution"),
-        _ => None,
-    }
-}
-
-fn markdown_fence_open(line: &str) -> Option<(char, usize, &str)> {
-    let trimmed = line.trim_start_matches(' ');
-    if line.len() - trimmed.len() > 3 {
-        return None;
-    }
-    let marker = trimmed.chars().next()?;
-    if marker != '`' && marker != '~' {
-        return None;
-    }
-    let fence_len = trimmed.chars().take_while(|ch| *ch == marker).count();
-    (fence_len >= 3).then_some((marker, fence_len, trimmed[fence_len..].trim()))
-}
-
-fn markdown_fence_close(line: &str, marker: char, minimum_length: usize) -> bool {
-    let trimmed = line.trim_start_matches(' ');
-    if line.len() - trimmed.len() > 3 {
-        return false;
-    }
-    let count = trimmed.chars().take_while(|ch| *ch == marker).count();
-    count >= minimum_length && trimmed[count..].trim().is_empty()
 }
 
 fn fence_tokens(info: &str) -> Vec<String> {
@@ -1482,6 +1549,134 @@ mod tests {
     use super::*;
     use crate::config::SiteConfig;
     use crate::model::{LoadOptions, Site, SourceFile, Sources};
+
+    #[test]
+    fn loss_diagnostics_keep_duplicate_nested_source_ranges_and_explicit_semantics() {
+        let body = "😀 Intro\n\n> ```quiz\n> Question?\n> - [x] Answer\n> - [ ] Other\n> ```\n\n```quiz\nAgain?\n- [x] Yes\n- [ ] No\n```\n";
+        let (config, site) =
+            public_post(&format!("---\ntitle: Work\ndate: 2020-01-01\n---\n{body}"));
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let output = projection.portable_html().unwrap();
+        let findings = output
+            .diagnostics
+            .iter()
+            .filter(|finding| finding.capability_id.as_deref() == Some("knowledge-check"))
+            .collect::<Vec<_>>();
+        assert_eq!(findings.len(), 2);
+        for (finding, line) in findings.iter().zip([3, 9]) {
+            assert_eq!(
+                finding.context.source_range.as_ref().unwrap().start_line,
+                line
+            );
+            assert_eq!(
+                finding.context.portability_level,
+                Some(PortabilityLevel::GracefullyTransformed)
+            );
+            assert!(finding
+                .context
+                .affected_semantics
+                .as_ref()
+                .unwrap()
+                .contains("Scoring, retries"));
+            let scoped = finding.scoped("portable-text", "portable-export");
+            let json = serde_json::to_value(scoped).unwrap();
+            assert_eq!(json["representation"], "portable-text");
+            assert_eq!(json["destination"], "portable-export");
+            assert!(json["sourceRange"]["startLine"].is_number());
+            assert!(json["code"].is_string());
+            assert!(json["recommendedAction"].is_string());
+        }
+        assert_eq!(
+            output.diagnostics,
+            projection.portable_html().unwrap().diagnostics
+        );
+    }
+
+    #[test]
+    fn nested_markdown_fallbacks_remove_engine_syntax_without_losing_container_semantics() {
+        let body = "> [!NOTE]\n> Nested lesson\n>\n> ```quiz\n> What is 2 + 2?\n> - [ ] 3\n> - [x] 4\n> ```\n\n- Exercise\n\n  ````rust runnable title=\"main.rs\"\n  fn main() { println!(\"```\"); }\n  ````\n";
+        let (config, site) =
+            public_post(&format!("---\ntitle: Work\ndate: 2020-01-01\n---\n{body}"));
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        assert!(!markdown.contains("```quiz"), "{markdown}");
+        assert!(!markdown.contains("rust runnable"), "{markdown}");
+        assert!(!markdown.contains("[!NOTE]"), "{markdown}");
+        assert!(markdown.contains("**Answer:** 2. 4"), "{markdown}");
+        assert!(markdown.contains("main.rs"), "{markdown}");
+        let html = {
+            let mut html = String::new();
+            pulldown_cmark::html::push_html(
+                &mut html,
+                Parser::new_ext(&markdown, pulldown_cmark::Options::all()),
+            );
+            html
+        };
+        assert!(html.contains("<blockquote>"));
+        assert!(html.contains("<li>"));
+        assert!(html.contains("fn main()"));
+        assert!(html.contains("Run and edit"));
+    }
+
+    #[test]
+    fn markdown_offsets_preserve_literal_examples_and_resolve_multiline_references_and_embeds() {
+        let body = "[guide]:\n../guide/ \"A guide\"\n\nRead [the guide][guide] or [inline](\n../next/\n).\n\n`first\n[literal](../unchanged)\nlast`\n\n    [indented](../unchanged)\n\n> %[https://codepen.io/u/pen/abc]\n\n```text\n%[https://codepen.io/u/pen/literal]\n```\n";
+        let (config, site) =
+            public_post(&format!("---\ntitle: Work\ndate: 2020-01-01\n---\n{body}"));
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        assert!(
+            markdown.contains("[guide]:\nhttps://example.test/blog/guide/"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("[inline](\nhttps://example.test/blog/next/\n)"),
+            "{markdown}"
+        );
+        assert!(markdown.contains("[literal](../unchanged)"), "{markdown}");
+        assert!(
+            markdown.contains("    [indented](../unchanged)"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("> [See the Pen on CodePen](https://codepen.io/u/pen/abc)"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("%[https://codepen.io/u/pen/literal]"),
+            "{markdown}"
+        );
+        assert!(
+            !markdown.contains("%[https://codepen.io/u/pen/abc]"),
+            "{markdown}"
+        );
+        let body = "[`[example](../literal)`](../real/) and [`[example](../literal)`][real]\n\n[real]: ../target/\n";
+        let (config, site) =
+            public_post(&format!("---\ntitle: Work\ndate: 2020-01-01\n---\n{body}"));
+        let markdown = PortableProjection::from_post(&site.posts[0], &config)
+            .unwrap()
+            .portable_markdown()
+            .unwrap();
+        assert!(
+            markdown.contains("[`[example](../literal)`](https://example.test/blog/real/)"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("[`[example](../literal)`][real]"),
+            "{markdown}"
+        );
+        let body = "> Read [nested][guide].\n>\n> [guide]:\n>   ../guide/\n";
+        let (config, site) =
+            public_post(&format!("---\ntitle: Work\ndate: 2020-01-01\n---\n{body}"));
+        let markdown = PortableProjection::from_post(&site.posts[0], &config)
+            .unwrap()
+            .portable_markdown()
+            .unwrap();
+        assert!(
+            markdown.contains(">   https://example.test/blog/guide/"),
+            "{markdown}"
+        );
+    }
 
     #[test]
     fn destination_payload_budget_enforces_the_exact_byte_boundary() {
@@ -1703,12 +1898,15 @@ mod tests {
     #[test]
     fn portable_markdown_transforms_custom_blocks_and_keeps_public_context() {
         let (config, site) = public_post(
-            "---\ntitle: Work\ndate: 2026-10-01\nprofile: research\nsourceUrl: https://origin.example/work\ndoi: 10.1234/example\nlicense: https://creativecommons.org/licenses/by/4.0/\n---\n            > [!TIP]\n> Keep the source.\n\n[Parent](../reference/), [section](#chapter).\n\n```quiz\nWhat is portable?\n- [ ] A second source\n- [x] A derived representation\n> It comes from the canonical work.\n```\n\n```rust runnable title=\"Try the example\"\nfn main() { let text = \"[literal](../not-a-link)\"; }\n```\n\n<script>alert(1)</script>\n",
+            "---\ntitle: Work\ndate: 2026-10-01\nprofile: research\nsourceUrl: https://origin.example/work\ndoi: 10.1234/example\nlicense: https://creativecommons.org/licenses/by/4.0/\n---\n> [!TIP]\n> Keep the source.\n\n[Parent](../reference/), [section](#chapter).\n\n```quiz\nWhat is portable?\n- [ ] A second source\n- [x] A derived representation\n> It comes from the canonical work.\n```\n\n```rust runnable title=\"Try the example\"\nfn main() { let text = \"[literal](../not-a-link)\"; }\n```\n\n<script>alert(1)</script>\n",
         );
         let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
         let markdown = projection.portable_markdown().unwrap();
         assert!(markdown.starts_with("# Work\n\nCanonical: <https://example.test/blog/work/>"));
-        assert!(markdown.contains("> **Tip:**\n> Keep the source."));
+        assert!(
+            markdown.contains("> **Tip:**\n> Keep the source."),
+            "{markdown}"
+        );
         assert!(markdown.contains("[Parent](https://example.test/blog/reference/)"));
         assert!(markdown.contains("[section](https://example.test/blog/work/#chapter)"));
         assert!(markdown.contains("**Question:** What is portable?"));

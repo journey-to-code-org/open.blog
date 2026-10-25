@@ -112,7 +112,7 @@ fn export_plan(
         "bytes": markdown.len(),
         "writeRequested": false,
         "capabilities": portable.capabilities,
-        "diagnostics": portable.diagnostics,
+        "diagnostics": portable.diagnostics.iter().map(|diagnostic| diagnostic.scoped("portable-markdown", "portable-export")).collect::<Vec<_>>(),
         "content": markdown,
     }))
 }

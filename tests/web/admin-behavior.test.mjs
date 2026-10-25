@@ -30,6 +30,8 @@ import {
   destinationPolicyForDisplay,
   destinationTagsForDisplay,
   portabilityAcknowledgementScope,
+  portabilityGroups,
+  portabilitySourceSelection,
   portableDiagnosticsForDisplay,
   portablePreviewArtifact,
   previewWarningsForDisplay,
@@ -350,6 +352,47 @@ test("destination tag review shows selected metadata, omissions, and blocking er
   assert.deepEqual(destinationTagsForDisplay(plans, "destination:hashnode"), []);
   plans[0].policy.version = 2;
   assert.deepEqual(destinationTagsForDisplay(plans, "destination:dev"), []);
+});
+
+test("portable findings group deterministic capability levels without scores and navigate Unicode source without edits", () => {
+  const diagnostic = { capabilityId: "knowledge-check", portabilityLevel: "gracefully-transformed", message: "Static answer." };
+  const preview = { portablePreview: {
+    destinations: [{ version: 1, provider: "dev", representation: "portable-markdown" }],
+    diagnosticsByRepresentation: { "portable-markdown": [diagnostic, diagnostic] },
+  } };
+  const groups = portabilityGroups(preview, "destination:dev");
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].diagnostics.length, 2);
+  assert.equal(groups[0].level, "gracefully-transformed");
+  assert.equal(groups[0].destination, "dev");
+  assert.equal(groups[0].representation, "portable-markdown");
+  assert.deepEqual(portabilityGroups(preview, "site"), []);
+  assert.equal(portabilityGroups({ portablePreview: { diagnostics: [diagnostic] } }, "site")[0].level,
+    "gracefully-transformed", "native previews retain the existing portability warning visibility");
+  const body = "😀 heading\n> ```quiz\n> Question?\n> ```\n";
+  const range = { startLine: 2, startColumn: 3, endLine: 4, endColumn: 6 };
+  const selection = portabilitySourceSelection(body, range);
+  assert.equal(body.slice(selection.start, selection.end), "```quiz\n> Question?\n> ```");
+  assert.equal(portabilitySourceSelection(body, { ...range, startLine: 99 }), null);
+  const calls = [];
+  const editor = {
+    previewResult: preview,
+    syncRichToMarkdown() { calls.push("sync"); },
+    setEditorMode(mode) { calls.push(mode); },
+    activatePane(pane) { calls.push(pane); },
+    ui: {
+      body: { value: body, setSelectionRange(start, end) { calls.push({ start, end }); }, focus() { calls.push("focus"); } },
+      live: {}, previewTheme: {},
+    },
+  };
+  Editor.prototype.navigatePortabilitySource.call(editor, range, preview);
+  assert.deepEqual(calls, ["sync", "markdown", "write", selection, "focus"]);
+  assert.equal(editor.ui.body.value, body);
+  assert.match(editor.ui.live.textContent, /line 2.*unchanged/);
+  calls.length = 0;
+  Editor.prototype.navigatePortabilitySource.call(editor, range, {});
+  assert.deepEqual(calls, []);
+  assert.match(editor.ui.previewTheme.textContent, /Source changed/);
 });
 
 const SAMPLE_GPX = `<?xml version="1.0"?><gpx version="1.1"><trk><trkseg>

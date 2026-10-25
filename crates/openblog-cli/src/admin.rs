@@ -5622,7 +5622,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
                 Ok(projection) => projection,
                 Err(error) => return Response::error(422, &error),
             };
-        let portable_html = match projection.portable_html() {
+        let mut portable_html = match projection.portable_html() {
             Ok(output) => output,
             Err(error) => return Response::error(422, &error),
         };
@@ -5634,6 +5634,22 @@ fn preview(state: &AppState, req: &Request) -> Response {
             Ok(text) => text,
             Err(error) => return Response::error(422, &error),
         };
+        // compose() normalizes leading blank lines; locations must refer to the
+        // unsaved editor body, not the composed production-preview document.
+        let leading_lines = |text: &str| {
+            text[..text.len() - text.trim_start_matches(['\r', '\n']).len()]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+        };
+        let editor_lines = leading_lines(text_body);
+        let composed_lines = leading_lines(post.authored_markdown());
+        for diagnostic in &mut portable_html.diagnostics {
+            if let Some(range) = &mut diagnostic.context.source_range {
+                range.start_line = range.start_line.saturating_sub(composed_lines) + editor_lines;
+                range.end_line = range.end_line.saturating_sub(composed_lines) + editor_lines;
+            }
+        }
         let source_revision = match projection.source_revision() {
             Ok(revision) => revision,
             Err(error) => return Response::error(422, &error),
@@ -5658,12 +5674,26 @@ fn preview(state: &AppState, req: &Request) -> Response {
             [SyndicationProvider::Dev, SyndicationProvider::Hashnode].map(|provider| {
                 openblog_core::portability::destination_tag_plan(provider, &rel, &tags)
             });
+        let diagnostics_by_representation = ["portable-html", "portable-markdown", "portable-text"]
+            .into_iter()
+            .map(|representation| {
+                (
+                    representation.to_string(),
+                    portable_html
+                        .diagnostics
+                        .iter()
+                        .map(|diagnostic| diagnostic.scoped(representation, "portable-export"))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
         json!({
             "html": portable_html.html,
             "markdown": portable_markdown,
             "text": portable_text,
             "capabilities": portable_html.capabilities,
             "diagnostics": portable_html.diagnostics,
+            "diagnosticsByRepresentation": diagnostics_by_representation,
             "destinations": openblog_core::portability::destination_policies(),
             "destinationTagPlans": destination_tag_plans,
             "sourceRevision": source_revision,
@@ -10386,6 +10416,57 @@ mod tests {
             .join("dist")
             .join(delete_url.trim_start_matches('/'))
             .exists());
+    }
+
+    #[test]
+    fn portable_diagnostic_locations_match_unsaved_body_blank_lines_and_line_endings() {
+        let f = fixture("portable-source-locations");
+        let session = login_ok(&f);
+        let quiz = "```quiz\nQuestion?\n- [x] Yes\n- [ ] No\n```\n";
+        for newline in ["\n", "\r\n"] {
+            for blanks in 0..=3 {
+                let body =
+                    format!("{}😀 Heading\n\n{quiz}", "\n".repeat(blanks)).replace('\n', newline);
+                let response = handle(
+                    &f.state,
+                    &authed(
+                        json_req(
+                            "POST",
+                            "/admin/api/preview",
+                            json!({
+                                "kind": "posts",
+                                "path": "posts/locations.md",
+                                "fields": { "title": "Locations", "date": "2026-01-01" },
+                                "body": body,
+                            }),
+                        ),
+                        &session,
+                        true,
+                    ),
+                );
+                assert_eq!(
+                    response.status,
+                    200,
+                    "{}",
+                    String::from_utf8_lossy(&response.body)
+                );
+                let preview = body_json(&response);
+                for representation in ["portable-html", "portable-markdown", "portable-text"] {
+                    let diagnostic = preview["portablePreview"]["diagnosticsByRepresentation"]
+                        [representation]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|diagnostic| diagnostic["capabilityId"] == "knowledge-check")
+                        .unwrap();
+                    assert_eq!(diagnostic["representation"], representation);
+                    assert_eq!(diagnostic["destination"], "portable-export");
+                    assert_eq!(diagnostic["sourceRange"]["startLine"], blanks + 3);
+                    assert_eq!(diagnostic["sourceRange"]["startColumn"], 1);
+                }
+                assert!(!f.dir.join("content/posts/locations.md").exists());
+            }
+        }
     }
 
     #[test]

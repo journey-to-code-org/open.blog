@@ -768,7 +768,13 @@ fn dry_run_json_plan(
                         "content": content
                     }
                 },
-                "diagnostics": &post.portable_diagnostics,
+                "diagnostics": post.portable_diagnostics.iter().map(|diagnostic| diagnostic.scoped(format, match target.provider {
+                    SyndicationProvider::Dev => "dev",
+                    SyndicationProvider::Hashnode => "hashnode",
+                    SyndicationProvider::Ghost => "ghost",
+                    SyndicationProvider::Wordpress => "wordpress",
+                    SyndicationProvider::Medium => "medium",
+                })).collect::<Vec<_>>(),
             })
         })
         .collect::<Vec<_>>();
