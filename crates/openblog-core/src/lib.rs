@@ -15,6 +15,7 @@
 //! - [`source_interchange`]: dry-run CSL JSON import and deterministic CSL JSON / BibTeX export
 
 pub mod accessibility;
+pub mod approval;
 pub mod assistant_guide;
 pub mod capability;
 pub mod collaboration;

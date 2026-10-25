@@ -142,9 +142,12 @@ copy that has been read cannot be recalled (ADR 0019).
 _Avoid_: Publication, approval, left-to-right handoff
 
 **Approval**:
-One participant's consent to exactly one revision of collaboration state, covering every
-contribution draft as it appears in that revision. Approval alone does not define quorum,
-authorize publication, or assign public credit.
+One author's affirmative, timestamped consent to publish exactly the content their snapshot is
+bound to: their own section revisions (or every section under the whole-piece scope), the author
+set, section order, public title and source attribution, and the approval policy (ADR 0020). It
+counts only while the recomputed binding still matches, so any covered change invalidates it.
+Only the author can give or withdraw it; a site owner or coordinator cannot, and a publish grant
+never replaces it. It is not an electronic signature, and alone it does not assign public credit.
 _Avoid_: Publication, Work credit, timeless consent
 
 **Published assembly**:

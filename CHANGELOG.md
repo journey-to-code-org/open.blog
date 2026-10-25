@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added the approval model for shared reflections: an approval is an author's own affirmative,
+  timestamped consent bound to the exact content, author set, order, public metadata and policy,
+  so editing or changing any of them withdraws the affected approvals and nobody can approve for
+  another author. No screen or publishing step uses it yet.
+
 ## [0.21.1] - 2026-10-25
 
 - Fixed voluntary reveal so a publication keeps one author set: visibility is now derived from the
