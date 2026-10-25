@@ -60,7 +60,11 @@ which defines the incremental path from one site author to ordered, work-specifi
 [Assistant provider APIs](research/assistant-provider-apis.md), which records the native-provider
 contracts and why GitHub Copilot is not exposed as a generic API provider, and the
 [research source library format](specs/research-source-library.md), which keeps works,
-editions, translations, witnesses, and references distinct under stable identifiers.
+editions, translations, witnesses, and references distinct under stable identifiers, and the
+[research notebook format](specs/research-notebook.md), which keeps quoted passages and private
+research notes apart from your own prose, with private search and backlinks
+([ADR 0036](adr/0036-private-notebook-search-and-backlinks.md)), and archive, export, import and
+publication-leak guards ([ADR 0037](adr/0037-private-notebook-lifecycle-export-and-leak-guards.md)).
 
 ## Command reference
 
@@ -70,7 +74,7 @@ openblog init [dir] [--title "..."] [--github-pages]
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
-openblog check                          Validate content, themes, and the private source library, write nothing
+openblog check                          Validate content, themes, and the private source library and notebook, write nothing
 openblog export <slug> [--out path] [--write]
                                         Preview or write portable Markdown
 openblog syndicate <slug> [--target a,b] [--write] [--publish]

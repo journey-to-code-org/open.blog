@@ -61,10 +61,10 @@ fn drafts() -> DraftSet {
 
 fn approve_all(record: &SharedPublication, set: &DraftSet, approvals: &mut ApprovalSet) {
     for who in ALL {
-        let seen = with_subject(record, set, &SynthesisSet::new(), &ALL, |s| {
+        let seen = with_subject(record, None, set, &SynthesisSet::new(), &ALL, |s| {
             approvals.binding_for(s, who).unwrap()
         });
-        with_subject(record, set, &SynthesisSet::new(), &ALL, |s| {
+        with_subject(record, None, set, &SynthesisSet::new(), &ALL, |s| {
             approvals.approve(who, who, s, &seen, true, T)
         })
         .unwrap();
@@ -74,6 +74,7 @@ fn approve_all(record: &SharedPublication, set: &DraftSet, approvals: &mut Appro
 fn publish(record: &SharedPublication, approvals: &ApprovalSet) -> Result<Assembly, AssemblyError> {
     assemble(
         record,
+        None,
         &drafts(),
         &SynthesisSet::new(),
         approvals,

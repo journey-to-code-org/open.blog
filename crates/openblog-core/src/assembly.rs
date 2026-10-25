@@ -15,6 +15,7 @@ use crate::approval::{public_metadata, ApprovalSet, ApprovalSubject, Readiness, 
 use crate::collaboration::{valid_admin_username, SharedPublication};
 use crate::draft::DraftSet;
 use crate::frontmatter::{self, Value};
+use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
 use crate::shared_series::{SERIES_KEY, SERIES_ORDER_KEY};
 use crate::shared_source::{
     SharedAttribution, QUESTION_KEY, SOURCE_KIND_KEY, SOURCE_TITLE_KEY, SOURCE_URL_KEY,
@@ -97,12 +98,17 @@ pub fn post_path(record: &SharedPublication) -> String {
 }
 
 /// Run `ask` against the approval subject for the active authors as the content is now. This is
-/// the one place the subject is built from the record, drafts and synthesis, so the approval
-/// binding a preview hands out, the one the gate checks and the one a route stores cannot drift
-/// apart. The synthesis contributes its prose-free binding frame (items, order, attribution) and
-/// its attributed authors, each of whom must approve the piece (ADR 0024, 0025).
+/// the one place the subject is built from the record, arrangement, drafts and synthesis, so the
+/// approval binding a preview hands out, the one the gate checks and the one a route stores cannot
+/// drift apart. The metadata it binds is the public record fields, then the reflection
+/// `structure`'s prose-free binding frame when there is one (layout, turn order, round prompts and
+/// labels; ADR 0030), then the synthesis's prose-free binding frame (items, order, attribution).
+/// A change to any of them makes standing approvals stale exactly as a change of prose does; with
+/// no structure nothing is appended for it, so approvals given before one existed stay valid. The
+/// synthesis's attributed authors must each approve the piece (ADR 0024, 0025).
 pub fn with_subject<R>(
     record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
     synthesis: &SynthesisSet,
     active: &[&str],
@@ -133,6 +139,9 @@ pub fn with_subject<R>(
         })
         .collect();
     let mut metadata = public_metadata(record);
+    if let Some(structure) = structure {
+        metadata.push(format!("reflection-frame:{}", structure.binding_frame()));
+    }
     metadata.extend(synthesis.binding_frame());
     let metadata: Vec<&str> = metadata.iter().map(String::as_str).collect();
     let attributed = synthesis.attributed_authors();
@@ -275,16 +284,21 @@ pub fn conversation_markdown(record: &SharedPublication, synthesis: &SynthesisSe
         .join("\n\n")
 }
 
-/// Build the Post for `record` dated `date` (RFC 3339), or say why not. Pure.
+/// Build the Post for `record` dated `date` (RFC 3339), or say why not. Pure. With a `structure`
+/// the sections follow its reading order and are wrapped in the arranged markup of [`compose`]
+/// (ADR 0031), and credits are one per participant at their first appearance (ADR 0030); without
+/// one the sections are the participants' drafts in participant order. Part marker lines never
+/// reach the Post either way. The approved conversation block follows the sections.
 pub fn assemble(
     record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
     synthesis: &SynthesisSet,
     approvals: &ApprovalSet,
     active: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
-    match with_subject(record, drafts, synthesis, active, |subject| {
+    match with_subject(record, structure, drafts, synthesis, active, |subject| {
         approvals.evaluate(subject)
     }) {
         Ok(Readiness::Ready) => {}
@@ -309,28 +323,66 @@ pub fn assemble(
         .filter(|title| !title.is_empty())
         .ok_or(AssemblyError::Invalid)?;
 
-    let mut prose = Vec::new();
-    let mut credits = Vec::new();
-    for participant in &record.collaboration.participants {
-        if !active.contains(&participant.id.as_str()) {
-            continue;
-        }
-        // The same latest revision the approval's binding covers, because the gate above just
-        // evaluated it against these drafts.
-        let Some(view) = drafts.latest_view(&participant.id) else {
-            continue;
-        };
+    let credit_for = |participant_id: &str| -> Result<serde_json::Value, AssemblyError> {
         let binding = record
             .authorization
             .bindings
             .iter()
-            .find(|binding| binding.participant_id == participant.id)
+            .find(|binding| binding.participant_id == participant_id)
             .ok_or(AssemblyError::Invalid)?;
-        prose.push(view.markdown.trim().to_string());
-        credits.push(serde_json::json!({
+        Ok(serde_json::json!({
             "contributor": binding.contributor_id,
             "roles": [{ "vocabulary": "crossref", "role": "author" }],
-        }));
+        }))
+    };
+    let mut prose = Vec::new();
+    let mut credits = Vec::new();
+    let mut arranged = None;
+    if let Some(structure) = structure {
+        // The same latest revisions the approval's binding covers, in the one reading order.
+        let order = structure
+            .reading_order(&record.collaboration, drafts)
+            .map_err(|_| AssemblyError::Invalid)?;
+        let order: Vec<_> = order
+            .into_iter()
+            .filter(|entry| active.contains(&entry.participant_id) && entry.markdown.is_some())
+            .collect();
+        let placements = ReflectionStructure::placements(structure.layout, &order);
+        let mut turns = Vec::new();
+        let mut credited: Vec<&str> = Vec::new();
+        for (entry, placement) in order.iter().zip(placements) {
+            let text = entry.markdown.as_deref().unwrap_or_default().trim();
+            if text.is_empty() {
+                return Err(AssemblyError::Invalid);
+            }
+            if !credited.contains(&entry.participant_id) {
+                credited.push(entry.participant_id);
+                credits.push(credit_for(entry.participant_id)?);
+            }
+            prose.push(text.to_string());
+            turns.push(ComposedTurn {
+                round: entry.round,
+                round_prompt: structure.rounds[entry.round].round_prompt.as_deref(),
+                display_name: entry.display_name,
+                label: entry.label,
+                placement,
+                body: text.to_string(),
+            });
+        }
+        arranged = Some(compose(structure.layout, &turns));
+    } else {
+        for participant in &record.collaboration.participants {
+            if !active.contains(&participant.id.as_str()) {
+                continue;
+            }
+            // The same latest revision the approval's binding covers, because the gate above
+            // just evaluated it against these drafts.
+            let Some(view) = drafts.latest_view(&participant.id) else {
+                continue;
+            };
+            credits.push(credit_for(&participant.id)?);
+            prose.push(strip_part_markers(&view.markdown).trim().to_string());
+        }
     }
     if prose.is_empty() || prose.iter().any(String::is_empty) {
         return Err(AssemblyError::Invalid);
@@ -341,7 +393,7 @@ pub fn assemble(
         None => {}
         Some(error) => return Err(error),
     }
-    let mut body = prose.join(SECTION_BREAK);
+    let mut body = arranged.unwrap_or_else(|| prose.join(SECTION_BREAK));
     if !conversation.is_empty() {
         body.push_str(SECTION_BREAK);
         body.push_str(&conversation_markdown(record, synthesis));
@@ -437,6 +489,8 @@ fn unsafe_markup(
     has_unsafe_markup(sections, conversation)
 }
 
+const TAIL_SENTINEL: &str = "tail";
+
 fn has_unsafe_markup(
     sections: &[String],
     conversation: &[(String, Option<ItemRef>)],
@@ -469,8 +523,10 @@ fn has_unsafe_markup(
                                 | HeadingLevel::H4
                         ))
             }
+            // Whatever the site build's link resolution refuses (a credential-bearing address, a
+            // control character) would fail the whole build, so it is refused here instead.
             Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
-                unsafe_address(dest_url)
+                unsafe_address(dest_url) || !crate::portability::link_is_publishable(dest_url)
             }
             _ => false,
         })
@@ -479,8 +535,11 @@ fn has_unsafe_markup(
     // them when `rule`), so no part can reach into its neighbour.
     let isolated = |parts: &[&str], joiner: &str, rule: bool, options| {
         let joined = parts.join(joiner);
+        // Each part ends in the newline the join gives it, so a trailing indented code block
+        // parses the same alone as in place.
+        let terminated: Vec<String> = parts.iter().map(|part| format!("{part}\n")).collect();
         let mut separate: Vec<Event<'_>> = Vec::new();
-        for (index, part) in parts.iter().enumerate() {
+        for (index, part) in terminated.iter().enumerate() {
             if index > 0 && rule {
                 separate.push(Event::Rule);
             }
@@ -505,7 +564,11 @@ fn has_unsafe_markup(
     };
     for smart in [false, true] {
         let options = crate::markdown::parser_options(smart);
-        let section_blocks: Vec<&str> = sections.iter().map(String::as_str).collect();
+        // A sentinel section after the last one stands for the markup that follows the prose in
+        // the published Post (the arrangement's closing tags): an open fence in the last section
+        // would swallow it, so it must stay a separate section like every other boundary.
+        let mut section_blocks: Vec<&str> = sections.iter().map(String::as_str).collect();
+        section_blocks.push(TAIL_SENTINEL);
         let with_block = |chunks: usize| {
             let block = texts[..chunks].join("\n\n");
             let mut blocks = section_blocks.clone();

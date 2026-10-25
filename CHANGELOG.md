@@ -17,6 +17,89 @@ All notable changes to open.blog are recorded here. Releases follow
   only, a change made against an older read is refused without losing what was typed, and the
   combined preview now shows the series and position authors are approving.
 
+## [0.25.0] - 2026-10-25
+
+- You can now archive passages and notes you want out of the way, without deleting them, and export
+  and import your private research notebook. Archived entries stay in the file and in exports and
+  come back with Show archived or Restore. Export saves one versioned file of all your private
+  passages and notes, only when you ask and confirm; import previews first, only adds entries the
+  notebook lacks, and refuses any conflict without changing anything. Building, checking and
+  publishing now also refuse to continue when a research export or a copy of the notebook has been
+  saved into content, static or themes, and automated tests check that private research never
+  reaches pages, feeds, search, llms files, portable exports, CSL or BibTeX, logs, error messages or
+  published history.
+- You can now search the private research notebook and see how it connects. The Notebook view
+  filters by source (including its editions and translations), locator kind, concept, and
+  question state beside text search, shows each hit with its source, locators and linked notes,
+  and lists backlinks for the selected passage, its source and a note's concepts. Questions can
+  be marked open or resolved. Everything is computed from the stored files, so it stays correct
+  after edits and archiving, and it is private: nothing reaches the public site, feeds or exports.
+- Fixed capture edit conflicts: after a conflict you now choose between the stored copy and your
+  draft before saving, so a concurrent change is never silently overwritten. Archived sources stay
+  selectable on entries that already use them, and stale field errors clear on the next save.
+- A source edit or import that would leave the research notebook invalid, such as re-pointing a
+  reference so a page locator becomes ambiguous, is now refused with a message naming the affected source (for an import, each record it
+  re-pointed or re-typed).
+- Notebook search and backlinks now send their text in a request body instead of the URL, so a
+  hosting proxy's access log cannot record private research text.
+
+- Defined the private research notebook contract: quoted passages (verbatim excerpt, compound
+  page, folio, line, canonical and custom locators, tied to a source-library record) and
+  observation or question notes that link to passages, sources, and concepts. Every entry is
+  always private with no publication path, quoted text stays apart from your own prose, and a
+  failed change leaves the notebook untouched.
+- You can now capture passages and notes from Admin. A new Notebook view under Research
+  lists, edits and removes them, and a Capture research button in the post editor opens a
+  dialog prefilled with your selected text where you pick a source, add locators and an
+  optional note, then return to exactly where you were writing. Saving needs a real source and
+  the current notebook revision; a stale save keeps your draft and writes nothing. Quoted text
+  is stored as typed and shown only as text. The notebook lives in
+  `.openblog/private/research/notebook.json`, is kept in the hosted workspace, is checked by
+  `openblog check`, and never reaches the built site, feeds, search or exports. A source that
+  a passage or note still uses can no longer be removed from the library.
+
+## [0.24.0] - 2026-10-25
+
+- A shared reflection that has both an arrangement and an approved continuing conversation
+  publishes the arranged sections in reading order and then the conversation, and every portable
+  form (Markdown, text, feeds, llms-full.txt) keeps that order. Approvals bind the arrangement and
+  the conversation together.
+- Fixed: a link with a username or password in shared prose is refused when publishing, with the
+  other unsafe links, instead of failing the whole site build. Syndication plans no longer warn
+  about literal raw HTML for a reflection's own layout markup.
+- A published shared reflection now reads the same in portable HTML, Markdown, plain text, RSS, JSON
+  Feed and llms-full.txt whichever layout it uses: each round prompt, then every turn under its
+  author's name and label, in the published order, with no styles, scripts, placeholders or markers
+  needed. Portable Markdown and text no longer show the page's layout tags as words, and
+  llms-full.txt now keeps prompts, names and labels with their words. The portable HTML check
+  reports that column and stagger placement is the one thing a portable copy does not carry.
+- Fixed: Markdown typed into a turn label, round prompt or participant name (such as
+  `[x](javascript:alert(1))`) could become a live link in the portable Markdown export and could
+  break the build. These values now stay plain text everywhere.
+- Fixed: in an alternating dialogue the side changes only when the speaker changes, so one author's
+  consecutive turns stay on the same side. Point and counterpoint uses two columns only for exactly
+  two people and one column for three or more.
+- Fixed: a last turn that ends in an indented code block is no longer refused when publishing.
+- Shared reflections can also be presented as point and counterpoint, an alternating dialogue or a
+  roundtable. A coordinator picks the layout in Admin and can give any turn an optional short label
+  (such as "Point"); no label is added for you, and no layout implies that anyone disagrees. The
+  roundtable fits any number of participants. Every turn still has its author's name as a heading,
+  the page reads in the same order without styles, and wide-screen placement falls back to one
+  column on narrow screens, at high zoom and in print. If a contribution is missing or withdrawn,
+  its turn and label disappear and the rest read as one honest column.
+- Shared reflections can now be presented sequentially or side by side. A coordinator chooses the
+  layout and the order of turns in Admin (Shared reflections, "Layout and arrangement"); writers can
+  start a new part of their draft with "Start a new part". The published page keeps one reading
+  order in the page itself, so a screen reader, print and a page without styles read it top to
+  bottom, and side by side becomes one column on narrow screens and at high zoom. Changing the
+  layout or the order makes earlier approvals stale, so every author approves what readers will
+  see. The part marker line is never shown anywhere.
+- Added the layout-independent structure of a shared reflection: rounds, round prompts and turns
+  that point at parts of each participant's draft, one deterministic reading order that shows each
+  reader only what they may read, and five layout modes over the same contributions without any
+  gendered or positional field. Nothing is presented differently yet; invalid structures are
+  refused without echoing anyone's text.
+
 ## [0.23.0] - 2026-10-25
 
 - The continuing conversation travels with the piece. Full-content RSS, JSON Feed, portable

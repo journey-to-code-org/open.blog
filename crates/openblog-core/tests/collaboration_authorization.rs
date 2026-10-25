@@ -8,7 +8,7 @@ use openblog_core::{
 };
 use serde_json::json;
 
-const ACTIONS: [AuthorizationAction; 15] = [
+const ACTIONS: [AuthorizationAction; 16] = [
     AuthorizationAction::ViewPublication,
     AuthorizationAction::ViewPublished,
     AuthorizationAction::ViewRevealed,
@@ -24,6 +24,7 @@ const ACTIONS: [AuthorizationAction; 15] = [
     AuthorizationAction::Export,
     AuthorizationAction::PlaceInSeries,
     AuthorizationAction::CreateSeries,
+    AuthorizationAction::ArrangeReflection,
 ];
 
 /// One allowed (action, target) pair in the role matrix.
@@ -206,6 +207,7 @@ fn every_role_action_combination_is_explicit() {
                     (ManageRoles, linus_target),
                     (Export, Publication),
                     (PlaceInSeries, Publication),
+                    (ArrangeReflection, Publication),
                     (CreateSeries, Publication),
                 ];
                 // The last site owner cannot remove themselves.
@@ -228,6 +230,7 @@ fn every_role_action_combination_is_explicit() {
                     (ManageRoles, linus_target),
                     (Export, Publication),
                     (PlaceInSeries, Publication),
+                    (ArrangeReflection, Publication),
                 ];
                 if !grace_site_owner {
                     grants.extend([(RemoveMember, grace_target), (ManageRoles, grace_target)]);

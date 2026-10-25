@@ -2497,6 +2497,64 @@ html[data-admin-density="compact"] .oba-pane {
   }
 }
 
+/* Research notebook capture */
+.oba-small-heading {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.oba-capture-form {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.oba-capture-form fieldset {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.8rem 0.8rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-capture-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+}
+
+.oba-capture-check input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+}
+
+.oba-capture-checks {
+  max-height: 14rem;
+  overflow: auto;
+}
+
+.oba-capture-form textarea,
+.oba-capture-form input[type="text"],
+.oba-capture-form select {
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.oba-capture-form textarea:focus-visible,
+.oba-capture-form input:focus-visible,
+.oba-capture-form select:focus-visible,
+.oba-capture-form button:focus-visible,
+.oba-capture-checks:focus-visible {
+  outline: 3px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+.oba-capture-dialog {
+  width: min(40rem, calc(100vw - 2rem));
+}
+
 /* Anchors styled as buttons or tabs should not look like prose links. */
 a.oba-btn,
 a.oba-tab {
@@ -2772,6 +2830,10 @@ a.oba-btn-primary {
     flex: 1 1 100%;
   }
 }
+
+.oba-arrangement { margin-top: 1rem; }
+.oba-arrangement-turn { margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.oba-arrangement-turn input[type="number"] { width: 5rem; }
 
 .oba-synthesis {
   margin-top: 1rem;
