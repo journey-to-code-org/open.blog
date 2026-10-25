@@ -273,6 +273,18 @@ impl SharedPublication {
         may_manage(requester, &prospective)
     }
 
+    /// The invitations a requester who may invite can see, newest first. Hashes stay inside.
+    pub fn invitations_for(
+        &self,
+        requester: &str,
+        identities: &Identities<'_>,
+    ) -> Result<Vec<&Invitation>, InvitationError> {
+        self.inviter(requester, identities)?;
+        let mut invitations = self.invitations.iter().collect::<Vec<_>>();
+        invitations.sort_by_key(|invitation| std::cmp::Reverse(invitation.created_at));
+        Ok(invitations)
+    }
+
     /// Start an invitation. Returns the next record and the token to copy; the token is not
     /// stored and cannot be shown again.
     pub fn invite(

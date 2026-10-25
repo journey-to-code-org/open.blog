@@ -13,11 +13,19 @@ use std::path::{Path, PathBuf};
 use openblog_core::collaboration::{
     NewSharedPublication, SharedPublication, SharedPublicationError, MAX_SHARED_PUBLICATION_BYTES,
 };
+use openblog_core::invitation::InvitationState;
 
 use crate::auth;
 
 pub const DIRECTORY: &str = ".openblog/private/collaboration/publications";
 const MAX_ID_ATTEMPTS: usize = 8;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReplaceError {
+    /// The record changed since it was loaded, or is gone.
+    Conflict,
+    Storage(String),
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CreateError {
@@ -132,9 +140,63 @@ pub fn load_all(root: &Path) -> Result<Vec<(PathBuf, SharedPublication)>, String
 pub fn bound_contributor_ids(root: &Path) -> Result<BTreeSet<String>, String> {
     Ok(load_all(root)?
         .into_iter()
-        .flat_map(|(_, record)| record.authorization.bindings)
-        .map(|binding| binding.contributor_id)
+        .flat_map(|(_, record)| {
+            let invited = record
+                .invitations
+                .iter()
+                .filter(|invitation| invitation.state == InvitationState::Pending)
+                .map(|invitation| invitation.contributor_id.clone())
+                .collect::<Vec<_>>();
+            record
+                .authorization
+                .bindings
+                .into_iter()
+                .map(|binding| binding.contributor_id)
+                .chain(invited)
+                .collect::<Vec<_>>()
+        })
         .collect())
+}
+
+/// Atomically replace a record that nobody changed since `previous` was loaded. The caller holds
+/// the Admin content transaction lock; the comparison also catches a change made outside it, so
+/// a stale decision is refused instead of overwriting newer state.
+pub fn replace(
+    root: &Path,
+    previous: &SharedPublication,
+    next: &SharedPublication,
+) -> Result<(), ReplaceError> {
+    if previous.publication_id != next.publication_id {
+        return Err(ReplaceError::Conflict);
+    }
+    let directory = directory(root).map_err(ReplaceError::Storage)?;
+    let target = directory.join(format!("{}.json", previous.publication_id));
+    let current = fs::symlink_metadata(&target)
+        .ok()
+        .filter(|metadata| {
+            metadata.is_file() && metadata.len() <= MAX_SHARED_PUBLICATION_BYTES as u64
+        })
+        .and_then(|_| fs::read_to_string(&target).ok())
+        .and_then(|text| SharedPublication::from_json(&text).ok());
+    if current.as_ref() != Some(previous) {
+        return Err(ReplaceError::Conflict);
+    }
+    let text = record_text(next).map_err(ReplaceError::Storage)?;
+    let temporary =
+        temporary_path(&directory, &next.publication_id).map_err(ReplaceError::Storage)?;
+    write_private_file(&temporary, text.as_bytes()).map_err(ReplaceError::Storage)?;
+    fs::rename(&temporary, &target).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        ReplaceError::Storage(format!("cannot update the shared publication: {error}"))
+    })
+}
+
+/// The record with this ID, if it is readable.
+pub fn load(root: &Path, publication_id: &str) -> Result<Option<SharedPublication>, String> {
+    Ok(load_all(root)?
+        .into_iter()
+        .map(|(_, record)| record)
+        .find(|record| record.publication_id == publication_id))
 }
 
 /// Remove every binding for an Admin username, so an account created later under the same
@@ -456,5 +518,44 @@ mod tests {
         assert_eq!(revoked.authorization.revision, 2);
         assert_eq!(find(&grace.publication_id), grace);
         assert_eq!(stored_files(&root.0).len(), 2);
+    }
+    #[test]
+    fn replacing_a_record_refuses_a_stale_or_foreign_copy_and_changes_nothing() {
+        let root = root("replace");
+        let stored = create(&root.0, request("ada-admin")).unwrap();
+        let mut newer = stored.clone();
+        newer.authorization.revision += 1;
+        replace(&root.0, &stored, &newer).unwrap();
+        assert_eq!(
+            load(&root.0, &stored.publication_id).unwrap(),
+            Some(newer.clone())
+        );
+
+        let mut other = newer.clone();
+        other.authorization.revision += 1;
+        let before = fs::read(
+            root.0
+                .join(DIRECTORY)
+                .join(format!("{}.json", stored.publication_id)),
+        )
+        .unwrap();
+        assert_eq!(
+            replace(&root.0, &stored, &other),
+            Err(ReplaceError::Conflict)
+        );
+        other.publication_id = "shared-someoneelse".into();
+        assert_eq!(
+            replace(&root.0, &newer, &other),
+            Err(ReplaceError::Conflict)
+        );
+        let after = fs::read(
+            root.0
+                .join(DIRECTORY)
+                .join(format!("{}.json", stored.publication_id)),
+        )
+        .unwrap();
+        assert_eq!(before, after);
+        assert_eq!(stored_files(&root.0).len(), 1);
+        assert_eq!(load(&root.0, "shared-missing").unwrap(), None);
     }
 }
