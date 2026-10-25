@@ -1,13 +1,13 @@
-# ADR 0008: Exchange sources as CSL JSON and BibTeX, with a preview before any write
+# ADR 0012: Exchange sources as CSL JSON and BibTeX, with a preview before any write
 
 - Status: Accepted
 - Date: 2026-10-25
 - Decision issue: [#35](https://github.com/journey-to-code-org/open.blog/issues/35)
 - Parent story: [#17](https://github.com/journey-to-code-org/open.blog/issues/17)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0005](0005-research-source-library-identity.md),
-  [ADR 0006](0006-private-source-library-storage.md), and
-  [ADR 0007](0007-admin-source-library-management.md)
+- Builds on: [ADR 0009](0009-research-source-library-identity.md),
+  [ADR 0010](0010-private-source-library-storage.md), and
+  [ADR 0011](0011-admin-source-library-management.md)
 - Contract: [Research source library format](../specs/research-source-library.md)
 
 ## Context

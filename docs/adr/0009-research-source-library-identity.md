@@ -1,4 +1,4 @@
-# ADR 0005: Keep research sources as distinct, stably identified records
+# ADR 0009: Keep research sources as distinct, stably identified records
 
 - Status: Accepted
 - Date: 2026-10-24

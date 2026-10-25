@@ -1,17 +1,17 @@
-# ADR 0007: Manage the source library through narrow, revision-checked Admin APIs
+# ADR 0011: Manage the source library through narrow, revision-checked Admin APIs
 
 - Status: Accepted
 - Date: 2026-10-25
 - Decision issue: [#34](https://github.com/journey-to-code-org/open.blog/issues/34)
 - Parent story: [#17](https://github.com/journey-to-code-org/open.blog/issues/17)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0005](0005-research-source-library-identity.md) and
-  [ADR 0006](0006-private-source-library-storage.md)
+- Builds on: [ADR 0009](0009-research-source-library-identity.md) and
+  [ADR 0010](0010-private-source-library-storage.md)
 - Contract: [Research source library format](../specs/research-source-library.md)
 
 ## Context
 
-ADR 0006 gave the library a private, revision-checked store. Authors still had to edit JSON
+ADR 0010 gave the library a private, revision-checked store. Authors still had to edit JSON
 by hand. Admin must create, edit, archive, filter, and reopen every source type without
 weakening any of the store's guarantees, and without the browser becoming a second
 validator that could disagree with core.

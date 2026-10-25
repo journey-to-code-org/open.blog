@@ -1,16 +1,16 @@
-# ADR 0006: Store the source library as one private, revision-checked file
+# ADR 0010: Store the source library as one private, revision-checked file
 
 - Status: Accepted
 - Date: 2026-10-24
 - Decision issue: [#33](https://github.com/journey-to-code-org/open.blog/issues/33)
 - Parent story: [#17](https://github.com/journey-to-code-org/open.blog/issues/17)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0005](0005-research-source-library-identity.md)
+- Builds on: [ADR 0009](0009-research-source-library-identity.md)
 - Contract: [Research source library format](../specs/research-source-library.md)
 
 ## Context
 
-ADR 0005 defined the source library's format and its all-or-nothing validation, but left
+ADR 0009 defined the source library's format and its all-or-nothing validation, but left
 open where the file lives, how concurrent Admin tabs and command-line tools avoid
 overwriting each other, and what happens when a write is interrupted or the stored file is
 damaged. The library is private author research. ADR 0004 requires that kind of state to

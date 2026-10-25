@@ -113,17 +113,17 @@ position, identifier, and field. Changes are revision-checked and atomic: a chan
 an outdated read, an invalid change, or an interrupted write leaves the stored file exactly
 as it was, and a damaged or newer-version file is reported rather than replaced. See the
 [format and storage contract](specs/research-source-library.md) and
-[ADR 0006](adr/0006-private-source-library-storage.md).
+[ADR 0010](adr/0010-private-source-library-storage.md).
 
 Admin Studio manages the library under **Sources** (`#/sources`, also in the command
 palette): create, edit, archive, restore, search, and filter each source type. A stale edit
 shows a conflict and keeps your draft without overwriting newer data; see
-[ADR 0007](adr/0007-admin-source-library-management.md).
+[ADR 0011](adr/0011-admin-source-library-management.md).
 
 Sources also imports CSL JSON (for example from Zotero) after a preview that lists what would
 be created, updated, kept, and not imported, and exports CSL JSON or BibTeX. Importing never
 removes anything or discards richer details and is safe to repeat; see
-[ADR 0008](adr/0008-source-library-interchange.md).
+[ADR 0012](adr/0012-source-library-interchange.md).
 
 For the product boundary and supporting standards research, see
 [Research and evidence publishing](research/research-evidence-publishing.md) and

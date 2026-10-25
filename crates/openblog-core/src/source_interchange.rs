@@ -8,7 +8,7 @@
 //! existing record only ever adds or replaces what the item states, so richer
 //! open.blog metadata (relationships, locations, unknown fields, extra
 //! creators and identifiers) survives a re-import, and importing the same
-//! file twice changes nothing. See ADR 0008.
+//! file twice changes nothing. See ADR 0012.
 //!
 //! Nothing here contacts a metadata service or decides what a source proves.
 

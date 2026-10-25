@@ -1,9 +1,9 @@
 # Research source library format
 
 Version 1 of the private source library contract defined by
-[ADR 0005](../adr/0005-research-source-library-identity.md). It is implemented by
+[ADR 0009](../adr/0009-research-source-library-identity.md). It is implemented by
 `openblog_core::source_library` and stored as described in
-[ADR 0006](../adr/0006-private-source-library-storage.md). Builds never read it;
+[ADR 0010](../adr/0010-private-source-library-storage.md). Builds never read it;
 `openblog check` validates it, and Admin Studio editing arrives with issue
 [#34](https://github.com/journey-to-code-org/open.blog/issues/34).
 
@@ -97,7 +97,7 @@ kind, and dependent record are derived in memory from the file and never stored.
 ## Admin API
 
 Admin manages the library through authenticated, CSRF-protected endpoints; see
-[ADR 0007](../adr/0007-admin-source-library-management.md). `GET /admin/api/sources`
+[ADR 0011](../adr/0011-admin-source-library-management.md). `GET /admin/api/sources`
 returns `file`, `revision`, `stored`, and `sources`. `POST` creates and `PUT` updates one
 record sent as `{ "revision", "source" }`; `POST /admin/api/sources/archive` sends
 `{ "revision", "id", "archived" }` and changes only that field. Bodies are limited to
@@ -108,7 +108,7 @@ source-scoped `diagnostics`. Neither writes anything.
 ## Interchange
 
 CSL JSON import and CSL JSON / BibTeX export; see
-[ADR 0008](../adr/0008-source-library-interchange.md). `POST /admin/api/sources/import`
+[ADR 0012](../adr/0012-source-library-interchange.md). `POST /admin/api/sources/import`
 sends `{ "revision", "content", "apply" }` (at most 3 MiB). With `apply: false` it returns
 a `plan` and writes nothing: `counts`, and per item the `action` (`create`, `update`,
 `unchanged`, `conflict`), `changes`, `kept`, `unsupported` (item fields the library does
