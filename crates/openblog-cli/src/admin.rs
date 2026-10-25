@@ -9993,6 +9993,488 @@ mod tests {
         assert_eq!(stored_notebook(&g).unwrap(), bytes);
     }
 
+    // ---- publication-leak regression corpus (A2.4, ADR 0027) --------------------
+    //
+    // Every field a notebook entry can carry holds its own distinctive sentinel.
+    // The corpus then proves, surface by surface, that none of them crosses a
+    // boundary the author did not explicitly open. Adding a surface means adding
+    // one line to `surfaces`; adding a field means adding one sentinel.
+
+    const SENTINELS: [(&str, &str); 9] = [
+        ("passage id", "ob-leak-passage-id-4471"),
+        ("excerpt", "ob-leak-excerpt-text-4471"),
+        ("locator", "ob-leak-locator-4471"),
+        ("unknown passage field", "ob-leak-extra-field-4471"),
+        ("note id", "ob-leak-note-id-4471"),
+        ("note text", "ob-leak-note-text-4471"),
+        ("concept", "ob-leak-concept-4471"),
+        ("archived note id", "ob-leak-archived-id-4471"),
+        ("archived note text", "ob-leak-archived-text-4471"),
+    ];
+
+    fn leaked(bytes: &[u8]) -> Vec<&'static str> {
+        let text = String::from_utf8_lossy(bytes);
+        SENTINELS
+            .iter()
+            .filter(|(_, sentinel)| text.contains(sentinel))
+            .map(|(name, _)| *name)
+            .collect()
+    }
+
+    fn assert_clean(surface: &str, bytes: &[u8]) {
+        let found = leaked(bytes);
+        assert!(
+            found.is_empty(),
+            "{surface} exposes private research ({})",
+            found.join(", ")
+        );
+        assert!(
+            !openblog_core::research_bundle::looks_like_private_research(bytes),
+            "{surface} carries a research export or notebook copy"
+        );
+    }
+
+    /// Signed-in diagnostics are scoped by entry id so the author can find the
+    /// entry they name (ADR 0025); everything else about an entry stays out.
+    fn assert_text_free(surface: &str, bytes: &[u8]) {
+        let text = String::from_utf8_lossy(bytes);
+        for (name, sentinel) in SENTINELS {
+            if name.ends_with(" id") {
+                continue;
+            }
+            assert!(
+                !text.contains(sentinel),
+                "{surface} repeats private research ({name})"
+            );
+        }
+    }
+
+    fn seeded_leak_corpus(f: &Fixture, session: &(String, String)) {
+        let empty = notebook(f, session);
+        let (status, saved) = notebook_call(
+            f,
+            session,
+            "POST",
+            "/admin/api/research/passages",
+            json!({"revision": empty["revision"], "passage": {
+                "id": SENTINELS[0].1, "source": "slings",
+                "excerpt": {"text": format!("{} quoted", SENTINELS[1].1)},
+                "locators": [{"kind": "page", "value": SENTINELS[2].1}],
+                "shelf": {"memo": SENTINELS[3].1}}}),
+        );
+        assert_eq!(status, 201, "{saved}");
+        let (status, saved) = notebook_call(
+            f,
+            session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": saved["revision"], "note": {
+                "id": SENTINELS[4].1, "kind": "observation",
+                "text": format!("{} noted", SENTINELS[5].1),
+                "passages": [SENTINELS[0].1], "concepts": [SENTINELS[6].1]}}),
+        );
+        assert_eq!(status, 201, "{saved}");
+        let (status, saved) = notebook_call(
+            f,
+            session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": saved["revision"], "note": {
+                "id": SENTINELS[7].1, "kind": "question", "archived": true,
+                "text": format!("{} set aside", SENTINELS[8].1)}}),
+        );
+        assert_eq!(status, 201, "{saved}");
+    }
+
+    #[test]
+    fn private_research_sentinels_never_cross_a_publication_boundary() {
+        let f = fixture_with_sources("notebook-leak-corpus");
+        let session = login_ok(&f);
+        seeded_leak_corpus(&f, &session);
+        let stored = stored_notebook(&f).unwrap();
+        // Positive controls: the seeds are really in the private file and its
+        // authorised views, so a clean result below means something.
+        assert_eq!(
+            leaked(&stored).len(),
+            SENTINELS.len(),
+            "every sentinel is stored"
+        );
+        let (status, exported) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/export",
+            json!({"includePrivate": true}),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(
+            leaked(exported["content"].as_str().unwrap().as_bytes()).len(),
+            SENTINELS.len(),
+            "the explicit export carries everything, archived entries included"
+        );
+
+        // The built site: pages, feeds, search index, llms files, assets.
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        let files = crate::fsutil::walk(&dist);
+        let names: Vec<String> = files
+            .iter()
+            .map(|file| crate::fsutil::relative(&dist, file))
+            .collect();
+        for expected in ["index.html", "search.json", "llms.txt", "llms-full.txt"] {
+            assert!(
+                names.iter().any(|name| name == expected),
+                "{expected} was built: {names:?}"
+            );
+        }
+        assert!(
+            names.iter().any(|name| name.ends_with(".xml")),
+            "a feed was built: {names:?}"
+        );
+        for file in &files {
+            let name = crate::fsutil::relative(&dist, file);
+            assert!(
+                !name.contains("notebook")
+                    && (name == crate::fsutil::MARKER || !name.contains(".openblog")),
+                "{name}"
+            );
+            assert_clean(&format!("dist/{name}"), &fs::read(file).unwrap());
+        }
+
+        // Portable exports of every published article.
+        let (site, _) = crate::site::load_site(&f.dir, false, None).unwrap();
+        assert!(!site.posts.is_empty());
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::from_post(post, &site.config)
+                    .unwrap();
+            assert_clean(
+                &format!("portable markdown of {}", post.slug),
+                projection.portable_markdown().unwrap().as_bytes(),
+            );
+            let html = projection.portable_html().unwrap();
+            assert_clean(
+                &format!("portable html of {}", post.slug),
+                format!("{html:?}").as_bytes(),
+            );
+        }
+
+        // Source exports (CSL JSON and BibTeX) and the library file itself.
+        for format in ["csl-json", "bibtex"] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/sources/export?format={format}")),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(response.status, 200);
+            assert_clean(&format!("{format} export"), &response.body);
+        }
+        assert_clean(
+            "the source library file",
+            &fs::read(f.dir.join(crate::source_store::LIBRARY_FILE)).unwrap(),
+        );
+        // The content tree and the configuration, which source mode edits.
+        let mut tree = crate::fsutil::walk(&f.dir.join("content"));
+        tree.push(f.dir.join("openblog.json"));
+        for file in tree {
+            assert_clean(&format!("{}", file.display()), &fs::read(&file).unwrap());
+        }
+
+        // Other Admin views are not a back door to the notebook.
+        for path in ["meta", "sources", "preferences", "contributors", "session"] {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", &format!("/admin/api/{path}")), &session, false),
+            );
+            assert_clean(&format!("admin {path}"), &response.body);
+        }
+
+        // The public server does not serve private storage under any spelling.
+        for path in [
+            "/.openblog/private/research/notebook.json",
+            "/.openblog/private/research/notebook.json/",
+            "/%2eopenblog/private/research/notebook.json",
+            "/../.openblog/private/research/notebook.json",
+            "/search.json?q=ob-leak-note-text-4471",
+        ] {
+            let response = crate::serve::route(&f.state, &req("GET", path), &dist);
+            assert_clean(&format!("public route {path}"), &response.body);
+        }
+
+        // Error bodies, anonymous or malformed, never repeat stored or submitted text.
+        let anonymous = |method: &str, path: &str, body: &str| {
+            let mut r = req(method, path);
+            r.headers
+                .insert("content-type".into(), "application/json".into());
+            r.body = body.as_bytes().to_vec();
+            handle(&f.state, &r)
+        };
+        let submitted = format!("{{\"q\":\"{}\"}}", SENTINELS[5].1);
+        for (method, path) in [
+            ("POST", "/admin/api/research/search"),
+            ("POST", "/admin/api/research/backlinks"),
+            ("POST", "/admin/api/research/export"),
+            ("POST", "/admin/api/research/import"),
+            ("POST", "/admin/api/research/archive"),
+            ("GET", "/admin/api/research/notebook"),
+            ("PUT", "/admin/api/research/notes"),
+            ("DELETE", "/admin/api/research/passages"),
+        ] {
+            let denied = anonymous(method, path, &submitted);
+            assert!(
+                denied.status == 401 || denied.status == 405,
+                "{method} {path}"
+            );
+            assert_clean(&format!("anonymous {method} {path}"), &denied.body);
+            if method == "GET" {
+                continue; // a signed-in read needs no token, and is the authorised view
+            }
+            let no_csrf = handle(
+                &f.state,
+                &authed(
+                    {
+                        let mut r = req(method, path);
+                        r.headers
+                            .insert("content-type".into(), "application/json".into());
+                        r.body = submitted.as_bytes().to_vec();
+                        r
+                    },
+                    &session,
+                    false,
+                ),
+            );
+            assert_clean(&format!("no-CSRF {method} {path}"), &no_csrf.body);
+        }
+        let revision = notebook(&f, &session)["revision"].clone();
+        let revision = revision.as_str().unwrap().to_string();
+        let bad = format!("{}\u{202e}", SENTINELS[5].1);
+        let refusals = [
+            // An invalid entry: scoped diagnostics, never its text.
+            notebook_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/notes",
+                json!({
+                "revision": revision, "note": {"id": SENTINELS[5].1.to_uppercase(), "kind": "observation", "text": bad}}),
+            ),
+            notebook_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/notes",
+                json!({
+                "revision": revision, "note": {"id": "fresh", "kind": "observation", "text": bad, "passages": [SENTINELS[1].1]}}),
+            ),
+            notebook_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/passages",
+                json!({
+                "revision": revision, "passage": {"id": "fresh", "source": SENTINELS[3].1, "excerpt": {"text": bad}}}),
+            ),
+            // An import that conflicts, or is hostile, repeats nothing.
+            notebook_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/import",
+                json!({
+                "revision": revision, "apply": true, "bundle": {"format": "open.blog/research-notebook",
+                "version": 1, "private": true, "notebook": {"version": 1, "notes": [
+                    {"id": SENTINELS[4].1, "kind": "observation", "text": "a different thought"}]}}}),
+            ),
+            notebook_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/import",
+                json!({
+                "revision": revision, "bundle": {"format": SENTINELS[5].1}}),
+            ),
+            // A removal that is refused, and a search that is.
+            notebook_call(
+                &f,
+                &session,
+                "DELETE",
+                "/admin/api/research/passages",
+                json!({
+                "revision": revision, "id": SENTINELS[0].1}),
+            ),
+            notebook_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/search",
+                json!({
+                "q": "x".repeat(300), "concept": SENTINELS[6].1.to_uppercase()}),
+            ),
+            notebook_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/export",
+                json!({}),
+            ),
+        ];
+        for (status, body) in refusals {
+            assert!((400..500).contains(&status), "{status} {body}");
+            assert_text_free(&format!("error body {status}"), body.to_string().as_bytes());
+        }
+
+        // A damaged notebook is reported with its path, never its text.
+        let path = f.dir.join(crate::notebook_store::NOTEBOOK_FILE);
+        let damaged = format!("{{\"version\":1,\"notes\":[{{\"id\":\"n\",\"kind\":\"observation\",\"text\":\"{}\",\"visibility\":\"public\"}}]}}", SENTINELS[5].1);
+        fs::write(&path, damaged).unwrap();
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/notebook"), &session, false),
+        );
+        assert_eq!(response.status, 422);
+        assert_text_free("damaged notebook report", &response.body);
+        let (status, searched) = search(&f, &session, "search?q=anything");
+        assert_eq!(status, 422);
+        assert_text_free("damaged notebook search", searched.to_string().as_bytes());
+        fs::write(&path, &stored).unwrap();
+    }
+
+    #[test]
+    fn the_hosted_publish_path_never_carries_private_research() {
+        let f = fixture_with_sources("notebook-leak-publish");
+        let session = login_ok(&f);
+        seeded_leak_corpus(&f, &session);
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        git.run(&["config", "user.email", "t@example.com"]).unwrap();
+        git.run(&["config", "user.name", "T"]).unwrap();
+        git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+        let mut config = site::load_config(&f.dir).unwrap();
+        // Even when the private directory is listed as publishable.
+        config.publish.paths = vec!["content".into(), "static".into(), ".openblog".into()];
+        let outcome = crate::publish::publish(&f.dir, &config, Some("Corpus")).unwrap();
+        assert!(!outcome.committed.is_empty());
+        assert!(outcome
+            .committed
+            .iter()
+            .all(|path| !path.contains(".openblog/private")));
+        for (name, sentinel) in SENTINELS {
+            let history = git
+                .run(&["log", "--all", "-p", "--format=%H", "-S", sentinel])
+                .unwrap();
+            assert!(
+                history.trim().is_empty(),
+                "{name} reached the commit history"
+            );
+        }
+        let tree = git.run(&["ls-files"]).unwrap();
+        assert!(
+            !tree.contains("notebook.json") && !tree.contains("research/"),
+            "{tree}"
+        );
+
+        // The workspace's durable store is private storage, not a publish path:
+        // publication still refuses a notebook copy that lands in a published folder.
+        let (status, exported) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/export",
+            json!({"includePrivate": true}),
+        );
+        assert_eq!(status, 200);
+        fs::create_dir_all(f.dir.join("static")).unwrap();
+        fs::write(
+            f.dir.join("static/research.json"),
+            exported["content"].as_str().unwrap(),
+        )
+        .unwrap();
+        let error = crate::publish::publish(&f.dir, &config, Some("Leak")).unwrap_err();
+        assert!(error.contains("static/research.json"), "{error}");
+        assert!(leaked(error.as_bytes()).is_empty());
+        // And the build refuses to generate a site around it.
+        let error = crate::site::build(
+            &f.dir,
+            &crate::site::BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains("static/research.json"), "{error}");
+        assert!(leaked(error.as_bytes()).is_empty());
+        let Err(error) = f.state.rebuild() else {
+            panic!("Admin's own rebuild refuses it too")
+        };
+        assert!(error.contains("static/research.json"), "{error}");
+        assert!(leaked(error.as_bytes()).is_empty());
+        for (name, sentinel) in SENTINELS {
+            assert!(
+                !git.run(&["log", "--all", "-S", sentinel, "--format=%H"])
+                    .unwrap()
+                    .contains(char::is_alphanumeric),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn notebook_code_has_no_logging_path_for_private_text() {
+        // Nothing that handles research text prints, logs or debug-dumps it, so
+        // no log line can carry it. Sources are checked as text.
+        let admin = include_str!("admin.rs");
+        let start = admin
+            .find("/// Read a search or backlinks request")
+            .expect("the research routes start here");
+        let end = admin[start..]
+            .find("fn content_transaction")
+            .expect("and end here")
+            + start;
+        let routes = &admin[start..end];
+        let files = [
+            ("the research routes", routes),
+            ("notebook_store.rs", include_str!("notebook_store.rs")),
+            (
+                "research_bundle.rs",
+                include_str!("../../openblog-core/src/research_bundle.rs"),
+            ),
+            (
+                "research_search.rs",
+                include_str!("../../openblog-core/src/research_search.rs"),
+            ),
+            (
+                "research_notes.rs",
+                include_str!("../../openblog-core/src/research_notes.rs"),
+            ),
+            ("private_guard.rs", include_str!("private_guard.rs")),
+        ];
+        let banned = [
+            "println!",
+            "eprintln!",
+            "print!",
+            "eprint!",
+            "dbg!",
+            "log::",
+            "tracing::",
+        ];
+        for (name, text) in files {
+            for line in text.lines() {
+                let code = line.trim_start();
+                if code.starts_with("//") {
+                    continue;
+                }
+                for word in banned {
+                    assert!(!code.contains(word), "{name} logs: {code}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn notebook_search_follows_edits_archives_and_reports_a_damaged_notebook() {
         let f = fixture_with_sources("notebook-search-edits");

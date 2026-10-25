@@ -14,6 +14,7 @@ mod hashnode;
 mod http;
 mod notebook_store;
 mod portable_export;
+mod private_guard;
 mod publish;
 mod safe_http;
 mod scaffold;
@@ -375,6 +376,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         "analytics" => analytics_command(&root, &args),
         "check" => {
             let (site, themes) = site::load_site(&root, true, None)?;
+            private_guard::refuse_private_research_in_public_inputs(&root, &site.config)?;
             let files = openblog_core::generate(&site, &themes)?;
             println!(
                 "OK: {} posts, {} series, {} tags, {} pages; would write {} generated files.",

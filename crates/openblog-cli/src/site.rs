@@ -520,6 +520,9 @@ pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> 
 pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
     let (site, themes) = load_site(root, options.include_drafts, options.now)?;
     let config = &site.config;
+    // Private research must never ride into a public folder (an export saved
+    // into static/, a copied notebook): refuse before anything is generated.
+    crate::private_guard::refuse_private_research_in_public_inputs(root, config)?;
     // Required destinations (including full-content feeds) must succeed before
     // generated output or stale files are changed.
     let files = generate(&site, &themes)?;
