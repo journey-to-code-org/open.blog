@@ -37,6 +37,14 @@ set, the participants the maintainer added.
   addresses through, so a section with raw HTML or an active address (`javascript:`, `data:`) is
   refused with a message that quotes nothing, rather than altered, because the approval is for the
   exact text. Markup shown as code is fine.
+- The safety check runs on the exact joined body the site will render, with the site's own parser
+  options, never on sections alone, because Markdown can act across the section rule. Besides raw
+  HTML and active addresses it refuses heading attributes beyond an id and classes (`{onclick=...}`),
+  and refuses the whole piece when the joined parse differs from the sections parsed one by one and
+  joined by a rule (an open fence, a reference definition or a footnote in one section reaching
+  another). So the Post renders as the concatenation of what each author previewed and approved,
+  and one author cannot change how another's section reads. The check does not know the site's
+  smart punctuation setting, so it must hold under both.
 - Publishing is one unit under the Admin content lock: assemble, check the site would build it,
   write the Post and credits, record the outcome, rebuild. Any failure restores the files and the
   outcome and rebuilds, so content, collaboration state and public output are unchanged. The

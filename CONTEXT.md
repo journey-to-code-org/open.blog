@@ -165,7 +165,8 @@ time falling due. It runs only for a requester holding the publish grant, only w
 `ApprovalSet::evaluate` passes against the content as it is at that moment, and writes the Post,
 its credits, the private outcome and the rebuilt output as one unit that is undone if any step
 fails. A retry changes nothing. A scheduled publication is held in private state, not content, and
-passes the gate again when it falls due (ADR 0022).
+passes the gate again when it falls due (ADR 0022). The gate also refuses a piece whose joined page
+would differ from the sections as each author previewed them, or carry active markup (ADR 0022).
 _Avoid_: Auto-publish, scheduled Post written ahead of approval
 
 **Published assembly**:

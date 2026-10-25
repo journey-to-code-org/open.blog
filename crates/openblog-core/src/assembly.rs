@@ -152,9 +152,6 @@ pub fn assemble(
             .iter()
             .find(|binding| binding.participant_id == participant.id)
             .ok_or(AssemblyError::Invalid)?;
-        if has_unsafe_markup(&view.markdown) {
-            return Err(AssemblyError::UnsafeMarkup);
-        }
         prose.push(view.markdown.trim().to_string());
         credits.push(serde_json::json!({
             "contributor": binding.contributor_id,
@@ -163,6 +160,10 @@ pub fn assemble(
     }
     if prose.is_empty() || prose.iter().any(String::is_empty) {
         return Err(AssemblyError::Invalid);
+    }
+
+    if has_unsafe_markup(&prose) {
+        return Err(AssemblyError::UnsafeMarkup);
     }
 
     let mut fields: BTreeMap<String, Value> = BTreeMap::new();
@@ -205,10 +206,13 @@ pub fn assemble(
     })
 }
 
-/// Whether Markdown carries raw HTML outside code, or a link or image whose address is not
-/// http(s), mail, telephone or relative.
-fn has_unsafe_markup(markdown: &str) -> bool {
-    use pulldown_cmark::{Event, Options, Parser, Tag};
+/// Whether the joined body would publish anything but each author's own approved prose: raw
+/// HTML, an active link or image address, heading attributes beyond an id and classes, or
+/// Markdown in one section that changes how another renders (an open fence, a reference
+/// definition, a footnote). Checked on the exact parse the site renders with, both with and
+/// without smart punctuation because the site setting is not known here.
+fn has_unsafe_markup(sections: &[String]) -> bool {
+    use pulldown_cmark::{Event, Parser, Tag};
     let unsafe_address = |address: &str| {
         let compact: String = address
             .chars()
@@ -222,12 +226,26 @@ fn has_unsafe_markup(markdown: &str) -> bool {
             _ => false,
         }
     };
-    Parser::new_ext(markdown, Options::all()).any(|event| match event {
-        Event::Html(_) | Event::InlineHtml(_) => true,
-        Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
-            unsafe_address(&dest_url)
+    [false, true].into_iter().any(|smart| {
+        let options = crate::markdown::parser_options(smart);
+        let joined = sections.join(SECTION_BREAK);
+        let mut separate: Vec<Event<'_>> = Vec::new();
+        for (index, section) in sections.iter().enumerate() {
+            if index > 0 {
+                separate.push(Event::Rule);
+            }
+            separate.extend(Parser::new_ext(section, options));
         }
-        _ => false,
+        let together: Vec<Event<'_>> = Parser::new_ext(&joined, options).collect();
+        together != separate
+            || together.iter().any(|event| match event {
+                Event::Html(_) | Event::InlineHtml(_) => true,
+                Event::Start(Tag::Heading { attrs, .. }) => !attrs.is_empty(),
+                Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                    unsafe_address(dest_url)
+                }
+                _ => false,
+            })
     })
 }
 

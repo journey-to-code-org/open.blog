@@ -318,3 +318,58 @@ fn unsafe_markup_in_any_section_refuses_the_whole_piece_even_when_approved() {
     }
     assert!(assemble(&record, &set, &approvals, &ALL, DATE).is_ok());
 }
+
+#[test]
+fn markup_that_only_the_joined_page_would_make_active_or_different_is_refused() {
+    let record = record();
+    for (ann, bo) in [
+        (
+            "Ann words",
+            "# Bo heading {onclick=alert(5) onmouseover=alert(6)}",
+        ),
+        ("Ann words", "Bo $<script>alert(1)</script>$ words"),
+        (
+            "Ann words",
+            "---
+<script>alert(4)</script>
+---",
+        ),
+        ("Ann [click me] words", "[click me]: javascript:alert(3)"),
+        (
+            "Ann words
+
+```",
+            "Bo words",
+        ),
+        (
+            "Ann words[^1]",
+            "Bo words
+
+[^1]: note",
+        ),
+        (
+            "Ann words
+
+<!--",
+            "Bo words",
+        ),
+    ] {
+        let set = drafts(&[("ann", ann), ("bo", bo)]);
+        let mut approvals = ApprovalSet::new();
+        for who in ALL {
+            approve(&record, &set, &mut approvals, who);
+        }
+        assert_eq!(
+            assemble(&record, &set, &approvals, &ALL, DATE),
+            Err(AssemblyError::UnsafeMarkup),
+            "{ann:?} / {bo:?}"
+        );
+    }
+    // Plain id and class attributes on a heading stay allowed.
+    let set = drafts(&[("ann", "# Ann {#intro .lead}"), ("bo", "Bo words")]);
+    let mut approvals = ApprovalSet::new();
+    for who in ALL {
+        approve(&record, &set, &mut approvals, who);
+    }
+    assert!(assemble(&record, &set, &approvals, &ALL, DATE).is_ok());
+}

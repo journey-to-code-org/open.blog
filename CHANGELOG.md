@@ -12,7 +12,9 @@ All notable changes to open.blog are recorded here. Releases follow
   rebuilt site as one unit and is undone if any step fails; repeating it changes nothing. A
   scheduled reflection is held privately and checked again when its time comes, so an edit or a
   removal after scheduling holds it back. Sections with raw HTML or `javascript:` style links are
-  refused, and refusals never repeat anyone's text.
+  refused, and refusals never repeat anyone's text. The check covers the combined page, so heading
+  attributes, math-style `$...$` markup, and an unclosed code fence or link definition in one
+  section that would change another author's section are refused too.
 - Added the approval model for shared reflections: an approval is an author's own affirmative,
   timestamped consent bound to the exact content, author set, order, public metadata and policy,
   so editing or changing any of them withdraws the affected approvals and nobody can approve for
