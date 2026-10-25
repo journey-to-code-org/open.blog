@@ -35,6 +35,7 @@ use openblog_core::invitation::{
 use openblog_core::markdown::RenderOptions;
 use openblog_core::members::MemberError;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
+use openblog_core::research_bundle;
 use openblog_core::research_notes::{
     NoteDiagnostic, NoteDiagnosticCode, Passage, QuestionState, ResearchNote,
 };
@@ -78,6 +79,8 @@ const MAX_ASSISTANT_CONTEXT_BYTES: usize = 64 * 1024;
 const MAX_SOURCE_REQUEST_BYTES: usize = 256 * 1024;
 const MAX_RESEARCH_READ_BYTES: usize = 16 * 1024;
 const MAX_NOTEBOOK_REQUEST_BYTES: usize = 256 * 1024;
+/// A research bundle carries a whole notebook (4 MiB) plus its envelope.
+const MAX_RESEARCH_IMPORT_BYTES: usize = research_bundle::MAX_BUNDLE_BYTES + 64 * 1024;
 const MAX_SOURCE_IMPORT_BYTES: usize = 3 * 1024 * 1024;
 const MAX_PORTABILITY_ACKNOWLEDGEMENTS: usize = 500;
 
@@ -446,6 +449,9 @@ pub fn preflight(state: &AppState, req: &Request) -> Result<usize, Response> {
             let config = site::load_config(&state.root).unwrap_or_default();
             return Ok(config.admin.max_upload_mb as usize * 1024 * 1024);
         }
+        if name == "research/import" {
+            return Ok(MAX_RESEARCH_IMPORT_BYTES);
+        }
         return Ok(MAX_JSON_BODY);
     }
     Ok(0)
@@ -608,6 +614,9 @@ fn authenticated_api(
         ("GET", "research/notebook") => list_notebook(state),
         ("POST", "research/search") => search_notebook(state, req),
         ("POST", "research/backlinks") => notebook_backlinks(state, req),
+        ("POST", "research/archive") => archive_entry(state, req),
+        ("POST", "research/export") => export_notebook(state, req),
+        ("POST", "research/import") => import_notebook(state, req),
         ("POST", "research/passages") => save_passage(state, req, true),
         ("PUT", "research/passages") => save_passage(state, req, false),
         ("DELETE", "research/passages") => remove_entry(state, req, true),
@@ -1172,6 +1181,7 @@ fn search_notebook(state: &AppState, req: &Request) -> Response {
         locator_kind: param("locator"),
         concept: param("concept"),
         state: question,
+        include_archived: body["includeArchived"].as_bool().unwrap_or(false),
     };
     let snapshot = match notebook_store::load(&state.root, &source_contributors(state)) {
         Ok(snapshot) => snapshot,
@@ -1316,6 +1326,140 @@ fn remove_entry(state: &AppState, req: &Request, passage: bool) -> Response {
     match removed {
         Ok(snapshot) => Response::json(200, &notebook_view(&snapshot)),
         Err(error) => notebook_store_error(state, error, Some((passage, id))),
+    }
+}
+
+/// Archive or restore one passage or note. It only sets the entry aside; the
+/// text stays in the file and in exports, and removal rules are unchanged.
+fn archive_entry(state: &AppState, req: &Request) -> Response {
+    let (body, revision) = match notebook_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let (Some(id), Some(archived)) = (body["id"].as_str(), body["archived"].as_bool()) else {
+        return Response::error(400, "Name the entry id and whether it is archived");
+    };
+    let collection = match body["type"].as_str() {
+        Some("passage") => notebook_store::Collection::Passages,
+        Some("note") => notebook_store::Collection::Notes,
+        _ => return Response::error(400, "Name a type: passage or note"),
+    };
+    match notebook_store::set_archived(
+        &state.root,
+        &revision,
+        collection,
+        id,
+        archived,
+        &source_contributors(state),
+    ) {
+        Ok(snapshot) => Response::json(200, &notebook_view(&snapshot)),
+        Err(error) => notebook_store_error(
+            state,
+            error,
+            Some((collection == notebook_store::Collection::Passages, id)),
+        ),
+    }
+}
+
+/// Export the whole private notebook as a versioned bundle. Private research
+/// text leaves the project only through this route, and only when the request
+/// says so explicitly (`includePrivate: true`); nothing else reads the notebook
+/// into an export. Read-only, deterministic for a revision, and `no-store`.
+fn export_notebook(state: &AppState, req: &Request) -> Response {
+    let body = match research_read_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    if body["includePrivate"] != json!(true) {
+        return Response::error(
+            400,
+            "The export contains your private passages and notes; confirm that with includePrivate: true",
+        );
+    }
+    let snapshot = match notebook_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return notebook_store_error(state, error, None),
+    };
+    let export = research_bundle::export(&snapshot.notebook, &snapshot.library);
+    Response::json(
+        200,
+        &json!({
+            "file": notebook_store::NOTEBOOK_FILE,
+            "revision": snapshot.revision,
+            "private": true,
+            "filename": research_bundle::BUNDLE_FILENAME,
+            "mediaType": "application/json",
+            "passages": export.passages,
+            "notes": export.notes,
+            "archived": export.archived,
+            "content": export.content,
+        }),
+    )
+}
+
+/// Preview (`apply: false`) or apply a research bundle, sent as the `bundle`
+/// object. The preview never writes. An apply is refused whole when any entry
+/// conflicts, and otherwise goes through the same revision-checked, atomic
+/// store as every other notebook change.
+fn import_notebook(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    if req.body.len() > MAX_RESEARCH_IMPORT_BYTES {
+        return Response::error(413, "A research bundle is limited to 4.25 MiB");
+    }
+    let Ok(body) = serde_json::from_slice::<Json>(&req.body) else {
+        return Response::error(400, "Invalid JSON");
+    };
+    let (Some(revision), true) = (body["revision"].as_str(), body["bundle"].is_object()) else {
+        return Response::error(400, "Name the notebook revision and send the bundle");
+    };
+    let apply = body["apply"].as_bool().unwrap_or(false);
+    let content = body["bundle"].to_string();
+    let contributors = source_contributors(state);
+    let snapshot = match notebook_store::load(&state.root, &contributors) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return notebook_store_error(state, error, None),
+    };
+    if snapshot.revision != revision {
+        return notebook_store_error(state, notebook_store::StoreError::Conflict, None);
+    }
+    let plan = match research_bundle::plan_import(&snapshot.notebook, &snapshot.library, &content) {
+        Ok(plan) => plan,
+        Err(diagnostics) => return notebook_diagnostics(diagnostics),
+    };
+    if !apply || (!plan.has_changes() && plan.is_applicable()) {
+        return Response::json(
+            200,
+            &json!({
+                "file": notebook_store::NOTEBOOK_FILE,
+                "revision": snapshot.revision,
+                "applied": false,
+                "applicable": plan.is_applicable(),
+                "plan": plan,
+            }),
+        );
+    }
+    if !plan.is_applicable() {
+        let blockers = plan.blockers();
+        let error = blockers.first().map_or_else(
+            || "The import has conflicts".to_string(),
+            ToString::to_string,
+        );
+        return Response::json(
+            422,
+            &json!({ "error": error, "file": notebook_store::NOTEBOOK_FILE, "diagnostics": blockers, "plan": plan }),
+        );
+    }
+    match notebook_store::import_bundle(&state.root, revision, &content, &contributors) {
+        Ok((saved, plan)) => {
+            let mut view = notebook_view(&saved);
+            view["applied"] = json!(true);
+            view["applicable"] = json!(true);
+            view["plan"] = json!(plan);
+            Response::json(200, &view)
+        }
+        Err(error) => notebook_store_error(state, error, None),
     }
 }
 
@@ -9639,6 +9783,214 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn notebook_lifecycle_routes_are_authenticated_csrf_protected_and_scoped() {
+        let f = fixture_with_sources("notebook-lifecycle-auth");
+        let session = login_ok(&f);
+        for path in ["research/archive", "research/export", "research/import"] {
+            let mut anonymous = req("POST", &format!("/admin/api/{path}"));
+            anonymous
+                .headers
+                .insert("content-type".into(), "application/json".into());
+            anonymous.body = b"{}".to_vec();
+            assert_eq!(handle(&f.state, &anonymous).status, 401, "{path}");
+            let no_token = authed(anonymous.clone(), &session, false);
+            assert_eq!(handle(&f.state, &no_token).status, 403, "{path}");
+            let response = handle(&f.state, &authed(anonymous, &session, true));
+            assert!(
+                response
+                    .headers
+                    .iter()
+                    .any(|(n, v)| n == "Cache-Control" && v == "no-store"),
+                "{path} responses are no-store"
+            );
+        }
+        // Only research/import may exceed the ordinary JSON body size.
+        let limit = |name: &str| {
+            let r = authed(req("POST", &format!("/admin/api/{name}")), &session, true);
+            preflight(&f.state, &r).unwrap()
+        };
+        assert!(limit("research/import") > limit("research/search"));
+    }
+
+    #[test]
+    fn archiving_is_revision_checked_reversible_and_keeps_entries_out_of_default_search() {
+        let f = fixture_with_sources("notebook-archive");
+        let session = login_ok(&f);
+        let stored = seeded_notebook(&f, &session);
+        let revision = stored["revision"].clone();
+        let archive =
+            |body: Json| notebook_call(&f, &session, "POST", "/admin/api/research/archive", body);
+        let (status, stale) = archive(
+            json!({"revision": "0".repeat(64), "type": "note", "id": "n2", "archived": true}),
+        );
+        assert_eq!(status, 409, "{stale}");
+        assert_eq!(stale["current"]["id"], "n2");
+        for body in [
+            json!({"revision": revision, "type": "thing", "id": "n2", "archived": true}),
+            json!({"revision": revision, "type": "note", "archived": true}),
+            json!({"revision": revision, "type": "note", "id": "n2"}),
+        ] {
+            assert_eq!(archive(body).0, 400);
+        }
+        let (status, missing) =
+            archive(json!({"revision": revision, "type": "note", "id": "ghost", "archived": true}));
+        assert_eq!(status, 422, "{missing}");
+        assert_eq!(missing["diagnostics"][0]["code"], "unknown-entry");
+        let before = stored_notebook(&f).unwrap();
+
+        let (status, archived) =
+            archive(json!({"revision": revision, "type": "note", "id": "n2", "archived": true}));
+        assert_eq!(status, 200, "{archived}");
+        assert!(archived["notes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n["id"] == "n2" && n["archived"] == true));
+        let (_, hidden) = search(&f, &session, "search");
+        assert!(!hidden["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|h| h["id"] == "n2"));
+        assert_eq!(hidden["counts"]["archived"], 1);
+        assert_eq!(hidden["counts"]["resolvedQuestions"], 0);
+        let mut shown = req("POST", "/admin/api/research/search");
+        shown
+            .headers
+            .insert("content-type".into(), "application/json".into());
+        shown.body = br#"{"includeArchived":true}"#.to_vec();
+        let shown = body_json(&handle(&f.state, &authed(shown, &session, true)));
+        let hit = shown["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|h| h["id"] == "n2")
+            .unwrap();
+        assert_eq!(hit["archived"], true);
+
+        let (status, restored) = archive(
+            json!({"revision": archived["revision"], "type": "note", "id": "n2", "archived": false}),
+        );
+        assert_eq!(status, 200, "{restored}");
+        assert_eq!(
+            stored_notebook(&f).unwrap(),
+            before,
+            "restoring is byte-identical"
+        );
+    }
+
+    #[test]
+    fn exporting_the_notebook_needs_an_explicit_request_and_importing_is_dry_run_first() {
+        let f = fixture_with_sources("notebook-bundle");
+        let session = login_ok(&f);
+        let stored = seeded_notebook(&f, &session);
+        let bytes = stored_notebook(&f).unwrap();
+        let export =
+            |body: Json| notebook_call(&f, &session, "POST", "/admin/api/research/export", body);
+
+        // Nothing leaves without the explicit confirmation.
+        for body in [
+            json!({}),
+            json!({"includePrivate": "yes"}),
+            json!({"includePrivate": false}),
+        ] {
+            let (status, refused) = export(body);
+            assert_eq!(status, 400);
+            assert!(!refused.to_string().contains("Why a cave"), "{refused}");
+        }
+        let (status, exported) = export(json!({"includePrivate": true}));
+        assert_eq!(status, 200, "{exported}");
+        assert_eq!(exported["private"], true);
+        assert_eq!(exported["passages"], 1);
+        assert_eq!(exported["notes"], 2);
+        let content = exported["content"].as_str().unwrap().to_string();
+        assert!(content.contains("Why a cave?"));
+        assert_eq!(exported["revision"], stored["revision"]);
+        assert_eq!(
+            export(json!({"includePrivate": true})).1["content"],
+            content,
+            "deterministic"
+        );
+        assert_eq!(
+            stored_notebook(&f).unwrap(),
+            bytes,
+            "exporting writes nothing"
+        );
+
+        // Into another project: preview first, nothing written.
+        let g = fixture_with_sources("notebook-bundle-target");
+        let other = login_ok(&g);
+        let empty = notebook(&g, &other);
+        let bundle: Json = serde_json::from_str(&content).unwrap();
+        let import =
+            |body: Json| notebook_call(&g, &other, "POST", "/admin/api/research/import", body);
+        let (status, preview) = import(json!({"revision": empty["revision"], "bundle": bundle}));
+        assert_eq!(status, 200, "{preview}");
+        assert_eq!(preview["applied"], false);
+        assert_eq!(preview["applicable"], true);
+        assert_eq!(preview["plan"]["counts"]["create"], 3);
+        assert!(
+            !preview.to_string().contains("Why a cave"),
+            "a plan never repeats text"
+        );
+        assert!(stored_notebook(&g).is_none(), "a preview writes nothing");
+
+        let (status, stale) =
+            import(json!({"revision": "0".repeat(64), "apply": true, "bundle": bundle}));
+        assert_eq!(status, 409, "{stale}");
+        assert!(stored_notebook(&g).is_none());
+
+        let (status, applied) =
+            import(json!({"revision": empty["revision"], "apply": true, "bundle": bundle}));
+        assert_eq!(status, 200, "{applied}");
+        assert_eq!(applied["applied"], true);
+        assert_eq!(
+            stored_notebook(&g).unwrap(),
+            bytes,
+            "the restored file is byte-identical"
+        );
+
+        // Importing again is a no-op, even when asked to apply.
+        let (status, again) =
+            import(json!({"revision": applied["revision"], "apply": true, "bundle": bundle}));
+        assert_eq!(status, 200, "{again}");
+        assert_eq!(again["applied"], false);
+        assert_eq!(again["plan"]["counts"]["unchanged"], 3);
+        assert_eq!(stored_notebook(&g).unwrap(), bytes);
+
+        // A conflict refuses the whole import with text-free, entry-scoped diagnostics.
+        let mut changed = bundle.clone();
+        changed["notebook"]["notes"][0]["text"] = json!("A rival thought");
+        let (status, blocked) =
+            import(json!({"revision": applied["revision"], "apply": true, "bundle": changed}));
+        assert_eq!(status, 422, "{blocked}");
+        assert!(blocked["diagnostics"][0]["id"] == "n1" || blocked["diagnostics"][0]["id"] == "n2");
+        assert!(
+            !blocked.to_string().contains("rival thought")
+                && !blocked.to_string().contains("Why a cave")
+        );
+        assert_eq!(stored_notebook(&g).unwrap(), bytes);
+
+        // Hostile bundles are refused before anything is read into the notebook.
+        for hostile in [
+            json!({"format": "open.blog/research-notebook", "version": 9, "private": true, "notebook": {}}),
+            json!({"format": "other"}),
+            json!({"format": "open.blog/research-notebook", "version": 1, "private": true,
+                "notebook": {"version": 1, "notes": [{"id": "../x", "kind": "observation", "text": "t"}]}}),
+            json!({"format": "open.blog/research-notebook", "version": 1, "private": true,
+                "notebook": {"version": 1, "passages": [{"id": "p", "source": "ghost", "excerpt": {"text": "t"}}]}}),
+        ] {
+            let (status, refused) =
+                import(json!({"revision": applied["revision"], "apply": true, "bundle": hostile}));
+            assert_eq!(status, 422, "{refused}");
+            assert!(refused["diagnostics"].is_array());
+        }
+        let (status, _) = import(json!({"revision": applied["revision"], "bundle": "text"}));
+        assert_eq!(status, 400);
+        assert_eq!(stored_notebook(&g).unwrap(), bytes);
     }
 
     #[test]

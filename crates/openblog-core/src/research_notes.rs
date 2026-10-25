@@ -32,7 +32,14 @@ const MAX_LINKS: usize = 100;
 const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
 
 const NOTEBOOK_FIELDS: &[&str] = &["version", "passages", "notes"];
-const PASSAGE_FIELDS: &[&str] = &["id", "source", "excerpt", "locators", "visibility"];
+const PASSAGE_FIELDS: &[&str] = &[
+    "id",
+    "source",
+    "excerpt",
+    "locators",
+    "archived",
+    "visibility",
+];
 const EXCERPT_FIELDS: &[&str] = &["text", "language"];
 const LOCATOR_FIELDS: &[&str] = &["kind", "value", "to"];
 const NOTE_FIELDS: &[&str] = &[
@@ -43,6 +50,7 @@ const NOTE_FIELDS: &[&str] = &[
     "sources",
     "concepts",
     "status",
+    "archived",
     "visibility",
 ];
 
@@ -196,6 +204,10 @@ pub struct Passage {
     pub excerpt: QuotedExcerpt,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub locators: Vec<Locator>,
+    /// Set aside by the author: kept, exported and searchable on request, but
+    /// out of the way. Written only when true, and never a publication switch.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     pub visibility: Visibility,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -222,6 +234,9 @@ pub struct ResearchNote {
     /// Only on a question, and only once the author has set it; absent means open.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<QuestionState>,
+    /// Set aside by the author; see [`Passage::archived`].
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     pub visibility: Visibility,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -524,6 +539,22 @@ impl Reader<'_> {
         ids
     }
 
+    /// An optional boolean flag: absent is false, anything but a boolean is refused.
+    fn flag(&mut self, name: &str) -> bool {
+        match self.fields.remove(name) {
+            None => false,
+            Some(Value::Bool(value)) => value,
+            Some(_) => {
+                self.report(
+                    NoteDiagnosticCode::InvalidField,
+                    name,
+                    "must be true or false",
+                );
+                false
+            }
+        }
+    }
+
     fn visibility(&mut self) {
         match self.fields.remove("visibility") {
             None => {}
@@ -603,6 +634,7 @@ fn parse_passage(
     reader.reject_credits();
     let source = reader.take_id("source", "source identifier", true);
     reader.visibility();
+    let archived = reader.flag("archived");
 
     let excerpt = reader.take_object("excerpt", true).and_then(|mut object| {
         let text = reader.text_in(&mut object, "excerpt", "text", true, MAX_BODY_CHARS, true);
@@ -663,6 +695,7 @@ fn parse_passage(
                 source,
                 excerpt,
                 locators,
+                archived,
                 visibility: Visibility::Private,
                 extra,
             }),
@@ -726,6 +759,7 @@ fn parse_note(
     let id = reader.take_id("id", "note identifier", true);
     reader.reject_credits();
     reader.visibility();
+    let archived = reader.flag("archived");
     let kind = match reader.fields.remove("kind") {
         Some(Value::String(text)) => {
             let kind = NoteKind::parse(&text);
@@ -802,6 +836,7 @@ fn parse_note(
                 sources,
                 concepts,
                 status,
+                archived,
                 visibility: Visibility::Private,
                 extra,
             }),

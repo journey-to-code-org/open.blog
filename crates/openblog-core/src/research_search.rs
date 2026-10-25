@@ -48,6 +48,8 @@ pub struct SearchQuery {
     pub concept: Option<String>,
     /// A question state. Only questions have one, so this selects questions.
     pub state: Option<QuestionState>,
+    /// Archived entries are left out unless asked for.
+    pub include_archived: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -84,6 +86,8 @@ pub struct EntryLink {
     pub preview: String,
     /// The link points at an entry that is not in the notebook.
     pub missing: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -95,6 +99,8 @@ pub struct SearchHit {
     pub kind: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<QuestionState>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
     pub score: u32,
     /// Plain text around the first match, or the start of the entry.
     pub snippet: String,
@@ -128,8 +134,11 @@ pub struct BrokenLink {
 pub struct NotebookCounts {
     pub passages: usize,
     pub notes: usize,
+    /// Live questions still waiting for an answer; archived ones are not counted.
     pub open_questions: usize,
     pub resolved_questions: usize,
+    /// Entries (passages and notes) the author has set aside.
+    pub archived: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -344,6 +353,7 @@ fn note_link(note: &ResearchNote) -> EntryLink {
         state: note.question_state(),
         preview: preview(&note.text, PREVIEW_CHARS),
         missing: false,
+        archived: note.archived,
     }
 }
 
@@ -355,6 +365,7 @@ fn passage_link(passage: &Passage) -> EntryLink {
         state: None,
         preview: preview(&passage.excerpt.text, PREVIEW_CHARS),
         missing: false,
+        archived: passage.archived,
     }
 }
 
@@ -366,6 +377,7 @@ fn missing_passage(id: &str) -> EntryLink {
         state: None,
         preview: String::new(),
         missing: true,
+        archived: false,
     }
 }
 
@@ -415,7 +427,7 @@ pub fn counts(notebook: &Notebook) -> NotebookCounts {
         notebook
             .notes
             .iter()
-            .filter(|note| note.question_state() == Some(wanted))
+            .filter(|note| !note.archived && note.question_state() == Some(wanted))
             .count()
     };
     NotebookCounts {
@@ -423,6 +435,8 @@ pub fn counts(notebook: &Notebook) -> NotebookCounts {
         notes: notebook.notes.len(),
         open_questions: state(QuestionState::Open),
         resolved_questions: state(QuestionState::Resolved),
+        archived: notebook.passages.iter().filter(|p| p.archived).count()
+            + notebook.notes.iter().filter(|n| n.archived).count(),
     }
 }
 
@@ -432,6 +446,7 @@ struct Filters<'a> {
     locator_kind: Option<LocatorKind>,
     concept: Option<&'a str>,
     state: Option<QuestionState>,
+    include_archived: bool,
 }
 
 impl Filters<'_> {
@@ -450,7 +465,8 @@ impl Filters<'_> {
     }
 
     fn passage_matches(&self, passage: &Passage) -> bool {
-        self.concept.is_none()
+        (self.include_archived || !passage.archived)
+            && self.concept.is_none()
             && self.state.is_none()
             && self.source_matches(&passage.source)
             && self.locator_matches(passage)
@@ -477,7 +493,11 @@ impl Filters<'_> {
         let state_ok = self
             .state
             .is_none_or(|wanted| note.question_state() == Some(wanted));
-        source_ok && locator_ok && concept_ok && state_ok
+        (self.include_archived || !note.archived)
+            && source_ok
+            && locator_ok
+            && concept_ok
+            && state_ok
     }
 }
 
@@ -664,6 +684,7 @@ pub fn search(
         locator_kind,
         concept: query.concept.as_deref(),
         state: query.state,
+        include_archived: query.include_archived,
     };
     let passages: BTreeMap<&str, &Passage> = notebook
         .passages
@@ -717,6 +738,7 @@ pub fn search(
                 entry: EntryType::Passage,
                 kind: None,
                 state: None,
+                archived: passage.archived,
                 score: points,
                 snippet: snippet(&passage.excerpt.text, &words),
                 matched,
@@ -736,6 +758,7 @@ pub fn search(
                     entry: EntryType::Note,
                     kind: link.kind,
                     state: link.state,
+                    archived: note.archived,
                     score: points,
                     snippet: snippet(&note.text, &words),
                     matched,
@@ -938,7 +961,8 @@ mod tests {
                 passages: 3,
                 notes: 4,
                 open_questions: 2,
-                resolved_questions: 1
+                resolved_questions: 1,
+                archived: 0
             }
         );
         assert!(results.broken.is_empty());
@@ -1335,5 +1359,70 @@ mod tests {
             let found = parse(bad).unwrap_err();
             assert_eq!(found[0].field.as_deref(), Some("status"));
         }
+    }
+
+    #[test]
+    fn archived_entries_are_kept_out_unless_asked_for_and_never_counted_as_open() {
+        let mut book = notebook();
+        book.notes[0].archived = true; // why-cave, an open question
+        book.passages[2].archived = true; // timaeus
+        let hidden = search(&book, &library(), &SearchQuery::default()).unwrap();
+        assert_eq!(
+            ids(&hidden),
+            ["cave", "sun", "answered", "obs", "loose"],
+            "archived entries are left out"
+        );
+        assert_eq!(hidden.counts.archived, 2);
+        assert_eq!(
+            hidden.counts.open_questions, 1,
+            "an archived question is not open"
+        );
+        let shown = search(
+            &book,
+            &library(),
+            &SearchQuery {
+                include_archived: true,
+                ..SearchQuery::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(shown.total, 7);
+        let why = shown.hits.iter().find(|h| h.id == "why-cave").unwrap();
+        assert!(why.archived);
+        let cave = shown.hits.iter().find(|h| h.id == "cave").unwrap();
+        assert!(cave
+            .notes
+            .iter()
+            .any(|link| link.id == "why-cave" && link.archived));
+        let value = serde_json::to_value(cave).unwrap();
+        assert!(value.get("archived").is_none(), "false is not written");
+        assert_eq!(serde_json::to_value(why).unwrap()["archived"], true);
+        // Backlinks still list archived entries, flagged.
+        let found = backlinks(&book, &library(), &BacklinkTarget::Passage("cave".into())).unwrap();
+        assert!(found
+            .entries
+            .iter()
+            .any(|e| e.link.id == "why-cave" && e.link.archived));
+    }
+
+    #[test]
+    fn the_archived_flag_is_a_boolean_and_round_trips() {
+        let archived = ResearchNote::from_json(
+            json!({"id": "n", "kind": "observation", "text": ".", "archived": true}),
+        )
+        .unwrap();
+        assert!(archived.archived);
+        assert!(serde_json::to_string(&archived)
+            .unwrap()
+            .contains("\"archived\":true"));
+        let plain = ResearchNote::from_json(json!({"id": "n", "kind": "observation", "text": "."}))
+            .unwrap();
+        assert!(!plain.archived);
+        assert!(!serde_json::to_string(&plain).unwrap().contains("archived"));
+        let found = Passage::from_json(
+            json!({"id": "p", "source": "plato", "excerpt": {"text": "q"}, "archived": "yes"}),
+        )
+        .unwrap_err();
+        assert_eq!(found[0].field.as_deref(), Some("archived"));
     }
 }

@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use openblog_core::contributor::Contributor;
+use openblog_core::research_bundle::{self, ImportPlan};
 use openblog_core::research_notes::{
     NoteDiagnostic, NoteDiagnosticCode, Notebook, Passage, ResearchNote, MAX_NOTEBOOK_BYTES,
 };
@@ -226,6 +227,77 @@ pub fn remove_note(
         contributors,
         &|notebook, library| notebook.remove_note(id, library).map(|_| ()),
     )
+}
+
+/// Archive or restore one entry without touching any other field. Archiving
+/// only sets the entry aside: it stays in the file, in exports and in search on
+/// request, and a linked passage is still protected from removal.
+pub fn set_archived(
+    root: &Path,
+    expected_revision: &str,
+    collection: Collection,
+    id: &str,
+    archived: bool,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, StoreError> {
+    change(
+        root,
+        expected_revision,
+        contributors,
+        &|notebook, library| match collection {
+            Collection::Passages => {
+                let mut passage = notebook
+                    .passage(id)
+                    .cloned()
+                    .ok_or_else(|| vec![unknown_entry("passages", id)])?;
+                passage.archived = archived;
+                notebook.upsert_passage(passage, library)
+            }
+            Collection::Notes => {
+                let mut note = notebook
+                    .note(id)
+                    .cloned()
+                    .ok_or_else(|| vec![unknown_entry("notes", id)])?;
+                note.archived = archived;
+                notebook.upsert_note(note, library)
+            }
+        },
+    )
+}
+
+/// Which list an entry lives in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Collection {
+    Passages,
+    Notes,
+}
+
+/// Apply a research bundle: add the entries it carries that the notebook does
+/// not have. The plan is rebuilt from the notebook as stored under the lock, so
+/// it can never describe a stale notebook, and any conflict refuses the whole
+/// import before anything is written.
+pub fn import_bundle(
+    root: &Path,
+    expected_revision: &str,
+    text: &str,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<(Snapshot, ImportPlan), StoreError> {
+    let plan = std::cell::RefCell::new(None);
+    let snapshot = change(
+        root,
+        expected_revision,
+        contributors,
+        &|notebook, library| {
+            let found = research_bundle::plan_import(notebook, library, text)?;
+            *notebook = found.apply(notebook, library)?;
+            *plan.borrow_mut() = Some(found);
+            Ok(())
+        },
+    )?;
+    let plan = plan
+        .into_inner()
+        .ok_or_else(|| StoreError::Storage("the import produced no plan".into()))?;
+    Ok((snapshot, plan))
 }
 
 fn diagnostic(
@@ -715,5 +787,148 @@ mod tests {
             b.notebook.to_json().as_bytes()
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn archiving_sets_an_entry_aside_without_losing_or_unlinking_anything() {
+        let root = temp_root("archive");
+        with_library(&root);
+        let empty = load(&root, &none()).unwrap();
+        let one = create_passage(&root, &empty.revision, passage("p1", "slings"), &none()).unwrap();
+        let two = create_note(&root, &one.revision, note("n1", &["p1"], &[]), &none()).unwrap();
+
+        let stale = set_archived(
+            &root,
+            &empty.revision,
+            Collection::Notes,
+            "n1",
+            true,
+            &none(),
+        );
+        assert_eq!(stale, Err(StoreError::Conflict));
+        let missing = set_archived(
+            &root,
+            &two.revision,
+            Collection::Notes,
+            "ghost",
+            true,
+            &none(),
+        );
+        assert!(matches!(missing, Err(StoreError::Invalid(_))));
+        let before = fs::read(file(&root)).unwrap();
+
+        let archived = set_archived(
+            &root,
+            &two.revision,
+            Collection::Passages,
+            "p1",
+            true,
+            &none(),
+        )
+        .unwrap();
+        assert!(archived.notebook.passage("p1").unwrap().archived);
+        assert_eq!(
+            archived.notebook.passages[0].excerpt.text,
+            two.notebook.passages[0].excerpt.text
+        );
+        assert!(fs::read_to_string(file(&root))
+            .unwrap()
+            .contains("\"archived\": true"));
+        // Archived is not removed: the note's link still protects the passage.
+        assert!(matches!(
+            remove_passage(&root, &archived.revision, "p1", &none()),
+            Err(StoreError::Invalid(_))
+        ));
+        let restored = set_archived(
+            &root,
+            &archived.revision,
+            Collection::Passages,
+            "p1",
+            false,
+            &none(),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(file(&root)).unwrap(),
+            before,
+            "restoring is byte-identical"
+        );
+        assert!(!restored.notebook.passage("p1").unwrap().archived);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn importing_a_bundle_is_atomic_idempotent_and_conflicts_leave_the_file_alone() {
+        let root = temp_root("bundle");
+        with_library(&root);
+        let empty = load(&root, &none()).unwrap();
+        let one = create_passage(&root, &empty.revision, passage("p1", "slings"), &none()).unwrap();
+        let two = create_note(&root, &one.revision, note("n1", &["p1"], &[]), &none()).unwrap();
+        let bundle = research_bundle::export(&two.notebook, &two.library).content;
+
+        // Into a fresh project: everything is created, byte-identically.
+        let other = temp_root("bundle-target");
+        with_library(&other);
+        let target = load(&other, &none()).unwrap();
+        assert!(!file(&other).exists());
+        let (saved, plan) = import_bundle(&other, &target.revision, &bundle, &none()).unwrap();
+        assert_eq!(plan.counts.create, 2);
+        assert_eq!(
+            fs::read(file(&other)).unwrap(),
+            fs::read(file(&root)).unwrap()
+        );
+        assert_eq!(saved.notebook, two.notebook);
+
+        // The same bundle again plans nothing, and a stale revision is refused.
+        let again = plan_only(&other, &bundle);
+        assert_eq!(again.counts.unchanged, 2);
+        assert!(!again.has_changes());
+        assert_eq!(
+            import_bundle(&other, &target.revision, &bundle, &none()).err(),
+            Some(StoreError::Conflict)
+        );
+
+        // A conflicting id refuses everything and writes nothing.
+        let held = fs::read(file(&other)).unwrap();
+        let edited = update_note(
+            &other,
+            &saved.revision,
+            ResearchNote::from_json(json!({"id": "n1", "kind": "question", "text": "Changed"}))
+                .unwrap(),
+            &none(),
+        )
+        .unwrap();
+        let blocked = import_bundle(&other, &edited.revision, &bundle, &none());
+        let Err(StoreError::Invalid(found)) = blocked else {
+            panic!("a conflict must refuse the import")
+        };
+        assert_eq!(found[0].id.as_deref(), Some("n1"));
+        assert_ne!(fs::read(file(&other)).unwrap(), held);
+        assert_eq!(
+            fs::read(file(&other)).unwrap(),
+            edited.notebook.to_json().as_bytes()
+        );
+
+        // Garbage never reaches the file, and a refused import creates no directories.
+        let clean = temp_root("bundle-clean");
+        with_library(&clean);
+        let start = load(&clean, &none()).unwrap();
+        assert!(import_bundle(&clean, &start.revision, "{}", &none()).is_err());
+        assert!(
+            !file(&clean).exists()
+                && !file(&clean)
+                    .parent()
+                    .unwrap()
+                    .join("notebook.json.lock")
+                    .exists()
+        );
+        for dir in [root, other, clean] {
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    fn plan_only(root: &Path, bundle: &str) -> ImportPlan {
+        let snapshot = load(root, &none()).unwrap();
+        research_bundle::plan_import(&snapshot.notebook, &snapshot.library, bundle).unwrap()
     }
 }

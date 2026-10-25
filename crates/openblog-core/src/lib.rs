@@ -13,6 +13,7 @@
 //! - [`search`]: a small ranked search over a JSON index
 //! - [`source_library`]: private research sources with stable, versioned identities
 //! - [`research_notes`]: private passages and research notes that point into the source library
+//! - [`research_bundle`]: versioned portable export and dry-run import of that notebook, and the structural check build guards use
 //! - [`research_search`]: deterministic search, filters and backlinks over that private notebook
 //! - [`source_interchange`]: dry-run CSL JSON import and deterministic CSL JSON / BibTeX export
 
@@ -42,6 +43,7 @@ mod raw_html;
 pub mod recipe;
 pub mod render;
 pub mod research;
+pub mod research_bundle;
 pub mod research_notes;
 pub mod research_search;
 pub mod search;
