@@ -204,6 +204,22 @@ list item keeps its position. A malformed capability fails the projection with t
 and that capability's error and diagnostic; the canonical Markdown, the native HTML, and any
 remote state are left untouched.
 
+Markdown recipe details use the native duration formatter for numeric prep/cook/total
+times (including computed totals), while preserving nonnumeric text such as "overnight"
+or "10-15 min". Runnable language names follow the native renderer's case-insensitive
+recognition, so `WEB runnable` and `web runnable` both produce labeled HTML/CSS/JavaScript
+sources and the canonical live-preview link.
+
+Reviewed Markdown golden artifacts for the video lesson, recipe, and hostile imported HTML
+live beside their source fixtures under
+[`tests/fixtures/portable-html/`](../../tests/fixtures/portable-html/).
+`current_markdown_fallbacks_match_reviewed_golden_artifacts` parses these artifacts as plain
+CommonMark and checks static output, readable answers/timestamps/captions/code, privacy,
+stable bytes, and unchanged canonical/native content. Set `OPENBLOG_UPDATE_GOLDEN=1` only
+when intentionally regenerating and reviewing golden changes; ordinary test runs compare
+against the committed artifacts without updating them. Core regressions additionally cover
+fence collisions inside nested containers and malformed capability failures.
+
 ## Research, attribution, and planned structures
 
 The projection keeps what identifies and credits the work

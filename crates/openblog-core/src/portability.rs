@@ -928,10 +928,19 @@ impl<'a> PortableProjection<'a> {
 
         if let Some(recipe) = self.recipe {
             let mut facts = Vec::new();
+            for (label, minutes, written) in [
+                ("Prep", recipe.prep, recipe.prep_text.as_deref()),
+                ("Cook", recipe.cook, recipe.cook_text.as_deref()),
+                ("Total", recipe.total, recipe.total_text.as_deref()),
+            ] {
+                if let Some(value) = minutes
+                    .map(crate::recipe::format_minutes)
+                    .or_else(|| written.map(str::to_string))
+                {
+                    facts.push(format!("- {label}: {}", markdown_text(&value)));
+                }
+            }
             for (label, value) in [
-                ("Prep", recipe.prep_text.as_deref()),
-                ("Cook", recipe.cook_text.as_deref()),
-                ("Total", recipe.total_text.as_deref()),
                 ("Serves", recipe.servings_text.as_deref()),
                 ("Makes", recipe.yield_text.as_deref()),
                 ("Cuisine", recipe.cuisine.as_deref()),
@@ -1509,7 +1518,9 @@ fn portable_fence_markdown(
             &crate::markdown::portable_quiz_markdown(source)
                 .map_err(|error| format!("portable knowledge-check fallback failed: {error}"))?,
         );
-    } else if language == "web" && tokens.iter().any(|token| *token == "runnable") {
+    } else if language.eq_ignore_ascii_case("web")
+        && tokens.iter().any(|token| *token == "runnable")
+    {
         output.push_str(&portable_web_markdown(source, &tokens, canonical_url));
     } else {
         let runnable = tokens.iter().any(|token| *token == "runnable");
@@ -1520,7 +1531,11 @@ fn portable_fence_markdown(
                 markdown_text(title.trim_matches(['"', '\'']))
             ));
         }
-        let normalized_language = if language == "web" { "text" } else { language };
+        let normalized_language = if language.eq_ignore_ascii_case("web") {
+            "text"
+        } else {
+            language
+        };
         output.push_str(&markdown_code_fence(normalized_language, source));
         if runnable {
             if language.eq_ignore_ascii_case("rust")
@@ -1704,6 +1719,93 @@ mod tests {
     use super::*;
     use crate::config::SiteConfig;
     use crate::model::{LoadOptions, Site, SourceFile, Sources};
+
+    #[test]
+    fn markdown_web_fallback_matches_case_insensitive_native_language_and_preserves_collisions() {
+        let body = "- Exercise\n\n  ````WEB runnable title=\"Try Zürich\"\n  ---html\n  <p>``` inside source</p>\n  ---css\n  p { color: navy; }\n  ---js\n  console.log('Expected: 42');\n  ````\n\nExpected output: **42**.\n";
+        let (config, site) = public_post(&format!(
+            "---\ntitle: Web lesson\ndate: 2020-01-01\n---\n{body}"
+        ));
+        let post = &site.posts[0];
+        assert!(post.html.contains("<ob-web-sandbox>"));
+        let projection = PortableProjection::from_post(post, &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        assert!(markdown.contains("**HTML**"), "{markdown}");
+        assert!(markdown.contains("**CSS**"), "{markdown}");
+        assert!(markdown.contains("**JavaScript**"), "{markdown}");
+        assert!(
+            markdown.contains("Try Zürich on the canonical article"),
+            "{markdown}"
+        );
+        assert!(!markdown.contains("---html"), "{markdown}");
+        assert!(markdown.contains("Expected output: **42**."), "{markdown}");
+        let mut rendered = String::new();
+        pulldown_cmark::html::push_html(&mut rendered, Parser::new(&markdown));
+        assert!(
+            rendered.contains("&lt;p&gt;``` inside source&lt;/p&gt;"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("<li>\n<p>Exercise</p>\n<p><strong>HTML</strong>"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("<p>``` inside source</p>"));
+    }
+
+    #[test]
+    fn malformed_markdown_capabilities_fail_with_source_context_without_mutation() {
+        for (body, capability) in [
+            ("```quiz\nMissing choices?\n```\n", "quiz"),
+            ("```web runnable\nNo source markers\n```\n", "web"),
+        ] {
+            let (config, mut site) =
+                public_post("---\ntitle: Legacy\ndate: 2020-01-01\n---\nOriginal content.\n");
+            let post = &mut site.posts[0];
+            post.authored_markdown = body.into();
+            let native = post.html.clone();
+            let projection = PortableProjection::from_post(post, &config).unwrap();
+            let error = projection.portable_markdown().unwrap_err();
+            assert!(error.contains("posts/work.md"), "{error}");
+            assert!(error.to_lowercase().contains(capability), "{error}");
+            assert_eq!(post.authored_markdown(), body);
+            assert_eq!(post.html, native);
+        }
+    }
+
+    #[test]
+    fn markdown_recipe_times_match_native_facts_for_numeric_and_written_durations() {
+        for (fields, expected) in [
+            (
+                "prep: 10\ncook: 20\n",
+                vec!["Prep: 10 min", "Cook: 20 min", "Total: 30 min"],
+            ),
+            (
+                "prep: 1h30m\ncook: overnight\ntotal: 2 hr\n",
+                vec!["Prep: 1 hr 30 min", "Cook: overnight", "Total: 2 hr"],
+            ),
+            (
+                "prep: 10-15 min\ncook: 0\n",
+                vec!["Prep: 10-15 min", "Cook: 0 min"],
+            ),
+        ] {
+            let source = format!("---\ntitle: Recipe\ndate: 2020-01-01\nprofile: recipe\n{fields}---\n## Steps\n\n1. Mix.\n");
+            let (config, site) = public_post(&source);
+            let post = &site.posts[0];
+            let native = post.html.clone();
+            let projection = PortableProjection::from_post(post, &config).unwrap();
+            let markdown = projection.portable_markdown().unwrap();
+            let text = projection.portable_text().unwrap();
+            for fact in expected {
+                assert!(markdown.contains(fact), "{fact}: {markdown}");
+                assert!(text.contains(fact), "{fact}: {text}");
+            }
+            assert_eq!(post.html, native);
+            assert_eq!(
+                post.authored_markdown(),
+                crate::frontmatter::parse(&source).unwrap().body
+            );
+        }
+    }
 
     #[test]
     fn destination_content_plans_inventory_retained_media_and_disclose_unverified_conversion() {

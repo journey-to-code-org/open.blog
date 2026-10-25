@@ -239,6 +239,94 @@ fn assert_golden(name: &str, html: &str) {
 }
 
 #[test]
+fn current_markdown_fallbacks_match_reviewed_golden_artifacts() {
+    use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
+
+    for name in ["video-lesson", "recipe", "hostile-html"] {
+        let (config, site) = load(name);
+        let post = &site.posts[0];
+        let authored = post.authored_markdown().to_string();
+        let native = post.html.clone();
+        let projection = PortableProjection::from_post(post, &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        let path = format!("{FIXTURES}/{name}.portable.md");
+        if std::env::var_os("OPENBLOG_UPDATE_GOLDEN").is_some() {
+            std::fs::write(&path, &markdown).unwrap();
+        }
+        let expected = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{name}: missing Markdown golden: {error}"))
+            .replace("\r\n", "\n");
+        assert_eq!(markdown, expected, "{name}: Markdown golden changed");
+        assert_eq!(markdown, projection.portable_markdown().unwrap());
+        let events = Parser::new_ext(&markdown, Options::empty()).collect::<Vec<_>>();
+        for event in &events {
+            match event {
+                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) => {
+                    assert!(!info.contains("runnable"), "{name}: {info}");
+                    assert_ne!(info.as_ref(), "quiz");
+                }
+                Event::Html(html) | Event::InlineHtml(html) => {
+                    panic!("{name}: active HTML in Markdown artifact: {html}");
+                }
+                _ => {}
+            }
+        }
+        let mut html = String::new();
+        pulldown_cmark::html::push_html(&mut html, events.into_iter());
+        assert!(!html.contains("<script"));
+        assert!(!html.contains("<ob-"));
+        assert!(!html.contains("<iframe"));
+        for private in ["engage.example", "runner.example", "Private: ask Dana"] {
+            assert!(!markdown.contains(private), "{name}: leaked {private}");
+        }
+        assert_eq!(post.authored_markdown(), authored);
+        assert_eq!(post.html, native);
+        match name {
+            "video-lesson" => {
+                for fact in [
+                    "00:00 The gate opens",
+                    "1:02:03 Into the ruin",
+                    "Native disclosure works without JavaScript",
+                    "Zürich",
+                    "cargo run --release",
+                    "**HTML**",
+                    "**CSS**",
+                    "**JavaScript**",
+                    "Try it on the canonical article",
+                    "https://codepen.io/team/acme/pen/xyz",
+                    "The café gate",
+                    "**Answer:** 2.",
+                    "**Answer:** 1. No",
+                    "Join the discussion on the canonical article",
+                ] {
+                    assert!(markdown.contains(fact), "{name}: missing {fact}");
+                }
+            }
+            "recipe" => {
+                for fact in [
+                    "**Tip:**",
+                    "**Warning:**",
+                    "2 cups *tomatoes*",
+                    "Toss with the sauce.",
+                    "**Answer:** 2. At the end",
+                    "Prep: 10 min",
+                    "Cook: 10-15 min",
+                    "Serves: 4",
+                    "Read the discussion on the canonical article",
+                ] {
+                    assert!(markdown.contains(fact), "{name}: missing {fact}");
+                }
+            }
+            _ => {
+                assert!(markdown.contains("Portable export note"));
+                assert!(markdown.contains("A hand-written custom element keeps its text."));
+                assert!(!markdown.contains("Join the discussion"));
+            }
+        }
+    }
+}
+
+#[test]
 fn video_lesson_fallbacks_match_the_golden_output() {
     let (html, site) = portable("video-lesson");
     assert_golden("video-lesson", &html);
