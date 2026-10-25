@@ -30,6 +30,9 @@ Do not use syndication `--write` with these placeholder endpoints.
 - RSS and JSON Feed use the same portable HTML; JSON Feed adds a portable text companion.
 - DEV/Hashnode plans select Markdown, Ghost/WordPress plans select HTML, and Medium remains
   manual import. Destination policies explain canonical limitations.
+- DEV/Hashnode plans disclose selected/omitted tags and invalid metadata; the example uses
+  DEV-compatible alphanumeric tags. Hashnode plans measure the complete serialized request
+  against a conservative 100,000-byte limit without contacting the provider.
 - Private front matter, HTML comments, and configured service endpoints never enter the public
   representations. Native quizzes and sandboxes remain interactive on the canonical site.
 

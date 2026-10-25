@@ -47,6 +47,9 @@ pub struct DestinationPolicy {
     pub publication: DestinationPublication,
     pub canonical_behavior: &'static str,
     pub workflow: &'static str,
+    pub max_tags: Option<usize>,
+    pub max_tag_name_chars: Option<usize>,
+    pub max_request_body_bytes: Option<usize>,
 }
 
 pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
@@ -59,6 +62,9 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             publication: DestinationPublication::RemoteDraftByDefault,
             canonical_behavior: "The canonical URL is sent to DEV.",
             workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
+            max_tags: Some(4),
+            max_tag_name_chars: Some(30),
+            max_request_body_bytes: None,
         },
         SyndicationProvider::Hashnode => DestinationPolicy {
             version: 1,
@@ -68,6 +74,9 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             publication: DestinationPublication::RemoteDraftOnly,
             canonical_behavior: "The canonical URL is sent to Hashnode.",
             workflow: "Remote drafts only; publish the saved draft in Hashnode. CLI public publishing is unsupported.",
+            max_tags: Some(15),
+            max_tag_name_chars: None,
+            max_request_body_bytes: Some(100_000),
         },
         SyndicationProvider::Ghost => DestinationPolicy {
             version: 1,
@@ -77,6 +86,9 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             publication: DestinationPublication::RemoteDraftByDefault,
             canonical_behavior: "The canonical URL is sent as Ghost's canonical URL.",
             workflow: "Remote draft by default; public publishing requires explicit CLI approval.",
+            max_tags: None,
+            max_tag_name_chars: None,
+            max_request_body_bytes: None,
         },
         SyndicationProvider::Wordpress => DestinationPolicy {
             version: 1,
@@ -86,6 +98,9 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             publication: DestinationPublication::RemoteDraftByDefault,
             canonical_behavior: "WordPress core cannot set an external canonical URL.",
             workflow: "Remote draft by default; verify an SEO plugin before public publishing.",
+            max_tags: None,
+            max_tag_name_chars: None,
+            max_request_body_bytes: None,
         },
         SyndicationProvider::Medium => DestinationPolicy {
             version: 1,
@@ -95,6 +110,9 @@ pub fn destination_policy(provider: SyndicationProvider) -> DestinationPolicy {
             publication: DestinationPublication::ManualImport,
             canonical_behavior: "The canonical URL must be checked during Medium import.",
             workflow: "Manual import only; this adapter does not write remotely.",
+            max_tags: None,
+            max_tag_name_chars: None,
+            max_request_body_bytes: None,
         },
     }
 }
@@ -172,6 +190,157 @@ pub struct PortabilityDiagnostic {
     pub capability_id: Option<String>,
     pub message: String,
     pub recommended_action: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DestinationTagPlan {
+    pub policy: DestinationPolicy,
+    pub tags: Vec<String>,
+    pub omitted_tags: Vec<String>,
+    pub diagnostics: Vec<PortabilityDiagnostic>,
+}
+
+impl DestinationTagPlan {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_destination_diagnostics(self.policy, &self.diagnostics)
+    }
+}
+
+fn validate_destination_diagnostics(
+    policy: DestinationPolicy,
+    diagnostics: &[PortabilityDiagnostic],
+) -> Result<(), String> {
+    if let Some(diagnostic) = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+    {
+        return Err(format!(
+            "{}: {} [{}] {} Action: {}",
+            diagnostic.source_path,
+            policy.label,
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.recommended_action,
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DestinationPayloadPlan {
+    pub policy: DestinationPolicy,
+    pub body_bytes: usize,
+    pub diagnostics: Vec<PortabilityDiagnostic>,
+}
+
+impl DestinationPayloadPlan {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_destination_diagnostics(self.policy, &self.diagnostics)
+    }
+}
+
+/// Measure serialized UTF-8 request bytes, including provider envelope overhead.
+pub fn destination_payload_plan(
+    provider: SyndicationProvider,
+    source_path: &str,
+    body_bytes: usize,
+) -> DestinationPayloadPlan {
+    let policy = destination_policy(provider);
+    let mut diagnostics = Vec::new();
+    if let Some(limit) = policy
+        .max_request_body_bytes
+        .filter(|limit| body_bytes > *limit)
+    {
+        diagnostics.push(PortabilityDiagnostic {
+            code: "destination-payload-limit".into(),
+            severity: DiagnosticSeverity::Error,
+            source_path: source_path.into(),
+            capability_id: None,
+            message: format!("{} request body is {body_bytes} UTF-8 bytes, exceeding the {limit}-byte adapter limit.", policy.label),
+            recommended_action: "Reduce the portable content or metadata and review a fresh dry run; content is never truncated to fit.".into(),
+        });
+    }
+    DestinationPayloadPlan {
+        policy,
+        body_bytes,
+        diagnostics,
+    }
+}
+
+/// Project only adapter tag metadata; this is not a feed or body conversion.
+pub fn destination_tag_plan(
+    provider: SyndicationProvider,
+    source_path: &str,
+    tags: &[String],
+) -> DestinationTagPlan {
+    let policy = destination_policy(provider);
+    let limit = policy.max_tags.unwrap_or(tags.len()).min(tags.len());
+    let mut plan = DestinationTagPlan {
+        policy,
+        tags: tags[..limit].to_vec(),
+        omitted_tags: tags[limit..].to_vec(),
+        diagnostics: Vec::new(),
+    };
+    let mut report = |code: &str, severity, message: String, action: &str| {
+        plan.diagnostics.push(PortabilityDiagnostic {
+            code: code.into(),
+            severity,
+            source_path: source_path.into(),
+            capability_id: None,
+            message,
+            recommended_action: action.into(),
+        });
+    };
+    if !plan.omitted_tags.is_empty() {
+        report(
+            "destination-tag-limit",
+            DiagnosticSeverity::Warning,
+            format!("{} accepts at most {limit} tags; {} trailing tags are omitted from the payload.", policy.label, plan.omitted_tags.len()),
+            "Review the selected and omitted tags in the destination plan; reorder or reduce source tags if needed.",
+        );
+    }
+    let mut slugs = std::collections::HashSet::new();
+    for tag in &plan.tags {
+        match provider {
+            SyndicationProvider::Dev => {
+                if tag.is_empty()
+                    || !tag.chars().all(char::is_alphanumeric)
+                    || policy
+                        .max_tag_name_chars
+                        .is_some_and(|max| tag.chars().count() > max)
+                {
+                    report(
+                        "destination-tag-invalid",
+                        DiagnosticSeverity::Error,
+                        format!("DEV tag {tag:?} must contain only letters/numbers and at most 30 characters."),
+                        "Choose a valid DEV tag in the source; tags are not silently rewritten.",
+                    );
+                }
+            }
+            SyndicationProvider::Hashnode => {
+                let slug = crate::slug::slugify(tag);
+                if slug.is_empty() || !slugs.insert(slug.clone()) {
+                    report(
+                        "destination-tag-slug",
+                        DiagnosticSeverity::Error,
+                        format!("Hashnode tag {tag:?} has an empty or duplicate destination slug {slug:?}."),
+                        "Choose tags with distinct nonempty slugs; tags are not silently merged.",
+                    );
+                } else if slug != *tag {
+                    report(
+                        "destination-tag-slug",
+                        DiagnosticSeverity::Info,
+                        format!("Hashnode tag {tag:?} is sent with slug {slug:?}; its display name is retained."),
+                        "Review the destination slug; the canonical source is unchanged.",
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    plan
 }
 
 impl<'a> PortableProjection<'a> {
@@ -1313,6 +1482,76 @@ mod tests {
     use super::*;
     use crate::config::SiteConfig;
     use crate::model::{LoadOptions, Site, SourceFile, Sources};
+
+    #[test]
+    fn destination_payload_budget_enforces_the_exact_byte_boundary() {
+        for (bytes, valid) in [(99_999, true), (100_000, true), (100_001, false)] {
+            let plan =
+                destination_payload_plan(SyndicationProvider::Hashnode, "posts/large.md", bytes);
+            assert_eq!(plan.body_bytes, bytes);
+            assert_eq!(plan.validate().is_ok(), valid);
+            if !valid {
+                assert_eq!(plan.diagnostics[0].source_path, "posts/large.md");
+                assert_eq!(plan.diagnostics[0].code, "destination-payload-limit");
+            }
+        }
+        let plan = destination_payload_plan(SyndicationProvider::Dev, "posts/large.md", 100_001);
+        assert_eq!(plan.policy.max_request_body_bytes, None);
+        assert!(
+            plan.diagnostics.is_empty(),
+            "do not invent undocumented provider caps"
+        );
+    }
+
+    #[test]
+    fn destination_tags_preserve_order_report_omissions_and_validate_selected_metadata() {
+        let tags = (0..16)
+            .map(|index| format!("tag{index}"))
+            .collect::<Vec<_>>();
+        for (provider, limit) in [
+            (SyndicationProvider::Dev, 4),
+            (SyndicationProvider::Hashnode, 15),
+        ] {
+            let plan = destination_tag_plan(provider, "posts/tags.md", &tags);
+            assert_eq!(plan.tags, tags[..limit]);
+            assert_eq!(plan.omitted_tags, tags[limit..]);
+            assert_eq!(plan.policy.max_tags, Some(limit));
+            assert_eq!(plan.diagnostics[0].code, "destination-tag-limit");
+            assert_eq!(plan.diagnostics[0].severity, DiagnosticSeverity::Warning);
+            assert_eq!(plan.diagnostics[0].source_path, "posts/tags.md");
+            plan.validate().unwrap();
+            assert_eq!(plan, destination_tag_plan(provider, "posts/tags.md", &tags));
+        }
+        let unicode = vec!["日本語".into(), "é".repeat(30)];
+        destination_tag_plan(SyndicationProvider::Dev, "posts/tags.md", &unicode)
+            .validate()
+            .unwrap();
+        for tag in [
+            "bad-tag".into(),
+            "<script>".into(),
+            "é".repeat(31),
+            String::new(),
+        ] {
+            let plan = destination_tag_plan(SyndicationProvider::Dev, "posts/tags.md", &[tag]);
+            assert!(plan.validate().unwrap_err().contains("posts/tags.md: DEV"));
+        }
+        let plan = destination_tag_plan(
+            SyndicationProvider::Hashnode,
+            "posts/tags.md",
+            &["Rust Tools".into(), "rust-tools".into()],
+        );
+        assert_eq!(plan.diagnostics[0].severity, DiagnosticSeverity::Info);
+        assert!(plan
+            .validate()
+            .unwrap_err()
+            .contains("duplicate destination slug"));
+        let plan = destination_tag_plan(
+            SyndicationProvider::Hashnode,
+            "posts/tags.md",
+            &["!!!".into()],
+        );
+        assert!(plan.validate().is_err());
+    }
 
     #[test]
     fn versioned_destination_policies_disclose_the_actual_publication_contract() {

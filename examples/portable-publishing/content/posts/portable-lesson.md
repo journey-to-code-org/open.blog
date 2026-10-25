@@ -7,7 +7,7 @@ doi: 10.5555/portable.lesson
 license: https://creativecommons.org/licenses/by/4.0/
 sourceUrl: https://source.example.org/portable-lesson
 comments: open
-tags: [rust, portable-publishing]
+tags: [rust, portability]
 cover: /images/exercise.svg
 coverAlt: Diagram of the exercise
 privateNote: PRIVATE_FRONTMATTER_SENTINEL

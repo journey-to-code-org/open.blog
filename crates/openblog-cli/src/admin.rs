@@ -5649,6 +5649,15 @@ fn preview(state: &AppState, req: &Request) -> Response {
                 Ok(sidecar) => sidecar,
                 Err(error) => return Response::error(422, &error),
             };
+        let tags = post
+            .tags
+            .iter()
+            .map(|tag| tag.name.clone())
+            .collect::<Vec<_>>();
+        let destination_tag_plans =
+            [SyndicationProvider::Dev, SyndicationProvider::Hashnode].map(|provider| {
+                openblog_core::portability::destination_tag_plan(provider, &rel, &tags)
+            });
         json!({
             "html": portable_html.html,
             "markdown": portable_markdown,
@@ -5656,6 +5665,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "capabilities": portable_html.capabilities,
             "diagnostics": portable_html.diagnostics,
             "destinations": openblog_core::portability::destination_policies(),
+            "destinationTagPlans": destination_tag_plans,
             "sourceRevision": source_revision,
             "acknowledgements": acknowledgements.acknowledgements,
             "acknowledgementEtag": acknowledgement_etag,
@@ -10555,6 +10565,12 @@ mod tests {
                 .len(),
             5
         );
+        let dev_tags = &preview["portablePreview"]["destinationTagPlans"][0];
+        assert_eq!(dev_tags["policy"]["provider"], "dev");
+        assert_eq!(dev_tags["policy"]["maxTags"], 4);
+        assert_eq!(dev_tags["tags"], json!(["preview"]));
+        assert_eq!(dev_tags["omittedTags"], json!([]));
+        assert_eq!(dev_tags["diagnostics"], json!([]));
         assert_eq!(
             preview["portablePreview"]["destinations"][3]["canonicalBehavior"],
             "WordPress core cannot set an external canonical URL."

@@ -507,6 +507,20 @@ export function destinationPolicyForDisplay(policies, mode) {
   return [
     `${policy.label}: ${policy.canonicalBehavior}`,
     `${policy.label}: ${policy.workflow}`,
+    ...(policy.maxRequestBodyBytes
+      ? [`${policy.label}: CLI validates the complete serialized request against a ${policy.maxRequestBodyBytes}-byte limit; a body preview alone cannot certify request size.`]
+      : []),
+  ];
+}
+
+export function destinationTagsForDisplay(plans, mode) {
+  if (!String(mode).startsWith("destination:") || !Array.isArray(plans)) return [];
+  const plan = plans.find((plan) => plan?.policy?.version === 1
+    && `destination:${plan.policy.provider}` === mode);
+  if (!plan) return [];
+  return [
+    `${plan.policy.label}: selected tags: ${plan.tags.join(", ") || "(none)"}. Omitted tags: ${plan.omittedTags.join(", ") || "(none)"}.`,
+    ...portableDiagnosticsForDisplay(plan.diagnostics),
   ];
 }
 
@@ -5217,6 +5231,7 @@ export class Editor {
         return h("li", {}, ...children);
       }),
       ...destinationPolicyForDisplay(portable?.destinations, mode).map((warning) => h("li", {}, warning)),
+      ...destinationTagsForDisplay(portable?.destinationTagPlans, mode).map((warning) => h("li", {}, warning)),
     ];
     this.ui.previewWarnings.replaceChildren(
       ...(items.length ? [h("strong", {}, "Publishing warnings"), h("ul", {}, ...items)] : []),

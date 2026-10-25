@@ -73,6 +73,49 @@ workflow: remote draft by default, remote draft only, or manual import. The CLI 
 same policy for the public-write gate; Admin disables destination output and acknowledgements
 for unknown policy versions rather than guessing.
 
+### Destination tag conversion
+
+DEV and Hashnode tag metadata uses the same core plan in Admin, CLI dry runs, and request
+payloads. `tagPlan` in syndication JSON names the selected tags, `omittedTags`, the versioned
+policy, and source-scoped diagnostics. Authenticated previews return the same plans under
+`destinationTagPlans`; selecting DEV or Hashnode displays their findings as literal text.
+This is adapter metadata, not a feed tag policy.
+
+- **DEV:** sends the first four tags, in source order. Selected tags must contain only
+  Unicode letters/numbers and no more than 30 characters. Invalid tags block writes;
+  they are not silently slugified or shortened.
+- **Hashnode:** sends the first fifteen tags with the original display names and the
+  existing open.blog slug mapping. Slug transformations are disclosed; empty or duplicate
+  selected slugs block writes rather than silently merging tags.
+- Trailing tags retain the existing omission behavior, now with a warning and an explicit
+  omitted list. Canonical sources are never rewritten.
+- All selected destinations are checked for blocking tag errors **before credentials,
+  canonical network preflight, or any remote write**. Dry runs still show invalid plans
+  without sending requests. Copying a preview body does not include payload metadata or
+  mean that its tags are valid.
+
+Constraints were checked against Forem's
+[`Article::MAX_TAG_LIST_SIZE`](https://github.com/forem/forem/blob/main/app/models/article.rb)
+and [`Tag#validate_name`](https://github.com/forem/forem/blob/main/app/models/tag.rb),
+and Hashnode's [official schema](https://github.com/Hashnode/gql-skill/blob/main/skills/gql-api/references/schema.graphql)
+and [limits](https://github.com/Hashnode/gql-skill/blob/main/skills/gql-api/references/errors-and-limits.md)
+on 2026-10-25. Hashnode draft create/update payloads use `originalArticleURL` for canonical
+identity, not the unsupported `canonicalUrl` input.
+
+Hashnode CLI plans also include `payloadPlan` with the complete serialized request's UTF-8
+byte count (including metadata, JSON escaping, and create/update envelope overhead) and
+blocking diagnostics. The adapter conservatively interprets the documented 100 KB cap as
+100,000 bytes. Exact-limit bodies pass; larger bodies block all selected writes before
+credentials or network access, without truncating content. Request preparation failures
+are explicit in `payloadPlanError`. Admin shows the limit but cannot certify an exact
+request size from a body-only preview with no target/revision envelope.
+
+Media constraints are not yet fully preflighted. Images remain absolute
+hosted URLs in the portable body; the adapters do not fetch, inspect, upload, or guarantee
+provider acceptance of their bytes. Hashnode documents separate image-upload limits
+(8 MB, image types only, no SVG); linked inline images are
+not an upload operation, and URL-only checks cannot certify an image's type or size.
+
 Public publication requires both `--publish` and `allowPublish: true`. Hashnode remains
 draft-only in this iteration. WordPress core cannot portably set an external canonical, so
 the command warns for those targets. See the complete
