@@ -461,7 +461,7 @@ pub fn plan_csl_import(
 /// A stable source identifier for a CSL id: its lowercase ASCII slug, or a
 /// short digest when the id has no usable slug, so distinct non-ASCII ids
 /// never collapse into each other.
-fn derive_id(raw: &str) -> String {
+pub(crate) fn derive_id(raw: &str) -> String {
     if raw.is_ascii() {
         let mut slug = String::new();
         let mut separator = false;

@@ -23,8 +23,12 @@ use serde_json::{json, Map, Value};
 use crate::research_notes::{
     bidi_override, locator_ambiguity, resolved_kind, Locator, LocatorKind,
 };
-use crate::source_interchange::{IDENTIFIER_FIELDS, NAME_ROLES, NOTE_FIELDS, PRESERVED_FIELDS};
-use crate::source_library::{valid_source_id, valid_timestamp, SourceLibrary, SourceRecord};
+use crate::source_interchange::{
+    derive_id, IDENTIFIER_FIELDS, NAME_ROLES, NOTE_FIELDS, PRESERVED_FIELDS,
+};
+use crate::source_library::{
+    valid_source_id, valid_timestamp, SourceLibrary, SourceRecord, MAX_TEXT_CHARS,
+};
 
 /// Upper bound on Markdown scanned at once.
 pub const MAX_CITED_MARKDOWN_BYTES: usize = 1024 * 1024;
@@ -774,16 +778,24 @@ pub fn citation_from_csl_item(
             "a CSL citation item must be an object",
         ));
     };
-    let key = match item.get("id") {
-        Some(Value::String(id)) if valid_source_id(id) => id.clone(),
-        _ => {
-            return Err(diag(
-                CitationDiagnosticCode::InvalidKey,
-                None,
-                "the CSL item id must be a source identifier (a lowercase ASCII slug)",
-            ))
-        }
+    // The same normalisation a reference import applies (ADR 0012), so an
+    // item names the source its reference was imported as.
+    let raw_id = match item.get("id") {
+        Some(Value::String(id)) if !id.trim().is_empty() => id.clone(),
+        Some(Value::Number(number)) => number.to_string(),
+        _ => String::new(),
     };
+    if raw_id.is_empty()
+        || raw_id.chars().count() > MAX_TEXT_CHARS
+        || raw_id.chars().any(char::is_control)
+    {
+        return Err(diag(
+            CitationDiagnosticCode::InvalidKey,
+            None,
+            "the CSL item needs a short text id without control characters",
+        ));
+    }
+    let key = derive_id(&raw_id);
     let mut losses: Vec<CitationLoss> = item
         .keys()
         .filter(|name| {
@@ -797,6 +809,14 @@ pub fn citation_from_csl_item(
             reason: "citations store a key and locators only".into(),
         })
         .collect();
+    if key != raw_id {
+        losses.push(CitationLoss {
+            field: "id".into(),
+            reason: format!(
+                "normalised to the source identifier `{key}`, as reference import does"
+            ),
+        });
+    }
     let checked = |locator: Locator| -> Result<Locator, CitationDiagnostic> {
         check_locator(&locator).map_err(|message| locator_diag(&key, message))?;
         Ok(locator)

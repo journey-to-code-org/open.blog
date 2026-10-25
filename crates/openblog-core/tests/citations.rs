@@ -334,7 +334,9 @@ fn csl_import_prefers_csl_fields_when_they_disagree_and_reports_unsupported() {
 fn csl_import_refuses_hostile_items() {
     for item in [
         json!("text"),
-        json!({"id": "Not A Slug"}),
+        json!({"id": ""}),
+        json!({"id": "a\u{7}b"}),
+        json!({"id": ["list"]}),
         json!({"id": "plato-republic", "locator": 5}),
         json!({"id": "plato-republic", "locator": "1;2"}),
         json!({"id": "plato-republic", "label": "A/B", "locator": "1"}),
@@ -466,4 +468,19 @@ fn csl_extension_labels_are_written_back_and_spaced_labels_round_trip() {
     assert_eq!(citation.locators[0].kind.as_str(), "x-csl-folio-verso");
     assert_eq!(losses[0].field, "label");
     assert_eq!(citation_to_csl_item(&citation).0["label"], "folio-verso");
+}
+
+#[test]
+fn csl_item_ids_are_normalised_like_reference_import_and_the_change_is_reported() {
+    let text = json!([{"id": "Smith2003", "type": "book", "title": "T"}]).to_string();
+    let plan = plan_csl_import(&SourceLibrary::default(), &text, &BTreeMap::new()).unwrap();
+    let imported = plan.entries[0].source_id.clone();
+    let (citation, losses) =
+        citation_from_csl_item(&json!({"id": "Smith2003", "locator": "4"})).unwrap();
+    assert_eq!(citation.key, "smith2003");
+    assert_eq!(Some(citation.key.as_str()), imported.as_deref());
+    assert_eq!(losses.len(), 1);
+    assert_eq!(losses[0].field, "id");
+    let (_, unchanged) = citation_from_csl_item(&json!({"id": "smith2003"})).unwrap();
+    assert!(unchanged.is_empty());
 }

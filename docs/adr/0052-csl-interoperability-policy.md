@@ -21,7 +21,8 @@ single readable source:
 
 | Fate | Fields | Behaviour |
 | --- | --- | --- |
-| stored | `id`, `title`, `language`, `issued`, `author`, `editor`, `translator`, `DOI`, `ISBN`, `ISSN`, `URL`, `PMID`, `PMCID`, `custom` | mapped to library fields and exported again; round-trips |
+| stored, normalised | `id` | normalised to a source identifier as in ADR 0012 (`Smith2003` becomes `smith2003`; an id with no ASCII slug becomes a `csl-` digest) and exported as that identifier |
+| stored | `title`, `language`, `issued`, `author`, `editor`, `translator`, `DOI`, `ISBN`, `ISSN`, `URL`, `PMID`, `PMCID`, `custom` | mapped to library fields and exported again; round-trips |
 | preserved | `type` (other than `document`) and variables with no library field (`publisher`, `container-title`, `volume`, ...) | kept verbatim under the record's `csl` field, text or number only |
 | private-dropped | `note`, `abstract`, `annote`, `keyword` | never stored and reported, so they cannot reach a public artifact |
 | unsupported | anything else | not stored; the import plan reports it with a reason |
@@ -29,7 +30,7 @@ single readable source:
 **Citation items** map to CSL's `label` and `locator`:
 
 - Kinds `page`, `folio`, `line`, `section`, `chapter` and `timestamp` have the same CSL label.
-  `canonical` and `x-` kinds have none.
+  `canonical` and other `x-` kinds have none; `x-csl-` kinds write back their kept label.
 - CSL has one locator per item. Export writes the first locator, reports each thing CSL cannot
   carry (further locators, a kind with no label, the range structure, since CSL writes a range as
   one text) as a loss, and writes the full ordered list in `openblog-locators`, which CSL
@@ -41,8 +42,9 @@ single readable source:
   with spaces is kept with hyphens and the respelling is reported. An item without a label is a
   `page` locator, as CSL specifies.
 - `prefix`, `suffix`, `suppress-author`, `author-only`, embedded `itemData` and any other field
-  are reported and not stored. The library stays the only source of reference data, and an item's
-  `id` must already be a source identifier.
+  are reported and not stored. The library stays the only source of reference data. An item's
+  `id` is normalised exactly as a reference import normalises it (`derive_id`), so a citation of
+  `Smith2003` names the source imported as `smith2003`; a changed id is reported as a loss.
 - Nothing contacts a service, and no style is rendered.
 
 ## Consequences
