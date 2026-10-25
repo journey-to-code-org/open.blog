@@ -2816,3 +2816,39 @@ a.oba-btn-primary {
     flex: 1 1 100%;
   }
 }
+
+.oba-series-order {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+  padding-left: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.oba-series-this {
+  padding: 0.25rem 0.5rem;
+  border: 2px solid currentColor;
+  border-radius: 0.5rem;
+}
+
+.oba-series-form input,
+.oba-series-form select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.oba-series .oba-btn {
+  min-height: 2.75rem;
+}
+
+.oba-series-create {
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 44rem) {
+  .oba-series .oba-toolbar .oba-btn {
+    flex: 1 1 100%;
+  }
+}

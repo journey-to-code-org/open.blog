@@ -1011,6 +1011,57 @@ function rememberPromptsDismissed(dismissed) {
   }
 }
 
+// ---------------------------------------------------------------- shared reflection series
+
+/** The select value for "type a new series title". A series address can never contain brackets. */
+export const NEW_SERIES = "(new)";
+/** The select value for "not in a series". */
+export const NO_SERIES = "";
+const MAX_SERIES_ORDER = 4294967295;
+
+/** A placement as words: "Letters, part 2", or the title alone when no position is set. */
+export function seriesPlacementText(name, order) {
+  if (!name) return "Not part of a series.";
+  return order === null || order === undefined ? `${name} (no position: after any numbered parts, by date)` : `${name}, part ${order}`;
+}
+
+/** One part of a previewed reading order as words, never colour or position alone. */
+export function seriesPartText(part, index) {
+  const position = part?.order === null || part?.order === undefined ? "no position" : `position ${part.order}`;
+  if (part?.thisPublication) return `${index + 1}. This shared reflection (not published yet, ${position})`;
+  return `${index + 1}. ${part?.title || "Untitled part"} (${position})`;
+}
+
+/**
+ * The request body for the chosen series, or a message saying what to fix. An existing series is
+ * referred to by its address, which is what an ordinary post's `series` holds.
+ */
+export function seriesPlacementRequest(choice, title, order) {
+  const text = String(order ?? "").trim();
+  if (text && (!/^\d+$/.test(text) || Number(text) > MAX_SERIES_ORDER)) {
+    return { error: "Use a whole number of 0 or more for the position, or leave it empty.", field: "order" };
+  }
+  const position = text ? Number(text) : null;
+  if (choice === NO_SERIES) return { placement: null };
+  if (choice === NEW_SERIES) {
+    const name = String(title ?? "").trim();
+    if (!name) return { error: "Type the series title, or choose an existing series.", field: "title" };
+    return { placement: { series: name, order: position } };
+  }
+  return { placement: { series: choice, order: position } };
+}
+
+/** Sort a failed series request into what to tell the person. What they typed is never lost. */
+export function seriesFailure(error) {
+  const status = error?.status;
+  const text = error?.data?.error || error?.message || "";
+  if (!status) return { kind: "offline", message: "Could not reach the server. You may be offline. Your choice is still here and has not been saved." };
+  if (status === 409) return { kind: "conflict", message: text || "The series placement changed elsewhere. Your choice is still here; review the current placement and save again." };
+  if (status === 404 || status === 403) return { kind: "denied", message: "You cannot arrange this shared reflection's series, or your access changed. Your choice is still here; reload to check." };
+  if (status === 422) return { kind: "invalid", message: text || "That series choice could not be saved.", field: error?.data?.field || "" };
+  return { kind: "other", message: text || "That did not work. Your choice is still here; try again." };
+}
+
 export const REVEAL_POLICIES = Object.freeze([
   { value: "independent", label: "Independent", help: "Nobody sees anyone else's draft." },
   { value: "voluntary", label: "Voluntary", help: "Any two or more writers who offer a revision share those revisions with each other." },
@@ -3668,6 +3719,7 @@ export class ObAdmin extends AdminElement {
           }),
         ),
         this.draftPanel(publication, index),
+        this.seriesPanel(publication, index),
         this.invitationPanel(publication, index),
       );
     });
@@ -4201,6 +4253,242 @@ export class ObAdmin extends AdminElement {
         const registry = await this.api.call("GET", "contributors");
         profile.replaceChildren(...Object.entries(registry.contributors || {}).map(([key, value]) => h("option", { value: key }, value.name || key)));
         await load();
+      } catch (error) {
+        loaded = false;
+        fail(error);
+      }
+    });
+    return details;
+  }
+
+  // ---- shared reflection series
+
+  /**
+   * Where this reflection sits in one of the site's ordinary series. Every participant sees the
+   * placement and the reading order it gives; site owners and coordinators choose it; site
+   * owners may also add a new series with its recurring premise. The series list and the order
+   * come from the public site only. Loads only when opened.
+   */
+  seriesPanel(publication, index) {
+    const id = publication.publicationId;
+    const prefix = `oba-series-${index}`;
+    const heading = h("h3", { id: `${prefix}-heading`, tabindex: "-1" }, "Series");
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const current = h("p", { id: `${prefix}-current` });
+    const about = h("p", { class: "oba-small", hidden: true });
+    const orderHeading = h("h4", { id: `${prefix}-order-heading` }, "Reading order");
+    const orderList = h("ol", { class: "oba-series-order", "aria-labelledby": `${prefix}-order-heading` });
+    const orderBox = h("div", { class: "oba-series-preview", hidden: true }, orderHeading, about, orderList);
+
+    const choice = h("select", { id: `${prefix}-choice` });
+    const title = h("input", { id: `${prefix}-title`, type: "text", maxlength: "120", autocomplete: "off", "aria-describedby": `${prefix}-title-help` });
+    const titleField = h("div", { class: "oba-field", hidden: true }, h("label", { for: title.id }, "New series title"), title, h("small", { class: "oba-small", id: `${prefix}-title-help` }, "A series that has no description yet uses this title. A site owner can describe it below or under Series."));
+    const order = h("input", { id: `${prefix}-order`, type: "number", min: "0", step: "1", inputmode: "numeric", "aria-describedby": `${prefix}-order-help` });
+    const previewButton = h("button", { class: "oba-btn", type: "button" }, "Preview order");
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, "Save placement");
+    const form = h(
+      "form",
+      { class: "oba-series-form", novalidate: true, hidden: true, "aria-labelledby": `${prefix}-form-heading` },
+      h("h4", { id: `${prefix}-form-heading` }, "Choose the series"),
+      h("p", { class: "oba-small", id: `${prefix}-consent` }, "Every author approves the series and position together with the piece, and sees them in the combined preview. Saving a change means each author approves again."),
+      h("div", { class: "oba-field" }, h("label", { for: choice.id }, "Series"), choice),
+      titleField,
+      h("div", { class: "oba-field" }, h("label", { for: order.id }, "Position in the series (optional)"), order, h("small", { class: "oba-small", id: `${prefix}-order-help` }, "Parts with a position come first, lowest first; parts with the same position go by date. Leave it empty to follow any numbered parts, by date.")),
+      h("div", { class: "oba-toolbar" }, previewButton, save),
+    );
+    save.setAttribute("aria-describedby", `${prefix}-consent`);
+
+    const newTitle = h("input", { id: `${prefix}-new-title`, type: "text", maxlength: "120", autocomplete: "off" });
+    const premise = h("input", { id: `${prefix}-premise`, type: "text", maxlength: "500", autocomplete: "off", "aria-describedby": `${prefix}-premise-help` });
+    const create = h("button", { class: "oba-btn", type: "submit" }, "Create series");
+    const createForm = h(
+      "form",
+      { class: "oba-series-form", novalidate: true, "aria-labelledby": `${prefix}-create-heading` },
+      h("h5", { id: `${prefix}-create-heading` }, "Add a new series"),
+      h("p", { class: "oba-small" }, "Series belong to the site. This adds a series with a name and its recurring premise; it is not shown to readers until a part is published, and it does not place this reflection in it."),
+      h("div", { class: "oba-field" }, h("label", { for: newTitle.id }, "Series name"), newTitle),
+      h("div", { class: "oba-field" }, h("label", { for: premise.id }, "Recurring premise (optional)"), premise, h("small", { class: "oba-small", id: `${prefix}-premise-help` }, "One line readers see on the series page, such as what each part answers.")),
+      create,
+    );
+    const createBox = h("details", { class: "oba-series-create", hidden: true }, h("summary", {}, "Add a new series (site owners)"), createForm);
+
+    let view = null;
+    const syncTitle = () => {
+      titleField.hidden = choice.value !== NEW_SERIES;
+    };
+    choice.addEventListener("change", syncTitle);
+
+    const fail = (error) => {
+      const failure = seriesFailure(error);
+      problem.textContent = failure.message;
+      problem.hidden = false;
+      problem.focus();
+      return failure;
+    };
+    const clearProblem = () => {
+      problem.hidden = true;
+      problem.textContent = "";
+    };
+
+    // Options are rebuilt from the latest list, keeping whatever the person had chosen.
+    const renderChoices = (choices, selected) => {
+      const known = choices.some((item) => item.slug === selected);
+      const value = known || selected === NO_SERIES || selected === NEW_SERIES ? selected : NEW_SERIES;
+      choice.replaceChildren(
+        h("option", { value: NO_SERIES, selected: value === NO_SERIES }, "Not in a series"),
+        ...choices.map((item) => h("option", { value: item.slug, selected: value === item.slug }, `${item.name} (${item.parts} published ${item.parts === 1 ? "part" : "parts"})`)),
+        h("option", { value: NEW_SERIES, selected: value === NEW_SERIES }, "A new series title..."),
+      );
+      choice.value = value;
+      syncTitle();
+    };
+
+    const renderPreview = (preview) => {
+      orderBox.hidden = !preview;
+      if (!preview) return;
+      orderHeading.textContent = `Reading order: ${preview.name}`;
+      about.hidden = false;
+      about.textContent = preview.defined
+        ? preview.description || "This series has no premise written yet."
+        : "This series has no description yet, so the site will use its title until a site owner describes it.";
+      orderList.replaceChildren(
+        ...(preview.parts || []).map((part, position) =>
+          h(
+            "li",
+            { class: part.thisPublication ? "oba-series-this" : null },
+            part.thisPublication
+              ? h("strong", {}, seriesPartText(part, position))
+              : [seriesPartText(part, position), " ", h("a", { href: part.url, target: "_blank", rel: "noopener noreferrer", "aria-label": `Open ${part.title || "this part"}` }, "Open")],
+          ),
+        ),
+      );
+    };
+
+    /** Show a fresh view. `adopt` copies the stored placement into the controls; after a refused
+     * save it is false, so the person's own choice stays as they left it. */
+    const render = (next, adopt) => {
+      view = next;
+      const preview = next.preview;
+      const name = next.placement ? preview?.name || next.placement.series : "";
+      current.textContent = next.placement ? `Series: ${seriesPlacementText(name, next.placement.order)}` : seriesPlacementText("");
+      if (next.published) current.textContent += " The reflection is published, so its series is now changed in the post itself.";
+      if (adopt) {
+        const stored = next.placement ? (next.series || []).find((item) => item.slug === preview?.slug)?.slug ?? NEW_SERIES : NO_SERIES;
+        if (stored === NEW_SERIES) title.value = next.placement.series;
+        order.value = next.placement?.order ?? "";
+        renderChoices(next.series || [], stored);
+      } else {
+        renderChoices(next.series || [], choice.value);
+      }
+      form.hidden = !next.canPlace;
+      createBox.hidden = !next.canCreate;
+      renderPreview(preview);
+    };
+
+    const url = (extra = "") => `collaboration/series?publicationId=${encodeURIComponent(id)}${extra}`;
+    const load = async (adopt = true) => {
+      render(await this.api.call("GET", url()), adopt);
+    };
+
+    previewButton.addEventListener("click", async () => {
+      clearProblem();
+      const request = seriesPlacementRequest(choice.value, title.value, order.value);
+      if (request.error) {
+        fail({ status: 422, data: { error: request.error } });
+        return;
+      }
+      if (!request.placement) {
+        renderPreview(null);
+        status.textContent = "Not in a series, so there is no reading order to show.";
+        return;
+      }
+      const query = `&series=${encodeURIComponent(request.placement.series)}&order=${request.placement.order ?? ""}`;
+      try {
+        const next = await this.api.call("GET", url(query));
+        renderPreview(next.preview);
+        status.textContent = `Previewing ${next.preview?.name || "the series"}. Nothing has been saved.`;
+      } catch (error) {
+        fail(error);
+      }
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearProblem();
+      const request = seriesPlacementRequest(choice.value, title.value, order.value);
+      if (request.error) {
+        fail({ status: 422, data: { error: request.error } });
+        (request.field === "order" ? order : title).focus();
+        return;
+      }
+      save.disabled = true;
+      try {
+        const next = await this.api.call("PUT", "collaboration/series", { json: { publicationId: id, expectedRevision: view?.revision ?? 0, placement: request.placement } });
+        const changed = next.revision !== view?.revision;
+        render(next, true);
+        status.textContent = !changed ? "Nothing changed." : next.placement ? "Series placement saved. Each author approves the piece again, with this placement." : "Removed from the series. Each author approves the piece again.";
+        save.disabled = false;
+        save.focus();
+      } catch (error) {
+        save.disabled = false;
+        const failure = fail(error);
+        // A conflict shows the newest placement around what the person chose, so they can
+        // compare and save again; nothing they typed is replaced.
+        if (failure.kind === "conflict") {
+          try {
+            await load(false);
+          } catch {
+            // The message above still explains what happened.
+          }
+          problem.focus();
+        }
+      }
+    });
+
+    createForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearProblem();
+      if (!newTitle.value.trim()) {
+        fail({ status: 422, data: { error: "Type the series name." } });
+        newTitle.focus();
+        return;
+      }
+      create.disabled = true;
+      try {
+        const made = await this.api.call("POST", "collaboration/series/create", { json: { publicationId: id, title: newTitle.value, premise: premise.value } });
+        newTitle.value = "";
+        premise.value = "";
+        await load(false);
+        renderChoices(view?.series || [], made.slug);
+        status.textContent = `Series ${made.name} added. Choose Save placement to put this reflection in it.`;
+        create.disabled = false;
+        choice.focus();
+      } catch (error) {
+        create.disabled = false;
+        fail(error);
+      }
+    });
+
+    const details = h(
+      "details",
+      { class: "oba-invitations oba-series" },
+      h("summary", {}, "Series"),
+      heading,
+      h("p", { class: "oba-small" }, "A shared reflection can join one of the site's series, which supplies the name, description and reading order. Nothing here is public until the piece is published."),
+      status,
+      problem,
+      current,
+      form,
+      createBox,
+      orderBox,
+    );
+    let loaded = false;
+    details.addEventListener("toggle", async () => {
+      if (!details.open || loaded) return;
+      loaded = true;
+      try {
+        await load(true);
       } catch (error) {
         loaded = false;
         fail(error);
