@@ -68,6 +68,11 @@ live link there.
   them from the labeled sections.
 - The arrangement grammar and `compose` must change together; a test composes every shape and
   reads it back.
+- The continuing conversation (ADR 0026) follows the arrangement after the section break the gate
+  writes. `Arrangement::parse` accepts exactly that tail as ordinary Markdown (`trailing`), so a
+  reflection with both an arrangement and approved synthesis exports as labeled sections and then
+  the conversation. The reading-order check compares the reflection's own headings, labels and
+  prompts, not the credits or metadata that repeat the same names.
 
 ## Reversibility
 

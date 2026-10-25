@@ -5,7 +5,7 @@
 
 use openblog_core::approval::ApprovalSet;
 use openblog_core::arrangement::Arrangement;
-use openblog_core::assembly::{assemble_for, with_subject_for, Assembly};
+use openblog_core::assembly::{assemble, with_subject, Assembly};
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
     Participant, SharedPublication, SourceKind,
@@ -19,6 +19,7 @@ use openblog_core::portability::{DiagnosticSeverity, PortableProjection};
 use openblog_core::reflection::{
     compose, ComposedTurn, Placement, ReflectionLayout, ReflectionStructure, PART_MARKER,
 };
+use openblog_core::synthesis::SynthesisSet;
 use openblog_core::theme::ThemeSet;
 use pulldown_cmark::{Event, Parser, Tag};
 
@@ -124,15 +125,34 @@ fn publish(
     }
     let mut approvals = ApprovalSet::new();
     for who in ALL {
-        let seen = with_subject_for(record, Some(s), &set, &ALL, |subject| {
-            approvals.binding_for(subject, who).unwrap()
-        });
-        with_subject_for(record, Some(s), &set, &ALL, |subject| {
-            approvals.approve(who, who, subject, &seen, true, T)
-        })
+        let seen = with_subject(
+            record,
+            Some(s),
+            &set,
+            &SynthesisSet::new(),
+            &ALL,
+            |subject| approvals.binding_for(subject, who).unwrap(),
+        );
+        with_subject(
+            record,
+            Some(s),
+            &set,
+            &SynthesisSet::new(),
+            &ALL,
+            |subject| approvals.approve(who, who, subject, &seen, true, T),
+        )
         .unwrap();
     }
-    assemble_for(record, Some(s), &set, &approvals, &ALL, DATE).unwrap()
+    assemble(
+        record,
+        Some(s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap()
 }
 
 fn site(made: &Assembly, names: [&str; 3]) -> Site {

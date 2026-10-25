@@ -20,6 +20,7 @@ use crate::shared_source::{
     SharedAttribution, QUESTION_KEY, SOURCE_KIND_KEY, SOURCE_TITLE_KEY, SOURCE_URL_KEY,
 };
 use crate::slug;
+use crate::synthesis::{self, ItemRule, SynthesisKind, SynthesisSet};
 
 pub const OUTCOME_VERSION: u8 = 1;
 pub const MAX_OUTCOME_BYTES: usize = 2 * 1024;
@@ -40,6 +41,43 @@ pub enum AssemblyError {
     /// but not for a co-author's prose, and the approved text must not be altered, so the piece
     /// is refused until the author removes it.
     UnsafeMarkup,
+    /// A section heading claims an anchor the generated conversation block owns
+    /// (`continuing-the-conversation`, `conversation-<category>[-<n>]`). Distinct from
+    /// [`Self::UnsafeMarkup`] because the fix is to rename the heading, not remove markup.
+    ReservedSectionAnchor,
+    /// An approved continuing-conversation item breaks a rule for item Markdown (raw HTML, an
+    /// unsafe link, a heading outside the item outline, or a reserved anchor). Distinct from
+    /// [`Self::UnsafeMarkup`] so the refusal names the item rather than a section.
+    UnsafeConversationItem(ItemRule, ItemRef),
+}
+
+/// Which continuing-conversation item a refusal is about: its category and its place among the
+/// published items of that category, counting from one (the same ordinal its anchor carries).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ItemRef {
+    pub kind: SynthesisKind,
+    pub ordinal: usize,
+}
+
+impl ItemRef {
+    /// For example "the second question". Holds no author text, so it is safe to show.
+    pub fn describe(self) -> String {
+        const ORDINALS: [&str; 10] = [
+            "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
+            "tenth",
+        ];
+        let noun = match self.kind {
+            SynthesisKind::Agreement => "shared takeaway",
+            SynthesisKind::Difference => "difference",
+            SynthesisKind::Question => "question",
+            SynthesisKind::Application => "way to apply this",
+            SynthesisKind::Uncertainty => "uncertainty",
+        };
+        match ORDINALS.get(self.ordinal.wrapping_sub(1)) {
+            Some(word) => format!("the {word} {noun}"),
+            None => format!("{noun} number {}", self.ordinal),
+        }
+    }
 }
 
 /// The canonical files one publication writes.
@@ -58,41 +96,20 @@ pub fn post_path(record: &SharedPublication) -> String {
     format!("posts/{}.md", record.publication_id)
 }
 
-/// The metadata the approval subject binds for `record`: the public record fields and, when the
-/// publication has a [`ReflectionStructure`], its prose-free binding frame (ADR 0031), so a
-/// change of layout, turn order or round prompt makes standing approvals stale exactly as a
-/// change of prose does. With no structure nothing is appended and approvals given before one
-/// existed stay valid. Every path that builds an [`ApprovalSubject`] (the gate, the preview and
-/// the Admin routes) goes through here.
-pub fn subject_metadata(
-    record: &SharedPublication,
-    structure: Option<&ReflectionStructure>,
-) -> Vec<String> {
-    let mut metadata = public_metadata(record);
-    if let Some(structure) = structure {
-        metadata.push(format!("reflection-frame:{}", structure.binding_frame()));
-    }
-    metadata
-}
-
-/// Run `ask` against the approval subject for the active authors as the content is now, with no
-/// reflection structure. See [`with_subject_for`].
+/// Run `ask` against the approval subject for the active authors as the content is now. This is
+/// the one place the subject is built from the record, arrangement, drafts and synthesis, so the
+/// approval binding a preview hands out, the one the gate checks and the one a route stores cannot
+/// drift apart. The metadata it binds is the public record fields, then the reflection
+/// `structure`'s prose-free binding frame when there is one (layout, turn order, round prompts and
+/// labels; ADR 0031), then the synthesis's prose-free binding frame (items, order, attribution).
+/// A change to any of them makes standing approvals stale exactly as a change of prose does; with
+/// no structure nothing is appended for it, so approvals given before one existed stay valid. The
+/// synthesis's attributed authors must each approve the piece (ADR 0024, 0025).
 pub fn with_subject<R>(
     record: &SharedPublication,
-    drafts: &DraftSet,
-    active: &[&str],
-    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
-) -> R {
-    with_subject_for(record, None, drafts, active, ask)
-}
-
-/// Run `ask` against the approval subject for the active authors as the content is now. This is
-/// the one place the subject is built from the record and drafts, so the approval binding a
-/// preview hands out and the one the gate checks cannot drift apart.
-pub fn with_subject_for<R>(
-    record: &SharedPublication,
     structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
+    synthesis: &SynthesisSet,
     active: &[&str],
     ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
 ) -> R {
@@ -120,60 +137,183 @@ pub fn with_subject_for<R>(
             })
         })
         .collect();
-    let metadata = subject_metadata(record, structure);
+    let mut metadata = public_metadata(record);
+    if let Some(structure) = structure {
+        metadata.push(format!("reflection-frame:{}", structure.binding_frame()));
+    }
+    metadata.extend(synthesis.binding_frame());
     let metadata: Vec<&str> = metadata.iter().map(String::as_str).collect();
+    let attributed = synthesis.attributed_authors();
     ask(&ApprovalSubject {
         authors: &authors,
         sections: &sections,
         metadata: &metadata,
+        attributed: &attributed,
     })
 }
 
-/// Build the Post for `record` dated `date` (RFC 3339), or say why not. Pure. For a publication
-/// with no stored arrangement; see [`assemble_for`].
-pub fn assemble(
+/// Display names for participant ids, in the order given; unknown ids are skipped.
+pub fn display_names<'a>(
     record: &SharedPublication,
-    drafts: &DraftSet,
-    approvals: &ApprovalSet,
-    active: &[&str],
-    date: &str,
-) -> Result<Assembly, AssemblyError> {
-    assemble_for(record, None, drafts, approvals, active, date)
+    ids: impl IntoIterator<Item = &'a str>,
+) -> Vec<String> {
+    ids.into_iter()
+        .filter_map(|id| {
+            record
+                .collaboration
+                .participants
+                .iter()
+                .find(|participant| participant.id == id)
+        })
+        .map(|participant| participant.display_name.clone())
+        .collect()
+}
+
+/// Authors who still owe approval of at least one item they are named on, in first-appearance
+/// order. Empty when every item is fully approved (or there are none).
+pub fn unapproved_item_authors(synthesis: &SynthesisSet) -> Vec<String> {
+    let mut awaited: Vec<String> = Vec::new();
+    for status in synthesis.all_item_statuses() {
+        for author in status.awaiting {
+            if !awaited.contains(&author) {
+                awaited.push(author);
+            }
+        }
+    }
+    awaited
+}
+
+/// The section heading above everything a synthesis publishes. Its id is the stable permalink.
+const CONVERSATION_HEADING: &str = "## Continuing the conversation {#continuing-the-conversation}";
+
+/// Category order and heading, fixed so a reader finds the same shape in every piece. A kind
+/// nobody wrote has no heading at all.
+const CATEGORIES: [(SynthesisKind, &str, &str); 5] = [
+    (SynthesisKind::Agreement, "agreement", "Shared takeaways"),
+    (SynthesisKind::Difference, "difference", "Where we differ"),
+    (
+        SynthesisKind::Question,
+        "question",
+        "Questions we are left with",
+    ),
+    (
+        SynthesisKind::Application,
+        "application",
+        "Ways to apply this",
+    ),
+    (
+        SynthesisKind::Uncertainty,
+        "uncertainty",
+        "What we are still unsure about",
+    ),
+];
+
+/// Backslash-escape every ASCII punctuation character, which CommonMark always reads as a literal.
+/// A display name is a participant's text and must not become Markdown or HTML.
+fn escape_markdown(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if c.is_ascii_punctuation() {
+            out.push('\\');
+        }
+        out.push(if c.is_control() { ' ' } else { c });
+    }
+    out
+}
+
+/// The Markdown that publishes a synthesis, as chunks: headings, attribution headings and item
+/// prose, the flag marking the prose (untrusted, checked by [`assemble`]). Only items every
+/// attributed author approved at their current digest are included, so an unapproved, withdrawn
+/// or edited item has no path in. There is no consensus signal: each item names only the
+/// authors it speaks for. Empty when nothing qualifies, so there is no empty heading.
+pub fn conversation_parts(
+    record: &SharedPublication,
+    synthesis: &SynthesisSet,
+) -> Vec<(String, bool)> {
+    conversation_chunks(record, synthesis)
+        .into_iter()
+        .map(|(text, item)| (text, item.is_some()))
+        .collect()
+}
+
+/// [`conversation_parts`] with each prose chunk carrying the item it belongs to.
+fn conversation_chunks(
+    record: &SharedPublication,
+    synthesis: &SynthesisSet,
+) -> Vec<(String, Option<ItemRef>)> {
+    let mut parts: Vec<(String, Option<ItemRef>)> = Vec::new();
+    for (kind, slug, heading) in CATEGORIES {
+        let mut ordinal = 0;
+        for item in synthesis.items().iter().filter(|item| item.kind() == kind) {
+            let names = display_names(record, item.contributors().iter().map(String::as_str));
+            if !item.is_approved() || names.is_empty() {
+                continue;
+            }
+            if ordinal == 0 {
+                if parts.is_empty() {
+                    parts.push((CONVERSATION_HEADING.to_string(), None));
+                }
+                parts.push((format!("### {heading} {{#conversation-{slug}}}"), None));
+            }
+            ordinal += 1;
+            let names: Vec<String> = names.iter().map(|name| escape_markdown(name)).collect();
+            parts.push((
+                format!(
+                    "#### Speaking for {} {{#conversation-{slug}-{ordinal}}}",
+                    names.join(", ")
+                ),
+                None,
+            ));
+            parts.push((
+                item.markdown().trim().to_string(),
+                Some(ItemRef { kind, ordinal }),
+            ));
+        }
+    }
+    parts
+}
+
+/// [`conversation_parts`] as one Markdown block. The Post body and the combined preview both
+/// render exactly this through the production renderer.
+pub fn conversation_markdown(record: &SharedPublication, synthesis: &SynthesisSet) -> String {
+    conversation_parts(record, synthesis)
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Build the Post for `record` dated `date` (RFC 3339), or say why not. Pure. With a `structure`
-/// the sections follow its reading order and are wrapped in the arranged markup of
-/// [`compose`] (ADR 0032), and credits are one per participant at their first appearance
-/// (ADR 0031); without one the sections are the participants' drafts in participant order. Part
-/// marker lines never reach the Post either way.
-pub fn assemble_for(
+/// the sections follow its reading order and are wrapped in the arranged markup of [`compose`]
+/// (ADR 0032), and credits are one per participant at their first appearance (ADR 0031); without
+/// one the sections are the participants' drafts in participant order. Part marker lines never
+/// reach the Post either way. The approved conversation block follows the sections.
+pub fn assemble(
     record: &SharedPublication,
     structure: Option<&ReflectionStructure>,
     drafts: &DraftSet,
+    synthesis: &SynthesisSet,
     approvals: &ApprovalSet,
     active: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
-    match with_subject_for(record, structure, drafts, active, |subject| {
+    match with_subject(record, structure, drafts, synthesis, active, |subject| {
         approvals.evaluate(subject)
     }) {
         Ok(Readiness::Ready) => {}
         Ok(Readiness::Blocked { missing }) => {
             return Err(AssemblyError::Blocked {
-                missing: missing
-                    .iter()
-                    .filter_map(|id| {
-                        record
-                            .collaboration
-                            .participants
-                            .iter()
-                            .find(|participant| &participant.id == id)
-                    })
-                    .map(|participant| participant.display_name.clone())
-                    .collect(),
+                missing: display_names(record, missing.iter().map(String::as_str)),
             })
         }
         Err(_) => return Err(AssemblyError::Invalid),
+    }
+    // Shared prose publishes only with every named author's approval of that exact item.
+    let awaited = unapproved_item_authors(synthesis);
+    if !awaited.is_empty() {
+        return Err(AssemblyError::Blocked {
+            missing: display_names(record, awaited.iter().map(String::as_str)),
+        });
     }
     let title = record
         .title
@@ -247,8 +387,15 @@ pub fn assemble_for(
         return Err(AssemblyError::Invalid);
     }
 
-    if has_unsafe_markup(&prose) {
-        return Err(AssemblyError::UnsafeMarkup);
+    let conversation = conversation_chunks(record, synthesis);
+    match unsafe_markup(&prose, &conversation) {
+        None => {}
+        Some(error) => return Err(error),
+    }
+    let mut body = arranged.unwrap_or_else(|| prose.join(SECTION_BREAK));
+    if !conversation.is_empty() {
+        body.push_str(SECTION_BREAK);
+        body.push_str(&conversation_markdown(record, synthesis));
     }
 
     let mut fields: BTreeMap<String, Value> = BTreeMap::new();
@@ -264,6 +411,14 @@ pub fn assemble_for(
         }),
     );
     fields.insert("date".into(), scalar(date));
+    // The automatic summary draws on the sections only, so a short piece's description never
+    // runs into the generated conversation (attribution headings, unfinished item prose).
+    // Written explicitly because the renderer's own fallback would use the whole body.
+    let lead = crate::markdown::render(&prose.join(SECTION_BREAK), Default::default());
+    let description = crate::markdown::excerpt(lead.text.trim_end(), 180);
+    if !description.is_empty() {
+        fields.insert("description".into(), scalar(&description));
+    }
     if let Some(attribution) = SharedAttribution::from_record(record) {
         if let Some(question) = &attribution.question {
             fields.insert(QUESTION_KEY.into(), scalar(question));
@@ -285,24 +440,52 @@ pub fn assemble_for(
     .map_err(|_| AssemblyError::Invalid)?;
     Ok(Assembly {
         path,
-        source: frontmatter::compose(
-            &fields,
-            &arranged.unwrap_or_else(|| prose.join(SECTION_BREAK)),
-        ),
+        source: frontmatter::compose(&fields, &body),
         credits_path,
         credits: format!("{credits}\n"),
     })
 }
-
-const TAIL_SENTINEL: &str = "tail";
 
 /// Whether the joined body would publish anything but each author's own approved prose: raw
 /// HTML, an active link or image address, heading attributes beyond an id and classes, or
 /// Markdown in one section that changes how another renders (an open fence, a reference
 /// definition, a footnote). Checked on the exact parse the site renders with, both with and
 /// without smart punctuation because the site setting is not known here.
-fn has_unsafe_markup(sections: &[String]) -> bool {
-    use pulldown_cmark::{Event, Parser, Tag};
+///
+/// `conversation` is the generated synthesis block, each chunk with the item it carries when it
+/// is item prose. Its own headings are trusted. Each prose chunk is held to the same rules as a
+/// section, may not carry a heading of level one to four (it would break the page outline under
+/// the generated headings), and must parse the same inside the block as alone.
+///
+/// `None` is safe, otherwise the refusal to return: a section's, or an item's. A section
+/// heading (by its id or its text) may not claim an anchor the generated block owns.
+fn unsafe_markup(
+    sections: &[String],
+    conversation: &[(String, Option<ItemRef>)],
+) -> Option<AssemblyError> {
+    if sections
+        .iter()
+        .any(|text| synthesis::claims_reserved_anchor(text))
+    {
+        return Some(AssemblyError::ReservedSectionAnchor);
+    }
+    for (text, item) in conversation {
+        if let Some(item) = item {
+            if let Err(rule) = synthesis::check_item_markdown(text) {
+                return Some(AssemblyError::UnsafeConversationItem(rule, *item));
+            }
+        }
+    }
+    has_unsafe_markup(sections, conversation)
+}
+
+const TAIL_SENTINEL: &str = "tail";
+
+fn has_unsafe_markup(
+    sections: &[String],
+    conversation: &[(String, Option<ItemRef>)],
+) -> Option<AssemblyError> {
+    use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
     let unsafe_address = |address: &str| {
         let compact: String = address
             .chars()
@@ -316,43 +499,107 @@ fn has_unsafe_markup(sections: &[String]) -> bool {
             _ => false,
         }
     };
-    [false, true].into_iter().any(|smart| {
+    let scan = |events: &[Event<'_>], outline: bool| {
+        events.iter().any(|event| match event {
+            Event::Html(_) | Event::InlineHtml(_) => true,
+            Event::Start(Tag::Heading { attrs, level, .. }) => {
+                !attrs.is_empty()
+                    || (outline
+                        && matches!(
+                            level,
+                            HeadingLevel::H1
+                                | HeadingLevel::H2
+                                | HeadingLevel::H3
+                                | HeadingLevel::H4
+                        ))
+            }
+            // Whatever the site build's link resolution refuses (a credential-bearing address, a
+            // control character) would fail the whole build, so it is refused here instead.
+            Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
+                unsafe_address(dest_url) || !crate::portability::link_is_publishable(dest_url)
+            }
+            _ => false,
+        })
+    };
+    // Parsing `parts` joined by `joiner` must equal parsing each alone (with a rule between
+    // them when `rule`), so no part can reach into its neighbour.
+    let isolated = |parts: &[&str], joiner: &str, rule: bool, options| {
+        let joined = parts.join(joiner);
+        // Each part ends in the newline the join gives it, so a trailing indented code block
+        // parses the same alone as in place.
+        let terminated: Vec<String> = parts.iter().map(|part| format!("{part}\n")).collect();
+        let mut separate: Vec<Event<'_>> = Vec::new();
+        for (index, part) in terminated.iter().enumerate() {
+            if index > 0 && rule {
+                separate.push(Event::Rule);
+            }
+            separate.extend(Parser::new_ext(part, options));
+        }
+        Parser::new_ext(&joined, options).collect::<Vec<_>>() == separate
+    };
+    let texts: Vec<&str> = conversation.iter().map(|(text, _)| text.as_str()).collect();
+    // The item a failure is about, given the first chunk count at which a check fails: the last
+    // item at or before that chunk. Falls back to the first item.
+    let item_at = |chunks: usize| {
+        conversation[..chunks.min(conversation.len())]
+            .iter()
+            .rev()
+            .find_map(|(_, item)| *item)
+            .or_else(|| conversation.iter().find_map(|(_, item)| *item))
+    };
+    let item_fault = |chunks: usize| {
+        item_at(chunks).map_or(AssemblyError::UnsafeMarkup, |item| {
+            AssemblyError::UnsafeConversationItem(ItemRule::Markup, item)
+        })
+    };
+    for smart in [false, true] {
         let options = crate::markdown::parser_options(smart);
         // A sentinel section after the last one stands for the markup that follows the prose in
         // the published Post (the arrangement's closing tags): an open fence in the last section
         // would swallow it, so it must stay a separate section like every other boundary.
-        let mut all: Vec<&str> = sections.iter().map(String::as_str).collect();
-        all.push(TAIL_SENTINEL);
-        let joined = all.join(SECTION_BREAK);
-        // Each section ends in the newline the join gives it, so a trailing indented code block
-        // parses the same alone as in place.
-        let terminated: Vec<String> = all
-            .iter()
-            .map(|section| {
-                format!(
-                    "{section}
-"
-                )
-            })
-            .collect();
-        let mut separate: Vec<Event<'_>> = Vec::new();
-        for (index, section) in terminated.iter().enumerate() {
-            if index > 0 {
-                separate.push(Event::Rule);
+        let mut section_blocks: Vec<&str> = sections.iter().map(String::as_str).collect();
+        section_blocks.push(TAIL_SENTINEL);
+        let with_block = |chunks: usize| {
+            let block = texts[..chunks].join("\n\n");
+            let mut blocks = section_blocks.clone();
+            if chunks > 0 {
+                blocks.push(&block);
             }
-            separate.extend(Parser::new_ext(section, options));
+            isolated(&blocks, SECTION_BREAK, true, options)
+        };
+        if !with_block(texts.len()) {
+            // The sections may be fine alone and only break because of the generated block (an
+            // item's reference definition reaching a section), which is the item's fault.
+            if !isolated(&section_blocks, SECTION_BREAK, true, options) {
+                return Some(AssemblyError::UnsafeMarkup);
+            }
+            let first = (1..=texts.len()).find(|n| !with_block(*n)).unwrap_or(1);
+            return Some(item_fault(first));
         }
-        let together: Vec<Event<'_>> = Parser::new_ext(&joined, options).collect();
-        together != separate
-            || together.iter().any(|event| match event {
-                Event::Html(_) | Event::InlineHtml(_) => true,
-                Event::Start(Tag::Heading { attrs, .. }) => !attrs.is_empty(),
-                Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) => {
-                    unsafe_address(dest_url) || !crate::portability::link_is_publishable(dest_url)
+        if !isolated(&texts, "\n\n", false, options) {
+            let first = (1..=texts.len())
+                .find(|n| !isolated(&texts[..*n], "\n\n", false, options))
+                .unwrap_or(1);
+            return Some(item_fault(first));
+        }
+        if sections
+            .iter()
+            .any(|text| scan(&Parser::new_ext(text, options).collect::<Vec<_>>(), false))
+        {
+            return Some(AssemblyError::UnsafeMarkup);
+        }
+        for (text, item) in conversation {
+            if let Some(item) = item {
+                if scan(&Parser::new_ext(text, options).collect::<Vec<_>>(), true) {
+                    return Some(AssemblyError::UnsafeConversationItem(
+                        ItemRule::Markup,
+                        *item,
+                    ));
                 }
-                _ => false,
-            })
-    })
+            }
+        }
+    }
+    None
 }
 
 /// What happened to a publication after approval. Absent means neither scheduled nor published.

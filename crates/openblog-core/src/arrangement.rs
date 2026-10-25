@@ -30,6 +30,9 @@ pub struct ArrangedRound {
 pub struct Arrangement {
     pub layout: ReflectionLayout,
     pub rounds: Vec<ArrangedRound>,
+    /// What follows the arrangement in the Post, after the section break the gate writes: the
+    /// approved continuing conversation (ADR 0026). Ordinary Markdown, returned unchanged.
+    pub trailing: Option<String>,
 }
 
 const ROOT_OPEN: &str = "<div class=\"ob-reflection ob-reflection-";
@@ -182,10 +185,23 @@ impl Arrangement {
             last_end = end;
         }
         match stage {
-            Stage::Done if blank(&markdown[last_end..]) && !rounds.is_empty() => Some(Self {
-                layout: layout?,
-                rounds,
-            }),
+            Stage::Done if !rounds.is_empty() => {
+                // Only the arrangement, or the arrangement and then, after exactly the section
+                // break `assemble` writes, more Markdown (no raw HTML: any further HTML line was
+                // refused above, and inline HTML anywhere refuses the whole body).
+                let rest = &markdown[last_end..];
+                let trailing = if blank(rest) {
+                    None
+                } else {
+                    let after = rest.strip_prefix("\n\n---\n\n")?.trim();
+                    (!after.is_empty()).then(|| after.to_string())
+                };
+                Some(Self {
+                    layout: layout?,
+                    rounds,
+                    trailing,
+                })
+            }
             _ => None,
         }
     }
@@ -213,6 +229,10 @@ impl Arrangement {
                 out.push_str(turn.body.trim());
                 out.push_str("\n\n");
             }
+        }
+        if let Some(trailing) = &self.trailing {
+            out.push_str("---\n\n");
+            out.push_str(trailing);
         }
         out.trim_end().to_string()
     }

@@ -2,7 +2,7 @@
 //! Post, the arranged preview, the approval binding of the arrangement, and the part marker.
 
 use openblog_core::approval::ApprovalSet;
-use openblog_core::assembly::{assemble, assemble_for, with_subject_for, AssemblyError};
+use openblog_core::assembly::{assemble, with_subject, AssemblyError};
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
     Participant, SharedPublication, SourceKind,
@@ -10,8 +10,9 @@ use openblog_core::collaboration::{
 use openblog_core::config::SiteConfig;
 use openblog_core::contributor::Contributor;
 use openblog_core::draft::DraftSet;
-use openblog_core::preview::build_for;
+use openblog_core::preview::build;
 use openblog_core::reflection::{ReflectionLayout, ReflectionStructure, LAYOUT_CSS, PART_MARKER};
+use openblog_core::synthesis::SynthesisSet;
 use openblog_core::SourceFile;
 
 const T: i64 = 1_800_000_000;
@@ -93,10 +94,10 @@ fn approve_all(
 ) -> ApprovalSet {
     let mut approvals = ApprovalSet::new();
     for who in ALL {
-        let seen = with_subject_for(record, s, set, &ALL, |subject| {
+        let seen = with_subject(record, s, set, &SynthesisSet::new(), &ALL, |subject| {
             approvals.binding_for(subject, who).unwrap()
         });
-        with_subject_for(record, s, set, &ALL, |subject| {
+        with_subject(record, s, set, &SynthesisSet::new(), &ALL, |subject| {
             approvals.approve(who, who, subject, &seen, true, T)
         })
         .unwrap();
@@ -108,6 +109,15 @@ fn index(haystack: &str, needle: &str) -> usize {
     haystack
         .find(needle)
         .unwrap_or_else(|| panic!("missing {needle}"))
+}
+
+/// The Post's body: everything after its front matter, whose automatic `description` repeats the
+/// start of the prose and so says nothing about reading order.
+fn body(source: &str) -> &str {
+    source
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+        .map_or(source, |(_, body)| body)
 }
 
 fn in_order(haystack: &str, needles: &[&str]) -> bool {
@@ -122,7 +132,16 @@ fn a_piece_without_a_structure_keeps_participant_order_and_never_shows_the_marke
     let record = record();
     let set = world();
     let approvals = approve_all(&record, None, &set);
-    let made = assemble(&record, &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert!(!made.source.contains("openblog:part"), "{}", made.source);
     assert!(!made.source.contains("ob-reflection"));
     assert!(index(&made.source, "ANN-TWO") < index(&made.source, "BO-ONE"));
@@ -136,7 +155,16 @@ fn the_arranged_post_follows_the_reading_order_and_credits_each_author_once() {
     let set = world();
     let s = interleaved("sequential", 1);
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert!(in_order(&made.source, &READING), "{}", made.source);
     assert!(!made.source.contains("openblog:part"));
     assert_eq!(made.credits.matches("\"contributor\"").count(), 2);
@@ -149,7 +177,7 @@ fn the_arranged_post_follows_the_reading_order_and_credits_each_author_once() {
     // The round prompt is escaped text, once, before the answers.
     assert!(made.source.contains("What stood out? &lt;b&gt;x&lt;/b&gt;"));
     assert!(!made.source.contains("<b>x</b>"));
-    assert!(index(&made.source, "What stood out") < index(&made.source, "ANN-ONE"));
+    assert!(index(body(&made.source), "What stood out") < index(body(&made.source), "ANN-ONE"));
     assert!(made.source.contains("ob-reflection-sequential ob-lanes-1"));
 }
 
@@ -159,7 +187,16 @@ fn side_by_side_is_the_same_dom_order_with_lane_classes_only() {
     let set = world();
     let side = interleaved("sequential", 1).with_layout(ReflectionLayout::SideBySide);
     let approvals = approve_all(&record, Some(&side), &set);
-    let made = assemble_for(&record, Some(&side), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&side),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert!(made
         .source
         .contains("ob-reflection-side-by-side ob-lanes-2"));
@@ -180,7 +217,16 @@ fn unequal_numbers_of_parts_arrange_without_blank_gaps() {
             {"draft":"ann","part":0},{"draft":"bo","part":0},{"draft":"ann","part":1}]}]}"#,
     );
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert_eq!(made.source.matches("<section class=\"ob-turn").count(), 3);
     assert!(index(&made.source, "BO-ONLY") < index(&made.source, "ANN-TWO"));
 }
@@ -191,10 +237,19 @@ fn changing_the_layout_or_the_arrangement_makes_standing_approvals_stale_at_the_
     let set = world();
     let s = interleaved("sequential", 1);
     let approvals = approve_all(&record, Some(&s), &set);
-    assert!(assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).is_ok());
+    assert!(assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_ok());
     let blocked = |changed: Option<&ReflectionStructure>| {
         matches!(
-            assemble_for(&record, changed, &set, &approvals, &ALL, DATE),
+            assemble(&record, changed, &set, &SynthesisSet::new(), &approvals, &ALL, DATE),
             Err(AssemblyError::Blocked { missing }) if missing == ["Ann", "Bo", "Cy"]
         )
     };
@@ -213,11 +268,38 @@ fn changing_the_layout_or_the_arrangement_makes_standing_approvals_stale_at_the_
     // Saving an identical arrangement under a newer revision changes nothing a reader sees.
     let mut resaved = s.clone();
     resaved.revision = 2;
-    assert!(assemble_for(&record, Some(&resaved), &set, &approvals, &ALL, DATE).is_ok());
+    assert!(assemble(
+        &record,
+        Some(&resaved),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_ok());
     // Approvals given before any structure existed do not survive the first one either.
     let plain = approve_all(&record, None, &set);
-    assert!(assemble(&record, &set, &plain, &ALL, DATE).is_ok());
-    assert!(assemble_for(&record, Some(&s), &set, &plain, &ALL, DATE).is_err());
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &plain,
+        &ALL,
+        DATE
+    )
+    .is_ok());
+    assert!(assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &plain,
+        &ALL,
+        DATE
+    )
+    .is_err());
 }
 
 #[test]
@@ -229,7 +311,15 @@ fn a_stale_or_unsupported_arrangement_publishes_nothing() {
     );
     let approvals = approve_all(&record, Some(&missing_part), &set);
     assert_eq!(
-        assemble_for(&record, Some(&missing_part), &set, &approvals, &ALL, DATE),
+        assemble(
+            &record,
+            Some(&missing_part),
+            &set,
+            &SynthesisSet::new(),
+            &approvals,
+            &ALL,
+            DATE
+        ),
         Err(AssemblyError::Invalid)
     );
 }
@@ -244,12 +334,29 @@ fn hostile_names_and_markup_cannot_break_out_of_the_arrangement() {
     let set = drafts(&[("ann", "Ann words"), ("bo", "Bo <script>x</script>")]);
     let approvals = approve_all(&record, Some(&s), &set);
     assert_eq!(
-        assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE),
+        assemble(
+            &record,
+            Some(&s),
+            &set,
+            &SynthesisSet::new(),
+            &approvals,
+            &ALL,
+            DATE
+        ),
         Err(AssemblyError::UnsafeMarkup)
     );
     let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words")]);
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert!(!made.source.contains("<script>"));
     assert!(made
         .source
@@ -262,7 +369,16 @@ fn the_arranged_post_loads_through_the_production_pipeline_in_reading_order() {
     let set = world();
     let s = interleaved("sideBySide", 1);
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     let mut config = SiteConfig::default();
     for (id, name) in [("ann", "Ann"), ("bo", "Bo"), ("cy", "Cy")] {
         config.contributors.insert(
@@ -312,7 +428,18 @@ fn the_preview_arranges_what_the_requester_may_read_and_shows_one_placeholder_fo
     let approvals = ApprovalSet::new();
     let config = SiteConfig::default();
     let options = config.render_options();
-    let shown = build_for(&record, Some(&s), &set, &approvals, "ann", &ALL, options).unwrap();
+    let shown = build(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        "ann",
+        &ALL,
+        true,
+        options,
+    )
+    .unwrap();
     // Bo's draft is private to Bo: nothing of it reaches Ann's preview, and neither does the marker.
     assert!(!shown.document.contains("BO-ONE") && !shown.document.contains("BO-TWO"));
     assert!(!shown.document.contains("openblog:part"));
@@ -327,7 +454,18 @@ fn the_preview_arranges_what_the_requester_may_read_and_shows_one_placeholder_fo
             >= 2
     );
     // The same piece for Bo reads Bo's turns and hides Ann's.
-    let theirs = build_for(&record, Some(&s), &set, &approvals, "bo", &ALL, options).unwrap();
+    let theirs = build(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        "bo",
+        &ALL,
+        true,
+        options,
+    )
+    .unwrap();
     assert!(theirs.document.contains("BO-ONE") && !theirs.document.contains("ANN-ONE"));
     assert!(
         shown.document.contains("grid-column"),
@@ -346,21 +484,39 @@ fn a_complete_arranged_preview_hands_out_the_binding_the_gate_checks() {
     let approvals = ApprovalSet::new();
     let config = SiteConfig::default();
     let options = config.render_options();
-    let shown = build_for(&record, Some(&s), &set, &approvals, "ann", &ALL, options).unwrap();
-    assert!(shown.complete);
-    let gate = with_subject_for(&record, Some(&s), &set, &ALL, |subject| {
-        approvals.binding_for(subject, "ann").unwrap()
-    });
-    assert_eq!(shown.seen.as_deref(), Some(gate.as_str()));
-    assert!(in_order(&shown.document, &READING));
-    // A preview of another arrangement hands out a different binding.
-    let other = build_for(
+    let shown = build(
         &record,
-        Some(&s.with_layout(ReflectionLayout::SideBySide)),
+        Some(&s),
         &set,
+        &SynthesisSet::new(),
         &approvals,
         "ann",
         &ALL,
+        true,
+        options,
+    )
+    .unwrap();
+    assert!(shown.complete);
+    let gate = with_subject(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &ALL,
+        |subject| approvals.binding_for(subject, "ann").unwrap(),
+    );
+    assert_eq!(shown.seen.as_deref(), Some(gate.as_str()));
+    assert!(in_order(&shown.document, &READING));
+    // A preview of another arrangement hands out a different binding.
+    let other = build(
+        &record,
+        Some(&s.with_layout(ReflectionLayout::SideBySide)),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        "ann",
+        &ALL,
+        true,
         options,
     )
     .unwrap();
@@ -369,13 +525,15 @@ fn a_complete_arranged_preview_hands_out_the_binding_the_gate_checks() {
     let broken = structure(
         r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r1","turns":[{"draft":"ann","part":9}]}]}"#,
     );
-    let refused = build_for(
+    let refused = build(
         &record,
         Some(&broken),
         &set,
+        &SynthesisSet::new(),
         &approvals,
         "ann",
         &ALL,
+        true,
         options,
     )
     .unwrap();
@@ -389,13 +547,15 @@ fn the_preview_without_a_structure_strips_the_marker_too() {
     let set = world();
     let config = SiteConfig::default();
     let options = config.render_options();
-    let shown = build_for(
+    let shown = build(
         &record,
         None,
         &set,
+        &SynthesisSet::new(),
         &ApprovalSet::new(),
         "ann",
         &ALL,
+        true,
         options,
     )
     .unwrap();
@@ -425,19 +585,44 @@ fn an_unclosed_fence_in_the_last_turn_cannot_swallow_the_arrangement_markup() {
     ]);
     let approvals = approve_all(&record, Some(&s), &set);
     assert_eq!(
-        assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE),
+        assemble(
+            &record,
+            Some(&s),
+            &set,
+            &SynthesisSet::new(),
+            &approvals,
+            &ALL,
+            DATE
+        ),
         Err(AssemblyError::UnsafeMarkup)
     );
     // The unarranged path refuses it too, so the two paths agree.
     let approvals = approve_all(&record, None, &set);
     assert_eq!(
-        assemble(&record, &set, &approvals, &ALL, DATE),
+        assemble(
+            &record,
+            None,
+            &set,
+            &SynthesisSet::new(),
+            &approvals,
+            &ALL,
+            DATE
+        ),
         Err(AssemblyError::UnsafeMarkup)
     );
     // A closed fence is ordinary prose.
     let set = drafts(&[("ann", "Ann words"), ("bo", "```\nclosed\n```")]);
     let approvals = approve_all(&record, Some(&s), &set);
-    assert!(assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).is_ok());
+    assert!(assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_ok());
 }
 
 #[test]
@@ -449,13 +634,15 @@ fn the_preview_drops_the_turns_of_an_author_with_nothing_written() {
     let set = drafts(&[("ann", "Ann words")]);
     let approvals = ApprovalSet::new();
     let config = SiteConfig::default();
-    let shown = build_for(
+    let shown = build(
         &record,
         Some(&s),
         &set,
+        &SynthesisSet::new(),
         &approvals,
         "ann",
         &ALL,
+        true,
         config.render_options(),
     )
     .unwrap();
@@ -478,7 +665,16 @@ fn the_other_three_layouts_publish_in_reading_order_with_only_classes_to_place_t
     for (name, key) in NEW_LAYOUTS {
         let s = interleaved(name, 1);
         let approvals = approve_all(&record, Some(&s), &set);
-        let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+        let made = assemble(
+            &record,
+            Some(&s),
+            &set,
+            &SynthesisSet::new(),
+            &approvals,
+            &ALL,
+            DATE,
+        )
+        .unwrap();
         assert!(
             made.source
                 .contains(&format!("ob-reflection-{key} ob-lanes-")),
@@ -508,7 +704,16 @@ fn point_counterpoint_lanes_follow_first_appearance_not_identity() {
             {"id":"r2","turns":[{"draft":"ann","part":1},{"draft":"bo","part":1}]}]}"#,
     );
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     let lanes: Vec<&str> = made
         .source
         .split("class=\"ob-turn ob-lane-")
@@ -556,7 +761,16 @@ fn labels_are_escaped_optional_and_dropped_with_the_turn_they_belong_to() {
     );
     let set = drafts(&[("ann", "Ann words"), ("bo", "Bo words"), ("cy", "Cy words")]);
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert!(!made.source.contains("<img"));
     assert!(made.source.contains(
         "<p class=\"ob-turn-label\">Point &lt;img src=x onerror=alert&#40;1&#41;&gt;</p>"
@@ -568,13 +782,22 @@ fn labels_are_escaped_optional_and_dropped_with_the_turn_they_belong_to() {
     assert_eq!(made.source.matches("ob-turn-label").count(), 2);
     // The label reads right after the author's name and before the words.
     assert!(in_order(
-        &made.source,
+        body(&made.source),
         &[">Ann</h2>", "Point &lt;img", "Ann words"]
     ));
     // Bo writes nothing: Bo's turn, label and credit are gone and the others still read fine.
     let set = drafts(&[("ann", "Ann words"), ("cy", "Cy words")]);
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert!(!made.source.contains("Réplique") && !made.source.contains(">Bo<"));
     assert_eq!(made.credits.matches("\"contributor\"").count(), 2);
     assert!(made.source.contains("ob-lanes-2"));
@@ -588,7 +811,16 @@ fn when_only_one_voice_remains_the_layout_is_one_honest_column() {
         r#"{"version":1,"revision":1,"layout":"pointCounterpoint","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0},{"draft":"bo","part":0}]}]}"#,
     );
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert!(made.source.contains("ob-lanes-1"), "{}", made.source);
     assert!(!made.source.contains("ob-lane-1"));
     assert!(!made.source.contains(">Bo<"));
@@ -597,7 +829,16 @@ fn when_only_one_voice_remains_the_layout_is_one_honest_column() {
         r#"{"version":1,"revision":1,"layout":"alternatingDialogue","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0}]}]}"#,
     );
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert!(made.source.contains("ob-lanes-1"));
 }
 
@@ -610,13 +851,15 @@ fn the_preview_arranges_the_new_layouts_and_their_labels_like_the_post() {
         let mut s = interleaved(name, 1);
         s.rounds[0].turns[0].label = Some("Opening <i>words</i>".into());
         let approvals = ApprovalSet::new();
-        let shown = build_for(
+        let shown = build(
             &record,
             Some(&s),
             &set,
+            &SynthesisSet::new(),
             &approvals,
             "ann",
             &ALL,
+            true,
             config.render_options(),
         )
         .unwrap();
@@ -641,11 +884,29 @@ fn a_last_turn_ending_in_an_indented_code_block_is_published_not_refused() {
     );
     let set = drafts(&[("ann", "Ann words"), ("bo", "Bo shows:\n\n    code line")]);
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert!(made.source.contains("    code line"));
     // The unarranged path agrees.
     let approvals = approve_all(&record, None, &set);
-    assert!(assemble(&record, &set, &approvals, &ALL, DATE).is_ok());
+    assert!(assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE
+    )
+    .is_ok());
 }
 
 #[test]
@@ -661,7 +922,16 @@ fn a_dialogue_changes_side_only_when_the_speaker_changes() {
             {"draft":"ann","part":0},{"draft":"ann","part":1},{"draft":"bo","part":0},{"draft":"cy","part":0}]}]}"#,
     );
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     let lanes: Vec<&str> = made
         .source
         .split("class=\"ob-turn ob-lane-")
@@ -681,7 +951,16 @@ fn point_counterpoint_with_three_voices_is_one_column() {
             {"draft":"ann","part":0},{"draft":"bo","part":0},{"draft":"cy","part":0}]}]}"#,
     );
     let approvals = approve_all(&record, Some(&s), &set);
-    let made = assemble_for(&record, Some(&s), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&s),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     assert!(made.source.contains("ob-lanes-1"), "{}", made.source);
     assert!(!made.source.contains("ob-lane-1"));
     assert_eq!(made.source.matches("ob-lane-0").count(), 3);

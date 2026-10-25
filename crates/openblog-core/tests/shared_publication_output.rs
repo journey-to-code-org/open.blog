@@ -15,6 +15,7 @@ use openblog_core::feeds;
 use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
 use openblog_core::portability::PortableProjection;
 use openblog_core::render;
+use openblog_core::synthesis::SynthesisSet;
 use openblog_core::theme::ThemeSet;
 
 const T: i64 = 1_800_000_000;
@@ -121,15 +122,24 @@ fn approved_titled(title: &str, texts: &[(&str, &str)]) -> Assembly {
     }
     let mut approvals = ApprovalSet::new();
     for who in ALL {
-        let seen = with_subject(&record, &set, &ALL, |s| {
+        let seen = with_subject(&record, None, &set, &SynthesisSet::new(), &ALL, |s| {
             approvals.binding_for(s, who).unwrap()
         });
-        with_subject(&record, &set, &ALL, |s| {
+        with_subject(&record, None, &set, &SynthesisSet::new(), &ALL, |s| {
             approvals.approve(who, who, s, &seen, true, T)
         })
         .unwrap();
     }
-    assemble(&record, &set, &approvals, &ALL, DATE).unwrap()
+    assemble(
+        &record,
+        None,
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap()
 }
 
 fn site(made: &Assembly) -> Site {
@@ -440,7 +450,6 @@ fn summary_only_feeds_carry_an_excerpt_and_no_private_values() {
 
 #[test]
 fn an_arranged_reflection_reaches_every_representation_in_reading_order_without_the_marker() {
-    use openblog_core::assembly::{assemble_for, with_subject_for};
     use openblog_core::reflection::{ReflectionStructure, PART_MARKER};
     let record = record_titled("Noticing, together");
     let mut set = DraftSet::new(&ALL).unwrap();
@@ -463,15 +472,34 @@ fn an_arranged_reflection_reaches_every_representation_in_reading_order_without_
     .unwrap();
     let mut approvals = ApprovalSet::new();
     for who in ALL {
-        let seen = with_subject_for(&record, Some(&structure), &set, &ALL, |s| {
-            approvals.binding_for(s, who).unwrap()
-        });
-        with_subject_for(&record, Some(&structure), &set, &ALL, |s| {
-            approvals.approve(who, who, s, &seen, true, T)
-        })
+        let seen = with_subject(
+            &record,
+            Some(&structure),
+            &set,
+            &SynthesisSet::new(),
+            &ALL,
+            |s| approvals.binding_for(s, who).unwrap(),
+        );
+        with_subject(
+            &record,
+            Some(&structure),
+            &set,
+            &SynthesisSet::new(),
+            &ALL,
+            |s| approvals.approve(who, who, s, &seen, true, T),
+        )
         .unwrap();
     }
-    let made = assemble_for(&record, Some(&structure), &set, &approvals, &ALL, DATE).unwrap();
+    let made = assemble(
+        &record,
+        Some(&structure),
+        &set,
+        &SynthesisSet::new(),
+        &approvals,
+        &ALL,
+        DATE,
+    )
+    .unwrap();
     let site = site(&made);
     let post = &site.posts[0];
     let projection = PortableProjection::from_post(post, &site.config).unwrap();

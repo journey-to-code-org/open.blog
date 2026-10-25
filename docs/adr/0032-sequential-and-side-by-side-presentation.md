@@ -32,11 +32,12 @@ stores a structure, lets someone choose it, publishes it and shows it.
 - **Presentable layouts.** (Superseded by [ADR 0033](0033-point-counterpoint-dialogue-and-roundtable-presentation.md): all five layouts are now presentable.) Only sequential and side-by-side are chosen or rendered
   (`ReflectionLayout::is_presentable`). The other three are valid structure values that are refused
   rather than silently shown as sequential; point-counterpoint and dialogue turns are out of scope.
-- **Approval.** One helper, `assembly::subject_metadata`, appends `binding_frame()` to the public
-  metadata. The gate, the combined preview, the approve route and the reconcile step all build the
-  subject through it (`with_subject_for`, `build_for`, `assemble_for`; the older entry points
-  remain and pass no structure). With no structure nothing is appended, so approvals given before
-  one existed stay valid until one is saved. A layout, turn order or round prompt change makes
+- **Approval.** One subject builder, `assembly::with_subject`, binds the public metadata, then the
+  structure's `binding_frame()`, then the synthesis's binding frame (ADR 0025), and passes the
+  synthesis's attributed authors. The gate (`assemble`), the combined preview (`preview::build`),
+  the approve route, the scheduled recheck and the reconcile step all take an
+  `Option<&ReflectionStructure>` and build the subject through it. With no structure nothing is
+  appended, so approvals given before one existed stay valid until one is saved. A layout, turn order or round prompt change makes
   standing approvals stale at the real gate, and the saving request also drops them, as a draft
   save does. Re-saving an identical arrangement under a newer revision changes nothing a reader
   sees and keeps approvals.

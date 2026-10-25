@@ -47,6 +47,7 @@ pub mod shared_source;
 pub mod slug;
 pub mod source_interchange;
 pub mod source_library;
+pub mod synthesis;
 pub mod theme;
 pub mod video;
 

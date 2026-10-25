@@ -143,6 +143,11 @@ pub enum AuthorizationAction {
     /// Contributors and Editors hold it, and only for themselves: revealed drafts are read
     /// through `DraftSet::view`, never through this grant.
     EditDraft,
+    /// Read and change the shared synthesis items (ADR 0025) as the requester's own participant:
+    /// add, edit, withdraw from, reorder and approve items. Targets the requester's own
+    /// participant. Only Contributors hold it, and only for themselves, because a named author
+    /// must be able to approve the piece, which Editors cannot.
+    EditSynthesis,
     /// Choose how contribution drafts may be revealed. Targets the publication. Coordinators and
     /// site owners hold it; it reveals nothing and reads no draft.
     SetRevealPolicy,
@@ -241,7 +246,9 @@ impl AuthorizationAction {
         match self {
             ViewPublication | ViewPublished | Invite | SetRevealPolicy | ArrangeReflection
             | Schedule | Publish | Export => TargetKind::Publication,
-            ApproveContribution | EditDraft | RemoveMember | ManageRoles => TargetKind::Participant,
+            ApproveContribution | EditDraft | EditSynthesis | RemoveMember | ManageRoles => {
+                TargetKind::Participant
+            }
             ViewRevealed | ViewContribution | EditContribution | RevealContribution => {
                 TargetKind::Contribution
             }
@@ -566,7 +573,11 @@ fn role_allows(
             ResolvedTarget::Contribution { owner, .. },
         ) => *owner == own,
         (Contributor | Editor, EditDraft, ResolvedTarget::Participant { id, .. }) => *id == own,
-        (Contributor, ApproveContribution, ResolvedTarget::Participant { id, .. }) => *id == own,
+        (
+            Contributor,
+            ApproveContribution | EditSynthesis,
+            ResolvedTarget::Participant { id, .. },
+        ) => *id == own,
         (
             Editor,
             ViewContribution | EditContribution,
