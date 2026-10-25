@@ -954,6 +954,34 @@ test("opening a hit the view has not seen refreshes the notebook and retries; if
   assert.equal(api.calls.length, 0);
 }));
 
+test("a refresh for a missing hit does not hand the open form a newer revision, so its save still conflicts", withDom(async () => {
+  let reads = 0;
+  const elsewhere = { ...PASSAGE(), excerpt: { text: "edited elsewhere" } };
+  const api = notebookApi({
+    "GET research/notebook": () => (reads++ ? notebook({ revision: "r2", passages: [elsewhere] }) : notebook()),
+    "POST research/search": () => searchResult([HIT({ id: "ghost-1", entry: "note", kind: "observation", snippet: "nowhere", sources: [] })]),
+    "PUT research/passages": (body) => {
+      if (body.revision !== "r2") throw new ApiError("changed", 409, { conflict: true, revision: "r2", current: elsewhere });
+      return { revision: "r3", sources: SOURCES(), passages: [body.passage], notes: [], passage: body.passage };
+    },
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  await entryButton(root, "passage-1").click();
+  assert.ok(byId(root, "oba-research-excerpt"), "the stale copy is open");
+  await type(byId(root, "oba-research-search"), "nowhere");
+  await settledSearch();
+  await entryButton(root, "ghost-1").click();
+  await tick();
+  assert.match(root.textContent, /no longer in the notebook/);
+  assert.equal(reads, 2, "the notebook was refreshed");
+  await type(byId(root, "oba-research-excerpt"), "my edit");
+  await submit(root);
+  await tick();
+  assert.deepEqual(api.calls.map((call) => [call.method, call.body.revision]), [["PUT", "r1"]], "the save used the revision the form was built from");
+  assert.ok(buttonLabelled(root, "Use the stored copy"), "the conflict flow is offered");
+}));
+
 test("the capture form can still save a passage when every source is archived", withDom(async () => {
   const archived = SOURCES().map((source) => ({ ...source, archived: true }));
   const passage = { ...PASSAGE(), source: archived[0].id };
@@ -1047,12 +1075,14 @@ test("export needs a confirmation and asks the server for the private bundle exp
 
 test("import reads a file, previews first, applies only what was previewed", withDom(async () => {
   const file = { format: "open.blog/research-notebook", version: 1, private: true, notebook: { version: 1, notes: [] } };
+  // 2^53 + 1 would be rounded by JSON.parse, so the file text must reach the server untouched.
+  const fileText = JSON.stringify(file).replace('"notes":[]', '"notes":[],"counter":9007199254740993');
   let applied = 0;
   const create = { counts: { create: 1, unchanged: 0, conflict: 0 }, entries: [{ id: "note-9", collection: "notes", action: "create" }] };
   const api = notebookApi({
     "GET research/notebook": () => notebook(),
     "POST research/import": (body) => {
-      assert.deepEqual(body.bundle, file, "the bundle is sent as the object that was read");
+      assert.equal(body.content, fileText, "the file text is sent exactly as read");
       if (!body.apply) return { revision: "r1", applied: false, applicable: true, plan: create };
       applied += 1;
       return { revision: "r5", applied: true, applicable: true, sources: SOURCES(), passages: [PASSAGE()], notes: [NOTE(), { id: "note-9", kind: "observation", text: "imported", visibility: "private" }], plan: create };
@@ -1069,7 +1099,7 @@ test("import reads a file, previews first, applies only what was previewed", wit
   await input.dispatch("change", { target: input });
   assert.match(root.textContent, /not a research bundle/);
   assert.equal(previewButton.disabled, true);
-  input.files = [{ name: "notes.json", text: async () => JSON.stringify(file) }];
+  input.files = [{ name: "notes.json", text: async () => fileText }];
   await input.dispatch("change", { target: input });
   assert.match(root.textContent, /Loaded notes\.json\. Preview it before importing/);
   await applyButton.click();

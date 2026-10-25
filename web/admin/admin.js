@@ -4294,18 +4294,23 @@ export class ObAdmin extends AdminElement {
       if (!confirmDiscard()) return;
       if (target !== "new" && !entryOf(target)) {
         // A hit or backlink from the server may be newer than this view: refresh once and retry.
+        // The refreshed copy is committed only when the panel is re-rendered from it. An open form
+        // was built from the old copy, so keeping the old revision makes its save conflict (409)
+        // instead of silently overwriting a concurrent edit.
+        let latest = null;
         try {
-          const latest = await this.api.call("GET", "research/notebook");
-          if (this.viewVersion !== mountedView) return;
-          Object.assign(state, { revision: latest.revision, sources: latest.sources, passages: latest.passages, notes: latest.notes });
+          latest = await this.api.call("GET", "research/notebook");
         } catch {
-          if (this.viewVersion !== mountedView) return;
+          latest = null;
         }
-        if (!entryOf(target)) {
-          // Leave the list and its focus as they are.
+        if (this.viewVersion !== mountedView) return;
+        const found = latest && (target.type === "passage" ? latest.passages : latest.notes)?.some((entry) => entry.id === target.id);
+        if (!found) {
+          // Leave the lists, the open form and its revision as they are.
           say(`That ${target.type} (${target.id}) is no longer in the notebook. The list may be out of date.`, "oba-error");
           return;
         }
+        Object.assign(state, { revision: latest.revision, sources: latest.sources, passages: latest.passages, notes: latest.notes });
       }
       selected = target;
       say("");
@@ -4383,7 +4388,7 @@ export class ObAdmin extends AdminElement {
     const bundleFile = h("input", { id: "oba-research-import-file", type: "file", accept: ".json,application/json" });
     const bundlePreview = h("button", { class: "oba-btn", type: "button", "data-research-import-preview": "true", disabled: true }, "Preview import");
     const bundleApply = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-research-import-apply": "true", hidden: true }, "Apply import");
-    let bundle = null; // the parsed file, held only until it is applied or replaced
+    let bundle = null; // the raw file text, held only until it is applied or replaced
     let previewed = false;
     const showBundlePlan = (plan, headline) => {
       const rows = notebookImportRows(plan);
@@ -4405,7 +4410,7 @@ export class ObAdmin extends AdminElement {
       busy = true;
       bundlePreview.disabled = bundleApply.disabled = true;
       try {
-        const result = await this.api.call("POST", "research/import", { json: { revision: state.revision, bundle, apply } });
+        const result = await this.api.call("POST", "research/import", { json: { revision: state.revision, content: bundle, apply } });
         if (this.viewVersion !== mountedView) return;
         bundleStatus.className = "oba-small";
         if (apply && result.applied) {
@@ -4452,9 +4457,11 @@ export class ObAdmin extends AdminElement {
       bundleResult.replaceChildren();
       if (!file) return;
       try {
-        const parsed = JSON.parse(await file.text());
+        // Keep the text as read: the server parses it, so large integers in unknown fields are not rounded.
+        const text = await file.text();
+        const parsed = JSON.parse(text);
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
-        bundle = parsed;
+        bundle = text;
         bundlePreview.disabled = false;
         bundleStatus.className = "oba-small";
         bundleStatus.textContent = `Loaded ${file.name}. Preview it before importing.`;

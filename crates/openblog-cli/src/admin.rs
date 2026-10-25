@@ -1397,8 +1397,8 @@ fn export_notebook(state: &AppState, req: &Request) -> Response {
     )
 }
 
-/// Preview (`apply: false`) or apply a research bundle, sent as the `bundle`
-/// object. The preview never writes. An apply is refused whole when any entry
+/// Preview (`apply: false`) or apply a research bundle, sent as the raw file
+/// text in `content` (parsed here, so unknown fields restore byte for byte). The preview never writes. An apply is refused whole when any entry
 /// conflicts, and otherwise goes through the same revision-checked, atomic
 /// store as every other notebook change.
 fn import_notebook(state: &AppState, req: &Request) -> Response {
@@ -1411,11 +1411,11 @@ fn import_notebook(state: &AppState, req: &Request) -> Response {
     let Ok(body) = serde_json::from_slice::<Json>(&req.body) else {
         return Response::error(400, "Invalid JSON");
     };
-    let (Some(revision), true) = (body["revision"].as_str(), body["bundle"].is_object()) else {
+    let (Some(revision), true) = (body["revision"].as_str(), body["content"].is_string()) else {
         return Response::error(400, "Name the notebook revision and send the bundle");
     };
     let apply = body["apply"].as_bool().unwrap_or(false);
-    let content = body["bundle"].to_string();
+    let content = body["content"].as_str().unwrap_or_default().to_string();
     let contributors = source_contributors(state);
     let snapshot = match notebook_store::load(&state.root, &contributors) {
         Ok(snapshot) => snapshot,
@@ -9927,7 +9927,7 @@ mod tests {
         let bundle: Json = serde_json::from_str(&content).unwrap();
         let import =
             |body: Json| notebook_call(&g, &other, "POST", "/admin/api/research/import", body);
-        let (status, preview) = import(json!({"revision": empty["revision"], "bundle": bundle}));
+        let (status, preview) = import(json!({"revision": empty["revision"], "content": content}));
         assert_eq!(status, 200, "{preview}");
         assert_eq!(preview["applied"], false);
         assert_eq!(preview["applicable"], true);
@@ -9939,12 +9939,12 @@ mod tests {
         assert!(stored_notebook(&g).is_none(), "a preview writes nothing");
 
         let (status, stale) =
-            import(json!({"revision": "0".repeat(64), "apply": true, "bundle": bundle}));
+            import(json!({"revision": "0".repeat(64), "apply": true, "content": content}));
         assert_eq!(status, 409, "{stale}");
         assert!(stored_notebook(&g).is_none());
 
         let (status, applied) =
-            import(json!({"revision": empty["revision"], "apply": true, "bundle": bundle}));
+            import(json!({"revision": empty["revision"], "apply": true, "content": content}));
         assert_eq!(status, 200, "{applied}");
         assert_eq!(applied["applied"], true);
         assert_eq!(
@@ -9955,7 +9955,7 @@ mod tests {
 
         // Importing again is a no-op, even when asked to apply.
         let (status, again) =
-            import(json!({"revision": applied["revision"], "apply": true, "bundle": bundle}));
+            import(json!({"revision": applied["revision"], "apply": true, "content": content}));
         assert_eq!(status, 200, "{again}");
         assert_eq!(again["applied"], false);
         assert_eq!(again["plan"]["counts"]["unchanged"], 3);
@@ -9964,8 +9964,9 @@ mod tests {
         // A conflict refuses the whole import with text-free, entry-scoped diagnostics.
         let mut changed = bundle.clone();
         changed["notebook"]["notes"][0]["text"] = json!("A rival thought");
-        let (status, blocked) =
-            import(json!({"revision": applied["revision"], "apply": true, "bundle": changed}));
+        let (status, blocked) = import(
+            json!({"revision": applied["revision"], "apply": true, "content": changed.to_string()}),
+        );
         assert_eq!(status, 422, "{blocked}");
         assert!(blocked["diagnostics"][0]["id"] == "n1" || blocked["diagnostics"][0]["id"] == "n2");
         assert!(
@@ -9983,14 +9984,34 @@ mod tests {
             json!({"format": "open.blog/research-notebook", "version": 1, "private": true,
                 "notebook": {"version": 1, "passages": [{"id": "p", "source": "ghost", "excerpt": {"text": "t"}}]}}),
         ] {
-            let (status, refused) =
-                import(json!({"revision": applied["revision"], "apply": true, "bundle": hostile}));
+            let (status, refused) = import(
+                json!({"revision": applied["revision"], "apply": true, "content": hostile.to_string()}),
+            );
             assert_eq!(status, 422, "{refused}");
             assert!(refused["diagnostics"].is_array());
         }
-        let (status, _) = import(json!({"revision": applied["revision"], "bundle": "text"}));
+        let (status, _) = import(json!({"revision": applied["revision"], "content": 5}));
         assert_eq!(status, 400);
         assert_eq!(stored_notebook(&g).unwrap(), bytes);
+    }
+
+    #[test]
+    fn importing_keeps_large_integers_in_unknown_fields_exactly() {
+        let g = fixture_with_sources("notebook-bundle-bigint");
+        let session = login_ok(&g);
+        let empty = notebook(&g, &session);
+        // Sent as the raw file text: 2^53 + 1 survives where a JSON number would be rounded.
+        let raw = r#"{"format":"open.blog/research-notebook","version":1,"private":true,"notebook":{"version":1,"notes":[{"id":"big","kind":"observation","text":"t","counter":9007199254740993}]}}"#;
+        let (status, applied) = notebook_call(
+            &g,
+            &session,
+            "POST",
+            "/admin/api/research/import",
+            json!({"revision": empty["revision"], "apply": true, "content": raw}),
+        );
+        assert_eq!(status, 200, "{applied}");
+        let stored = String::from_utf8(stored_notebook(&g).unwrap()).unwrap();
+        assert!(stored.contains("9007199254740993"), "{stored}");
     }
 
     // ---- publication-leak regression corpus (A2.4, ADR 0027) --------------------
@@ -10284,9 +10305,9 @@ mod tests {
                 "POST",
                 "/admin/api/research/import",
                 json!({
-                "revision": revision, "apply": true, "bundle": {"format": "open.blog/research-notebook",
+                "revision": revision, "apply": true, "content": json!({"format": "open.blog/research-notebook",
                 "version": 1, "private": true, "notebook": {"version": 1, "notes": [
-                    {"id": SENTINELS[4].1, "kind": "observation", "text": "a different thought"}]}}}),
+                    {"id": SENTINELS[4].1, "kind": "observation", "text": "a different thought"}]}}).to_string()}),
             ),
             notebook_call(
                 &f,
@@ -10294,7 +10315,7 @@ mod tests {
                 "POST",
                 "/admin/api/research/import",
                 json!({
-                "revision": revision, "bundle": {"format": SENTINELS[5].1}}),
+                "revision": revision, "content": json!({"format": SENTINELS[5].1}).to_string()}),
             ),
             // A removal that is refused, and a search that is.
             notebook_call(
