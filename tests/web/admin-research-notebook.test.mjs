@@ -7,6 +7,8 @@ import {
   ObAdmin,
   hitContext,
   notebookSearchBody,
+  notebookImportRows,
+  notebookImportSummary,
   searchIsActive,
   captureSources,
   createCaptureForm,
@@ -958,4 +960,149 @@ test("the capture form can still save a passage when every source is archived", 
   const form = createCaptureForm({ api: notebookApi({}), state: formState({ sources: archived, passages: [passage] }), entry: passage, entryType: "passage" });
   assert.ok(!form.element.textContent.includes("Add a source to the library first"));
   assert.ok(!buttonLabelled(form.element, "Save changes").disabled);
+}));
+
+test("the notebook archives and restores an entry and hides archived entries until asked", withDom(async () => {
+  let current = notebook({ passages: [PASSAGE()], notes: [NOTE()] });
+  const api = notebookApi({
+    "GET research/notebook": () => current,
+    "POST research/archive": (body) => {
+      assert.deepEqual(Object.keys(body).sort(), ["archived", "id", "revision", "type"]);
+      current = notebook({ revision: body.archived ? "r2" : "r3", passages: [PASSAGE()], notes: [{ ...NOTE(), archived: body.archived || undefined }] });
+      return current;
+    },
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  await entryButton(root, "note-2").click();
+  const archive = root.querySelectorAll("button").find((button) => button.dataset.entryArchive);
+  assert.equal(archive.textContent, "Archive");
+  await archive.click();
+  await tick();
+  assert.deepEqual(entryButtons(root).map((item) => item.dataset.entryId), ["passage-1"], "an archived entry leaves the default lists");
+  assert.match(root.textContent, /Archived\. It stays in the notebook and in exports/);
+  assert.match(root.textContent, /1 archived/);
+  assert.match(root.textContent, /Restore from archive/);
+  assert.equal(api.calls.at(-1).body.revision, "r1");
+
+  const toggle = byId(root, "oba-research-archived");
+  toggle.checked = true;
+  await toggle.dispatch("change", { target: toggle });
+  assert.deepEqual(entryButtons(root).map((item) => item.dataset.entryId), ["passage-1", "note-2"]);
+  assert.ok(entryButton(root, "note-2").textContent.includes("archived"), entryButton(root, "note-2").textContent);
+
+  const restore = root.querySelectorAll("button").find((button) => button.dataset.entryArchive);
+  await restore.click();
+  await tick();
+  assert.equal(api.calls.at(-1).body.archived, false);
+  assert.match(root.textContent, /Restored from the archive/);
+  assert.equal(api.calls.at(-1).body.revision, "r2");
+}));
+
+test("the search body asks for archived entries only when shown, and import previews are text-free summaries", () => {
+  assert.deepEqual(notebookSearchBody({ query: "x", archived: true }), { q: "x", includeArchived: true });
+  assert.deepEqual(notebookSearchBody({ query: "x", archived: false }), { q: "x" });
+  const plan = { counts: { create: 1, unchanged: 2, conflict: 1 }, entries: [
+    { id: "a", collection: "notes", action: "create" },
+    { id: "b", collection: "passages", action: "unchanged" },
+    { id: "c", collection: "passages", action: "conflict", message: "a different passage in this notebook already uses this id" },
+  ] };
+  assert.equal(notebookImportSummary(plan), "1 to add, 2 already here, 1 in conflict");
+  assert.deepEqual(notebookImportRows(plan).map((row) => [row.label, row.name]), [["Add", "note a"], ["Conflict", "passage c"]]);
+});
+
+test("export needs a confirmation and asks the server for the private bundle explicitly", withDom(async () => {
+  const downloads = [];
+  const original = { create: URL.createObjectURL, revoke: URL.revokeObjectURL, confirm: globalThis.confirm };
+  URL.createObjectURL = (blob) => (downloads.push(blob), "blob:test");
+  URL.revokeObjectURL = () => {};
+  try {
+    const api = notebookApi({
+      "GET research/notebook": () => notebook(),
+      "POST research/export": (body) => {
+        assert.deepEqual(body, { includePrivate: true });
+        return { filename: "open-blog-research-notebook.json", mediaType: "application/json", passages: 1, notes: 1, archived: 0, content: "{}\n" };
+      },
+    });
+    const { app, root } = mountResearch(api);
+    await app.showResearch();
+    const button = root.querySelectorAll("button").find((item) => item.dataset.researchExport);
+    globalThis.confirm = () => false;
+    await button.click();
+    await tick();
+    assert.equal(downloads.length, 0, "declining the confirmation exports nothing");
+    globalThis.confirm = (message) => (assert.match(message, /private passages and notes/), true);
+    await button.click();
+    await tick();
+    assert.equal(downloads.length, 1);
+    assert.match(root.textContent, /Exported 1 passage and 1 note as open-blog-research-notebook\.json/);
+    assert.match(root.textContent, /keep it out of your public folders/);
+  } finally {
+    URL.createObjectURL = original.create;
+    URL.revokeObjectURL = original.revoke;
+    if (original.confirm === undefined) delete globalThis.confirm;
+    else globalThis.confirm = original.confirm;
+  }
+}));
+
+test("import reads a file, previews first, applies only what was previewed", withDom(async () => {
+  const file = { format: "open.blog/research-notebook", version: 1, private: true, notebook: { version: 1, notes: [] } };
+  let applied = 0;
+  const create = { counts: { create: 1, unchanged: 0, conflict: 0 }, entries: [{ id: "note-9", collection: "notes", action: "create" }] };
+  const api = notebookApi({
+    "GET research/notebook": () => notebook(),
+    "POST research/import": (body) => {
+      assert.deepEqual(body.bundle, file, "the bundle is sent as the object that was read");
+      if (!body.apply) return { revision: "r1", applied: false, applicable: true, plan: create };
+      applied += 1;
+      return { revision: "r5", applied: true, applicable: true, sources: SOURCES(), passages: [PASSAGE()], notes: [NOTE(), { id: "note-9", kind: "observation", text: "imported", visibility: "private" }], plan: create };
+    },
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  const input = byId(root, "oba-research-import-file");
+  const previewButton = root.querySelectorAll("button").find((item) => item.dataset.researchImportPreview);
+  const applyButton = root.querySelectorAll("button").find((item) => item.dataset.researchImportApply);
+  assert.equal(previewButton.disabled, true);
+  assert.equal(applyButton.hidden, true);
+  input.files = [{ name: "notes.json", text: async () => "not json" }];
+  await input.dispatch("change", { target: input });
+  assert.match(root.textContent, /not a research bundle/);
+  assert.equal(previewButton.disabled, true);
+  input.files = [{ name: "notes.json", text: async () => JSON.stringify(file) }];
+  await input.dispatch("change", { target: input });
+  assert.match(root.textContent, /Loaded notes\.json\. Preview it before importing/);
+  await applyButton.click();
+  assert.equal(applied, 0, "nothing applies before a preview");
+  await previewButton.click();
+  await tick();
+  assert.match(root.textContent, /Preview: 1 to add, 0 already here, 0 in conflict\. Nothing has been saved\./);
+  assert.match(root.textContent, /Add: note note-9/);
+  assert.equal(applyButton.hidden, false);
+  await applyButton.click();
+  await tick();
+  assert.equal(applied, 1);
+  assert.ok(entryButton(root, "note-9"), "the list shows the imported entry");
+  assert.match(root.textContent, /Import saved/);
+  assert.equal(applyButton.hidden, true);
+}));
+
+test("an import that conflicts is reported without applying and keeps the notebook as it was", withDom(async () => {
+  const api = notebookApi({
+    "GET research/notebook": () => notebook(),
+    "POST research/import": () => {
+      throw new ApiError("x", 422, { error: "conflict", plan: { counts: { create: 0, unchanged: 0, conflict: 1 }, entries: [{ id: "note-2", collection: "notes", action: "conflict", message: "a different note in this notebook already uses this id; nothing is overwritten" }] } });
+    },
+  });
+  const { app, root } = mountResearch(api);
+  await app.showResearch();
+  const input = byId(root, "oba-research-import-file");
+  input.files = [{ name: "n.json", text: async () => JSON.stringify({ format: "x" }) }];
+  await input.dispatch("change", { target: input });
+  await root.querySelectorAll("button").find((item) => item.dataset.researchImportPreview).click();
+  await tick();
+  assert.match(root.textContent, /Conflict: note note-2/);
+  assert.match(root.textContent, /The import was not applied\. Nothing was saved\./);
+  assert.equal(root.querySelectorAll("button").find((item) => item.dataset.researchImportApply).hidden, true);
+  assert.deepEqual(entryButtons(root).map((item) => item.dataset.entryId), ["passage-1", "note-2"]);
 }));

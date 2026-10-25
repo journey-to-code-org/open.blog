@@ -685,7 +685,21 @@ export function notebookSearchBody(filters) {
     const value = String(filters?.[key] ?? "").trim();
     if (value) body[name] = value;
   }
+  if (filters?.archived) body.includeArchived = true;
   return body;
+}
+
+/** One line for an import preview of the private notebook. */
+export function notebookImportSummary(plan) {
+  const counts = plan?.counts || {};
+  return `${counts.create || 0} to add, ${counts.unchanged || 0} already here, ${counts.conflict || 0} in conflict`;
+}
+
+/** The preview rows worth reading: what would be added and what conflicts, never entry text. */
+export function notebookImportRows(plan) {
+  return (plan?.entries || [])
+    .filter((entry) => entry.action !== "unchanged")
+    .map((entry) => ({ action: entry.action, label: entry.action === "create" ? "Add" : "Conflict", name: `${entry.collection === "passages" ? "passage" : "note"} ${entry.id}`, message: entry.message || "" }));
 }
 
 export function searchIsActive(filters) {
@@ -4059,7 +4073,7 @@ export class ObAdmin extends AdminElement {
     let selected = null; // null, "new", or { type, id }
     let form = null;
     let busy = false;
-    const filters = { query: "", source: "", locator: "", concept: "", state: "" };
+    const filters = { query: "", source: "", locator: "", concept: "", state: "", archived: false };
     let results = null; // the last server search, while any filter is set
     let searchProblem = "";
     let searchSequence = 0;
@@ -4114,8 +4128,12 @@ export class ObAdmin extends AdminElement {
     };
 
     const renderLists = () => {
-      const open_ = state.notes.filter((note) => note.kind === "question" && note.status !== "resolved").length;
-      const summary = `${state.passages.length} passage${state.passages.length === 1 ? "" : "s"}, ${state.notes.length} note${state.notes.length === 1 ? "" : "s"}, ${open_} open question${open_ === 1 ? "" : "s"}.`;
+      const live = (entry) => !entry.archived;
+      const open_ = state.notes.filter((note) => live(note) && note.kind === "question" && note.status !== "resolved").length;
+      const archivedCount = state.passages.filter((entry) => !live(entry)).length + state.notes.filter((entry) => !live(entry)).length;
+      const livePassages = state.passages.filter(live).length;
+      const liveNotes = state.notes.filter(live).length;
+      const summary = `${livePassages} passage${livePassages === 1 ? "" : "s"}, ${liveNotes} note${liveNotes === 1 ? "" : "s"}, ${open_} open question${open_ === 1 ? "" : "s"}${archivedCount ? `, ${archivedCount} archived${filters.archived ? " (shown)" : ""}` : ""}.`;
       if (searchIsActive(filters)) {
         const hits = results?.hits || [];
         const row = (hit) =>
@@ -4126,7 +4144,7 @@ export class ObAdmin extends AdminElement {
               "button",
               { class: "oba-source-item", type: "button", "data-entry-id": hit.id, "data-entry-type": hit.entry, "data-search-hit": "true", "aria-current": selected?.id === hit.id ? "true" : null, onClick: () => open({ type: hit.entry, id: hit.id }) },
               h("strong", {}, hit.snippet),
-              h("span", { class: "oba-small" }, hitContext(hit)),
+              h("span", { class: "oba-small" }, `${hitContext(hit)}${hit.archived ? " · archived" : ""}`),
               hit.matched?.length && filters.query.trim() ? h("span", { class: "oba-small" }, `Matched in ${hit.matched.join(", ")}`) : null,
               (hit.passages || []).map((passage) => h("span", { class: "oba-small" }, passage.missing ? `About a missing passage (${passage.id})` : `About: ${entryPreview({ text: passage.preview }, 70)}`)),
               hit.notes?.length ? h("span", { class: "oba-small" }, `${hit.notes.length} linked note${hit.notes.length === 1 ? "" : "s"}`) : null,
@@ -4142,17 +4160,17 @@ export class ObAdmin extends AdminElement {
         count.textContent = results ? `${results.total} match${results.total === 1 ? "" : "es"}${results.truncated ? `, showing the first ${hits.length}` : ""}. ${summary}` : "";
         return;
       }
-      const passages = state.passages;
-      const notes = state.notes;
+      const passages = state.passages.filter((entry) => filters.archived || live(entry));
+      const notes = state.notes.filter((entry) => filters.archived || live(entry));
       const row = (type, entry) =>
         h(
           "li",
           {},
           h(
             "button",
-            { class: "oba-source-item", type: "button", "data-entry-id": entry.id, "data-entry-type": type, "aria-current": selected?.id === entry.id ? "true" : null, "aria-label": `${type === "passage" ? "Passage" : entry.kind === "question" ? (entry.status === "resolved" ? "Resolved question" : "Open question") : "Observation"}: ${entryPreview(entry, 60)}`, onClick: () => open({ type, id: entry.id }) },
+            { class: "oba-source-item", type: "button", "data-entry-id": entry.id, "data-entry-type": type, "aria-current": selected?.id === entry.id ? "true" : null, "aria-label": `${entry.archived ? "Archived " : ""}${type === "passage" ? "Passage" : entry.kind === "question" ? (entry.status === "resolved" ? "Resolved question" : "Open question") : "Observation"}: ${entryPreview(entry, 60)}`, onClick: () => open({ type, id: entry.id }) },
             h("strong", {}, entryPreview(entry)),
-            h("span", { class: "oba-small" }, type === "passage" ? `${sourceName(entry.source)}${entry.locators?.length ? ` · ${formatLocatorLines(entry.locators).split("\n")[0]}` : ""}` : `${entry.kind === "question" ? (entry.status === "resolved" ? "resolved question" : "open question") : entry.kind}${entry.passages?.length ? ` · ${entry.passages.length} passage${entry.passages.length === 1 ? "" : "s"}` : ""}`),
+            h("span", { class: "oba-small" }, `${type === "passage" ? `${sourceName(entry.source)}${entry.locators?.length ? ` · ${formatLocatorLines(entry.locators).split("\n")[0]}` : ""}` : `${entry.kind === "question" ? (entry.status === "resolved" ? "resolved question" : "open question") : entry.kind}${entry.passages?.length ? ` · ${entry.passages.length} passage${entry.passages.length === 1 ? "" : "s"}` : ""}`}${entry.archived ? " · archived" : ""}`),
           ),
         );
       passageList.replaceChildren(...passages.map((entry) => row("passage", entry)));
@@ -4211,7 +4229,15 @@ export class ObAdmin extends AdminElement {
         form.element,
         linked.length ? h("p", { class: "oba-small" }, `${linked.length} note${linked.length === 1 ? "" : "s"} link${linked.length === 1 ? "s" : ""} to this passage, so it cannot be removed until they are.`) : null,
         backlinks,
-        entry ? h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-entry-remove": "true", onClick: () => remove() }, selected.type === "passage" ? "Remove passage" : "Remove note")) : null,
+        entry
+          ? h(
+              "div",
+              { class: "oba-toolbar" },
+              h("button", { class: "oba-btn", type: "button", "data-entry-archive": "true", onClick: () => setArchived(!entry.archived) }, entry.archived ? "Restore from archive" : "Archive"),
+              h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-entry-remove": "true", onClick: () => remove() }, selected.type === "passage" ? "Remove passage" : "Remove note"),
+            )
+          : null,
+        entry?.archived ? h("p", { class: "oba-small" }, "Archived: set aside but kept. It stays in the file and in exports, and is hidden from lists and search unless you show archived entries.") : null,
       );
       if (moveFocus) panel.querySelector("#oba-research-heading")?.focus();
       if (backlinks) loadBacklinks(entry, backlinks);
@@ -4294,6 +4320,26 @@ export class ObAdmin extends AdminElement {
       newButton.focus();
     };
 
+    /** Set the selected entry aside, or bring it back. Nothing is deleted. */
+    const setArchived = async (archived) => {
+      if (busy || !selected || selected === "new") return;
+      if (!confirmDiscard()) return;
+      busy = true;
+      try {
+        const result = await this.api.call("POST", "research/archive", { json: { revision: state.revision, type: selected.type, id: selected.id, archived } });
+        if (this.viewVersion !== mountedView) return;
+        Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
+        refreshSearch();
+        renderPanel(true);
+        say(archived ? (filters.archived ? "Archived. It stays in the notebook and in exports." : "Archived. It stays in the notebook and in exports; tick Show archived to see it in lists.") : "Restored from the archive.", "oba-ok");
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(error.status === 409 ? "Not changed: the notebook changed elsewhere. Reload this view and try again." : `${notebookErrorMessage(error)} The stored notebook is unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
     const remove = async () => {
       if (busy || !selected || selected === "new") return;
       if (globalThis.confirm?.(`Remove this ${selected.type}? It is deleted from the private notebook.`) === false) return;
@@ -4329,6 +4375,128 @@ export class ObAdmin extends AdminElement {
       filters.concept = concept.value.trim().toLowerCase();
       typed();
     });
+    const archivedToggle = h("input", { id: "oba-research-archived", type: "checkbox", onChange: (event) => { filters.archived = event.target.checked; refreshSearch(); } });
+
+    // ---- export and import (a private, versioned bundle)
+    const bundleStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const bundleResult = h("div", { class: "oba-source-import-result", id: "oba-research-import-result", tabindex: "-1" });
+    const bundleFile = h("input", { id: "oba-research-import-file", type: "file", accept: ".json,application/json" });
+    const bundlePreview = h("button", { class: "oba-btn", type: "button", "data-research-import-preview": "true", disabled: true }, "Preview import");
+    const bundleApply = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-research-import-apply": "true", hidden: true }, "Apply import");
+    let bundle = null; // the parsed file, held only until it is applied or replaced
+    let previewed = false;
+    const showBundlePlan = (plan, headline) => {
+      const rows = notebookImportRows(plan);
+      bundleResult.replaceChildren(
+        h("p", {}, headline || `Preview: ${notebookImportSummary(plan)}. Nothing has been saved.`),
+        rows.length ? h("ul", { class: "oba-source-import-list" }, rows.map((row) => h("li", { "data-import-action": row.action }, h("strong", {}, `${row.label}: ${row.name}`), row.message ? h("span", { class: "oba-small" }, ` ${row.message}`) : null))) : null,
+      );
+    };
+    const importFailure = (error) => {
+      previewed = false;
+      bundleApply.hidden = true;
+      bundleStatus.className = "oba-error";
+      if (error?.data?.plan) showBundlePlan(error.data.plan, "The import was not applied. Nothing was saved.");
+      else bundleResult.replaceChildren();
+      bundleStatus.textContent = error?.status === 409 ? "The notebook changed since it was read. Reload this view and preview again." : `${notebookErrorMessage(error)} The notebook is unchanged.`;
+    };
+    const runBundleImport = async (apply) => {
+      if (!bundle || busy) return;
+      busy = true;
+      bundlePreview.disabled = bundleApply.disabled = true;
+      try {
+        const result = await this.api.call("POST", "research/import", { json: { revision: state.revision, bundle, apply } });
+        if (this.viewVersion !== mountedView) return;
+        bundleStatus.className = "oba-small";
+        if (apply && result.applied) {
+          Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
+          bundle = null;
+          previewed = false;
+          bundleApply.hidden = true;
+          renderLists();
+          refreshSearch();
+          showBundlePlan(result.plan, `Imported: ${notebookImportSummary(result.plan)}.`);
+          bundleStatus.textContent = "Import saved.";
+        } else {
+          state.revision = result.revision;
+          const changes = result.plan.counts.create > 0;
+          previewed = result.applicable && changes;
+          bundleApply.hidden = !previewed;
+          showBundlePlan(result.plan);
+          bundleStatus.textContent = !result.applicable ? "Resolve the conflicts before importing; nothing was saved." : changes ? "Review the preview, then apply the import." : "Everything is already in the notebook.";
+        }
+        bundleResult.focus();
+      } catch (error) {
+        if (this.viewVersion === mountedView) importFailure(error);
+      } finally {
+        busy = false;
+        bundlePreview.disabled = !bundle;
+        bundleApply.disabled = false;
+      }
+    };
+    bundlePreview.addEventListener("click", () => runBundleImport(false));
+    bundleApply.addEventListener("click", () => {
+      if (!previewed) {
+        bundleApply.hidden = true;
+        bundleStatus.textContent = "Preview the file again before applying it.";
+        return;
+      }
+      runBundleImport(true);
+    });
+    bundleFile.addEventListener("change", async () => {
+      const file = bundleFile.files?.[0];
+      bundle = null;
+      previewed = false;
+      bundleApply.hidden = true;
+      bundlePreview.disabled = true;
+      bundleResult.replaceChildren();
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+        bundle = parsed;
+        bundlePreview.disabled = false;
+        bundleStatus.className = "oba-small";
+        bundleStatus.textContent = `Loaded ${file.name}. Preview it before importing.`;
+      } catch {
+        bundleStatus.className = "oba-error";
+        bundleStatus.textContent = "That file is not a research bundle (it is not JSON).";
+      }
+    });
+    const exportBundle = async () => {
+      const ok = globalThis.confirm?.("This file will contain all of your private passages and notes, including archived ones. Keep it somewhere private; never place it in content, static or themes. Export it?") !== false;
+      if (!ok) return;
+      try {
+        const result = await this.api.call("POST", "research/export", { json: { includePrivate: true } });
+        const url = URL.createObjectURL(new Blob([result.content], { type: `${result.mediaType};charset=utf-8` }));
+        try {
+          const link = h("a", { href: url, download: result.filename });
+          document.body.append(link);
+          link.click();
+          link.remove();
+        } finally {
+          setTimeout(() => URL.revokeObjectURL(url), 0);
+        }
+        bundleStatus.className = "oba-small";
+        bundleStatus.textContent = `Exported ${result.passages} passage${result.passages === 1 ? "" : "s"} and ${result.notes} note${result.notes === 1 ? "" : "s"} as ${result.filename}. It is private research: keep it out of your public folders.`;
+      } catch (error) {
+        bundleStatus.className = "oba-error";
+        bundleStatus.textContent = notebookErrorMessage(error);
+      }
+    };
+    const exportButton = h("button", { class: "oba-btn", type: "button", "data-research-export": "true", onClick: exportBundle }, "Export notebook");
+    const interchange = h(
+      "details",
+      { class: "oba-source-interchange", "data-research-interchange": "true" },
+      h("summary", {}, "Export and import"),
+      h("p", { class: "oba-small" }, "Export saves a versioned file with all of your private passages and notes, only when you ask. Import previews first, adds entries the notebook does not have, and never overwrites or removes anything. Neither ever publishes research."),
+      h("div", { class: "oba-toolbar" }, exportButton),
+      h("div", { class: "oba-field" }, h("label", { for: "oba-research-import-file" }, "Research export file"), bundleFile),
+      h("div", { class: "oba-toolbar" }, bundlePreview, bundleApply),
+      bundleResult,
+      bundleStatus,
+    );
+
     renderLists();
     renderPanel();
     this.mount(
@@ -4343,10 +4511,12 @@ export class ObAdmin extends AdminElement {
           locatorFilter,
           h("div", { class: "oba-field" }, h("label", { for: "oba-research-concept-filter" }, "Concept"), concept),
           stateFilter,
+          h("div", { class: "oba-capture-check" }, archivedToggle, h("label", { for: "oba-research-archived" }, "Show archived")),
           newButton,
         ),
         count,
         status,
+        interchange,
         h(
           "div",
           { class: "oba-source-layout", id: "oba-research-lists" },
