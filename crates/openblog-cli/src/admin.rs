@@ -13379,11 +13379,13 @@ mod tests {
             json!({
                 "mikey-writer": { "name": "Mikey" },
                 "grace": { "name": "Grace" },
-                "linus": { "name": "Linus" }
+                "linus": { "name": "Linus" },
+                "ada": { "name": "Ada" }
             }),
         );
         add_admin_user(&f, "grace", "another correct horse");
         add_admin_user(&f, "linus", "yet another horse");
+        add_admin_user(&f, "ada", "a fourth correct horse");
         let mikey = login_ok(&f);
         let created = create_shared(&f, &mikey, reflection_request());
         let id = body_json(&created)["publication"]["publicationId"]
@@ -13790,6 +13792,22 @@ mod tests {
             );
             assert_eq!(accepted.status, 200);
         }
+        let pending = post_api(
+            &f,
+            &mikey,
+            "invitations",
+            invite_body(&id, "ada", "ada", json!(["contributor"])),
+        );
+        assert_eq!(
+            pending.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&pending.body)
+        );
+        let pending_id = body_json(&pending)["invitation"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         let before = tree_snapshot(&f.dir.join(".openblog/private"));
         // Readers and editors see the reflection but cannot invite, list, revoke, or reissue.
         for session in [&grace, &linus] {
@@ -13814,18 +13832,14 @@ mod tests {
             );
             assert_eq!(listed.status, 404);
             for path in ["invitations", "invitations/revoke", "invitations/reissue"] {
-                let resp = post_api(
-                    &f,
-                    session,
-                    path,
-                    json!({ "publicationId": id, "invitationId": "invitation-aaaa",
-                            "adminUser": "grace", "contributorId": "grace", "roles": ["reader"] }),
-                );
-                assert!(
-                    resp.status == 404 || resp.status == 422,
-                    "{path}: {}",
-                    resp.status
-                );
+                // A well-formed body, so the request reaches the authorization check.
+                let body = if path == "invitations" {
+                    invite_body(&id, "someone", "key", json!(["reader"]))
+                } else {
+                    json!({ "publicationId": id, "invitationId": pending_id })
+                };
+                let resp = post_api(&f, session, path, body);
+                assert_eq!(resp.status, 404, "{path}");
                 assert!(!String::from_utf8_lossy(&resp.body).contains("token"));
             }
         }
