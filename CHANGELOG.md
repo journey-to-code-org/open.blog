@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Shared reflections can now be approved, scheduled and published (routes only; the Admin screens
+  come later). An author approves the exact piece they read, a coordinator or site owner publishes
+  it only while every required author's approval still matches, and a missing or stale approval
+  refuses the request with nothing written. Publishing writes the Post, its credits and the
+  rebuilt site as one unit and is undone if any step fails; repeating it changes nothing. A
+  scheduled reflection is held privately and checked again when its time comes, so an edit or a
+  removal after scheduling holds it back. Sections with raw HTML or `javascript:` style links are
+  refused, and refusals never repeat anyone's text.
 - Added the approval model for shared reflections: an approval is an author's own affirmative,
   timestamped consent bound to the exact content, author set, order, public metadata and policy,
   so editing or changing any of them withdraws the affected approvals and nobody can approve for

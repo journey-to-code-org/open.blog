@@ -147,7 +147,7 @@ bound to: their own section revisions (or every section under the whole-piece sc
 set, section order, public title and source attribution, and the approval policy (ADR 0020). It
 counts only while the recomputed binding still matches, so any covered change invalidates it.
 Only the author can give or withdraw it; a site owner or coordinator cannot, and a publish grant
-never replaces it. It is not an electronic signature, and alone it does not assign public credit.
+never replaces it; the publish gate checks it again at publication (ADR 0022). It is not an electronic signature, and alone it does not assign public credit.
 _Avoid_: Publication, Work credit, timeless consent
 
 **Combined preview**:
@@ -158,6 +158,15 @@ stale), and whether the piece is complete and ready. A section appears only if t
 that latest revision; every other case is one identical placeholder. It opens with a "Preview, not
 published" notice, runs no script and loads nothing (ADR 0021).
 _Avoid_: Draft view, published page, staging copy
+
+**Publish gate**:
+The single operation that turns approved drafts into a Post, for "publish now" and for a scheduled
+time falling due. It runs only for a requester holding the publish grant, only while
+`ApprovalSet::evaluate` passes against the content as it is at that moment, and writes the Post,
+its credits, the private outcome and the rebuilt output as one unit that is undone if any step
+fails. A retry changes nothing. A scheduled publication is held in private state, not content, and
+passes the gate again when it falls due (ADR 0022).
+_Avoid_: Auto-publish, scheduled Post written ahead of approval
 
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in
