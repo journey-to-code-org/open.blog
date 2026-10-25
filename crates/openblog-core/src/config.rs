@@ -734,6 +734,25 @@ impl Default for PathsConfig {
 }
 
 impl SiteConfig {
+    /// The Markdown options every published post renders with. `Site::load` and the combined
+    /// review preview both use this, so authors review what the site will publish.
+    pub fn render_options(&self) -> crate::markdown::RenderOptions<'_> {
+        crate::markdown::RenderOptions {
+            smart_punctuation: self.markdown.smart_punctuation,
+            lazy_images: true,
+            heading_anchors: self.markdown.heading_anchors,
+            embeds: self.markdown.embeds,
+            recipe: false,
+            code_runner: (!self.code_runner.endpoint.is_empty()).then_some(
+                crate::markdown::CodeRunnerRenderOptions {
+                    endpoint: &self.code_runner.endpoint,
+                    languages: &self.code_runner.languages,
+                },
+            ),
+            web_libraries: Some(&self.web_sandbox.libraries),
+        }
+    }
+
     pub fn from_json(json: &str) -> Result<Self, String> {
         let mut config: Self =
             serde_json::from_str(json).map_err(|e| format!("invalid openblog.json: {e}"))?;

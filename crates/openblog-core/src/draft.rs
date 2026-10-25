@@ -461,6 +461,32 @@ impl DraftSet {
         })
     }
 
+    /// The stamp of a draft's latest revision, or none for an unknown or withdrawn draft. It is
+    /// prose-free and says nothing about who may read the revision.
+    pub fn current_stamp(&self, contribution_id: &str) -> Option<RevisionStamp> {
+        let draft = self
+            .draft(contribution_id)
+            .filter(|draft| !draft.withdrawn)?;
+        draft
+            .revisions
+            .last()
+            .map(|revision| Self::stamp(draft, revision))
+    }
+
+    /// The latest revision with its prose, or none for an unknown or withdrawn draft. This
+    /// ignores who may read it, so it is crate-private: only the publish gate calls it, after
+    /// every required approval has been checked against exactly these revisions (ADR 0022).
+    pub(crate) fn latest_view(&self, contribution_id: &str) -> Option<DraftView> {
+        let draft = self
+            .draft(contribution_id)
+            .filter(|draft| !draft.withdrawn)?;
+        let revision = draft.revisions.last()?;
+        Some(DraftView {
+            stamp: Self::stamp(draft, revision),
+            markdown: revision.markdown.clone(),
+        })
+    }
+
     /// The revision of `contribution_id` that the voluntary policy shows `requester`, derived
     /// from standing offers alone. Exchanges never feed it.
     fn offered_revision(

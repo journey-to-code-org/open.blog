@@ -142,10 +142,41 @@ copy that has been read cannot be recalled (ADR 0019).
 _Avoid_: Publication, approval, left-to-right handoff
 
 **Approval**:
-One participant's consent to exactly one revision of collaboration state, covering every
-contribution draft as it appears in that revision. Approval alone does not define quorum,
-authorize publication, or assign public credit.
+One author's affirmative, timestamped consent to publish exactly the content their snapshot is
+bound to: their own section revisions (or every section under the whole-piece scope), the author
+set, section order, public title and source attribution, and the approval policy (ADR 0020). It
+counts only while the recomputed binding still matches, so any covered change invalidates it.
+Only the author can give or withdraw it; a site owner or coordinator cannot, and a publish grant
+never replaces it; the publish gate checks it again at publication (ADR 0022). It is not an electronic signature, and alone it does not assign public credit.
 _Avoid_: Publication, Work credit, timeless consent
+
+**Combined preview**:
+The side-effect-free review of the whole piece an author sees before approving: every author's
+section in order at its exact latest revision (an author who wrote nothing has no section and
+does not block it), each author's approval state (approved, awaiting, or
+stale), and whether the piece is complete and ready. A section appears only if the reader may read
+that latest revision; every other case is one identical placeholder. It opens with a "Preview, not
+published" notice, runs no script and loads nothing (ADR 0021).
+_Avoid_: Draft view, published page, staging copy
+
+**Publish gate**:
+The single operation that turns approved drafts into a Post, for "publish now" and for a scheduled
+time falling due. It runs only for a requester holding the publish grant, only while
+`ApprovalSet::evaluate` passes against the content as it is at that moment, and writes the Post,
+its credits, the private outcome and the rebuilt output as one unit that is undone if any step
+fails. A retry changes nothing. A scheduled publication is held in private state, not content, and
+passes the gate again when it falls due (ADR 0022). The gate also refuses a piece whose joined page
+would differ from the sections as each author previewed them, or carry active markup (ADR 0022).
+_Avoid_: Auto-publish, scheduled Post written ahead of approval
+
+**Published shared reflection**:
+The Post a publish gate writes, shown as an ordinary Post in every representation: the native page,
+portable HTML, Markdown and text, RSS, JSON Feed and the text discovery files. It has no
+representation of its own. Every written section appears in participant order, each author who wrote
+one is credited in that order, and the shared source and guiding question appear as a plain link
+(ADR 0008). Nothing else of the collaboration reaches it: no draft revision, invitation, approval,
+account name or publication id (ADR 0023).
+_Avoid_: Shared page, collaboration export
 
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -167,4 +167,73 @@ test("a large draft saves, and one that is too large is refused without losing t
   await expect(page.getByRole("alert").first()).toBeVisible();
   await expect(editor(page)).toHaveValue(tooLarge);
   expect(store.number).toBe(1);
+});
+
+// The combined preview: two authors in mixed states. The document is the stand-in's, carrying the
+// real policy and frame headers from the server code, so this checks what the browser does with
+// them: the empty-sandbox frame loads, nothing in it runs or fetches, and the page is labelled.
+const previewPolicy = readFileSync(join(repository, "crates", "openblog-core", "src", "preview.rs"), "utf8")
+  .match(/PREVIEW_CSP: &str = "([\s\S]*?)";/)[1]
+  .replace(/\\\s+/g, "");
+const TRACKER = "https://tracker.invalid/pixel.gif";
+const previewDocument = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Preview, not published: A shared reflection</title></head><body>
+<p role="note"><strong>Preview, not published.</strong> Only authors of this piece can see it.</p>
+<p role="status">Incomplete: some sections are not shared with you at their current revision.</p>
+<h1>A shared reflection</h1>
+<section><p>Writer (you): revision 1.</p><div><p>Writer's own words.</p><script>document.body.insertAdjacentHTML("beforeend", '<i id="ran"></i>')</script><img src="${TRACKER}" alt=""><a href="javascript:document.title='clicked'">link</a></div></section>
+<section><p>Bo: not shared with you at its current revision.</p></section>
+</body></html>`;
+
+test("the combined preview loads in an empty sandbox, runs and fetches nothing, and is labelled", async ({ page, context }) => {
+  await install(context);
+  const trackerRequests = [];
+  // Count only requests that reach the network: Chromium still reports CSP-blocked ones as request events.
+  await context.route("https://tracker.invalid/**", (route) => { trackerRequests.push(route.request().url()); return route.abort(); });
+  await context.route("**/admin/api/collaboration/reveal?**", (route) => json(route, 200, {
+    policy: "voluntary", ready: false, canSetPolicy: false,
+    slots: [
+      { participantId: "p1", displayName: "Writer", kind: "own", ready: false, stamp: stamp(1), markdown: "Writer's own words." },
+      { participantId: "p2", displayName: "Bo", kind: "private", ready: false, stamp: null, markdown: null },
+    ],
+  }));
+  await context.route("**/admin/api/collaboration/preview?**", (route) => json(route, 200, {
+    preview: {
+      complete: false, ready: false, seen: null, previewUrl: "/admin/api/preview/" + "a".repeat(64),
+      sections: [
+        { participantId: "p1", displayName: "Writer", shown: true, revision: 1, approval: "awaiting", required: true, errors: [] },
+        { participantId: "p2", displayName: "Bo", shown: false, revision: null, approval: "awaiting", required: true, errors: [] },
+      ],
+    },
+  }));
+  let framed = 0;
+  await context.route("**/admin/api/preview/**", (route) => {
+    framed += 1;
+    return route.fulfill({
+      status: 200, contentType: "text/html; charset=utf-8", body: previewDocument,
+      headers: { "Content-Security-Policy": previewPolicy, "X-Frame-Options": "SAMEORIGIN", "Referrer-Policy": "no-referrer" },
+    });
+  });
+  await openPanel(page);
+  await page.getByRole("button", { name: "Review the combined piece" }).click();
+
+  const frame = page.locator('iframe[title="Combined piece preview, not published"]');
+  await expect(frame).toBeVisible();
+  await expect(frame).toHaveAttribute("sandbox", "");
+  await expect(frame).toHaveAttribute("src", /^\/admin\/api\/preview\/[0-9a-f]{64}$/);
+  const inside = page.frameLocator('iframe[title="Combined piece preview, not published"]');
+  await expect(inside.getByRole("note")).toContainText("Preview, not published.");
+  await expect(inside.getByRole("status")).toContainText("Incomplete");
+  await expect(inside.getByText("Writer's own words.")).toBeVisible();
+  await expect(inside.getByText("Bo: not shared with you at its current revision.")).toBeVisible();
+  expect(framed).toBeGreaterThan(0);
+
+  // Nothing ran in the frame and nothing was fetched from it.
+  await expect(inside.locator("#ran")).toHaveCount(0);
+  await expect(inside.locator("#ran")).toHaveCount(0);
+  expect(trackerRequests).toEqual([]);
+
+  // The Admin page announces the same state and lists each author, without any prose from Bo.
+  await expect(page.getByRole("status").filter({ hasText: "Preview, not published." })).toContainText("Incomplete");
+  await expect(page.getByRole("list", { name: "Authors in the combined piece" })).toContainText("Bo: not shared with you at its current revision");
+  await expect(page.getByRole("list", { name: "Authors in the combined piece" })).not.toContainText("private words");
 });

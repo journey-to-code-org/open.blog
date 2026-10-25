@@ -21,8 +21,8 @@ use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
 use openblog_core::collaboration::{
     AuthorizationAction, AuthorizationRole, AuthorizationTarget, NewParticipant,
-    NewSharedPublication, NewSourceReference, SharedPublication, SharedPublicationError,
-    SourceField, SourceKind,
+    NewSharedPublication, NewSourceReference, PublishError, SharedPublication,
+    SharedPublicationError, SourceField, SourceKind,
 };
 use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
 use openblog_core::draft::{
@@ -366,6 +366,8 @@ impl AppState {
     /// Publish scheduled posts whose time has come. Called every few seconds.
     /// Returns the report when it rebuilt.
     pub fn tick_scheduler(&self) -> Option<Result<BuildReport, String>> {
+        // Scheduled shared reflections are held privately and checked again as they fall due.
+        fire_due_shared_publications(self);
         let mut status = lock(&self.build);
         let due = status.next_due.is_some_and(|d| d <= clock::now());
         if due {
@@ -634,6 +636,11 @@ fn authenticated_api(
         ("GET", "collaboration/reveal") => read_reveal_state(state, req, session),
         ("PUT", "collaboration/reveal/policy") => set_reveal_policy(state, req, session),
         ("PUT", "collaboration/reveal/ready") => set_reveal_ready(state, req, session),
+        ("GET", "collaboration/preview") => read_combined_preview(state, req, session),
+        ("POST", "collaboration/approve") => approve_piece(state, req, session),
+        ("POST", "collaboration/approve/withdraw") => withdraw_approval(state, req, session),
+        ("POST", "collaboration/schedule") => schedule_shared(state, req, session),
+        ("POST", "collaboration/publish") => publish_shared(state, req, session),
         ("POST", "collaboration/invitations/accept") => {
             answer_invitation(state, req, session, true)
         }
@@ -5452,6 +5459,7 @@ fn change_member(
     if let Err(response) = transaction.store(&state.root, &next) {
         return response;
     }
+    reconcile_approvals(state, &transaction, &next);
     eprintln!(
         "admin: {} a member of shared publication {}",
         if remove {
@@ -5617,6 +5625,7 @@ fn save_own_draft(state: &AppState, req: &Request, session: &auth::Session) -> R
                 &set,
             ) {
                 Ok(()) => {
+                    reconcile_approvals(state, &transaction, record);
                     eprintln!(
                         "admin: saved draft revision {} of shared publication {}",
                         stamp.number, body.publication_id
@@ -5653,6 +5662,570 @@ fn save_own_draft(state: &AppState, req: &Request, session: &auth::Session) -> R
         ),
         Err(DraftError::LimitReached) => draft_limit_problem(),
         Err(DraftError::Denied) => draft_not_found(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Approval, scheduling and publication of a shared reflection (ADR 0022)
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ApproveRequest {
+    publication_id: String,
+    /// The token the approver read with the combined preview.
+    seen: String,
+    affirmed: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PublicationRequest {
+    publication_id: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ScheduleRequest {
+    publication_id: String,
+    /// RFC 3339 time to publish, or null to cancel a pending schedule.
+    #[serde(default)]
+    publish_at: Option<String>,
+}
+
+/// Every refusal to approve, schedule or publish for someone who may not reads the same.
+fn publish_not_found() -> Response {
+    Response::error(
+        404,
+        "That shared reflection was not found, or you cannot do that with it.",
+    )
+}
+
+fn published_already() -> Response {
+    Response::error(
+        409,
+        "This shared reflection is already published. Nothing was changed.",
+    )
+}
+
+fn publish_request_problem() -> Response {
+    shared_problem(
+        "",
+        "This request is not valid. Reload Admin Studio and try again.",
+    )
+}
+
+fn publish_failed(error: &str) -> Response {
+    // The detail is logged without prose: it names a path or an I/O error, never a draft.
+    eprintln!("admin: shared publication not published: {error}");
+    Response::error(
+        500,
+        "The reflection could not be published. Nothing was changed.",
+    )
+}
+
+fn publish_store_problem(error: crate::shared_publications::ReplaceError) -> Response {
+    use crate::shared_publications::ReplaceError;
+    match error {
+        ReplaceError::Conflict => Response::error(
+            409,
+            "This shared reflection changed while you were working. Reload and try again; nothing was changed.",
+        ),
+        ReplaceError::TooLarge => publish_failed("state too large"),
+        ReplaceError::Storage(error) => publish_failed(&error),
+    }
+}
+
+/// Everything the gate reads, loaded in the request's transaction.
+struct GateInputs {
+    drafts: DraftSet,
+    approvals: crate::shared_publications::StoredApprovals,
+    outcome: crate::shared_publications::StoredOutcome,
+    active: Vec<String>,
+}
+
+fn gate_inputs(
+    state: &AppState,
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+) -> Result<GateInputs, Response> {
+    let id = &record.publication_id;
+    let stored = load_reveal_drafts(state, id)?;
+    let drafts = draft_set_for(stored.set.as_ref(), record)
+        .map_err(|_| publish_failed("drafts are not usable"))?;
+    let approvals = crate::shared_publications::load_approvals_for_update(&state.root, id)
+        .map_err(|error| publish_failed(&error))?;
+    let outcome = crate::shared_publications::load_outcome(&state.root, id)
+        .map_err(|error| publish_failed(&error))?;
+    Ok(GateInputs {
+        drafts,
+        approvals,
+        outcome,
+        active: active_drafters(transaction, record),
+    })
+}
+
+/// The grant check, always through the single entry point. A requester without the grant, or
+/// whose account, key or participant is gone, learns nothing; only one who holds it can be told
+/// that approvals are missing.
+fn authorize_publisher(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    admin_user: &str,
+    schedule: bool,
+) -> Result<(), Response> {
+    transaction
+        .with_identities(|identities| {
+            if schedule {
+                record
+                    .authorize(
+                        admin_user,
+                        identities,
+                        AuthorizationAction::Schedule,
+                        AuthorizationTarget::Publication,
+                    )
+                    .map_err(|_| PublishError::Denied)?;
+            }
+            record.authorize_publish(admin_user, identities)
+        })
+        .map_err(|error| match error {
+            PublishError::Denied => publish_not_found(),
+            PublishError::Unapproved => Response::json(
+                409,
+                &json!({ "error": "Every author must approve the current piece before it can be published. Nothing was changed.", "missing": [] }),
+            ),
+        })
+}
+
+/// A post ready to write, checked against the site before anything is written.
+struct Prepared {
+    assembly: openblog_core::assembly::Assembly,
+    path: PathBuf,
+    sidecar: PathBuf,
+    previous_document: Option<Vec<u8>>,
+    previous_sidecar: Option<Vec<u8>>,
+}
+
+/// Assemble the approved piece and prove the site accepts it, without writing anything. Refusals
+/// never repeat prose: they name authors whose approval is missing, or say the piece could not
+/// be made.
+fn prepare_post(
+    state: &AppState,
+    record: &SharedPublication,
+    inputs: &GateInputs,
+    date: DateTime,
+) -> Result<Prepared, Response> {
+    use openblog_core::assembly::{assemble, AssemblyError};
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let build = |date: &str| assemble(record, &inputs.drafts, &inputs.approvals.set, &active, date);
+    let mut assembly = match build(&date.rfc3339()) {
+        Ok(assembly) => assembly,
+        Err(AssemblyError::Blocked { missing }) => {
+            return Err(Response::json(
+                409,
+                &json!({
+                    "error": "Every required author must approve the current piece first. Nothing was changed.",
+                    "missing": missing,
+                }),
+            ))
+        }
+        Err(AssemblyError::UnsafeMarkup) => {
+            return Err(shared_problem(
+                "",
+                "A section contains raw HTML or an unsafe link, which shared reflections do not publish. Ask its author to remove it and approve again. Nothing was changed.",
+            ))
+        }
+        Err(AssemblyError::Invalid) => {
+            return Err(shared_problem(
+                "",
+                "This reflection cannot be published yet: it needs a title and at least one written section. Nothing was changed.",
+            ))
+        }
+    };
+    let config = site::load_config(&state.root).map_err(|error| publish_failed(&error))?;
+    let path = resolve_content_path(&state.root, &config, &assembly.path)
+        .map_err(|error| publish_failed(&error))?;
+    let sidecar = resolve_credit_path(&state.root, &config, &assembly.path)
+        .map_err(|error| publish_failed(&error))?;
+    let previous_document = read_optional_bytes(&path).map_err(|error| publish_failed(&error))?;
+    let previous_sidecar = read_optional_bytes(&sidecar).map_err(|error| publish_failed(&error))?;
+    if let Some(existing) = &previous_document {
+        let same = |candidate: &openblog_core::assembly::Assembly| {
+            existing == candidate.source.as_bytes()
+                && previous_sidecar.as_deref() == Some(candidate.credits.as_bytes())
+        };
+        if !same(&assembly) {
+            // An earlier attempt may have been interrupted after writing: it keeps its date.
+            let original = std::str::from_utf8(existing)
+                .ok()
+                .and_then(|text| frontmatter::parse(text).ok())
+                .and_then(|document| document.front_matter.get("date").map(str::to_string))
+                .and_then(|date| build(&date).ok());
+            match original {
+                Some(candidate) if same(&candidate) => assembly = candidate,
+                _ => {
+                    return Err(Response::error(
+                        409,
+                        "A different file already occupies this reflection's place. Nothing was changed.",
+                    ))
+                }
+            }
+        }
+    }
+    if validate_candidate(
+        &state.root,
+        &config,
+        &assembly.path,
+        &assembly.source,
+        &CreditEdit::Set(assembly.credits.clone()),
+    )
+    .is_err()
+    {
+        // The problems quote the authors' prose, which the requester may not be entitled to read.
+        return Err(shared_problem(
+            "",
+            "The combined piece could not be built into the site. Ask the authors to review the combined preview. Nothing was changed.",
+        ));
+    }
+    Ok(Prepared {
+        assembly,
+        path,
+        sidecar,
+        previous_document,
+        previous_sidecar,
+    })
+}
+
+/// Write the Post and its credits, record the outcome, and rebuild, as one unit: if any step
+/// fails, every earlier one is undone and public output is rebuilt from the restored content.
+/// Publishing an already-published reflection changes nothing and succeeds again.
+fn commit_publication(
+    state: &AppState,
+    transaction: &mut InvitationTransaction<'_>,
+    record: &SharedPublication,
+    date: DateTime,
+) -> Result<Json, Response> {
+    use crate::shared_publications::replace_outcome;
+    use openblog_core::assembly::Outcome;
+    let inputs = gate_inputs(state, transaction, record)?;
+    if matches!(inputs.outcome.outcome, Some(Outcome::Published { .. })) {
+        return Ok(json!({ "state": "published", "alreadyPublished": true }));
+    }
+    let prepared = prepare_post(state, record, &inputs, date)?;
+    let id = &record.publication_id;
+    let rollback_files = |prepared: &Prepared| {
+        let _ = restore_file(&prepared.path, prepared.previous_document.as_deref());
+        let _ = restore_file(&prepared.sidecar, prepared.previous_sidecar.as_deref());
+    };
+    if let Some(parent) = prepared.path.parent() {
+        fs::create_dir_all(parent).map_err(|error| publish_failed(&error.to_string()))?;
+    }
+    write_document_with_credits(
+        &prepared.path,
+        &prepared.sidecar,
+        &prepared.assembly.source,
+        &CreditEdit::Set(prepared.assembly.credits.clone()),
+    )
+    .map_err(|error| publish_failed(&error))?;
+    let published = Outcome::published(clock::now().unix());
+    let stored = match replace_outcome(&state.root, id, &inputs.outcome, Some(&published)) {
+        Ok(stored) => stored,
+        Err(error) => {
+            rollback_files(&prepared);
+            return Err(publish_store_problem(error));
+        }
+    };
+    if let Err(error) = state.rebuild_locked(&mut transaction._build) {
+        let _ = replace_outcome(&state.root, id, &stored, inputs.outcome.outcome.as_ref());
+        rollback_files(&prepared);
+        let _ = state.rebuild_locked(&mut transaction._build);
+        return Err(publish_failed(&error));
+    }
+    eprintln!("admin: published shared publication {id}");
+    if let Some(title) = &record.title {
+        state_arc(state).auto_publish(title.clone());
+    }
+    Ok(json!({ "state": "published", "alreadyPublished": false }))
+}
+
+/// Publish the approved piece now. The publish grant is necessary but never enough: every
+/// required author's approval must match the content as it is at this moment.
+fn publish_shared(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<PublicationRequest>(&req.body) else {
+        return publish_request_problem();
+    };
+    let mut transaction = match invitation_transaction(state, &body.publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = transaction.record.clone() else {
+        return publish_not_found();
+    };
+    if let Err(response) = authorize_publisher(&transaction, &record, &session.user, false) {
+        return response;
+    }
+    match commit_publication(state, &mut transaction, &record, clock::now()) {
+        Ok(result) => Response::json(200, &result),
+        Err(response) => response,
+    }
+}
+
+/// Hold the approved piece privately until a time, or cancel that. Nothing enters content until
+/// the time comes, and then only if the approvals still match (checked again by the scheduler).
+fn schedule_shared(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    use crate::shared_publications::replace_outcome;
+    use openblog_core::assembly::Outcome;
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ScheduleRequest>(&req.body) else {
+        return publish_request_problem();
+    };
+    let transaction = match invitation_transaction(state, &body.publication_id) {
+        Ok(transaction) => transaction,
+        Err(response) => return response,
+    };
+    let Some(record) = transaction.record.clone() else {
+        return publish_not_found();
+    };
+    if let Err(response) = authorize_publisher(&transaction, &record, &session.user, true) {
+        return response;
+    }
+    let inputs = match gate_inputs(state, &transaction, &record) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
+    };
+    if matches!(inputs.outcome.outcome, Some(Outcome::Published { .. })) {
+        return published_already();
+    }
+    let id = &record.publication_id;
+    let Some(text) = &body.publish_at else {
+        if inputs.outcome.outcome.is_some() {
+            if let Err(error) = replace_outcome(&state.root, id, &inputs.outcome, None) {
+                return publish_store_problem(error);
+            }
+        }
+        return Response::json(200, &json!({ "state": "unscheduled" }));
+    };
+    let Some(at) = DateTime::parse(text).filter(|at| at.unix() > clock::now().unix()) else {
+        return shared_problem(
+            "publishAt",
+            "Choose a time in the future, as a date and time such as 2030-01-31T09:00:00Z. To publish now, use Publish.",
+        );
+    };
+    // Refuse now what would be refused later: unapproved or unbuildable pieces are never held.
+    if let Err(response) = prepare_post(state, &record, &inputs, at) {
+        return response;
+    }
+    let next = Outcome::scheduled(at.unix(), &session.user);
+    if inputs.outcome.outcome.as_ref() != Some(&next) {
+        if let Err(error) = replace_outcome(&state.root, id, &inputs.outcome, Some(&next)) {
+            return publish_store_problem(error);
+        }
+    }
+    Response::json(
+        200,
+        &json!({ "state": "scheduled", "publishAt": at.rfc3339() }),
+    )
+}
+
+/// Publish every scheduled reflection whose time has come. Each one is checked again against
+/// the content and the scheduling account's grant as they are now, so an edit, a removal or a
+/// withdrawn approval after scheduling holds it back, privately, until it is approved again.
+fn fire_due_shared_publications(state: &AppState) {
+    use openblog_core::assembly::Outcome;
+    let now = clock::now().unix();
+    for id in crate::shared_publications::outcome_ids(&state.root) {
+        let due = match crate::shared_publications::load_outcome(&state.root, &id) {
+            Ok(stored) => matches!(
+                stored.outcome,
+                Some(Outcome::Scheduled { publish_at, .. }) if publish_at <= now
+            ),
+            Err(_) => false,
+        };
+        if !due {
+            continue;
+        }
+        let Ok(mut transaction) = invitation_transaction(state, &id) else {
+            continue;
+        };
+        let Some(record) = transaction.record.clone() else {
+            continue;
+        };
+        let Ok(stored) = crate::shared_publications::load_outcome(&state.root, &id) else {
+            continue;
+        };
+        let Some(Outcome::Scheduled {
+            publish_at,
+            requested_by,
+            ..
+        }) = stored.outcome
+        else {
+            continue;
+        };
+        if publish_at > now
+            || authorize_publisher(&transaction, &record, &requested_by, true).is_err()
+        {
+            continue;
+        }
+        let _ = commit_publication(
+            state,
+            &mut transaction,
+            &record,
+            DateTime::from_unix(publish_at),
+        );
+    }
+}
+
+/// An author approves the exact piece they read. The approval is theirs alone: it needs their
+/// own draft grant and their own approve grant, an affirmation, and the token from the preview;
+/// a token the piece has moved past is refused and nothing is recorded.
+fn approve_piece(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    match serde_json::from_slice::<ApproveRequest>(&req.body) {
+        Ok(body) => change_approval(
+            state,
+            session,
+            &body.publication_id,
+            Some((&body.seen, body.affirmed)),
+        ),
+        Err(_) => publish_request_problem(),
+    }
+}
+
+fn withdraw_approval(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    match serde_json::from_slice::<PublicationRequest>(&req.body) {
+        Ok(body) => change_approval(state, session, &body.publication_id, None),
+        Err(_) => publish_request_problem(),
+    }
+}
+
+fn change_approval(
+    state: &AppState,
+    session: &auth::Session,
+    publication_id: &str,
+    approving: Option<(&str, bool)>,
+) -> Response {
+    use openblog_core::approval::ApprovalError;
+    let (transaction, own) = match draft_request_target(state, publication_id, session) {
+        Ok(found) => found,
+        Err(_) => return publish_not_found(),
+    };
+    let record = transaction.record.clone().expect("authorized record");
+    let allowed = transaction
+        .with_identities(|identities| {
+            record.authorize(
+                &session.user,
+                identities,
+                AuthorizationAction::ApproveContribution,
+                AuthorizationTarget::Participant(&own),
+            )
+        })
+        .is_ok();
+    if !allowed {
+        return publish_not_found();
+    }
+    let inputs = match gate_inputs(state, &transaction, &record) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
+    };
+    if matches!(
+        inputs.outcome.outcome,
+        Some(openblog_core::assembly::Outcome::Published { .. })
+    ) {
+        return published_already();
+    }
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let mut next = inputs.approvals.set.clone();
+    let result = match approving {
+        Some((seen, affirmed)) => {
+            openblog_core::assembly::with_subject(&record, &inputs.drafts, &active, |subject| {
+                next.approve(&own, &own, subject, seen, affirmed, clock::now().unix())
+                    .map(|()| true)
+            })
+        }
+        None => next.withdraw(&own, &own),
+    };
+    match result {
+        Ok(true) => {}
+        Ok(false) => return Response::json(200, &json!({ "withdrawn": false })),
+        Err(ApprovalError::Stale) => {
+            return Response::error(
+                409,
+                "The piece changed after you read it. Reload the combined preview and read it again; nothing was recorded.",
+            )
+        }
+        Err(ApprovalError::Invalid) => {
+            return shared_problem(
+                "affirmed",
+                "Confirm that you approve publishing exactly the piece you read, and reload the preview if the piece has no sections yet.",
+            )
+        }
+        Err(ApprovalError::Denied) => return publish_not_found(),
+    }
+    if let Err(error) = crate::shared_publications::replace_approvals(
+        &state.root,
+        publication_id,
+        &inputs.approvals,
+        &next,
+    ) {
+        return publish_store_problem(error);
+    }
+    eprintln!(
+        "admin: {} for shared publication {publication_id}",
+        if approving.is_some() {
+            "approval recorded"
+        } else {
+            "approval withdrawn"
+        }
+    );
+    Response::json(
+        200,
+        &if approving.is_some() {
+            json!({ "approved": true })
+        } else {
+            json!({ "withdrawn": true })
+        },
+    )
+}
+
+/// Drop approvals that no longer match after a change to the author set or the prose, in the
+/// same transaction as that change, so removing and restoring an author or reverting an edit
+/// cannot bring back consent given earlier. Validity is also recomputed on every read, so a
+/// failure here still fails closed; it is logged without any content.
+fn reconcile_approvals(
+    state: &AppState,
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+) {
+    let id = &record.publication_id;
+    let result = (|| -> Result<(), String> {
+        let stored = crate::shared_publications::load_approvals_for_update(&state.root, id)?;
+        let drafts = load_reveal_drafts(state, id).map_err(|_| "drafts are not usable")?;
+        let drafts =
+            draft_set_for(drafts.set.as_ref(), record).map_err(|_| "drafts are not usable")?;
+        let active = active_drafters(transaction, record);
+        let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+        let mut next = stored.set.clone();
+        let dropped = openblog_core::assembly::with_subject(record, &drafts, &active, |subject| {
+            next.reconcile(subject)
+        });
+        if matches!(dropped, Ok(count) if count > 0) {
+            crate::shared_publications::replace_approvals(&state.root, id, &stored, &next)
+                .map_err(|_| "approvals not stored".to_string())?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        eprintln!("admin: approvals not reconciled for {id}: {error}");
     }
 }
 
@@ -5805,6 +6378,76 @@ fn read_reveal_state(state: &AppState, req: &Request, session: &auth::Session) -
         200,
         &json!({ "policy": set.policy(), "ready": ready, "slots": slots, "canSetPolicy": coordinator }),
     )
+}
+
+/// The combined review preview for an active author: every author's section at its exact current
+/// revision where the signed-in author is entitled to it, with each author's approval state.
+/// Read-only: it writes no draft, approval or content, and every refusal is the same not-found as
+/// a missing publication, so it never says whether a publication or a draft exists.
+fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return draft_not_found();
+    };
+    let (transaction, own) = match draft_request_target(state, publication_id, session) {
+        Ok(found) => found,
+        Err(response) => return response,
+    };
+    let record = transaction.record.as_ref().expect("authorized record");
+    let stored = match load_reveal_drafts(state, publication_id) {
+        Ok(stored) => stored,
+        Err(response) => return response,
+    };
+    let Ok(set) = draft_set_for(stored.set.as_ref(), record) else {
+        return Response::error(500, "The preview could not be built. Nothing was changed.");
+    };
+    let approvals = match crate::shared_publications::load_approvals(&state.root, publication_id) {
+        Ok(approvals) => approvals,
+        Err(error) => {
+            eprintln!("admin: approvals not readable for {publication_id}: {error}");
+            return Response::error(500, "The preview could not be built. Nothing was changed.");
+        }
+    };
+    let active = active_drafters(&transaction, record);
+    let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    let config = site::load_config(&state.root).unwrap_or_default();
+    let Ok(preview) = openblog_core::preview::build(
+        record,
+        &set,
+        &approvals,
+        &own,
+        &active,
+        config.render_options(),
+    ) else {
+        return draft_not_found();
+    };
+    drop(transaction);
+    // The document is served from its own address with its own policy, so a sandboxed frame can
+    // show it without the Admin page's policy and without scripts, forms, images or fetches.
+    let token = match auth::random_token() {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!("admin: preview token unavailable: {error}");
+            return Response::error(500, "The preview could not be built. Nothing was changed.");
+        }
+    };
+    let mut summary = serde_json::to_value(&preview).unwrap_or(Json::Null);
+    if let Some(object) = summary.as_object_mut() {
+        object.remove("document");
+        object.insert(
+            "previewUrl".into(),
+            json!(format!("/admin/api/preview/{token}")),
+        );
+    }
+    let mut previews = lock(&state.previews);
+    previews.push(PreviewDocument {
+        token,
+        html: preview.document,
+        csp: openblog_core::preview::PREVIEW_CSP.to_string(),
+    });
+    if previews.len() > 16 {
+        previews.remove(0);
+    }
+    Response::json(200, &json!({ "preview": summary }))
 }
 
 /// A coordinator chooses how drafts may be revealed. Changing it clears every standing offer and
@@ -5979,6 +6622,9 @@ fn answer_invitation(
         return response;
     }
     lock(&state.throttle).clear(&key);
+    if accept {
+        reconcile_approvals(state, &transaction, &next);
+    }
     eprintln!(
         "admin: {} a shared publication invitation for {publication_id}",
         if accept { "accepted" } else { "declined" }
@@ -14430,9 +15076,6 @@ mod tests {
             ("GET", "contribution"),
             ("PUT", "contribution"),
             ("POST", "contribution/reveal"),
-            ("POST", "approve"),
-            ("POST", "schedule"),
-            ("POST", "publish"),
             ("DELETE", "members"),
             ("PUT", "roles"),
             ("GET", "export"),
@@ -15299,6 +15942,182 @@ mod tests {
         assert!(!view_after.to_string().contains("GRACE-SECRET"));
     }
 
+    fn preview_call(f: &Fixture, session: &(String, String), id: &str) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/preview?publicationId={id}"),
+                ),
+                session,
+                false,
+            ),
+        )
+    }
+
+    /// The served preview document, fetched the way the Admin frame fetches it.
+    fn preview_document_text(f: &Fixture, session: &(String, String), body: &Json) -> String {
+        let url = body["preview"]["previewUrl"].as_str().unwrap();
+        let served = handle(&f.state, &authed(req("GET", url), session, false));
+        assert_eq!(served.status, 200);
+        assert!(served.headers.iter().any(|(name, value)| {
+            name == "Content-Security-Policy"
+                && value.starts_with("default-src 'none'")
+                && !value.contains("script-src")
+        }));
+        assert!(served
+            .headers
+            .iter()
+            .any(|(name, value)| name == "X-Frame-Options" && value == "SAMEORIGIN"));
+        String::from_utf8(served.body).unwrap()
+    }
+
+    #[test]
+    fn the_combined_preview_shows_only_what_the_author_may_read_and_writes_nothing() {
+        let (f, mikey, id) = invitation_fixture("combined-preview");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let reader = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["reader"]),
+        );
+        let ada = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "ada",
+            "a fourth correct horse",
+            json!(["coordinator"]),
+        );
+        for (who, text) in [(&mikey, "MIKEY-SECRET"), (&grace, "GRACE-SECRET")] {
+            assert_eq!(draft_call(&f, who, &id, 0, text).status, 200);
+        }
+        let content_before = tree_snapshot(&f.dir.join("content"));
+        let output_before = tree_snapshot(&f.dir.join("public"));
+
+        // Nothing is shared yet: each author sees only their own section.
+        let mine = preview_call(&f, &mikey, &id);
+        assert_eq!(mine.status, 200);
+        let body = body_json(&mine);
+        let text = body.to_string();
+        // The summary carries statuses only; prose travels solely in the served document.
+        assert!(!text.contains("SECRET"));
+        assert_eq!(body["preview"]["complete"], false);
+        assert_eq!(body["preview"]["ready"], false);
+        assert!(body["preview"]["seen"].is_null());
+        assert!(body["preview"].get("document").is_none());
+        let document = preview_document_text(&f, &mikey, &body);
+        assert!(document.contains("Preview, not published."));
+        assert!(document.contains("MIKEY-SECRET") && !document.contains("GRACE-SECRET"));
+        assert!(!text.contains("grace-admin") && !text.contains("invitation"));
+
+        // A reader or a coordinator who is not a drafter, a stranger and an anonymous caller get
+        // the same not-found as an unknown publication, and learn nothing.
+        let unknown = preview_call(&f, &mikey, "shared-ffffffffffff");
+        assert_eq!(unknown.status, 404);
+        for who in [&reader, &ada] {
+            let denied = preview_call(&f, who, &id);
+            assert_eq!(denied.status, 404);
+            assert_eq!(denied.body, unknown.body);
+        }
+        let anonymous = handle(
+            &f.state,
+            &req(
+                "GET",
+                &format!("/admin/api/collaboration/preview?publicationId={id}"),
+            ),
+        );
+        assert_eq!(anonymous.status, 401);
+        assert_eq!(preview_call(&f, &mikey, "").status, 404);
+
+        // Both mark revision 1 ready under the voluntary rule: both see the whole piece.
+        assert_eq!(
+            reveal_call(&f, &ada, "policy", policy_body(&id, "voluntary")).status,
+            200
+        );
+        for who in [&mikey, &grace] {
+            assert_eq!(
+                reveal_call(&f, who, "ready", ready_body(&id, json!(1))).status,
+                200
+            );
+        }
+        let shared = body_json(&preview_call(&f, &grace, &id));
+        let text = preview_document_text(&f, &grace, &shared);
+        assert!(text.contains("MIKEY-SECRET") && text.contains("GRACE-SECRET"));
+        assert_eq!(shared["preview"]["complete"], true);
+        assert_eq!(shared["preview"]["ready"], false);
+        assert!(shared["preview"]["seen"].is_string());
+        let sections = shared["preview"]["sections"].as_array().unwrap();
+        assert_eq!(sections.len(), 2);
+        assert!(sections
+            .iter()
+            .all(|s| s["shown"] == true && s["revision"] == 1 && s["approval"] == "awaiting"));
+
+        // A newer revision that was not offered is hidden from the other author at once.
+        assert_eq!(draft_call(&f, &mikey, &id, 1, "MIKEY-NEWER").status, 200);
+        let private_before = tree_snapshot(&f.dir.join(".openblog/private"));
+        let after = body_json(&preview_call(&f, &grace, &id));
+        let text = format!("{after}{}", preview_document_text(&f, &grace, &after));
+        assert!(!text.contains("MIKEY-NEWER") && !text.contains("MIKEY-SECRET"));
+        assert_eq!(after["preview"]["complete"], false);
+        let own = body_json(&preview_call(&f, &mikey, &id));
+        assert!(preview_document_text(&f, &mikey, &own).contains("MIKEY-NEWER"));
+
+        // Reading changed no draft, approval, content or public output.
+        assert_eq!(
+            tree_snapshot(&f.dir.join(".openblog/private")),
+            private_before
+        );
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+        assert_eq!(tree_snapshot(&f.dir.join("public")), output_before);
+    }
+
+    #[test]
+    fn a_stored_approval_that_no_longer_matches_is_flagged_and_a_bad_file_fails_safely() {
+        let (f, mikey, id) = invitation_fixture("combined-preview-stale");
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "MIKEY-SECRET").status, 200);
+        let owner = stored_record(&f, &id).collaboration.participants[0]
+            .id
+            .clone();
+        let directory = f.dir.join(".openblog/private/collaboration/approvals");
+        std::fs::create_dir_all(&directory).unwrap();
+        let file = directory.join(format!("{id}.json"));
+        let stale = json!({
+            "version": 1,
+            "policy": {},
+            "policyRevision": 0,
+            "approvals": [{
+                "participantId": owner,
+                "approvedAt": 1,
+                "consentVersion": 1,
+                "binding": "0".repeat(64),
+            }],
+        });
+        std::fs::write(&file, stale.to_string()).unwrap();
+        let body = body_json(&preview_call(&f, &mikey, &id));
+        assert_eq!(body["preview"]["sections"][0]["approval"], "stale");
+        assert_eq!(body["preview"]["ready"], false);
+        assert!(preview_document_text(&f, &mikey, &body).contains("out of date"));
+
+        // A malformed file is an error that says nothing, never an empty or approved set.
+        std::fs::write(&file, "{ not json MIKEY-SECRET").unwrap();
+        let broken = preview_call(&f, &mikey, &id);
+        assert_eq!(broken.status, 500);
+        let text = String::from_utf8_lossy(&broken.body).to_string();
+        assert!(!text.contains("MIKEY-SECRET") && !text.contains("not json"));
+    }
+
     #[test]
     fn reveal_routes_without_the_admin_session_or_csrf_do_nothing() {
         let (f, mikey, id) = invitation_fixture("reveal-auth");
@@ -15319,5 +16138,675 @@ mod tests {
         let read = format!("/admin/api/collaboration/reveal?publicationId={id}");
         assert_eq!(handle(&f.state, &req("GET", &read)).status, 401);
         assert_eq!(tree_snapshot(&f.dir.join(".openblog/private")), before);
+    }
+
+    // ---- Approval, scheduling and publication (ADR 0022) ----
+
+    /// Mikey (owner and author), Grace (author), Ada (coordinator, not an author), both authors
+    /// have written and offered revision 1, so each can read the whole piece.
+    type Session = (String, String);
+
+    fn approval_fixture(tag: &str) -> (Fixture, Session, Session, Session, String) {
+        let (f, mikey, id) = invitation_fixture(tag);
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let ada = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "ada",
+            "a fourth correct horse",
+            json!(["coordinator"]),
+        );
+        for (who, text) in [(&mikey, "MIKEY-SECRET"), (&grace, "GRACE-SECRET")] {
+            assert_eq!(draft_call(&f, who, &id, 0, text).status, 200);
+        }
+        assert_eq!(
+            reveal_call(&f, &ada, "policy", policy_body(&id, "voluntary")).status,
+            200
+        );
+        for who in [&mikey, &grace] {
+            assert_eq!(
+                reveal_call(&f, who, "ready", ready_body(&id, json!(1))).status,
+                200
+            );
+        }
+        (f, mikey, grace, ada, id)
+    }
+
+    fn approval_body(f: &Fixture, who: &(String, String), id: &str) -> Json {
+        let seen = body_json(&preview_call(f, who, id))["preview"]["seen"].clone();
+        json!({ "publicationId": id, "seen": seen, "affirmed": true })
+    }
+
+    fn approve_as(f: &Fixture, who: &(String, String), id: &str) -> Response {
+        let body = approval_body(f, who, id);
+        assert!(
+            body["seen"].is_string(),
+            "the author can read the whole piece"
+        );
+        post_api(f, who, "approve", body)
+    }
+
+    fn publish_as(f: &Fixture, who: &(String, String), id: &str) -> Response {
+        post_api(f, who, "publish", json!({ "publicationId": id }))
+    }
+
+    fn schedule_as(f: &Fixture, who: &(String, String), id: &str, at: Json) -> Response {
+        post_api(
+            f,
+            who,
+            "schedule",
+            json!({ "publicationId": id, "publishAt": at }),
+        )
+    }
+
+    fn state_trees(f: &Fixture) -> [BTreeMap<PathBuf, Vec<u8>>; 3] {
+        [
+            tree_snapshot(&f.dir.join("content")),
+            tree_snapshot(&f.dir.join("dist")),
+            tree_snapshot(&f.dir.join(".openblog/private")),
+        ]
+    }
+
+    fn published_post(f: &Fixture, id: &str) -> Option<String> {
+        fs::read_to_string(f.dir.join(format!("content/posts/{id}.md"))).ok()
+    }
+
+    fn outcome_file(f: &Fixture, id: &str) -> PathBuf {
+        f.dir.join(format!(
+            "{}/{id}.json",
+            crate::shared_publications::OUTCOMES_DIRECTORY
+        ))
+    }
+
+    fn assert_no_prose(response: &Response) {
+        let text = String::from_utf8_lossy(&response.body).to_string();
+        assert!(
+            !text.contains("SECRET") && !text.contains("NEWER"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn approving_needs_the_authors_own_affirmation_and_the_exact_piece_they_read() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approve-gate");
+        let before = state_trees(&f);
+
+        // Not affirmed, wrong token, another author's token: refused, nothing recorded.
+        let mut unaffirmed = approval_body(&f, &mikey, &id);
+        unaffirmed["affirmed"] = json!(false);
+        assert_eq!(post_api(&f, &mikey, "approve", unaffirmed).status, 422);
+        let mut wrong = approval_body(&f, &mikey, &id);
+        wrong["seen"] = json!("0".repeat(64));
+        assert_eq!(post_api(&f, &mikey, "approve", wrong).status, 409);
+        let mut borrowed = approval_body(&f, &grace, &id);
+        borrowed["seen"] = approval_body(&f, &mikey, &id)["seen"].clone();
+        assert_eq!(post_api(&f, &grace, "approve", borrowed).status, 409);
+        let mut extra = approval_body(&f, &mikey, &id);
+        extra["participantId"] = json!("someone-else");
+        assert_eq!(post_api(&f, &mikey, "approve", extra).status, 422);
+
+        // A coordinator who is not an author, an unknown publication, and no session all fail
+        // the same way, and cannot approve for anyone.
+        let unknown = post_api(
+            &f,
+            &ada,
+            "approve",
+            json!({ "publicationId": "shared-ffffffffffff", "seen": "0".repeat(64), "affirmed": true }),
+        );
+        assert_eq!(unknown.status, 404);
+        let denied = post_api(&f, &ada, "approve", approval_body(&f, &mikey, &id));
+        assert_eq!(denied.status, 404);
+        assert_eq!(denied.body, unknown.body);
+        let no_csrf = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/collaboration/approve",
+                    approval_body(&f, &mikey, &id),
+                ),
+                &mikey,
+                false,
+            ),
+        );
+        assert!(no_csrf.status == 401 || no_csrf.status == 403);
+        assert_eq!(state_trees(&f), before);
+
+        // Approving, withdrawing and approving again each change only the approval file.
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        let mine = body_json(&preview_call(&f, &mikey, &id));
+        let states: Vec<_> = mine["preview"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["approval"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(states, ["approved", "awaiting"]);
+        let withdraw = |who| post_api(&f, who, "approve/withdraw", json!({ "publicationId": id }));
+        assert_eq!(body_json(&withdraw(&mikey))["withdrawn"], true);
+        let settled = state_trees(&f);
+        assert_eq!(body_json(&withdraw(&mikey))["withdrawn"], false);
+        assert_eq!(withdraw(&ada).status, 404);
+        assert_eq!(state_trees(&f), settled);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        let stored = fs::read_to_string(f.dir.join(format!(
+            ".openblog/private/collaboration/approvals/{id}.json"
+        )))
+        .unwrap();
+        assert!(!stored.contains("SECRET"));
+        assert_eq!(state_trees(&f)[0], before[0]);
+        assert_eq!(state_trees(&f)[1], before[1]);
+    }
+
+    #[test]
+    fn publishing_needs_the_grant_and_every_exact_approval_and_a_retry_changes_nothing() {
+        let (f, mikey, grace, ada, id) = approval_fixture("publish-gate");
+        let before = state_trees(&f);
+
+        // Nobody approved: the coordinator is told whose approval is missing, never any prose.
+        let blocked = publish_as(&f, &ada, &id);
+        assert_eq!(blocked.status, 409);
+        assert_no_prose(&blocked);
+        let missing = body_json(&blocked)["missing"].clone();
+        assert_eq!(missing.as_array().unwrap().len(), 2);
+        // Authors hold no publish grant; strangers and unknown publications are not told anything.
+        let unknown = publish_as(&f, &ada, "shared-ffffffffffff");
+        assert_eq!(unknown.status, 404);
+        let denied = publish_as(&f, &grace, &id);
+        assert_eq!(denied.status, 404);
+        assert_eq!(denied.body, unknown.body);
+        let anonymous = handle(
+            &f.state,
+            &json_req(
+                "POST",
+                "/admin/api/collaboration/publish",
+                json!({ "publicationId": id }),
+            ),
+        );
+        assert_eq!(anonymous.status, 401);
+        assert_eq!(state_trees(&f), before);
+
+        // The site owner's grant does not replace the other author's approval.
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        let partial = state_trees(&f);
+        for who in [&mikey, &ada] {
+            let refused = publish_as(&f, who, &id);
+            assert_eq!(refused.status, 409);
+            assert_no_prose(&refused);
+            assert_eq!(body_json(&refused)["missing"].as_array().unwrap().len(), 1);
+        }
+        assert_eq!(state_trees(&f), partial);
+        assert!(published_post(&f, &id).is_none() && !outcome_file(&f, &id).exists());
+
+        // Every author approved: the coordinator publishes the exact approved prose.
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        let first = publish_as(&f, &ada, &id);
+        assert_eq!(
+            first.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&first.body)
+        );
+        assert_eq!(body_json(&first)["alreadyPublished"], false);
+        let post = published_post(&f, &id).expect("the Post was written");
+        assert!(post.contains("MIKEY-SECRET") && post.contains("GRACE-SECRET"));
+        assert!(post.find("MIKEY-SECRET") < post.find("GRACE-SECRET"));
+        let credits =
+            fs::read_to_string(f.dir.join(format!("content/posts/{id}.credits.json"))).unwrap();
+        assert!(credits.contains("mikey-writer") && credits.contains("grace"));
+        // No collaboration metadata rides along in content or in any public file.
+        for text in [&post, &credits] {
+            assert!(!text.contains(&id) && !text.contains("token") && !text.contains("invitation"));
+            assert!(!text.contains("grace-admin") && !text.contains("approvedAt"));
+        }
+        let public = state_trees(&f)[1].clone();
+        assert!(public
+            .values()
+            .any(|bytes| String::from_utf8_lossy(bytes).contains("GRACE-SECRET")));
+        for (path, bytes) in &public {
+            let text = String::from_utf8_lossy(bytes);
+            assert!(
+                !text.contains(&id) && !text.contains("invitation") && !text.contains("approvedAt"),
+                "{}",
+                path.display()
+            );
+        }
+        // The rebuilt feeds and page carry both sections in order, one creator per author in the
+        // same order in RSS and JSON Feed, and no collaboration metadata.
+        let built = |name: &str| {
+            let (_, bytes) = public
+                .iter()
+                .find(|(path, _)| path.ends_with(name))
+                .unwrap_or_else(|| panic!("{name} was not built"));
+            String::from_utf8_lossy(bytes).to_string()
+        };
+        let rss = built("rss.xml");
+        let feed: Json = serde_json::from_str(&built("feed.json")).unwrap();
+        let item = feed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| {
+                item["content_text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("GRACE-SECRET")
+            })
+            .expect("the reflection is in the JSON Feed");
+        let names: Vec<&str> = item["authors"]
+            .as_array()
+            .expect("JSON Feed authors")
+            .iter()
+            .map(|author| author["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names.len(), 2);
+        let creators: Vec<String> = rss
+            .split("<dc:creator>")
+            .skip(1)
+            .filter_map(|part| part.split("</dc:creator>").next())
+            .map(str::to_string)
+            .collect();
+        assert!(
+            names.iter().zip(&creators).all(|(a, b)| *a == b),
+            "{names:?} {creators:?}"
+        );
+        assert!(rss.find("MIKEY-SECRET") < rss.find("GRACE-SECRET"));
+        let page = built(&format!(
+            "{}/index.html",
+            item["url"]
+                .as_str()
+                .unwrap()
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .unwrap()
+        ));
+        assert!(page.find("MIKEY-SECRET") < page.find("GRACE-SECRET"));
+        for text in [&rss, &page] {
+            assert!(!text.contains("approvedAt") && !text.contains("grace-admin"));
+        }
+
+        let after = state_trees(&f);
+        assert_ne!(after[0], before[0]);
+
+        // A retry, by anyone who may publish, is idempotent and writes nothing.
+        for who in [&ada, &mikey, &ada] {
+            let again = publish_as(&f, who, &id);
+            assert_eq!(again.status, 200);
+            assert_eq!(body_json(&again)["alreadyPublished"], true);
+            assert_eq!(state_trees(&f), after);
+        }
+        // Once published, approvals can no longer be changed.
+        assert_eq!(approve_as(&f, &mikey, &id).status, 409);
+        assert_eq!(
+            post_api(
+                &f,
+                &mikey,
+                "approve/withdraw",
+                json!({ "publicationId": id })
+            )
+            .status,
+            409
+        );
+        assert_eq!(
+            schedule_as(&f, &ada, &id, json!("2099-01-01T00:00:00Z")).status,
+            409
+        );
+        assert_eq!(state_trees(&f), after);
+    }
+
+    #[test]
+    fn a_stale_approval_blocks_publishing_and_the_reapproved_piece_is_what_publishes() {
+        let (f, mikey, grace, ada, id) = approval_fixture("stale-approval");
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        // Mikey edits after both approved: his approval no longer matches and is dropped.
+        assert_eq!(draft_call(&f, &mikey, &id, 1, "MIKEY-NEWER").status, 200);
+        let approvals = f.dir.join(format!(
+            ".openblog/private/collaboration/approvals/{id}.json"
+        ));
+        let stored: Json = serde_json::from_str(&fs::read_to_string(&approvals).unwrap()).unwrap();
+        assert_eq!(stored["approvals"].as_array().unwrap().len(), 1);
+        let before = state_trees(&f);
+        for who in [&ada, &mikey] {
+            let refused = publish_as(&f, who, &id);
+            assert_eq!(refused.status, 409);
+            assert_no_prose(&refused);
+            assert_eq!(body_json(&refused)["missing"], json!(["Mikey"]));
+        }
+        assert_eq!(state_trees(&f), before);
+        assert!(published_post(&f, &id).is_none());
+
+        // Stale consent cannot be revived by reverting the text: a revert is a new revision.
+        assert_eq!(draft_call(&f, &mikey, &id, 2, "MIKEY-SECRET").status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 409);
+
+        // He reads the piece again and approves exactly what is there now.
+        assert_eq!(draft_call(&f, &mikey, &id, 3, "MIKEY-NEWER").status, 200);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        let post = published_post(&f, &id).unwrap();
+        assert!(post.contains("MIKEY-NEWER") && post.contains("GRACE-SECRET"));
+        assert!(!post.contains("MIKEY-SECRET"));
+    }
+
+    #[test]
+    fn a_removed_author_takes_every_approval_with_them_and_blocks_publishing() {
+        let (f, mikey, grace, ada, id) = approval_fixture("removed-author");
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let record = stored_record(&f, &id);
+        let grace_id = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|b| b.admin_user == "grace")
+            .unwrap()
+            .participant_id
+            .clone();
+        let removed = post_api(
+            &f,
+            &mikey,
+            "members/remove",
+            json!({ "publicationId": id, "participantId": grace_id, "expectedRevision": record.authorization.revision }),
+        );
+        assert_eq!(removed.status, 200);
+        // The author set changed, so no approval covers the new piece; they were dropped durably.
+        let stored: Json = serde_json::from_str(
+            &fs::read_to_string(f.dir.join(format!(
+                ".openblog/private/collaboration/approvals/{id}.json"
+            )))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(stored["approvals"].as_array().unwrap().is_empty());
+        let before = state_trees(&f);
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 409);
+        assert_eq!(body_json(&refused)["missing"], json!(["Mikey"]));
+        // The removed author can no longer approve, read the preview or publish.
+        assert_eq!(
+            post_api(
+                &f,
+                &grace,
+                "approve",
+                json!({ "publicationId": id, "seen": "x", "affirmed": true })
+            )
+            .status,
+            404
+        );
+        assert_eq!(publish_as(&f, &grace, &id).status, 404);
+        assert_eq!(state_trees(&f), before);
+    }
+
+    #[test]
+    fn scheduling_holds_the_piece_privately_and_checks_again_when_it_falls_due() {
+        let (f, mikey, grace, ada, id) = approval_fixture("schedule-gate");
+        let at = DateTime::from_unix(clock::now().unix() + 3600).rfc3339();
+        let before = state_trees(&f);
+
+        // Unapproved, past, malformed, unauthorised: nothing is held.
+        assert_eq!(schedule_as(&f, &ada, &id, json!(at)).status, 409);
+        for bad in [json!("2001-01-01T00:00:00Z"), json!("soon")] {
+            assert_eq!(schedule_as(&f, &ada, &id, bad).status, 422);
+        }
+        assert_eq!(schedule_as(&f, &grace, &id, json!(at)).status, 404);
+        assert_eq!(state_trees(&f), before);
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let approved = state_trees(&f);
+        assert_eq!(
+            schedule_as(&f, &ada, &id, json!("2001-01-01T00:00:00Z")).status,
+            422
+        );
+        assert_eq!(state_trees(&f), approved);
+
+        // Scheduled: only a small private file changes; content and public output do not.
+        let held = schedule_as(&f, &ada, &id, json!(at));
+        assert_eq!(held.status, 200, "{}", String::from_utf8_lossy(&held.body));
+        assert_eq!(body_json(&held)["state"], "scheduled");
+        let outcome = fs::read_to_string(outcome_file(&f, &id)).unwrap();
+        assert!(!outcome.contains("SECRET") && outcome.contains("scheduled"));
+        let scheduled = state_trees(&f);
+        assert_eq!(scheduled[0], before[0]);
+        assert_eq!(scheduled[1], before[1]);
+        assert_eq!(schedule_as(&f, &ada, &id, json!(at)).status, 200);
+        assert_eq!(state_trees(&f), scheduled);
+        assert!(f.state.tick_scheduler().is_none());
+        assert!(published_post(&f, &id).is_none());
+
+        // Time passes, but Mikey edited first: the schedule holds and publishes nothing.
+        let due = openblog_core::assembly::Outcome::scheduled(clock::now().unix() - 60, "ada");
+        fs::write(outcome_file(&f, &id), format!("{}\n", due.to_json())).unwrap();
+        assert_eq!(draft_call(&f, &mikey, &id, 1, "MIKEY-NEWER").status, 200);
+        let content = tree_snapshot(&f.dir.join("content"));
+        let public = tree_snapshot(&f.dir.join("dist"));
+        f.state.tick_scheduler();
+        assert!(published_post(&f, &id).is_none());
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content);
+        assert_eq!(tree_snapshot(&f.dir.join("dist")), public);
+        assert!(fs::read_to_string(outcome_file(&f, &id))
+            .unwrap()
+            .contains("scheduled"));
+
+        // Approved again, the next tick publishes it, dated at its scheduled time.
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        f.state.tick_scheduler();
+        let post = published_post(&f, &id).expect("published when due and approved");
+        assert!(post.contains("MIKEY-NEWER") && post.contains("GRACE-SECRET"));
+        assert!(fs::read_to_string(outcome_file(&f, &id))
+            .unwrap()
+            .contains("published"));
+        let done = state_trees(&f);
+        f.state.tick_scheduler();
+        assert_eq!(state_trees(&f), done);
+    }
+
+    #[test]
+    fn a_schedule_can_be_cancelled_and_dies_with_the_schedulers_grant() {
+        let (f, mikey, grace, ada, id) = approval_fixture("schedule-cancel");
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let at = DateTime::from_unix(clock::now().unix() + 3600).rfc3339();
+        assert_eq!(schedule_as(&f, &ada, &id, json!(at)).status, 200);
+        assert!(outcome_file(&f, &id).exists());
+        assert_eq!(schedule_as(&f, &ada, &id, Json::Null).status, 200);
+        assert!(!outcome_file(&f, &id).exists());
+        assert_eq!(schedule_as(&f, &grace, &id, Json::Null).status, 404);
+
+        // Ada schedules, then loses her role: when due, the schedule no longer authorises.
+        assert_eq!(schedule_as(&f, &ada, &id, json!(at)).status, 200);
+        let record = stored_record(&f, &id);
+        let ada_id = record
+            .authorization
+            .bindings
+            .iter()
+            .find(|b| b.admin_user == "ada")
+            .unwrap()
+            .participant_id
+            .clone();
+        let changed = post_api(
+            &f,
+            &mikey,
+            "members/roles",
+            json!({ "publicationId": id, "participantId": ada_id, "roles": ["reader"], "expectedRevision": record.authorization.revision }),
+        );
+        assert_eq!(changed.status, 200);
+        let due = openblog_core::assembly::Outcome::scheduled(clock::now().unix() - 60, "ada");
+        fs::write(outcome_file(&f, &id), format!("{}\n", due.to_json())).unwrap();
+        f.state.tick_scheduler();
+        assert!(published_post(&f, &id).is_none());
+    }
+
+    #[test]
+    fn a_failure_after_the_files_are_written_restores_content_state_and_output() {
+        let (f, mikey, grace, ada, id) = approval_fixture("publish-rollback");
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let content = tree_snapshot(&f.dir.join("content"));
+        let private = tree_snapshot(&f.dir.join(".openblog/private"));
+        // The rebuild that follows the write cannot run: the output folder is a file.
+        fs::remove_dir_all(f.dir.join("dist")).unwrap();
+        fs::write(f.dir.join("dist"), "not a folder").unwrap();
+        let failed = publish_as(&f, &ada, &id);
+        assert_eq!(failed.status, 500);
+        assert_no_prose(&failed);
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content);
+        assert_eq!(tree_snapshot(&f.dir.join(".openblog/private")), private);
+        assert!(published_post(&f, &id).is_none() && !outcome_file(&f, &id).exists());
+        assert_eq!(fs::read(f.dir.join("dist")).unwrap(), b"not a folder");
+
+        // With the output folder back, the very same request succeeds exactly once.
+        fs::remove_file(f.dir.join("dist")).unwrap();
+        f.state.rebuild().unwrap();
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        assert!(published_post(&f, &id).is_some());
+    }
+
+    #[test]
+    fn an_interrupted_publish_is_finished_by_a_retry_without_a_second_post() {
+        let (f, mikey, grace, ada, id) = approval_fixture("publish-adopt");
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        let post = published_post(&f, &id).unwrap();
+        let credits = fs::read(f.dir.join(format!("content/posts/{id}.credits.json"))).unwrap();
+        // Simulate a crash after the files but before the outcome: the outcome is lost.
+        fs::remove_file(outcome_file(&f, &id)).unwrap();
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        assert_eq!(published_post(&f, &id).unwrap(), post);
+        assert_eq!(
+            fs::read(f.dir.join(format!("content/posts/{id}.credits.json"))).unwrap(),
+            credits
+        );
+        let shared = |f: &Fixture| {
+            fs::read_dir(f.dir.join("content/posts"))
+                .unwrap()
+                .filter(|e| {
+                    e.as_ref()
+                        .unwrap()
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with("shared-")
+                })
+                .count()
+        };
+        assert_eq!(shared(&f), 2, "one Post and its credits, never a second");
+
+        // A different file in the Post's place is never overwritten.
+        fs::remove_file(outcome_file(&f, &id)).unwrap();
+        fs::write(
+            f.dir.join(format!("content/posts/{id}.md")),
+            "---\ntitle: Mine\ndate: 2020-01-01\n---\nMy own post\n",
+        )
+        .unwrap();
+        let before = state_trees(&f);
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 409);
+        assert_eq!(state_trees(&f), before);
+    }
+
+    #[test]
+    fn concurrent_publishers_and_an_editor_never_publish_an_unapproved_revision() {
+        let (f, mikey, grace, ada, id) = approval_fixture("publish-race");
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let results = std::thread::scope(|scope| {
+            let publishers: Vec<_> = (0..4)
+                .map(|_| scope.spawn(|| publish_as(&f, &ada, &id).status))
+                .collect();
+            let editor = scope.spawn(|| draft_call(&f, &mikey, &id, 1, "MIKEY-NEWER").status);
+            let published: Vec<u16> = publishers.into_iter().map(|t| t.join().unwrap()).collect();
+            (published, editor.join().unwrap())
+        });
+        let (published, _edit) = results;
+        match published_post(&f, &id) {
+            // The edit came last: the piece published is the approved one, once.
+            Some(post) => {
+                assert!(!post.contains("MIKEY-NEWER") && post.contains("MIKEY-SECRET"));
+                // A caller can also lose its wait for the content lock under load; what matters
+                // is that exactly one publication happened.
+                assert!(published.contains(&200), "{published:?}");
+                assert!(outcome_file(&f, &id).exists());
+            }
+            // The edit came first: every attempt was refused and nothing was written.
+            None => {
+                assert!(
+                    published.iter().all(|status| *status != 200),
+                    "{published:?}"
+                );
+                assert!(!outcome_file(&f, &id).exists());
+            }
+        }
+        let shared_posts = fs::read_dir(f.dir.join("content/posts"))
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("shared-")
+            })
+            .count();
+        assert!(
+            shared_posts == 0 || shared_posts == 2,
+            "post and credits only"
+        );
+    }
+
+    #[test]
+    fn raw_html_and_active_links_in_a_section_refuse_publication_without_echoing_it() {
+        let (f, mikey, grace, ada, id) = approval_fixture("publish-hostile");
+        assert_eq!(
+            draft_call(
+                &f,
+                &grace,
+                &id,
+                1,
+                "GRACE-SECRET <script>alert(1)</script> [x](javascript:alert(1))"
+            )
+            .status,
+            200
+        );
+        for (who, revision) in [(&mikey, 1), (&grace, 2)] {
+            assert_eq!(
+                reveal_call(&f, who, "ready", ready_body(&id, json!(revision))).status,
+                200
+            );
+        }
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let before = state_trees(&f);
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 422);
+        assert_no_prose(&refused);
+        assert!(!String::from_utf8_lossy(&refused.body).contains("script"));
+        assert_eq!(
+            schedule_as(
+                &f,
+                &ada,
+                &id,
+                json!(DateTime::from_unix(clock::now().unix() + 3600).rfc3339())
+            )
+            .status,
+            422
+        );
+        assert_eq!(state_trees(&f), before);
     }
 }

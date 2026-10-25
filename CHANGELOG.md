@@ -5,6 +5,38 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-25
+
+- Portable Markdown for a published shared reflection now escapes its title, so a participant-supplied
+  title can no longer inject raw HTML into an export or syndicated copy.
+- A published shared reflection now has checked output everywhere the site publishes: the page,
+  portable HTML and Markdown, RSS and JSON Feed show every author's section in order, credit each
+  author who wrote one in the same order, and link the shared source and guiding question. Replaced
+  draft revisions, invitations, approvals and account names never appear in any of them.
+- Shared reflections can now be approved, scheduled and published (routes only; the Admin screens
+  come later). An author approves the exact piece they read, a coordinator or site owner publishes
+  it only while every required author's approval still matches, and a missing or stale approval
+  refuses the request with nothing written. Publishing writes the Post, its credits and the
+  rebuilt site as one unit and is undone if any step fails; repeating it changes nothing. A
+  scheduled reflection is held privately and checked again when its time comes, so an edit or a
+  removal after scheduling holds it back. Sections with raw HTML or `javascript:` style links are
+  refused, and refusals never repeat anyone's text. The check covers the combined page, so heading
+  attributes, math-style `$...$` markup, and an unclosed code fence or link definition in one
+  section that would change another author's section are refused too.
+- Added the approval model for shared reflections: an approval is an author's own affirmative,
+  timestamped consent bound to the exact content, author set, order, public metadata and policy,
+  so editing or changing any of them withdraws the affected approvals and nobody can approve for
+  another author. No screen or publishing step uses it yet.
+- An approval from an author who has written no section now covers the whole piece, so any
+  later edit to the prose withdraws it.
+- Added a combined preview to Shared reflections in Admin ("Review the combined piece"). It shows
+  every author's section together at its exact current revision with each author's approval (approved,
+  awaiting, or out of date), and is clearly marked "Preview, not published". You see a section only
+  when it is shared with you at its current revision; anything else is one placeholder. The preview
+  runs no script, loads no images, and changes nothing. It renders prose with the site's own
+  Markdown settings, and an author who has written nothing no longer stops the others from
+  reviewing and approving the piece.
+
 ## [0.21.1] - 2026-10-25
 
 - Fixed voluntary reveal so a publication keeps one author set: visibility is now derived from the

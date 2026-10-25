@@ -15,6 +15,8 @@
 //! - [`source_interchange`]: dry-run CSL JSON import and deterministic CSL JSON / BibTeX export
 
 pub mod accessibility;
+pub mod approval;
+pub mod assembly;
 pub mod assistant_guide;
 pub mod capability;
 pub mod collaboration;
@@ -32,6 +34,7 @@ pub mod markdown;
 pub mod members;
 pub mod model;
 pub mod portability;
+pub mod preview;
 pub mod profile;
 mod raw_html;
 pub mod recipe;
