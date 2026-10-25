@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added the layout-independent structure of a shared reflection: rounds, prompts and turns, one
+  deterministic reading order, and five layout modes over the same contributions without any
+  gendered or positional field. Nothing is presented differently yet; invalid structures are
+  refused without echoing anyone's text.
+
 ## [0.22.0] - 2026-10-25
 
 - Portable Markdown for a published shared reflection now escapes its title, so a participant-supplied

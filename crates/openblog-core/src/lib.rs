@@ -38,6 +38,7 @@ pub mod preview;
 pub mod profile;
 mod raw_html;
 pub mod recipe;
+pub mod reflection;
 pub mod render;
 pub mod research;
 pub mod search;

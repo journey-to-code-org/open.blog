@@ -178,6 +178,23 @@ one is credited in that order, and the shared source and guiding question appear
 account name or publication id (ADR 0023).
 _Avoid_: Shared page, collaboration export
 
+**Reflection structure**:
+The ordered rounds, prompts and turns of a shared reflection, plus one chosen Reflection layout. A
+turn names a contribution, never a person, so the structure holds no identity and no gendered or
+positional field (ADR 0030). It is separate from the prose it arranges and from CSS.
+_Avoid_: Left/right, author A/B, theme, template
+
+**Reflection layout**:
+One of sequential, side-by-side, point-counterpoint, alternating dialogue or roundtable: a
+presentation of the same structure. Changing it rewrites no prose, and it never decides identity,
+authority or credit. Every layout reads in the one Reading order (ADR 0031).
+_Avoid_: Role, side, speaker slot
+
+**Reading order**:
+The deterministic linear sequence of a reflection structure: rounds, then turns, with each round's
+prompt before its first answer. Shared by every layout and by the portable equivalent.
+_Avoid_: Visual order
+
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in
 one approved collaboration revision, that a publication operation incorporates into canonical
