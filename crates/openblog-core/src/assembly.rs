@@ -40,10 +40,43 @@ pub enum AssemblyError {
     /// but not for a co-author's prose, and the approved text must not be altered, so the piece
     /// is refused until the author removes it.
     UnsafeMarkup,
+    /// A section heading claims an anchor the generated conversation block owns
+    /// (`continuing-the-conversation`, `conversation-<category>[-<n>]`). Distinct from
+    /// [`Self::UnsafeMarkup`] because the fix is to rename the heading, not remove markup.
+    ReservedSectionAnchor,
     /// An approved continuing-conversation item breaks a rule for item Markdown (raw HTML, an
     /// unsafe link, a heading outside the item outline, or a reserved anchor). Distinct from
     /// [`Self::UnsafeMarkup`] so the refusal names the item rather than a section.
-    UnsafeConversationItem(ItemRule),
+    UnsafeConversationItem(ItemRule, ItemRef),
+}
+
+/// Which continuing-conversation item a refusal is about: its category and its place among the
+/// published items of that category, counting from one (the same ordinal its anchor carries).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ItemRef {
+    pub kind: SynthesisKind,
+    pub ordinal: usize,
+}
+
+impl ItemRef {
+    /// For example "the second question". Holds no author text, so it is safe to show.
+    pub fn describe(self) -> String {
+        const ORDINALS: [&str; 10] = [
+            "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
+            "tenth",
+        ];
+        let noun = match self.kind {
+            SynthesisKind::Agreement => "shared takeaway",
+            SynthesisKind::Difference => "difference",
+            SynthesisKind::Question => "question",
+            SynthesisKind::Application => "way to apply this",
+            SynthesisKind::Uncertainty => "uncertainty",
+        };
+        match ORDINALS.get(self.ordinal.wrapping_sub(1)) {
+            Some(word) => format!("the {word} {noun}"),
+            None => format!("{noun} number {}", self.ordinal),
+        }
+    }
 }
 
 /// The canonical files one publication writes.
@@ -188,7 +221,18 @@ pub fn conversation_parts(
     record: &SharedPublication,
     synthesis: &SynthesisSet,
 ) -> Vec<(String, bool)> {
-    let mut parts: Vec<(String, bool)> = Vec::new();
+    conversation_chunks(record, synthesis)
+        .into_iter()
+        .map(|(text, item)| (text, item.is_some()))
+        .collect()
+}
+
+/// [`conversation_parts`] with each prose chunk carrying the item it belongs to.
+fn conversation_chunks(
+    record: &SharedPublication,
+    synthesis: &SynthesisSet,
+) -> Vec<(String, Option<ItemRef>)> {
+    let mut parts: Vec<(String, Option<ItemRef>)> = Vec::new();
     for (kind, slug, heading) in CATEGORIES {
         let mut ordinal = 0;
         for item in synthesis.items().iter().filter(|item| item.kind() == kind) {
@@ -198,9 +242,9 @@ pub fn conversation_parts(
             }
             if ordinal == 0 {
                 if parts.is_empty() {
-                    parts.push((CONVERSATION_HEADING.to_string(), false));
+                    parts.push((CONVERSATION_HEADING.to_string(), None));
                 }
-                parts.push((format!("### {heading} {{#conversation-{slug}}}"), false));
+                parts.push((format!("### {heading} {{#conversation-{slug}}}"), None));
             }
             ordinal += 1;
             let names: Vec<String> = names.iter().map(|name| escape_markdown(name)).collect();
@@ -209,9 +253,12 @@ pub fn conversation_parts(
                     "#### Speaking for {} {{#conversation-{slug}-{ordinal}}}",
                     names.join(", ")
                 ),
-                false,
+                None,
             ));
-            parts.push((item.markdown().trim().to_string(), true));
+            parts.push((
+                item.markdown().trim().to_string(),
+                Some(ItemRef { kind, ordinal }),
+            ));
         }
     }
     parts
@@ -288,11 +335,10 @@ pub fn assemble(
         return Err(AssemblyError::Invalid);
     }
 
-    let conversation = conversation_parts(record, synthesis);
+    let conversation = conversation_chunks(record, synthesis);
     match unsafe_markup(&prose, &conversation) {
         None => {}
-        Some(None) => return Err(AssemblyError::UnsafeMarkup),
-        Some(Some(rule)) => return Err(AssemblyError::UnsafeConversationItem(rule)),
+        Some(error) => return Err(error),
     }
     let mut body = prose.join(SECTION_BREAK);
     if !conversation.is_empty() {
@@ -313,6 +359,14 @@ pub fn assemble(
         }),
     );
     fields.insert("date".into(), scalar(date));
+    // The automatic summary draws on the sections only, so a short piece's description never
+    // runs into the generated conversation (attribution headings, unfinished item prose).
+    // Written explicitly because the renderer's own fallback would use the whole body.
+    let lead = crate::markdown::render(&prose.join(SECTION_BREAK), Default::default());
+    let description = crate::markdown::excerpt(lead.text.trim_end(), 180);
+    if !description.is_empty() {
+        fields.insert("description".into(), scalar(&description));
+    }
     if let Some(attribution) = SharedAttribution::from_record(record) {
         if let Some(question) = &attribution.question {
             fields.insert(QUESTION_KEY.into(), scalar(question));
@@ -346,24 +400,27 @@ pub fn assemble(
 /// definition, a footnote). Checked on the exact parse the site renders with, both with and
 /// without smart punctuation because the site setting is not known here.
 ///
-/// `conversation` is the generated synthesis block. Its own headings are trusted. Each prose
-/// chunk is held to the same rules as a section, may not carry a heading of level one to four
-/// (it would break the page outline under the generated headings), and must parse the same
-/// inside the block as alone.
+/// `conversation` is the generated synthesis block, each chunk with the item it carries when it
+/// is item prose. Its own headings are trusted. Each prose chunk is held to the same rules as a
+/// section, may not carry a heading of level one to four (it would break the page outline under
+/// the generated headings), and must parse the same inside the block as alone.
 ///
-/// `None` is safe. `Some(None)` is a section's fault, `Some(Some(rule))` an item's. A section
+/// `None` is safe, otherwise the refusal to return: a section's, or an item's. A section
 /// heading (by its id or its text) may not claim an anchor the generated block owns.
-fn unsafe_markup(sections: &[String], conversation: &[(String, bool)]) -> Option<Option<ItemRule>> {
+fn unsafe_markup(
+    sections: &[String],
+    conversation: &[(String, Option<ItemRef>)],
+) -> Option<AssemblyError> {
     if sections
         .iter()
         .any(|text| synthesis::claims_reserved_anchor(text))
     {
-        return Some(None);
+        return Some(AssemblyError::ReservedSectionAnchor);
     }
-    for (text, prose) in conversation {
-        if *prose {
+    for (text, item) in conversation {
+        if let Some(item) = item {
             if let Err(rule) = synthesis::check_item_markdown(text) {
-                return Some(Some(rule));
+                return Some(AssemblyError::UnsafeConversationItem(rule, *item));
             }
         }
     }
@@ -372,8 +429,8 @@ fn unsafe_markup(sections: &[String], conversation: &[(String, bool)]) -> Option
 
 fn has_unsafe_markup(
     sections: &[String],
-    conversation: &[(String, bool)],
-) -> Option<Option<ItemRule>> {
+    conversation: &[(String, Option<ItemRef>)],
+) -> Option<AssemblyError> {
     use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
     let unsafe_address = |address: &str| {
         let compact: String = address
@@ -421,40 +478,62 @@ fn has_unsafe_markup(
         }
         Parser::new_ext(&joined, options).collect::<Vec<_>>() == separate
     };
-    let block = conversation
-        .iter()
-        .map(|(text, _)| text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let texts: Vec<&str> = conversation.iter().map(|(text, _)| text.as_str()).collect();
+    // The item a failure is about, given the first chunk count at which a check fails: the last
+    // item at or before that chunk. Falls back to the first item.
+    let item_at = |chunks: usize| {
+        conversation[..chunks.min(conversation.len())]
+            .iter()
+            .rev()
+            .find_map(|(_, item)| *item)
+            .or_else(|| conversation.iter().find_map(|(_, item)| *item))
+    };
+    let item_fault = |chunks: usize| {
+        item_at(chunks).map_or(AssemblyError::UnsafeMarkup, |item| {
+            AssemblyError::UnsafeConversationItem(ItemRule::Markup, item)
+        })
+    };
     for smart in [false, true] {
         let options = crate::markdown::parser_options(smart);
-        let mut blocks: Vec<&str> = sections.iter().map(String::as_str).collect();
-        if !conversation.is_empty() {
-            blocks.push(&block);
+        let section_blocks: Vec<&str> = sections.iter().map(String::as_str).collect();
+        let with_block = |chunks: usize| {
+            let block = texts[..chunks].join("\n\n");
+            let mut blocks = section_blocks.clone();
+            if chunks > 0 {
+                blocks.push(&block);
+            }
+            isolated(&blocks, SECTION_BREAK, true, options)
+        };
+        if !with_block(texts.len()) {
+            // The sections may be fine alone and only break because of the generated block (an
+            // item's reference definition reaching a section), which is the item's fault.
+            if !isolated(&section_blocks, SECTION_BREAK, true, options) {
+                return Some(AssemblyError::UnsafeMarkup);
+            }
+            let first = (1..=texts.len()).find(|n| !with_block(*n)).unwrap_or(1);
+            return Some(item_fault(first));
         }
-        if !isolated(&blocks, SECTION_BREAK, true, options) {
-            return Some(None);
-        }
-        let chunks: Vec<&str> = conversation.iter().map(|(text, _)| text.as_str()).collect();
-        if !isolated(
-            &chunks, "
-
-", false, options,
-        ) {
-            return Some(Some(ItemRule::Markup));
+        if !isolated(&texts, "\n\n", false, options) {
+            let first = (1..=texts.len())
+                .find(|n| !isolated(&texts[..*n], "\n\n", false, options))
+                .unwrap_or(1);
+            return Some(item_fault(first));
         }
         if sections
             .iter()
             .any(|text| scan(&Parser::new_ext(text, options).collect::<Vec<_>>(), false))
         {
-            return Some(None);
+            return Some(AssemblyError::UnsafeMarkup);
         }
-        if conversation
-            .iter()
-            .filter(|(_, prose)| *prose)
-            .any(|(text, _)| scan(&Parser::new_ext(text, options).collect::<Vec<_>>(), true))
-        {
-            return Some(Some(ItemRule::Markup));
+        for (text, item) in conversation {
+            if let Some(item) = item {
+                if scan(&Parser::new_ext(text, options).collect::<Vec<_>>(), true) {
+                    return Some(AssemblyError::UnsafeConversationItem(
+                        ItemRule::Markup,
+                        *item,
+                    ));
+                }
+            }
         }
     }
     None

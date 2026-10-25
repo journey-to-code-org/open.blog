@@ -5851,11 +5851,18 @@ fn prepare_post(
                 "A section contains raw HTML or an unsafe link, which shared reflections do not publish. Ask its author to remove it and approve again. Nothing was changed.",
             ))
         }
-        Err(AssemblyError::UnsafeConversationItem(rule)) => {
+        Err(AssemblyError::ReservedSectionAnchor) => {
+            return Err(shared_problem(
+                "",
+                "A section heading uses an anchor reserved for the generated continuing conversation (`continuing-the-conversation` or `conversation-<category>[-<n>]`). Ask its author to rename the heading and approve again. Nothing was changed.",
+            ))
+        }
+        Err(AssemblyError::UnsafeConversationItem(rule, item)) => {
             return Err(shared_problem(
                 "",
                 &format!(
-                    "An item in the continuing conversation contains {}, so it cannot be published. Ask its author to edit the item and approve it again. Nothing was changed.",
+                    "The continuing conversation cannot be published: {} contains {}. Ask its author to edit the item and approve it again. Nothing was changed.",
+                    item.describe(),
                     rule.describe()
                 ),
             ))
@@ -17447,6 +17454,67 @@ mod tests {
                 && post.contains("#### Speaking for Mikey, Grace")
         );
         assert!(!post.contains("syn-") && !post.contains("Approved by"));
+    }
+
+    #[test]
+    fn an_item_that_breaks_the_markup_rule_refuses_publication_and_names_the_item() {
+        let (f, mikey, grace, ada, id) = approval_fixture("synthesis-unsafe-item");
+        let grace_id = participant_of(&f, &id, "grace");
+        assert_eq!(add_item(&f, &mikey, &id, "Fine.", &[&grace_id]).status, 200);
+        let added = add_item(&f, &mikey, &id, "ITEM-SECRET <b>x</b>", &[&grace_id]);
+        assert_eq!(added.status, 200);
+        for index in 0..2 {
+            let item = item_id(&added, index);
+            for who in [&mikey, &grace] {
+                let revision = synthesis_revision(&f, who, &id);
+                assert_eq!(
+                    synthesis_change(
+                        &f,
+                        who,
+                        &id,
+                        revision,
+                        json!({ "action": "approve", "id": item }),
+                    )
+                    .status,
+                    200
+                );
+            }
+        }
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let before = state_trees(&f);
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 422);
+        let text = String::from_utf8_lossy(&refused.body).to_string();
+        assert!(text.contains("the second shared takeaway"), "{text}");
+        assert!(text.contains("continuing conversation"), "{text}");
+        assert!(
+            !text.contains("ITEM-SECRET") && !text.contains("<b>"),
+            "{text}"
+        );
+        assert!(!text.contains("A section contains"), "{text}");
+        assert_eq!(state_trees(&f), before);
+    }
+
+    #[test]
+    fn an_item_that_claims_a_generated_anchor_is_refused_on_save_with_the_rule_named() {
+        let (f, mikey, _grace, _ada, id) = approval_fixture("synthesis-reserved-item");
+        let before = synthesis_revision(&f, &mikey, &id);
+        let refused = add_item(&f, &mikey, &id, "##### Conversation agreement 1", &[]);
+        assert_eq!(refused.status, 422);
+        let text = String::from_utf8_lossy(&refused.body).to_string();
+        assert!(
+            text.contains("reserved for the generated conversation"),
+            "{text}"
+        );
+        assert!(!text.contains("##### Conversation"), "{text}");
+        assert_eq!(synthesis_revision(&f, &mikey, &id), before);
+        // A heading that only looks similar is fine.
+        assert_eq!(
+            add_item(&f, &mikey, &id, "##### Conversation starters", &[]).status,
+            200
+        );
     }
 
     #[test]

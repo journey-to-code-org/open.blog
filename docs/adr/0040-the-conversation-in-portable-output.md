@@ -25,9 +25,10 @@ only for unsupported presentation.
   Full-content RSS, JSON Feed and `llms-full` use those projections. Each carries the canonical
   URL, so the canonical `#continuing-the-conversation` fragment is the stable permalink.
 - Summary-only feeds export no body, so no conversation: only the summary, title and canonical
-  link, exactly as for any post (ADR 0023). The automatic summary and excerpt are drawn from the
-  text before the generated block (`Rendered::lead_text`), so a short piece's summary never runs
-  into attribution headings or half an item. Search and `llms-full` still index the whole body.
+  link, exactly as for any post (ADR 0023). Assembly writes an explicit `description` drawn from
+  the sections only, so a short piece's summary never runs into attribution headings or half an
+  item. The renderer has no special case for the heading: an ordinary post that happens to have
+  a "Continuing the conversation" heading is summarised like any other. Search and `llms-full` still index the whole body.
 - Loss diagnostics are unchanged: they report unsupported presentation (for example raw HTML or
   media limits) from the projection and destination policies, never anything about the
   conversation's content or authors. Plain prose gives none. Destination plans (DEV, Hashnode,

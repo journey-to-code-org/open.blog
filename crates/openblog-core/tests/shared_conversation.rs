@@ -5,7 +5,7 @@
 use openblog_core::accessibility::{audit_document, DocumentAuditInput, FindingCode};
 use openblog_core::approval::ApprovalSet;
 use openblog_core::assembly::{
-    assemble, conversation_markdown, with_subject, Assembly, AssemblyError,
+    assemble, conversation_markdown, with_subject, Assembly, AssemblyError, ItemRef,
 };
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
@@ -420,7 +420,7 @@ fn item_prose_cannot_publish_html_unsafe_links_or_outline_headings() {
         f.approve_piece();
         let outcome = f.assemble();
         assert!(
-            matches!(outcome, Err(AssemblyError::UnsafeConversationItem(_))),
+            matches!(outcome, Err(AssemblyError::UnsafeConversationItem(_, _))),
             "`{hostile}` published: {outcome:?}"
         );
     }
@@ -448,10 +448,17 @@ fn a_reference_definition_in_one_item_cannot_reach_another() {
     f.add(SynthesisKind::Question, "ann", "See [ref] for more.", &[]);
     f.approve_all_items();
     f.approve_piece();
-    assert!(matches!(
+    // The item that reaches back is the second question, not the agreement that defines it.
+    assert_eq!(
         f.assemble(),
-        Err(AssemblyError::UnsafeConversationItem(ItemRule::Markup))
-    ));
+        Err(AssemblyError::UnsafeConversationItem(
+            ItemRule::Markup,
+            ItemRef {
+                kind: SynthesisKind::Question,
+                ordinal: 1
+            }
+        ))
+    );
 }
 
 #[test]
@@ -674,7 +681,7 @@ Words."
         f.add(SynthesisKind::Agreement, "ann", "We agree.", &["bo", "cy"]);
         assert_eq!(
             published_error(&mut f),
-            AssemblyError::UnsafeMarkup,
+            AssemblyError::ReservedSectionAnchor,
             "{section}"
         );
     }
@@ -701,9 +708,11 @@ Words."
             "{item}"
         );
         legacy_item(&mut f, item);
-        assert_eq!(
-            published_error(&mut f),
-            AssemblyError::UnsafeConversationItem(ItemRule::ReservedAnchor),
+        assert!(
+            matches!(
+                published_error(&mut f),
+                AssemblyError::UnsafeConversationItem(ItemRule::ReservedAnchor, _)
+            ),
             "{item}"
         );
     }
@@ -742,9 +751,11 @@ fn item_headings_start_at_level_five_and_never_skip() {
         );
         assert_eq!(saved, Err(SynthesisError::Rule(ItemRule::Outline)), "{bad}");
         legacy_item(&mut f, bad);
-        assert_eq!(
-            published_error(&mut f),
-            AssemblyError::UnsafeConversationItem(ItemRule::Outline),
+        assert!(
+            matches!(
+                published_error(&mut f),
+                AssemblyError::UnsafeConversationItem(ItemRule::Outline, _)
+            ),
             "{bad}"
         );
     }
@@ -814,7 +825,13 @@ fn an_item_refusal_names_the_item_and_never_blames_a_section() {
     legacy_item(&mut f, "<b>x</b>");
     assert_eq!(
         published_error(&mut f),
-        AssemblyError::UnsafeConversationItem(ItemRule::Markup)
+        AssemblyError::UnsafeConversationItem(
+            ItemRule::Markup,
+            ItemRef {
+                kind: SynthesisKind::Agreement,
+                ordinal: 1
+            }
+        )
     );
     let mut f = Fixture::new();
     f.drafts.save("ann", "ann", 1, "<b>x</b>", T).unwrap();
@@ -1058,15 +1075,17 @@ fn feeds_and_llms_carry_the_conversation_and_summary_only_feeds_stop_before_it()
 }
 
 #[test]
-fn a_long_piece_summary_never_runs_into_the_generated_block() {
+fn a_short_piece_summary_never_runs_into_the_generated_block() {
     let mut f = Fixture::new();
     f.add(SynthesisKind::Agreement, "ann", "We agree.", &["bo", "cy"]);
-    let long = "word ".repeat(60);
-    f.drafts.save("ann", "ann", 1, long.trim(), T).unwrap();
+    // Under the 180-character cut, so only the explicit description keeps the block out.
+    let short = "A brief note from Ann.";
+    f.drafts.save("ann", "ann", 1, short, T).unwrap();
     let made = f.published();
     let site = site(&made);
     assert!(!site.posts[0].description.contains("Speaking"));
     assert!(!site.posts[0].description.contains("conversation"));
+    assert!(site.posts[0].description.starts_with(short));
     // The body text (search, llms) still has it.
     assert!(site.posts[0].text.contains("We agree."));
 }
@@ -1122,4 +1141,79 @@ fn destination_plans_report_only_presentation_and_never_conversation_text() {
     let markdown = projection.portable_markdown().unwrap();
     assert!(markdown.contains("![a chart](https://example.org/chart.png)"));
     assert!(markdown.contains("| a | b |"));
+}
+
+#[test]
+fn conversation_like_headings_that_are_not_generated_anchors_are_allowed() {
+    // Only the exact generated anchors are reserved, not the whole `conversation-` prefix.
+    for section in [
+        "## Conversation starters",
+        "## Conversation questions",
+        "## Conversation agreement notes",
+        "### Conversation-agreement-x",
+    ] {
+        let mut f = Fixture::new();
+        f.drafts
+            .save("ann", "ann", 1, &format!("{section}\n\nWords."), T)
+            .unwrap();
+        f.add(SynthesisKind::Agreement, "ann", "We agree.", &["bo", "cy"]);
+        assert!(f.published().source.contains(section), "{section}");
+    }
+    let mut f = Fixture::new();
+    let revision = f.synthesis.revision();
+    assert!(f
+        .synthesis
+        .add(
+            "ann",
+            &ALL,
+            revision,
+            NewSynthesisItem {
+                kind: SynthesisKind::Agreement,
+                markdown: "##### Conversation starters",
+                others: &[],
+            },
+        )
+        .is_ok());
+}
+
+#[test]
+fn an_item_reference_definition_cannot_change_a_section_and_the_item_is_blamed() {
+    let mut f = Fixture::new();
+    f.drafts
+        .save("ann", "ann", 1, "See [ref] for more.", T)
+        .unwrap();
+    f.add(
+        SynthesisKind::Agreement,
+        "ann",
+        "[ref]: https://example.org/",
+        &["bo", "cy"],
+    );
+    assert!(matches!(
+        published_error(&mut f),
+        AssemblyError::UnsafeConversationItem(ItemRule::Markup, _)
+    ));
+}
+
+#[test]
+fn an_ordinary_post_with_a_conversation_heading_keeps_its_description() {
+    let source = "---\ntitle: Talking it over\nslug: talking-it-over\ndate: 2030-01-31T09:00:00Z\n---\n\nAn ordinary opening paragraph about talking things over.\n\n## Continuing the conversation\n\nMore words that follow the heading.\n";
+    let site = Site::load(
+        config(),
+        Sources {
+            posts: vec![SourceFile {
+                path: "posts/talking-it-over.md".into(),
+                contents: source.into(),
+            }],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap_or_else(|errors| panic!("{errors:?}"));
+    let description = &site.posts[0].description;
+    assert!(description.starts_with("An ordinary opening paragraph"));
+    // Without an explicit description the whole body is summarised, as for any post.
+    assert!(
+        description.contains("Continuing the conversation"),
+        "{description}"
+    );
 }
