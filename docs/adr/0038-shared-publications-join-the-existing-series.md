@@ -48,7 +48,8 @@ second concept, and what authors must approve when it does.
   posts' resolved work credits, once each, in order of first appearance reading from the first
   part. A changed or removed credit changes the answer. It reads no collaboration state, so no
   participant's private data can reach it. Rendering it on the series page is left out because
-  every legacy post carries a default credit and that would change legacy output.
+  every legacy post carries a default credit and that would change legacy output; [ADR 0040](0040-contributor-aware-series-navigation.md)
+  shows it only for a series that holds a collaborative work.
 - `SharedPublication::with_series` returns a new record or an error, so a refused change leaves
   the stored record, content and output unchanged. The route that sets it must call
   `ApprovalSet::reconcile` in the same write, as other metadata changes do; the Admin route and

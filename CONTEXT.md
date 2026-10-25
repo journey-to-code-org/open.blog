@@ -275,6 +275,18 @@ A shared publication never writes one; a site owner may add a new one from its S
 it is not public until a part is published (ADR 0039).
 _Avoid_: Collaborative series, series template
 
+**Collaborative work**:
+A published Post whose approved work credits (an explicit credit sidecar) name two or more
+authors. A legacy post's default site-author credit, a single author or a secondary role never
+make one. It is derived from the credits alone, never from collaboration state (ADR 0040).
+_Avoid_: Shared post, joint post
+
+**Collaborative series**:
+An ordinary series with at least one collaborative work among its published parts. Only such a
+series names its contributors on its page and each part's authors in its navigation; every other
+series renders exactly as before, and drafts or scheduled posts never make one (ADR 0040).
+_Avoid_: Collaborative-series entity, series template
+
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in
 one approved collaboration revision, that a publication operation incorporates into canonical
