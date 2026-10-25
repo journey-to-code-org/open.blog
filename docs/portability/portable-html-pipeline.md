@@ -36,6 +36,11 @@ openblog export my-post --format markdown --out exports/my-post.md --write
 The first two forms are dry runs; only `--write` creates a file, and an existing file is never
 overwritten.
 
+HTML comments and other non-content declarations are removed from portable Markdown and its
+text companion, not exposed as escaped text. Comment syntax in fenced or inline code remains
+authored example content. Comments spanning Markdown blocks follow the same fail-closed
+validation as portable HTML.
+
 Admin warning acknowledgements are tracked separately in a per-post `.portability.json` sidecar.
 Each record is bound to the portable source revision, capability, representation, and destination.
 Acknowledging records an author's review but does not hide the warning or bypass projection errors;
