@@ -5,6 +5,11 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Added a "Your draft" panel to Shared reflections in Admin. Writers get optional prompts they can
+  add, edit, delete or hide, a clear saved or unsaved state, and sharing controls to offer a
+  revision or take the offer back. If a draft changed in another tab, your text stays put beside the
+  newer copy and you choose which to keep, with an undo. Offline and size errors keep your text.
+  Other people's drafts appear only once the sharing rule has revealed them to you.
 - Added optional mutual reveal for shared reflections. A coordinator chooses whether sharing is off
   (the default), voluntary, or requires everyone to be ready. Each contributor marks one exact
   revision ready and can take it back until the reveal happens; then everyone involved sees those

@@ -135,6 +135,8 @@ participants may receive the draft; permission to view revealed drafts in genera
 that list.
 A coordinator-chosen reveal policy (independent, voluntary, all-ready) and each participant's
 per-revision readiness decide when an exchange forms (ADR 0018).
+The Shared reflections draft panel offers a revision only after an explicit confirmation, because a
+copy that has been read cannot be recalled (ADR 0019).
 _Avoid_: Publication, approval, left-to-right handoff
 
 **Approval**:
