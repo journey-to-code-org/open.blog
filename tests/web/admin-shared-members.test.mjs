@@ -390,7 +390,7 @@ test("an empty or unchanged role choice never reaches the server", withDom(async
   assert.equal(api.state.calls.length, 0);
 }));
 
-test("stale state is reported, the list reloads, and nothing is half applied", withDom(async () => {
+test("stale state is reported, the list reloads, and nothing is half applied", withDom(async (dom) => {
   const api = fakeApi();
   const { panel } = await openPanel(api);
   await button(panel, "Remove access for Grace").click();
@@ -401,6 +401,8 @@ test("stale state is reported, the list reloads, and nothing is half applied", w
   assert.equal(alertOf(panel).hidden, false);
   assert.match(alertOf(panel).textContent, /changed while you were working/);
   assert.equal(api.state.gets, gets + 1, "the current list is fetched again");
+  assert.ok(panel.contains(dom.document.activeElement), "focus stays inside the panel after the reload");
+  assert.equal(dom.document.activeElement, alertOf(panel), "focus lands on the message");
   assert.equal(api.state.members.length, 3, "the server kept every member");
   // The retry now carries the fresh revision and succeeds.
   await button(panel, "Remove access for Grace").click();
@@ -410,7 +412,7 @@ test("stale state is reported, the list reloads, and nothing is half applied", w
   assert.equal(api.state.members.length, 2);
 }));
 
-test("a permission-denied response shows a clear message and leaves the controls usable", withDom(async () => {
+test("a permission-denied response shows a clear message and leaves the controls usable", withDom(async (dom) => {
   const denied = new FakeApiError("denied", 404, { error: "That shared reflection or member was not found, or you cannot manage it." });
   const api = fakeApi({ failures: { "POST collaboration/members/remove": denied } });
   const { panel } = await openPanel(api);
@@ -419,6 +421,7 @@ test("a permission-denied response shows a clear message and leaves the controls
   await settle();
   assert.match(alertOf(panel).textContent, /cannot manage it\. If your access changed, reload this page\./);
   assert.equal(api.state.members.length, 3);
+  assert.ok(panel.contains(dom.document.activeElement), "focus stays inside the panel");
   assert.doesNotMatch(textOf(panel), /undefined|\[object/);
 }));
 

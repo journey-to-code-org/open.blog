@@ -3766,7 +3766,7 @@ export class ObAdmin extends AdminElement {
     const assignable = INVITATION_ROLES.filter((role) => isOwner || !role.ownerOnly);
     const heading = h("h3", { id: `${prefix}-heading`, tabindex: "-1" }, "Members and invitations");
     const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
-    const problem = h("p", { class: "oba-error", role: "alert", hidden: true });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const result = h("div", { class: "oba-invitation-result", hidden: true });
     const memberList = h("ul", { class: "oba-member-list", "aria-label": "Members" });
     const list = h("ul", { class: "oba-invitation-list", "aria-label": "Invitations" });
@@ -3778,11 +3778,18 @@ export class ObAdmin extends AdminElement {
     );
     let revision = 0;
     let closeConfirm = null;
-    const fail = (error) => {
+    const fail = async (error) => {
       const { message, reload } = sharedManagementError(error);
       problem.textContent = message;
       problem.hidden = false;
-      if (reload) load().catch(() => {});
+      if (!reload) return;
+      try {
+        await load();
+      } catch {
+        // The message above still explains what happened.
+      }
+      // The reload rebuilds the lists, which removes a focused confirmation. Keep the person's place.
+      problem.focus();
     };
     const showToken = (issued) => {
       const url = invitationShareLink(location.origin, issued.link);
