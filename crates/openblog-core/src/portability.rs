@@ -912,7 +912,13 @@ impl<'a> PortableProjection<'a> {
             capabilities,
             diagnostics,
             images: rendered.portable_images,
-            has_raw_html: rendered.portable_has_raw_html,
+            // A parsed arrangement's frame is the layout's own markup, not authored raw HTML:
+            // the Markdown copy states it as sections, so only literal HTML in the turns counts.
+            has_raw_html: self
+                .arrangement()
+                .map_or(rendered.portable_has_raw_html, |arrangement| {
+                    escape_raw_html(&arrangement.to_markdown(shared_markdown_text)).1 > 0
+                }),
         })
     }
 
@@ -2278,11 +2284,7 @@ fn reflection_items(format: RepresentationFormat, artifact: &str) -> Vec<(Reflec
                     "</h2>",
                     ReflectionItem::Author,
                 ),
-                (
-                    "<p class=\"ob-turn-label\">",
-                    "</p>",
-                    ReflectionItem::Label,
-                ),
+                ("<p class=\"ob-turn-label\">", "</p>", ReflectionItem::Label),
                 (
                     "<p class=\"ob-round-prompt\">",
                     "</p>",

@@ -587,7 +587,9 @@ fn a_tampered_equivalent_with_reordered_or_missing_turns_is_refused() {
             ("dropped last", dropped_last),
         ] {
             assert_ne!(tampered, artifact, "{format:?} {what}");
-            let findings = projection.analyze_portable_artifact(format, &tampered).unwrap();
+            let findings = projection
+                .analyze_portable_artifact(format, &tampered)
+                .unwrap();
             assert!(
                 findings
                     .iter()
@@ -595,5 +597,31 @@ fn a_tampered_equivalent_with_reordered_or_missing_turns_is_refused() {
                 "{format:?} {what} was accepted"
             );
         }
+    }
+}
+
+#[test]
+fn a_layout_frame_is_not_reported_as_authored_raw_html_for_a_markdown_destination() {
+    use openblog_core::portability::{destination_content_plan, destination_policies};
+    let record = record(NAMES);
+    let made = publish(
+        &record,
+        &structure("sideBySide", LABELS, PROMPTS),
+        &default_drafts(),
+    );
+    let site = site(&made, NAMES);
+    let projection = PortableProjection::from_post(&site.posts[0], &site.config).unwrap();
+    let output = projection.portable_html().unwrap();
+    assert!(!output.has_raw_html, "the frame is the layout's own markup");
+    for policy in destination_policies() {
+        let plan = destination_content_plan(policy.provider, "posts/work.md", &output);
+        assert!(
+            !plan
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "destination-raw-html-literal"),
+            "{:?}",
+            policy.provider
+        );
     }
 }
