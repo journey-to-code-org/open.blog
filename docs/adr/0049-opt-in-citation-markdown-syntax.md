@@ -24,10 +24,13 @@ that fired on posts that never asked for citations, would break that promise.
   them. The loader, renderer, search, feeds and every existing profile do not, so no existing
   article, recipe, research or contributor output changes. Wiring citations into rendering is a
   later task of this story and must be gated on a post opting in.
-- The scanner does not treat as citations: fenced, indented and inline code; backslash-escaped
-  brackets; `[@key](url)` and `[@key][ref]` links; `[@key]: ...` definitions; or footnotes, which
-  start `[^`. A bracket that starts `[@` but is malformed is reported with its line and left as
-  text.
+- The scanner reads Markdown with the renderer's parser (the same `pulldown-cmark` options) and
+  looks for citations only in plain text runs, so it can never disagree with what the renderer
+  shows. It does not treat as citations: fenced, indented and inline code, wherever they sit;
+  raw HTML and comments; backslash-escaped brackets; links and images, including a shortcut
+  `[@key]` made a link by a `[@key]: ...` definition; definitions; or footnotes, which start
+  `[^`. Escapes inside a citation are read as rendered text. A bracket that starts `[@` but is
+  malformed is reported with its line and left as text.
 - Grouped citations (`[@a; @b]`), prefixes, suffixes and author suppression are deferred, since
   `;` separates locators. Locator text may not contain `;`, brackets, ` to ` or control and
   bidirectional override characters, so every accepted citation formats back to text that scans

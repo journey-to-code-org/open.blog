@@ -22,9 +22,14 @@ Compound: [@republic-slings-2003, page 514; canonical 514a to 520a; x-stephanus 
 | kind | `page`, `folio`, `line`, `section`, `chapter`, `canonical`, `timestamp`, or `x-` plus a slug. |
 | value, end | Unicode text, at most 200 characters, no `;`, `[`, `]`, ` to ` or control or bidirectional override characters. Timestamps are seconds or `h:mm:ss`. |
 
-Not citations: code (fenced, indented, inline), `\[@key]`, `[@key](url)`, `[@key][ref]`,
-`[@key]: url`, and footnotes. Malformed or unknown ones are reported with their line and left as
-text. Limits: 1 MiB of Markdown and 2,000 citations per document.
+The scanner reads Markdown with the renderer's own parser, so a citation is found exactly where
+the renderer shows `[@...]` as text. Not citations: code (fenced, indented, inline, also inside
+block quotes and over line breaks), raw HTML and comments, `\[@key]`, links and images
+(`[@key](url)`, `[@key][ref]`, and a shortcut `[@key]` that a `[@key]: url` definition turns
+into a link), definitions, and footnotes. Backslash escapes inside a citation are read as the
+renderer shows them, and an escaped `\]` does not close it. A citation sits on one line with no
+formatting inside it. Malformed or unknown ones are reported with their line and left as text.
+Limits: 1 MiB of Markdown and 2,000 citations per document.
 
 ## Resolution and public output
 

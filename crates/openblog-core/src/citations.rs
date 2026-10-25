@@ -12,7 +12,10 @@
 //! text alone, so links, footnotes and every post that never calls
 //! [`scan_citations`] behave exactly as before.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
+
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -217,136 +220,203 @@ pub fn format_citation(citation: &Citation) -> Result<String, CitationDiagnostic
     Ok(text)
 }
 
-/// Find citations in Markdown. Code blocks, code spans, escaped brackets,
-/// links (`[@key](url)`, `[@key][ref]`) and reference definitions are not
-/// citations, so existing Markdown keeps its meaning. A bracket that starts
-/// like a citation but is malformed is reported and left as text.
+/// Find citations in Markdown, reading it with the renderer's own parser so
+/// the scanner and the renderer always agree on what is text. Code blocks,
+/// code spans, raw HTML and comments, links and images (including a
+/// `[@key]` that a reference definition turns into a link), reference
+/// definitions and footnotes are not citations, and neither is a bracket
+/// written as `\[`. A bracket that starts like a citation but is malformed is
+/// reported and left as text.
 pub fn scan_citations(markdown: &str) -> CitationScan {
-    let mut scan = CitationScan::default();
+    let mut scanner = Scanner {
+        markdown,
+        line_starts: std::iter::once(0)
+            .chain(markdown.match_indices('\n').map(|(at, _)| at + 1))
+            .collect(),
+        defined: BTreeSet::new(),
+        scan: CitationScan::default(),
+        full: false,
+    };
     if markdown.len() > MAX_CITED_MARKDOWN_BYTES {
-        scan.diagnostics.push(diag(
+        scanner.scan.diagnostics.push(diag(
             CitationDiagnosticCode::TooLarge,
             None,
             format!("Markdown with citations may be at most {MAX_CITED_MARKDOWN_BYTES} bytes"),
         ));
-        return scan;
+        return scanner.scan;
     }
-    let mut fence: Option<(u8, usize)> = None;
-    let mut offset = 0;
-    let mut previous_blank = true;
-    let mut in_indented = false;
-    for (index, line) in markdown.split_inclusive('\n').enumerate() {
-        let line_start = offset;
-        offset += line.len();
-        let content = line.trim_end_matches(['\n', '\r']);
-        let trimmed = content.trim_start_matches(' ');
-        let indent = content.len() - trimmed.len();
-        if let Some((mark, length)) = fence {
-            let run = trimmed.bytes().take_while(|b| *b == mark).count();
-            if indent < 4 && run >= length && trimmed[run..].trim().is_empty() {
-                fence = None;
-            }
-            continue;
-        }
-        if indent < 4 {
-            if let Some(mark @ (b'`' | b'~')) = trimmed.bytes().next() {
-                let run = trimmed.bytes().take_while(|b| *b == mark).count();
-                if run >= 3 && !(mark == b'`' && trimmed[run..].contains('`')) {
-                    fence = Some((mark, run));
-                    continue;
-                }
-            }
-        }
-        let blank = content.trim().is_empty();
-        if indent >= 4 && (previous_blank || in_indented) && !blank {
-            in_indented = true;
-            previous_blank = false;
-            continue;
-        }
-        if !blank {
-            in_indented = false;
-        }
-        previous_blank = blank;
-        scan_line(content, line_start, index + 1, &mut scan);
-        if scan.mentions.len() > MAX_CITATIONS {
-            scan.mentions.truncate(MAX_CITATIONS);
-            let mut limit = diag(
-                CitationDiagnosticCode::TooManyCitations,
-                None,
-                format!("a document may hold at most {MAX_CITATIONS} citations"),
-            );
-            limit.line = Some(index + 1);
-            scan.diagnostics.push(limit);
+    let parser = Parser::new_ext(markdown, crate::markdown::parser_options(false));
+    scanner.defined = parser
+        .reference_definitions()
+        .iter()
+        .map(|(label, _)| reference_label(label))
+        .collect();
+    let mut run: Vec<TextChar> = Vec::new();
+    let mut run_end: Option<usize> = None;
+    let mut opaque = 0usize;
+    for (event, range) in parser.into_offset_iter() {
+        if scanner.full {
             break;
         }
+        match &event {
+            Event::Start(Tag::CodeBlock(_) | Tag::Link { .. } | Tag::Image { .. }) => opaque += 1,
+            Event::End(TagEnd::CodeBlock | TagEnd::Link | TagEnd::Image) => {
+                opaque = opaque.saturating_sub(1);
+            }
+            Event::Text(text) if opaque == 0 => {
+                let escape_gap =
+                    |end: usize| end + 1 == range.start && markdown.as_bytes()[end] == BACKSLASH;
+                if !run_end.is_some_and(|end| end == range.start || escape_gap(end)) {
+                    scanner.scan_run(&run);
+                    run.clear();
+                }
+                push_text(markdown, text, range.clone(), run_end, &mut run);
+                run_end = Some(range.end);
+                continue;
+            }
+            _ => {}
+        }
+        scanner.scan_run(&run);
+        run.clear();
+        run_end = None;
     }
-    scan
+    scanner.scan_run(&run);
+    scanner.scan
 }
 
-fn scan_line(content: &str, line_start: usize, line: usize, scan: &mut CitationScan) {
-    let bytes = content.as_bytes();
-    let malformed = |message: &str| {
-        let mut found = diag(CitationDiagnosticCode::MalformedCitation, None, message);
-        found.line = Some(line);
-        found
-    };
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'\\' => i += 2,
-            b'`' => {
-                let run = bytes[i..].iter().take_while(|b| **b == b'`').count();
-                i = find_run(bytes, i + run, run).map_or(i + run, |at| at + run);
+const BACKSLASH: u8 = 0x5c;
+
+/// One character of text as the renderer will show it, with the source bytes
+/// it came from. A `literal` character came from a backslash escape or an
+/// entity, which Markdown never reads as structure.
+struct TextChar {
+    ch: char,
+    start: usize,
+    end: usize,
+    literal: bool,
+}
+
+fn push_text(
+    markdown: &str,
+    text: &str,
+    range: Range<usize>,
+    previous_end: Option<usize>,
+    run: &mut Vec<TextChar>,
+) {
+    if markdown.get(range.clone()) != Some(text) {
+        // An entity: its characters are literal and share its source bytes.
+        run.extend(text.chars().map(|ch| TextChar {
+            ch,
+            start: range.start,
+            end: range.end,
+            literal: true,
+        }));
+        return;
+    }
+    // The parser leaves an escaping backslash out of every text range, so a
+    // backslash just before this text that no earlier text covered escapes
+    // its first character.
+    let escaped = range.start > 0
+        && markdown.as_bytes()[range.start - 1] == BACKSLASH
+        && previous_end != Some(range.start);
+    run.extend(text.char_indices().map(|(at, ch)| TextChar {
+        ch,
+        start: range.start + at,
+        end: range.start + at + ch.len_utf8(),
+        literal: at == 0 && escaped,
+    }));
+}
+
+/// A reference label as CommonMark matches it: case-folded with inner
+/// whitespace collapsed.
+fn reference_label(label: &str) -> String {
+    label
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+struct Scanner<'a> {
+    markdown: &'a str,
+    line_starts: Vec<usize>,
+    defined: BTreeSet<String>,
+    scan: CitationScan,
+    full: bool,
+}
+
+impl Scanner<'_> {
+    fn line(&self, offset: usize) -> usize {
+        self.line_starts.partition_point(|start| *start <= offset)
+    }
+
+    fn report(&mut self, mut found: CitationDiagnostic, offset: usize) {
+        found.line = Some(self.line(offset));
+        self.scan.diagnostics.push(found);
+    }
+
+    /// Find citations in one run of plain text: text with no formatting, code,
+    /// HTML or line break inside it.
+    fn scan_run(&mut self, run: &[TextChar]) {
+        let mut i = 0;
+        while i + 1 < run.len() && !self.full {
+            let open = &run[i];
+            if open.ch != '[' || open.literal || run[i + 1].ch != '@' || run[i + 1].literal {
+                i += 1;
+                continue;
             }
-            b'[' if bytes.get(i + 1) == Some(&b'@') => {
-                let Some(close) = content[i + 2..].find([']', '[']).map(|at| at + i + 2) else {
-                    scan.diagnostics
-                        .push(malformed("a citation must end with `]` on the same line"));
-                    return;
-                };
-                if bytes[close] == b'[' {
-                    scan.diagnostics
-                        .push(malformed("a citation cannot contain `[`"));
-                    i += 2;
-                    continue;
-                }
-                let end = close + 1;
-                if matches!(bytes.get(end), Some(b'(' | b'[' | b':')) {
-                    i = end;
-                    continue;
-                }
-                match parse_citation(&content[i + 2..close]) {
-                    Ok(citation) => scan.mentions.push(CitationMention {
+            let close = run[i + 2..]
+                .iter()
+                .position(|c| !c.literal && matches!(c.ch, '[' | ']'))
+                .map(|at| at + i + 2);
+            let Some(close) = close else {
+                let message =
+                    "a citation must end with `]` on the same line, with no formatting inside it";
+                self.report(
+                    diag(CitationDiagnosticCode::MalformedCitation, None, message),
+                    open.start,
+                );
+                return;
+            };
+            if run[close].ch == '[' {
+                let message = "a citation cannot contain `[`";
+                self.report(
+                    diag(CitationDiagnosticCode::MalformedCitation, None, message),
+                    open.start,
+                );
+                i += 2;
+                continue;
+            }
+            let label = &self.markdown[open.end..run[close].start];
+            if self.defined.contains(&reference_label(label)) {
+                i = close + 1;
+                continue;
+            }
+            let inner: String = run[i + 2..close].iter().map(|c| c.ch).collect();
+            match parse_citation(&inner) {
+                Ok(citation) => {
+                    let line = self.line(open.start);
+                    self.scan.mentions.push(CitationMention {
                         citation,
-                        span: line_start + i..line_start + end,
+                        span: open.start..run[close].end,
                         line,
-                    }),
-                    Err(mut diagnostic) => {
-                        diagnostic.line = Some(line);
-                        scan.diagnostics.push(diagnostic);
+                    });
+                    if self.scan.mentions.len() > MAX_CITATIONS {
+                        self.scan.mentions.truncate(MAX_CITATIONS);
+                        let limit = diag(
+                            CitationDiagnosticCode::TooManyCitations,
+                            None,
+                            format!("a document may hold at most {MAX_CITATIONS} citations"),
+                        );
+                        self.report(limit, open.start);
+                        self.full = true;
                     }
                 }
-                i = end;
+                Err(found) => self.report(found, open.start),
             }
-            _ => i += 1,
+            i = close + 1;
         }
     }
-}
-
-fn find_run(bytes: &[u8], from: usize, length: usize) -> Option<usize> {
-    let mut i = from;
-    while i < bytes.len() {
-        if bytes[i] == b'`' {
-            let run = bytes[i..].iter().take_while(|b| **b == b'`').count();
-            if run == length {
-                return Some(i);
-            }
-            i += run;
-        } else {
-            i += 1;
-        }
-    }
-    None
 }
 
 /// The public face of a reference: bibliographic description only. It is

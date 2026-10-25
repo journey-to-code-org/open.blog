@@ -148,12 +148,71 @@ Link [@plato-republic](https://example.com) and ref [@plato-republic][r] and not
 \n\
 \x20   [@plato-republic]\n\
 \n\
-[@plato-republic]: https://example.com/def\n\
+Shortcut [@defined-key] and collapsed [@defined-key][] are links.\n\
+\n\
+> ```\n\
+> [@plato-republic]\n\
+> ```\n\
+\n\
+<!-- [@plato-republic] -->\n\
+\n\
+Inline <!-- [@plato-republic] --> comment and a `code span\n\
+[@plato-republic]` over two lines and ![@plato-republic](i.png).\n\
+\n\
+[@defined-key]: https://example.com/def\n\
 [r]: https://example.com\n\
 [^1]: A footnote.\n";
     let scan = scan_citations(markdown);
     assert!(scan.mentions.is_empty(), "{:?}", scan.mentions);
     assert!(scan.diagnostics.is_empty(), "{:?}", scan.diagnostics);
+}
+
+#[test]
+fn list_continuation_paragraphs_are_scanned() {
+    let markdown = "- item\n\n    continued [@plato-republic, page 5] here\n\n\
+                    1. first\n\n   more [@republic-slings-2003]\n";
+    let scan = scan_citations(markdown);
+    assert!(scan.diagnostics.is_empty(), "{:?}", scan.diagnostics);
+    let keys: Vec<&str> = scan
+        .mentions
+        .iter()
+        .map(|m| m.citation.key.as_str())
+        .collect();
+    assert_eq!(keys, ["plato-republic", "republic-slings-2003"]);
+    assert_eq!(scan.mentions[0].line, 3);
+}
+
+#[test]
+fn escapes_inside_a_citation_are_unescaped_and_an_escaped_bracket_does_not_close_it() {
+    let scan = scan_citations(r"[@plato-republic, section 5\-6] and [@plato-republic, page 5\]a]");
+    assert_eq!(scan.mentions.len(), 1);
+    assert_eq!(scan.mentions[0].citation.locators[0].value, "5-6");
+    assert_eq!(scan.diagnostics.len(), 1);
+    assert_eq!(
+        scan.diagnostics[0].code,
+        CitationDiagnosticCode::InvalidLocator
+    );
+}
+
+#[test]
+fn citations_inside_formatting_and_tables_follow_the_renderer() {
+    let markdown = "*see [@plato-republic]* and\n\n| a |\n| - |\n| [@republic-slings-2003] |\n\n\
+                    # Head [@paris-gr-1807]\n";
+    let keys: Vec<String> = scan_citations(markdown)
+        .mentions
+        .into_iter()
+        .map(|m| m.citation.key)
+        .collect();
+    assert_eq!(
+        keys,
+        ["plato-republic", "republic-slings-2003", "paris-gr-1807"]
+    );
+    let split = scan_citations("[@plato-republic, page *5*]");
+    assert!(split.mentions.is_empty());
+    assert_eq!(
+        split.diagnostics[0].code,
+        CitationDiagnosticCode::MalformedCitation
+    );
 }
 
 #[test]
