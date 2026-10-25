@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- `openblog import hashnode` now imports each post's subtitle from the public page (the paragraph
+  after the title), as the GraphQL source already did.
+
 ## [0.22.0] - 2026-10-25
 
 - Portable Markdown for a published shared reflection now escapes its title, so a participant-supplied
