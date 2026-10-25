@@ -1,6 +1,8 @@
 // A dependency-free HTML/CSS/JavaScript lesson runner. Preview documents run
 // in an opaque-origin iframe whose CSP blocks external resources and network APIs.
 
+import { codeSettings, createCodeEditor } from "./ob-code-editor.js";
+
 const MAX_SOURCE = 100_000;
 let sandboxSequence = 0;
 export const WEB_SANDBOX_PERMISSIONS = "allow-scripts";
@@ -51,37 +53,44 @@ export class ObWebSandbox extends HTMLElement {
     tabs.setAttribute("role", "group");
     tabs.setAttribute("aria-label", "Choose code editor");
     const panels = el("div", "ob-web-sandbox-editors");
+    const settings = codeSettings(this);
     let active = "html";
     const select = (name) => {
       active = name;
       for (const [key, editor] of Object.entries(editors)) {
-        editor.hidden = key !== name;
+        editor.shell.hidden = key !== name;
         editor.button.setAttribute("aria-pressed", String(key === name));
       }
       editors[name].focus();
     };
     for (const name of ["html", "css", "js"]) {
-      const button = el("button", "ob-web-sandbox-tab", name === "js" ? "JavaScript" : name.toUpperCase());
+      const label = name === "js" ? "JavaScript" : name.toUpperCase();
+      const button = el("button", "ob-web-sandbox-tab", label);
       button.type = "button";
-      const editor = el("textarea", "ob-web-sandbox-editor");
+      const { shell: editorShell, editor, refresh } = createCodeEditor({
+        prefix: "ob-web-sandbox",
+        language: name,
+        label,
+        ariaLabel: `Editable ${label}`,
+        value: initial[name],
+        ...settings,
+      });
       editor.id = `${instanceId}-${name}-editor`;
-      editor.value = initial[name];
-      editor.rows = 12;
-      editor.spellcheck = false;
-      editor.setAttribute("aria-label", `Editable ${name === "js" ? "JavaScript" : name.toUpperCase()}`);
       button.setAttribute("aria-controls", editor.id);
       editor.button = button;
+      editor.shell = editorShell;
+      editor.refresh = refresh;
       button.addEventListener("click", () => select(name));
       tabs.append(button);
-      panels.append(editor);
+      panels.append(editorShell);
       editors[name] = editor;
     }
-    const controls = el("div", "ob-web-sandbox-controls");
-    const run = el("button", "", "Run preview");
-    const reset = el("button", "", "Reset");
+    const controls = el("div", "ob-code-editor-controls ob-web-sandbox-controls");
+    const run = el("button", "ob-code-editor-run ob-web-sandbox-run", "Run preview");
+    const reset = el("button", "ob-web-sandbox-reset", "Reset");
     run.type = reset.type = "button";
-    const warning = el("p", "ob-web-sandbox-warning", WEB_SANDBOX_WARNING);
-    const status = el("p", "ob-web-sandbox-status", "Preview ready.");
+    const warning = el("p", "ob-code-editor-note ob-web-sandbox-warning", WEB_SANDBOX_WARNING);
+    const status = el("p", "ob-code-editor-status ob-web-sandbox-status", "Preview ready.");
     status.setAttribute("role", "status");
     const frame = el("iframe", "ob-web-sandbox-preview");
     frame.title = "Web sandbox preview";
@@ -93,7 +102,10 @@ export class ObWebSandbox extends HTMLElement {
     };
     run.addEventListener("click", render);
     reset.addEventListener("click", () => {
-      for (const name of ["html", "css", "js"]) editors[name].value = initial[name];
+      for (const name of ["html", "css", "js"]) {
+        editors[name].value = initial[name];
+        editors[name].refresh();
+      }
       render();
       editors[active].focus();
     });

@@ -12,7 +12,7 @@
 # front: it marks cookies Secure and reads the client address from X-Forwarded-For.
 # Mount a volume at /blog/.openblog to keep users, analytics, and the trash.
 
-FROM rust:1-slim AS build
+FROM rust:1-slim-bookworm AS build
 WORKDIR /src
 COPY . .
 RUN cargo build --release -p openblog-cli --locked
@@ -25,6 +25,7 @@ COPY --from=build /src/target/release/openblog /usr/local/bin/openblog
 WORKDIR /blog
 COPY . /blog
 RUN rm -rf /blog/target /blog/dist && chmod +x /blog/docker-entrypoint.sh
+RUN openblog help > /dev/null
 ENV PORT=8080
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \

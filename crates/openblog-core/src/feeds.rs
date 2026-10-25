@@ -88,12 +88,10 @@ pub fn rss(site: &Site) -> Result<String, String> {
             ));
         }
         if c.feeds.full_content {
+            let portable_html = projection.portable_html()?.html;
             out.push_str(&format!(
                 "<content:encoded>{}</content:encoded>\n",
-                escape::cdata(&absolutize_html(
-                    projection.representation(RepresentationFormat::Html),
-                    projection.base_url()
-                ))
+                escape::cdata(&absolutize_html(&portable_html, projection.base_url()))
             ));
         }
         out.push_str("</item>\n");
@@ -128,10 +126,15 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
                 item["image"] = serde_json::Value::String(projection.resolve_link(cover)?);
             }
             if c.feeds.full_content {
+                let portable_html = projection.portable_html()?.html;
                 item["content_html"] = serde_json::Value::String(absolutize_html(
-                    projection.representation(RepresentationFormat::Html),
+                    &portable_html,
                     projection.base_url(),
                 ));
+                item["content_text"] = serde_json::Value::String(projection.portable_text()?);
+            } else {
+                // JSON Feed requires a content field even for summary-only items.
+                item["content_text"] = serde_json::Value::String(post.description.clone());
             }
             if let Some(canonical) = &post.canonical {
                 item["external_url"] =
@@ -470,6 +473,28 @@ mod tests {
             LoadOptions::default(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn summary_only_feeds_keep_required_content_and_identity_without_exporting_the_body() {
+        let mut site = site();
+        let original = site.posts[0].html.clone();
+        let full: serde_json::Value = serde_json::from_str(&json_feed(&site).unwrap()).unwrap();
+        site.config.feeds.full_content = false;
+        let summary: serde_json::Value = serde_json::from_str(&json_feed(&site).unwrap()).unwrap();
+        for (index, post) in site.posts.iter().enumerate() {
+            assert_eq!(summary["items"][index]["id"], full["items"][index]["id"]);
+            assert_eq!(summary["items"][index]["content_text"], post.description);
+            assert!(summary["items"][index].get("content_html").is_none());
+        }
+        let xml = rss(&site).unwrap();
+        assert!(!xml.contains("<content:encoded>"));
+        assert!(xml.contains("<description>Hello x</description>"));
+        assert!(xml.contains("<guid isPermaLink=\"true\">https://j.io/a/</guid>"));
+        assert_eq!(site.posts[0].html, original);
+        site.posts[0].title = "An updated title".into();
+        let updated: serde_json::Value = serde_json::from_str(&json_feed(&site).unwrap()).unwrap();
+        assert_eq!(updated["items"][0]["id"], full["items"][0]["id"]);
     }
 
     #[test]

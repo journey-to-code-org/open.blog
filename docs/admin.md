@@ -2,7 +2,8 @@
 
 `openblog serve --admin` adds a login-protected editor at `/admin` to the same server that
 serves your blog. The editor reads and writes the same Markdown files you would edit by
-hand, so your content stays plain files you own. There is no database.
+hand, so your content stays plain files you own. No database is required by default.
+Ephemeral hosts can opt into [durable Supabase workspace storage](deploy.md#durable-editorial-workspace-on-ephemeral-hosts).
 
 ```sh
 openblog user add you              # create a login (prompts for a password)
@@ -21,13 +22,14 @@ immediately.
 | --- | --- |
 | **Edit** | Every post, page, and series. Front matter fields become a form; unknown fields you added by hand are kept. |
 | **Create** | New posts, pages, and series. The file is named from the date and slug. |
-| **Preview** | A full-page preview produced by the same site model, document renderer, theme inheritance, metadata, and components as a real build. Front matter stays in the settings form and is never printed into the preview. |
+| **Preview** | A full-page site preview plus portable HTML and Markdown projections for posts, all generated from the current unsaved source. Portable warnings identify transformed or canonical-only behavior; front matter stays in Settings and is never printed into a preview. |
 | **Social preview** | A card built from the generated OpenGraph title, description, canonical URL, type, image, and X card mode—not a separate browser-side approximation. |
 | **SEO & answer readiness** | A transparent, local checklist for search metadata, direct-answer structure, supporting sources, authorship, links, and image accessibility. Its readiness score is guidance, not a ranking guarantee. |
 | **Accessibility Studio** | Production-backed source findings grouped as detected, potential, or needs review, with exact locations and repair guidance. It also keeps rendered-site checks visible without claiming WCAG conformance. |
 | **Evidence Studio** | Research-profile structure and metadata findings from the publishing engine, plus authored DOI (normalized to a resolver URL when valid), valid absolute license URL, and linked-reference inspection without truth or authority scoring. |
 | **Images** | Insert by button, drag and drop, or paste. Saved under `static/images/uploads/<year>/`. |
 | **Formatting** | Write in a word-processor-style Visual mode or switch to Markdown. Choose Paragraph or Heading 2–6, then apply bold, italic, links, quotes, numbered or bulleted lists, images, and code. `Ctrl+B`/`Command+B` and `Ctrl+I`/`Command+I` work in either mode. |
+| **Personal workspace** | Start with a calm writing-focused workspace, choose Guided or Advanced, or customize optional tools, their order, spacing, and default writing mode. |
 | **Content profiles** | Choose field-specific authoring and rendering behavior for a post. Legacy recipes are recognized without silently rewriting their front matter, and unknown profile ids remain intact with visible fallback guidance. |
 | **Video release kit** | Validate authored YouTube chapters and copy a description assembled from the current summary, chapters, and AI-assistance disclosure. |
 | **Field Review** | Analyze GPX locally, derive route facts, and choose hidden, trimmed, approximate, or exact location publication. |
@@ -41,12 +43,58 @@ immediately.
 
 ## Workspace layout
 
-The admin is organized like a writing studio. The tool groups at the top move between
-content, analytics, and the public site; the status bar keeps unpublished changes and
-the publish action visible. Inside the editor, **Write**, **Site preview**, **Social**,
-**Optimize**, **Settings**, **Accessibility**, **Evidence**, and **Assistant** are separate full-width
-views, so writing is not squeezed beside a permanent preview.
+The admin is organized like a writing studio. New accounts start in **Simple**, which keeps
+the main navigation focused on content and the essential **Write**, **Site preview**, and
+**Settings** views. Every other document view sits under **More tools** in the editor bar,
+and the header's **Advanced tools** dialog groups every optional tool by goal: getting
+writing help (the optional AI Assistant, including knowledge checks and runnable-code
+proposals), checking quality and research, sharing and distribution, and collaboration and
+readership. **Guided** adds Accessibility, Evidence Studio, and Assistant to the editor bar,
+**Advanced** shows everything, and **Custom** lets you show or hide each optional tool. In
+every preset you can reorder optional tools with the up and down buttons, choose comfortable
+or compact spacing, pick a default Visual or Markdown writing mode, and **Restore defaults**.
+Open **Personalize** from the header, from Advanced tools, or by searching for
+"Personalize workspace" with `Ctrl+K`.
+
+Workspace preferences are private presentation choices for one admin login, not site
+configuration: they never change a post, `openblog.json`, the generated site, feeds, or
+exports. They are stored under `.openblog/private/admin-preferences/` (ignored by Git in new
+projects), limited to a small schema-versioned file per login, and protected by the same
+login and CSRF checks as content editing. Each save names the revision it replaces, so a
+change made in another tab or session is reloaded instead of silently overwritten. Write,
+preview, settings, save state, publish status, conflicts, privacy notices, approvals, and
+blockers cannot be hidden or reordered. If private preference storage is unavailable,
+authoring falls back to the Simple workspace with a notice and remains usable. Only saving
+from **Personalize** replaces stored preferences that can no longer be read; switching
+between Visual and Markdown then lasts for the session without touching the stored file.
+The server allows that replacement only when the stored file is malformed or too large,
+never when it could not be read at all.
+
+Admins who used the workspace before personalization existed keep the full layout: on their
+first sign-in after upgrading, a browser that remembered a writing mode from an earlier
+release starts in **Advanced** with that writing mode, and the choice is then stored privately
+for the login. The browser then forgets the old writing mode, so the migration happens once
+and another login in the same browser starts in **Simple**. A remembered preview width does
+not count, because this release still remembers it.
+
+Inside the editor, Social, Release kit, Field Review, Optimize, Accessibility, Evidence, and
+Assistant are separate full-width views, so writing is not squeezed beside a permanent preview.
 Switching views never loses edits, and opening Site preview refreshes it from the current draft.
+
+Portable preview findings are grouped by capability, representation, and destination, with
+**Fully portable**, **Gracefully transformed**, or **Canonical-only interaction** labels
+rather than a score. Findings explain what the copy preserves and which interactions stay
+on the canonical article. **Edit source at line …** opens Markdown, focuses and selects the
+relevant source, and announces the navigation without saving or changing unsaved content.
+Findings without an exact source location remain visible without a navigation button.
+Warning acknowledgements remain revision- and destination-scoped. A failed preview shows
+the validation error and disables copy/download until a current preview succeeds.
+
+Destination views also show shared content-policy findings: retained image references
+have not been inspected or uploaded, Ghost's HTML-to-Lexical conversion is lossy, and
+WordPress's external canonical needs separate configuration. Unmapped destination tags
+are disclosed, not silently discarded. These are draft-review requirements, not claims
+that a browser preview certifies provider rendering or media type/size acceptance.
 
 Press `Ctrl+K` on Windows or Linux, or `Command+K` on macOS, to search workspace
 commands. The palette opens content lists, creates documents, switches editor panes,
@@ -55,7 +103,8 @@ the arrow keys and Enter to choose a result, or Escape to close it.
 
 The editor footer shows whether the document is saved plus its line, word, and character
 counts. Press `Alt+1` through `Alt+9` to focus Write, Site preview, Social, Release kit,
-Field Review, Optimize, Settings, Accessibility, or Evidence. The preview
+Field Review, Optimize, Settings, Accessibility, or Evidence, whether or not that view is
+shown in the editor bar. The preview
 toolbar can constrain the canvas to wide, tablet, or mobile width; this preference is stored
 in the browser and does not change the published theme.
 
@@ -204,6 +253,28 @@ unset, and open **Site preview** on a post in that series. To compare a one-off 
 select a theme on the post instead. The preview includes unsaved changes to the document
 you are editing but does not expose unrelated drafts or scheduled posts. Front matter
 remains in **Settings** and is never printed into the preview.
+
+For posts, use the **Preview representation or destination** selector to compare the themed site
+output, portable HTML, Markdown, and plain text, or a DEV, Hashnode, Ghost, WordPress, or Medium policy view.
+These projections run through the same conversion used by feeds, export, and syndication;
+warnings include the source, transformation, and recommended action.
+**Copy portable output** and **Download portable output** use the exact selected artifact
+without saving or changing the post. Downloaded previews may contain unsaved draft content;
+review them before sharing. Actions are disabled for the native site view, unavailable policies,
+failed previews, and while edits await a fresh preview. Text and Markdown are displayed as literal
+source, never executed in the Admin shell. The authenticated API also returns capability
+portability levels alongside all three representations.
+DEV and Hashnode views also show the selected and omitted tags, slug transformations,
+and blocking tag errors from the same core plan used by the CLI. These are payload metadata
+checks; copying a portable body does not validate or include its destination tags.
+
+Warnings can be acknowledged for a specific source revision, capability, representation, and
+destination. Acknowledgements are stored in a tracked sibling `*.portability.json` sidecar and
+remain visible beside the warning; they never bypass unsafe-markup errors, private-state rules, or
+canonical-identity requirements. Editing the post makes older acknowledgements visibly stale.
+The portable views are computed from the authenticated, unsaved preview request and are not saved
+to the document or exposed at a public URL. Acknowledging is allowed only when the preview matches
+the saved source revision.
 
 ### Review accessibility while writing
 

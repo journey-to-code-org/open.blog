@@ -23,6 +23,19 @@
 [functions]
   directory = "netlify/functions"
 
+# Keep authenticated Admin requests on Render, outside Netlify's proxy timeout.
+[[redirects]]
+  from = "/admin"
+  to = "https://openblog-o0o5.onrender.com/admin/"
+  status = 302
+  force = true
+
+[[redirects]]
+  from = "/admin/*"
+  to = "https://openblog-o0o5.onrender.com/admin/:splat"
+  status = 302
+  force = true
+
 [[redirects]]
   from = "/api/hit"
   to = "/.netlify/functions/engagement/hit"

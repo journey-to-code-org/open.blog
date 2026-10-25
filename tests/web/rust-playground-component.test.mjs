@@ -64,7 +64,7 @@ test("the enhanced-state CSS hides only the original source block", () => {
 });
 
 function find(root, className) {
-  if (root.className === className) return root;
+  if ((root.className || "").split(/\s+/).includes(className)) return root;
   for (const child of root.children || []) {
     const match = find(child, className);
     if (match) return match;
@@ -109,9 +109,9 @@ test("looks like an editor and can omit the external Playground link", () => {
   assert.equal(find(playground, "ob-rust-editor-shell").dataset.lineNumbers, "true");
 
   const css = fs.readFileSync(new URL("../../web/base.css", import.meta.url), "utf8");
-  assert.match(css, /@keyframes ob-rust-cursor-blink/);
+  assert.match(css, /@keyframes ob-code-cursor-blink/);
   assert.match(css, /caret-color:/);
-  assert.match(css, /\.ob-rust-controls button\[aria-disabled="true"\]\s*{/);
+  assert.match(css, /\.ob-code-editor-controls button\[aria-disabled="true"\]\s*{/);
 });
 
 test("edits, resets, copies, and updates the external fallback", async () => {

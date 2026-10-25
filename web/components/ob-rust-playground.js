@@ -3,7 +3,7 @@
 // an editor and sends only the reader's source to the official Rust Playground.
 
 import { playgroundUrl, runRust } from "./ob-rust-runner.js";
-import { enhanceCode } from "./ob-code.js";
+import { codeSettings, createCodeEditor } from "./ob-code-editor.js";
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -27,67 +27,18 @@ class ObRustPlayground extends HTMLElement {
     pre.classList.add("ob-rust-source");
 
     const initial = code.textContent;
-    const codeHost = this.closest?.("ob-code");
-    const decorationOptions = {
-      colour: codeHost?.hasAttribute("highlight") ?? true,
-      numbers: codeHost?.hasAttribute("line-numbers") ?? false,
-    };
-
-    const shell = element("div", "ob-rust-editor-shell");
-    const editorBar = element("div", "ob-rust-editor-bar");
-    const editorLabel = element("span", "ob-rust-editor-label", "Rust playground");
-    const liveLabel = element("span", "ob-rust-editor-live", "EDITABLE");
-    const cursor = element("span", "ob-rust-cursor", "_");
-    cursor.setAttribute("aria-hidden", "true");
-    liveLabel.append(cursor);
-    editorBar.append(editorLabel, liveLabel);
-
-    const editorStack = element("div", "ob-rust-editor-stack");
-    const decoration = element("pre", "ob-rust-editor-decoration");
-    decoration.setAttribute("aria-hidden", "true");
-    const painted = element("code", "language-rust");
-    for (const name of ["lineNumbers", "lineStart", "highlightLines"]) {
-      if (code.dataset[name] !== undefined) painted.dataset[name] = code.dataset[name];
-    }
-    decoration.append(painted);
-
-    const editor = element("textarea", "ob-rust-editor");
-    editor.value = initial;
-    editor.rows = Math.min(24, Math.max(6, initial.replace(/\n$/, "").split("\n").length));
-    editor.spellcheck = false;
-    editor.setAttribute("aria-label", "Editable Rust code");
-    editor.setAttribute("autocapitalize", "off");
-    editor.setAttribute("autocomplete", "off");
-    editor.setAttribute("wrap", "off");
-    editorStack.append(decoration, editor);
-    shell.append(editorBar, editorStack);
-
-    const updateDecoration = () => {
-      const lineCount = editor.value.replace(/\n$/, "").split("\n").length;
-      const asked = painted.dataset.lineNumbers;
-      const numbered = asked === "true" || (asked !== "false" && decorationOptions.numbers && lineCount >= 2);
-      if (numbered) {
-        const start = Math.max(1, Number(painted.dataset.lineStart) || 1);
-        shell.dataset.lineNumbers = "true";
-        shell.style.setProperty("--ob-rust-line-digits", String(String(start + lineCount - 1).length));
-      } else {
-        delete shell.dataset.lineNumbers;
-      }
-      painted.className = "language-rust";
-      painted.textContent = editor.value;
-      delete painted.dataset.enhanced;
-      delete painted.dataset.highlighted;
-      delete painted.dataset.language;
-      enhanceCode(painted, decorationOptions);
-    };
-    updateDecoration();
-
-    editor.addEventListener("scroll", () => {
-      decoration.scrollTop = editor.scrollTop;
-      decoration.scrollLeft = editor.scrollLeft;
+    const { shell, editor, refresh } = createCodeEditor({
+      prefix: "ob-rust",
+      language: "rust",
+      label: "Rust playground",
+      ariaLabel: "Editable Rust code",
+      value: initial,
+      source: code,
+      ...codeSettings(this),
     });
-    const controls = element("div", "ob-rust-controls");
-    const run = element("button", "ob-rust-run", "Run Rust");
+
+    const controls = element("div", "ob-code-editor-controls ob-rust-controls");
+    const run = element("button", "ob-code-editor-run ob-rust-run", "Run Rust");
     const reset = element("button", "ob-rust-reset", "Reset");
     const copy = element("button", "ob-rust-copy", "Copy");
     for (const button of [run, reset, copy]) button.type = "button";
@@ -103,10 +54,10 @@ class ObRustPlayground extends HTMLElement {
 
     const notice = element(
       "p",
-      "ob-rust-notice",
+      "ob-code-editor-note ob-rust-notice",
       "Code runs on the official Rust Playground. open.blog does not store it.",
     );
-    const status = element("p", "ob-rust-status", "Ready.");
+    const status = element("p", "ob-code-editor-status ob-rust-status", "Ready.");
     status.setAttribute("role", "status");
     status.setAttribute("aria-live", "polite");
     const output = element("pre", "ob-rust-output");
@@ -122,10 +73,7 @@ class ObRustPlayground extends HTMLElement {
     function updateExternal() {
       if (external) external.href = playgroundUrl(editor.value);
     }
-    editor.addEventListener("input", () => {
-      updateDecoration();
-      updateExternal();
-    });
+    editor.addEventListener("input", updateExternal);
     updateExternal();
 
     reset.addEventListener("click", () => {
@@ -134,7 +82,7 @@ class ObRustPlayground extends HTMLElement {
       output.hidden = true;
       outputPanel.hidden = true;
       status.textContent = "Reset to the article's example.";
-      updateDecoration();
+      refresh();
       updateExternal();
       editor.focus();
     });

@@ -28,6 +28,7 @@ pub mod markdown;
 pub mod model;
 pub mod portability;
 pub mod profile;
+mod raw_html;
 pub mod recipe;
 pub mod render;
 pub mod research;
@@ -109,6 +110,7 @@ mod tests {
             classify_source("posts/a.credits.json"),
             Some(SourceKind::PostCredits)
         );
+        assert_eq!(classify_source("posts/a.portability.json"), None);
         assert_eq!(
             classify_source("loose.credits.json"),
             Some(SourceKind::PostCredits)

@@ -43,6 +43,11 @@ Drafts (`draft: true`) are never committed unless `publish.includeDrafts` is `tr
 a public repository, a committed draft is public text. The header counts them separately
 ("2 drafts kept local").
 
+Publishing refuses pre-staged files outside the publishable changes, including staged
+drafts. Unstage those files before retrying; it will not silently include unrelated staged
+work in the publishing commit. Uploads under a configured public static path are publishable
+assets even when a draft references them; do not put confidential attachments there.
+
 To publish on every save instead of on request, set `"publish": { "auto": true }`. The
 admin then commits and pushes after each save in the background; a half-finished post
 saved often makes many small commits, which is why it is off by default.
@@ -64,6 +69,44 @@ Once you publish with git, every version of every post is in the repository, on 
 and on every machine that cloned it. Images and settings are included. `.openblog/` (your
 users file, trash, and the live analytics store) is deliberately not committed; back that
 folder up like any private file, and use the analytics branch below for the counts.
+
+### Publishing from the Render container
+
+Set `GIT_AUTHOR_NAME` and optionally `GIT_AUTHOR_EMAIL` for the publishing identity.
+For a GitHub HTTPS or SSH origin, `OPENBLOG_GIT_TOKEN` enables an environment-backed Git
+credential helper. The token must have permission to push to the intended repository and
+branch; branch protection still applies. It is not written into the remote URL or
+editorial backups. Never give this token to visitors or put it in public site settings.
+
+Container startup reports invalid Admin credentials and users-file failures instead of
+continuing as if login setup succeeded. Set both `OPENBLOG_ADMIN_USER` and
+`OPENBLOG_ADMIN_PASSWORD`, or neither when managing users separately.
+
+A successful local commit is not proof of a successful push or deployment. A rejected
+push is reported as an error and leaves the local commit available for retry. The
+integration tests exercise a real local Git remote, draft exclusion, and push rejection;
+the hosted end-to-end test must additionally confirm the commit on GitHub and the page
+on Netlify.
+
+### Public deployment smoke checks
+
+Run the read-only checks against the demo deployment:
+
+```sh
+node scripts/deployment-smoke.mjs https://open-blog-jtc.netlify.app \
+  https://openblog-o0o5.onrender.com /posts/welcome-to-your-blog/
+```
+
+The checks require a homepage and linked CSS, a representative article, the exact Admin
+redirects and Render assets, valid public engagement responses, and `401` for anonymous
+moderation requests. They send no credentials, create no comments, and do not record views.
+
+The **Production smoke checks** GitHub Actions workflow runs every six hours and can
+also be dispatched manually. Forks can set repository variables `SMOKE_SITE_ORIGIN`,
+`SMOKE_ADMIN_ORIGIN`, and `SMOKE_POST_PATH` for their own deployment. It checks public
+availability, not whether a particular commit deployed or an authenticated save survived
+a restart. Failures appear as failed workflow runs; enable GitHub Actions notifications
+for alerts.
 
 ## View counts on a static host
 

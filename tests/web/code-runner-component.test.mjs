@@ -13,6 +13,7 @@ class Node {
     this.classList = { add: (...names) => (this.className = names.join(" ")) };
   }
   append(...children) { this.children.push(...children); }
+  replaceChildren(...children) { this.children = children; }
   setAttribute(name, value) { this[name] = String(value); }
   hasAttribute(name) { return this[name] !== undefined; }
   removeAttribute(name) { delete this[name]; }
@@ -30,7 +31,7 @@ Object.defineProperty(globalThis, "navigator", { configurable: true, value: { cl
 await import("../../web/components/ob-code-runner.js");
 
 function find(root, className) {
-  if (root.className === className) return root;
+  if ((root.className || "").split(/\s+/).includes(className)) return root;
   for (const child of root.children || []) {
     const match = find(child, className);
     if (match) return match;

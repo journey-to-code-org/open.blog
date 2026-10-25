@@ -47,6 +47,13 @@ may do. The [shared publication record decision](adr/0007-private-shared-publica
 keeps each shared reflection's sources, contract, and policy in one private file outside your
 content.
 
+How posts keep their meaning outside open.blog is recorded under
+[`docs/portability`](portability/): the [capability matrix](portability/capability-matrix.md),
+the [portable HTML pipeline](portability/portable-html-pipeline.md) with its static fallbacks and
+raw HTML policy, and the [planned-capability contracts](portability/planned-capability-contracts.md).
+The [portable lesson example](../examples/portable-publishing/README.md) demonstrates one canonical
+post across exports, feeds, Admin previews, and all destination plans without remote writes.
+
 Current design frontiers include
 [contributor identity and ORCID provenance](research/contributor-identity-and-orcid.md),
 which defines the incremental path from one site author to ordered, work-specific credit, and
@@ -62,6 +69,10 @@ openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
 openblog check                          Validate content and themes, write nothing
+openblog export <slug> [--out path] [--write]
+                                        Preview or write portable Markdown
+openblog syndicate <slug> [--target a,b] [--write] [--publish]
+                                        Preview or explicitly send portable copies
 openblog themes                         List themes and what they extend
 openblog publish [summary]              Commit changed content with git and push
 openblog publish setup                  Create the repository and Pages workflow

@@ -1,7 +1,7 @@
 # Netlify hosted engagement
 
 This function provides moderated comments and persistent analytics for a static open.blog site.
-Supabase is accessed only from the function; never put its service-role key in `openblog.json` or a
+Supabase is accessed only from the function; never put its secret key in `openblog.json` or a
 browser script.
 
 ## Setup
@@ -13,14 +13,21 @@ browser script.
    | Variable | Value |
    | --- | --- |
    | `SUPABASE_URL` | Project URL from Supabase API settings |
-   | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key; server-only |
+   | `SUPABASE_SECRET_KEY` | Supabase secret API key (`sb_secret_...`); server-only |
    | `OPENBLOG_SITE_ID` | Stable identifier such as `lantern-studios` |
    | `OPENBLOG_SITE_ORIGIN` | Exact public origin, such as `https://blog.example.com` |
    | `OPENBLOG_ADMIN_API_KEY` | Long random token used for moderation and Admin analytics |
    | `OPENBLOG_ANALYTICS_SALT` | Separate long random value used only to hash daily visitors |
    | `OPENBLOG_SITE_BASE_PATH` | Optional public base path such as `/blog/`; defaults to `/` |
 
-3. Deploy. `netlify.toml` maps the public and Admin API routes to the function.
+   Find the secret key under **Supabase project settings → API Keys → Publishable and secret API keys**.
+   Neither `SUPABASE_PUBLISHABLE_KEY` nor `SUPABASE_JWKS_URL` is needed by this integration.
+   Secret keys are sent in the `apikey` header, not as bearer JWTs. Existing deployments may keep
+   `SUPABASE_SERVICE_ROLE_KEY` as a fallback; `SUPABASE_SECRET_KEY` takes precedence when both are
+   set. Legacy JWT keys retain their bearer authentication. No SQL migration is required: both
+   server key types use the database's `service_role` permissions.
+
+3. Deploy (or redeploy after changing environment variables). `netlify.toml` maps the public and Admin API routes to the function.
 4. Run `openblog serve --admin`, open **Analytics**, enable hosted engagement, and set the endpoint
    to `https://your-site.example/api`. Enter the same value as `OPENBLOG_ADMIN_API_KEY` in the
    write-only moderation token field. The Admin copy stays in `.openblog/private` and is never

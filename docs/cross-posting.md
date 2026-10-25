@@ -29,6 +29,38 @@ openblog syndicate your-post-slug
 openblog syndicate your-post-slug --target dev,medium
 ```
 
+The plan identifies the portable Markdown or HTML projection used by each destination and
+calls out interactions that remain on the canonical article.
+
+For automation or a complete before/after review, request the deterministic JSON dry-run plan:
+
+```sh
+openblog syndicate your-post-slug --json
+```
+
+The plan includes authored Markdown, the exact provider artifact, destination policy, intended
+draft/publication action, and source-scoped diagnostics. `--json` cannot be combined with
+`--write`.
+
+For a local Markdown artifact, preview it before writing:
+
+```sh
+openblog export your-post-slug --format markdown
+openblog export your-post-slug --format markdown --json
+openblog export your-post-slug --format markdown --out exports/your-post.md --write
+```
+
+The export does not replace or modify the canonical post, and it refuses to overwrite an
+existing destination file. Full-content RSS and JSON Feed likewise use portable HTML rather
+than native open.blog component markup; JSON Feed includes a plain-text companion.
+The version-1 JSON export manifest includes exact Markdown bytes, byte count, canonical identity,
+source revision, capability portability levels, and diagnostics. It is dry-run-only, creates no
+manifest file, and cannot be combined with `--write`. An explicit write stages the complete file
+in the selected parent directory and publishes it atomically without replacing an existing file,
+even if another writer creates that name concurrently. Paths containing `..` or symlink
+components are rejected. Filesystems without hard-link support return an explicit error rather
+than falling back to a partial or overwriting write. Only published, due posts are eligible.
+
 After the open.blog URL is deployed and reachable, create or update remote drafts:
 
 ```sh
@@ -36,6 +68,90 @@ openblog syndicate your-post-slug --write
 ```
 
 The private state file records remote IDs, so later writes update instead of duplicating.
+Admin and CLI conversion plans share a version-1 destination policy with a typed publication
+workflow: remote draft by default, remote draft only, or manual import. The CLI uses that
+same policy for the public-write gate; Admin disables destination output and acknowledgements
+for unknown policy versions rather than guessing.
+
+### Destination tag conversion
+
+Destination tag metadata uses the same core plan in Admin and CLI dry runs; DEV and
+Hashnode payloads use its selected tags. `tagPlan` in syndication JSON names the selected tags, `omittedTags`, the versioned
+policy, and source-scoped diagnostics. Authenticated previews return the same plans under
+`destinationTagPlans`; selecting DEV or Hashnode displays their findings as literal text.
+This is adapter metadata, not a feed tag policy.
+
+- **DEV:** sends the first four tags, in source order. Selected tags must contain only
+  Unicode letters/numbers and no more than 30 characters. Invalid tags block writes;
+  they are not silently slugified or shortened.
+- **Hashnode:** sends the first fifteen tags with the original display names and the
+  existing open.blog slug mapping. Slug transformations are disclosed; empty or duplicate
+  selected slugs block writes rather than silently merging tags.
+- Trailing tags retain the existing omission behavior, now with a warning and an explicit
+  omitted list. Canonical sources are never rewritten.
+- Ghost, WordPress, and Medium currently do not receive tag metadata from these adapters.
+  Their plans show every source tag as omitted with `destination-tags-not-mapped`. This is
+  an adapter limitation, not an invented provider cap; assign tags manually after review.
+- All selected destinations are checked for blocking tag errors **before credentials,
+  canonical network preflight, or any remote write**. Dry runs still show invalid plans
+  without sending requests. Copying a preview body does not include payload metadata or
+  mean that its tags are valid.
+
+Constraints were checked against Forem's
+[`Article::MAX_TAG_LIST_SIZE`](https://github.com/forem/forem/blob/main/app/models/article.rb)
+and [`Tag#validate_name`](https://github.com/forem/forem/blob/main/app/models/tag.rb),
+and Hashnode's [official schema](https://github.com/Hashnode/gql-skill/blob/main/skills/gql-api/references/schema.graphql)
+and [limits](https://github.com/Hashnode/gql-skill/blob/main/skills/gql-api/references/errors-and-limits.md)
+on 2026-10-25. Hashnode draft create/update payloads use `originalArticleURL` for canonical
+identity, not the unsupported `canonicalUrl` input.
+
+Hashnode CLI plans also include `payloadPlan` with the complete serialized request's UTF-8
+byte count (including metadata, JSON escaping, and create/update envelope overhead) and
+blocking diagnostics. The adapter conservatively interprets the documented 100 KB cap as
+100,000 bytes. Exact-limit bodies pass; larger bodies block all selected writes before
+credentials or network access, without truncating content. Request preparation failures
+are explicit in `payloadPlanError`. Admin shows the limit but cannot certify an exact
+request size from a body-only preview with no target/revision envelope.
+
+### Content subsets and media review
+
+Each version-1 policy declares `contentSubset`, `mediaDelivery`, and `conversionReview`.
+These describe the adapter boundary, not an assurance that a provider preserves every
+element or accepts every hosted image. `contentPlan` in each CLI JSON target and
+`destinationContentPlans` in the authenticated Admin preview carry the same core plan:
+
+| Destination | Content subset | Required review |
+| --- | --- | --- |
+| DEV / Hashnode | Static CommonMark, with visible quiz answers, code examples, and canonical interaction links. Authored raw HTML is literal text; custom component/Hashnode embed syntax is converted. | Review the saved draft for Markdown-extension differences. Hashnode stays draft-only. |
+| Ghost | Allowlisted static HTML through `source=html`. No authored forms, iframes, scripts, or native components pass through. | Ghost converts HTML to Lexical **lossily**; review headings, tables, anchors, attribution, and code. No Lexical payload or HTML-card workaround is generated. |
+| WordPress | The same allowlisted static HTML as post `content`, for self-hosted and WordPress.com endpoints. | Permissions, filters, plugins, and themes may alter rendering. Core has no external-canonical field; verify an SEO plugin separately. |
+| Medium | Portable Markdown review artifact plus canonical URL; no API payload or remote write. | Use Medium's canonical-URL importer, then verify content, images, attribution, and canonical settings manually. |
+
+Every plan inventories retained hosted image references in source order, including repeated
+references and absolute Unicode/query/fragment URLs. Raw HTML images enter HTML plans only;
+Markdown plans show their authored markup literally and report `destination-raw-html-literal`.
+Code examples, comments, and removed active markup do not become media references.
+Inventory is collected during the shared parser/raw-HTML boundary, never by reconstructing
+authored content from generated production HTML.
+
+`mediaDelivery: hosted-urls-only` means adapters do **not** fetch, inspect, upload, resize, or
+certify image bytes. Image-bearing plans emit `destination-media-unverified` before a write
+and beside Admin's destination preview. Non-HTTP(S) image references produce a blocking
+`destination-image-url-invalid`; all selected targets are checked before credentials or
+network requests, with no truncation, source rewrite, or earlier-target mutation.
+Other unsupported/malformed URLs continue to fail the shared portable projection.
+
+Hashnode documents separate image-upload limits (8 MB, image types only, no SVG).
+Linked inline images are not an upload operation: a `.svg` or extensionless HTTP(S) URL
+is not proof of its bytes, so the adapter neither invents a URL-extension restriction nor
+claims type/size validation. Review the remote draft. Other providers' hosted-media
+acceptance likewise remains unverified; copying a preview body is not a network preflight.
+
+Conversion behavior was checked against Ghost's
+[source HTML contract](https://docs.ghost.org/admin-api/posts/creating-a-post),
+WordPress's [post schema](https://developer.wordpress.org/rest-api/reference/posts/), and
+Hashnode's official limits linked above on 2026-10-25.
+
 Public publication requires both `--publish` and `allowPublish: true`. Hashnode remains
 draft-only in this iteration. WordPress core cannot portably set an external canonical, so
 the command warns for those targets. See the complete
@@ -46,6 +162,18 @@ rejected. On `--write`, the command fetches the public open.blog URL before the 
 mutation and requires a successful page whose canonical link points back to that same URL.
 A dry run remains network-free, so deployment reachability is checked only when a write is
 explicitly requested.
+
+Provider responses are capped at 1 MiB at both the network transport and adapter execution
+boundary. Authentication, permission/billing, missing-item, conflict, validation, rate-limit,
+and server failures produce actionable errors without echoing response bodies. Hashnode
+GraphQL errors fail even alongside partial draft data; malformed error shapes cannot be
+treated as success. Known error codes map to local guidance rather than printing untrusted
+provider messages. A failed response does not advance saved remote IDs or revisions.
+Ghost updates require the saved `updated_at` revision; a remote conflict is surfaced, not
+automatically retried or replaced with a new draft.
+Successful responses must include a nonempty remote ID, and Ghost must return its update
+revision. A malformed response may follow an actual remote mutation: inspect that remote
+draft before retrying rather than assuming no copy was created.
 
 For feed automation, make sure `feeds.rss`, `feeds.json`, and `feeds.fullContent` are all
 `true`. In either route, begin with drafts rather than unattended publishing.

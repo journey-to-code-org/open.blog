@@ -34,7 +34,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
   const configured = () => {
     const values = {
       url: String(env.SUPABASE_URL || "").replace(/\/$/, ""),
-      key: String(env.SUPABASE_SERVICE_ROLE_KEY || ""),
+      key: String(env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY || ""),
       siteId: String(env.OPENBLOG_SITE_ID || "").trim(),
       origin: String(env.OPENBLOG_SITE_ORIGIN || "").replace(/\/$/, ""),
       adminKey: String(env.OPENBLOG_ADMIN_API_KEY || ""),
@@ -51,7 +51,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       ...options,
       headers: {
         apikey: settings.key,
-        Authorization: `Bearer ${settings.key}`,
+        ...(!settings.key.startsWith("sb_secret_") ? { Authorization: `Bearer ${settings.key}` } : {}),
         "Content-Type": "application/json",
         ...(options.headers || {}),
       },

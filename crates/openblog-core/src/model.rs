@@ -127,6 +127,8 @@ pub struct TagRef {
     pub slug: String,
 }
 
+pub(crate) const DISCUSSION_ANCHOR: &str = "ob-discussion";
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CommentsPolicy {
     #[default]
@@ -149,6 +151,8 @@ impl CommentsPolicy {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Post {
     pub title: String,
+    /// Optional one-line subheading shown under the title; separate from `description`.
+    pub subtitle: Option<String>,
     pub slug: String,
     /// Site-relative URL path, e.g. `/posts/hello/`.
     pub url: String,
@@ -208,12 +212,30 @@ pub struct Post {
 }
 
 impl Post {
+    /// Canonical authored Markdown used to derive portable representations.
+    pub fn authored_markdown(&self) -> &str {
+        &self.authored_markdown
+    }
+
     /// Actual authors only, in authored credit order. Secondary contributors
     /// remain available through `credits` but never leak into author metadata.
     pub fn authors(&self) -> impl Iterator<Item = &ResolvedCredit> {
         self.credits
             .iter()
             .filter(|credit| credit.roles.iter().any(|role| role.is_author()))
+    }
+
+    /// The escaped "Originally published at" notice for a post first published
+    /// elsewhere, shared by the native page and the portable projection.
+    pub(crate) fn source_notice_html(&self) -> Option<String> {
+        use crate::escape::{attr, text};
+        self.source_url.as_deref().map(|source_url| {
+            format!(
+                "<p class=\"ob-source\">Originally published at <a class=\"u-syndication\" href=\"{}\" rel=\"noopener\">{}</a>.</p>\n",
+                attr(source_url),
+                text(source_url.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/'))
+            )
+        })
     }
 }
 
@@ -651,6 +673,14 @@ fn seo_warnings(post: &Post) -> Vec<String> {
             post.source
         ));
     }
+    if let Some(subtitle_len) = post.subtitle.as_ref().map(|s| s.chars().count()) {
+        if subtitle_len > 160 {
+            warnings.push(format!(
+                "{}: subtitle is {subtitle_len} characters; keep it to a short line under the title",
+                post.source
+            ));
+        }
+    }
     if description_len < 50 {
         warnings.push(format!(
             "{}: description is only {description_len} characters; summarize the answer and why it is useful",
@@ -800,6 +830,9 @@ pub fn load_post(
         .get_u32("seriesOrder")
         .or_else(|| fm.get_u32("series_order"))
         .or_else(|| fm.get_u32("part"));
+    let subtitle = first(fm, &["subtitle", "subheading", "dek"])
+        .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|s| !s.is_empty());
     let description = first(fm, &["description", "summary", "brief", "excerpt"])
         .map(str::to_string)
         .unwrap_or_else(|| markdown::excerpt(&rendered.text, 180));
@@ -850,6 +883,7 @@ pub fn load_post(
     Ok(Post {
         url: config.post_url(&slug),
         title,
+        subtitle,
         slug,
         date,
         updated,
@@ -1120,6 +1154,35 @@ mod tests {
         assert_eq!(prev.unwrap().slug, "first");
         assert!(next.is_none());
         assert!(s.pages[0].nav);
+    }
+
+    #[test]
+    fn subtitles_are_optional_single_line_and_separate_from_descriptions() {
+        let long = "word ".repeat(40);
+        let s = site(Sources {
+            posts: vec![
+                post("posts/a.md", "---\ntitle: A\ndate: 2026-01-01\nsubtitle: \"  A short\\n  line  \"\n---\nBody text"),
+                post("posts/b.md", "---\ntitle: B\ndate: 2026-01-02\ndek: From the alias\n---\nx"),
+                post("posts/c.md", "---\ntitle: C\ndate: 2026-01-03\nsubheading: Another alias\n---\nx"),
+                post("posts/d.md", "---\ntitle: D\ndate: 2026-01-04\nsubtitle: \"  \"\n---\nx"),
+                post("posts/e.md", &format!("---\ntitle: E\ndate: 2026-01-05\nsubtitle: {long}\n---\nx")),
+            ],
+            ..Default::default()
+        });
+        let by = |slug: &str| s.posts.iter().find(|p| p.slug == slug).unwrap();
+        assert_eq!(by("a").subtitle.as_deref(), Some("A short line"));
+        assert_eq!(by("a").description, "Body text");
+        assert_eq!(by("b").subtitle.as_deref(), Some("From the alias"));
+        assert_eq!(by("c").subtitle.as_deref(), Some("Another alias"));
+        assert_eq!(by("d").subtitle, None);
+        assert!(s
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("posts/e.md: subtitle is 199 characters")));
+        assert!(!s
+            .warnings
+            .iter()
+            .any(|w| w.contains("posts/a.md: subtitle")));
     }
 
     #[test]

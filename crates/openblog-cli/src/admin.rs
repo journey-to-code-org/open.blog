@@ -24,16 +24,19 @@ use openblog_core::collaboration::{
     NewParticipant, NewSharedPublication, NewSourceReference, SharedPublication,
     SharedPublicationError, SourceField, SourceKind,
 };
-use openblog_core::config::AssistantProviderKind;
+use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::markdown::RenderOptions;
+use openblog_core::portability::{destination_policy, DestinationRepresentation};
 use openblog_core::slug::slugify;
 use openblog_core::{
     generate, generate_document, social_metadata, DateTime, LoadOptions, Site, SiteConfig,
     SourceFile,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value as Json};
 
+use crate::admin_preferences::{self, Preferences, SaveError};
 use crate::assistant::{
     parse_skill, AnthropicProvider, AssistantCompletionSource, AssistantConcurrency,
     AssistantDocument, AssistantErrorKind, AssistantProvider, AssistantProviderStatus,
@@ -56,6 +59,23 @@ const MAX_LOGIN_BODY: usize = 4 * 1024;
 const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_SKILL_BYTES: usize = 256 * 1024;
 const MAX_ASSISTANT_CONTEXT_BYTES: usize = 64 * 1024;
+const MAX_PORTABILITY_ACKNOWLEDGEMENTS: usize = 500;
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PortabilityAcknowledgement {
+    source_revision: String,
+    capability_id: String,
+    representation: String,
+    destination: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PortabilityAcknowledgementSidecar {
+    version: u32,
+    acknowledgements: Vec<PortabilityAcknowledgement>,
+}
 
 #[derive(Default)]
 pub struct BuildStatus {
@@ -93,17 +113,33 @@ pub struct AppState {
     pub trusted_proxies: Vec<String>,
     /// Serialises publishes so two saves never run git at the same time.
     pub publish_lock: Mutex<()>,
+    /// Serializes durable acknowledgements, including background publishing.
+    pub workspace: Mutex<Option<crate::workspace::Workspace>>,
+    pub workspace_enabled: bool,
     /// Bounds simultaneous paid provider calls across quiz and review APIs.
     assistant_operations: AssistantConcurrency,
     /// Last analytics backup to the branch, as a unix time.
     pub last_backup: Mutex<i64>,
     /// Small, bounded cache of generated documents served into sandboxed previews.
     previews: Mutex<Vec<PreviewDocument>>,
+    portability_acknowledgements: Mutex<()>,
 }
 
 /// The server registers its `Arc<AppState>` here so request handlers, which
 /// only hold `&AppState`, can hand a clone to background work.
 static SHARED: std::sync::OnceLock<Mutex<Vec<Arc<AppState>>>> = std::sync::OnceLock::new();
+
+thread_local! {
+    static DURABLE_TRANSACTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+struct DurableTransaction;
+
+impl Drop for DurableTransaction {
+    fn drop(&mut self) {
+        DURABLE_TRANSACTION.with(|active| active.set(false));
+    }
+}
 
 pub fn register(state: &Arc<AppState>) {
     lock(SHARED.get_or_init(|| Mutex::new(Vec::new()))).push(Arc::clone(state));
@@ -159,9 +195,12 @@ impl AppState {
             base_path,
             trusted_proxies,
             publish_lock: Mutex::new(()),
+            workspace: Mutex::new(None),
+            workspace_enabled: false,
             assistant_operations: AssistantConcurrency::new(2),
             last_backup: Mutex::new(0),
             previews: Mutex::new(Vec::new()),
+            portability_acknowledgements: Mutex::new(()),
         }
     }
 
@@ -206,6 +245,13 @@ impl AppState {
         }
         let state = Arc::clone(self);
         std::thread::spawn(move || {
+            let mut workspace = lock(&state.workspace);
+            if let Some(store) = workspace.as_mut() {
+                if let Err(error) = store.begin() {
+                    eprintln!("auto-publish blocked by workspace persistence: {error}");
+                    return;
+                }
+            }
             let _publish = lock(&state.publish_lock);
             let _content_transaction = lock(&state.build);
             let _filesystem_transaction =
@@ -223,9 +269,41 @@ impl AppState {
             if !config.publish.auto {
                 return;
             }
+            if workspace.is_some()
+                && !crate::git::Git::new(&state.root).has_remote(&config.publish.remote)
+            {
+                eprintln!(
+                    "auto-publish blocked: durable workspace publishing requires a Git remote"
+                );
+                return;
+            }
             match crate::publish::publish(&state.root, &config, Some(&summary)) {
-                Ok(outcome) => eprintln!("publish: {}", outcome.message),
-                Err(e) => eprintln!("publish failed: {e}"),
+                Ok(outcome) => {
+                    if let Some(store) = workspace.as_mut() {
+                        if outcome.pushed {
+                            if let Err(error) = store.published(&state.root) {
+                                eprintln!("publish succeeded but workspace acknowledgement failed: {error}");
+                                return;
+                            }
+                        }
+                        if let Err(error) = store.save(&state.root) {
+                            eprintln!("publish workspace persistence failed: {error}");
+                            return;
+                        }
+                    }
+                    eprintln!("publish: {}", outcome.message);
+                }
+                Err(e) => {
+                    if let Some(store) = workspace.as_mut() {
+                        if let Err(error) = store.save(&state.root) {
+                            eprintln!(
+                                "publish failed ({e}); workspace persistence also failed: {error}"
+                            );
+                            return;
+                        }
+                    }
+                    eprintln!("publish failed: {e}");
+                }
             }
         });
     }
@@ -430,6 +508,61 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             return r;
         }
     }
+    if !state.workspace_enabled {
+        return authenticated_api(state, req, name, &session);
+    }
+    let mut workspace = lock(&state.workspace);
+    let _filesystem_transaction = if workspace.is_some() && !req.is_read_only() && name != "logout"
+    {
+        match crate::transaction::ContentTransactionLock::acquire(&state.root) {
+            Ok(transaction) => Some(transaction),
+            Err(error) => return Response::error(409, &error),
+        }
+    } else {
+        None
+    };
+    let _durable_transaction = _filesystem_transaction.as_ref().map(|_| {
+        DURABLE_TRANSACTION.with(|active| active.set(true));
+        DurableTransaction
+    });
+    if !req.is_read_only() && name != "logout" {
+        if let Some(store) = workspace.as_mut() {
+            if let Err(error) = store.begin() {
+                return Response::error(503, &format!("Workspace save NOT acknowledged: {error}"));
+            }
+        }
+    }
+    let response = authenticated_api(state, req, name, &session);
+    if !req.is_read_only() && name != "logout" {
+        if let Some(store) = workspace.as_mut() {
+            // Even an unsuccessful handler may have completed part of a local
+            // operation. Never acknowledge any result until the bundle is durable.
+            let published = name == "publish"
+                && response.status < 300
+                && serde_json::from_slice::<Json>(&response.body)
+                    .is_ok_and(|body| body["pushed"] == true);
+            let result = if published {
+                store.published(&state.root)
+            } else {
+                Ok(())
+            }
+            .and_then(|_| store.save(&state.root));
+            if let Err(error) = result {
+                return Response::error(503, &format!(
+                    "Workspace save NOT acknowledged; local changes may exist. Writes are blocked; reconcile/restart before retrying. {error}"
+                ));
+            }
+        }
+    }
+    response
+}
+
+fn authenticated_api(
+    state: &AppState,
+    req: &Request,
+    name: &str,
+    session: &auth::Session,
+) -> Response {
     if req.method == "GET" {
         if let Some(token) = name.strip_prefix("preview/") {
             return preview_document(state, token);
@@ -442,6 +575,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
             &json!({ "user": session.user, "csrf": session.csrf, "now": clock::now().rfc3339() }),
         ),
         ("GET", "meta") => meta(state),
+        ("GET", "preferences") => admin_preferences(state, &session.user),
+        ("PUT", "preferences") => save_admin_preferences(state, req, &session.user),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
@@ -465,8 +600,8 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ("POST", "assistant/context/url/save") => save_url_context(state, req),
         ("GET", "contributors") => get_contributors(state),
         ("PUT", "contributors") => save_contributors(state, req),
-        ("GET", "collaboration/publications") => list_shared_publications(state, &session),
-        ("POST", "collaboration/publications") => create_shared_publication(state, req, &session),
+        ("GET", "collaboration/publications") => list_shared_publications(state, session),
+        ("POST", "collaboration/publications") => create_shared_publication(state, req, session),
         ("GET", "status") => status(state),
         ("GET", "analytics") => {
             if !state.analytics_enabled {
@@ -496,6 +631,7 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
+        ("POST", "portability/acknowledge") => acknowledge_portability(state, req),
         ("POST", "quiz/generate") => generate_quiz(state, req),
         ("POST", "rebuild") => rebuild(state),
         ("GET", "publish") => {
@@ -520,6 +656,11 @@ fn api(state: &AppState, req: &Request, name: &str) -> Response {
                 Err(response) => return response,
             };
             let config = site::load_config(&state.root).unwrap_or_default();
+            if state.workspace_enabled
+                && !crate::git::Git::new(&state.root).has_remote(&config.publish.remote)
+            {
+                return Response::error(409, "Durable workspace publishing requires a Git remote; a local-only commit is not a durable publication");
+            }
             match crate::publish::publish(&state.root, &config, summary.as_deref()) {
                 Ok(o) => Response::json(
                     200,
@@ -602,10 +743,56 @@ fn require_json(req: &Request) -> Result<(), Response> {
     }
 }
 
+fn admin_preferences(state: &AppState, user: &str) -> Response {
+    match admin_preferences::load(&state.root, user) {
+        Ok(snapshot) => Response::json(200, &serde_json::to_value(snapshot).unwrap_or(Json::Null)),
+        Err(error) => Response::error(500, &error),
+    }
+}
+
+fn save_admin_preferences(state: &AppState, req: &Request, user: &str) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    if req.body.len() > admin_preferences::MAX_REQUEST_BYTES {
+        return Response::error(413, "Workspace preferences are limited to 16 KiB");
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let Some(expected_etag) = body["etag"].as_str() else {
+        return Response::error(400, "Missing preferences ETag");
+    };
+    let preferences: Preferences = match serde_json::from_value(body["preferences"].clone()) {
+        Ok(preferences) => preferences,
+        Err(error) => return Response::error(400, &format!("Invalid preferences: {error}")),
+    };
+
+    let _content_transaction = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    match admin_preferences::save(&state.root, user, expected_etag, preferences) {
+        Ok(snapshot) => Response::json(200, &serde_json::to_value(snapshot).unwrap_or(Json::Null)),
+        Err(SaveError::Conflict) => Response::error(
+            409,
+            "Workspace preferences changed in another session. Reload and try again.",
+        ),
+        Err(SaveError::Invalid(error)) => Response::error(400, &error),
+        Err(SaveError::Storage(error)) => Response::error(500, &error),
+    }
+}
+
 fn content_transaction(
     state: &AppState,
-) -> Result<crate::transaction::ContentTransactionLock, Response> {
+) -> Result<Option<crate::transaction::ContentTransactionLock>, Response> {
+    if DURABLE_TRANSACTION.with(std::cell::Cell::get) {
+        return Ok(None);
+    }
     crate::transaction::ContentTransactionLock::acquire(&state.root)
+        .map(Some)
         .map_err(|error| Response::error(409, &error))
 }
 
@@ -833,6 +1020,120 @@ fn resolve_credit_path(root: &Path, config: &SiteConfig, rel: &str) -> Result<Pa
         probe = probe.parent().ok_or("invalid credit sidecar path")?;
     }
     Ok(full)
+}
+
+fn resolve_portability_acknowledgement_path(
+    root: &Path,
+    config: &SiteConfig,
+    rel: &str,
+) -> Result<PathBuf, String> {
+    check_rel_path(rel)?;
+    if openblog_core::classify_source(rel) != Some(openblog_core::SourceKind::Post) {
+        return Err("portability acknowledgements are only available for posts".into());
+    }
+    let sidecar_rel = openblog_core::contributor::portability_sidecar_path(rel)
+        .ok_or_else(|| "cannot derive the post portability sidecar path".to_string())?;
+    let content_dir = root.join(&config.paths.content);
+    let canonical_content = fs::canonicalize(&content_dir)
+        .map_err(|_| "the content directory does not exist".to_string())?;
+    let full = content_dir.join(sidecar_rel);
+    if fs::symlink_metadata(&full).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Err("portability sidecar symlinks are not allowed".into());
+    }
+    let mut probe = full.as_path();
+    loop {
+        if probe.exists() {
+            let canonical = fs::canonicalize(probe).map_err(|error| error.to_string())?;
+            if !canonical.starts_with(&canonical_content) {
+                return Err("portability sidecar resolves outside the content directory".into());
+            }
+            break;
+        }
+        probe = probe.parent().ok_or("invalid portability sidecar path")?;
+    }
+    Ok(full)
+}
+
+fn load_portability_acknowledgements(
+    path: &Path,
+) -> Result<(PortabilityAcknowledgementSidecar, String), String> {
+    let bytes = read_optional_bytes(path)?;
+    let etag = etag_bytes(bytes.as_deref().unwrap_or_default());
+    let Some(bytes) = bytes else {
+        return Ok((
+            PortabilityAcknowledgementSidecar {
+                version: 1,
+                acknowledgements: Vec::new(),
+            },
+            etag,
+        ));
+    };
+    if bytes.len() > 128 * 1024 {
+        return Err("portability acknowledgement sidecar exceeds 128 KiB".into());
+    }
+    let sidecar: PortabilityAcknowledgementSidecar = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("cannot parse {}: {error}", path.display()))?;
+    if sidecar.version != 1 || sidecar.acknowledgements.len() > MAX_PORTABILITY_ACKNOWLEDGEMENTS {
+        return Err(
+            "portability acknowledgement sidecar has an unsupported version or size".into(),
+        );
+    }
+    for acknowledgement in &sidecar.acknowledgements {
+        validate_portability_acknowledgement(acknowledgement)?;
+    }
+    Ok((sidecar, etag))
+}
+
+fn validate_portability_acknowledgement(
+    acknowledgement: &PortabilityAcknowledgement,
+) -> Result<(), String> {
+    if acknowledgement.source_revision.len() != 40
+        || !acknowledgement
+            .source_revision
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+        || acknowledgement.capability_id.is_empty()
+        || acknowledgement.capability_id.len() > 64
+        || !acknowledgement
+            .capability_id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        || !acknowledgement_scope_supported(
+            &acknowledgement.destination,
+            &acknowledgement.representation,
+        )
+    {
+        return Err("invalid portability acknowledgement scope".into());
+    }
+    Ok(())
+}
+
+fn acknowledgement_scope_supported(destination: &str, representation: &str) -> bool {
+    match destination {
+        "portable-export" => matches!(
+            representation,
+            "portable-html" | "portable-markdown" | "portable-text"
+        ),
+        "dev" | "hashnode" | "ghost" | "wordpress" | "medium" => {
+            let provider = match destination {
+                "dev" => SyndicationProvider::Dev,
+                "hashnode" => SyndicationProvider::Hashnode,
+                "ghost" => SyndicationProvider::Ghost,
+                "wordpress" => SyndicationProvider::Wordpress,
+                "medium" => SyndicationProvider::Medium,
+                _ => return false,
+            };
+            let policy = destination_policy(provider);
+            match policy.representation {
+                DestinationRepresentation::PortableMarkdown => {
+                    representation == "portable-markdown"
+                }
+                DestinationRepresentation::PortableHtml => representation == "portable-html",
+                DestinationRepresentation::ManualMarkdown => representation == "manual-markdown",
+            }
+        }
+        _ => false,
+    }
 }
 
 fn etag(text: &str) -> String {
@@ -5284,6 +5585,151 @@ fn rebuild(state: &AppState) -> Response {
     }
 }
 
+fn acknowledge_portability(state: &AppState, req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let Some(path) = body["path"].as_str() else {
+        return Response::error(400, "Missing post path");
+    };
+    let Some(expected_revision) = body["sourceRevision"].as_str() else {
+        return Response::error(400, "Missing source revision");
+    };
+    let Some(capability_id) = body["capabilityId"].as_str() else {
+        return Response::error(400, "Missing capability ID");
+    };
+    let Some(representation) = body["representation"].as_str() else {
+        return Response::error(400, "Missing representation");
+    };
+    let Some(destination) = body["destination"].as_str() else {
+        return Response::error(400, "Missing destination");
+    };
+    let Some(expected_etag) = body["expectedEtag"].as_str() else {
+        return Response::error(400, "Missing portability acknowledgement version");
+    };
+    let acknowledgement = PortabilityAcknowledgement {
+        source_revision: expected_revision.to_string(),
+        capability_id: capability_id.to_string(),
+        representation: representation.to_string(),
+        destination: destination.to_string(),
+    };
+    if let Err(error) = validate_portability_acknowledgement(&acknowledgement) {
+        return Response::error(422, &error);
+    }
+
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let sidecar_path = match resolve_portability_acknowledgement_path(&state.root, &config, path) {
+        Ok(path) => path,
+        Err(error) => return Response::error(422, &error),
+    };
+    let _guard = lock(&state.portability_acknowledgements);
+    let (mut sidecar, current_etag) = match load_portability_acknowledgements(&sidecar_path) {
+        Ok(sidecar) => sidecar,
+        Err(error) => return Response::error(422, &error),
+    };
+    if current_etag != expected_etag {
+        return Response::error(
+            409,
+            "Portability acknowledgements changed on disk; refresh the preview and retry.",
+        );
+    }
+
+    let (preview_site, _) = match site::load_site(&state.root, true, Some(clock::now())) {
+        Ok(site) => site,
+        Err(error) => return Response::error(422, &error),
+    };
+    let Some(post) = preview_site.posts.iter().find(|post| post.source == path) else {
+        return Response::error(404, "Post was not found");
+    };
+    let projection = match openblog_core::portability::PortableProjection::for_authenticated_preview(
+        post,
+        &preview_site.config,
+    ) {
+        Ok(projection) => projection,
+        Err(error) => return Response::error(422, &error),
+    };
+    let revision = match projection.source_revision() {
+        Ok(revision) => revision,
+        Err(error) => return Response::error(422, &error),
+    };
+    if revision != expected_revision {
+        return Response::error(
+            409,
+            "The source changed since this preview was rendered; refresh before acknowledging.",
+        );
+    }
+    let portable = match projection.portable_html() {
+        Ok(portable) => portable,
+        Err(error) => return Response::error(422, &error),
+    };
+    let has_warning = portable.diagnostics.iter().any(|diagnostic| {
+        diagnostic.severity == openblog_core::portability::DiagnosticSeverity::Warning
+            && diagnostic.capability_id.as_deref() == Some(capability_id)
+    });
+    if !has_warning {
+        return Response::error(
+            422,
+            "Only a current, source-scoped portability warning can be acknowledged.",
+        );
+    }
+    if sidecar.acknowledgements.contains(&acknowledgement) {
+        return Response::json(
+            200,
+            &json!({
+                "acknowledgements": sidecar.acknowledgements,
+                "etag": current_etag,
+            }),
+        );
+    }
+    if sidecar.acknowledgements.len() >= MAX_PORTABILITY_ACKNOWLEDGEMENTS {
+        return Response::error(
+            422,
+            "The portability acknowledgement sidecar is full; remove stale records first.",
+        );
+    }
+    sidecar.acknowledgements.push(acknowledgement);
+    sidecar.acknowledgements.sort_by(|left, right| {
+        (
+            &left.source_revision,
+            &left.capability_id,
+            &left.representation,
+            &left.destination,
+        )
+            .cmp(&(
+                &right.source_revision,
+                &right.capability_id,
+                &right.representation,
+                &right.destination,
+            ))
+    });
+    let contents = match serde_json::to_string_pretty(&sidecar) {
+        Ok(contents) => contents,
+        Err(error) => {
+            return Response::error(
+                500,
+                &format!("cannot serialize portability acknowledgements: {error}"),
+            )
+        }
+    };
+    if let Err(error) = write_atomic(&sidecar_path, &contents) {
+        return Response::error(500, &error);
+    }
+    Response::json(
+        200,
+        &json!({
+            "acknowledgements": sidecar.acknowledgements,
+            "etag": etag(&contents),
+        }),
+    )
+}
+
 fn preview(state: &AppState, req: &Request) -> Response {
     if let Err(r) = require_json(req) {
         return r;
@@ -5346,6 +5792,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         contents: source,
     });
     apply_credit_edit_to_sources(&mut sources, &rel, &credit_edit);
+    let portable_config = config.clone();
     // Owner-supplied analytics/comments snippets are intentionally disabled in
     // an unpublished preview. Theme assets and built-in components still run.
     config.snippets = Default::default();
@@ -5415,6 +5862,110 @@ fn preview(state: &AppState, req: &Request) -> Response {
                 "referenceCount": research.references.len(),
             })
         });
+    let portable_preview = if kind == "posts" {
+        let Some(post) = preview_site.posts.iter().find(|post| post.source == rel) else {
+            return Response::error(422, "Preview post was not found in the site model");
+        };
+        let projection =
+            match openblog_core::portability::PortableProjection::for_authenticated_preview(
+                post,
+                &portable_config,
+            ) {
+                Ok(projection) => projection,
+                Err(error) => return Response::error(422, &error),
+            };
+        let mut portable_html = match projection.portable_html() {
+            Ok(output) => output,
+            Err(error) => return Response::error(422, &error),
+        };
+        let portable_markdown = match projection.portable_markdown() {
+            Ok(markdown) => markdown,
+            Err(error) => return Response::error(422, &error),
+        };
+        let portable_text = match projection.portable_text() {
+            Ok(text) => text,
+            Err(error) => return Response::error(422, &error),
+        };
+        // compose() normalizes leading blank lines; locations must refer to the
+        // unsaved editor body, not the composed production-preview document.
+        let leading_lines = |text: &str| {
+            text[..text.len() - text.trim_start_matches(['\r', '\n']).len()]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+        };
+        let editor_lines = leading_lines(text_body);
+        let composed_lines = leading_lines(post.authored_markdown());
+        for diagnostic in &mut portable_html.diagnostics {
+            if let Some(range) = &mut diagnostic.context.source_range {
+                range.start_line = range.start_line.saturating_sub(composed_lines) + editor_lines;
+                range.end_line = range.end_line.saturating_sub(composed_lines) + editor_lines;
+            }
+        }
+        let source_revision = match projection.source_revision() {
+            Ok(revision) => revision,
+            Err(error) => return Response::error(422, &error),
+        };
+        let acknowledgement_path =
+            match resolve_portability_acknowledgement_path(&state.root, &preview_site.config, &rel)
+            {
+                Ok(path) => path,
+                Err(error) => return Response::error(422, &error),
+            };
+        let (acknowledgements, acknowledgement_etag) =
+            match load_portability_acknowledgements(&acknowledgement_path) {
+                Ok(sidecar) => sidecar,
+                Err(error) => return Response::error(422, &error),
+            };
+        let tags = post
+            .tags
+            .iter()
+            .map(|tag| tag.name.clone())
+            .collect::<Vec<_>>();
+        let destination_tag_plans =
+            openblog_core::portability::destination_policies().map(|policy| {
+                openblog_core::portability::destination_tag_plan(policy.provider, &rel, &tags)
+            });
+        let diagnostics_by_representation = ["portable-html", "portable-markdown", "portable-text"]
+            .into_iter()
+            .map(|representation| {
+                (
+                    representation.to_string(),
+                    portable_html
+                        .diagnostics
+                        .iter()
+                        .map(|diagnostic| diagnostic.scoped(representation, "portable-export"))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let destination_content_plans = openblog_core::portability::destination_policies()
+            .into_iter()
+            .map(|policy| {
+                openblog_core::portability::destination_content_plan(
+                    policy.provider,
+                    &rel,
+                    &portable_html,
+                )
+            })
+            .collect::<Vec<_>>();
+        json!({
+            "html": portable_html.html,
+            "markdown": portable_markdown,
+            "text": portable_text,
+            "capabilities": portable_html.capabilities,
+            "diagnostics": portable_html.diagnostics,
+            "diagnosticsByRepresentation": diagnostics_by_representation,
+            "destinations": openblog_core::portability::destination_policies(),
+            "destinationTagPlans": destination_tag_plans,
+            "destinationContentPlans": destination_content_plans,
+            "sourceRevision": source_revision,
+            "acknowledgements": acknowledgements.acknowledgements,
+            "acknowledgementEtag": acknowledgement_etag,
+        })
+    } else {
+        Json::Null
+    };
     let social = match social_metadata(&preview_site, &rel) {
         Ok(meta) => json!({
             "siteName": meta.site_name,
@@ -5476,6 +6027,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "theme": theme,
             "social": social,
             "research": research,
+            "portablePreview": portable_preview,
             "warnings": preview_site.warnings,
             "accessibility": accessibility,
             "evidence": evidence
@@ -6094,6 +6646,207 @@ mod tests {
             .status,
             200
         );
+    }
+
+    #[test]
+    fn workspace_preferences_are_authenticated_csrf_protected_and_conflict_safe() {
+        let f = fixture("workspace-preferences");
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/preferences")).status,
+            401
+        );
+        let session = login_ok(&f);
+        let initial = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/preferences"), &session, false),
+        );
+        assert_eq!(initial.status, 200);
+        let initial = body_json(&initial);
+        assert_eq!(initial["preferences"]["preset"], "simple");
+        assert_eq!(initial["preferences"]["editorMode"], "visual");
+        assert!(!initial.to_string().contains("correct horse battery"));
+
+        let mut preferences = initial["preferences"].clone();
+        preferences["preset"] = json!("custom");
+        preferences["density"] = json!("compact");
+        preferences["hiddenModules"] = json!(["assistant"]);
+        let payload = json!({ "etag": initial["etag"], "preferences": preferences });
+        let without_csrf = handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/preferences", payload.clone()),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without_csrf.status, 403);
+
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/preferences", payload.clone()),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved = body_json(&saved);
+        assert_eq!(saved["preferences"]["preset"], "custom");
+        assert_eq!(saved["preferences"]["density"], "compact");
+        assert_ne!(saved["etag"], initial["etag"]);
+
+        let conflict = handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/preferences", payload),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(conflict.status, 409);
+        assert!(body_json(&conflict)["error"]
+            .as_str()
+            .unwrap()
+            .contains("another session"));
+        let config = fs::read_to_string(f.dir.join("openblog.json")).unwrap();
+        assert!(!config.contains("hiddenModules"));
+        assert!(f.dir.join(".openblog/private/admin-preferences").is_dir());
+    }
+
+    #[test]
+    fn workspace_preferences_are_private_bounded_and_never_built() {
+        let f = fixture("workspace-preferences-private");
+        let users_path = f.dir.join(".openblog/users.json");
+        let mut users = Users::load(&users_path).unwrap();
+        users.set("ada", "another long passphrase").unwrap();
+        users.save(&users_path).unwrap();
+        let mikey = login_ok(&f);
+        let initial = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/preferences"), &mikey, false),
+        ));
+        assert_eq!(initial["stored"], false);
+        let canonical = || {
+            let mut files = crate::fsutil::walk(&f.dir.join("content"));
+            files.push(f.dir.join("openblog.json"));
+            files
+                .into_iter()
+                .map(|file| (file.clone(), fs::read(file).unwrap()))
+                .collect::<Vec<_>>()
+        };
+        let before = canonical();
+
+        let mut preferences = initial["preferences"].clone();
+        preferences["preset"] = json!("custom");
+        preferences["hiddenModules"] = json!(["analytics", "assistant"]);
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/preferences",
+                    json!({ "etag": initial["etag"], "preferences": preferences }),
+                ),
+                &mikey,
+                true,
+            ),
+        );
+        assert_eq!(saved.status, 200);
+        assert_eq!(body_json(&saved)["stored"], true);
+        assert!(
+            before == canonical(),
+            "presentation changed canonical content"
+        );
+
+        let login = handle(
+            &f.state,
+            &json_req(
+                "POST",
+                "/admin/api/login",
+                json!({ "username": "ada", "password": "another long passphrase" }),
+            ),
+        );
+        assert_eq!(login.status, 200);
+        let cookie = login
+            .headers
+            .iter()
+            .find(|(name, _)| name == "Set-Cookie")
+            .unwrap()
+            .1
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        let ada = (
+            cookie,
+            body_json(&login)["csrf"].as_str().unwrap().to_string(),
+        );
+        let theirs = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/preferences"), &ada, false),
+        ));
+        assert_eq!(theirs["preferences"]["preset"], "simple");
+        assert_eq!(theirs["stored"], false);
+
+        for (label, preferences) in [
+            ("essential control", json!({ "hiddenModules": ["write"] })),
+            ("publish control", json!({ "hiddenModules": ["publish"] })),
+            ("preset", json!({ "preset": "<script>" })),
+            ("field", json!({ "theme": "dark" })),
+        ] {
+            let mut invalid = theirs["preferences"].clone();
+            for (key, value) in preferences.as_object().unwrap() {
+                invalid[key] = value.clone();
+            }
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "PUT",
+                        "/admin/api/preferences",
+                        json!({ "etag": theirs["etag"], "preferences": invalid }),
+                    ),
+                    &ada,
+                    true,
+                ),
+            );
+            assert_eq!(response.status, 400, "{label}");
+        }
+        let oversized = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/preferences",
+                    json!({
+                        "etag": theirs["etag"],
+                        "preferences": theirs["preferences"],
+                        "padding": "x".repeat(admin_preferences::MAX_REQUEST_BYTES),
+                    }),
+                ),
+                &ada,
+                true,
+            ),
+        );
+        assert_eq!(oversized.status, 413);
+
+        f.state.rebuild().unwrap();
+        for file in crate::fsutil::walk(&f.dir.join("dist")) {
+            let bytes = fs::read(&file).unwrap();
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(
+                !text.contains("hiddenModules") && !text.contains("admin-preferences"),
+                "{} exposes workspace preferences",
+                file.display()
+            );
+        }
+        let ignored = fs::read_to_string(f.dir.join(".gitignore")).unwrap();
+        assert!(ignored.lines().any(|line| line == "/.openblog/private/"));
     }
 
     #[test]
@@ -9929,6 +10682,175 @@ mod tests {
     }
 
     #[test]
+    fn portable_diagnostic_locations_match_unsaved_body_blank_lines_and_line_endings() {
+        let f = fixture("portable-source-locations");
+        let session = login_ok(&f);
+        let quiz = "```quiz\nQuestion?\n- [x] Yes\n- [ ] No\n```\n";
+        for newline in ["\n", "\r\n"] {
+            for blanks in 0..=3 {
+                let body =
+                    format!("{}😀 Heading\n\n{quiz}", "\n".repeat(blanks)).replace('\n', newline);
+                let response = handle(
+                    &f.state,
+                    &authed(
+                        json_req(
+                            "POST",
+                            "/admin/api/preview",
+                            json!({
+                                "kind": "posts",
+                                "path": "posts/locations.md",
+                                "fields": { "title": "Locations", "date": "2026-01-01" },
+                                "body": body,
+                            }),
+                        ),
+                        &session,
+                        true,
+                    ),
+                );
+                assert_eq!(
+                    response.status,
+                    200,
+                    "{}",
+                    String::from_utf8_lossy(&response.body)
+                );
+                let preview = body_json(&response);
+                for representation in ["portable-html", "portable-markdown", "portable-text"] {
+                    let diagnostic = preview["portablePreview"]["diagnosticsByRepresentation"]
+                        [representation]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|diagnostic| diagnostic["capabilityId"] == "knowledge-check")
+                        .unwrap();
+                    assert_eq!(diagnostic["representation"], representation);
+                    assert_eq!(diagnostic["destination"], "portable-export");
+                    assert_eq!(diagnostic["sourceRange"]["startLine"], blanks + 3);
+                    assert_eq!(diagnostic["sourceRange"]["startColumn"], 1);
+                }
+                assert!(!f.dir.join("content/posts/locations.md").exists());
+            }
+        }
+    }
+
+    #[test]
+    fn universal_publishing_preview_matches_public_artifacts_without_enabling_live_services() {
+        let f = fixture("universal-publishing-preview");
+        let session = login_ok(&f);
+        let source =
+            include_str!("../../../examples/portable-publishing/content/posts/portable-lesson.md");
+        fs::write(
+            f.dir.join("openblog.json"),
+            include_str!("../../../examples/portable-publishing/openblog.json"),
+        )
+        .unwrap();
+        let post_path = f.dir.join("content/posts/portable-lesson.md");
+        fs::write(&post_path, source).unwrap();
+        fs::write(
+            f.dir.join("content/posts/portable-lesson.credits.json"),
+            include_str!(
+                "../../../examples/portable-publishing/content/posts/portable-lesson.credits.json"
+            ),
+        )
+        .unwrap();
+        let document = frontmatter::parse(source).unwrap();
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({
+                        "kind": "posts",
+                        "path": "posts/portable-lesson.md",
+                        "fields": fields_to_json(&document.front_matter.fields),
+                        "body": document.body,
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let preview = body_json(&response);
+        let (public_site, _) = site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+        let post = public_site
+            .posts
+            .iter()
+            .find(|post| post.slug == "portable-lesson")
+            .unwrap();
+        let projection =
+            openblog_core::portability::PortableProjection::from_post(post, &public_site.config)
+                .unwrap();
+        let output = projection.portable_html().unwrap();
+        let content_plans = openblog_core::portability::destination_policies()
+            .into_iter()
+            .map(|policy| {
+                openblog_core::portability::destination_content_plan(
+                    policy.provider,
+                    "posts/portable-lesson.md",
+                    &output,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            preview["portablePreview"]["destinationContentPlans"],
+            json!(content_plans)
+        );
+        assert_eq!(
+            preview["portablePreview"]["html"],
+            projection.portable_html().unwrap().html
+        );
+        assert_eq!(
+            preview["portablePreview"]["markdown"],
+            projection.portable_markdown().unwrap()
+        );
+        assert_eq!(
+            preview["portablePreview"]["text"],
+            projection.portable_text().unwrap()
+        );
+        assert!(preview["portablePreview"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| {
+                capability["id"] == "knowledge-check"
+                    && capability["portability"] == "gracefully-transformed"
+            }));
+        for representation in ["html", "markdown", "text"] {
+            let output = preview["portablePreview"][representation].as_str().unwrap();
+            assert!(output.contains("Join the discussion"));
+            assert!(output.contains("Open in Rust Playground"));
+            assert!(output.contains("Alex Example"));
+            for private in [
+                "PRIVATE_",
+                "runner.example.org",
+                "discussion.example.org",
+                "<ob-",
+            ] {
+                assert!(!output.contains(private), "{representation}: {private}");
+            }
+        }
+        let native = handle(
+            &f.state,
+            &authed(
+                req("GET", preview["previewUrl"].as_str().unwrap()),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(native.status, 200);
+        let native = String::from_utf8(native.body).unwrap();
+        assert!(!native.contains("<ob-comments"));
+        assert_eq!(fs::read_to_string(&post_path).unwrap(), source);
+        assert!(!f.dir.join(".openblog/syndication.json").exists());
+    }
+
+    #[test]
     fn logout_ends_the_session_and_preview_uses_the_publishing_engine() {
         let f = fixture("logout");
         let session = login_ok(&f);
@@ -9982,6 +10904,47 @@ mod tests {
         );
         assert_eq!(preview["social"]["type"], "article");
         assert_eq!(preview["social"]["card"], "summary");
+        assert!(preview["portablePreview"]["html"]
+            .as_str()
+            .is_some_and(|html| html.contains("<h2") && !html.contains("<ob-")));
+        assert!(preview["portablePreview"]["markdown"]
+            .as_str()
+            .is_some_and(|markdown| {
+                markdown.contains("# Preview title")
+                    && markdown.contains("Canonical: <https://")
+                    && markdown.contains("## Hi")
+            }));
+        assert!(preview["portablePreview"]["diagnostics"]
+            .as_array()
+            .is_some_and(Vec::is_empty));
+        assert_eq!(
+            preview["portablePreview"]["destinations"]
+                .as_array()
+                .unwrap()
+                .len(),
+            5
+        );
+        let dev_tags = &preview["portablePreview"]["destinationTagPlans"][0];
+        assert_eq!(dev_tags["policy"]["provider"], "dev");
+        assert_eq!(dev_tags["policy"]["maxTags"], 4);
+        assert_eq!(dev_tags["tags"], json!(["preview"]));
+        assert_eq!(dev_tags["omittedTags"], json!([]));
+        assert_eq!(dev_tags["diagnostics"], json!([]));
+        assert_eq!(
+            preview["portablePreview"]["destinations"][3]["canonicalBehavior"],
+            "WordPress core cannot set an external canonical URL."
+        );
+        assert_eq!(
+            preview["portablePreview"]["destinations"][4]["representation"],
+            "manual-markdown"
+        );
+        assert!(preview["portablePreview"]["sourceRevision"]
+            .as_str()
+            .is_some_and(|revision| revision.len() == 40));
+        assert_eq!(preview["portablePreview"]["acknowledgements"], json!([]));
+        assert!(preview["portablePreview"]["acknowledgementEtag"]
+            .as_str()
+            .is_some_and(|etag| !etag.is_empty()));
         assert!(preview["social"]["url"]
             .as_str()
             .unwrap()
@@ -10047,6 +11010,208 @@ mod tests {
             )
             .status,
             401
+        );
+    }
+
+    #[test]
+    fn portability_acknowledgement_files_reject_malformed_versions_scopes_and_bounds() {
+        let f = fixture("portability-sidecar-contract");
+        let path = f.dir.join("invalid.portability.json");
+        let valid = json!({
+            "sourceRevision": "a".repeat(40),
+            "capabilityId": "knowledge-check",
+            "representation": "portable-markdown",
+            "destination": "dev",
+        });
+        let mut renamed = valid.clone();
+        renamed["destination"] = json!("renamed-target");
+        for invalid in [
+            json!({"version": 2, "acknowledgements": []}),
+            json!({"version": 1, "acknowledgements": [], "ignoreErrors": true}),
+            json!({"version": 1, "acknowledgements": [{}]}),
+            json!({"version": 1, "acknowledgements": vec![json!({}); MAX_PORTABILITY_ACKNOWLEDGEMENTS + 1]}),
+            json!({"version": 1, "acknowledgements": [renamed]}),
+        ] {
+            let bytes = serde_json::to_vec(&invalid).unwrap();
+            fs::write(&path, &bytes).unwrap();
+            assert!(load_portability_acknowledgements(&path).is_err());
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
+        for bytes in [b"{invalid JSON".to_vec(), vec![b' '; 128 * 1024 + 1]] {
+            fs::write(&path, &bytes).unwrap();
+            assert!(load_portability_acknowledgements(&path).is_err());
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+        }
+        let sidecar = json!({"version": 1, "acknowledgements": [valid]});
+        fs::write(&path, serde_json::to_vec(&sidecar).unwrap()).unwrap();
+        let (loaded, etag) = load_portability_acknowledgements(&path).unwrap();
+        assert_eq!(loaded.acknowledgements.len(), 1);
+        assert_eq!(load_portability_acknowledgements(&path).unwrap().1, etag);
+    }
+
+    #[test]
+    fn portability_acknowledgements_are_tracked_scoped_and_stale_on_source_changes() {
+        for representation in ["portable-html", "portable-markdown", "portable-text"] {
+            assert_portability_acknowledgement(representation);
+        }
+    }
+
+    fn assert_portability_acknowledgement(representation: &str) {
+        let f = fixture("portability-ack");
+        let post_path = "posts/lesson.md";
+        let post_body =
+            "```quiz\nWhat is portable?\n- [ ] A second source\n- [x] A derived view\n```\n";
+        fs::write(
+            f.dir.join("content").join(post_path),
+            format!("---\ntitle: Lesson\ndate: 2020-01-01\n---\n\n{post_body}"),
+        )
+        .unwrap();
+        f.state.rebuild().unwrap();
+        let session = login_ok(&f);
+        let (loaded, _) = site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+        let post = loaded
+            .posts
+            .iter()
+            .find(|post| post.source == post_path)
+            .unwrap();
+        let projection =
+            openblog_core::portability::PortableProjection::from_post(post, &loaded.config)
+                .unwrap();
+        let source_revision = projection.source_revision().unwrap();
+        let acknowledge = |revision: &str, etag: &str, destination: &str| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/portability/acknowledge",
+                        json!({
+                            "path": post_path,
+                            "sourceRevision": revision,
+                            "capabilityId": "knowledge-check",
+                            "representation": representation,
+                            "destination": destination,
+                            "expectedEtag": etag,
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let response = acknowledge(&source_revision, &etag_bytes(&[]), "portable-export");
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let acknowledgement = body_json(&response);
+        assert_eq!(
+            acknowledgement["acknowledgements"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let sidecar = f.dir.join("content/posts/lesson.portability.json");
+        assert!(sidecar.exists());
+        let stored: Json = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+        assert_eq!(
+            stored["acknowledgements"][0]["sourceRevision"],
+            source_revision
+        );
+        assert_eq!(
+            stored["acknowledgements"][0]["destination"],
+            "portable-export"
+        );
+        assert_eq!(
+            stored["acknowledgements"][0]["representation"],
+            representation
+        );
+        let repeated = acknowledge(
+            &source_revision,
+            acknowledgement["etag"].as_str().unwrap(),
+            "portable-export",
+        );
+        assert_eq!(repeated.status, 200);
+        assert_eq!(body_json(&repeated), acknowledgement);
+        assert_eq!(
+            serde_json::from_slice::<Json>(&fs::read(&sidecar).unwrap()).unwrap(),
+            stored
+        );
+
+        let preview = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({
+                        "kind": "posts",
+                        "path": post_path,
+                        "fields": { "title": "Lesson", "date": "2020-01-01" },
+                        "body": post_body,
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            preview.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&preview.body)
+        );
+        assert_eq!(
+            body_json(&preview)["portablePreview"]["acknowledgements"][0]["sourceRevision"],
+            source_revision
+        );
+
+        let invalid_scope = acknowledge(
+            &source_revision,
+            acknowledgement["etag"].as_str().unwrap(),
+            "unknown",
+        );
+        assert_eq!(invalid_scope.status, 422);
+        fs::write(
+            f.dir.join("content").join(post_path),
+            format!("---\ntitle: Lesson\ndate: 2020-01-01\n---\n\n{post_body}\nChanged."),
+        )
+        .unwrap();
+        let changed = acknowledge(
+            &source_revision,
+            acknowledgement["etag"].as_str().unwrap(),
+            "portable-export",
+        );
+        assert_eq!(changed.status, 409);
+        let stale_preview = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({
+                        "kind": "posts",
+                        "path": post_path,
+                        "fields": { "title": "Lesson", "date": "2020-01-01" },
+                        "body": format!("{post_body}\nChanged."),
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(stale_preview.status, 200);
+        let stale_preview = body_json(&stale_preview);
+        assert_ne!(
+            stale_preview["portablePreview"]["sourceRevision"],
+            source_revision
+        );
+        assert_eq!(
+            stale_preview["portablePreview"]["acknowledgements"][0]["sourceRevision"],
+            source_revision
         );
     }
 

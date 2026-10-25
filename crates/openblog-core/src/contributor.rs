@@ -277,12 +277,80 @@ pub fn resolve(
     Ok((resolved, CreditProvenance::ExplicitSidecar))
 }
 
+/// The ordered, escaped "Contributions" list: each credited name (linked through
+/// `link` when the contributor has a URL), its role labels, and a manually
+/// entered ORCID iD marked as unauthenticated. `orcid_icon` is the bundled
+/// icon's path, left out where the output has no site assets. This is
+/// attribution for the work, never a list of references.
+pub(crate) fn contributions_html<E>(
+    credits: &[ResolvedCredit],
+    link: impl Fn(&str) -> Result<String, E>,
+    orcid_icon: Option<&str>,
+) -> Result<String, E> {
+    use crate::escape::{attr, text};
+    let mut html = String::from(
+        "<aside class=\"ob-contributions\" aria-labelledby=\"ob-contributions-title\">\n<h2 id=\"ob-contributions-title\" class=\"ob-contributions-title\">Contributions</h2>\n<ul>\n",
+    );
+    for credit in credits {
+        html.push_str("<li><div><span class=\"ob-contributor-name\">");
+        let url = credit.contributor.url.trim();
+        if url.is_empty() {
+            html.push_str(&text(&credit.contributor.name));
+        } else {
+            html.push_str(&format!(
+                "<a href=\"{}\">{}</a>",
+                attr(&link(url)?),
+                text(&credit.contributor.name)
+            ));
+        }
+        html.push_str("</span><span class=\"ob-contributor-roles\">");
+        html.push_str(&text(
+            &credit
+                .roles
+                .iter()
+                .map(|role| role.label())
+                .collect::<Vec<_>>()
+                .join(", "),
+        ));
+        html.push_str("</span></div>");
+        if !credit.contributor.orcid.is_empty() {
+            let id = credit
+                .contributor
+                .orcid
+                .trim_start_matches("https://orcid.org/");
+            let icon = orcid_icon.map_or_else(String::new, |icon| {
+                format!(
+                    "<span class=\"ob-orcid-icon\" aria-hidden=\"true\"><img src=\"{}\" alt=\"\" loading=\"lazy\" decoding=\"async\"></span>",
+                    attr(icon)
+                )
+            });
+            html.push_str(&format!(
+                "<p class=\"ob-orcid\"><a href=\"{}\" aria-label=\"View unauthenticated ORCID record – {}\">{icon}{}</a> (unauthenticated)</p>",
+                attr(&credit.contributor.orcid),
+                attr(id),
+                text(&credit.contributor.orcid)
+            ));
+        }
+        html.push_str("</li>\n");
+    }
+    html.push_str("</ul>\n</aside>\n");
+    Ok(html)
+}
+
 pub fn sidecar_path(post_path: &str) -> Option<String> {
     let normalized = post_path.replace('\\', "/");
     let stem = normalized
         .strip_suffix(".markdown")
         .or_else(|| normalized.strip_suffix(".md"))?;
     Some(format!("{stem}.credits.json"))
+}
+
+pub fn portability_sidecar_path(post_path: &str) -> Option<String> {
+    let normalized = post_path.replace('\\', "/");
+    let stem = normalized
+        .strip_suffix(".markdown")
+        .or_else(|| normalized.strip_suffix(".md"))?;
+    Some(format!("{stem}.portability.json"))
 }
 
 pub(crate) fn valid_registry_key(value: &str) -> bool {
@@ -415,6 +483,15 @@ mod tests {
             sidecar_path("posts/a.markdown").as_deref(),
             Some("posts/a.credits.json")
         );
+        assert_eq!(
+            portability_sidecar_path("posts/a.md").as_deref(),
+            Some("posts/a.portability.json")
+        );
+        assert_eq!(
+            portability_sidecar_path("posts/a.markdown").as_deref(),
+            Some("posts/a.portability.json")
+        );
+        assert_eq!(portability_sidecar_path("posts/a.txt"), None);
         assert_eq!(sidecar_path("posts/a.txt"), None);
     }
 

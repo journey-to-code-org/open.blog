@@ -399,7 +399,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "openblog-cli"
-version = "0.14.0"
+version = "0.17.2"
 dependencies = [
  "argon2",
  "base64",
@@ -421,8 +421,9 @@ dependencies = [
 
 [[package]]
 name = "openblog-core"
-version = "0.14.0"
+version = "0.17.2"
 dependencies = [
+ "blake2",
  "http",
  "pulldown-cmark",
  "serde",
@@ -432,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "openblog-wasm"
-version = "0.14.0"
+version = "0.17.2"
 dependencies = [
  "openblog-core",
  "serde_json",
