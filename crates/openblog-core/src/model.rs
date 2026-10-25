@@ -828,7 +828,7 @@ pub fn load_post(
         .filter(|s| !s.is_empty());
     let description = first(fm, &["description", "summary", "brief", "excerpt"])
         .map(str::to_string)
-        .unwrap_or_else(|| markdown::excerpt(rendered.lead_text(), 180));
+        .unwrap_or_else(|| markdown::excerpt(&rendered.text, 180));
     let authored_cover = optional_string(first(fm, &["cover", "image", "coverImage", "hero"]));
     let cover = authored_cover.clone().or(rendered.first_image.clone());
     if let Some(video) = &video {

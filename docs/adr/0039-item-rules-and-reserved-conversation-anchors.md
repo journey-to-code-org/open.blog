@@ -16,9 +16,13 @@ with a refusal that blamed "a section".
 
 ## Decision
 
-- The namespace is reserved. A heading whose explicit id or text slug is
-  `continuing-the-conversation` or starts with `conversation-` is refused, in a section
-  (`AssemblyError::UnsafeMarkup`) and in an item (`ItemRule::ReservedAnchor`).
+- Exactly the generated anchors are reserved: `continuing-the-conversation` and
+  `conversation-<category>` or `conversation-<category>-<n>`, where the category is one of
+  `agreement`, `difference`, `question`, `application` and `uncertainty`. A heading whose explicit
+  id or text slug is one of these is refused, in a section (`AssemblyError::ReservedSectionAnchor`,
+  its own refusal so Admin can tell the author to rename the heading rather than remove markup)
+  and in an item (`ItemRule::ReservedAnchor`). The rest of the `conversation-` prefix stays free,
+  so a heading such as "Conversation starters" is fine.
 - Under the generated levels 2 to 4, an item's first heading must be level 5 and each following
   heading goes at most one level deeper than the one before (`ItemRule::Outline`). Levels 1 to 4
   are never allowed in an item.
@@ -26,8 +30,10 @@ with a refusal that blamed "a section".
   edited (`SynthesisError::Rule`), so authors learn early, and again at assembly, so items stored
   before the rule cannot publish. The stored-set validity check stays lenient, so an older set
   still loads and the author can edit the offending item.
-- A refusal caused by an item is its own `AssemblyError::UnsafeConversationItem(ItemRule)` and
-  both Admin messages name the rule (`ItemRule::describe`, which holds no author text) and say it
+- A refusal caused by an item is its own `AssemblyError::UnsafeConversationItem(ItemRule, ItemRef)`.
+  `ItemRef` is the item's category and ordinal (Admin says "the second question"), never its text.
+  When the whole body fails the isolation check but the sections pass alone, the item is blamed.
+  Both Admin messages name the rule (`ItemRule::describe`, which holds no author text) and say it
   is a continuing-conversation item. Raw HTML, an unsafe address or a neighbour-reaching
   construct is `ItemRule::Markup`.
 - Nothing is changed on any refusal.

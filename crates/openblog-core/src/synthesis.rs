@@ -234,13 +234,34 @@ impl Default for SynthesisSet {
 
 /// The anchor of the heading above the whole conversation. Generated, so authors may not claim it.
 pub const CONVERSATION_ANCHOR: &str = "continuing-the-conversation";
-/// Every generated category and item anchor starts with this.
-pub const CONVERSATION_ANCHOR_PREFIX: &str = "conversation-";
+/// The category part of every generated category and item anchor (`conversation-<category>`).
+const CONVERSATION_CATEGORIES: [&str; 5] = [
+    "agreement",
+    "difference",
+    "question",
+    "application",
+    "uncertainty",
+];
 
-/// Whether an anchor belongs to the generated conversation block.
+/// Whether an anchor is exactly one the generated conversation block produces:
+/// `continuing-the-conversation`, `conversation-<category>` or `conversation-<category>-<n>`.
+/// Nothing else is reserved, so a heading such as "Conversation starters" is fine.
 pub fn is_reserved_anchor(id: &str) -> bool {
     let id = id.trim().to_ascii_lowercase();
-    id == CONVERSATION_ANCHOR || id.starts_with(CONVERSATION_ANCHOR_PREFIX)
+    if id == CONVERSATION_ANCHOR {
+        return true;
+    }
+    let Some(rest) = id.strip_prefix("conversation-") else {
+        return false;
+    };
+    CONVERSATION_CATEGORIES.iter().any(|category| {
+        rest.strip_prefix(category).is_some_and(|tail| {
+            tail.is_empty()
+                || tail
+                    .strip_prefix('-')
+                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        })
+    })
 }
 
 /// The rule an item's Markdown breaks, named so a refusal can say which.
@@ -262,7 +283,7 @@ impl ItemRule {
         match self {
             Self::Markup => "raw HTML, an unsafe link or image address, or Markdown that reaches another item",
             Self::Outline => "a heading above level 5, or one that skips a level (items may only use headings from level 5, one level deeper at a time)",
-            Self::ReservedAnchor => "a heading whose anchor is reserved for the generated conversation (`continuing-the-conversation` or `conversation-...`)",
+            Self::ReservedAnchor => "a heading whose anchor is reserved for the generated conversation (`continuing-the-conversation` or `conversation-<category>[-<n>]`)",
         }
     }
 }
