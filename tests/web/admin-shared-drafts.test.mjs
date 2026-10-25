@@ -1,0 +1,507 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+import { ObAdmin, REFLECTION_PROMPTS, draftFailure, draftStateText, insertAtSelection, promptInsertion, revealSlotText } from "../../web/admin/admin.js";
+
+const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");
+
+// ---------------------------------------------------------------- DOM shim
+
+
+class DomNode {
+  constructor(tag = "", owner = null) {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.parent = null;
+    this.attributes = {};
+    this.listeners = {};
+    this.dataset = {};
+    this.style = {};
+    this.owner = owner;
+    this.hidden = false;
+    this.disabled = false;
+    this.checked = false;
+    this.selected = false;
+    this.open = false;
+    this._text = "";
+    this._value = undefined;
+    this.classList = { contains: (name) => (this.className || "").split(/\s+/).includes(name) };
+  }
+  get value() {
+    if (this.tagName === "SELECT" && this._value === undefined) return this.children.find((child) => child.selected)?.value ?? this.children[0]?.value ?? "";
+    return this._value ?? "";
+  }
+  set value(value) {
+    this._value = String(value);
+  }
+  append(...children) {
+    for (const child of children.flat()) {
+      if (child === null || child === undefined || child === false) continue;
+      const node = child instanceof DomNode ? child : Object.assign(new DomNode("#text"), { textContent: String(child) });
+      node.parent?.children.splice(node.parent.children.indexOf(node), 1);
+      node.parent = this;
+      this.children.push(node);
+    }
+  }
+  replaceChildren(...children) {
+    for (const child of this.children) child.parent = null;
+    this.children = [];
+    this.append(...children);
+  }
+  remove() {
+    if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1);
+    this.parent = null;
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+    if (name === "id") this.id = String(value);
+    if (name === "hidden") this.hidden = true;
+    if (name.startsWith("data-")) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = String(value);
+  }
+  contains(node) {
+    for (let current = node; current; current = current.parent) if (current === this) return true;
+    return false;
+  }
+  getAttribute(name) {
+    return this.attributes[name] ?? null;
+  }
+  addEventListener(name, listener, options = {}) {
+    (this.listeners[name] ||= []).push({ listener, once: Boolean(options.once) });
+  }
+  dispatch(name, event = {}) {
+    const listeners = this.listeners[name] || [];
+    this.listeners[name] = listeners.filter((entry) => !entry.once);
+    const payload = { type: name, target: this, currentTarget: this, preventDefault() {}, ...event };
+    return Promise.all(listeners.map((entry) => entry.listener(payload)));
+  }
+  click() {
+    if (this.disabled) return Promise.resolve();
+    return this.dispatch("click");
+  }
+  focus() {
+    this.owner.activeElement = this;
+  }
+  showModal() {
+    this.open = true;
+  }
+  close() {
+    if (!this.open) return;
+    this.open = false;
+    // Browsers queue the close event as a task, after the code that closed the dialog.
+    setTimeout(() => this.dispatch("close"), 0);
+  }
+  set textContent(value) {
+    this.children = [];
+    this._text = String(value);
+  }
+  get textContent() {
+    return this._text + this.children.map((child) => child.textContent).join("");
+  }
+  matches(selector) {
+    if (selector.startsWith("#")) return this.id === selector.slice(1);
+    if (selector.startsWith(".")) return this.classList.contains(selector.slice(1));
+    const valued = selector.match(/^([a-z]*)\[([a-z-]+)="([^"]*)"\]$/);
+    if (valued) return (!valued[1] || this.tagName === valued[1].toUpperCase()) && this.attributes[valued[2]] === valued[3];
+    const attribute = selector.match(/^([a-z]*)\[([a-z-]+)\]$/);
+    if (attribute) {
+      const [, tag, name] = attribute;
+      if (tag && this.tagName !== tag.toUpperCase()) return false;
+      if (name === "open") return this.open;
+      if (name.startsWith("data-")) return name.slice(5).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()) in this.dataset;
+      return name in this.attributes;
+    }
+    return this.tagName === selector.toUpperCase();
+  }
+  querySelectorAll(selector) {
+    const found = [];
+    const visit = (node) => {
+      for (const child of node.children) {
+        if (child.matches(selector)) found.push(child);
+        visit(child);
+      }
+    };
+    visit(this);
+    return found;
+  }
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+}
+
+function installDom() {
+  const previous = { Node: globalThis.Node, document: globalThis.document, location: globalThis.location, open: globalThis.open, localStorage: globalThis.localStorage };
+  const documentShim = {
+    activeElement: null,
+    documentElement: { dataset: {} },
+    title: "",
+    createElement: (tag) => new DomNode(tag, documentShim),
+    createTextNode: (text) => Object.assign(new DomNode("#text", documentShim), { textContent: String(text) }),
+    querySelector: (selector) => documentShim.body.querySelector(selector),
+  };
+  documentShim.body = new DomNode("body", documentShim);
+  globalThis.Node = DomNode;
+  globalThis.document = documentShim;
+  globalThis.location = { hash: "#/shared", origin: "https://blog.example" };
+  return {
+    document: documentShim,
+    restore() {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete globalThis[name];
+        else globalThis[name] = value;
+      }
+    },
+  };
+}
+
+const withDom = (run) => async () => {
+  const dom = installDom();
+  try {
+    await run(dom);
+  } finally {
+    dom.restore();
+  }
+};
+
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const settle = async () => {
+  for (let i = 0; i < 8; i += 1) await tick();
+};
+
+class FakeApiError extends Error {
+  constructor(message, status, data) {
+    super(message);
+    this.status = status;
+    this.data = data;
+  }
+}
+
+const PUBLICATION = "shared-0a1b2c3d4e5f";
+const stampOf = (number) => ({ number, contributionId: "participant-1", digest: "d" });
+
+/** A stand-in for the Admin API: it checks the expected revision like the server does. */
+function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {}) {
+  const state = { number, markdown, calls: [], reveal: { policy: "voluntary", ready: false, canSetPolicy: false, slots: [], ...reveal } };
+  return {
+    state,
+    async call(method, path, options = {}) {
+      const key = `${method} ${path.split("?")[0]}`;
+      state.calls.push({ key, body: options.json });
+      if (failures[key]) {
+        const failure = failures[key];
+        delete failures[key];
+        throw failure;
+      }
+      switch (key) {
+        case "GET collaboration/draft":
+          return { draft: state.number ? { stamp: stampOf(state.number), markdown: state.markdown } : null };
+        case "PUT collaboration/draft":
+          if (options.json.expectedRevision !== state.number) {
+            throw new FakeApiError("Your draft changed since you last read it.", 409, { error: "Your draft changed since you last read it.", current: { stamp: stampOf(state.number), markdown: state.markdown } });
+          }
+          state.number += 1;
+          state.markdown = options.json.markdown;
+          return { stamp: stampOf(state.number) };
+        case "GET collaboration/reveal":
+          return state.reveal;
+        case "PUT collaboration/reveal/ready":
+          state.reveal = { ...state.reveal, ready: options.json.revision !== null };
+          return { ready: state.reveal.ready, revealed: false };
+        case "PUT collaboration/reveal/policy":
+          state.reveal = { ...state.reveal, policy: options.json.policy, ready: false };
+          return { policy: options.json.policy };
+        default:
+          throw new FakeApiError(`unexpected ${key}`, 500, null);
+      }
+    },
+  };
+}
+
+async function openDraft(api, roles = ["contributor"]) {
+  const app = new ObAdmin();
+  app.api = api;
+  const panel = app.draftPanel({ publicationId: PUBLICATION, roles }, 0);
+  if (!panel) return { panel };
+  document.body.append(panel);
+  panel.open = true;
+  await panel.dispatch("toggle");
+  await settle();
+  return { panel };
+}
+
+const button = (root, label) => root.querySelectorAll("button").find((node) => node.attributes["aria-label"] === label || node.textContent === label);
+const textarea = (root) => root.querySelector("textarea");
+const textOf = (root) => root.textContent.replace(/\s+/g, " ");
+const save = (panel) => panel.querySelector("form").dispatch("submit");
+const typeInto = async (panel, value) => {
+  textarea(panel).value = value;
+  await textarea(panel).dispatch("input");
+};
+const alertOf = (root) => root.querySelectorAll("p").find((node) => node.attributes.role === "alert");
+
+// ---------------------------------------------------------------- pure helpers
+
+test("prompts are plain optional quotes, inserted where the caret is and owned by the writer", () => {
+  assert.ok(REFLECTION_PROMPTS.length >= 3);
+  assert.equal(promptInsertion("  What   stood\nout? "), "> What stood out?\n\n");
+  assert.deepEqual(insertAtSelection("ab", 1, 1, "X"), { text: "aXb", caret: 2 });
+  assert.deepEqual(insertAtSelection("ab", 0, 2, "X"), { text: "X", caret: 1 });
+  assert.deepEqual(insertAtSelection("ab", undefined, undefined, "X"), { text: "abX", caret: 3 });
+  assert.deepEqual(insertAtSelection("ab", 9, 9, "X"), { text: "abX", caret: 3 });
+});
+
+test("the save state is always words", () => {
+  assert.match(draftStateText({}), /Nothing saved yet/);
+  assert.match(draftStateText({ number: 3 }), /Saved as revision 3/);
+  assert.match(draftStateText({ number: 3, dirty: true }), /Unsaved changes.*revision 3/);
+  assert.match(draftStateText({ dirty: true }), /Unsaved changes. Nothing saved/);
+  assert.equal(draftStateText({ saving: true }), "Saving...");
+});
+
+test("failures tell the writer their text is safe and what kind of problem it was", () => {
+  assert.equal(draftFailure(new TypeError("Failed to fetch")).kind, "offline");
+  assert.match(draftFailure(new TypeError("x")).message, /offline.*still here/);
+  const current = { stamp: stampOf(2), markdown: "theirs" };
+  assert.deepEqual(draftFailure(new FakeApiError("m", 409, { error: "newer", current })), { kind: "conflict", message: "newer", current });
+  assert.equal(draftFailure(new FakeApiError("m", 404, null)).kind, "denied");
+  assert.equal(draftFailure(new FakeApiError("m", 422, { error: "too big" })).message, "too big");
+  assert.match(draftFailure(new FakeApiError("", 500, null)).message, /still here/);
+});
+
+test("comparison slots say only what the reader may know", () => {
+  assert.match(revealSlotText({ kind: "own", displayName: "Ada" }), /Ada \(you\)/);
+  assert.match(revealSlotText({ kind: "revealed", displayName: "Grace", stamp: { number: 2 } }), /Grace: revealed to you, revision 2/);
+  const offered = revealSlotText({ kind: "private", displayName: "Linus", ready: true });
+  const quiet = revealSlotText({ kind: "private", displayName: "Linus", ready: false });
+  assert.match(offered, /offered a revision/);
+  assert.match(quiet, /not offered/);
+  assert.doesNotMatch(offered + quiet, /revision \d/);
+});
+
+// ---------------------------------------------------------------- the panel
+
+test("the draft panel is for writers and coordinators and loads only when opened", withDom(async () => {
+  const app = new ObAdmin();
+  assert.equal(app.draftPanel({ publicationId: PUBLICATION, roles: ["reader"] }, 0), null);
+  const api = fakeApi({ number: 2, markdown: "mine" });
+  app.api = api;
+  const panel = app.draftPanel({ publicationId: PUBLICATION, roles: ["contributor"] }, 0);
+  assert.equal(api.state.calls.length, 0, "nothing is requested until the panel opens");
+  panel.open = true;
+  await panel.dispatch("toggle");
+  await settle();
+  assert.equal(textarea(panel).value, "mine");
+  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/reveal"]);
+}));
+
+test("prompts can be added, edited, deleted, hidden, and are never required to save", withDom(async () => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  assert.match(textOf(panel), /Prompts are optional/);
+  const prompt = REFLECTION_PROMPTS[0];
+  await button(panel, `Add prompt to draft: ${prompt}`).click();
+  assert.equal(textarea(panel).value, `> ${prompt}\n\n`);
+  assert.match(textOf(panel), /Unsaved changes/);
+  await typeInto(panel, "");
+  await button(panel, "Hide prompts").click();
+  assert.equal(panel.querySelector(".oba-draft-prompts").hidden, true);
+  assert.equal(button(panel, "Show prompts").attributes["aria-pressed"], "true");
+  await save(panel);
+  await settle();
+  assert.equal(api.state.number, 1, "an empty draft saves: no length or structure is enforced");
+  assert.equal(api.state.markdown, "");
+}));
+
+test("saving shows an unsaved indicator, then the saved revision, and announces it politely", withDom(async () => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  assert.match(textOf(panel), /Nothing saved yet/);
+  await typeInto(panel, "my words");
+  assert.match(textOf(panel), /Unsaved changes. Nothing saved yet. 8 characters/);
+  await save(panel);
+  await settle();
+  assert.match(textOf(panel), /Saved as revision 1/);
+  const live = panel.querySelectorAll("p").find((node) => node.attributes.role === "status");
+  assert.equal(live.attributes["aria-live"], "polite");
+  assert.match(live.textContent, /Saved as revision 1/);
+  assert.deepEqual(api.state.calls.find((call) => call.key === "PUT collaboration/draft").body, { publicationId: PUBLICATION, expectedRevision: 0, markdown: "my words" });
+}));
+
+test("a conflict keeps the original text, moves focus to the recovery heading, and offers every way out", withDom(async (dom) => {
+  const api = fakeApi({ number: 1, markdown: "first" });
+  const { panel } = await openDraft(api);
+  api.state.number = 2;
+  api.state.markdown = "from another tab";
+  await typeInto(panel, "my unsaved text");
+  await save(panel);
+  await settle();
+  const conflict = panel.querySelector(".oba-draft-conflict");
+  assert.equal(conflict.hidden, false);
+  assert.equal(textarea(panel).value, "my unsaved text", "the editor is untouched");
+  assert.equal(api.state.markdown, "from another tab", "nothing was overwritten");
+  assert.equal(dom.document.activeElement.id, "oba-draft-0-conflict-heading");
+  assert.equal(conflict.attributes["aria-labelledby"], "oba-draft-0-conflict-heading");
+  assert.equal(conflict.querySelector("#oba-draft-0-conflict-mine").value, "my unsaved text");
+  assert.equal(conflict.querySelector("#oba-draft-0-conflict-newer").value, "from another tab");
+  assert.match(textOf(conflict), /Newer saved copy \(revision 2\)/);
+  for (const label of ["Save my text as a new revision", "Use the newer copy instead", "Decide later"]) assert.ok(button(conflict, label), label);
+}));
+
+test("keeping my text saves it on top of the newer revision, and focus returns to the editor", withDom(async (dom) => {
+  const api = fakeApi({ number: 1, markdown: "first" });
+  const { panel } = await openDraft(api);
+  api.state.number = 2;
+  await typeInto(panel, "mine");
+  await save(panel);
+  await settle();
+  await button(panel, "Save my text as a new revision").click();
+  await settle();
+  assert.equal(api.state.number, 3);
+  assert.equal(api.state.markdown, "mine");
+  assert.equal(panel.querySelector(".oba-draft-conflict").hidden, true);
+  assert.equal(dom.document.activeElement, textarea(panel));
+  assert.match(textOf(panel), /Saved as revision 3/);
+}));
+
+test("using the newer copy can be undone: the earlier text comes back unsaved", withDom(async (dom) => {
+  const api = fakeApi({ number: 1, markdown: "first" });
+  const { panel } = await openDraft(api);
+  api.state.number = 2;
+  api.state.markdown = "theirs";
+  await typeInto(panel, "mine");
+  await save(panel);
+  await settle();
+  await button(panel, "Use the newer copy instead").click();
+  assert.equal(textarea(panel).value, "theirs");
+  assert.equal(dom.document.activeElement, textarea(panel));
+  const restore = button(panel, "Restore my earlier text");
+  assert.equal(restore.hidden, false);
+  await restore.click();
+  assert.equal(textarea(panel).value, "mine");
+  assert.equal(restore.hidden, true);
+  assert.match(textOf(panel), /Unsaved changes/);
+  assert.equal(api.state.markdown, "theirs", "restoring never saves");
+}));
+
+test("deciding later leaves the text alone and returns focus to the editor", withDom(async (dom) => {
+  const api = fakeApi({ number: 1, markdown: "first" });
+  const { panel } = await openDraft(api);
+  api.state.number = 2;
+  await typeInto(panel, "mine");
+  await save(panel);
+  await settle();
+  await button(panel, "Decide later").click();
+  assert.equal(textarea(panel).value, "mine");
+  assert.equal(dom.document.activeElement, textarea(panel));
+  assert.equal(panel.querySelector(".oba-draft-conflict").hidden, true);
+}));
+
+test("a race without the newer copy fetches it instead of losing the text", withDom(async () => {
+  const failures = { "PUT collaboration/draft": new FakeApiError("Your draft changed while you were saving.", 409, null) };
+  const api = fakeApi({ number: 1, markdown: "first", failures });
+  const { panel } = await openDraft(api);
+  await typeInto(panel, "mine");
+  await save(panel);
+  await settle();
+  assert.equal(panel.querySelector(".oba-draft-conflict").hidden, false);
+  assert.equal(textarea(panel).value, "mine");
+  assert.equal(panel.querySelector("#oba-draft-0-conflict-newer").value, "first");
+}));
+
+test("offline and oversized failures keep the text, say so, and put focus on the alert", withDom(async (dom) => {
+  const failures = { "PUT collaboration/draft": new TypeError("Failed to fetch") };
+  const api = fakeApi({ failures });
+  const { panel } = await openDraft(api);
+  await typeInto(panel, "keep me");
+  await save(panel);
+  await settle();
+  const alert = alertOf(panel);
+  assert.equal(alert.hidden, false);
+  assert.match(alert.textContent, /offline.*still here/);
+  assert.equal(dom.document.activeElement, alert);
+  assert.equal(textarea(panel).value, "keep me");
+  assert.match(textOf(panel), /Unsaved changes/);
+  failures["PUT collaboration/draft"] = new FakeApiError("big", 422, { error: "This draft has reached its limit.", field: "markdown" });
+  await save(panel);
+  await settle();
+  assert.match(alert.textContent, /reached its limit/);
+  await save(panel);
+  await settle();
+  assert.equal(alert.hidden, true, "a later success clears the problem");
+  assert.equal(api.state.markdown, "keep me");
+}));
+
+test("losing access shows a plain notice and no editor", withDom(async () => {
+  const failures = { "GET collaboration/draft": new FakeApiError("nf", 404, null), "GET collaboration/reveal": new FakeApiError("nf", 404, null) };
+  const { panel } = await openDraft(fakeApi({ failures }), ["coordinator"]);
+  assert.equal(panel.querySelector(".oba-draft-editor").hidden, true);
+  assert.match(textOf(panel), /You cannot write a draft/);
+  assert.equal(panel.querySelector(".oba-draft-sharing").hidden, true);
+}));
+
+// ---------------------------------------------------------------- sharing
+
+const SLOTS = [
+  { participantId: "participant-1", displayName: "Ada", kind: "own", ready: false, stamp: stampOf(1), markdown: "my text" },
+  { participantId: "participant-2", displayName: "Grace", kind: "private", ready: true, stamp: null, markdown: null },
+  { participantId: "participant-3", displayName: "Linus", kind: "revealed", ready: false, stamp: { number: 4 }, markdown: "<img src=x onerror=alert(1)>" },
+];
+
+test("other writers appear only as the server revealed them, and revealed prose is text, never markup", withDom(async () => {
+  const { panel } = await openDraft(fakeApi({ number: 1, markdown: "my text", reveal: { slots: SLOTS } }));
+  const text = textOf(panel);
+  assert.match(text, /Grace: private. They have offered a revision/);
+  assert.match(text, /Linus: revealed to you, revision 4/);
+  const revealed = panel.querySelectorAll("pre").find((node) => node.attributes["aria-label"] === "Text from Linus");
+  assert.equal(revealed.textContent, "<img src=x onerror=alert(1)>");
+  assert.equal(panel.querySelectorAll("img").length, 0);
+  assert.equal(panel.querySelectorAll("pre").some((node) => node.attributes["aria-label"] === "Text from Grace"), false);
+  assert.doesNotMatch(admin.slice(admin.indexOf("draftPanel(publication, index) {"), admin.indexOf("The page an invitation link opens")), /innerHTML/);
+}));
+
+test("offering a revision asks first, names the revision, and Escape or Cancel changes nothing", withDom(async (dom) => {
+  const api = fakeApi({ number: 2, markdown: "mine", reveal: { slots: SLOTS.slice(0, 2).map((slot) => ({ ...slot, ready: false })) } });
+  const { panel } = await openDraft(api);
+  const offer = button(panel, "Offer revision 2 to the group");
+  await offer.click();
+  const box = panel.querySelector(".oba-confirm");
+  assert.equal(dom.document.activeElement, box);
+  assert.match(textOf(box), /cannot be taken back/);
+  await box.dispatch("keydown", { key: "Escape" });
+  assert.equal(panel.querySelector(".oba-confirm"), null);
+  assert.equal(dom.document.activeElement, offer);
+  assert.equal(api.state.calls.some((call) => call.key === "PUT collaboration/reveal/ready"), false);
+  await offer.click();
+  await button(panel.querySelector(".oba-confirm"), "Share revision 2").click();
+  await settle();
+  assert.deepEqual(api.state.calls.find((call) => call.key === "PUT collaboration/reveal/ready").body, { publicationId: PUBLICATION, revision: 2 });
+  await button(panel, "Take back my offer").click();
+  await settle();
+  assert.equal(api.state.reveal.ready, false);
+}));
+
+test("with sharing off or nothing saved there is nothing to offer, and coordinators can change the rule", withDom(async () => {
+  const off = await openDraft(fakeApi({ number: 1, markdown: "x", reveal: { policy: "independent", slots: SLOTS.slice(0, 1) } }));
+  assert.equal(button(off.panel, "Offer revision 1 to the group"), undefined);
+  assert.match(textOf(off.panel), /Independent. Nobody sees/);
+  const unsaved = await openDraft(fakeApi({ reveal: { slots: SLOTS.slice(0, 1) } }));
+  assert.match(textOf(unsaved.panel), /Save a draft before you can offer it/);
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { policy: "independent", canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  const { panel } = await openDraft(api, ["coordinator"]);
+  panel.querySelector("#oba-draft-0-policy").value = "allReady";
+  await button(panel, "Change sharing rule").click();
+  await settle();
+  assert.deepEqual(api.state.calls.find((call) => call.key === "PUT collaboration/reveal/policy").body, { publicationId: PUBLICATION, policy: "allReady" });
+  assert.match(textOf(panel), /sharing rule changed.*nothing was shared/);
+}));
+
+// ---------------------------------------------------------------- source checks
+
+test("the draft panel is wired into the shared reflections view, with labels and small-screen styles", () => {
+  assert.match(admin, /this\.draftPanel\(publication, index\)/);
+  assert.match(admin, /for: `\$\{prefix\}-text`/);
+  assert.match(styles, /\.oba-draft-conflict/);
+  assert.match(styles, /@media \(max-width: 44rem\)\s*\{\s*\.oba-draft/);
+});

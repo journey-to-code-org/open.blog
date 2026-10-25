@@ -2711,3 +2711,58 @@ a.oba-btn-primary {
     flex: 1 1 100%;
   }
 }
+
+.oba-draft-prompt-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-draft-prompt-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-draft-form textarea,
+.oba-draft-conflict textarea {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.oba-draft-conflict {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 2px solid currentColor;
+  border-radius: 0.5rem;
+}
+
+.oba-draft-conflict h4:focus-visible,
+.oba-draft h3:focus-visible {
+  outline: 3px solid var(--ob-color-accent, currentColor);
+  outline-offset: 2px;
+}
+
+.oba-draft-revealed {
+  margin: 0.25rem 0 0;
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.oba-draft .oba-btn {
+  min-height: 2.75rem;
+}
+
+@media (max-width: 44rem) {
+  .oba-draft .oba-toolbar .oba-btn,
+  .oba-draft-prompt-list .oba-btn {
+    flex: 1 1 100%;
+  }
+}
