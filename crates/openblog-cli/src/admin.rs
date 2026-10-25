@@ -16379,6 +16379,61 @@ mod tests {
                 path.display()
             );
         }
+        // The rebuilt feeds and page carry both sections in order, one creator per author in the
+        // same order in RSS and JSON Feed, and no collaboration metadata.
+        let built = |name: &str| {
+            let (_, bytes) = public
+                .iter()
+                .find(|(path, _)| path.ends_with(name))
+                .unwrap_or_else(|| panic!("{name} was not built"));
+            String::from_utf8_lossy(bytes).to_string()
+        };
+        let rss = built("rss.xml");
+        let feed: Json = serde_json::from_str(&built("feed.json")).unwrap();
+        let item = feed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| {
+                item["content_text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("GRACE-SECRET")
+            })
+            .expect("the reflection is in the JSON Feed");
+        let names: Vec<&str> = item["authors"]
+            .as_array()
+            .expect("JSON Feed authors")
+            .iter()
+            .map(|author| author["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names.len(), 2);
+        let creators: Vec<String> = rss
+            .split("<dc:creator>")
+            .skip(1)
+            .filter_map(|part| part.split("</dc:creator>").next())
+            .map(str::to_string)
+            .collect();
+        assert!(
+            names.iter().zip(&creators).all(|(a, b)| *a == b),
+            "{names:?} {creators:?}"
+        );
+        assert!(rss.find("MIKEY-SECRET") < rss.find("GRACE-SECRET"));
+        let page = built(&format!(
+            "{}/index.html",
+            item["url"]
+                .as_str()
+                .unwrap()
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .unwrap()
+        ));
+        assert!(page.find("MIKEY-SECRET") < page.find("GRACE-SECRET"));
+        for text in [&rss, &page] {
+            assert!(!text.contains("approvedAt") && !text.contains("grace-admin"));
+        }
+
         let after = state_trees(&f);
         assert_ne!(after[0], before[0]);
 
