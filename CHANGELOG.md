@@ -5,6 +5,9 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Fixed the shared draft sharing controls: the revision you confirm to share is now always the one
+  sent, even if the draft changes in another tab, and keyboard focus stays in the Sharing section
+  after you offer, take back or change the rule.
 - Added a "Your draft" panel to Shared reflections in Admin. Writers get optional prompts they can
   add, edit, delete or hide, a clear saved or unsaved state, and sharing controls to offer a
   revision or take the offer back. If a draft changed in another tab, your text stays put beside the

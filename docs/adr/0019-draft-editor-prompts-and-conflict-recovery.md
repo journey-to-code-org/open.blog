@@ -39,6 +39,12 @@ in sharing, without any layout or length being imposed on them.
   participant has offered a revision.
 - Preview, the rich editor's visual mode and autosave are not wired to drafts yet: a draft is plain
   Markdown source, so it can never reach the preview, build, feed or export paths.
+- The offer confirmation captures the revision when Offer is pressed and the box is replaced whenever
+  the saved revision changes, so the revision a writer confirms is the one sent. After a successful
+  sharing action focus moves to the Sharing heading, because the pressed control is replaced.
+- Browser tests (`tests/browser/shared-drafts.spec.mjs`) cover keyboard-only use, a phone width,
+  offline saving, two tabs and large drafts against a stand-in API. Source and visual modes are not
+  covered because the draft has no visual mode yet; wiring it to the rich editor is a separate change.
 
 ## Consequences
 
