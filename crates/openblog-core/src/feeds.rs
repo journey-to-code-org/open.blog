@@ -345,6 +345,22 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
                     .join(", ")
             ));
         }
+        if let Some(shared) = &post.shared_attribution {
+            if let Some(question) = &shared.question {
+                out.push_str(&format!(
+                    "- Guiding question: {}\n",
+                    markdown_text(question).replace('<', r"\<")
+                ));
+            }
+            if let Some(source) = &shared.source {
+                let title = markdown_text(&source.title).replace('<', r"\<");
+                let name = match &source.url {
+                    Some(url) => format!("[{title}](<{url}>)"),
+                    None => title,
+                };
+                out.push_str(&format!("- Source ({}): {name}\n", source.kind.label()));
+            }
+        }
         out.push_str(&format!(
             "\n{}\n",
             projection.representation(RepresentationFormat::Text).trim()

@@ -5,6 +5,13 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Posts can now publish the source of a shared reflection. `guidingQuestion`, `sharedSourceTitle`,
+  `sharedSourceUrl`, and `sharedSourceType` in front matter show the guiding question and the
+  original source's title, link, and type beside the work, in Admin preview, the built page, RSS,
+  JSON Feed, `llms-full.txt`, and portable HTML, Markdown, and text. The source is always a plain
+  link, so an unsupported provider degrades to the link. Only these four values are published;
+  invitations, drafts, participants, and other collaboration state never reach output. An unsafe
+  link, a bad type, or oversized text stops the build with a clear message instead of publishing.
 - Added an optional **Suggest details from link** button to each source in a shared reflection.
   For YouTube and CodePen links, the same providers the embed renderer supports, Admin Studio asks
   the provider's oEmbed service for a title and creator and fills only fields you left empty,

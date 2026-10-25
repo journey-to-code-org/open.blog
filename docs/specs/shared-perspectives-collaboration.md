@@ -448,3 +448,17 @@ error without a known field focuses the status alert.
 - Group workflow UI, layout rendering, reveal delivery, approval quorum, authentication, provider
   identity verification, and persistence beyond creating a shared publication record.
 - Adding collaboration data to existing documents, generated pages, feeds, or public APIs.
+
+## Public source attribution
+
+[ADR 0008](../adr/0008-public-source-attribution.md) records how a shared reflection's source
+reaches public output. Only the guiding question and the first source's title, link, and type are
+published, as `guidingQuestion`, `sharedSourceTitle`, `sharedSourceUrl`, and `sharedSourceType`
+front matter. `SharedAttribution::from_record` derives them from the private record;
+`SharedAttribution::from_front_matter` validates them on load and fails the load for an unsafe
+link, unknown type, control or bidi character, or oversized text. The native page, Admin preview,
+RSS, JSON Feed, `llms-full.txt`, and portable HTML, Markdown, and text all render the same values,
+and the portable projection treats them as required semantic facts. The fixtures in
+`crates/openblog-core/tests/shared_source_attribution.rs` scan the built site, preview, feeds, and
+every portable representation for the record's IDs, identities, ISBN, creator, publisher,
+invitation text, and local paths.

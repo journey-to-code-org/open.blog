@@ -33,6 +33,7 @@ pub mod recipe;
 pub mod render;
 pub mod research;
 pub mod search;
+pub mod shared_source;
 pub mod slug;
 pub mod theme;
 pub mod video;

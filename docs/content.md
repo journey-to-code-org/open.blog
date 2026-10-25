@@ -48,6 +48,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `theme` | A theme name, to render this post differently from the rest. |
 | `canonical` | If the post was first published elsewhere, that address. Search engines then credit the original. |
 | `sourceUrl` | Shown as "Originally published at" under the post. The Hashnode importer fills this in. |
+| `guidingQuestion`, `sharedSourceTitle`, `sharedSourceUrl`, `sharedSourceType` | Shared-reflection attribution: the guiding question and the original source's title, HTTP(S) link, and type (`Video`, `Article`, `Podcast`, `Book`, or `Other`), shown beside the post and in feeds and exports. The title is required with a link or type; the source is always a link, never an embed. |
 | `aliases` | Old addresses that should redirect here, such as `[/old-slug/]`. Also accepted as `redirectFrom`. |
 | `highlight` | `false` turns off code colouring for this post; `true` turns it on. Overrides the site and theme. |
 | `lineNumbers` | `false` or `true`: line numbers on this post's code blocks. Overrides the site and theme. |

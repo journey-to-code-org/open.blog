@@ -726,6 +726,32 @@ pub enum SourceKind {
     Other,
 }
 
+impl SourceKind {
+    /// The reader-facing name, also the front matter value that publishes this kind.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Video => "Video",
+            Self::Article => "Article",
+            Self::Podcast => "Podcast",
+            Self::Book => "Book",
+            Self::Other => "Other",
+        }
+    }
+
+    /// Parse a published kind; anything unrecognised is not a kind.
+    pub fn from_label(value: &str) -> Option<Self> {
+        [
+            Self::Video,
+            Self::Article,
+            Self::Podcast,
+            Self::Book,
+            Self::Other,
+        ]
+        .into_iter()
+        .find(|kind| kind.label().eq_ignore_ascii_case(value.trim()))
+    }
+}
+
 /// Where a source reference's values came from. Version 1 records only what an author typed;
 /// optional provider suggestions would need their own provenance and never overwrite it.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -1127,7 +1153,7 @@ fn valid_text(value: &str, max_bytes: usize) -> bool {
             .any(|character| !character.is_whitespace() && !is_invisible(character))
 }
 
-fn is_bidi_control(character: char) -> bool {
+pub(crate) fn is_bidi_control(character: char) -> bool {
     matches!(
         character,
         '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'

@@ -58,6 +58,14 @@ automatically evidence cited by the resulting work and does not replace a Citati
 canonical URL, or Work identifier.
 _Avoid_: Citation when there is no in-text pointer, primary source field, provider response
 
+**Public source attribution**:
+The approved public subset of a shared publication's first (original) Source reference: its
+title, optional link, and type, plus the guiding question. It is published as plain front matter
+on the resulting Post and shown as a link beside the work, never as an embed, in the page, feeds,
+and portable exports. Participants, contributions, invitations, approvals, source IDs,
+provenance, creators, publishers, dates, and ISBNs are not part of it.
+_Avoid_: Citation, Source reference (the private entry), Work credit
+
 **Participant**:
 A person represented by a stable opaque ID within one shared publication. Participation is bound
 to an Admin user and a contributor registry entry only through an explicit publication
