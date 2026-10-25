@@ -94,3 +94,46 @@ fn output_path(root: &Path, output: &str) -> PathBuf {
         root.join(path)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn universal_publishing_export_requires_write_and_preserves_source_and_existing_files() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("examples")
+            .join("portable-publishing");
+        let source_path = root.join("content/posts/portable-lesson.md");
+        let before = std::fs::read(&source_path).unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let destination = std::env::temp_dir().join(format!("openblog-portable-{unique}.md"));
+        let output = destination.to_str().unwrap();
+        run(&root, "portable-lesson", Some(output), false).unwrap();
+        assert!(!destination.exists());
+        run(&root, "portable-lesson", Some(output), true).unwrap();
+        let exported = std::fs::read_to_string(&destination).unwrap();
+        for essential in [
+            "Alex Example",
+            "**Answer:** 2. 42",
+            "Open in Rust Playground",
+            "Supporting study",
+            "Join the discussion",
+        ] {
+            assert!(exported.contains(essential), "{essential}: {exported}");
+        }
+        for private in ["PRIVATE_", "runner.example.org", "discussion.example.org"] {
+            assert!(!exported.contains(private), "{private}: {exported}");
+        }
+        let error = run(&root, "portable-lesson", Some(output), true).unwrap_err();
+        assert!(error.contains("refusing to overwrite"));
+        assert_eq!(std::fs::read_to_string(&destination).unwrap(), exported);
+        assert_eq!(std::fs::read(&source_path).unwrap(), before);
+        std::fs::remove_file(destination).unwrap();
+    }
+}
