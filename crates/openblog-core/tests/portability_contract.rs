@@ -7,6 +7,116 @@ use openblog_core::{
 };
 use serde_json::Value;
 
+#[test]
+fn universal_publishing_example_preserves_public_meaning_across_exports_and_feeds() {
+    let config = SiteConfig::from_json(include_str!(
+        "../../../examples/portable-publishing/openblog.json"
+    ))
+    .unwrap();
+    let source =
+        include_str!("../../../examples/portable-publishing/content/posts/portable-lesson.md");
+    let site = Site::load(
+        config.clone(),
+        Sources {
+            posts: vec![SourceFile {
+                path: "posts/portable-lesson.md".into(),
+                contents: source.into(),
+            }],
+            credits: vec![SourceFile {
+                path: "posts/portable-lesson.credits.json".into(),
+                contents: include_str!(
+                    "../../../examples/portable-publishing/content/posts/portable-lesson.credits.json"
+                )
+                .into(),
+            }],
+            ..Default::default()
+        },
+        LoadOptions::default(),
+    )
+    .unwrap();
+    let post = &site.posts[0];
+    let projection = PortableProjection::from_post(post, &config).unwrap();
+    let html = projection.portable_html().unwrap();
+    let markdown = projection.portable_markdown().unwrap();
+    let text = projection.portable_text().unwrap();
+    let rss = openblog_core::feeds::rss(&site).unwrap();
+    let feed: Value =
+        serde_json::from_str(&openblog_core::feeds::json_feed(&site).unwrap()).unwrap();
+    for output in [
+        html.html.as_str(),
+        markdown.as_str(),
+        text.as_str(),
+        rss.as_str(),
+        feed["items"][0]["content_html"].as_str().unwrap(),
+        feed["items"][0]["content_text"].as_str().unwrap(),
+    ] {
+        for essential in [
+            "Alex Example",
+            "10.5555/portable.lesson",
+            "https://creativecommons.org/licenses/by/4.0/",
+            "https://source.example.org/portable-lesson",
+            "What does the Rust example print?",
+            "Multiplication produces the answer",
+            "fn main()",
+            "print(6 * 7)",
+            "color: navy",
+            "querySelector",
+            "Expected output",
+            "Supporting study",
+            "00:15",
+            "https://portable.example.org/portable-lesson/",
+        ] {
+            assert!(
+                output.contains(essential),
+                "missing {essential:?}:\n{output}"
+            );
+        }
+        for private in [
+            "PRIVATE_FRONTMATTER_SENTINEL",
+            "PRIVATE_COMMENT_SENTINEL",
+            "runner.example.org",
+            "discussion.example.org",
+            "<ob-",
+            "```quiz",
+            "```web runnable",
+        ] {
+            assert!(!output.contains(private), "leaked {private:?}:\n{output}");
+        }
+    }
+    let native = openblog_core::render::generate_document(
+        &site,
+        &openblog_core::theme::ThemeSet::new(),
+        "posts/portable-lesson.md",
+    )
+    .unwrap();
+    for anchor in ["lesson", "references"] {
+        assert!(native.contents.contains(&format!("id=\"{anchor}\"")));
+        assert!(html.html.contains(&format!(
+            "https://portable.example.org/portable-lesson/#{anchor}"
+        )));
+    }
+    assert!(!html.html.contains("<details class=\"ob-quiz-answer\""));
+    assert!(html.html.contains("Open in Rust Playground"));
+    assert!(markdown.contains("Open in Rust Playground"));
+    assert!(html.html.contains("Join the discussion"));
+    assert_eq!(
+        post.authored_markdown(),
+        openblog_core::frontmatter::parse(source).unwrap().body
+    );
+    for component in [
+        "<ob-quiz",
+        "<ob-web-sandbox",
+        "<ob-code-runner data-language=\"rust\"",
+        "<ob-code-runner data-language=\"python\"",
+    ] {
+        assert!(post.html.contains(component), "native lost {component}");
+    }
+    assert!(html
+        .diagnostics
+        .iter()
+        .all(|diagnostic| diagnostic.source_path == post.source));
+}
+
 fn portability_name(level: PortabilityLevel) -> &'static str {
     match level {
         PortabilityLevel::FullyPortable => "fully-portable",

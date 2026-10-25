@@ -1613,6 +1613,136 @@ mod tests {
     }
 
     #[test]
+    fn universal_publishing_example_uses_exact_portable_artifacts_for_every_destination() {
+        use openblog_core::{LoadOptions, Site, SourceFile, Sources};
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("examples")
+            .join("portable-publishing");
+        let config = site::load_config(&root).unwrap();
+        let source =
+            include_str!("../../../examples/portable-publishing/content/posts/portable-lesson.md");
+        let loaded = Site::load(
+            config.clone(),
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/portable-lesson.md".into(),
+                    contents: source.into(),
+                }],
+                credits: vec![SourceFile {
+                    path: "posts/portable-lesson.credits.json".into(),
+                    contents: include_str!(
+                        "../../../examples/portable-publishing/content/posts/portable-lesson.credits.json"
+                    ).into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        ).unwrap();
+        let post = syndication_post(&loaded.posts[0], source, &config).unwrap();
+        let selected = select_targets(&config, &[]).unwrap();
+        let plan = dry_run_json_plan(&post, &selected, &State::default(), false);
+        assert_eq!(plan["targets"].as_array().unwrap().len(), 5);
+        for target in plan["targets"].as_array().unwrap() {
+            let artifact = &target["conversion"]["to"];
+            let expected = if target["provider"] == "ghost" || target["provider"] == "wordpress" {
+                &post.html
+            } else {
+                &post.markdown
+            };
+            assert_eq!(artifact["content"], *expected);
+            let content = artifact["content"].as_str().unwrap();
+            for essential in [
+                "Alex Example",
+                "Supporting study",
+                "Open in Rust Playground",
+                "Join the discussion",
+            ] {
+                assert!(content.contains(essential), "{essential}: {artifact}");
+            }
+            for private in [
+                "PRIVATE_",
+                "runner.example.org",
+                "discussion.example.org",
+                "<ob-",
+            ] {
+                assert!(!content.contains(private), "{private}: {artifact}");
+            }
+            assert_eq!(target["remoteRequestSent"], false);
+            assert_eq!(
+                target["publicationIntent"],
+                if target["provider"] == "medium" {
+                    "manual"
+                } else {
+                    "draft"
+                }
+            );
+        }
+        assert_eq!(
+            dev_request(&post, None, false, "fixture").unwrap().body["article"]["body_markdown"],
+            post.markdown
+        );
+        assert_eq!(
+            hashnode_request("fixture", &post, None, false, "fixture")
+                .unwrap()
+                .body["variables"]["input"]["contentMarkdown"],
+            post.markdown
+        );
+        assert_eq!(
+            ghost_request(
+                "https://ghost.example.org",
+                &post,
+                None,
+                false,
+                "abc:00112233445566778899aabbccddeeff"
+            )
+            .unwrap()
+            .body["posts"][0]["html"],
+            post.html
+        );
+        assert_eq!(
+            wordpress_request(
+                "https://wordpress.example.org/wp-json/wp/v2",
+                "",
+                &post,
+                None,
+                false,
+                "fixture"
+            )
+            .unwrap()
+            .body["content"],
+            post.html
+        );
+        assert!(MediumAdapter
+            .instruction(&post)
+            .contains(&post.canonical_url));
+
+        struct NoRequests;
+        impl Transport for NoRequests {
+            fn send(&self, _: &Request) -> Result<Response, String> {
+                panic!("a dry-run plan must not send a request");
+            }
+        }
+        for json in [false, true] {
+            run_with_transport(
+                &root,
+                "portable-lesson",
+                Options {
+                    json,
+                    target_names: Vec::new(),
+                    write: false,
+                    publish: false,
+                },
+                &NoRequests,
+            )
+            .unwrap();
+        }
+        assert!(!root.join(".openblog/syndication.json").exists());
+    }
+
+    #[test]
     fn json_dry_run_plan_contains_deterministic_before_and_after_without_remote_intent() {
         let post = post_fixture();
         let state = State::default();

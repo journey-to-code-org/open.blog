@@ -5537,6 +5537,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         contents: source,
     });
     apply_credit_edit_to_sources(&mut sources, &rel, &credit_edit);
+    let portable_config = config.clone();
     // Owner-supplied analytics/comments snippets are intentionally disabled in
     // an unpublished preview. Theme assets and built-in components still run.
     config.snippets = Default::default();
@@ -5613,7 +5614,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         let projection =
             match openblog_core::portability::PortableProjection::for_authenticated_preview(
                 post,
-                &preview_site.config,
+                &portable_config,
             ) {
                 Ok(projection) => projection,
                 Err(error) => return Response::error(422, &error),
@@ -10366,6 +10367,97 @@ mod tests {
             .join("dist")
             .join(delete_url.trim_start_matches('/'))
             .exists());
+    }
+
+    #[test]
+    fn universal_publishing_preview_matches_public_artifacts_without_enabling_live_services() {
+        let f = fixture("universal-publishing-preview");
+        let session = login_ok(&f);
+        let source =
+            include_str!("../../../examples/portable-publishing/content/posts/portable-lesson.md");
+        fs::write(
+            f.dir.join("openblog.json"),
+            include_str!("../../../examples/portable-publishing/openblog.json"),
+        )
+        .unwrap();
+        let post_path = f.dir.join("content/posts/portable-lesson.md");
+        fs::write(&post_path, source).unwrap();
+        fs::write(
+            f.dir.join("content/posts/portable-lesson.credits.json"),
+            include_str!(
+                "../../../examples/portable-publishing/content/posts/portable-lesson.credits.json"
+            ),
+        )
+        .unwrap();
+        let document = frontmatter::parse(source).unwrap();
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/preview",
+                    json!({
+                        "kind": "posts",
+                        "path": "posts/portable-lesson.md",
+                        "fields": fields_to_json(&document.front_matter.fields),
+                        "body": document.body,
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let preview = body_json(&response);
+        let (public_site, _) = site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+        let post = public_site
+            .posts
+            .iter()
+            .find(|post| post.slug == "portable-lesson")
+            .unwrap();
+        let projection =
+            openblog_core::portability::PortableProjection::from_post(post, &public_site.config)
+                .unwrap();
+        assert_eq!(
+            preview["portablePreview"]["html"],
+            projection.portable_html().unwrap().html
+        );
+        assert_eq!(
+            preview["portablePreview"]["markdown"],
+            projection.portable_markdown().unwrap()
+        );
+        for representation in ["html", "markdown"] {
+            let output = preview["portablePreview"][representation].as_str().unwrap();
+            assert!(output.contains("Join the discussion"));
+            assert!(output.contains("Open in Rust Playground"));
+            assert!(output.contains("Alex Example"));
+            for private in [
+                "PRIVATE_",
+                "runner.example.org",
+                "discussion.example.org",
+                "<ob-",
+            ] {
+                assert!(!output.contains(private), "{representation}: {private}");
+            }
+        }
+        let native = handle(
+            &f.state,
+            &authed(
+                req("GET", preview["previewUrl"].as_str().unwrap()),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(native.status, 200);
+        let native = String::from_utf8(native.body).unwrap();
+        assert!(!native.contains("<ob-comments"));
+        assert_eq!(fs::read_to_string(&post_path).unwrap(), source);
+        assert!(!f.dir.join(".openblog/syndication.json").exists());
     }
 
     #[test]
