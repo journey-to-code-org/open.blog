@@ -31,6 +31,7 @@ fn build_with(
         approvals,
         requester,
         active,
+        true,
         config.render_options(),
     )
 }

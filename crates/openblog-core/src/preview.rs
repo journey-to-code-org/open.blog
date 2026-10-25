@@ -133,6 +133,8 @@ fn approval_label(state: ApprovalState) -> &'static str {
 /// Build the preview `requester` may see, from the active authors in participant order.
 ///
 /// `active` are the participants who currently hold the draft grant; the requester must be one.
+/// `show_synthesis` is true only when the requester holds `EditSynthesis`; otherwise the items and
+/// the conversation section are left out (readiness still counts them).
 /// `options` are the site's production Markdown options. Pure: it never writes drafts or
 /// approvals.
 pub fn build(
@@ -142,6 +144,7 @@ pub fn build(
     approvals: &ApprovalSet,
     requester: &str,
     active: &[&str],
+    show_synthesis: bool,
     options: RenderOptions<'_>,
 ) -> Result<CombinedPreview, PreviewError> {
     if !active.contains(&requester) {
@@ -207,6 +210,9 @@ pub fn build(
         let ready = complete
             && approvals.evaluate(subject) == Ok(Readiness::Ready)
             && items.iter().all(|item| item.awaiting.is_empty());
+        // Synthesis is for its authors only (EditSynthesis). Readiness above still counts every
+        // item, but anyone who may not edit the synthesis sees neither its prose nor its names.
+        let items = if show_synthesis { items } else { Vec::new() };
         let seen = if complete {
             approvals.binding_for(subject, requester).ok()
         } else {

@@ -6781,6 +6781,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     };
     let active = active_drafters(&transaction, record);
     let active = active.iter().map(String::as_str).collect::<Vec<_>>();
+    let show_synthesis = synthesis_owner(&transaction, record, session).is_some();
     let config = site::load_config(&state.root).unwrap_or_default();
     let Ok(preview) = openblog_core::preview::build(
         record,
@@ -6789,6 +6790,7 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
         &approvals,
         &own,
         &active,
+        show_synthesis,
         config.render_options(),
     ) else {
         return draft_not_found();
@@ -17423,6 +17425,48 @@ mod tests {
         assert_eq!(publish_as(&f, &ada, &id).status, 200);
         // Publishing the synthesis itself is a later step: its prose is not in the post yet.
         assert!(!published_post(&f, &id).unwrap().contains("SYNTH-PROSE"));
+    }
+
+    #[test]
+    fn an_editor_s_combined_preview_carries_no_synthesis_prose_or_names() {
+        let (f, mikey, id) = invitation_fixture("preview-synthesis-editor");
+        let grace = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "grace",
+            "another correct horse",
+            json!(["contributor"]),
+        );
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["editor"]),
+        );
+        for who in [&mikey, &grace, &linus] {
+            assert_eq!(draft_call(&f, who, &id, 0, "A section.").status, 200);
+        }
+        let grace_id = participant_of(&f, &id, "grace");
+        let added = add_item(&f, &mikey, &id, "SYNTHESIS-LEAK-PROSE", &[&grace_id]);
+        assert_eq!(added.status, 200);
+
+        let author = body_json(&preview_call(&f, &mikey, &id));
+        assert_eq!(author["preview"]["items"].as_array().unwrap().len(), 1);
+        let document = preview_document_text(&f, &mikey, &author);
+        assert!(document.contains("SYNTHESIS-LEAK-PROSE"));
+
+        let editor = preview_call(&f, &linus, &id);
+        assert_eq!(editor.status, 200);
+        let body = body_json(&editor);
+        assert!(body["preview"]["items"].as_array().unwrap().is_empty());
+        let document = preview_document_text(&f, &linus, &body);
+        let everything = format!("{body}{document}");
+        assert!(!everything.contains("SYNTHESIS-LEAK-PROSE"));
+        assert!(!everything.contains("Continuing conversation"));
+        assert!(!everything.contains("speaking for"));
     }
 
     #[test]

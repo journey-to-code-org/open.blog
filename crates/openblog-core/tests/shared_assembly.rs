@@ -91,6 +91,7 @@ fn the_gate_binding_equals_the_one_the_preview_hands_out() {
         &approvals,
         "ann",
         &ALL,
+        true,
         SiteConfig::default().render_options(),
     )
     .unwrap();
@@ -550,6 +551,7 @@ fn the_preview_shows_who_approved_each_item_and_is_ready_only_when_all_have() {
         &approvals,
         "cy",
         &ALL,
+        true,
         SiteConfig::default().render_options(),
     )
     .unwrap();
