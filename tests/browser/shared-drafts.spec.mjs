@@ -85,7 +85,7 @@ async function install(context) {
 async function openPanel(page) {
   await page.goto(`${origin}/admin/`);
   const username = page.getByLabel("Username", { exact: true });
-  if (await username.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (await username.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
     await username.fill("writer");
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
