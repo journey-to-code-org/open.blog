@@ -42,6 +42,7 @@ const NOTE_FIELDS: &[&str] = &[
     "passages",
     "sources",
     "concepts",
+    "status",
     "visibility",
 ];
 
@@ -77,6 +78,33 @@ impl NoteKind {
     }
 }
 
+/// Whether a question still needs an answer. Only questions have a state;
+/// a question that never wrote one is open. Nothing here claims that a
+/// resolved question was answered correctly: the author decides.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QuestionState {
+    Open,
+    Resolved,
+}
+
+impl QuestionState {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "open" => Some(Self::Open),
+            "resolved" => Some(Self::Resolved),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Resolved => "resolved",
+        }
+    }
+}
+
 /// The way a locator addresses a position. The known kinds mirror the source
 /// library's location schemes; `x-` extension kinds keep the format open
 /// without letting a typo pass as a new kind.
@@ -107,7 +135,7 @@ impl LocatorKind {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "page" => Self::Page,
             "folio" => Self::Folio,
@@ -191,9 +219,19 @@ pub struct ResearchNote {
     /// no concept registry exists yet.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub concepts: Vec<String>,
+    /// Only on a question, and only once the author has set it; absent means open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<QuestionState>,
     pub visibility: Visibility,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+impl ResearchNote {
+    /// `None` for an observation; for a question, its written state or open.
+    pub fn question_state(&self) -> Option<QuestionState> {
+        (self.kind == NoteKind::Question).then(|| self.status.unwrap_or(QuestionState::Open))
+    }
 }
 
 /// The private notebook document.
@@ -719,6 +757,37 @@ fn parse_note(
     let passages = reader.take_id_list("passages", "passage identifier");
     let sources = reader.take_id_list("sources", "source identifier");
     let concepts = reader.take_id_list("concepts", "concept identifier");
+    let status = match reader.fields.remove("status") {
+        None => None,
+        Some(Value::String(text)) => match (QuestionState::parse(&text), kind) {
+            (Some(state), Some(NoteKind::Question)) => Some(state),
+            (Some(_), Some(NoteKind::Observation)) => {
+                reader.report(
+                    NoteDiagnosticCode::InvalidField,
+                    "status",
+                    "only a question has a state; remove it or make the note a question",
+                );
+                None
+            }
+            (Some(_), None) => None,
+            (None, _) => {
+                reader.report(
+                    NoteDiagnosticCode::InvalidField,
+                    "status",
+                    "use `open` or `resolved`",
+                );
+                None
+            }
+        },
+        Some(_) => {
+            reader.report(
+                NoteDiagnosticCode::InvalidField,
+                "status",
+                "must be a string",
+            );
+            None
+        }
+    };
 
     let failed = reader.failed;
     let extra: BTreeMap<String, Value> = std::mem::take(&mut reader.fields).into_iter().collect();
@@ -732,6 +801,7 @@ fn parse_note(
                 passages,
                 sources,
                 concepts,
+                status,
                 visibility: Visibility::Private,
                 extra,
             }),
