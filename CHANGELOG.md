@@ -11,6 +11,11 @@ All notable changes to open.blog are recorded here. Releases follow
   another author. No screen or publishing step uses it yet.
 - An approval from an author who has written no section now covers the whole piece, so any
   later edit to the prose withdraws it.
+- Added a combined preview to Shared reflections in Admin ("Review the combined piece"). It shows
+  every author's section together at its exact current revision with each author's approval (approved,
+  awaiting, or out of date), and is clearly marked "Preview, not published". You see a section only
+  when it is shared with you at its current revision; anything else is one placeholder. The preview
+  runs no script, loads no images, and changes nothing.
 
 ## [0.21.1] - 2026-10-25
 

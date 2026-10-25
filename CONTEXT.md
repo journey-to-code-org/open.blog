@@ -150,6 +150,14 @@ Only the author can give or withdraw it; a site owner or coordinator cannot, and
 never replaces it. It is not an electronic signature, and alone it does not assign public credit.
 _Avoid_: Publication, Work credit, timeless consent
 
+**Combined preview**:
+The side-effect-free review of the whole piece an author sees before approving: every author's
+section in order at its exact latest revision, each author's approval state (approved, awaiting, or
+stale), and whether the piece is complete and ready. A section appears only if the reader may read
+that latest revision; every other case is one identical placeholder. It opens with a "Preview, not
+published" notice, runs no script and loads nothing (ADR 0021).
+_Avoid_: Draft view, published page, staging copy
+
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in
 one approved collaboration revision, that a publication operation incorporates into canonical
