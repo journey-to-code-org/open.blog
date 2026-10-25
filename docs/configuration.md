@@ -155,6 +155,30 @@ or private runner address in it.
 See [Deploying an execution gateway](deploy.md#execution-gateway) for the wire contract and runner
 isolation requirements.
 
+## Web sandbox
+
+`webSandbox.libraries` names script files that `web runnable` lessons can load with `libs=`.
+open.blog bundles no libraries: put the exact builds you want under `static/` (keeping their
+license headers) and list them in load order. Paths must be root-relative files your site serves.
+
+```json
+"webSandbox": {
+  "libraries": {
+    "react": ["/vendor/react.production.min.js", "/vendor/react-dom.production.min.js"],
+    "angular": ["/vendor/angular.min.js"]
+  }
+}
+```
+
+The page fetches the files from your own site and inlines them into the lesson's preview, so the
+preview still makes no network requests and the files need no special headers. Use UMD or other
+classic-script builds that define a global, since lessons cannot `import` from the site.
+A name can list several files: a framework that compiles components in the browser, such as
+Svelte, can ship its compiler and a runtime bundle together, and the lesson compiles its own
+component source before mounting it. Every listed file downloads with the page that uses it,
+so keep large compilers to the lessons that need them.
+See [Writing content](content.md#html-css-and-javascript-sandboxes).
+
 ## Recipes
 
 What readers get on posts using `profile: recipe` (legacy `recipe: true` also works; see
