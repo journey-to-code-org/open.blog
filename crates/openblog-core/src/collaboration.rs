@@ -143,6 +143,9 @@ pub enum AuthorizationAction {
     /// Contributors and Editors hold it, and only for themselves: revealed drafts are read
     /// through `DraftSet::view`, never through this grant.
     EditDraft,
+    /// Choose how contribution drafts may be revealed. Targets the publication. Coordinators and
+    /// site owners hold it; it reveals nothing and reads no draft.
+    SetRevealPolicy,
     /// Start an invitation into the publication. Targets the publication.
     Invite,
     /// Reveal one's own contribution draft. Targets a contribution.
@@ -233,9 +236,8 @@ impl AuthorizationAction {
     fn target_kind(self) -> TargetKind {
         use AuthorizationAction::*;
         match self {
-            ViewPublication | ViewPublished | Invite | Schedule | Publish | Export => {
-                TargetKind::Publication
-            }
+            ViewPublication | ViewPublished | Invite | SetRevealPolicy | Schedule | Publish
+            | Export => TargetKind::Publication,
             ApproveContribution | EditDraft | RemoveMember | ManageRoles => TargetKind::Participant,
             ViewRevealed | ViewContribution | EditContribution | RevealContribution => {
                 TargetKind::Contribution
@@ -537,7 +539,7 @@ fn role_allows(
                 ..
             },
         ) => *revealed_to_requester,
-        (SiteOwner | Coordinator, Invite | Schedule | Publish, _) => true,
+        (SiteOwner | Coordinator, Invite | SetRevealPolicy | Schedule | Publish, _) => true,
         (
             SiteOwner,
             RemoveMember,

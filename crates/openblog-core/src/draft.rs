@@ -146,6 +146,52 @@ pub enum ExchangeStatus {
     Revealed,
 }
 
+/// How drafts may become visible to other participants. Chosen by a coordinator; the default
+/// shares nothing, so a set that never configured a policy cannot reveal anything.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RevealPolicy {
+    /// Every draft stays private to its author.
+    #[default]
+    Independent,
+    /// Any two or more participants who mark a revision ready reveal to each other.
+    Voluntary,
+    /// Nothing is revealed until every active participant has marked a revision ready.
+    AllReady,
+}
+
+/// One participant's standing offer to reveal one exact revision of their own draft. It is
+/// private until the reveal commits and can be taken back at any time before.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct Readiness {
+    participant_id: String,
+    contribution_id: String,
+    revision: u64,
+}
+
+/// What marking a revision ready did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReadyOutcome {
+    /// Recorded; nothing is visible until this many more participants are ready.
+    Waiting { waiting_for: usize },
+    /// The policy's condition was met and every ready participant's revision was revealed to the
+    /// others in the same mutation.
+    Revealed,
+}
+
+/// One author's place in a comparison, in the order the caller supplied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ComparisonSlot {
+    /// The requester's own latest revision.
+    Own(DraftView),
+    /// Another participant's revision that was revealed to the requester.
+    Revealed(DraftView),
+    /// Nothing the requester may read. It is the same for a missing, unrevealed, withdrawn, or
+    /// unknown draft; `ready` only says whether that participant offered a revision.
+    Private { ready: bool },
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DraftSet {
@@ -153,6 +199,10 @@ pub struct DraftSet {
     participants: Vec<String>,
     drafts: Vec<Draft>,
     exchanges: Vec<Exchange>,
+    #[serde(default)]
+    policy: RevealPolicy,
+    #[serde(default)]
+    ready: Vec<Readiness>,
 }
 
 fn digest(owner: &str, contribution_id: &str, number: u64, markdown: &str) -> String {
@@ -183,6 +233,8 @@ impl DraftSet {
             participants: participants.iter().map(|id| (*id).to_owned()).collect(),
             drafts: Vec::new(),
             exchanges: Vec::new(),
+            policy: RevealPolicy::Independent,
+            ready: Vec::new(),
         };
         if set.is_valid() {
             Ok(set)
@@ -353,6 +405,8 @@ impl DraftSet {
             .ok_or(DraftError::Denied)?;
         draft.withdrawn = true;
         let contribution_id = draft.id.clone();
+        self.ready
+            .retain(|r| !r.contribution_id.eq_ignore_ascii_case(&contribution_id));
         for exchange in &mut self.exchanges {
             if exchange.state == ExchangeState::Pending {
                 exchange
@@ -510,6 +564,147 @@ impl DraftSet {
         Ok(())
     }
 
+    pub fn policy(&self) -> RevealPolicy {
+        self.policy
+    }
+
+    /// Change how drafts may be revealed. Existing offers are cleared, never carried into the new
+    /// policy, so changing it cannot reveal prose nobody offered under it, and it never reveals
+    /// anything itself. Authorization is the caller's job.
+    pub fn set_policy(&mut self, policy: RevealPolicy) {
+        if self.policy != policy {
+            self.policy = policy;
+            self.ready.clear();
+        }
+    }
+
+    pub fn is_ready(&self, participant: &str) -> bool {
+        self.ready.iter().any(|r| r.participant_id == participant)
+    }
+
+    /// Offer one exact revision of the requester's own draft for reveal. `active` lists the
+    /// participants who currently hold access; a participant who lost it neither counts toward
+    /// nor receives a reveal. Replaces an earlier offer. When the policy's condition is met, all
+    /// offers are committed as one revealed exchange. On any error the set is unchanged.
+    pub fn mark_ready(
+        &mut self,
+        requester: &str,
+        revision: u64,
+        active: &[&str],
+    ) -> Result<ReadyOutcome, DraftError> {
+        if !self.is_member(requester) || !active.contains(&requester) {
+            return Err(DraftError::Denied);
+        }
+        if self.policy == RevealPolicy::Independent {
+            return Err(DraftError::Invalid);
+        }
+        let contribution_id = self
+            .drafts
+            .iter()
+            .find(|d| {
+                d.owner == requester
+                    && !d.withdrawn
+                    && revision >= 1
+                    && revision <= d.revisions.len() as u64
+            })
+            .map(|d| d.id.clone())
+            .ok_or(DraftError::Denied)?;
+        let mut next = self.clone();
+        next.ready.retain(|r| r.participant_id != requester);
+        next.ready.push(Readiness {
+            participant_id: requester.to_owned(),
+            contribution_id,
+            revision,
+        });
+        let group: Vec<Readiness> = next
+            .ready
+            .iter()
+            .filter(|r| active.contains(&r.participant_id.as_str()))
+            .cloned()
+            .collect();
+        let needed = match next.policy {
+            RevealPolicy::Voluntary => 2,
+            _ => active.iter().filter(|a| self.is_member(a)).count().max(2),
+        };
+        let waiting_for = needed.saturating_sub(group.len());
+        if waiting_for > 0 {
+            *self = next;
+            return Ok(ReadyOutcome::Waiting { waiting_for });
+        }
+        if next.exchanges.len() >= MAX_EXCHANGES {
+            return Err(DraftError::LimitReached);
+        }
+        let mut number = next.exchanges.len() + 1;
+        while next
+            .exchanges
+            .iter()
+            .any(|e| e.id == format!("reveal-{number}"))
+        {
+            number += 1;
+        }
+        next.exchanges.push(Exchange {
+            id: format!("reveal-{number}"),
+            members: group.iter().map(|r| r.participant_id.clone()).collect(),
+            state: ExchangeState::Revealed,
+            commitments: group
+                .iter()
+                .map(|r| Commitment {
+                    participant_id: r.participant_id.clone(),
+                    contribution_id: r.contribution_id.clone(),
+                    revision: r.revision,
+                })
+                .collect(),
+        });
+        next.ready
+            .retain(|r| !group.iter().any(|g| g.participant_id == r.participant_id));
+        if !next.is_valid() {
+            return Err(DraftError::Invalid);
+        }
+        *self = next;
+        Ok(ReadyOutcome::Revealed)
+    }
+
+    /// Take back the requester's offer. Idempotent, and a no-op once the reveal has committed:
+    /// a reveal cannot be undone.
+    pub fn unready(&mut self, requester: &str) -> Result<(), DraftError> {
+        if !self.is_member(requester) {
+            return Err(DraftError::Denied);
+        }
+        self.ready.retain(|r| r.participant_id != requester);
+        Ok(())
+    }
+
+    /// The requester's side-by-side view: one slot per participant in `order`, each either the
+    /// requester's own latest revision, a revision revealed to the requester, or a placeholder.
+    /// Slots are decided by [`DraftSet::view`] alone, so a comparison never shows more than
+    /// reading each draft would.
+    pub fn compare(
+        &self,
+        requester: &str,
+        order: &[&str],
+    ) -> Result<Vec<ComparisonSlot>, DraftError> {
+        if !self.is_member(requester) {
+            return Err(DraftError::Denied);
+        }
+        Ok(order
+            .iter()
+            .map(|participant| {
+                let readable = self
+                    .drafts
+                    .iter()
+                    .filter(|d| d.owner == *participant)
+                    .find_map(|d| self.view(requester, &d.id).ok());
+                match readable {
+                    Some(view) if *participant == requester => ComparisonSlot::Own(view),
+                    Some(view) => ComparisonSlot::Revealed(view),
+                    None => ComparisonSlot::Private {
+                        ready: self.is_ready(participant),
+                    },
+                }
+            })
+            .collect())
+    }
+
     fn is_valid(&self) -> bool {
         if self.version != DRAFT_SET_VERSION
             || self.participants.is_empty()
@@ -546,6 +741,21 @@ impl DraftSet {
                 {
                     return false;
                 }
+            }
+        }
+        let mut offered = HashSet::new();
+        for offer in &self.ready {
+            let owned = self.draft(&offer.contribution_id).is_some_and(|d| {
+                d.owner == offer.participant_id
+                    && !d.withdrawn
+                    && offer.revision >= 1
+                    && offer.revision <= d.revisions.len() as u64
+            });
+            if !owned
+                || self.policy == RevealPolicy::Independent
+                || !offered.insert(offer.participant_id.as_str())
+            {
+                return false;
             }
         }
         let mut exchange_ids = HashSet::new();
@@ -867,5 +1077,187 @@ mod tests {
         assert_eq!(s.view("ada", "ada").unwrap().markdown, "mine");
         assert_eq!(s.view("ada", "bo"), Err(DraftError::Denied));
         assert!(DraftSet::from_json(&s.to_json()).is_ok());
+    }
+
+    fn ready_set(policy: RevealPolicy) -> DraftSet {
+        let mut s = set(&["ada", "bo", "cy"]);
+        s.set_policy(policy);
+        for (who, text) in [("ada", "ADA-1"), ("bo", "BO-1"), ("cy", "CY-1")] {
+            s.save(who, who, 0, text, T).unwrap();
+        }
+        s
+    }
+
+    const ALL: [&str; 3] = ["ada", "bo", "cy"];
+
+    #[test]
+    fn independent_policy_never_reveals_and_refuses_readiness() {
+        let mut s = ready_set(RevealPolicy::Independent);
+        let before = s.to_json();
+        assert_eq!(s.mark_ready("ada", 1, &ALL), Err(DraftError::Invalid));
+        assert_eq!(s.to_json(), before);
+        assert_eq!(s.view("bo", "ada"), Err(DraftError::Denied));
+    }
+
+    #[test]
+    fn voluntary_reveals_only_when_two_offer_and_only_those_two() {
+        let mut s = ready_set(RevealPolicy::Voluntary);
+        assert_eq!(
+            s.mark_ready("ada", 1, &ALL),
+            Ok(ReadyOutcome::Waiting { waiting_for: 1 })
+        );
+        assert_eq!(s.view("bo", "ada"), Err(DraftError::Denied));
+        assert_eq!(s.mark_ready("bo", 1, &ALL), Ok(ReadyOutcome::Revealed));
+        assert_eq!(s.view("bo", "ada").unwrap().markdown, "ADA-1");
+        assert_eq!(s.view("ada", "bo").unwrap().markdown, "BO-1");
+        // The third participant was not part of it.
+        assert_eq!(s.view("cy", "ada"), Err(DraftError::Denied));
+        assert_eq!(s.view("ada", "cy"), Err(DraftError::Denied));
+        assert!(DraftSet::from_json(&s.to_json()).is_ok());
+    }
+
+    #[test]
+    fn all_ready_waits_for_every_active_participant() {
+        let mut s = ready_set(RevealPolicy::AllReady);
+        s.mark_ready("ada", 1, &ALL).unwrap();
+        assert_eq!(
+            s.mark_ready("bo", 1, &ALL),
+            Ok(ReadyOutcome::Waiting { waiting_for: 1 })
+        );
+        assert_eq!(s.view("ada", "bo"), Err(DraftError::Denied));
+        assert_eq!(s.mark_ready("cy", 1, &ALL), Ok(ReadyOutcome::Revealed));
+        for (viewer, author) in [("ada", "cy"), ("bo", "ada"), ("cy", "bo")] {
+            assert!(s.view(viewer, author).is_ok());
+        }
+    }
+
+    #[test]
+    fn readiness_is_reversible_until_the_reveal_commits() {
+        let mut s = ready_set(RevealPolicy::AllReady);
+        s.mark_ready("ada", 1, &ALL).unwrap();
+        s.mark_ready("bo", 1, &ALL).unwrap();
+        s.unready("bo").unwrap();
+        s.unready("bo").unwrap();
+        assert_eq!(
+            s.mark_ready("cy", 1, &ALL),
+            Ok(ReadyOutcome::Waiting { waiting_for: 1 })
+        );
+        assert_eq!(s.view("ada", "cy"), Err(DraftError::Denied));
+        s.mark_ready("bo", 1, &ALL).unwrap();
+        // After the commit, taking back changes nothing.
+        s.unready("ada").unwrap();
+        assert!(s.view("cy", "ada").is_ok());
+    }
+
+    #[test]
+    fn the_offer_names_one_exact_revision_and_later_edits_stay_private() {
+        let mut s = ready_set(RevealPolicy::Voluntary);
+        s.save("ada", "ada", 1, "ADA-2 later", T + 1).unwrap();
+        assert_eq!(s.mark_ready("ada", 9, &ALL), Err(DraftError::Denied));
+        assert_eq!(s.mark_ready("ada", 0, &ALL), Err(DraftError::Denied));
+        s.mark_ready("ada", 1, &ALL).unwrap();
+        s.save("ada", "ada", 2, "ADA-3 even later", T + 2).unwrap();
+        s.mark_ready("bo", 1, &ALL).unwrap();
+        assert_eq!(s.view("bo", "ada").unwrap().markdown, "ADA-1");
+    }
+
+    #[test]
+    fn a_policy_change_never_reveals_and_clears_old_offers() {
+        let mut s = ready_set(RevealPolicy::Voluntary);
+        s.mark_ready("ada", 1, &ALL).unwrap();
+        s.set_policy(RevealPolicy::AllReady);
+        s.set_policy(RevealPolicy::Voluntary);
+        // The old offer from before the change is gone, so one new offer reveals nothing.
+        assert_eq!(
+            s.mark_ready("bo", 1, &ALL),
+            Ok(ReadyOutcome::Waiting { waiting_for: 1 })
+        );
+        assert_eq!(s.view("bo", "ada"), Err(DraftError::Denied));
+        s.set_policy(RevealPolicy::Independent);
+        assert!(s
+            .compare("bo", &ALL)
+            .unwrap()
+            .iter()
+            .all(|slot| !matches!(slot, ComparisonSlot::Revealed(_))));
+        assert!(DraftSet::from_json(&s.to_json()).is_ok());
+    }
+
+    #[test]
+    fn a_removed_participant_neither_blocks_nor_receives_an_all_ready_reveal() {
+        let mut s = ready_set(RevealPolicy::AllReady);
+        let active = ["ada", "bo"];
+        s.mark_ready("ada", 1, &active).unwrap();
+        assert_eq!(s.mark_ready("cy", 1, &active), Err(DraftError::Denied));
+        assert_eq!(s.mark_ready("bo", 1, &active), Ok(ReadyOutcome::Revealed));
+        assert_eq!(s.view("cy", "ada"), Err(DraftError::Denied));
+        assert_eq!(s.view("cy", "bo"), Err(DraftError::Denied));
+        assert_eq!(s.view("ada", "cy"), Err(DraftError::Denied));
+    }
+
+    #[test]
+    fn withdrawing_takes_back_the_offer() {
+        let mut s = ready_set(RevealPolicy::Voluntary);
+        s.mark_ready("ada", 1, &ALL).unwrap();
+        s.withdraw("ada", "ada").unwrap();
+        assert_eq!(
+            s.mark_ready("bo", 1, &ALL),
+            Ok(ReadyOutcome::Waiting { waiting_for: 1 })
+        );
+        assert_eq!(s.view("bo", "ada"), Err(DraftError::Denied));
+        assert_eq!(s.mark_ready("ada", 1, &ALL), Err(DraftError::Denied));
+    }
+
+    #[test]
+    fn comparison_keeps_order_labels_and_placeholders_for_unrevealed_drafts() {
+        let mut s = ready_set(RevealPolicy::Voluntary);
+        let order = ["cy", "ada", "bo", "ghost"];
+        let slots = s.compare("bo", &order).unwrap();
+        assert!(matches!(
+            &slots[0],
+            ComparisonSlot::Private { ready: false }
+        ));
+        assert!(matches!(
+            &slots[1],
+            ComparisonSlot::Private { ready: false }
+        ));
+        assert!(matches!(&slots[2], ComparisonSlot::Own(v) if v.markdown == "BO-1"));
+        assert_eq!(slots[3], slots[0]);
+        s.mark_ready("ada", 1, &ALL).unwrap();
+        let slots = s.compare("bo", &order).unwrap();
+        assert!(matches!(&slots[1], ComparisonSlot::Private { ready: true }));
+        assert!(!format!("{slots:?}").contains("ADA-1"));
+        s.mark_ready("bo", 1, &ALL).unwrap();
+        let slots = s.compare("bo", &order).unwrap();
+        assert!(matches!(
+            &slots[0],
+            ComparisonSlot::Private { ready: false }
+        ));
+        assert!(matches!(&slots[1], ComparisonSlot::Revealed(v) if v.markdown == "ADA-1"));
+        assert!(matches!(&slots[2], ComparisonSlot::Own(_)));
+        // The third participant still sees only placeholders for the others.
+        let outside = s.compare("cy", &order).unwrap();
+        assert!(matches!(&outside[1], ComparisonSlot::Private { .. }));
+        assert!(matches!(&outside[2], ComparisonSlot::Private { .. }));
+        assert_eq!(s.compare("mallory", &order), Err(DraftError::Denied));
+    }
+
+    #[test]
+    fn untrusted_readiness_in_stored_json_fails_closed() {
+        let mut s = ready_set(RevealPolicy::Voluntary);
+        s.mark_ready("ada", 1, &ALL).unwrap();
+        let good = s.to_json();
+        assert!(DraftSet::from_json(&good).is_ok());
+        for bad in [
+            good.replace(r#""revision":1}]"#, r#""revision":7}]"#),
+            good.replace(
+                r#""participantId":"ada","contributionId":"ada""#,
+                r#""participantId":"bo","contributionId":"ada""#,
+            ),
+            good.replace(r#""policy":"voluntary""#, r#""policy":"independent""#),
+            good.replace(r#""policy":"voluntary""#, r#""policy":"everyone""#),
+        ] {
+            assert_ne!(bad, good);
+            assert!(DraftSet::from_json(&bad).is_err());
+        }
     }
 }
