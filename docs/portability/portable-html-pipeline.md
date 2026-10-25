@@ -1,9 +1,9 @@
 # Portable HTML pipeline
 
-`PortableProjection::portable_html()` provides an opt-in HTML body projection from the canonical
-authored Markdown. It uses the Markdown event renderer rather than parsing generated production
-HTML, so native output remains unchanged and existing consumers can adopt the projection
-independently.
+`PortableProjection::portable_html()` and `portable_markdown()` derive destination-neutral
+representations from the canonical authored Markdown. They use the Markdown event renderer and
+authored source, never parse generated production HTML to reconstruct content. Native output
+remains unchanged.
 
 The renderer preserves the configured punctuation and heading-anchor behavior, resolves Markdown
 links and image destinations against the canonical article URL (or the site base for root-relative
@@ -11,10 +11,34 @@ paths), and returns the capability descriptors discovered during rendering. Abso
 fragments, query strings, and Unicode destinations are covered by tests. Invalid or executable
 links fail with a source-scoped error instead of silently producing a successful projection.
 
-This is a body projection, not a complete page or a consumer migration. `representation(Html)`
-continues to return the existing native `post.html`; feeds, Admin preview, and syndication are not
-switched to `portable_html()` yet. Authored raw HTML follows the
+The HTML projection is a body, not a complete page. Full-content RSS and JSON Feed now use its
+static HTML fallbacks; JSON Feed also includes text derived from the portable Markdown projection.
+Syndication adapters use portable HTML or Markdown according to their destination policy.
+`representation(Html)` continues to return the existing native `post.html`. Admin's authenticated
+unsaved preview offers native, portable HTML, portable Markdown, and destination-policy views
+using the same projection as production. Its diagnostics include the source, severity,
+transformation, and recommended action. Authored raw HTML follows the
 [raw HTML policy](#raw-html-urls-anchors-and-size-bounds) below.
+
+Portable Markdown is a CommonMark-oriented article with a canonical identity header and public
+attribution/provenance metadata. Knowledge checks become a question, choices, answer, and
+explanation; runnable fences become ordinary code with a canonical-run link; web sandboxes become
+labelled source fences; callouts become titled blockquotes. Raw HTML is escaped and called out
+rather than executed. Markdown source can be inspected without writing files:
+
+```sh
+openblog export my-post --format markdown
+openblog export my-post --format markdown --out exports/my-post.md
+openblog export my-post --format markdown --out exports/my-post.md --write
+```
+
+The first two forms are dry runs; only `--write` creates a file, and an existing file is never
+overwritten.
+
+Admin warning acknowledgements are tracked separately in a per-post `.portability.json` sidecar.
+Each record is bound to the portable source revision, capability, representation, and destination.
+Acknowledging records an author's review but does not hide the warning or bypass projection errors;
+changed source content makes the previous record stale.
 
 ## Static fallbacks for interactive capabilities
 
