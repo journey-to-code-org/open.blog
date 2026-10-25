@@ -12,6 +12,7 @@ mod fsutil;
 mod git;
 mod hashnode;
 mod http;
+mod portable_export;
 mod publish;
 mod safe_http;
 mod scaffold;
@@ -42,6 +43,7 @@ COMMANDS
     user add|passwd|remove|list <name>
                                Manage who can sign in to the admin editor
     check                      Validate content and themes without writing anything
+    export <slug>              Preview or write a portable Markdown article
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
@@ -68,6 +70,12 @@ syndicate OPTIONS
     --target a,b               Limit the run to named configured targets
     --write                    Send remote create/update requests and save private state
     --publish                  Request publication (also requires target allowPublish: true)
+    --json                     Print a deterministic dry-run plan with before/after artifacts
+
+export OPTIONS
+    --format markdown          Portable format (default: markdown)
+    --out <path>               Output file for an explicit --write
+    --write                    Write the export (otherwise print a dry-run preview)
 
 new OPTIONS
     --series <slug>            Put the post in a series
@@ -254,10 +262,9 @@ fn run(raw: &[String]) -> Result<(), String> {
             Ok(())
         }
         "syndicate" => {
-            let slug = args
-                .positional
-                .first()
-                .ok_or("usage: openblog syndicate <slug> [--target a,b] [--write] [--publish]")?;
+            let slug = args.positional.first().ok_or(
+                "usage: openblog syndicate <slug> [--target a,b] [--json] [--write] [--publish]",
+            )?;
             let target_names = args
                 .options
                 .get("target")
@@ -277,7 +284,29 @@ fn run(raw: &[String]) -> Result<(), String> {
                     target_names,
                     write: args.switches.contains("write"),
                     publish: args.switches.contains("publish"),
+                    json: args.switches.contains("json"),
                 },
+            )
+        }
+        "export" => {
+            let slug = args.positional.first().ok_or(
+                "usage: openblog export <slug> [--format markdown] [--out <path>] [--write]",
+            )?;
+            let format = args
+                .options
+                .get("format")
+                .map(String::as_str)
+                .unwrap_or("markdown");
+            if format != "markdown" {
+                return Err(format!(
+                    "unsupported portable export format `{format}`; expected `markdown`"
+                ));
+            }
+            portable_export::run(
+                &root,
+                slug,
+                args.options.get("out").map(String::as_str),
+                args.switches.contains("write"),
             )
         }
         "build" => {
@@ -350,6 +379,9 @@ fn run(raw: &[String]) -> Result<(), String> {
             );
             for w in &site.warnings {
                 eprintln!("warning: {w}");
+            }
+            for warning in portable_export::diagnostics(&site)? {
+                eprintln!("warning: portability: {warning}");
             }
             serve::print_accessibility_findings(&site.accessibility);
             serve::print_evidence_findings(&site.evidence);

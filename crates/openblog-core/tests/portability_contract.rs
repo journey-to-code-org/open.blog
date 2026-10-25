@@ -238,16 +238,6 @@ fn portability_fixtures_preserve_semantics_and_native_views() {
                 page.contents.contains(fragment.as_str().unwrap()),
                 "{name} native page: {fragment}"
             );
-            assert!(
-                rss_html.contains(fragment.as_str().unwrap()),
-                "{name} RSS: {fragment}"
-            );
-            assert!(
-                json_feed["items"][0]["content_html"]
-                    .as_str()
-                    .is_some_and(|feed_html| feed_html.contains(fragment.as_str().unwrap())),
-                "{name} JSON Feed: {fragment}"
-            );
         }
         for fragment in expected["markdownContains"]
             .as_array()
@@ -325,7 +315,33 @@ fn portability_fixtures_preserve_semantics_and_native_views() {
                 "{name} portable HTML: {fragment}\n{}",
                 portable.html
             );
+            assert!(
+                rss_html.contains(fragment.as_str().unwrap()),
+                "{name} portable RSS: {fragment}"
+            );
+            assert!(
+                json_feed["items"][0]["content_html"]
+                    .as_str()
+                    .is_some_and(|feed_html| feed_html.contains(fragment.as_str().unwrap())),
+                "{name} portable JSON Feed: {fragment}"
+            );
         }
+        assert!(
+            !rss_html.contains("<ob-"),
+            "{name}: RSS contains a native component"
+        );
+        assert!(
+            json_feed["items"][0]["content_html"]
+                .as_str()
+                .is_some_and(|feed_html| !feed_html.contains("<ob-")),
+            "{name}: JSON Feed contains a native component"
+        );
+        assert!(
+            json_feed["items"][0]["content_text"]
+                .as_str()
+                .is_some_and(|content| !content.trim().is_empty()),
+            "{name}: JSON Feed content_text is missing"
+        );
         assert_eq!(projection.portable_html().unwrap(), portable, "{name}");
 
         let repeated = PortableProjection::from_post(post, &config).unwrap();

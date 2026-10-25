@@ -88,12 +88,10 @@ pub fn rss(site: &Site) -> Result<String, String> {
             ));
         }
         if c.feeds.full_content {
+            let portable_html = projection.portable_html()?.html;
             out.push_str(&format!(
                 "<content:encoded>{}</content:encoded>\n",
-                escape::cdata(&absolutize_html(
-                    projection.representation(RepresentationFormat::Html),
-                    projection.base_url()
-                ))
+                escape::cdata(&absolutize_html(&portable_html, projection.base_url()))
             ));
         }
         out.push_str("</item>\n");
@@ -128,10 +126,12 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
                 item["image"] = serde_json::Value::String(projection.resolve_link(cover)?);
             }
             if c.feeds.full_content {
+                let portable_html = projection.portable_html()?.html;
                 item["content_html"] = serde_json::Value::String(absolutize_html(
-                    projection.representation(RepresentationFormat::Html),
+                    &portable_html,
                     projection.base_url(),
                 ));
+                item["content_text"] = serde_json::Value::String(projection.portable_text()?);
             }
             if let Some(canonical) = &post.canonical {
                 item["external_url"] =

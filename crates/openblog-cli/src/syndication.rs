@@ -15,7 +15,9 @@ use html5ever::{local_name, ns, QualName};
 use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 use openblog_core::config::{SyndicationProvider, SyndicationTargetConfig};
 use openblog_core::frontmatter;
-use openblog_core::portability::{PortableProjection, RepresentationFormat};
+use openblog_core::portability::{
+    destination_policy, DestinationRepresentation, PortableProjection,
+};
 use openblog_core::{Post, SiteConfig};
 use pulldown_cmark::{Event, Options as MarkdownOptions, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
@@ -35,6 +37,7 @@ pub struct Options {
     pub target_names: Vec<String>,
     pub write: bool,
     pub publish: bool,
+    pub json: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -45,11 +48,13 @@ struct SyndicationPost {
     title: String,
     subtitle: Option<String>,
     description: String,
+    source_markdown: String,
     markdown: String,
     html: String,
     tags: Vec<String>,
     canonical_url: String,
     revision: String,
+    portable_diagnostics: Vec<openblog_core::portability::PortabilityDiagnostic>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -267,6 +272,9 @@ fn run_with_transport(
     options: Options,
     transport: &dyn Transport,
 ) -> Result<(), String> {
+    if options.json && options.write {
+        return Err("--json is available for dry runs only; no request was sent".into());
+    }
     let config = site::load_config(root)?;
     let sources = site::read_sources(root, &config)?;
     let (loaded, _) = site::load_site(root, false, Some(crate::clock::now()))?;
@@ -286,6 +294,15 @@ fn run_with_transport(
     let mut state = State::load(&state_path)?;
     validate_source_identity(&state, &syndication_post)?;
     validate_plan(&selected, options.publish)?;
+    if options.json {
+        let plan = dry_run_json_plan(&syndication_post, &selected, &state, options.publish);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&plan)
+                .map_err(|error| format!("could not serialize syndication plan: {error}"))?
+        );
+        return Ok(());
+    }
     println!(
         "Syndication {} for `{}` ({})",
         if options.write { "write" } else { "dry run" },
@@ -297,6 +314,7 @@ fn run_with_transport(
         let adapter = match provider_adapter(target) {
             DestinationAdapter::Manual(adapter) => {
                 println!("- {name}: {}", adapter.instruction(&syndication_post));
+                print_portable_plan(target.provider, &syndication_post);
                 continue;
             }
             DestinationAdapter::Remote(adapter) => adapter,
@@ -321,6 +339,7 @@ fn run_with_transport(
         if let Some(warning) = adapter.warning() {
             println!("  warning: {warning}");
         }
+        print_portable_plan(target.provider, &syndication_post);
         if !options.write {
             continue;
         }
@@ -564,10 +583,9 @@ fn syndication_post(
     {
         return Err("set the site's real public URL before syndication".into());
     }
-    let markdown = absolutize_markdown(
-        projection.representation(RepresentationFormat::Markdown),
-        config,
-    )?;
+    let portable_html = projection.portable_html()?;
+    let markdown = absolutize_markdown(&projection.portable_markdown()?, config)?;
+    let portable_diagnostics = portable_html.diagnostics.clone();
     let mut hasher = Blake2b512::new();
     hasher.update(post.title.as_bytes());
     // Posts without a subtitle keep the revision they had before subtitles existed.
@@ -590,14 +608,99 @@ fn syndication_post(
         title: post.title.clone(),
         subtitle: post.subtitle.clone(),
         description: post.description.clone(),
+        source_markdown: post.authored_markdown().to_string(),
         markdown,
-        html: absolutize_html(
-            projection.representation(RepresentationFormat::Html),
-            config,
-        ),
+        html: absolutize_html(&portable_html.html, config),
         tags: post.tags.iter().map(|tag| tag.name.clone()).collect(),
         canonical_url,
         revision,
+        portable_diagnostics,
+    })
+}
+
+fn print_portable_plan(provider: SyndicationProvider, post: &SyndicationPost) {
+    let policy = destination_policy(provider);
+    let representation = match policy.representation {
+        DestinationRepresentation::PortableMarkdown => "portable Markdown",
+        DestinationRepresentation::PortableHtml => "portable HTML",
+        DestinationRepresentation::ManualMarkdown => "portable Markdown for manual import",
+    };
+    println!(
+        "  projection: {representation}; {}",
+        policy.canonical_behavior
+    );
+    println!("  workflow: {}", policy.workflow);
+    for diagnostic in &post.portable_diagnostics {
+        println!(
+            "  portability: {} [{}] {} Action: {}",
+            diagnostic.source_path,
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.recommended_action
+        );
+    }
+}
+
+fn dry_run_json_plan(
+    post: &SyndicationPost,
+    selected: &[(&String, &SyndicationTargetConfig)],
+    state: &State,
+    publish: bool,
+) -> Json {
+    let targets = selected
+        .iter()
+        .map(|(name, target)| {
+            let policy = destination_policy(target.provider);
+            let (format, content) = match policy.representation {
+                DestinationRepresentation::PortableMarkdown => {
+                    ("portable-markdown", post.markdown.as_str())
+                }
+                DestinationRepresentation::PortableHtml => ("portable-html", post.html.as_str()),
+                DestinationRepresentation::ManualMarkdown => {
+                    ("manual-markdown", post.markdown.as_str())
+                }
+            };
+            let manual = target.provider == SyndicationProvider::Medium;
+            json!({
+                "name": name,
+                "provider": target.provider,
+                "operation": if manual {
+                    "manual-import"
+                } else if state.record(&post.source_id, name).is_some() {
+                    "update"
+                } else {
+                    "create"
+                },
+                "publicationIntent": if manual {
+                    "manual"
+                } else if publish && target.allow_publish {
+                    "published"
+                } else {
+                    "draft"
+                },
+                "remoteRequestSent": false,
+                "policy": policy,
+                "conversion": {
+                    "from": {
+                        "format": "authored-markdown",
+                        "content": &post.source_markdown
+                    },
+                    "to": {
+                        "format": format,
+                        "content": content
+                    }
+                },
+                "diagnostics": &post.portable_diagnostics,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "sourcePath": post.source_path,
+        "sourceId": post.source_id,
+        "slug": post.slug,
+        "canonicalUrl": post.canonical_url,
+        "revision": post.revision,
+        "targets": targets,
     })
 }
 
@@ -1423,6 +1526,8 @@ mod tests {
             tags: vec!["Rust".into()],
             canonical_url: "https://blog.example/posts/a/".into(),
             revision: "abc".into(),
+            source_markdown: "Body".into(),
+            portable_diagnostics: Vec::new(),
         }
     }
 
@@ -1438,6 +1543,7 @@ mod tests {
             if fixture["expected"]["public"] == false {
                 continue;
             }
+
             let path = fixture["path"].as_str().unwrap();
             let source = fixture["source"].as_str().unwrap();
             let config = SiteConfig::from_json(&fixture["config"].to_string()).unwrap();
@@ -1499,10 +1605,38 @@ mod tests {
                 .contains(&post.canonical_url));
 
             if fixture["name"] == "knowledge-check" {
-                assert!(post.markdown.contains("```quiz"));
-                assert!(post.html.contains("<ob-quiz"));
+                assert!(post.markdown.contains("**Question:**"));
+                assert!(!post.markdown.contains("```quiz"));
+                assert!(!post.html.contains("<ob-quiz"));
             }
         }
+    }
+
+    #[test]
+    fn json_dry_run_plan_contains_deterministic_before_and_after_without_remote_intent() {
+        let post = post_fixture();
+        let state = State::default();
+        let name = "dev".to_string();
+        let target = SyndicationTargetConfig {
+            provider: SyndicationProvider::Dev,
+            ..Default::default()
+        };
+        let selected = [(&name, &target)];
+        let plan = dry_run_json_plan(&post, &selected, &state, false);
+        let serialized = serde_json::to_string(&plan).unwrap();
+        assert_eq!(
+            serialized,
+            serde_json::to_string(&dry_run_json_plan(&post, &selected, &state, false)).unwrap()
+        );
+        assert_eq!(plan["targets"][0]["operation"], "create");
+        assert_eq!(plan["targets"][0]["publicationIntent"], "draft");
+        assert_eq!(plan["targets"][0]["remoteRequestSent"], false);
+        assert_eq!(plan["targets"][0]["conversion"]["from"]["content"], "Body");
+        assert_eq!(
+            plan["targets"][0]["conversion"]["to"]["format"],
+            "portable-markdown"
+        );
+        assert_eq!(plan["targets"][0]["conversion"]["to"]["content"], "Body");
     }
 
     #[test]
@@ -1880,6 +2014,7 @@ const attribute = 'href="/script"';
                     target_names: Vec::new(),
                     write: false,
                     publish: false,
+                    json: false,
                 },
             )
             .unwrap_err();
@@ -1916,6 +2051,7 @@ const attribute = 'href="/script"';
                 target_names: Vec::new(),
                 write: false,
                 publish: false,
+                json: true,
             },
         )
         .unwrap();

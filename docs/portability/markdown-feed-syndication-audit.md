@@ -1,6 +1,6 @@
 # Markdown, feed, and syndication semantic-loss audit
 
-- Status: audit of current output; no conversion or provider behavior changed
+- Status: portable projection contract implemented for feeds and current adapters
 - Date: 2026-10-24
 - Issue: [#109](https://github.com/journey-to-code-org/open.blog/issues/109) (Task P2.3)
 - Parent story: [#94](https://github.com/journey-to-code-org/open.blog/issues/94) · Parent epic: [#92](https://github.com/journey-to-code-org/open.blog/issues/92)
@@ -14,17 +14,16 @@ the same public fixture posts through the native document renderer, RSS, JSON Fe
 `llms-full.txt`, and DEV, Hashnode, Ghost, WordPress, and Medium syndication shapes.
 These tests inspect local output only; no provider network calls occur.
 
-No provider-specific conversion is claimed. In particular, the implementation does not
-sanitize raw HTML or guarantee that a destination supports open.blog custom elements.
-Findings describe current behavior, not the behavior of third-party importers.
+The destination policy chooses a portable Markdown or HTML representation and describes its
+canonical-URL behavior. Raw HTML is escaped in portable Markdown and follows the allowlist
+policy in portable HTML. Neither representation claims that a third-party importer renders
+every feature identically.
 
-Projection errors include the canonical source path; provider failures are reported by
-target. There is no capability-scoped conversion failure yet because syndication sends
-the selected Markdown/HTML representation without destination-specific capability
-transforms. The fixture tests only build local payloads. In the command path, dry-run
-returns before verification, credential lookup, network requests, or private-state writes
-(`crates/openblog-cli/src/syndication.rs:307-345`); this audit changes no canonical
-source or remote state.
+Projection errors include the canonical source path; semantic-loss diagnostics also identify
+the affected capability and recommended action. Provider failures are reported by target.
+The fixture tests only build local payloads. In the command path, dry-run returns before
+verification, credential lookup, network requests, or private-state writes; neither previews
+nor this audit change canonical source or remote state.
 
 ## Representation map
 
@@ -33,10 +32,10 @@ source or remote state.
 | Canonical Markdown body | Front matter is separated; `Post.authored_markdown` retains the body. | Authored Markdown, custom fences, raw HTML, reference definitions, source links, and Unicode remain available for downstream rendering. | Structured sidecar credits, cover metadata, canonical metadata, and other front matter are not part of the body string. |
 | `post.html` / native article | The Markdown renderer produces HTML, preserving standard structure and applying open.blog transforms for recipes, callouts, quizzes, runnable code, and embeds. The full native page adds metadata, bylines, navigation, and theme/runtime assets around it. | Content and accessible native fallbacks are present in the body HTML; full pages add structured metadata and visible credits. | Custom elements and raw HTML remain native markup; this is not a destination-neutral HTML conversion. |
 | `post.text` and `llms-full.txt` | The renderer collects text events outside fenced code blocks, collapses whitespace, and the full-text feed adds article metadata and this text representation. | Ordinary prose and heading text remain. | Fenced code (including quizzes and runnable examples) is omitted. Link destinations are not included in text, so linked reference URLs reduce to their visible labels. The quiz fixture explicitly records this loss. |
-| RSS `content:encoded` and JSON Feed `content_html` | When full-content feeds are enabled, each receives `post.html`; the feed builder replaces quoted root-relative `src="/…"` and `href="/…"` values with site-absolute URLs. Feed-level title, summary, dates, tags, images, and authors are emitted separately. | Native HTML and custom markup are retained; absolute and fragment links remain unchanged; root-relative image/link attributes are made absolute. | Parent-relative links such as `../reference/` remain relative. The output is native HTML, not a feed-specific fallback. Other URL-bearing attributes, `srcset`, and raw Markdown destinations are not handled by this feed rewrite. |
-| DEV and Hashnode | Both receive `SyndicationPost.markdown`, derived from the authored Markdown body with root-relative Markdown/HTML `href` and `src` values prefixed by the site URL. Hashnode receives it as `contentMarkdown`; DEV as `body_markdown`. | Authored fences, reference sections, and Markdown semantics remain available to the destination parser. | Parent-relative destinations remain unresolved. Provider rendering of open.blog fences, raw HTML, and other extensions is destination-dependent. Hashnode automation is draft-only; publish intent is rejected before writing. |
-| Ghost and WordPress | Both receive `SyndicationPost.html`, derived from `post.html` with root-relative `href` and `src` element attributes prefixed using an HTML fragment parser. | Rendered prose, headings, images, links, and open.blog custom-element markup are carried in the HTML body. | Parent-relative links remain unchanged. Structured author credits and cover-image metadata are not separate provider fields in these requests. WordPress payloads do not include `canonical_url`; the adapter warns that core WordPress cannot set an external canonical URL. |
-| Medium | Manual-only instruction points the user to Medium's Import a story flow and supplies the canonical open.blog URL. No Medium request or body is generated. | The source article remains accessible at its canonical URL for the import workflow. | Extraction, formatting, canonical assignment, images, byline, and reference handling are controlled by Medium and are not verified or asserted by this repository. |
+| RSS `content:encoded` and JSON Feed `content_html` | When full-content feeds are enabled, each receives `portable_html()` from the canonical Markdown. JSON Feed also includes `content_text` derived from the portable Markdown. | Static capability fallbacks, resolved links, canonical interaction links, and public work context are included without open.blog custom elements. | JSON text is a readable plain-text projection, not a layout-preserving format. The native `post.html` remains unchanged. |
+| DEV and Hashnode | Both receive portable Markdown. Hashnode receives it as `contentMarkdown`; DEV as `body_markdown`. | Quizzes, runnable examples, web sandboxes, callouts, attribution, and canonical identity are transformed into readable Markdown fallbacks; raw HTML is escaped and relative links are resolved against canonical context. | Provider rendering of standard Markdown extensions varies. Hashnode automation is draft-only; publish intent is rejected before writing. |
+| Ghost and WordPress | Both receive `portable_html()` with resolved links and static fallbacks. | Rendered prose, headings, images, links, and public context are carried without open.blog custom-element markup. | Structured author credits and cover-image metadata are not separate provider fields in these requests. WordPress payloads do not include `canonical_url`; the adapter warns that core WordPress cannot set an external canonical URL. |
+| Medium | Manual-only instruction points the user to Medium's Import a story flow and supplies the canonical open.blog URL. The JSON dry-run plan also exposes a portable Markdown artifact for review; no remote request is generated. | The source article remains accessible at its canonical URL for the import workflow. | Extraction, formatting, canonical assignment, images, byline, and reference handling are controlled by Medium and are not verified or asserted by this repository. |
 
 Source traces: `crates/openblog-core/src/model.rs:145-195,855-880`;
 `crates/openblog-core/src/markdown.rs:815-895,917-936`;
@@ -57,28 +56,27 @@ Source traces: `crates/openblog-core/src/model.rs:145-195,855-880`;
   page renders visible contribution credits.
 - Research reference sections survive as rendered body content in HTML and as authored
   Markdown in the Markdown targets. The separate reference model is not projected into
-  a dedicated RSS or provider field. The plain-text representation keeps link labels but
-  omits their targets.
+  a dedicated RSS or provider field. Native `post.text` keeps link labels but omits their
+  targets; portable text includes link destinations.
 - RSS emits a cover as an `enclosure` with inferred MIME type and length `0`; JSON Feed
   emits it as `image`. Syndication payloads do not send the cover as a dedicated field.
   Body images remain in HTML/Markdown, subject to the URL behavior above.
-- HTML embeds and open.blog components are carried in full-content feeds and HTML
-  syndication payloads as native markup. Markdown destinations receive authored syntax
-  instead. This difference is intentional representation selection, not evidence that a
-  remote provider will preserve or execute the feature.
+- HTML embeds and open.blog components become static fallbacks or canonical links in
+  full-content feeds and syndication payloads. Portable Markdown escapes authored raw HTML;
+  portable HTML applies the fixed allowlist. Neither claims remote interactive parity.
 - Comment policy and other open.blog-only interaction configuration do not have separate
-  feed/provider fields. The rendered article body may contain the associated native markup.
+  feed/provider fields. Portable output links participation back to the canonical work.
 
 ## Intentional versus accidental differences
 
 | Difference | Classification | Evidence / follow-up |
 | --- | --- | --- |
-| HTML targets receive rendered HTML while DEV/Hashnode receive Markdown; Medium is manual-only. | Intentional current adapter contract. | Provider request builders and the manual Medium instruction select distinct forms; destination capability conversion remains future work. |
-| `post.text` and `llms-full.txt` omit fenced code/quiz bodies and link targets. | Known semantic loss, not a faithful text conversion. | The shared quiz fixture records the omission; a future text projection should report or transform it. |
-| Relative `../…` links are not resolved in feeds or syndication. | Accidental gap. | Existing URL rewriting only prefixes root-relative paths. The shared legacy fixture contains a parent-relative link; a future fix should resolve it against the canonical source URL without rewriting code or raw unrelated text. |
+| HTML targets receive portable HTML while DEV/Hashnode receive portable Markdown; Medium is manual-only. | Intentional destination policy. | Request builders use the declared representation, and the dry run prints the format and canonical limitation. |
+| Native `post.text` and `llms-full.txt` omit fenced code and link targets. | Existing native text policy. | JSON Feed `content_text` instead comes from the portable Markdown projection and includes code and link destinations. |
+| Relative Markdown destinations are resolved against canonical context. | Shared portable projection policy. | Portable Markdown resolves authored links before provider payload construction. |
 | Sidecar bylines and cover metadata are absent from provider payload fields. | Accidental metadata gap unless a destination cannot represent them. | They are present in the domain model and some feed/page metadata, but the current `SyndicationPost` and payload builders do not carry them. |
 | WordPress does not receive an external canonical field; Medium behavior is unverified. | Explicit provider limitation / manual boundary. | WordPress adapter warning and Medium manual-only instruction document the limits. |
-| Full-content feeds may expose native `<ob-…>` tags and raw HTML. | Intentional compatibility behavior, not portable conversion. | No feed-specific conversion is implemented; preserve this distinction until a destination-aware transformation is specified. |
+| Full-content feeds use static fallbacks rather than native `<ob-…>` tags. | Explicit portable consumer migration. | Shared fixtures assert portable semantics and absence of native components in RSS and JSON Feed. |
 
 ## Fixture and regression coverage
 
@@ -95,4 +93,4 @@ tests only; they do not contact providers or claim remote-rendering parity.
 The fixture corpus covers Unicode, duplicate heading anchors, relative links, image alt
 text, references, explicit and legacy authorship, recipes, callouts, media, quizzes,
 runnable code, unknown syntax, and draft exclusion. It does not claim provider-side
-equivalence or that currently unresolved relative links are correct.
+equivalence.
