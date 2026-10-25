@@ -1,4 +1,4 @@
-# ADR 0025: Store the notebook as one private, revision-checked file and capture into it through narrow Admin APIs
+# ADR 0035: Store the notebook as one private, revision-checked file and capture into it through narrow Admin APIs
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -7,12 +7,12 @@
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0010](0010-private-source-library-storage.md),
   [ADR 0011](0011-admin-source-library-management.md),
-  [ADR 0024](0024-private-passages-and-research-notes.md)
+  [ADR 0034](0034-private-passages-and-research-notes.md)
 - Contract: [Research notebook format](../specs/research-notebook.md)
 
 ## Context
 
-ADR 0024 defined the notebook's contents and left storage, revision checks, Admin routes
+ADR 0034 defined the notebook's contents and left storage, revision checks, Admin routes
 and capture UI to a later slice. Authors need to quote a passage, say where it sits, link
 a source and note a thought without leaving the draft they are writing, and the stored
 notebook must stay as private and as hard to corrupt as the source library it points into.
@@ -46,7 +46,7 @@ notebook must stay as private and as hard to corrupt as the source library it po
   revision, and the newer stored copy of the entry. Invalid entries are `422` with
   diagnostics naming the entry and field, never repeating quoted or noted text. Nothing is
   written on any failure. Admin never merges silently: after a conflict it reloads and keeps
-  the draft, and the author saves again (amended by ADR 0026: the author first chooses the
+  the draft, and the author saves again (amended by ADR 0036: the author first chooses the
   stored copy or keeps the draft, and a removed entry can only be discarded).
 - **Removal diagnostics name the caller's entries.** Removing an entry reports problems at
   the positions in the notebook the caller holds, as the library already does.
@@ -72,7 +72,7 @@ notebook must stay as private and as hard to corrupt as the source library it po
 ## Consequences
 
 - A conflict costs the author one extra Save press but never loses a draft or overwrites a
-  concurrent change (amended by ADR 0026: the author also chooses which copy to continue with).
+  concurrent change (amended by ADR 0036: the author also chooses which copy to continue with).
 - Removing the last use of a source takes two steps: remove the research, then the source.
 - Taking two locks per change serialises notebook saves with library changes; both are short.
 - Citation insertion, a public excerpt projection, and any concept registry remain

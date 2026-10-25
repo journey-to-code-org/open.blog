@@ -1,4 +1,4 @@
-# ADR 0027: Archive, export and import the private notebook explicitly, and guard every publication boundary
+# ADR 0037: Archive, export and import the private notebook explicitly, and guard every publication boundary
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -6,9 +6,9 @@
 - Parent story: [#18](https://github.com/journey-to-code-org/open.blog/issues/18)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0012](0012-source-library-interchange.md),
-  [ADR 0024](0024-private-passages-and-research-notes.md),
-  [ADR 0025](0025-private-notebook-storage-and-admin-capture.md),
-  [ADR 0026](0026-private-notebook-search-and-backlinks.md)
+  [ADR 0034](0034-private-passages-and-research-notes.md),
+  [ADR 0035](0035-private-notebook-storage-and-admin-capture.md),
+  [ADR 0036](0036-private-notebook-search-and-backlinks.md)
 - Contract: [Research notebook format](../specs/research-notebook.md)
 
 ## Context
@@ -67,10 +67,10 @@ wrong folder.
   and exported. A source scan proves the notebook code has no print, log or debug call, so no
   log line can carry private text.
 - **What a diagnostic may say.** A signed-in diagnostic is scoped by entry id so the author
-  can find the entry (ADR 0025). Ids are therefore the one thing signed-in error bodies
+  can find the entry (ADR 0035). Ids are therefore the one thing signed-in error bodies
   may repeat; text, excerpts, locators, concepts and unknown fields never appear in one. The
   `409` conflict response keeps returning the author's own newer copy of the entry they were
-  editing, as ADR 0025 decided, to a signed-in session only.
+  editing, as ADR 0035 decided, to a signed-in session only.
 
 ## Consequences
 

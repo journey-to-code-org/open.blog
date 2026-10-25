@@ -10640,7 +10640,7 @@ mod tests {
         assert!(stored.contains("9007199254740993"), "{stored}");
     }
 
-    // ---- publication-leak regression corpus (A2.4, ADR 0027) --------------------
+    // ---- publication-leak regression corpus (A2.4, ADR 0037) --------------------
     //
     // Every field a notebook entry can carry holds its own distinctive sentinel.
     // The corpus then proves, surface by surface, that none of them crosses a
@@ -10682,7 +10682,7 @@ mod tests {
     }
 
     /// Signed-in diagnostics are scoped by entry id so the author can find the
-    /// entry they name (ADR 0025); everything else about an entry stays out.
+    /// entry they name (ADR 0035); everything else about an entry stays out.
     fn assert_text_free(surface: &str, bytes: &[u8]) {
         let text = String::from_utf8_lossy(bytes);
         for (name, sentinel) in SENTINELS {

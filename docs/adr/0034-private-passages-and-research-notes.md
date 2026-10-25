@@ -1,4 +1,4 @@
-# ADR 0024: Keep quoted passages and research notes as private, separately typed entries
+# ADR 0034: Keep quoted passages and research notes as private, separately typed entries
 
 - Status: Accepted
 - Date: 2026-10-25

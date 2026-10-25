@@ -1,10 +1,10 @@
 # Research notebook format
 
 Version 1 of the private passage and research-note contract defined by
-[ADR 0024](../adr/0024-private-passages-and-research-notes.md), implemented by
+[ADR 0034](../adr/0034-private-passages-and-research-notes.md), implemented by
 `openblog_core::research_notes`. It points into the
 [source library](research-source-library.md). It is stored and edited as described in
-[ADR 0025](../adr/0025-private-notebook-storage-and-admin-capture.md); builds never read it.
+[ADR 0035](../adr/0035-private-notebook-storage-and-admin-capture.md); builds never read it.
 
 ```json
 {
@@ -83,7 +83,7 @@ passage or note still uses is refused with `still-used`.
 
 ## Search and backlinks
 
-Defined by [ADR 0026](../adr/0026-private-notebook-search-and-backlinks.md) and implemented by
+Defined by [ADR 0036](../adr/0036-private-notebook-search-and-backlinks.md) and implemented by
 `openblog_core::research_search`. Nothing is indexed on disk: every request reads the stored
 notebook and library and computes the answer.
 
@@ -106,7 +106,7 @@ note through the passages it links. Bad filters are `422` with a diagnostic on `
 
 ## Archive, export and import
 
-Defined by [ADR 0027](../adr/0027-private-notebook-lifecycle-export-and-leak-guards.md) and
+Defined by [ADR 0037](../adr/0037-private-notebook-lifecycle-export-and-leak-guards.md) and
 implemented by `openblog_core::research_bundle` and `notebook_store`.
 
 | Route | Purpose |

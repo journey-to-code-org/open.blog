@@ -1,12 +1,12 @@
-# ADR 0026: Search and link the private notebook from stored data, with an explicit question state
+# ADR 0036: Search and link the private notebook from stored data, with an explicit question state
 
 - Status: Accepted
 - Date: 2026-10-25
 - Decision issue: [#38](https://github.com/journey-to-code-org/open.blog/issues/38)
 - Parent story: [#18](https://github.com/journey-to-code-org/open.blog/issues/18)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0024](0024-private-passages-and-research-notes.md),
-  [ADR 0025](0025-private-notebook-storage-and-admin-capture.md)
+- Builds on: [ADR 0034](0034-private-passages-and-research-notes.md),
+  [ADR 0035](0035-private-notebook-storage-and-admin-capture.md)
 - Contract: [Research notebook format](../specs/research-notebook.md)
 
 ## Context
@@ -64,7 +64,7 @@ error messages leaks what the notebook keeps out of them.
   selected entry lists its backlinks, read fresh from the stored notebook. A question's state
   is edited with the note.
 
-### Amendments to ADR 0025
+### Amendments to ADR 0035
 
 - **Conflicts never overwrite silently.** After an edit conflict the capture form blocks
   saving until the author chooses the stored copy or keeps the draft, in which case the draft
