@@ -5156,6 +5156,10 @@ impl InvitationTransaction<'_> {
                 409,
                 "This shared reflection changed while you were working. Reload and try again.",
             )),
+            Err(crate::shared_publications::ReplaceError::TooLarge) => Err(Response::error(
+                500,
+                "The invitation could not be saved. Nothing changed; try again.",
+            )),
             Err(crate::shared_publications::ReplaceError::Storage(error)) => {
                 eprintln!("admin: invitation not stored: {error}");
                 Err(Response::error(
@@ -5618,6 +5622,7 @@ fn save_own_draft(state: &AppState, req: &Request, session: &auth::Session) -> R
                     409,
                     "Your draft changed while you were saving. Reload to see the newer copy.",
                 ),
+                Err(crate::shared_publications::ReplaceError::TooLarge) => draft_limit_problem(),
                 Err(crate::shared_publications::ReplaceError::Storage(error)) => {
                     eprintln!("admin: draft not stored: {error}");
                     Response::error(500, "Your draft could not be saved. Nothing was changed.")
@@ -5638,8 +5643,17 @@ fn save_own_draft(state: &AppState, req: &Request, session: &auth::Session) -> R
             "markdown",
             "That draft is too large or contains characters that cannot be saved.",
         ),
+        Err(DraftError::LimitReached) => draft_limit_problem(),
         Err(DraftError::Denied) => draft_not_found(),
     }
+}
+
+/// No room for another revision. Saved revisions are intact; only this change was refused.
+fn draft_limit_problem() -> Response {
+    shared_problem(
+        "markdown",
+        "This draft has reached its limit of saved revisions or storage, so this change was not saved. Your earlier revisions are intact; keep a copy of your latest text.",
+    )
 }
 
 fn change_member_roles(state: &AppState, req: &Request, session: &auth::Session) -> Response {
@@ -14447,6 +14461,102 @@ mod tests {
         fs::create_dir(&path).unwrap();
         assert_eq!(draft_call(&f, &mikey, &id, 0, "x").status, 500);
         assert!(path.is_dir());
+    }
+
+    #[test]
+    fn a_save_that_would_outgrow_the_draft_file_is_refused_and_the_file_stays_readable() {
+        let (f, mikey, id) = invitation_fixture("draft-size");
+        let heavy = "\u{1}".repeat(openblog_core::collaboration::MAX_MARKDOWN_BYTES);
+        let mut revision = 0;
+        let refused = loop {
+            let saved = draft_call(&f, &mikey, &id, revision, &heavy);
+            if saved.status != 200 {
+                break saved;
+            }
+            revision += 1;
+        };
+        assert_eq!(refused.status, 422);
+        assert!(revision > 1);
+        let path = drafts_file(&f, &id);
+        let before = fs::read(&path).unwrap();
+        assert!(before.len() <= openblog_core::draft::MAX_DRAFT_SET_BYTES);
+        assert_eq!(draft_call(&f, &mikey, &id, revision, &heavy).status, 422);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        let read = draft_read(&f, &mikey, &id);
+        assert_eq!(read.status, 200);
+        assert_eq!(body_json(&read)["draft"]["stamp"]["number"], revision);
+    }
+
+    #[test]
+    fn the_revision_limit_is_reported_truthfully_and_keeps_every_revision() {
+        let (f, mikey, id) = invitation_fixture("draft-revisions");
+        for number in 0..openblog_core::draft::MAX_REVISIONS_PER_DRAFT as u64 {
+            assert_eq!(draft_call(&f, &mikey, &id, number, "a").status, 200);
+        }
+        let path = drafts_file(&f, &id);
+        let before = fs::read(&path).unwrap();
+        let refused = draft_call(
+            &f,
+            &mikey,
+            &id,
+            openblog_core::draft::MAX_REVISIONS_PER_DRAFT as u64,
+            "b",
+        );
+        assert_eq!(refused.status, 422);
+        let body = String::from_utf8_lossy(&refused.body).to_string();
+        assert!(body.contains("limit") && !body.contains("characters that cannot"));
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(draft_read(&f, &mikey, &id).status, 200);
+    }
+
+    #[test]
+    fn an_interrupted_save_leaves_the_drafts_loadable_and_savable() {
+        let (f, mikey, id) = invitation_fixture("draft-crash");
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "kept").status, 200);
+        let path = drafts_file(&f, &id);
+        let orphan = path
+            .parent()
+            .unwrap()
+            .join(format!(".{id}.0123456789abcdef.tmp"));
+        fs::write(&orphan, b"{half a draft").unwrap();
+        let before = fs::read(&path).unwrap();
+        let read = draft_read(&f, &mikey, &id);
+        assert_eq!(read.status, 200);
+        assert!(String::from_utf8_lossy(&read.body).contains("kept"));
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(
+            draft_call(&f, &mikey, &id, 1, "after the crash").status,
+            200
+        );
+        let read = draft_read(&f, &mikey, &id);
+        assert!(String::from_utf8_lossy(&read.body).contains("after the crash"));
+        // A restored copy of the earlier file is picked up like any stored draft.
+        fs::write(&path, &before).unwrap();
+        let read = draft_read(&f, &mikey, &id);
+        assert!(String::from_utf8_lossy(&read.body).contains("kept"));
+    }
+
+    #[test]
+    fn odd_publication_ids_never_reach_the_filesystem() {
+        let (f, mikey, id) = invitation_fixture("draft-traversal");
+        assert_eq!(draft_call(&f, &mikey, &id, 0, "kept").status, 200);
+        let before = tree_snapshot(&f.dir);
+        for odd in [
+            "../publications/x",
+            "..%2Fpublications%2Fx",
+            r"..\publications\x",
+            "/etc/passwd",
+            "a/b",
+            "",
+            "%2e%2e",
+            "shared-000000000000/../x",
+        ] {
+            let read = draft_read(&f, &mikey, odd);
+            assert_eq!(read.status, 404, "{odd}");
+            let saved = draft_call(&f, &mikey, odd, 0, "ESCAPED");
+            assert_eq!(saved.status, 404, "{odd}");
+        }
+        assert_eq!(tree_snapshot(&f.dir), before);
     }
 
     #[cfg(unix)]

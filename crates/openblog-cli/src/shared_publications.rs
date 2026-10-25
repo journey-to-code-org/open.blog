@@ -28,6 +28,8 @@ const MAX_ID_ATTEMPTS: usize = 8;
 pub enum ReplaceError {
     /// The record changed since it was loaded, or is gone.
     Conflict,
+    /// The set would be larger than a later load accepts; nothing was written.
+    TooLarge,
     Storage(String),
 }
 
@@ -286,6 +288,9 @@ pub fn replace_drafts(
 ",
         next.to_json()
     );
+    if text.len() > MAX_DRAFT_SET_BYTES {
+        return Err(ReplaceError::TooLarge);
+    }
     create_private_directory(&directory).map_err(ReplaceError::Storage)?;
     let temporary = temporary_path(&directory, publication_id).map_err(ReplaceError::Storage)?;
     write_private_file(&temporary, text.as_bytes()).map_err(ReplaceError::Storage)?;

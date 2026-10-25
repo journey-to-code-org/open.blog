@@ -39,6 +39,9 @@ pub enum DraftError {
     Stale,
     /// The input is malformed or exceeds a limit.
     Invalid,
+    /// The draft already holds every revision it may, or saving would make the stored set larger
+    /// than it can be read back. Nothing was saved.
+    LimitReached,
 }
 
 impl fmt::Display for DraftError {
@@ -47,6 +50,7 @@ impl fmt::Display for DraftError {
             Self::Denied => "contribution draft access denied",
             Self::Stale => "contribution draft changed since it was read",
             Self::Invalid => "invalid contribution draft",
+            Self::LimitReached => "contribution draft limit reached",
         })
     }
 }
@@ -291,7 +295,7 @@ impl DraftSet {
             return Err(DraftError::Stale);
         }
         if current as usize >= MAX_REVISIONS_PER_DRAFT {
-            return Err(DraftError::Invalid);
+            return Err(DraftError::LimitReached);
         }
         let number = current + 1;
         let revision = Revision {
@@ -314,7 +318,25 @@ impl DraftSet {
             .find(|draft| draft.id == contribution_id)
             .expect("draft exists");
         draft.revisions.push(revision);
-        let draft = &*draft;
+        // The stored file, with its trailing newline, must always load again, so a save that
+        // would outgrow the limit is undone and nothing changes.
+        if self.to_json().len() >= MAX_DRAFT_SET_BYTES {
+            let draft = self
+                .drafts
+                .iter_mut()
+                .find(|draft| draft.id == contribution_id)
+                .expect("draft exists");
+            draft.revisions.pop();
+            if current == 0 {
+                self.drafts.pop();
+            }
+            return Err(DraftError::LimitReached);
+        }
+        let draft = self
+            .drafts
+            .iter()
+            .find(|draft| draft.id == contribution_id)
+            .expect("draft exists");
         Ok(Self::stamp(draft, draft.revisions.last().expect("pushed")))
     }
 
@@ -573,6 +595,36 @@ mod tests {
 
     fn set(ids: &[&str]) -> DraftSet {
         DraftSet::new(ids).unwrap()
+    }
+
+    #[test]
+    fn saving_stops_before_the_set_outgrows_what_can_be_loaded() {
+        let mut draft_set = set(&["mikey"]);
+        let heavy = "\u{1}".repeat(MAX_MARKDOWN_BYTES);
+        let mut saved = 0;
+        let outcome = loop {
+            match draft_set.save("mikey", "mikey", saved, &heavy, T) {
+                Ok(_) => saved += 1,
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(outcome, DraftError::LimitReached);
+        assert!(saved > 1 && (saved as usize) < MAX_REVISIONS_PER_DRAFT);
+        let text = draft_set.to_json();
+        assert!(text.len() < MAX_DRAFT_SET_BYTES);
+        assert_eq!(DraftSet::from_json(&text).unwrap(), draft_set);
+    }
+
+    #[test]
+    fn the_revision_limit_has_its_own_outcome() {
+        let mut draft_set = set(&["mikey"]);
+        for number in 0..MAX_REVISIONS_PER_DRAFT as u64 {
+            draft_set.save("mikey", "mikey", number, "a", T).unwrap();
+        }
+        assert_eq!(
+            draft_set.save("mikey", "mikey", MAX_REVISIONS_PER_DRAFT as u64, "a", T),
+            Err(DraftError::LimitReached)
+        );
     }
 
     #[test]
