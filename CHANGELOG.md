@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Portable Markdown for a published shared reflection now escapes its title, so a participant-supplied
+  title can no longer inject raw HTML into an export or syndicated copy.
 - A published shared reflection now has checked output everywhere the site publishes: the page,
   portable HTML and Markdown, RSS and JSON Feed show every author's section in order, credit each
   author who wrote one in the same order, and link the shared source and guiding question. Replaced

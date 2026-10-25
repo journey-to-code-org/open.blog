@@ -898,7 +898,12 @@ impl<'a> PortableProjection<'a> {
             .map_err(|error| format!("{}: {error}", self.source_path))?;
         let mut output = format!(
             "# {}\n\nCanonical: <{}>\n\n",
-            markdown_text(self.title),
+            if self.shared.is_some() {
+                // The title came from a participant, not the site owner: no raw HTML or entity.
+                shared_markdown_text(self.title)
+            } else {
+                markdown_text(self.title)
+            },
             self.canonical_url
         );
         if let Some(subtitle) = self.subtitle {
