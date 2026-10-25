@@ -434,7 +434,8 @@ pub struct PublicReference {
     pub issued: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
-    /// `(scheme, value)` pairs such as `("doi", "10.1000/x")`.
+    /// `(scheme, value)` pairs such as `("doi", "10.1000/x")`, for the
+    /// publicly resolvable schemes only; see [`public_identifier`].
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub identifiers: Vec<(String, String)>,
     /// Allowlisted CSL variables such as `publisher` or `container-title`.
@@ -447,6 +448,22 @@ pub struct PublicCreator {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+}
+
+/// Whether an identifier may be published. Only the standard, publicly
+/// resolvable schemes CSL interchange knows (DOI, ISBN, ISSN, URL, PMID,
+/// PMCID) are; the library validates DOI, ISBN, ISSN and URL values, and PMID
+/// and PMCID are checked for shape here. Any other scheme is free-form author
+/// data, such as a local path or a private catalogue number, and stays private.
+pub fn public_identifier(scheme: &str, value: &str) -> bool {
+    let digits = |text: &str| {
+        !text.is_empty() && text.len() <= 12 && text.bytes().all(|b| b.is_ascii_digit())
+    };
+    match scheme {
+        "pmid" => digits(value),
+        "pmcid" => value.strip_prefix("PMC").is_some_and(digits),
+        _ => IDENTIFIER_FIELDS.iter().any(|(known, _)| *known == scheme),
+    }
 }
 
 pub fn public_reference(record: &SourceRecord) -> PublicReference {
@@ -484,6 +501,7 @@ pub fn public_reference(record: &SourceRecord) -> PublicReference {
         identifiers: record
             .identifiers
             .iter()
+            .filter(|identifier| public_identifier(&identifier.scheme, &identifier.value))
             .map(|identifier| (identifier.scheme.clone(), identifier.value.clone()))
             .collect(),
         csl,
@@ -507,7 +525,11 @@ pub fn format_reference(reference: &PublicReference) -> String {
     parts.extend(reference.csl.get("container-title").cloned());
     parts.extend(reference.csl.get("publisher").cloned());
     parts.extend(reference.issued.clone());
-    if let Some((scheme, value)) = reference.identifiers.first() {
+    if let Some((scheme, value)) = reference
+        .identifiers
+        .iter()
+        .find(|(scheme, value)| public_identifier(scheme, value))
+    {
         parts.push(format!("{scheme}:{value}"));
     }
     if parts.is_empty() {

@@ -412,3 +412,34 @@ fn notebook_locator_extra_fields_never_reach_public_output_or_csl() {
         assert!(text.contains("\"to\":\"520\""), "{text}");
     }
 }
+
+#[test]
+fn only_publicly_resolvable_identifier_schemes_are_published() {
+    let text = json!({"version": 1, "sources": [{
+    "id": "scan", "kind": "work", "title": "Scan",
+    "identifiers": [
+        {"scheme": "my-drive", "value": "C:/Users/me/Private/scan.pdf"},
+        {"scheme": "pmid", "value": "see my notes"},
+        {"scheme": "oclc", "value": "12345"},
+        {"scheme": "doi", "value": "10.1000/xyz"},
+        {"scheme": "pmcid", "value": "PMC123"}
+    ]}]})
+    .to_string();
+    let library = SourceLibrary::parse(&text, &BTreeMap::new()).expect("library");
+    let scan = scan_citations("[@scan]");
+    let resolved = resolve_citations(&scan.mentions, &library);
+    let json = serde_json::to_string(&resolved).unwrap();
+    for leaked in ["my-drive", "Private", "see my notes", "oclc"] {
+        assert!(!json.contains(leaked), "{leaked} leaked: {json}");
+    }
+    let schemes: Vec<&str> = resolved.references[0]
+        .identifiers
+        .iter()
+        .map(|(scheme, _)| scheme.as_str())
+        .collect();
+    assert_eq!(schemes, ["doi", "pmcid"]);
+    assert_eq!(
+        format_reference(&resolved.references[0]),
+        "Scan. doi:10.1000/xyz"
+    );
+}

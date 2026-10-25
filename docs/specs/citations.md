@@ -39,9 +39,10 @@ omitted; others resolve. The result lists each citation with the number of its r
 order of first citation, and each reference once.
 
 Public: the key, the locators (kind, value, end) and the reference description (kind, title,
-creator names and roles, issued, language, identifiers, preserved CSL variables) with its
+creator names and roles, issued, language, identifiers in the schemes `doi`, `isbn`, `issn`,
+`url`, `pmid` and `pmcid`, preserved CSL variables) with its
 plain-text rendering. Private and never present: notebook content, archived flag,
-relationships, unknown fields, credits.
+relationships, unknown fields (also on locators), identifiers in any other scheme, credits.
 
 ## CSL interoperability
 

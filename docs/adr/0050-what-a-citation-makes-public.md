@@ -21,13 +21,21 @@ over everything.
 Exactly three things become public when a post cites a reference:
 
 1. the **citation key** (the source identifier);
-2. the **locators** (kind, value and optional end, with no extra fields);
+2. the **locators** (kind, value and optional end, with no extra fields): a dedicated
+   `PublicLocator` type with no room for the unknown fields a notebook locator keeps;
 3. the **formatted reference**: a `PublicReference` built from an allowlist of the record's
-   description (kind, title, creator names and roles, issued, language, identifiers, and the
-   preserved CSL variables of ADR 0012), plus a deterministic plain-text rendering of it.
+   description (kind, title, creator names and roles, issued, language, identifiers in the
+   publicly resolvable schemes, and the preserved CSL variables of ADR 0012), plus a
+   deterministic plain-text rendering of it.
+
+Identifiers are published only in the standard schemes CSL interchange knows: `doi`, `isbn`,
+`issn` and `url` (which the library validates) and `pmid` and `pmcid` (checked for shape when
+published). Any other scheme is free-form author data, such as a local file path or a private
+catalogue number, and stays private.
 
 Everything else stays private: notebook passages, excerpts, notes, concepts and links; the
-archived flag and relationships; unknown record fields; credit fields; and private CSL note
+archived flag and relationships; unknown record fields; identifiers in other schemes; credit
+fields; and private CSL note
 fields, which are never stored. Resolution takes the source library and the citations as its
 only inputs, so the notebook cannot reach it by construction. A quotation or note reaches a post
 only as text the author copies into it; it never rides along with a citation.
