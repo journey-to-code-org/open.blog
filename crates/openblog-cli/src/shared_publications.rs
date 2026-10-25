@@ -10,7 +10,8 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use openblog_core::approval::ApprovalSet;
+use openblog_core::approval::{ApprovalSet, MAX_APPROVAL_SET_BYTES};
+use openblog_core::assembly::Outcome;
 use openblog_core::collaboration::{
     NewSharedPublication, SharedPublication, SharedPublicationError, MAX_SHARED_PUBLICATION_BYTES,
 };
@@ -26,6 +27,9 @@ pub const DRAFTS_DIRECTORY: &str = ".openblog/private/collaboration/drafts";
 /// Private approval sets, one file per publication, beside the drafts and kept out of Git,
 /// output, feeds and exports for the same reason. Nothing here writes them yet.
 pub const APPROVALS_DIRECTORY: &str = ".openblog/private/collaboration/approvals";
+/// What happened to each publication after approval (scheduled, or published), one small file
+/// per publication. Private like the rest, and written only by the publish gate (ADR 0022).
+pub const OUTCOMES_DIRECTORY: &str = ".openblog/private/collaboration/outcomes";
 const MAX_ID_ATTEMPTS: usize = 8;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -299,26 +303,172 @@ pub fn replace_drafts(
     next: &DraftSet,
 ) -> Result<(), ReplaceError> {
     let directory = drafts_directory(root).map_err(ReplaceError::Storage)?;
-    let target = directory.join(format!("{publication_id}.json"));
-    let current = read_drafts_file(&target).map_err(|_| ReplaceError::Conflict)?;
-    if current != previous.text {
-        return Err(ReplaceError::Conflict);
-    }
     let text = format!(
         "{}
 ",
         next.to_json()
     );
-    if text.len() > MAX_DRAFT_SET_BYTES {
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        Some(&text),
+        MAX_DRAFT_SET_BYTES,
+    )
+}
+
+/// Compare-and-swap one private file: store `next` (or delete the file for `None`) only when it
+/// still holds exactly `previous`. Refuses a symlink, directory or oversized file untouched.
+fn replace_text(
+    directory: &Path,
+    publication_id: &str,
+    previous: &Option<String>,
+    next: Option<&str>,
+    max_bytes: usize,
+) -> Result<(), ReplaceError> {
+    let target = directory.join(format!("{publication_id}.json"));
+    let current = read_drafts_file(&target).map_err(|_| ReplaceError::Conflict)?;
+    if &current != previous {
+        return Err(ReplaceError::Conflict);
+    }
+    let Some(text) = next else {
+        return match fs::remove_file(&target) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(ReplaceError::Storage(format!(
+                "cannot remove the file: {error}"
+            ))),
+        };
+    };
+    if text.len() > max_bytes {
         return Err(ReplaceError::TooLarge);
     }
-    create_private_directory(&directory).map_err(ReplaceError::Storage)?;
-    let temporary = temporary_path(&directory, publication_id).map_err(ReplaceError::Storage)?;
+    create_private_directory(directory).map_err(ReplaceError::Storage)?;
+    let temporary = temporary_path(directory, publication_id).map_err(ReplaceError::Storage)?;
     write_private_file(&temporary, text.as_bytes()).map_err(ReplaceError::Storage)?;
     fs::rename(&temporary, &target).map_err(|error| {
         let _ = fs::remove_file(&temporary);
-        ReplaceError::Storage(format!("cannot update the draft file: {error}"))
+        ReplaceError::Storage(format!("cannot update the file: {error}"))
     })
+}
+
+/// An approval set as read from disk, with the exact text it came from, so a write built on a
+/// stale read is refused.
+pub struct StoredApprovals {
+    pub set: ApprovalSet,
+    text: Option<String>,
+}
+
+fn approvals_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(APPROVALS_DIRECTORY))
+        .map_err(|_| "approval storage resolves outside the project".to_string())
+}
+
+/// Like [`load_approvals`], keeping the text so [`replace_approvals`] can detect a concurrent change.
+pub fn load_approvals_for_update(
+    root: &Path,
+    publication_id: &str,
+) -> Result<StoredApprovals, String> {
+    let target = approvals_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target).map_err(|_| "the approval file is not usable")?;
+    let set = match &text {
+        Some(text) => ApprovalSet::from_json(text)
+            .map_err(|_| "the approval file is not usable".to_string())?,
+        None => ApprovalSet::new(),
+    };
+    Ok(StoredApprovals { set, text })
+}
+
+pub fn replace_approvals(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredApprovals,
+    next: &ApprovalSet,
+) -> Result<(), ReplaceError> {
+    let directory = approvals_directory(root).map_err(ReplaceError::Storage)?;
+    let text = format!(
+        "{}
+",
+        next.to_json()
+    );
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        Some(&text),
+        MAX_APPROVAL_SET_BYTES,
+    )
+}
+
+/// A publication's outcome as read from disk, with the text it came from.
+pub struct StoredOutcome {
+    pub outcome: Option<Outcome>,
+    text: Option<String>,
+}
+
+fn outcomes_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(OUTCOMES_DIRECTORY))
+        .map_err(|_| "publication storage resolves outside the project".to_string())
+}
+
+/// The outcome, or none when the publication was never scheduled or published. A file that
+/// exists but is not valid is an error, never "unpublished", so a bad file cannot cause a
+/// second publication.
+pub fn load_outcome(root: &Path, publication_id: &str) -> Result<StoredOutcome, String> {
+    let target = outcomes_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target).map_err(|_| "the publication state is not usable")?;
+    let outcome = match &text {
+        Some(text) => Some(
+            Outcome::from_json(text)
+                .ok_or_else(|| "the publication state is not usable".to_string())?,
+        ),
+        None => None,
+    };
+    Ok(StoredOutcome { outcome, text })
+}
+
+/// Store `next` (or remove the outcome for `None`) when the file still holds `previous`. Returns
+/// what is now stored, so a caller can roll back with it.
+pub fn replace_outcome(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredOutcome,
+    next: Option<&Outcome>,
+) -> Result<StoredOutcome, ReplaceError> {
+    let directory = outcomes_directory(root).map_err(ReplaceError::Storage)?;
+    let text = next.map(|outcome| {
+        format!(
+            "{}
+",
+            outcome.to_json()
+        )
+    });
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        text.as_deref(),
+        openblog_core::assembly::MAX_OUTCOME_BYTES,
+    )?;
+    Ok(StoredOutcome {
+        outcome: next.cloned(),
+        text,
+    })
+}
+
+/// Publication IDs that have a stored outcome file, for the scheduler to inspect. Names only.
+pub fn outcome_ids(root: &Path) -> Vec<String> {
+    let Ok(directory) = outcomes_directory(root) else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter_map(|name| name.strip_suffix(".json").map(str::to_string))
+        .filter(|id| id.starts_with("shared-"))
+        .collect()
 }
 
 fn record_text(record: &SharedPublication) -> Result<String, String> {
