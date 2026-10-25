@@ -2,6 +2,7 @@
 //! attributed, anchored, rendered by the one production renderer the preview also uses, and
 //! nothing unapproved, stale or internal reaches any public output.
 
+use openblog_core::accessibility::{audit_document, DocumentAuditInput, FindingCode};
 use openblog_core::approval::ApprovalSet;
 use openblog_core::assembly::{
     assemble, conversation_markdown, with_subject, Assembly, AssemblyError,
@@ -18,7 +19,9 @@ use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
 use openblog_core::portability::PortableProjection;
 use openblog_core::preview::{build as preview, render_section};
 use openblog_core::render;
-use openblog_core::synthesis::{NewSynthesisItem, SynthesisEdit, SynthesisKind, SynthesisSet};
+use openblog_core::synthesis::{
+    ItemRule, NewSynthesisItem, SynthesisEdit, SynthesisError, SynthesisKind, SynthesisSet,
+};
 use openblog_core::theme::ThemeSet;
 
 const T: i64 = 1_800_000_000;
@@ -406,14 +409,14 @@ fn item_prose_cannot_publish_html_unsafe_links_or_outline_headings() {
         "```\nunclosed fence",
     ] {
         let mut f = Fixture::new();
-        f.add(SynthesisKind::Agreement, "ann", hostile, &["bo", "cy"]);
+        legacy_item(&mut f, hostile);
         // Something follows, so a fence or definition that leaks forward would be caught.
         f.add(SynthesisKind::Uncertainty, "cy", "Trailing.", &[]);
         f.approve_all_items();
         f.approve_piece();
         let outcome = f.assemble();
         assert!(
-            matches!(outcome, Err(AssemblyError::UnsafeMarkup)),
+            matches!(outcome, Err(AssemblyError::UnsafeConversationItem(_))),
             "`{hostile}` published: {outcome:?}"
         );
     }
@@ -441,7 +444,10 @@ fn a_reference_definition_in_one_item_cannot_reach_another() {
     f.add(SynthesisKind::Question, "ann", "See [ref] for more.", &[]);
     f.approve_all_items();
     f.approve_piece();
-    assert!(matches!(f.assemble(), Err(AssemblyError::UnsafeMarkup)));
+    assert!(matches!(
+        f.assemble(),
+        Err(AssemblyError::UnsafeConversationItem(ItemRule::Markup))
+    ));
 }
 
 #[test]
@@ -613,5 +619,258 @@ fn every_representation_carries_the_conversation_and_no_internal_value() {
         ("search", feeds::search_index(&site)),
     ] {
         assert_clean(label, &output);
+    }
+}
+
+/// Items as an older save (before the item rules) could have stored them: a benign item whose
+/// Markdown is swapped in the stored JSON, so publishing's own check is exercised.
+fn legacy_item(f: &mut Fixture, markdown: &str) {
+    f.add(
+        SynthesisKind::Agreement,
+        "ann",
+        "placeholder",
+        &["bo", "cy"],
+    );
+    let json = f
+        .synthesis
+        .to_json()
+        .replace("\"placeholder\"", &serde_json::to_string(markdown).unwrap());
+    f.synthesis = SynthesisSet::from_json(&json).unwrap();
+}
+
+fn published_error(f: &mut Fixture) -> AssemblyError {
+    f.approve_all_items();
+    f.approve_piece();
+    f.assemble().unwrap_err()
+}
+
+#[test]
+fn a_section_or_item_cannot_claim_a_generated_anchor() {
+    // A section heading by text, by explicit id, and a generated-looking item heading.
+    for section in [
+        "## Continuing the conversation",
+        "## Something {#continuing-the-conversation}",
+        "## Anything {#conversation-agreement}",
+        "### Conversation agreement 1",
+    ] {
+        let mut f = Fixture::new();
+        f.drafts
+            .save(
+                "ann",
+                "ann",
+                1,
+                &format!(
+                    "{section}
+
+Words."
+                ),
+                T,
+            )
+            .unwrap();
+        f.add(SynthesisKind::Agreement, "ann", "We agree.", &["bo", "cy"]);
+        assert_eq!(
+            published_error(&mut f),
+            AssemblyError::UnsafeMarkup,
+            "{section}"
+        );
+    }
+    for item in [
+        "##### Conversation agreement 1",
+        "##### Fine {#conversation-agreement-1}",
+        "##### Continuing the conversation",
+    ] {
+        let mut f = Fixture::new();
+        let revision = f.synthesis.revision();
+        let saved = f.synthesis.add(
+            "ann",
+            &ALL,
+            revision,
+            NewSynthesisItem {
+                kind: SynthesisKind::Agreement,
+                markdown: item,
+                others: &[],
+            },
+        );
+        assert_eq!(
+            saved,
+            Err(SynthesisError::Rule(ItemRule::ReservedAnchor)),
+            "{item}"
+        );
+        legacy_item(&mut f, item);
+        assert_eq!(
+            published_error(&mut f),
+            AssemblyError::UnsafeConversationItem(ItemRule::ReservedAnchor),
+            "{item}"
+        );
+    }
+    // The generated anchors appear exactly once on an ordinary publication.
+    let page = page_of(&site(&mixed().published()));
+    assert_eq!(
+        page.matches("id=\"continuing-the-conversation\"").count(),
+        1
+    );
+    assert_eq!(page.matches("id=\"conversation-difference\"").count(), 1);
+}
+
+#[test]
+fn item_headings_start_at_level_five_and_never_skip() {
+    for bad in [
+        "## Heading",
+        "#### Four",
+        "###### Six first",
+        "##### Five
+
+###### Six
+
+#### Four",
+    ] {
+        let mut f = Fixture::new();
+        let revision = f.synthesis.revision();
+        let saved = f.synthesis.add(
+            "ann",
+            &ALL,
+            revision,
+            NewSynthesisItem {
+                kind: SynthesisKind::Agreement,
+                markdown: bad,
+                others: &[],
+            },
+        );
+        assert_eq!(saved, Err(SynthesisError::Rule(ItemRule::Outline)), "{bad}");
+        legacy_item(&mut f, bad);
+        assert_eq!(
+            published_error(&mut f),
+            AssemblyError::UnsafeConversationItem(ItemRule::Outline),
+            "{bad}"
+        );
+    }
+    // An edit is held to the same rule and changes nothing when refused.
+    let mut f = Fixture::new();
+    let id = f.add(SynthesisKind::Agreement, "ann", "Fine.", &[]);
+    let before = f.synthesis.clone();
+    let revision = f.synthesis.revision();
+    let edited = f.synthesis.edit(
+        "ann",
+        &ALL,
+        revision,
+        &id,
+        SynthesisEdit {
+            kind: None,
+            markdown: Some("# Title"),
+            add_contributors: &[],
+        },
+    );
+    assert_eq!(edited, Err(SynthesisError::Rule(ItemRule::Outline)));
+    assert_eq!(f.synthesis, before);
+    // A well-formed item outline passes audit_document inside the whole published body.
+    let mut f = Fixture::new();
+    f.add(
+        SynthesisKind::Agreement,
+        "ann",
+        "##### Detail
+
+Text.
+
+###### Finer
+
+More.
+
+##### Next
+
+Done.",
+        &["bo", "cy"],
+    );
+    let made = f.published();
+    let body = made
+        .source
+        .split(
+            "---
+",
+        )
+        .last()
+        .unwrap();
+    let findings = audit_document(DocumentAuditInput {
+        path: &made.path,
+        markdown: body,
+        body_line: 1,
+        embeds_enabled: false,
+        cover_alt: None,
+    });
+    assert!(
+        !findings
+            .iter()
+            .any(|finding| finding.code == FindingCode::HeadingLevelSkip),
+        "{findings:?}"
+    );
+}
+
+#[test]
+fn an_item_refusal_names_the_item_and_never_blames_a_section() {
+    let mut f = Fixture::new();
+    legacy_item(&mut f, "<b>x</b>");
+    assert_eq!(
+        published_error(&mut f),
+        AssemblyError::UnsafeConversationItem(ItemRule::Markup)
+    );
+    let mut f = Fixture::new();
+    f.drafts.save("ann", "ann", 1, "<b>x</b>", T).unwrap();
+    f.add(SynthesisKind::Agreement, "ann", "Fine.", &["bo", "cy"]);
+    assert_eq!(published_error(&mut f), AssemblyError::UnsafeMarkup);
+}
+
+#[test]
+fn the_conversation_is_plain_semantic_html_in_prose_with_no_script_or_style() {
+    let mut f = mixed();
+    let made = f.published();
+    let page = page_of(&site(&made));
+    let start = page.find("<h2 id=\"continuing-the-conversation\"").unwrap();
+    let prose_open = page[..start]
+        .rfind("class=\"ob-prose")
+        .expect("inside .ob-prose");
+    // The block sits inside that prose container: no container closes between them.
+    assert!(prose_open < start);
+    let rest = &page[start..];
+    let end = rest.find("</article>").unwrap_or(rest.len());
+    let block = &rest[..end];
+    for banned in [
+        "<script",
+        "<style",
+        "style=",
+        "<link",
+        "onclick",
+        "javascript:",
+        "<iframe",
+    ] {
+        assert!(!block.contains(banned), "conversation carries `{banned}`");
+    }
+    for expected in ["<h2 ", "<h3 ", "<h4 ", "<p>"] {
+        assert!(block.contains(expected), "missing {expected}");
+    }
+    // Print: the stylesheet's print rules never hide prose or headings.
+    let css = include_str!("../../../web/base.css");
+    let print = &css[css.find("@media print").unwrap()..];
+    let hidden: Vec<&str> = print
+        .split('}')
+        .filter(|rule| rule.contains("display: none"))
+        // Recipe print mode is opt-in per post and never applies to a reflection.
+        .filter(|rule| !rule.contains(".ob-print-recipe"))
+        .map(|rule| rule.split('{').next().unwrap())
+        .collect();
+    for selector in hidden {
+        for prose in [
+            ".ob-prose",
+            " h2",
+            " h3",
+            " h4",
+            "
+h2",
+            "
+h3",
+            "
+h4",
+            "article",
+        ] {
+            assert!(!selector.contains(prose), "print hides `{selector}`");
+        }
     }
 }

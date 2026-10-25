@@ -19,7 +19,7 @@ use crate::shared_source::{
     SharedAttribution, QUESTION_KEY, SOURCE_KIND_KEY, SOURCE_TITLE_KEY, SOURCE_URL_KEY,
 };
 use crate::slug;
-use crate::synthesis::{SynthesisKind, SynthesisSet};
+use crate::synthesis::{self, ItemRule, SynthesisKind, SynthesisSet};
 
 pub const OUTCOME_VERSION: u8 = 1;
 pub const MAX_OUTCOME_BYTES: usize = 2 * 1024;
@@ -40,6 +40,10 @@ pub enum AssemblyError {
     /// but not for a co-author's prose, and the approved text must not be altered, so the piece
     /// is refused until the author removes it.
     UnsafeMarkup,
+    /// An approved continuing-conversation item breaks a rule for item Markdown (raw HTML, an
+    /// unsafe link, a heading outside the item outline, or a reserved anchor). Distinct from
+    /// [`Self::UnsafeMarkup`] so the refusal names the item rather than a section.
+    UnsafeConversationItem(ItemRule),
 }
 
 /// The canonical files one publication writes.
@@ -285,8 +289,10 @@ pub fn assemble(
     }
 
     let conversation = conversation_parts(record, synthesis);
-    if has_unsafe_markup(&prose, &conversation) {
-        return Err(AssemblyError::UnsafeMarkup);
+    match unsafe_markup(&prose, &conversation) {
+        None => {}
+        Some(None) => return Err(AssemblyError::UnsafeMarkup),
+        Some(Some(rule)) => return Err(AssemblyError::UnsafeConversationItem(rule)),
     }
     let mut body = prose.join(SECTION_BREAK);
     if !conversation.is_empty() {
@@ -344,7 +350,30 @@ pub fn assemble(
 /// chunk is held to the same rules as a section, may not carry a heading of level one to four
 /// (it would break the page outline under the generated headings), and must parse the same
 /// inside the block as alone.
-fn has_unsafe_markup(sections: &[String], conversation: &[(String, bool)]) -> bool {
+///
+/// `None` is safe. `Some(None)` is a section's fault, `Some(Some(rule))` an item's. A section
+/// heading (by its id or its text) may not claim an anchor the generated block owns.
+fn unsafe_markup(sections: &[String], conversation: &[(String, bool)]) -> Option<Option<ItemRule>> {
+    if sections
+        .iter()
+        .any(|text| synthesis::claims_reserved_anchor(text))
+    {
+        return Some(None);
+    }
+    for (text, prose) in conversation {
+        if *prose {
+            if let Err(rule) = synthesis::check_item_markdown(text) {
+                return Some(Some(rule));
+            }
+        }
+    }
+    has_unsafe_markup(sections, conversation)
+}
+
+fn has_unsafe_markup(
+    sections: &[String],
+    conversation: &[(String, bool)],
+) -> Option<Option<ItemRule>> {
     use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
     let unsafe_address = |address: &str| {
         let compact: String = address
@@ -397,27 +426,38 @@ fn has_unsafe_markup(sections: &[String], conversation: &[(String, bool)]) -> bo
         .map(|(text, _)| text.as_str())
         .collect::<Vec<_>>()
         .join("\n\n");
-    [false, true].into_iter().any(|smart| {
+    for smart in [false, true] {
         let options = crate::markdown::parser_options(smart);
         let mut blocks: Vec<&str> = sections.iter().map(String::as_str).collect();
         if !conversation.is_empty() {
             blocks.push(&block);
         }
         if !isolated(&blocks, SECTION_BREAK, true, options) {
-            return true;
+            return Some(None);
         }
         let chunks: Vec<&str> = conversation.iter().map(|(text, _)| text.as_str()).collect();
-        if !isolated(&chunks, "\n\n", false, options) {
-            return true;
+        if !isolated(
+            &chunks, "
+
+", false, options,
+        ) {
+            return Some(Some(ItemRule::Markup));
         }
-        sections
+        if sections
             .iter()
             .any(|text| scan(&Parser::new_ext(text, options).collect::<Vec<_>>(), false))
-            || conversation
-                .iter()
-                .filter(|(_, prose)| *prose)
-                .any(|(text, _)| scan(&Parser::new_ext(text, options).collect::<Vec<_>>(), true))
-    })
+        {
+            return Some(None);
+        }
+        if conversation
+            .iter()
+            .filter(|(_, prose)| *prose)
+            .any(|(text, _)| scan(&Parser::new_ext(text, options).collect::<Vec<_>>(), true))
+        {
+            return Some(Some(ItemRule::Markup));
+        }
+    }
+    None
 }
 
 /// What happened to a publication after approval. Absent means neither scheduled nor published.

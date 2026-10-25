@@ -5851,6 +5851,15 @@ fn prepare_post(
                 "A section contains raw HTML or an unsafe link, which shared reflections do not publish. Ask its author to remove it and approve again. Nothing was changed.",
             ))
         }
+        Err(AssemblyError::UnsafeConversationItem(rule)) => {
+            return Err(shared_problem(
+                "",
+                &format!(
+                    "An item in the continuing conversation contains {}, so it cannot be published. Ask its author to edit the item and approve it again. Nothing was changed.",
+                    rule.describe()
+                ),
+            ))
+        }
         Err(AssemblyError::Invalid) => {
             return Err(shared_problem(
                 "",
@@ -6498,6 +6507,12 @@ fn change_synthesis(state: &AppState, req: &Request, session: &auth::Session) ->
             return Response::error(
                 409,
                 "The continuing conversation changed since you read it. Reload to see the current items; nothing was changed.",
+            )
+        }
+        Err(SynthesisError::Rule(rule)) => {
+            return shared_problem(
+                "markdown",
+                &format!("That item contains {}. Nothing was changed.", rule.describe()),
             )
         }
         Err(SynthesisError::Invalid) => {

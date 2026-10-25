@@ -35,6 +35,8 @@ pub enum SynthesisError {
     Stale,
     /// The input is malformed or exceeds a limit.
     Invalid,
+    /// The item's Markdown breaks a structural rule publishing would refuse it for.
+    Rule(ItemRule),
 }
 
 impl fmt::Display for SynthesisError {
@@ -43,6 +45,7 @@ impl fmt::Display for SynthesisError {
             Self::Denied => "synthesis access denied",
             Self::Stale => "the synthesis changed since it was read",
             Self::Invalid => "invalid synthesis",
+            Self::Rule(_) => "synthesis item breaks a publishing rule",
         })
     }
 }
@@ -229,6 +232,102 @@ impl Default for SynthesisSet {
     }
 }
 
+/// The anchor of the heading above the whole conversation. Generated, so authors may not claim it.
+pub const CONVERSATION_ANCHOR: &str = "continuing-the-conversation";
+/// Every generated category and item anchor starts with this.
+pub const CONVERSATION_ANCHOR_PREFIX: &str = "conversation-";
+
+/// Whether an anchor belongs to the generated conversation block.
+pub fn is_reserved_anchor(id: &str) -> bool {
+    let id = id.trim().to_ascii_lowercase();
+    id == CONVERSATION_ANCHOR || id.starts_with(CONVERSATION_ANCHOR_PREFIX)
+}
+
+/// The rule an item's Markdown breaks, named so a refusal can say which.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemRule {
+    /// Raw HTML, an active link or image address, heading attributes beyond an id and classes,
+    /// or Markdown that reaches into a neighbouring item.
+    Markup,
+    /// Headings must start at level 5 and may go one level deeper at a time, so the page outline
+    /// under the generated levels 2 to 4 never skips or repeats them.
+    Outline,
+    /// A heading id or text that would claim a generated anchor.
+    ReservedAnchor,
+}
+
+impl ItemRule {
+    /// A sentence fragment naming the rule, safe to show (it holds no author text).
+    pub fn describe(self) -> &'static str {
+        match self {
+            Self::Markup => "raw HTML, an unsafe link or image address, or Markdown that reaches another item",
+            Self::Outline => "a heading above level 5, or one that skips a level (items may only use headings from level 5, one level deeper at a time)",
+            Self::ReservedAnchor => "a heading whose anchor is reserved for the generated conversation (`continuing-the-conversation` or `conversation-...`)",
+        }
+    }
+}
+
+/// Heading levels and anchors in `markdown`: the level, the id the author wrote, and the slug of
+/// the text, which is the id the renderer gives a heading without one. Parsed with and without
+/// smart punctuation because the site setting is not known here.
+pub(crate) fn headings(markdown: &str) -> Vec<(u8, Vec<String>)> {
+    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+    let mut found = Vec::new();
+    for smart in [false, true] {
+        let mut open: Option<(u8, Option<String>, String)> = None;
+        for event in Parser::new_ext(markdown, crate::markdown::parser_options(smart)) {
+            match event {
+                Event::Start(Tag::Heading { level, id, .. }) => {
+                    open = Some((level as u8, id.map(|id| id.to_string()), String::new()));
+                }
+                Event::Text(text) | Event::Code(text) => {
+                    if let Some((_, _, title)) = open.as_mut() {
+                        title.push_str(&text);
+                    }
+                }
+                Event::SoftBreak | Event::HardBreak => {
+                    if let Some((_, _, title)) = open.as_mut() {
+                        title.push(' ');
+                    }
+                }
+                Event::End(TagEnd::Heading(_)) => {
+                    if let Some((level, explicit, title)) = open.take() {
+                        let mut anchors = vec![crate::slug::slugify(&title)];
+                        anchors.extend(explicit);
+                        found.push((level, anchors));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    found
+}
+
+/// Whether any heading in `markdown` would claim a generated conversation anchor.
+pub(crate) fn claims_reserved_anchor(markdown: &str) -> bool {
+    headings(markdown)
+        .iter()
+        .any(|(_, anchors)| anchors.iter().any(|anchor| is_reserved_anchor(anchor)))
+}
+
+/// The structural rules for an item's Markdown that do not depend on anything else in the post.
+/// Checked when an item is saved so an author learns early, and again when publishing.
+pub fn check_item_markdown(markdown: &str) -> Result<(), ItemRule> {
+    if claims_reserved_anchor(markdown) {
+        return Err(ItemRule::ReservedAnchor);
+    }
+    // Under the generated H2 to H4, the first heading is H5 and none jumps more than one deeper.
+    let mut previous = 4u8;
+    for (level, _) in headings(markdown) {
+        if level < 5 || level > previous + 1 {
+            return Err(ItemRule::Outline);
+        }
+        previous = level;
+    }
+    Ok(())
+}
+
 fn valid_markdown(markdown: &str) -> bool {
     !markdown.trim().is_empty()
         && markdown.len() <= MAX_SYNTHESIS_MARKDOWN_BYTES
@@ -357,6 +456,7 @@ impl SynthesisSet {
         if !valid_markdown(new.markdown) || self.items.len() >= MAX_SYNTHESIS_ITEMS {
             return Err(SynthesisError::Invalid);
         }
+        check_item_markdown(new.markdown).map_err(SynthesisError::Rule)?;
         let mut contributors = vec![requester.to_owned()];
         for other in new.others {
             if !authors.contains(other) {
@@ -412,6 +512,7 @@ impl SynthesisSet {
             if !valid_markdown(markdown) {
                 return Err(SynthesisError::Invalid);
             }
+            check_item_markdown(markdown).map_err(SynthesisError::Rule)?;
             item.markdown = markdown.to_owned();
         }
         for other in edit.add_contributors {
