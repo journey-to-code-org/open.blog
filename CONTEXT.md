@@ -202,6 +202,13 @@ one is credited in that order, and the shared source and guiding question appear
 account name or publication id (ADR 0023).
 _Avoid_: Shared page, collaboration export
 
+**Series placement**:
+The optional series reference and position a shared publication carries, written as an ordinary
+Post's `series` and `seriesOrder`. It is not a collaborative series: the site's existing series
+supplies name, description, theme, ordering and navigation. It is public, so it is part of what
+every author approves (ADR 0036).
+_Avoid_: Collaborative series, series template
+
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in
 one approved collaboration revision, that a publication operation incorporates into canonical

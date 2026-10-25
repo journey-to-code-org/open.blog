@@ -616,6 +616,25 @@ impl Site {
         (prev, next)
     }
 
+    /// Everyone credited as an author on any published part of the series, once each, in the
+    /// order they first appear reading the series from its first part (ADR 0036). Derived from
+    /// the posts' resolved work credits at read time and never stored, so a changed credit
+    /// changes the answer and a removed one cannot linger. Secondary contributors are not
+    /// included.
+    pub fn series_contributors(&self, series: &Series) -> Vec<&crate::contributor::ResolvedCredit> {
+        let mut seen: Vec<&str> = Vec::new();
+        let mut out = Vec::new();
+        for &index in &series.posts {
+            for credit in self.posts[index].authors() {
+                if !seen.contains(&credit.contributor_id.as_str()) {
+                    seen.push(&credit.contributor_id);
+                    out.push(credit);
+                }
+            }
+        }
+        out
+    }
+
     /// When the next scheduled post becomes public, if any.
     pub fn next_scheduled(&self) -> Option<DateTime> {
         self.scheduled.first().map(|s| s.date)

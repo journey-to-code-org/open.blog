@@ -15,6 +15,7 @@ use crate::approval::{public_metadata, ApprovalSet, ApprovalSubject, Readiness, 
 use crate::collaboration::{valid_admin_username, SharedPublication};
 use crate::draft::DraftSet;
 use crate::frontmatter::{self, Value};
+use crate::shared_series::{SERIES_KEY, SERIES_ORDER_KEY};
 use crate::shared_source::{
     SharedAttribution, QUESTION_KEY, SOURCE_KIND_KEY, SOURCE_TITLE_KEY, SOURCE_URL_KEY,
 };
@@ -377,6 +378,15 @@ pub fn assemble(
                 fields.insert(SOURCE_URL_KEY.into(), scalar(url));
             }
             fields.insert(SOURCE_KIND_KEY.into(), scalar(source.kind.label()));
+        }
+    }
+    // The ordinary series front matter: the site's own series definition supplies the title,
+    // description, theme and navigation (ADR 0036). Approved with the rest (`public_metadata`).
+    if let Some(placement) = &record.series {
+        placement.validate().map_err(|_| AssemblyError::Invalid)?;
+        fields.insert(SERIES_KEY.into(), scalar(&placement.series));
+        if let Some(order) = placement.order {
+            fields.insert(SERIES_ORDER_KEY.into(), scalar(&order.to_string()));
         }
     }
     let path = post_path(record);

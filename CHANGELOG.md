@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A shared publication can now carry a series placement: the same `series` and `seriesOrder` an
+  ordinary post uses, so it joins the site's existing series, ordering and navigation. Any one-line
+  title works, the placement is part of what every author approves (changing it makes approvals
+  out of date), and records without one publish exactly as before. A series' contributors can be
+  derived from its posts' work credits.
+
 ## [0.23.0] - 2026-10-25
 
 - The continuing conversation travels with the piece. Full-content RSS, JSON Feed, portable

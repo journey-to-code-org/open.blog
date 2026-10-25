@@ -724,6 +724,9 @@ pub struct SharedPublication {
     /// participant, the binding, and the invitation outcome in one atomic write.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invitations: Vec<crate::invitation::Invitation>,
+    /// The ordinary series this publication joins (ADR 0036). Absent for every legacy record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub series: Option<crate::shared_series::SeriesPlacement>,
 }
 
 /// Author-entered attribution for material that prompted a shared publication. It is not a
@@ -978,6 +981,7 @@ impl SharedPublication {
                 }],
             },
             invitations: Vec::new(),
+            series: None,
         };
         record.validate()?;
         Ok(record)
@@ -1094,6 +1098,13 @@ impl SharedPublication {
             .is_some_and(|question| !valid_text(question, MAX_GUIDING_QUESTION_BYTES))
         {
             return Err(SharedPublicationError::GuidingQuestion);
+        }
+        if self
+            .series
+            .as_ref()
+            .is_some_and(|placement| placement.validate().is_err())
+        {
+            return Err(SharedPublicationError::InvalidRecord);
         }
         if self.sources.is_empty() {
             return Err(SharedPublicationError::NoSources);
