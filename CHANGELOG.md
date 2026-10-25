@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-25
+
 - Portable Markdown for a published shared reflection now escapes its title, so a participant-supplied
   title can no longer inject raw HTML into an export or syndicated copy.
 - A published shared reflection now has checked output everywhere the site publishes: the page,
