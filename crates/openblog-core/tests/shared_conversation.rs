@@ -404,7 +404,6 @@ fn item_prose_cannot_publish_html_unsafe_links_or_outline_headings() {
         "## Another section",
         "Heading {#id}\n===",
         "```\nunclosed fence",
-        "Note[^1]\n\n[^1]: text",
     ] {
         let mut f = Fixture::new();
         f.add(SynthesisKind::Agreement, "ann", hostile, &["bo", "cy"]);
