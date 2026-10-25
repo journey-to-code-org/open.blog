@@ -861,6 +861,309 @@ export function entryPreview(entry, limit = 90) {
   return points.length > limit ? `${points.slice(0, limit - 1).join("")}…` : text;
 }
 
+// ---------------------------------------------------------------- citations
+
+export const MAX_CITATION_LOCATORS = 8;
+// `[@...]` on one line, not escaped, and not a link (`[@x](url)`, `[@x][ref]`).
+// The core scanner (`openblog_core::citations`) is authoritative; this only
+// finds the text the editor shows as a citation and reopens for editing.
+const CITATION_TEXT = /(?<!\\)\[@[^[\]\n]*\](?![([])/g;
+const CITATION_WHOLE = /^\[@[^[\]\n]*\]$/;
+
+function codeSpanRanges(line) {
+  const runs = [...line.matchAll(/`+/g)].map((match) => [match.index, match[0].length]);
+  const ranges = [];
+  for (let index = 0; index < runs.length; index += 1) {
+    const [start, length] = runs[index];
+    const close = runs.findIndex(([, other], at) => at > index && other === length);
+    if (close < 0) continue;
+    ranges.push([start, runs[close][0] + length]);
+    index = close;
+  }
+  return ranges;
+}
+
+/** Citations written in Markdown, outside fenced code and code spans, with their string offsets. */
+export function citationSpans(markdown) {
+  const spans = [];
+  let offset = 0;
+  let fence = null;
+  for (const line of String(markdown ?? "").split("\n")) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !line.slice(marker[0].length).trim()) fence = null;
+    } else if (marker) fence = marker[1];
+    else {
+      const code = codeSpanRanges(line);
+      for (const match of line.matchAll(CITATION_TEXT)) {
+        const start = match.index;
+        const end = start + match[0].length;
+        if (code.some(([from, to]) => start < to && end > from)) continue;
+        if (/^ {0,3}$/.test(line.slice(0, start)) && line[end] === ":") continue; // a reference definition
+        spans.push({ start: offset + start, end: offset + end, text: match[0] });
+      }
+    }
+    offset += line.length + 1;
+  }
+  return spans;
+}
+
+/** The citation the selection is inside (or exactly covers), so the dialog edits it instead of adding another. */
+export function citationAt(markdown, start, end = start) {
+  return citationSpans(markdown).find((span) => (start > span.start && end < span.end) || (start === span.start && end === span.end)) || null;
+}
+
+/** Read `[@key, kind value to end; ...]` into parts for the dialog. The server re-checks whatever is inserted. */
+export function parseCitationText(text) {
+  const match = /^\[@([^[\]\n]*)\]$/.exec(String(text ?? ""));
+  if (!match) return null;
+  const inner = match[1];
+  const comma = inner.indexOf(",");
+  const key = (comma < 0 ? inner : inner.slice(0, comma)).trim();
+  const locators = comma < 0
+    ? []
+    : inner.slice(comma + 1).split(";").map((part) => {
+        const trimmed = part.trim();
+        const space = trimmed.search(/\s/);
+        const kind = space < 0 ? trimmed : trimmed.slice(0, space);
+        const rest = space < 0 ? "" : trimmed.slice(space).trim();
+        const range = rest.indexOf(" to ");
+        return range < 0 ? { kind, value: rest } : { kind, value: rest.slice(0, range).trim(), to: rest.slice(range + 4).trim() };
+      });
+  return { key, locators };
+}
+
+/** The Markdown a citation is written as; a preview only, since the server returns the text that is inserted. */
+export function formatCitationText({ key = "", locators = [] } = {}) {
+  return `[@${key}${(locators || []).map((locator, index) => `${index ? "; " : ", "}${locator.kind} ${locator.value}${locator.to ? ` to ${locator.to}` : ""}`).join("")}]`;
+}
+
+/** A notebook passage's locators as a citation uses them: kind, value and end only, never other stored fields. */
+export function citationLocatorsFromPassage(passage) {
+  return (Array.isArray(passage?.locators) ? passage.locators : [])
+    .filter((locator) => typeof locator?.kind === "string" && typeof locator?.value === "string")
+    .map((locator) => (typeof locator.to === "string" && locator.to ? { kind: locator.kind, value: locator.value, to: locator.to } : { kind: locator.kind, value: locator.value }));
+}
+
+export function citationDraftPayload(draft) {
+  return {
+    key: String(draft.source || ""),
+    locators: parseLocatorLines(draft.locators).map((locator) => (locator.to ? { kind: locator.kind, value: locator.value, to: locator.to } : { kind: locator.kind, value: locator.value })),
+  };
+}
+
+/** A quick, advisory check; the server's core resolver stays authoritative. */
+export function validateCitationDraft(draft, sources = []) {
+  if (!draft.source) return { field: "source", message: "Choose the source to cite." };
+  if (!sources.some((source) => source.id === draft.source)) return { field: "source", message: "That source is not in the library. Choose another." };
+  const locators = parseLocatorLines(draft.locators);
+  if (locators.length > MAX_CITATION_LOCATORS) return { field: "locators", message: `A citation may have at most ${MAX_CITATION_LOCATORS} locators.` };
+  const bad = locators.findIndex((locator) => !locator.kind || !locator.value);
+  if (bad >= 0) return { field: "locators", message: `Locator ${bad + 1} must look like page: 514 or canonical: 514a to 520a.` };
+  return null;
+}
+
+/**
+ * Insert citation Markdown into a draft. A `replace` span (a citation being
+ * edited) is replaced; otherwise the citation goes at the end of the
+ * selection, after a space when it would touch a word, and the selected text
+ * stays. The caret lands after the citation. Nothing else in the draft moves.
+ */
+export function insertCitationText(value, start, end, markdown, replace = null) {
+  const text = String(value ?? "");
+  if (replace) {
+    const next = text.slice(0, replace.start) + markdown + text.slice(replace.end);
+    const caret = replace.start + markdown.length;
+    return { value: next, start: caret, end: caret };
+  }
+  const at = Math.max(0, Math.min(text.length, Math.max(start, end)));
+  const before = text.slice(0, at);
+  const inserted = (before && !/[\s([]$/.test(before) ? " " : "") + markdown;
+  const caret = at + inserted.length;
+  return { value: before + inserted + text.slice(at), start: caret, end: caret };
+}
+
+/** Sources the picker offers for a search: live sources, plus the one already chosen even if archived. */
+export function citationSourceChoices(sources, query = "", keep = "") {
+  return filterSources(sources, { query, archived: "all" })
+    .filter((source) => !source.archived || source.id === keep)
+    .sort((a, b) => sourceLabel(a).localeCompare(sourceLabel(b)));
+}
+
+/** What a citation check failure means for the author, and which field it belongs to. */
+export function citationFailure(error) {
+  const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
+  if (error?.status === 409) return { field: "source", message: error?.data?.error || "The source library changed. Review the refreshed sources and insert again." };
+  if (!diagnostics.length) return { field: "", message: `The citation could not be checked. Your draft is unchanged. ${error?.data?.error || error?.message || ""}`.trim() };
+  const field = diagnostics.some((item) => ["invalid-key", "unknown-key"].includes(item.code)) ? "source" : "locators";
+  return { field, message: diagnostics.map((item) => item.message).join(" ") };
+}
+
+/**
+ * The citation picker: search the library, choose a source (or start from a
+ * notebook passage, which copies only its locators' kind, value and end),
+ * add optional locators, and check the result with the server, which runs
+ * the core parser and resolver. `state` is { revision, sources, passages,
+ * notebookAvailable } and is refreshed in place when the library is stale.
+ * Nothing changes the draft until `onInsert` receives the checked citation.
+ */
+export function createCitationForm({ api, state, initial = null, idPrefix = "oba-citation", onInsert, onCancel }) {
+  const editing = Boolean(initial);
+  const draft = { source: initial?.key || "", locators: formatLocatorLines(initial?.locators || []), query: "" };
+  let busy = false;
+  const root = h("form", { class: "oba-capture-form oba-citation-form", novalidate: true });
+  const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+  const field = (name, labelText, input, hint) => {
+    input.id = `${idPrefix}-${name}`;
+    if (hint) {
+      input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+      input.setAttribute("data-hint-id", `${idPrefix}-${name}-hint`);
+    }
+    return h("div", { class: "oba-field", "data-citation-field": name }, h("label", { for: input.id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint) : null);
+  };
+  const sourceById = (id) => (state.sources || []).find((source) => source.id === id);
+  const search = h("input", { type: "search", autocomplete: "off", spellcheck: "false", onInput: (event) => { draft.query = event.target.value; renderSources(); } });
+  const sourceList = h("select", { size: 6, onChange: (event) => { draft.source = event.target.value; renderPreview(); } });
+  const passageList = h("select", { onChange: (event) => usePassage(event.target.value) });
+  const locators = h("textarea", { rows: 3, spellcheck: "false", value: draft.locators, onInput: (event) => { draft.locators = event.target.value; renderPreview(); } });
+  const preview = h("output", { class: "oba-citation-preview", id: `${idPrefix}-preview`, "aria-live": "polite" });
+  const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-citation-insert": "true" }, editing ? "Update citation" : "Insert citation");
+  const cancel = h("button", { class: "oba-btn", type: "button", "data-citation-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
+
+  const renderSources = () => {
+    const choices = citationSourceChoices(state.sources, draft.query, draft.source);
+    const chosen = sourceById(draft.source);
+    // The chosen source stays listed while a search hides it, so the choice is never lost silently.
+    if (chosen && !choices.includes(chosen)) choices.unshift(chosen);
+    const label = (source) => `${sourceLabel(source)}${source.archived ? " (archived)" : ""} (${source.kind}, ${source.id})`;
+    sourceList.replaceChildren(...choices.map((source) => h("option", { value: source.id, selected: source.id === draft.source }, label(source))));
+    status.textContent = `${choices.length} source${choices.length === 1 ? "" : "s"} shown.`;
+    renderPreview();
+  };
+  const renderPassages = () => {
+    const passages = Array.isArray(state.passages) ? state.passages : [];
+    const label = (passage) => {
+      const where = formatLocatorLines(citationLocatorsFromPassage(passage)).split("\n")[0];
+      return `${sourceLabel(sourceById(passage.source) || { id: passage.source })} — ${entryPreview({ text: passage.preview }, 60)}${where ? ` (${where})` : ""}`;
+    };
+    passageList.replaceChildren(h("option", { value: "" }, passages.length ? "Choose a passage" : "No passages yet"), ...passages.map((passage) => h("option", { value: passage.id }, label(passage))));
+    passageList.disabled = !passages.length;
+  };
+  const usePassage = (id) => {
+    const passage = (state.passages || []).find((item) => item.id === id);
+    if (!passage) return;
+    draft.source = passage.source;
+    draft.locators = formatLocatorLines(citationLocatorsFromPassage(passage));
+    locators.value = draft.locators;
+    renderSources();
+    status.textContent = "Source and locators copied from the passage. The quotation and any notes stay private.";
+  };
+  const renderPreview = () => {
+    preview.textContent = draft.source ? formatCitationText(citationDraftPayload(draft)) : "Choose a source to preview the citation.";
+  };
+  const control = (name) => ({ source: sourceList, locators, search })[name] || null;
+  const clearInvalid = () => {
+    for (const target of [sourceList, locators]) {
+      target.removeAttribute("aria-invalid");
+      target.setAttribute("aria-describedby", target.getAttribute("data-hint-id") || "");
+    }
+  };
+  const fail = (message, name = "") => {
+    errorBox.hidden = false;
+    errorBox.textContent = message;
+    const target = control(name);
+    if (target) {
+      target.setAttribute("aria-invalid", "true");
+      target.setAttribute("aria-describedby", [target.getAttribute("data-hint-id"), errorBox.id].filter(Boolean).join(" "));
+      target.focus();
+    } else errorBox.focus();
+  };
+
+  root.append(
+    field("search", "Search sources", search, "Matches titles, creators, identifiers and keys."),
+    field("source", "Source", sourceList, "From your private source library. Only its key is written into the post."),
+    state.notebookAvailable === false
+      ? h("p", { class: "oba-notice", "data-citation-notebook": "unavailable" }, "The research notebook could not be read, so passages are not offered. You can still cite any source.")
+      : field("passage", "Start from a notebook passage (optional)", passageList, "Copies the passage's source and locators. Its quotation and notes are not inserted."),
+    field("locators", "Locators (optional)", locators, "One per line as kind: value, such as page: 514, folio: 12r, or canonical: 514a to 520a."),
+    h("p", { class: "oba-small" }, "Citation: ", preview),
+    errorBox,
+    h("div", { class: "oba-toolbar" }, save, cancel),
+    status,
+  );
+  renderPassages();
+  renderSources();
+
+  root.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    errorBox.hidden = true;
+    clearInvalid();
+    const problem = validateCitationDraft(draft, state.sources);
+    if (problem) return fail(problem.message, problem.field);
+    busy = true;
+    save.disabled = true;
+    status.textContent = "Checking the citation…";
+    try {
+      const result = await api.call("POST", "citations/check", { json: { revision: state.revision, citation: citationDraftPayload(draft) } });
+      busy = false;
+      save.disabled = false;
+      onInsert?.(result);
+    } catch (error) {
+      busy = false;
+      save.disabled = false;
+      if (error?.status === 409 && typeof error.data?.revision === "string") {
+        state.revision = error.data.revision;
+        if (Array.isArray(error.data.sources)) state.sources = error.data.sources;
+        renderSources();
+      }
+      const failure = citationFailure(error);
+      status.textContent = "";
+      fail(failure.message, failure.field);
+    }
+  });
+
+  return {
+    element: root,
+    focus: () => (editing ? sourceList : search).focus(),
+  };
+}
+
+/** Child indexes from `root` down to `node`, so a caret can be found again in a restored copy of the editor. */
+function nodePath(root, node) {
+  const path = [];
+  for (let current = node; current && current !== root; current = current.parentNode) {
+    if (!current.parentNode) return null;
+    path.unshift([...current.parentNode.childNodes].indexOf(current));
+  }
+  return path;
+}
+
+function nodeAtPath(root, path) {
+  if (!Array.isArray(path)) return null;
+  let node = root;
+  for (const index of path) node = node?.childNodes?.[index];
+  return node || null;
+}
+
+/** An atomic, keyboard-reachable chip for a citation in the visual editor. Its Markdown is kept verbatim. */
+export function citationChip(text) {
+  return h(
+    "span",
+    {
+      class: "oba-citation",
+      contenteditable: "false",
+      tabindex: "0",
+      role: "button",
+      "data-citation": text,
+      "aria-label": `Citation ${String(text).slice(2, -1)}. Press Enter to edit.`,
+      title: "Edit citation",
+    },
+    text,
+  );
+}
+
 /**
  * The capture form shared by the research notebook view and the editor's
  * capture dialog. It edits one passage (optionally with a first note about it)
@@ -2550,11 +2853,17 @@ function safeVisualUrl(value) {
 }
 
 function appendVisualInline(parent, markdown) {
-  const pattern = /(!?\[[^\]\n]*\]\([^\s)]+(?:\s+"[^"]*")?\)|\*\*[^*\n]+\*\*|__[^_\n]+__|`+[^`\n]+`+|\*[^*\n]+\*|_[^_\n]+_)/g;
+  const pattern = /(!?\[[^\]\n]*\]\([^\s)]+(?:\s+"[^"]*")?\)|(?<!\\)\[@[^[\]\n]*\](?![([])|\*\*[^*\n]+\*\*|__[^_\n]+__|`+[^`\n]+`+|\*[^*\n]+\*|_[^_\n]+_)/g;
   let offset = 0;
   for (const match of markdown.matchAll(pattern)) {
     if (match.index > offset) parent.append(document.createTextNode(markdown.slice(offset, match.index).replace(/\\([\\*_`\[\]])/g, "$1")));
     const token = match[0];
+    if (CITATION_WHOLE.test(token)) {
+      // A citation, generated or hand-written, is one atomic chip that keeps its exact Markdown.
+      parent.append(citationChip(token));
+      offset = match.index + token.length;
+      continue;
+    }
     const linked = /^(!?)\[([^\]]*)\]\(([^\s)]+)(?:\s+"([^"]*)")?\)$/.exec(token);
     if (linked) {
       const url = safeVisualUrl(linked[3]);
@@ -2597,6 +2906,12 @@ function markdownText(value) {
 function visualInlineMarkdown(node) {
   if (node.nodeType === Node.TEXT_NODE) return markdownText(node.nodeValue);
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  if (node.classList?.contains("oba-citation")) {
+    // Only well-formed citation text is written back verbatim; anything else
+    // (a pasted look-alike, say) is ordinary escaped text.
+    const citation = node.dataset?.citation;
+    return typeof citation === "string" && CITATION_WHOLE.test(citation) ? citation : markdownText(node.textContent);
+  }
   const tag = node.tagName.toLowerCase();
   const content = [...node.childNodes].map(visualInlineMarkdown).join("");
   if (tag === "strong" || tag === "b") return `**${content}**`;
@@ -6923,10 +7238,14 @@ export class Editor {
         ? [
             h("button", { type: "button", class: "oba-format-button", title: "Insert Abstract section", onClick: () => this.addResearchSection("abstract") }, "Abstract"),
             h("button", { type: "button", class: "oba-format-button", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
+            h("button", { type: "button", class: "oba-format-button", title: "Insert or edit a citation", "aria-label": "Cite a source", "data-citation-open": "true", onClick: () => this.openCitationDialog() }, "Cite"),
           ]
         : null,
     );
     ui.formatToolbar.addEventListener("mousedown", () => this.captureVisualSelection());
+    ui.citationStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" });
+    ui.citationUndo = h("button", { class: "oba-btn", type: "button", hidden: true, "data-citation-undo": "true", onClick: () => this.undoCitation() }, "Undo citation");
+    ui.citationBar = kind === "posts" ? h("div", { class: "oba-toolbar oba-citation-bar" }, ui.citationStatus, ui.citationUndo) : null;
     ui.assistantStatus = h("p", { class: "oba-assistant-status-copy", role: "status", "aria-live": "polite" }, "Loading assistant configuration…");
     ui.assistantStatusBadge = h("span", { class: "oba-assistant-status-badge", "data-tone": "loading" }, "Checking…");
     ui.assistantProviderType = h("dd", {}, "Loading…");
@@ -7153,6 +7472,7 @@ export class Editor {
             { class: "oba-pane oba-markdown-pane", "data-pane": "write", "aria-label": "Writing editor" },
             paneHeader("Write", "Editor", h("div", { class: "oba-editor-mode" }, ui.editorModeSwitch)),
             ui.formatToolbar,
+            ui.citationBar,
             ui.richBody,
             ui.body,
             ui.assistantAutocomplete,
@@ -7760,6 +8080,30 @@ export class Editor {
     };
     ui.body.addEventListener("keydown", writingShortcut);
     ui.richBody.addEventListener("keydown", writingShortcut);
+    // Undo after inserting a citation restores the exact prior draft and caret.
+    const citationUndoShortcut = (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "z") return;
+      if (this.citationUndoAvailable()) {
+        event.preventDefault();
+        this.undoCitation();
+      }
+    };
+    ui.body.addEventListener("keydown", citationUndoShortcut);
+    ui.richBody.addEventListener("keydown", citationUndoShortcut);
+    // A citation chip opens the citation dialog to edit it: click, Enter or Space.
+    ui.richBody.addEventListener("click", (event) => {
+      const chip = event.target?.closest?.(".oba-citation");
+      if (chip && ui.richBody.contains(chip)) {
+        event.preventDefault();
+        this.openCitationDialog(chip);
+      }
+    });
+    ui.richBody.addEventListener("keydown", (event) => {
+      const chip = event.target?.closest?.(".oba-citation");
+      if (!chip || !["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      this.openCitationDialog(chip);
+    });
     bindAssistantAutocompleteControls(this, ui);
     ui.richBody.addEventListener("input", (event) => {
       event.stopPropagation();
@@ -9303,6 +9647,222 @@ export class Editor {
     document.body.append(dialog);
     dialog.showModal();
     title.focus();
+  }
+
+  /**
+   * Where a citation goes: in Markdown, the selection and any citation it sits
+   * in; in Visual, the saved range and any citation chip it touches. A chip or
+   * citation found here is edited in place instead of adding another.
+   */
+  citationTarget(chip = null) {
+    if (this.editorMode === "markdown") {
+      const body = this.ui.body;
+      const start = Number.isInteger(body.selectionStart) ? body.selectionStart : body.value.length;
+      const end = Number.isInteger(body.selectionEnd) ? body.selectionEnd : start;
+      return { mode: "markdown", start, end, span: citationAt(body.value, start, end) };
+    }
+    const range = this.visualSelection?.cloneRange?.() || null;
+    let found = chip;
+    if (!found && range) {
+      const node = range.startContainer?.nodeType === 1 ? range.startContainer : range.startContainer?.parentElement;
+      found = node?.closest?.(".oba-citation") || null;
+      if (!found && range.startContainer === range.endContainer && range.endOffset === range.startOffset + 1) {
+        const selected = range.startContainer?.childNodes?.[range.startOffset];
+        if (selected?.classList?.contains("oba-citation")) found = selected;
+      }
+    }
+    return { mode: "visual", range, chip: found && this.ui.richBody.contains(found) ? found : null };
+  }
+
+  /**
+   * Insert or edit a citation. The dialog is modal and keyboard operable;
+   * Cancel or Escape returns focus to the writing surface with the selection
+   * restored and the draft unchanged. Insert checks the citation with the
+   * server (the core parser and resolver) before the draft changes.
+   */
+  async openCitationDialog(chip = null) {
+    if (chip) this.visualSelection = null;
+    else this.captureVisualSelection();
+    const target = this.citationTarget(chip);
+    const existing = target.mode === "markdown" ? target.span?.text : target.chip?.dataset.citation;
+    const initial = existing ? parseCitationText(existing) : null;
+    const trigger = document.activeElement;
+    const dialog = h("dialog", { class: "oba-dialog oba-capture-dialog oba-citation-dialog", "aria-labelledby": "oba-citation-title" });
+    const body = h("div", {}, h("p", { class: "oba-small", role: "status" }, "Loading the source library…"));
+    const returnToDraft = () => {
+      dialog.close();
+      dialog.remove();
+      if (target.chip?.isConnected) {
+        target.chip.focus();
+        return;
+      }
+      const surface = this.writingSurface();
+      surface.focus();
+      if (target.mode === "markdown" && this.editorMode === "markdown") this.ui.body.setSelectionRange(target.start, target.end);
+      else if (this.editorMode === "visual") this.restoreVisualSelection();
+      else if (trigger instanceof HTMLElement && trigger !== surface) trigger.focus?.();
+    };
+    dialog.append(
+      h("h2", { id: "oba-citation-title" }, initial ? "Edit citation" : "Insert citation"),
+      h("p", { class: "oba-help" }, "Cite a source from your library. Only the source key and the locators you enter are written into the post; quotations and notes stay private."),
+      body,
+    );
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      returnToDraft();
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+    try {
+      const loaded = await this.app.api.call("GET", "citations/library");
+      if (!dialog.isConnected) return;
+      const state = { revision: loaded.revision, sources: loaded.sources || [], passages: loaded.passages || [], notebookAvailable: loaded.notebookAvailable !== false };
+      const form = createCitationForm({
+        api: this.app.api,
+        state,
+        initial,
+        onInsert: (result) => {
+          dialog.close();
+          dialog.remove();
+          this.applyCitation(target, result.markdown);
+        },
+        onCancel: returnToDraft,
+      });
+      body.replaceChildren(form.element);
+      form.focus();
+    } catch (error) {
+      if (!dialog.isConnected) return;
+      body.replaceChildren(
+        h("p", { class: "oba-error", role: "alert" }, `The source library could not be read. Your draft is unchanged. ${error.message}`),
+        h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", onClick: returnToDraft }, "Close")),
+      );
+      body.querySelector("button")?.focus();
+    }
+  }
+
+  /** Apply checked citation Markdown to the draft, remembering exactly what to restore on undo. */
+  applyCitation(target, markdown) {
+    if (!CITATION_WHOLE.test(String(markdown || ""))) {
+      this.sayCitation("The server returned no citation, so the draft is unchanged.");
+      return false;
+    }
+    if (target.mode === "markdown") {
+      if (this.editorMode !== "markdown") this.setEditorMode("markdown", false);
+      const body = this.ui.body;
+      const before = body.value;
+      const next = insertCitationText(before, target.start, target.end, markdown, target.span);
+      body.value = next.value;
+      body.focus();
+      body.setSelectionRange(next.start, next.end);
+      body.dispatchEvent(new Event("input", { bubbles: true }));
+      this.citationUndo = { mode: "markdown", before, after: body.value, selection: [target.start, target.end] };
+    } else {
+      if (this.editorMode !== "visual") this.setEditorMode("visual", false);
+      this.syncRichToMarkdown();
+      const editor = this.ui.richBody;
+      const before = this.ui.body.value;
+      const visualDirty = Boolean(this.visualDirty);
+      const snapshot = [...editor.childNodes].map((node) => node.cloneNode(true));
+      const path = target.range ? { start: nodePath(editor, target.range.startContainer), startOffset: target.range.startOffset, end: nodePath(editor, target.range.endContainer), endOffset: target.range.endOffset } : null;
+      const chipPath = target.chip ? nodePath(editor, target.chip) : null;
+      const chip = this.insertCitationChip(target, markdown);
+      if (!chip) return false;
+      this.visualChanged();
+      this.citationUndo = { mode: "visual", before, after: this.ui.body.value, snapshot, path, chipPath, visualDirty };
+    }
+    if (this.ui.citationUndo) this.ui.citationUndo.hidden = false;
+    this.sayCitation(`${target.span || target.chip ? "Citation updated" : "Citation inserted"} into your unsaved draft. Press Ctrl+Z or choose Undo citation to restore the draft as it was.`);
+    return true;
+  }
+
+  /** Put a chip at the saved caret (or update the chip being edited) and move the caret after it. */
+  insertCitationChip(target, markdown) {
+    const editor = this.ui.richBody;
+    let chip = null;
+    if (target.chip && editor.contains(target.chip)) {
+      chip = citationChip(markdown);
+      target.chip.replaceWith(chip);
+    } else {
+      const range = target.range?.cloneRange?.();
+      const container = range ? (range.endContainer?.nodeType === 1 ? range.endContainer : range.endContainer?.parentElement) : null;
+      if (!range || !container || !editor.contains(container)) {
+        this.sayCitation("Place the caret in the text where the citation belongs, then choose Cite again. The draft is unchanged.");
+        return null;
+      }
+      if (container.closest?.("pre, code, .oba-protected-block, .oba-citation")) {
+        this.sayCitation("A citation cannot go inside code or a protected block. Move the caret and try again; the draft is unchanged.");
+        return null;
+      }
+      range.collapse(false);
+      chip = citationChip(markdown);
+      const previous = range.startContainer?.nodeType === 3 ? range.startContainer.nodeValue.slice(0, range.startOffset) : "";
+      if (container === editor) {
+        const paragraph = h("p", { "data-visual-block": "paragraph" }, chip);
+        range.insertNode(paragraph);
+      } else {
+        range.insertNode(chip);
+        if (previous && !/[\s([]$/.test(previous)) range.insertNode(document.createTextNode(" "));
+      }
+    }
+    editor.focus();
+    const selection = globalThis.getSelection?.();
+    const caret = document.createRange?.();
+    if (selection && caret) {
+      caret.setStartAfter(chip);
+      caret.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(caret);
+      this.visualSelection = caret.cloneRange();
+    }
+    return chip;
+  }
+
+  citationUndoAvailable() {
+    const undo = this.citationUndo;
+    return Boolean(undo && undo.mode === this.editorMode && this.ui.body.value === undo.after);
+  }
+
+  /** Restore the draft and caret exactly as they were before the last citation was applied. */
+  undoCitation() {
+    const undo = this.citationUndo;
+    this.citationUndo = null;
+    if (this.ui.citationUndo) this.ui.citationUndo.hidden = true;
+    if (!undo || undo.mode !== this.editorMode || this.ui.body.value !== undo.after) {
+      this.sayCitation("Undo is unavailable because the draft changed after the citation was applied.");
+      return false;
+    }
+    this.ui.body.value = undo.before;
+    if (undo.mode === "markdown") {
+      this.ui.body.focus();
+      this.ui.body.setSelectionRange(undo.selection[0], undo.selection[1]);
+    } else {
+      const editor = this.ui.richBody;
+      editor.replaceChildren(...undo.snapshot);
+      this.visualDirty = undo.visualDirty;
+      editor.focus();
+      const chip = undo.chipPath ? nodeAtPath(editor, undo.chipPath) : null;
+      const start = undo.path ? nodeAtPath(editor, undo.path.start) : null;
+      const end = undo.path ? nodeAtPath(editor, undo.path.end) : null;
+      if (chip?.focus) chip.focus();
+      else if (start && end) {
+        const range = document.createRange?.();
+        const selection = globalThis.getSelection?.();
+        if (range && selection) {
+          range.setStart(start, undo.path.startOffset);
+          range.setEnd(end, undo.path.endOffset);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          this.visualSelection = range.cloneRange();
+        }
+      }
+    }
+    this.ui.body.dispatchEvent(new Event("input", { bubbles: true }));
+    this.sayCitation("Citation undone. The draft is as it was before.");
+    return true;
+  }
+
+  sayCitation(message) {
+    if (this.ui?.citationStatus) this.ui.citationStatus.textContent = message;
   }
 
   /**

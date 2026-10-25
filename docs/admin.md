@@ -238,6 +238,22 @@ protected block visually, or choose **Edit in Markdown** to change its exact sou
 boundary prevents an ordinary visual edit from flattening syntax the visual editor cannot
 represent safely.
 
+### Cite a source while writing
+
+In a post, choose **Cite** in the Write toolbar to insert a citation at the caret in either mode.
+Search the source library by title, creator, identifier or key, choose a source, and add
+optional locators one per line (`page: 514`, `canonical: 514a to 520a`). **Start from a notebook
+passage** copies a passage's source and locators, never its quotation or notes. Insert asks the
+server to check the citation with the same parser and resolver a build uses, then writes
+`[@key, page 514]` into the Markdown. If the library changed since the dialog opened, nothing is
+inserted and the refreshed sources are shown with your choices kept.
+
+In Visual mode each citation, generated or hand-written, is a chip that keeps its exact Markdown.
+Click a chip, or focus it and press Enter, to edit it; in Markdown mode, place the caret inside a
+citation and choose **Cite**. Press Ctrl+Z or **Undo citation** right after inserting to restore
+the draft and caret exactly. Escape closes the dialog without changing anything. See
+[Citation format](specs/citations.md).
+
 ### Test a theme before publishing
 
 The Site preview reports the theme it resolved and renders through the same site model,

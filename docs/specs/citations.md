@@ -1,10 +1,10 @@
 # Citation format
 
 The contract defined by [ADR 0048](../adr/0048-citation-keys-are-source-identifiers.md) to
-[ADR 0052](../adr/0052-csl-interoperability-policy.md), implemented by
+[ADR 0053](../adr/0053-citation-picker-in-the-visual-editor.md), implemented by
 `openblog_core::citations`. A citation points at a record in the
 [source library](research-source-library.md) and reuses the
-[notebook's locators](research-notebook.md). Nothing here reads the notebook, and no build step
+[notebook's locators](research-notebook.md). The resolver never reads the notebook, and no build step
 calls it yet.
 
 ## Syntax
@@ -50,3 +50,18 @@ See [ADR 0052](../adr/0052-csl-interoperability-policy.md) for the table of stor
 private-dropped and unsupported CSL variables and the citation-item mapping. In short: the first
 locator becomes CSL `label` and `locator`; the full ordered list travels in `openblog-locators`;
 every loss is reported; failures are scoped to one citation or item and change no file.
+
+## Admin citation picker
+
+The Write view's **Cite** action ([ADR 0053](../adr/0053-citation-picker-in-the-visual-editor.md))
+inserts or edits one citation in either writing mode. Both routes are signed-in, `no-store`, and
+write nothing.
+
+| Route | Behaviour |
+| --- | --- |
+| `GET /admin/api/citations/library` | `file`, `revision` (of the source library), `sources`, and the notebook's live `passages` as `id`, `source`, a 160-character `preview` and `locators` (kind, value, end only). `notebookAvailable` is `false`, with no passages, when the notebook cannot be read. |
+| `POST /admin/api/citations/check` | JSON body (at most 16 KiB, with the CSRF token) `{ revision, citation: { key, locators: [{ kind, value, to }] } }`. Only those locator fields are read. Returns `markdown`, `key`, `locators`, `reference`, `formatted` and `revision`. A different library `revision` is `409` with the latest `revision` and `sources`; a citation that fails to format, scan back or resolve is `422` with `diagnostics`; a missing revision is `400`. |
+
+In Visual mode every citation is an atomic chip that serializes back to its exact Markdown, so
+hand-written and generated citations round-trip byte for byte. Undo (Ctrl+Z or **Undo
+citation**) restores the exact prior draft and caret while nothing else has changed.

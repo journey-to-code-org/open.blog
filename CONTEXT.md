@@ -287,6 +287,12 @@ The source identifier written after `@` in a citation. There is no separate key 
 citation resolves to exactly one source-library record, archived or not, or is reported.
 _Avoid_: Cite key table, alias, BibTeX key
 
+**Citation chip**:
+How the visual editor shows a citation: one atomic, keyboard-reachable unit that keeps the
+citation's exact Markdown and reopens it in the citation picker. It is an editing aid only; the
+Markdown file stays canonical.
+_Avoid_: Footnote marker, link, tag
+
 **Formatted reference**:
 The public, plain-text rendering of a reference built only from its bibliographic description
 (title, creators, date, identifiers, preserved CSL variables), never from notebook text.

@@ -2878,3 +2878,36 @@ a.oba-btn-primary {
     flex: 1 1 100%;
   }
 }
+
+/* Citations in the visual editor: atomic chips that keep their Markdown. */
+.oba-citation {
+  display: inline;
+  padding: 0 0.3em;
+  border: var(--ob-border-width) solid var(--ob-color-accent-border);
+  border-radius: var(--ob-radius);
+  background: var(--ob-color-surface-raised);
+  font-family: var(--ob-font-mono, ui-monospace, monospace);
+  font-size: 0.9em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.oba-citation:focus-visible {
+  outline: 3px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+.oba-citation-bar:empty,
+.oba-citation-bar:has(> [role="status"]:empty):has(> button[hidden]) {
+  display: none;
+}
+
+.oba-citation-form select[size] {
+  min-height: 8rem;
+}
+
+.oba-citation-preview {
+  font-family: var(--ob-font-mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}

@@ -68,7 +68,8 @@ publication-leak guards ([ADR 0037](adr/0037-private-notebook-lifecycle-export-a
 and the [citation format](specs/citations.md), which points citations at source identifiers with
 compound locators and states what is public and how CSL data is kept or reported lost
 ([ADR 0048](adr/0048-citation-keys-are-source-identifiers.md) to
-[ADR 0052](adr/0052-csl-interoperability-policy.md)).
+[ADR 0052](adr/0052-csl-interoperability-policy.md)), with an Admin citation picker that keeps
+citations intact in both writing modes ([ADR 0053](adr/0053-citation-picker-in-the-visual-editor.md)).
 
 ## Command reference
 

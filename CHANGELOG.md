@@ -10,7 +10,13 @@ All notable changes to open.blog are recorded here. Releases follow
   locators are the notebook's. It is opt-in, so existing posts, links and footnotes render exactly
   as before. Only the key, the locators and the formatted reference can become public, never
   notebook text. CSL import and export now state what is stored, kept as-is, or reported as lost,
-  including citation locators. Nothing in Admin or your site changes yet.
+  including citation locators. Nothing on your site changes yet.
+- You can now insert and edit citations from the Admin Write view. **Cite** searches your source
+  library, takes optional locators or copies them from a notebook passage (never its quotation or
+  notes), and inserts `[@key, page 514]` only after the server checks it the way a build will read
+  it. In Visual mode every citation, including hand-written ones, is a chip that keeps its exact
+  Markdown, and Ctrl+Z right after inserting restores the draft and caret exactly. If the library
+  changed meanwhile, nothing is inserted and your choices are kept.
 
 ## [0.25.0] - 2026-10-25
 
