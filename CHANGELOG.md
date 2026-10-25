@@ -17,6 +17,59 @@ All notable changes to open.blog are recorded here. Releases follow
 - Builds no longer copy anything inside `.openblog/` when a static or theme directory
   contains it or a static file links into it.
 
+## [0.17.2] - 2026-10-24
+
+- Web sandbox HTML, CSS, and JavaScript editors and configured-runner lessons now use the same
+  editable-code surface as Rust playgrounds: a labelled editor bar, syntax colouring and optional
+  line numbers from the static code blocks, the same focus ring, and matching Run, Reset, and note
+  styling. Existing `ob-rust-*`, `ob-code-runner-*`, and `ob-web-sandbox-*` classes remain on the
+  elements for theme overrides; shared styles now live on `ob-code-editor-*` classes.
+- Fixed sites built without a local `web/` folder missing the configured code-runner scripts;
+  the absent module stopped every enhanced component on the page from loading. A test now
+  checks that every relative script import is embedded.
+
+## [0.17.1] - 2026-10-24
+
+- Added modern Supabase secret API key support for Netlify comments and analytics via
+  `SUPABASE_SECRET_KEY`, while preserving legacy service-role authentication and documenting
+  the server-only setup without a database migration.
+
+## [0.17.0] - 2026-10-24
+
+- Added an optional post `subtitle` (also `subheading` or `dek`) shown under the title, edited directly
+  beneath the title in Admin Studio, imported from and sent to Hashnode, and kept separate from the
+  search `description`. JSON-LD carries it as `alternativeHeadline`, and subtitles over 160 characters are
+  flagged in Admin readiness and as a build warning. Re-running the Hashnode import reports posts that have a
+  Hashnode subtitle as changed; overwriting them adds `subtitle`, which marks them for re-syndication.
+
+## [0.16.0] - 2026-10-24
+
+- Portable HTML now renders static fallbacks for every current interactive capability:
+  quizzes keep their prompt, lettered choices, and the author's answer and explanation behind a
+  native `<details>` disclosure; runnable code and web sandboxes keep their labelled source with
+  a link to run them on the canonical article; CodePen and YouTube embeds become titled provider
+  links; video chapters become an ordered chapter list; recipe facts, callout titles, and
+  video production notes stay visible; and comments become a link to the canonical discussion.
+  The output needs no open.blog script, custom element, form, or iframe.
+- Portable HTML now keeps research and attribution: ordered contributor credits with their roles
+  and unauthenticated ORCID iDs (kept apart from the references), the DOI and license, the
+  "Originally published at" source, and footnote citations that keep their numbers and ids and
+  link to the note on the canonical article. Planned or unknown capabilities fail closed: their
+  authored content stays visible with a labeled link to the canonical article and a
+  canonical-only report, while private-only state adds nothing to the copy or its report.
+- Portable HTML now rewrites authored raw HTML through a documented allowlist: scripts, styles,
+  event handlers, forms, `<base>` and `<meta>` tags, comments, and custom elements are removed
+  or unwrapped (Markdown inside a removed element goes with it); frames, media, SVG, and MathML
+  become a link to the canonical article; heading `{key=value}` attributes are dropped; and each
+  removal is reported as a `raw-html` capability. Raw HTML URLs resolve against the canonical
+  article like Markdown links, ids stay unique across raw HTML, headings, and footnotes, every
+  image gets `alt`, and the body stays well nested. Native pages are unchanged.
+- The portable projection fails for that post with a source-scoped diagnostic, instead of
+  publishing or truncating, when a raw HTML or `sourceUrl` address is unsafe (including `data:`
+  and encoded `javascript:` URLs), a removed element or comment that is never closed would hide
+  later content, or the body exceeds 2 MiB or 64 levels of nesting.
+- Fixed quizzes and web sandboxes failing to build when nested in a callout, quote, or list item.
+
 ## [0.15.0] - 2026-10-24
 
 - Added private per-admin workspace personalization to Admin Studio: Simple (the new default),
@@ -383,7 +436,9 @@ All notable changes to open.blog are recorded here. Releases follow
   responsive layout, keyboard focus, and visual hierarchy.
 - CI now discovers every JavaScript test in `tests/web/`.
 
-[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/journey-to-code-org/open.blog/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.16.0...v0.17.0
+[0.16.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/journey-to-code-org/open.blog/compare/v0.12.0...v0.13.0

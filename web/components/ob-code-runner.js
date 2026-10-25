@@ -3,6 +3,7 @@
 // fallback, and all returned output is rendered as plain text.
 
 import { runCode } from "./ob-code-runner-client.js";
+import { codeSettings, createCodeEditor } from "./ob-code-editor.js";
 
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -31,14 +32,15 @@ class ObCodeRunner extends HTMLElement {
     const initial = code.textContent;
     pre.classList.add("ob-code-runner-source");
 
-    const editor = el("textarea", "ob-code-runner-editor");
-    editor.value = initial;
-    editor.rows = Math.min(24, Math.max(6, initial.replace(/\n$/, "").split("\n").length));
-    editor.spellcheck = false;
-    editor.setAttribute("aria-label", `Editable ${languageLabel} code`);
-    editor.setAttribute("autocapitalize", "off");
-    editor.setAttribute("autocomplete", "off");
-    editor.setAttribute("wrap", "off");
+    const { shell, editor, refresh } = createCodeEditor({
+      prefix: "ob-code-runner",
+      language,
+      label: languageLabel,
+      ariaLabel: `Editable ${languageLabel} code`,
+      value: initial,
+      source: code,
+      ...codeSettings(this),
+    });
 
     const stdin = el("textarea", "ob-code-runner-stdin");
     stdin.rows = 3;
@@ -46,8 +48,8 @@ class ObCodeRunner extends HTMLElement {
     stdin.setAttribute("aria-label", "Standard input (optional)");
     stdin.setAttribute("placeholder", "Standard input (optional)");
 
-    const controls = el("div", "ob-code-runner-controls");
-    const run = el("button", "ob-code-runner-run", `Run ${languageLabel}`);
+    const controls = el("div", "ob-code-editor-controls ob-code-runner-controls");
+    const run = el("button", "ob-code-editor-run ob-code-runner-run", `Run ${languageLabel}`);
     const reset = el("button", "ob-code-runner-reset", "Reset");
     const copy = el("button", "ob-code-runner-copy", "Copy");
     for (const button of [run, reset, copy]) button.type = "button";
@@ -55,10 +57,10 @@ class ObCodeRunner extends HTMLElement {
 
     const notice = el(
       "p",
-      "ob-code-runner-notice",
+      "ob-code-editor-note ob-code-runner-notice",
       "Running sends this source and standard input to the site's external sandbox service. open.blog does not execute or store it.",
     );
-    const status = el("p", "ob-code-runner-status", "Ready.");
+    const status = el("p", "ob-code-editor-status ob-code-runner-status", "Ready.");
     status.setAttribute("role", "status");
     status.setAttribute("aria-live", "polite");
     const output = el("pre", "ob-code-runner-output");
@@ -72,6 +74,7 @@ class ObCodeRunner extends HTMLElement {
       output.textContent = "";
       output.hidden = true;
       status.textContent = "Reset to the post's example.";
+      refresh();
       editor.focus();
     });
     copy.addEventListener("click", async () => {
@@ -113,7 +116,7 @@ class ObCodeRunner extends HTMLElement {
       }
     });
 
-    this.append(editor, stdin, controls, notice, status, output);
+    this.append(shell, stdin, controls, notice, status, output);
     this.dataset.enhanced = "true";
   }
 

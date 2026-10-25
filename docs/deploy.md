@@ -71,13 +71,28 @@ it is the natural choice when the repository is private. A clone of the engine r
 The file also sets cache headers for assets and CORS headers for the feeds and the
 latest-posts JSON. Aliases are plain redirect pages, so they need no Netlify redirects.
 
+### Admin hosted separately on Render
+
+This repository's Netlify configuration redirects `/admin` and `/admin/*` to
+`https://openblog-o0o5.onrender.com/admin/`, preserving nested paths. Replace that hostname
+in both rules when deploying your own Admin service. These are temporary (`302`) redirects,
+not proxy rewrites: the browser moves to Render, where login, cookies, and authenticated
+requests stay on the same origin. Public engagement routes under `/api/` stay on Netlify.
+
+Keeping Admin requests off Netlify's proxy also avoids its 26-second proxy timeout for
+long-running operations. Do not change these rules to `200` rewrites without verifying
+Admin's Origin/Host checks and request timeouts. On Render, use `OPENBLOG_BEHIND_PROXY=1`
+for secure session cookies, and follow the [self-hosting](#self-hosting-with-openblog-serve)
+and Render guidance below for credentials, persistent storage, and Git publishing.
+
 ### Comments and persistent analytics on Netlify
 
 The repository includes an optional Netlify Function backed by Supabase. It adds moderated comments
 and lets the existing privacy-respecting view counter retain analytics across deploys. Run
 [`supabase/openblog.sql`](../supabase/openblog.sql) in a Supabase project, then follow the
 [function setup guide](../netlify/functions/README.md) to configure the server environment. The
-Supabase service-role key remains in Netlify and is never an Admin or public-site setting.
+Supabase secret API key (`SUPABASE_SECRET_KEY`) remains in Netlify and is never an Admin or
+public-site setting. Existing `SUPABASE_SERVICE_ROLE_KEY` deployments remain supported.
 
 After deployment, open **Admin → Analytics**, enable hosted engagement, enter the public `/api`
 endpoint, and save the matching write-only moderation token. New comments remain pending until an
@@ -87,6 +102,114 @@ comment-policy manifest from `OPENBLOG_SITE_ORIGIN` before comment access, so lo
 policies are enforced on the server as well as in the page UI. Set `OPENBLOG_SITE_BASE_PATH` when
 the published site lives below `/`. The existing local counter stays the default when hosted
 engagement is off.
+
+### Durable editorial workspace on ephemeral hosts
+
+By default, drafts and unpublished files live **only on the Admin host's filesystem**.
+Git publishing is not a draft backup. For an ephemeral Render service, opt into the
+separate Supabase workspace store; a public Netlify deployment still builds exclusively
+from Git. This does not change the engagement database or expose editorial data to Netlify.
+
+1. In the existing Supabase project, run
+   [`supabase/workspace.sql`](../supabase/workspace.sql) in the SQL editor. It creates
+   one service-role-only revisioned manifest table and the **private**
+   `openblog-workspace` Storage bucket. No public/anonymous access is granted, and
+   a restrictive bucket policy excludes this bucket from broad authenticated policies.
+2. Set these **server-only Render environment variables**, never in `openblog.json`,
+   client JavaScript, Netlify's public configuration, or Git:
+
+   | Variable | Value |
+   | --- | --- |
+   | `OPENBLOG_WORKSPACE_SUPABASE_URL` | The project's HTTPS origin, e.g. `https://PROJECT.supabase.co` |
+   | `OPENBLOG_WORKSPACE_SECRET_KEY` | A server-side Supabase secret key (`sb_secret_…`) or legacy service-role JWT (never an anon/publishable key) |
+   | `OPENBLOG_WORKSPACE_NAMESPACE` | A stable, unique blog identifier: 1–80 ASCII letters, digits, `-`, `_` |
+
+   Set all three, or none. Partial/invalid configuration fails startup rather than
+   silently using local storage. Use a different namespace for a staging blog.
+   Modern secret keys are sent only in `apikey`; legacy service-role JWTs additionally
+   use Bearer authorization. The private bucket name is fixed; there is no default
+   namespace, so the blog identifier must be explicitly supplied.
+3. Deploy the updated binary. The entrypoint must provision Admin login/provider/Git
+   credentials **before** `openblog serve --admin`. Supabase does not back up these secrets.
+   The Docker build and runtime both use Debian bookworm; building against a newer libc
+   than the runtime supports can prevent the binary from starting. The image executes
+   `openblog help` during its build to check runtime compatibility.
+   If Render omits `.git` from its Docker context, the entrypoint recovers Git metadata
+   from Render's `RENDER_GIT_REPO_SLUG`, `RENDER_GIT_COMMIT`, and `RENDER_GIT_BRANCH`.
+   It fetches the exact shipped commit and checks the existing file contents before
+   attaching HEAD; it does not replace files or create a synthetic publishing baseline.
+   Private repositories require `OPENBLOG_GIT_TOKEN` for that fetch. Non-Render images
+   must include a valid Git checkout or explicitly provide these source identifiers.
+   When opted in, Rust startup fetches `publish.remote` / `publish.branch` into its
+   remote-tracking ref, verifies that `HEAD` is an ancestor, then uses a fast-forward-only
+   merge with autostash disabled to prepare the published checkout. No shell JSON parsing,
+   reset, checkout/discard, or separate fetch integration is required in the entrypoint.
+   Restore and reconciliation finish before building, starting watchers, or opening HTTP.
+   Startup fails visibly on unavailable storage, invalid data, or conflicting edits.
+   Fetch failures, missing remote branches, local-only commits/divergence, insufficient
+   shallow history, and dirty tracked/untracked files that prevent fast-forwarding fail
+   visibly before contacting Supabase. Unrelated local files are retained. Resolve these
+   failures manually without discarding unpublished work. Git fetch/merge commands have
+   a 60-second timeout each, interactive prompts are disabled, and credential-bearing
+   Git diagnostics are not echoed. With no configured Git remote, startup `HEAD` is the
+   initial baseline. Default/non-opted-in serving never fetches or merges.
+4. Verify against the deployed service: create a draft, save an unpublished edit, upload an
+   image/GPX, change a non-secret setting and personal preference, restart/redeploy Render,
+   and confirm they survive. Also verify publishing still pushes the public Git branch.
+   SQL application, environment configuration, and this live restart check are manual setup;
+   repository changes alone do not configure the live service.
+
+**What is stored.** UTF-8 database text records hold Markdown posts/pages/series,
+credit sidecars, `openblog.json`, `.gitignore`, project Assistant skills and portable/private
+context/references, per-login presentation preferences, and typed editor trash. Images,
+GPX uploads, and pending GPX data use content-addressed objects in the private bucket.
+Only the explicitly selected `.openblog/private/context/` and
+`.openblog/private/admin-preferences/` directories participate. Auth users/password hashes,
+sessions, analytics, provider/moderation/API keys, Git configuration/credentials, arbitrary
+`.openblog/private/`, themes, generated output, and other files are **never** backed up.
+Unknown configuration fields are rejected rather than risking storing an inline secret.
+Do not put secrets in authored documents, public settings, or the included context directories.
+Re-provision write-only credentials through environment variables or the host's secret
+setup after restart; saving one in Admin does not make that credential durable.
+
+**Acknowledgement and conflicts.** Every authenticated Admin mutation completes its local
+filesystem transaction and synchronous durable manifest revision before returning success.
+Uploads finish before the atomic database compare-and-swap. A service outage, timeout,
+quota/size error or stale revision returns an explicit **503 / save NOT acknowledged**;
+local changes may still exist, but subsequent writes stop until restart/reconciliation.
+Do not treat a failed save as backed up. Preserve/export that local version before replacing
+an ephemeral instance. A timeout can mean the commit actually succeeded: inspect the remote
+revision before retrying. Other instances cannot silently overwrite newer saves.
+
+Git remains published truth. Restore records the published Git blob each edit replaced,
+checks the entire bundle first, and permits only matching baselines or already-identical
+results. New upstream edits or unrelated local edits cause a visible startup conflict,
+not an overwrite. Deletions/renames have tombstones; document, credit, context, track and
+setting changes share one manifest revision. Successful Git pushes retire published
+overlays; local-only publication is disabled in this mode. After a conflict, stop writers,
+preserve both versions, reconcile/export the namespace manifest with the current Git
+checkout, and restart. There is deliberately no automatic merge or “last writer wins.”
+
+**Limits and operating model.** Run one active Admin instance per namespace. Revision CAS
+protects against overlapping instances, but is not collaborative multi-master editing.
+Each HTTP storage request has a 15-second timeout and no redirects; save/restore loops
+stop after a 90-second operation budget (plus at most one in-flight request). Maximums:
+2,048 records/files, 2 MiB per UTF-8 text file, 16 MiB per upload, 64 MiB selected filesystem
+data, 8 MiB manifest, bounded directory traversal and relative paths. Tombstones count
+toward the record limit. Content/static/users path layout cannot change while enabled.
+Symlinks (including internal ones) are rejected, and the normal content lock spans the
+durability transaction. Filesystem access assumes trusted/cooperating OS processes; it
+does not defend against a hostile local account racing filesystem replacement.
+
+Use Admin's API for mutations in this mode. CLI content creation/import/migration/publish
+commands are disabled when workspace environment variables are present; direct disk edits,
+external tools, and periodic file-watcher rebuilds are **not durable acknowledgements**.
+Stop the service to perform maintenance, then restart and reconcile before accepting edits.
+The store is a recoverable working overlay, not version history or a full-repository backup.
+Failed/uncommitted uploads and superseded objects are retained (no racing automatic GC);
+monitor the free-tier database/Storage quotas and remove only unreferenced objects while
+writers are stopped. Free Supabase projects may pause or exhaust quota: an outage blocks
+startup/saves rather than falling back to ephemeral storage.
 
 For a blog made with `openblog init` (no engine source in the repository), use this
 build command instead, with `dist` as the publish directory:

@@ -122,6 +122,55 @@ pub fn is_recipe(fm: &FrontMatter) -> bool {
 }
 
 impl Recipe {
+    /// The card's facts (`<div><dt>..</dt><dd>..</dd></div>` rows, escaped):
+    /// times, servings, yield, cuisine, course, and calories. `scalable` wraps
+    /// a plain servings number in the span the scaling component updates.
+    pub(crate) fn facts_html(&self, scalable: bool) -> String {
+        use crate::escape::text;
+        let mut facts = String::new();
+        let mut fact = |label: &str, value: String| {
+            facts.push_str(&format!("<div><dt>{label}</dt><dd>{value}</dd></div>"));
+        };
+        for (label, minutes, written) in [
+            ("Prep", self.prep, &self.prep_text),
+            ("Cook", self.cook, &self.cook_text),
+            ("Total", self.total, &self.total_text),
+        ] {
+            if let Some(m) = minutes {
+                fact(
+                    label,
+                    format!(
+                        "<time datetime=\"{}\">{}</time>",
+                        iso_duration(m),
+                        format_minutes(m)
+                    ),
+                );
+            } else if let Some(w) = written {
+                // "overnight", "10-15 min": shown as written.
+                fact(label, text(w));
+            }
+        }
+        if let Some(s) = &self.servings_text {
+            let value = if scalable && self.servings.is_some_and(|n| s.parse::<u32>() == Ok(n)) {
+                format!("<span class=\"ob-recipe-servings\">{}</span>", text(s))
+            } else {
+                text(s)
+            };
+            fact("Serves", value);
+        }
+        for (label, value) in [
+            ("Makes", &self.yield_text),
+            ("Cuisine", &self.cuisine),
+            ("Course", &self.category),
+            ("Calories", &self.calories),
+        ] {
+            if let Some(v) = value {
+                fact(label, text(v));
+            }
+        }
+        facts
+    }
+
     /// Read the recipe facts from front matter; the lists come from the body.
     /// A time that is not one length of time is kept as text rather than
     /// failing the build: cooks write "overnight" and "10-15 min".

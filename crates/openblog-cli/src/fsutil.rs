@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -50,6 +51,54 @@ pub fn write_file(path: &Path, contents: &[u8]) -> Result<(), String> {
         }
     }
     fs::write(path, contents).map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+/// Publish a complete new file without replacing an existing destination.
+pub fn write_new_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or("export destination has no parent directory")?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
+    let parent = fs::canonicalize(parent)
+        .map_err(|error| format!("cannot resolve {}: {error}", parent.display()))?;
+    let target = parent.join(
+        path.file_name()
+            .ok_or("export destination needs a filename")?,
+    );
+    let token = crate::auth::random_token()?;
+    let temporary = parent.join(format!(".openblog-export-{token}.tmp"));
+    let mut file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary)
+        .map_err(|error| format!("cannot stage export {}: {error}", temporary.display()))?;
+    let result = (|| {
+        file.write_all(contents)
+            .and_then(|()| file.sync_all())
+            .map_err(|error| format!("cannot stage export {}: {error}", path.display()))?;
+        drop(file);
+        // A same-directory hard link is an atomic, no-replace publication on
+        // supported filesystems. Rename would overwrite on Unix.
+        fs::hard_link(&temporary, &target).map_err(|error| {
+            format!(
+                "cannot publish export {} without overwriting: {error}",
+                path.display()
+            )
+        })
+    })();
+    let cleanup = fs::remove_file(&temporary).map_err(|error| {
+        format!(
+            "cannot remove export staging file {}: {error}",
+            temporary.display()
+        )
+    });
+    match (result, cleanup) {
+        (Err(error), Err(cleanup)) => Err(format!("{error}; {cleanup}")),
+        (Err(error), _) => Err(error),
+        (Ok(()), Err(cleanup)) => Err(format!("export was published, but {cleanup}")),
+        (Ok(()), Ok(())) => Ok(()),
+    }
 }
 
 /// Newest modification time and file count under the given paths; changes

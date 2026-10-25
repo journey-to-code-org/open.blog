@@ -1062,5 +1062,9 @@ mod tests {
         assert_eq!(dev.provider, SyndicationProvider::Dev);
         assert!(dev.enabled && dev.allow_publish);
         assert_eq!(syndication.syndication.state_file, ".private/s.json");
+        assert!(SiteConfig::from_json(
+            r#"{"syndication":{"targets":{"future":{"provider":"unknown-provider"}}}}"#
+        )
+        .is_err());
     }
 }

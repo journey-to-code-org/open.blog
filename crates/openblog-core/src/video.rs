@@ -49,6 +49,26 @@ impl VideoMetadata {
         }
     }
 
+    /// The reader-facing production notes (episode label, status, credits) as
+    /// an escaped `<aside>`, or nothing when the post has none.
+    pub(crate) fn production_notes_html(&self) -> String {
+        use crate::escape::text;
+        let facts: Vec<String> = [
+            ("Production", self.production_label()),
+            ("Status", self.production_status.clone()),
+            ("Credits", self.production_credits.clone()),
+        ]
+        .into_iter()
+        .filter_map(|(label, value)| {
+            value.map(|value| format!("<div><dt>{label}</dt><dd>{}</dd></div>", text(&value)))
+        })
+        .collect();
+        if facts.is_empty() {
+            return String::new();
+        }
+        format!("<aside class=\"ob-video-production\" aria-label=\"Video production summary\"><h2>Production notes</h2><dl>{}</dl></aside>\n", facts.join(""))
+    }
+
     pub fn production_label(&self) -> Option<String> {
         match (self.season_number, self.episode_number) {
             (Some(season), Some(episode)) => Some(format!("Season {season}, episode {episode}")),

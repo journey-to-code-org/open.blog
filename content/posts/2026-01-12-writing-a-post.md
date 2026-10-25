@@ -1,5 +1,6 @@
 ---
 title: Writing a post
+subtitle: Front matter, Markdown, images, and code blocks in one file.
 date: 2026-01-12
 series: getting-started
 seriesOrder: 1
@@ -18,6 +19,7 @@ A post is a Markdown file in `content/posts/`. The file name can start with a da
 ```yaml
 ---
 title: Writing a post
+subtitle: Optional. A one-line subheading shown under the title.
 date: 2026-01-12           # or a full time: 2026-01-12T09:30:00Z
 tags: [guide, markdown]    # inline lists work too
 description: Optional. Used in feeds and search results.

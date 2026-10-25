@@ -123,6 +123,33 @@ impl ResearchMetadata {
             references: extract_references(markdown, body_line),
         }
     }
+
+    /// The work's DOI and license as the escaped "Research work details" list
+    /// both the native page and the portable projection show; empty when the
+    /// work has neither a resolvable DOI nor a safe license URL.
+    pub(crate) fn work_meta_html(&self) -> String {
+        use crate::escape::{attr, text};
+        if self.doi_url.is_none() && self.license_url.is_none() {
+            return String::new();
+        }
+        let mut html =
+            String::from("<aside class=\"ob-work-meta\" aria-label=\"Research work details\"><dl>");
+        if let (Some(name), Some(url)) = (&self.doi, &self.doi_url) {
+            html.push_str(&format!(
+                "<div><dt>DOI</dt><dd><a href=\"{}\">{}</a></dd></div>",
+                attr(url),
+                text(name)
+            ));
+        }
+        if let Some(url) = &self.license_url {
+            html.push_str(&format!(
+                "<div><dt>Reuse</dt><dd><a href=\"{}\">License</a></dd></div>",
+                attr(url)
+            ));
+        }
+        html.push_str("</dl></aside>\n");
+        html
+    }
 }
 
 fn extract_references(markdown: &str, body_line: usize) -> Vec<ResearchReference> {

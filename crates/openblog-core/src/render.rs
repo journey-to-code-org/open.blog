@@ -984,6 +984,12 @@ impl<'a> Renderer<'a> {
                 .heading(theme, 1, &post.title, "ob-post-title")
                 .replace("class=\"ob-title\"", "class=\"ob-title p-name\""),
         );
+        if let Some(subtitle) = &post.subtitle {
+            body.push_str(&format!(
+                "\n<p class=\"ob-post-subtitle\">{}</p>",
+                text(subtitle)
+            ));
+        }
         body.push_str("\n<p class=\"ob-meta\">");
         body.push_str(&format!(
             "<time class=\"dt-published\" datetime=\"{}\">{}</time>",
@@ -1061,7 +1067,7 @@ impl<'a> Renderer<'a> {
             body.push_str(&contributions_html(post));
         }
         if let Some(research) = &post.research {
-            body.push_str(&self.research_work_meta(research));
+            body.push_str(&research.work_meta_html());
         }
         if let Some(journal) = &post.field_journal {
             body.push_str(&self.field_journal_card(journal));
@@ -1121,12 +1127,8 @@ impl<'a> Renderer<'a> {
             body.push_str("</ob-recipe>\n");
         }
 
-        if let Some(source_url) = &post.source_url {
-            body.push_str(&format!(
-                "<p class=\"ob-source\">Originally published at <a class=\"u-syndication\" href=\"{}\" rel=\"noopener\">{}</a>.</p>\n",
-                attr(source_url),
-                text(source_url.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/'))
-            ));
+        if let Some(source) = post.source_notice_html() {
+            body.push_str(&source);
         }
         if c.share.enabled {
             body.push_str(&self.share_block(post));
@@ -1152,7 +1154,8 @@ impl<'a> Renderer<'a> {
                 ""
             };
             body.push_str(&format!(
-                "<ob-comments path=\"{}\" endpoint=\"{}\"{}><p>Comments require JavaScript.</p></ob-comments>\n",
+                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
+                crate::model::DISCUSSION_ANCHOR,
                 attr(&post.url),
                 attr(c.engagement.endpoint.trim().trim_end_matches('/')),
                 mode,
@@ -1192,6 +1195,9 @@ impl<'a> Renderer<'a> {
                     "wordCount": post.word_count,
                     "isPartOf": series.map(|s| serde_json::json!({ "@type": "CreativeWorkSeries", "name": s.name, "url": c.absolute(&s.url) })),
                 });
+                if let Some(subtitle) = &post.subtitle {
+                    posting["alternativeHeadline"] = serde_json::json!(subtitle);
+                }
                 match post.credit_provenance {
                     CreditProvenance::LegacySiteAuthor => {
                         if let Some(author) = author_json_ld(c) {
@@ -1323,29 +1329,6 @@ impl<'a> Renderer<'a> {
             noindex: false,
         };
         self.document(&meta, &body)
-    }
-
-    fn research_work_meta(&self, research: &crate::research::ResearchMetadata) -> String {
-        if research.doi_url.is_none() && research.license_url.is_none() {
-            return String::new();
-        }
-        let mut html =
-            String::from("<aside class=\"ob-work-meta\" aria-label=\"Research work details\"><dl>");
-        if let (Some(name), Some(url)) = (&research.doi, &research.doi_url) {
-            html.push_str(&format!(
-                "<div><dt>DOI</dt><dd><a href=\"{}\">{}</a></dd></div>",
-                attr(url),
-                text(name)
-            ));
-        }
-        if let Some(url) = &research.license_url {
-            html.push_str(&format!(
-                "<div><dt>Reuse</dt><dd><a href=\"{}\">License</a></dd></div>",
-                attr(url)
-            ));
-        }
-        html.push_str("</dl></aside>\n");
-        html
     }
 
     /// Share links. Plain anchors, so they work without JavaScript; the
@@ -1535,78 +1518,12 @@ impl<'a> Renderer<'a> {
     }
 
     fn video_production_card(&self, video: &crate::video::VideoMetadata) -> String {
-        let mut facts = Vec::new();
-        if let Some(label) = video.production_label() {
-            facts.push(format!(
-                "<div><dt>Production</dt><dd>{}</dd></div>",
-                text(&label)
-            ));
-        }
-        if let Some(status) = &video.production_status {
-            facts.push(format!(
-                "<div><dt>Status</dt><dd>{}</dd></div>",
-                text(status)
-            ));
-        }
-        if let Some(credits) = &video.production_credits {
-            facts.push(format!(
-                "<div><dt>Credits</dt><dd>{}</dd></div>",
-                text(credits)
-            ));
-        }
-        if facts.is_empty() {
-            return String::new();
-        }
-        format!("<aside class=\"ob-video-production\" aria-label=\"Video production summary\"><h2>Production notes</h2><dl>{}</dl></aside>\n", facts.join(""))
+        video.production_notes_html()
     }
 
     fn recipe_card(&self, recipe: &crate::recipe::Recipe) -> String {
-        use crate::recipe::{format_minutes, iso_duration};
         let rc = &self.site.config.recipes;
-        let mut facts = String::new();
-        let mut fact = |label: &str, value: String| {
-            facts.push_str(&format!("<div><dt>{label}</dt><dd>{value}</dd></div>"));
-        };
-        for (label, minutes, written) in [
-            ("Prep", recipe.prep, &recipe.prep_text),
-            ("Cook", recipe.cook, &recipe.cook_text),
-            ("Total", recipe.total, &recipe.total_text),
-        ] {
-            if let Some(m) = minutes {
-                fact(
-                    label,
-                    format!(
-                        "<time datetime=\"{}\">{}</time>",
-                        iso_duration(m),
-                        format_minutes(m)
-                    ),
-                );
-            } else if let Some(w) = written {
-                // "overnight", "10-15 min": shown as written.
-                fact(label, text(w));
-            }
-        }
-        if let Some(s) = &recipe.servings_text {
-            // A plain number can be scaled; the component updates this span.
-            let value = if recipe.servings.is_some_and(|n| s.parse::<u32>() == Ok(n)) {
-                format!("<span class=\"ob-recipe-servings\">{}</span>", text(s))
-            } else {
-                text(s)
-            };
-            fact("Serves", value);
-        }
-        if let Some(y) = &recipe.yield_text {
-            fact("Makes", text(y));
-        }
-        if let Some(v) = &recipe.cuisine {
-            fact("Cuisine", text(v));
-        }
-        if let Some(v) = &recipe.category {
-            fact("Course", text(v));
-        }
-        if let Some(v) = &recipe.calories {
-            fact("Calories", text(v));
-        }
+        let facts = recipe.facts_html(true);
         let mut h =
             String::from("<section class=\"ob-recipe-card\" aria-label=\"Recipe summary\">\n");
         if !facts.is_empty() {
@@ -2083,46 +2000,12 @@ fn human_list(items: &[String]) -> String {
 }
 
 fn contributions_html(post: &Post) -> String {
-    let mut html = String::from(
-        "<aside class=\"ob-contributions\" aria-labelledby=\"ob-contributions-title\">\n<h2 id=\"ob-contributions-title\" class=\"ob-contributions-title\">Contributions</h2>\n<ul>\n",
-    );
-    for credit in &post.credits {
-        html.push_str("<li><div><span class=\"ob-contributor-name\">");
-        if credit.contributor.url.trim().is_empty() {
-            html.push_str(&text(&credit.contributor.name));
-        } else {
-            html.push_str(&format!(
-                "<a href=\"{}\">{}</a>",
-                attr(credit.contributor.url.trim()),
-                text(&credit.contributor.name)
-            ));
-        }
-        html.push_str("</span><span class=\"ob-contributor-roles\">");
-        html.push_str(&text(
-            &credit
-                .roles
-                .iter()
-                .map(|role| role.label())
-                .collect::<Vec<_>>()
-                .join(", "),
-        ));
-        html.push_str("</span></div>");
-        if !credit.contributor.orcid.is_empty() {
-            let id = credit
-                .contributor
-                .orcid
-                .trim_start_matches("https://orcid.org/");
-            html.push_str(&format!(
-                "<p class=\"ob-orcid\"><a href=\"{}\" aria-label=\"View unauthenticated ORCID record – {}\"><span class=\"ob-orcid-icon\" aria-hidden=\"true\"><img src=\"/assets/orcid-unauthenticated-id-icons.png\" alt=\"\" loading=\"lazy\" decoding=\"async\"></span>{}</a> (unauthenticated)</p>",
-                attr(&credit.contributor.orcid),
-                attr(id),
-                text(&credit.contributor.orcid)
-            ));
-        }
-        html.push_str("</li>\n");
-    }
-    html.push_str("</ul>\n</aside>\n");
-    html
+    crate::contributor::contributions_html(
+        &post.credits,
+        |url| Ok::<_, std::convert::Infallible>(url.to_string()),
+        Some("/assets/orcid-unauthenticated-id-icons.png"),
+    )
+    .unwrap_or_else(|never| match never {})
 }
 
 fn contributor_json_ld(
@@ -2844,6 +2727,39 @@ mod tests {
         let files = generate(&site, &ThemeSet::new()).unwrap();
         assert!(!file(&files, "index.html").contains("Powered by"));
         assert!(file(&files, "api/blog.json").contains("\"schemaVersion\": 1"));
+    }
+
+    #[test]
+    fn post_subtitles_render_escaped_between_the_title_and_byline() {
+        let config =
+            SiteConfig::from_json(r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/"}"#)
+                .unwrap();
+        let sources = Sources {
+            posts: vec![
+                SourceFile {
+                    path: "posts/dek.md".into(),
+                    contents: "---\ntitle: Dek\ndate: 2026-10-01\nsubtitle: Why <small> sites & feeds win\n---\nBody".into(),
+                },
+                SourceFile {
+                    path: "posts/plain.md".into(),
+                    contents: "---\ntitle: Plain\ndate: 2026-10-02\n---\nBody".into(),
+                },
+            ],
+            ..Sources::default()
+        };
+        let site = Site::load(config, sources, LoadOptions::default()).unwrap();
+        let files = generate(&site, &ThemeSet::new()).unwrap();
+        let dek = file(&files, "dek/index.html");
+        let title = dek.find("ob-post-title").unwrap();
+        let subtitle = dek
+            .find("<p class=\"ob-post-subtitle\">Why &lt;small&gt; sites &amp; feeds win</p>")
+            .expect("escaped subtitle under the title");
+        let byline = dek.find("<p class=\"ob-meta\">").unwrap();
+        assert!(title < subtitle && subtitle < byline);
+        assert!(dek.contains("\"alternativeHeadline\":\"Why "));
+        let plain = file(&files, "plain/index.html");
+        assert!(!plain.contains("ob-post-subtitle"));
+        assert!(!plain.contains("alternativeHeadline"));
     }
 
     #[test]

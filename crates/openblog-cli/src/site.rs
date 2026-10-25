@@ -35,6 +35,18 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-rust-runner.js"),
     ),
     (
+        "components/ob-code-editor.js",
+        include_str!("../../../web/components/ob-code-editor.js"),
+    ),
+    (
+        "components/ob-code-runner.js",
+        include_str!("../../../web/components/ob-code-runner.js"),
+    ),
+    (
+        "components/ob-code-runner-client.js",
+        include_str!("../../../web/components/ob-code-runner-client.js"),
+    ),
+    (
         "components/ob-code-runner-language.js",
         include_str!("../../../web/components/ob-code-runner-language.js"),
     ),
@@ -508,6 +520,15 @@ pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> 
 pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
     let (site, themes) = load_site(root, options.include_drafts, options.now)?;
     let config = &site.config;
+    // Required destinations (including full-content feeds) must succeed before
+    // generated output or stale files are changed.
+    let files = generate(&site, &themes)?;
+    let mut warnings = site.warnings.clone();
+    warnings.extend(
+        crate::portable_export::build_diagnostics(&site)?
+            .into_iter()
+            .map(|warning| format!("portability: {warning}")),
+    );
     let out_dir = options
         .out_override
         .clone()
@@ -578,7 +599,6 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     }
 
     // 4. Generated pages, feeds, and tokens.
-    let files = generate(&site, &themes)?;
     let count = files.len();
     for f in files {
         put(f.path, f.contents.as_bytes())?;
@@ -595,7 +615,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         scheduled: site.scheduled.len(),
         next_due: site.next_scheduled(),
         out_dir,
-        warnings: site.warnings.clone(),
+        warnings,
         accessibility: site.accessibility.clone(),
         evidence: site.evidence.clone(),
     })
@@ -625,6 +645,100 @@ mod tests {
             "openblog-site-{tag}-{}-{unique}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn review_regression_summary_build_reports_portable_failure_without_failing_native_output() {
+        let root = temp_root("portable-failure");
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        fs::write(
+            root.join("openblog.json"),
+            r#"{"url":"https://example.test","feeds":{"fullContent":false}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/posts/work.md"),
+            "---\ntitle: Work\ndate: 2020-01-01\n---\n[Legacy](javascript:alert(1))\n",
+        )
+        .unwrap();
+        let report = build(
+            &root,
+            &BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .unwrap();
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("posts/work.md") && warning.contains("portable")));
+        assert!(report.files > 0);
+        let marker = fs::read(report.out_dir.join(fsutil::MARKER)).unwrap();
+        let index = fs::read(report.out_dir.join("index.html")).unwrap();
+        fs::write(
+            report.out_dir.join("stale.txt"),
+            "keep on preflight failure",
+        )
+        .unwrap();
+        fs::write(
+            root.join("openblog.json"),
+            r#"{"url":"https://example.test","feeds":{"fullContent":true}}"#,
+        )
+        .unwrap();
+        let error = build(
+            &root,
+            &BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains("link must use"), "{error}");
+        assert_eq!(
+            fs::read(report.out_dir.join(fsutil::MARKER)).unwrap(),
+            marker
+        );
+        assert_eq!(fs::read(report.out_dir.join("index.html")).unwrap(), index);
+        assert_eq!(
+            fs::read_to_string(report.out_dir.join("stale.txt")).unwrap(),
+            "keep on preflight failure"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn every_relative_script_import_is_embedded() {
+        // A built site without a local `web/` copy uses only these files; one
+        // missing module makes the browser reject the whole openblog.js graph.
+        let embedded: HashSet<&str> = EMBEDDED_WEB.iter().map(|(path, _)| *path).collect();
+        let mut missing = Vec::new();
+        for (path, contents) in EMBEDDED_WEB
+            .iter()
+            .filter(|(path, _)| path.ends_with(".js"))
+        {
+            let dir = Path::new(path).parent().unwrap_or(Path::new(""));
+            for line in contents.lines() {
+                let line = line.trim_start();
+                if !line.starts_with("import ") {
+                    continue;
+                }
+                let Some(spec) = line.split(['"', '\'']).nth(1) else {
+                    continue;
+                };
+                let Some(relative) = spec.strip_prefix("./") else {
+                    continue;
+                };
+                let target = dir.join(relative).to_string_lossy().replace('\\', "/");
+                if !embedded.contains(target.as_str()) {
+                    missing.push(format!("{path} imports {spec}"));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "not embedded: {missing:?}");
     }
 
     #[test]

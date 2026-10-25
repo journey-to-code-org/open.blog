@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { applyMarkdownCommand, insertResearchSection, parseVisualMarkdown, visualBlocksToMarkdown } from "../../web/admin/admin.js";
+
+test("portable publication corpus survives visual-editor round trips byte for byte", () => {
+  for (const name of ["research", "recipe", "video-lesson", "hostile-html"]) {
+    for (const suffix of [".md", ".portable.md"]) {
+      const source = readFileSync(new URL(`../fixtures/portable-html/${name}${suffix}`, import.meta.url), "utf8")
+        .replace(/\r\n/g, "\n")
+        .replace(/^---\n[\s\S]*?\n---\n/, "");
+      assert.equal(visualBlocksToMarkdown(parseVisualMarkdown(source)), source, `${name}${suffix}`);
+    }
+  }
+});
 
 test("inline formatting wraps selections and selects placeholders", () => {
   assert.deepEqual(applyMarkdownCommand("make this clear", 5, 9, "bold"), {

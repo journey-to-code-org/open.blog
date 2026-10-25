@@ -1164,6 +1164,22 @@ html[data-admin-density="compact"] .oba-pane {
   font-size: 0.72rem;
 }
 
+.oba-portable-markdown {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 75vh;
+  margin: 0;
+  padding: 1rem;
+  overflow: auto;
+  border: var(--ob-border-width) solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-text);
+  font: 0.82rem/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .oba-fieldset {
   margin: 0 0 1rem;
   padding: 0;
@@ -1198,6 +1214,18 @@ html[data-admin-density="compact"] .oba-pane {
   font-family: var(--ob-font-heading);
   font-size: 1.6rem;
   font-weight: var(--ob-heading-weight);
+}
+
+.oba-subtitle-input {
+  width: 100%;
+  margin: -0.25rem 0 0.75rem;
+  padding: 0.5rem 0.9rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  color: var(--ob-color-muted);
+  font-family: var(--ob-font-heading);
+  font-size: 1.1rem;
 }
 
 .oba-panes {
@@ -2039,10 +2067,17 @@ html[data-admin-density="compact"] .oba-pane {
   max-width: 48rem;
 }
 
+.oba-editor[data-preview-width="tablet"] .oba-portable-markdown {
+  max-width: 48rem;
+}
+
 .oba-editor[data-preview-width="mobile"] .oba-preview {
   max-width: 24.375rem;
 }
 
+.oba-editor[data-preview-width="mobile"] .oba-portable-markdown {
+  max-width: 24.375rem;
+}
 .oba-editor-status {
   display: flex;
   align-items: center;
