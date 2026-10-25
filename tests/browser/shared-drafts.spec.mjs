@@ -187,7 +187,8 @@ const previewDocument = `<!doctype html><html lang="en"><head><meta charset="utf
 test("the combined preview loads in an empty sandbox, runs and fetches nothing, and is labelled", async ({ page, context }) => {
   await install(context);
   const trackerRequests = [];
-  page.on("request", (request) => { if (request.url().startsWith("https://tracker.invalid/")) trackerRequests.push(request.url()); });
+  // Count only requests that reach the network: Chromium still reports CSP-blocked ones as request events.
+  await context.route("https://tracker.invalid/**", (route) => { trackerRequests.push(route.request().url()); return route.abort(); });
   await context.route("**/admin/api/collaboration/reveal?**", (route) => json(route, 200, {
     policy: "voluntary", ready: false, canSetPolicy: false,
     slots: [
