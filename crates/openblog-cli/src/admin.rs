@@ -15444,6 +15444,46 @@ mod tests {
     }
 
     #[test]
+    fn two_invitations_built_on_one_loaded_record_cannot_both_land() {
+        let (f, _mikey, id) = invitation_fixture("invite-concurrent");
+        // Both requests load the same record and decide against it before either is stored, as
+        // two overlapping requests would if the store did not compare the whole record.
+        let transaction = invitation_transaction(&f.state, &id).unwrap();
+        let record = transaction.record.clone().unwrap();
+        let now = clock::now().unix();
+        let invite = |user: &str, key: &str, seed: char| {
+            let new = NewInvitation {
+                id: format!("invitation-{}", seed.to_string().repeat(12)),
+                secret: seed.to_string().repeat(64),
+                admin_user: user.into(),
+                contributor_id: key.into(),
+                roles: vec![AuthorizationRole::Reader],
+                lifetime_days: 0,
+            };
+            let result = transaction
+                .with_identities(|identities| record.invite("mikey", identities, &new, now));
+            (result, new.id)
+        };
+        let (first, first_id) = invite("grace", "grace", 'a');
+        let (second, second_id) = invite("linus", "linus", 'b');
+        let first = finish_invitation(&f.state, &transaction, first, &first_id, now);
+        assert_eq!(
+            first.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&first.body)
+        );
+        let second = finish_invitation(&f.state, &transaction, second, &second_id, now);
+        assert_eq!(second.status, 409);
+        drop(transaction);
+        let stored = stored_record(&f, &id);
+        assert_eq!(stored.invitations.len(), 1);
+        assert_eq!(stored.invitations[0].id, first_id);
+        assert_eq!(stored.audit.len(), 1);
+        assert_eq!(stored.audit[0].subject, first_id);
+    }
+
+    #[test]
     fn revoked_expired_declined_and_reissued_invitations_stop_working() {
         let (f, mikey, id) = invitation_fixture("invite-states");
         let grace = login_as(&f, "grace", "another correct horse");
