@@ -152,7 +152,8 @@ _Avoid_: Publication, Work credit, timeless consent
 
 **Combined preview**:
 The side-effect-free review of the whole piece an author sees before approving: every author's
-section in order at its exact latest revision, each author's approval state (approved, awaiting, or
+section in order at its exact latest revision (an author who wrote nothing has no section and
+does not block it), each author's approval state (approved, awaiting, or
 stale), and whether the piece is complete and ready. A section appears only if the reader may read
 that latest revision; every other case is one identical placeholder. It opens with a "Preview, not
 published" notice, runs no script and loads nothing (ADR 0021).

@@ -32,15 +32,27 @@ the preview must not widen that, and it must not look like a published page.
   approval is stored but its binding no longer matches the content, frame or policy), and whether
   the policy requires it. Authors need this to coordinate; it holds no prose. Stale is derived with
   `ApprovalSet::state`, never stored.
-- The piece is `complete` only when every active author's section is shown, and `ready` only
-  when it is complete and `ApprovalSet::evaluate` passes. The approval token (`seen`) is issued
-  only for a complete piece, so nobody approves content they were not shown. Absent sections are
-  indistinguishable from unshared ones, so `complete` leaks nothing either.
-- Prose is rendered by the production Markdown renderer (`preview::render_section`) so final
-  assembly can reuse it and the preview matches the output. Each section renders on its own, so
+- The piece is `complete` only when every section that exists is shown, and `ready` only when it
+  is complete and `ApprovalSet::evaluate` passes. An author who has written nothing has no section
+  and does not block completeness, so the others can still review and approve, and under
+  `contributingAuthors` the piece can be ready without them (ADR 0020). The approval token
+  (`seen`) is issued only for a complete piece, so nobody approves content they were not shown.
+  Per-section output stays identical for "wrote nothing" and "not shared", but the piece-level
+  `complete` now reflects whether a section exists. That gives away little: the reveal routes
+  already tell authors whether others offered a revision. A non-writer sees no one else's prose
+  under the reveal rules, since they have nothing to offer, so their own preview stays incomplete;
+  whether such an author may approve unseen content is left to the approval step (#168).
+- Prose is rendered by the production Markdown renderer with the site's own options
+  (`SiteConfig::render_options`, which `Site::load` also uses): smart punctuation, heading
+  anchors, embeds and the code runner follow `openblog.json`, so the preview's HTML for a section
+  equals the post pipeline's for the same Markdown. A test renders the same source through
+  `load_post` and compares. Images, embeds and the runner are neutralised only by the document
+  policy below, not by changing the render options. Each section renders on its own, so
   broken syntax in one cannot bleed into the next. Source attribution is the approved public
-  subset only (ADR 0008). Credits are not implied: the preview lists authors for approval, not
-  Work credit.
+  subset only (ADR 0008). Credits are out of scope for the preview: it lists authors for approval but does
+  not show the byline or Work credit the published piece will carry. Credits come from the final
+  assembly, so they move to the publication story (#168). This changes the scope of #167 and
+  needs the maintainer's confirmation on the issue.
 - The document cannot be mistaken for a published page and cannot run or fetch anything: it opens
   with a "Preview, not published" notice, is marked noindex and no-referrer, and carries a policy
   of `default-src 'none'` (no scripts, frames, forms, images, fonts or network). Images and

@@ -15,7 +15,9 @@ All notable changes to open.blog are recorded here. Releases follow
   every author's section together at its exact current revision with each author's approval (approved,
   awaiting, or out of date), and is clearly marked "Preview, not published". You see a section only
   when it is shared with you at its current revision; anything else is one placeholder. The preview
-  runs no script, loads no images, and changes nothing.
+  runs no script, loads no images, and changes nothing. It renders prose with the site's own
+  Markdown settings, and an author who has written nothing no longer stops the others from
+  reviewing and approving the piece.
 
 ## [0.21.1] - 2026-10-25
 
