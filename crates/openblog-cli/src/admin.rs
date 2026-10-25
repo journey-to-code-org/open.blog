@@ -35,6 +35,7 @@ use openblog_core::invitation::{
 use openblog_core::markdown::RenderOptions;
 use openblog_core::members::MemberError;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
+use openblog_core::research_notes::{NoteDiagnostic, Passage, ResearchNote};
 use openblog_core::slug::slugify;
 use openblog_core::source_interchange::{self, plan_csl_import};
 use openblog_core::source_library::{SourceDiagnostic, SourceRecord};
@@ -58,6 +59,7 @@ use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
 use crate::fsutil;
 use crate::http::{Request, Response};
+use crate::notebook_store;
 use crate::site::{self, BuildOptions, BuildReport};
 use crate::source_store::{self, StoreError};
 
@@ -71,6 +73,7 @@ const MAX_SKILL_BYTES: usize = 256 * 1024;
 const MAX_ASSISTANT_CONTEXT_BYTES: usize = 64 * 1024;
 /// Largest accepted source create, update, or archive request.
 const MAX_SOURCE_REQUEST_BYTES: usize = 256 * 1024;
+const MAX_NOTEBOOK_REQUEST_BYTES: usize = 256 * 1024;
 const MAX_SOURCE_IMPORT_BYTES: usize = 3 * 1024 * 1024;
 const MAX_PORTABILITY_ACKNOWLEDGEMENTS: usize = 500;
 
@@ -598,6 +601,13 @@ fn authenticated_api(
         ("POST", "sources/archive") => archive_source(state, req),
         ("POST", "sources/import") => import_sources(state, req),
         ("GET", "sources/export") => export_sources(state, req),
+        ("GET", "research/notebook") => list_notebook(state),
+        ("POST", "research/passages") => save_passage(state, req, true),
+        ("PUT", "research/passages") => save_passage(state, req, false),
+        ("DELETE", "research/passages") => remove_entry(state, req, true),
+        ("POST", "research/notes") => save_note(state, req, true),
+        ("PUT", "research/notes") => save_note(state, req, false),
+        ("DELETE", "research/notes") => remove_entry(state, req, false),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
@@ -1078,6 +1088,174 @@ fn source_store_error(state: &AppState, error: StoreError, id: Option<&str>) -> 
         }
         StoreError::Invalid(diagnostics) => source_diagnostics(diagnostics),
         StoreError::Storage(message) => Response::error(500, &message),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Research notebook: private passages and notes
+// ---------------------------------------------------------------------------
+
+/// The notebook is private author research. Responses are `no-store` like the
+/// rest of Admin, name the file for repair, and carry both the notebook
+/// revision a change must name and the source library the entries point into.
+fn list_notebook(state: &AppState) -> Response {
+    match notebook_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => Response::json(200, &notebook_view(&snapshot)),
+        Err(error) => notebook_store_error(state, error, None),
+    }
+}
+
+fn notebook_view(snapshot: &notebook_store::Snapshot) -> Json {
+    json!({
+        "file": notebook_store::NOTEBOOK_FILE,
+        "revision": snapshot.revision,
+        "stored": snapshot.stored,
+        "passages": snapshot.notebook.passages,
+        "notes": snapshot.notebook.notes,
+        "sources": snapshot.library.sources,
+    })
+}
+
+/// Read a change request: JSON, bounded, and naming the revision it was based on.
+fn notebook_request(req: &Request) -> Result<(Json, String), Response> {
+    require_json(req)?;
+    if req.body.len() > MAX_NOTEBOOK_REQUEST_BYTES {
+        return Err(Response::error(
+            413,
+            "A research change is limited to 256 KiB",
+        ));
+    }
+    let body: Json =
+        serde_json::from_slice(&req.body).map_err(|_| Response::error(400, "Invalid JSON"))?;
+    let Some(revision) = body["revision"].as_str().map(str::to_string) else {
+        return Err(Response::error(400, "Missing notebook revision"));
+    };
+    Ok((body, revision))
+}
+
+/// Create (`POST`) or update (`PUT`) one passage from its full JSON form.
+fn save_passage(state: &AppState, req: &Request, create: bool) -> Response {
+    let (body, revision) = match notebook_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let passage = match Passage::from_json(body["passage"].clone()) {
+        Ok(passage) => passage,
+        Err(diagnostics) => return notebook_diagnostics(diagnostics),
+    };
+    let id = passage.id.clone();
+    let contributors = source_contributors(state);
+    let saved = if create {
+        notebook_store::create_passage(&state.root, &revision, passage, &contributors)
+    } else {
+        notebook_store::update_passage(&state.root, &revision, passage, &contributors)
+    };
+    match saved {
+        Ok(snapshot) => {
+            let mut view = notebook_view(&snapshot);
+            view["passage"] = json!(snapshot.notebook.passage(&id));
+            Response::json(if create { 201 } else { 200 }, &view)
+        }
+        Err(error) => notebook_store_error(state, error, Some((true, &id))),
+    }
+}
+
+/// Create (`POST`) or update (`PUT`) one note from its full JSON form.
+fn save_note(state: &AppState, req: &Request, create: bool) -> Response {
+    let (body, revision) = match notebook_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let note = match ResearchNote::from_json(body["note"].clone()) {
+        Ok(note) => note,
+        Err(diagnostics) => return notebook_diagnostics(diagnostics),
+    };
+    let id = note.id.clone();
+    let contributors = source_contributors(state);
+    let saved = if create {
+        notebook_store::create_note(&state.root, &revision, note, &contributors)
+    } else {
+        notebook_store::update_note(&state.root, &revision, note, &contributors)
+    };
+    match saved {
+        Ok(snapshot) => {
+            let mut view = notebook_view(&snapshot);
+            view["note"] = json!(snapshot.notebook.note(&id));
+            Response::json(if create { 201 } else { 200 }, &view)
+        }
+        Err(error) => notebook_store_error(state, error, Some((false, &id))),
+    }
+}
+
+/// Remove one passage (refused while a note links to it) or one note.
+fn remove_entry(state: &AppState, req: &Request, passage: bool) -> Response {
+    let (body, revision) = match notebook_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let Some(id) = body["id"].as_str() else {
+        return Response::error(400, "Name the id of the entry to remove");
+    };
+    let contributors = source_contributors(state);
+    let removed = if passage {
+        notebook_store::remove_passage(&state.root, &revision, id, &contributors)
+    } else {
+        notebook_store::remove_note(&state.root, &revision, id, &contributors)
+    };
+    match removed {
+        Ok(snapshot) => Response::json(200, &notebook_view(&snapshot)),
+        Err(error) => notebook_store_error(state, error, Some((passage, id))),
+    }
+}
+
+fn notebook_diagnostics(diagnostics: Vec<NoteDiagnostic>) -> Response {
+    let error = diagnostics.first().map_or_else(
+        || "The research entry is invalid".to_string(),
+        |first| first.to_string(),
+    );
+    Response::json(
+        422,
+        &json!({
+            "error": error,
+            "file": notebook_store::NOTEBOOK_FILE,
+            "diagnostics": diagnostics,
+        }),
+    )
+}
+
+/// A conflict carries the latest revision and the newer copy of the entry
+/// being changed, so the editor can keep the draft and compare it. Nothing is
+/// written either way.
+fn notebook_store_error(
+    state: &AppState,
+    error: notebook_store::StoreError,
+    entry: Option<(bool, &str)>,
+) -> Response {
+    match error {
+        notebook_store::StoreError::Conflict => {
+            let latest = notebook_store::load(&state.root, &source_contributors(state)).ok();
+            let current = latest
+                .as_ref()
+                .zip(entry)
+                .and_then(|(snapshot, (passage, id))| {
+                    if passage {
+                        snapshot.notebook.passage(id).map(|p| json!(p))
+                    } else {
+                        snapshot.notebook.note(id).map(|n| json!(n))
+                    }
+                });
+            Response::json(
+                409,
+                &json!({
+                    "error": error.to_string(),
+                    "conflict": true,
+                    "revision": latest.as_ref().map(|snapshot| snapshot.revision.as_str()),
+                    "current": current,
+                }),
+            )
+        }
+        notebook_store::StoreError::Invalid(diagnostics) => notebook_diagnostics(diagnostics),
+        notebook_store::StoreError::Storage(message) => Response::error(500, &message),
     }
 }
 
@@ -9116,6 +9294,412 @@ mod tests {
         let response = handle(
             &f.state,
             &authed(req("GET", "/admin/api/sources"), &session, false),
+        );
+        assert!(response
+            .headers
+            .iter()
+            .any(|(name, value)| name == "Cache-Control" && value == "no-store"));
+    }
+
+    fn notebook_call(
+        f: &Fixture,
+        session: &(String, String),
+        method: &str,
+        path: &str,
+        body: Json,
+    ) -> (u16, Json) {
+        source_call(f, session, method, path, body)
+    }
+
+    fn notebook(f: &Fixture, session: &(String, String)) -> Json {
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/notebook"), session, false),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        body_json(&response)
+    }
+
+    fn stored_notebook(f: &Fixture) -> Option<Vec<u8>> {
+        fs::read(f.dir.join(crate::notebook_store::NOTEBOOK_FILE)).ok()
+    }
+
+    fn fixture_with_sources(tag: &str) -> Fixture {
+        let f = fixture(tag);
+        let path = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia"},{"id":"slings","kind":"edition","of":"plato","title":"Slings"}]}"#,
+        )
+        .unwrap();
+        f
+    }
+
+    #[test]
+    fn research_notebook_api_is_authenticated_csrf_protected_and_revision_checked() {
+        let f = fixture_with_sources("notebook-api");
+        for (method, path) in [
+            ("GET", "/admin/api/research/notebook"),
+            ("POST", "/admin/api/research/passages"),
+            ("PUT", "/admin/api/research/passages"),
+            ("DELETE", "/admin/api/research/passages"),
+            ("POST", "/admin/api/research/notes"),
+            ("PUT", "/admin/api/research/notes"),
+            ("DELETE", "/admin/api/research/notes"),
+        ] {
+            assert_eq!(handle(&f.state, &req(method, path)).status, 401, "{path}");
+        }
+        let session = login_ok(&f);
+        let empty = notebook(&f, &session);
+        assert_eq!(empty["file"], crate::notebook_store::NOTEBOOK_FILE);
+        assert_eq!(empty["stored"], false);
+        assert_eq!(empty["sources"].as_array().unwrap().len(), 2);
+        assert!(stored_notebook(&f).is_none());
+
+        let passage = json!({"id": "p1", "source": "slings",
+            "excerpt": {"text": "<img src=x onerror=alert(1)> ὁ δὲ Σωκράτης 🙂", "language": "grc"},
+            "locators": [{"kind": "page", "value": "514"}]});
+        // No CSRF token: refused, nothing written.
+        let without = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/passages",
+                    json!({"revision": empty["revision"], "passage": passage}),
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without.status, 403);
+        assert!(stored_notebook(&f).is_none());
+        // No revision: refused.
+        let (status, _) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/passages",
+            json!({"passage": passage}),
+        );
+        assert_eq!(status, 400);
+
+        let (status, created) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/passages",
+            json!({"revision": empty["revision"], "passage": passage}),
+        );
+        assert_eq!(status, 201, "{created}");
+        assert_eq!(created["stored"], true);
+        assert_eq!(
+            created["passage"]["excerpt"]["text"],
+            "<img src=x onerror=alert(1)> ὁ δὲ Σωκράτης 🙂"
+        );
+        assert_eq!(created["passage"]["visibility"], "private");
+        let after_passage = stored_notebook(&f).unwrap();
+
+        // Reusing the old revision conflicts and returns the stored copy.
+        let (status, stale) = notebook_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/passages",
+            json!({"revision": empty["revision"], "passage": passage}),
+        );
+        assert_eq!(status, 409);
+        assert_eq!(stale["conflict"], true);
+        assert_eq!(stale["revision"], created["revision"]);
+        assert_eq!(stale["current"]["id"], "p1");
+        assert_eq!(stored_notebook(&f).unwrap(), after_passage);
+
+        let note = json!({"id": "n1", "kind": "question", "text": "Why a cave?",
+            "passages": ["p1"], "sources": ["plato"], "concepts": ["allegory"]});
+        let (status, with_note) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": created["revision"], "note": note}),
+        );
+        assert_eq!(status, 201, "{with_note}");
+        // Update and the same id again.
+        let mut edited = note.clone();
+        edited["text"] = json!("Why a cave, and who owns the fire?");
+        let (status, updated) = notebook_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/notes",
+            json!({"revision": with_note["revision"], "note": edited}),
+        );
+        assert_eq!(status, 200, "{updated}");
+        let (status, duplicate) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": updated["revision"], "note": note}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(duplicate["diagnostics"][0]["code"], "duplicate-id");
+
+        // A linked passage cannot be removed; the note can, then the passage.
+        let (status, linked) = notebook_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/passages",
+            json!({"revision": updated["revision"], "id": "p1"}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(linked["diagnostics"][0]["code"], "still-linked");
+        let (status, gone) = notebook_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/notes",
+            json!({"revision": updated["revision"], "id": "n1"}),
+        );
+        assert_eq!(status, 200, "{gone}");
+        let (status, _) = notebook_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/passages",
+            json!({"revision": gone["revision"], "id": "p1"}),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(notebook(&f, &session)["passages"], json!([]));
+    }
+
+    #[test]
+    fn research_notebook_failures_are_scoped_and_leave_the_file_unchanged() {
+        let f = fixture_with_sources("notebook-api-failures");
+        let session = login_ok(&f);
+        let empty = notebook(&f, &session);
+        let revision = empty["revision"].clone();
+        let long = "ὁ".repeat(20_001);
+        let cases = [
+            (
+                "/admin/api/research/passages",
+                json!({"revision": revision, "passage": {"id": "p1", "source": "absent", "excerpt": {"text": "x"}}}),
+                "unknown-source",
+            ),
+            (
+                "/admin/api/research/passages",
+                json!({"revision": revision, "passage": {"id": "p1", "excerpt": {"text": "x"}}}),
+                "missing-field",
+            ),
+            (
+                "/admin/api/research/passages",
+                json!({"revision": revision, "passage": {"id": "p1", "source": "plato", "excerpt": {"text": "x"}, "locators": [{"kind": "page", "value": "1"}]}}),
+                "ambiguous-locator",
+            ),
+            (
+                "/admin/api/research/passages",
+                json!({"revision": revision, "passage": {"id": "p1", "source": "slings", "excerpt": {"text": long}}}),
+                "too-large",
+            ),
+            (
+                "/admin/api/research/notes",
+                json!({"revision": revision, "note": {"id": "n1", "kind": "question", "text": "x", "visibility": "public"}}),
+                "not-private",
+            ),
+            (
+                "/admin/api/research/notes",
+                json!({"revision": revision, "note": {"id": "n1", "kind": "question", "text": "x", "sources": ["absent"]}}),
+                "unknown-source",
+            ),
+        ];
+        for (path, body, code) in cases {
+            let (status, response) = notebook_call(&f, &session, "POST", path, body);
+            assert_eq!(status, 422, "{code}: {response}");
+            assert_eq!(response["diagnostics"][0]["code"], code, "{response}");
+            assert_eq!(response["file"], crate::notebook_store::NOTEBOOK_FILE);
+            assert!(stored_notebook(&f).is_none(), "{code} wrote a notebook");
+            assert!(
+                !f.dir
+                    .join(".openblog/private/research/notebook.json.lock")
+                    .exists(),
+                "{code} left a lock"
+            );
+        }
+        let (status, unknown) = notebook_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/notes",
+            json!({"revision": revision, "note": {"id": "ghost", "kind": "question", "text": "x"}}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(unknown["diagnostics"][0]["code"], "unknown-entry");
+        let (status, _) = notebook_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/notes",
+            json!({"revision": revision, "id": "ghost"}),
+        );
+        assert_eq!(status, 422);
+
+        // The diagnostic never repeats the quoted text.
+        let secret = "ob-excerpt-secret-5521";
+        let (_, scoped) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/passages",
+            json!({"revision": revision, "passage": {"id": "p1", "source": "absent", "excerpt": {"text": secret}}}),
+        );
+        assert!(!scoped.to_string().contains(secret));
+
+        // Oversize and malformed requests.
+        let (status, _) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": revision, "note": {"id": "n1", "kind": "question", "text": "x".repeat(MAX_NOTEBOOK_REQUEST_BYTES)}}),
+        );
+        assert_eq!(status, 413);
+        let mut plain = authed(req("POST", "/admin/api/research/notes"), &session, true);
+        plain.body = b"{}".to_vec();
+        assert_eq!(handle(&f.state, &plain).status, 415);
+        assert!(stored_notebook(&f).is_none());
+
+        // A damaged notebook is reported with its path and never replaced.
+        let path = f.dir.join(crate::notebook_store::NOTEBOOK_FILE);
+        fs::write(&path, "{\"version\":1,\"notes\":[").unwrap();
+        let damaged = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/notebook"), &session, false),
+        );
+        assert_eq!(damaged.status, 422);
+        assert_eq!(
+            body_json(&damaged)["file"],
+            crate::notebook_store::NOTEBOOK_FILE
+        );
+        let (status, _) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": revision, "note": {"id": "n1", "kind": "question", "text": "x"}}),
+        );
+        assert_ne!(status, 201);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "{\"version\":1,\"notes\":["
+        );
+    }
+
+    #[test]
+    fn a_stale_source_fails_the_save_and_leaves_the_notebook_unchanged() {
+        let f = fixture_with_sources("notebook-api-stale-source");
+        let session = login_ok(&f);
+        let empty = notebook(&f, &session);
+        let (status, saved) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/passages",
+            json!({"revision": empty["revision"], "passage": {"id": "p1", "source": "slings", "excerpt": {"text": "x"}}}),
+        );
+        assert_eq!(status, 201, "{saved}");
+        let before = stored_notebook(&f).unwrap();
+        // The library loses a source by a hand edit after the page loaded.
+        let library = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia"}]}"#,
+        )
+        .unwrap();
+        let (status, stale) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": saved["revision"], "note": {"id": "n1", "kind": "question", "text": "x", "sources": ["plato"]}}),
+        );
+        assert_eq!(status, 422, "{stale}");
+        assert_eq!(stale["diagnostics"][0]["code"], "unknown-source");
+        assert_eq!(stale["diagnostics"][0]["id"], "p1");
+        assert_eq!(stored_notebook(&f).unwrap(), before);
+    }
+
+    #[test]
+    fn research_notebook_never_reaches_public_output_or_exports() {
+        const MARKER: &str = "ob-private-notebook-api-77e3";
+        let f = fixture_with_sources("notebook-api-private");
+        let snapshot = |f: &Fixture| {
+            let mut files = crate::fsutil::walk(&f.dir.join("content"));
+            files.push(f.dir.join("openblog.json"));
+            files
+                .into_iter()
+                .map(|file| (file.clone(), fs::read(file).unwrap()))
+                .collect::<Vec<_>>()
+        };
+        let content_before = snapshot(&f);
+        let session = login_ok(&f);
+        let empty = notebook(&f, &session);
+        let (status, saved) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/passages",
+            json!({"revision": empty["revision"], "passage": {"id": "p1", "source": "slings",
+                "excerpt": {"text": format!("{MARKER} quoted")},
+                "locators": [{"kind": "page", "value": MARKER}]}}),
+        );
+        assert_eq!(status, 201, "{saved}");
+        let (status, saved) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": saved["revision"], "note": {"id": "n1", "kind": "observation",
+                "text": format!("{MARKER} noted"), "passages": ["p1"], "concepts": ["marker-concept"]}}),
+        );
+        assert_eq!(status, 201, "{saved}");
+
+        // The source library and its exports know nothing of the notebook.
+        let library = fs::read_to_string(f.dir.join(crate::source_store::LIBRARY_FILE)).unwrap();
+        assert!(!library.contains(MARKER));
+        for format in ["csl-json", "bibtex"] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/sources/export?format={format}")),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(response.status, 200);
+            assert!(!String::from_utf8_lossy(&response.body).contains(MARKER));
+        }
+        // Source mode and the content tree are untouched.
+        assert!(content_before == snapshot(&f), "notebook changed content");
+
+        f.state.rebuild().unwrap();
+        for file in crate::fsutil::walk(&f.dir.join("dist")) {
+            let bytes = fs::read(&file).unwrap();
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains(MARKER),
+                "{} exposes the private research notebook",
+                file.display()
+            );
+        }
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/notebook"), &session, false),
         );
         assert!(response
             .headers

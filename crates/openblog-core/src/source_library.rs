@@ -251,6 +251,8 @@ pub enum SourceDiagnosticCode {
     AmbiguousLocation,
     InvalidIdentifier,
     ContributorCredit,
+    /// Private research (a passage or note) still points at the record.
+    StillUsed,
 }
 
 impl fmt::Display for SourceDiagnosticCode {
@@ -273,6 +275,7 @@ impl fmt::Display for SourceDiagnosticCode {
             Self::AmbiguousLocation => "ambiguous-location",
             Self::InvalidIdentifier => "invalid-identifier",
             Self::ContributorCredit => "contributor-credit",
+            Self::StillUsed => "still-used",
         })
     }
 }

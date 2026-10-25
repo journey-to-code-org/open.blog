@@ -771,6 +771,40 @@ fn entry_diagnostic(
     }
 }
 
+impl Passage {
+    /// Read one passage from a request body with the same rules as a stored
+    /// notebook. Diagnostics are scoped to the entry and carry no position;
+    /// whether the source resolves is decided when the notebook changes.
+    pub fn from_json(raw: Value) -> Result<Self, Vec<NoteDiagnostic>> {
+        let mut diagnostics = Vec::new();
+        let (_, passage) = parse_passage(0, raw, &mut diagnostics);
+        entry_result(passage, diagnostics)
+    }
+}
+
+impl ResearchNote {
+    /// Read one note from a request body with the same rules as a stored
+    /// notebook. See [`Passage::from_json`].
+    pub fn from_json(raw: Value) -> Result<Self, Vec<NoteDiagnostic>> {
+        let mut diagnostics = Vec::new();
+        let (_, note) = parse_note(0, raw, &mut diagnostics);
+        entry_result(note, diagnostics)
+    }
+}
+
+fn entry_result<T>(
+    entry: Option<T>,
+    mut diagnostics: Vec<NoteDiagnostic>,
+) -> Result<T, Vec<NoteDiagnostic>> {
+    for diagnostic in &mut diagnostics {
+        diagnostic.index = None;
+    }
+    match entry {
+        Some(entry) if diagnostics.is_empty() => Ok(entry),
+        _ => Err(diagnostics),
+    }
+}
+
 impl Notebook {
     /// Parse and validate a serialized notebook against the source library it
     /// points into. Every problem is returned at once, scoped as narrowly as
@@ -1317,6 +1351,22 @@ mod tests {
         assert_eq!(diagnostics[0].index, Some(2));
         assert_eq!(diagnostics[0].id.as_deref(), Some("n2"));
         assert_eq!(notebook.notes.len(), 3);
+    }
+
+    #[test]
+    fn single_entries_read_with_the_stored_rules_and_unscoped_positions() {
+        let passage = Passage::from_json(sample()["passages"][0].clone()).expect("passage");
+        assert_eq!(passage.id, "p-cave");
+        assert_eq!(passage.visibility, Visibility::Private);
+        let note = ResearchNote::from_json(sample()["notes"][0].clone()).expect("note");
+        assert_eq!(note.passages, vec!["p-cave".to_string()]);
+        let mut hostile = sample()["notes"][0].clone();
+        hostile["visibility"] = json!("public");
+        hostile["text"] = json!("a\u{202e}b");
+        let found = ResearchNote::from_json(hostile).expect_err("refused");
+        assert!(found.len() >= 2 && found.iter().all(|d| d.index.is_none()));
+        assert!(Passage::from_json(json!("text")).is_err());
+        assert!(Passage::from_json(json!({"id": "p"})).is_err());
     }
 
     #[test]

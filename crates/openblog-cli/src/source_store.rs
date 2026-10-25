@@ -178,8 +178,41 @@ pub fn remove(
     contributors: &BTreeMap<String, Contributor>,
 ) -> Result<(Snapshot, SourceRecord), StoreError> {
     change(root, expected_revision, contributors, |library| {
+        // Private research that still points at the record would be left
+        // dangling, so it blocks removal. The library lock is held, and every
+        // notebook change takes it too, so the check cannot race a save.
+        let using = crate::notebook_store::entries_using_source(root, library, id)
+            .map_err(|message| vec![still_used(id, message)])?;
+        if !using.is_empty() {
+            return Err(vec![still_used(
+                id,
+                format!(
+                    "{} in the research notebook still use this source ({}); remove or move them first",
+                    using.len(),
+                    using.join(", ")
+                ),
+            )]);
+        }
         library.remove(id, contributors)
     })
+}
+
+fn still_used(id: &str, message: String) -> SourceDiagnostic {
+    SourceDiagnostic {
+        code: SourceDiagnosticCode::StillUsed,
+        index: None,
+        source_id: Some(id.into()),
+        field: None,
+        message,
+    }
+}
+
+/// Take the library's write lock, so a private research change that depends
+/// on the library cannot interleave with a change to the library itself.
+pub(crate) fn lock_library(root: &Path) -> Result<FileLock, StoreError> {
+    let path = library_path(root)?;
+    FileLock::acquire(lock_path(&path), "source library write", LOCK_WAIT)
+        .map_err(StoreError::Storage)
 }
 
 /// Apply one edit while holding the library lock. The edit sees the library
@@ -317,7 +350,7 @@ fn too_large() -> SourceDiagnostic {
     )
 }
 
-fn revision(bytes: &[u8]) -> String {
+pub(crate) fn revision(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
@@ -329,7 +362,7 @@ fn library_path(root: &Path) -> Result<PathBuf, StoreError> {
 /// path must be relative and plain, and no existing component may be a
 /// symlink or junction, so the library can never be read from or written to
 /// another place such as `static/` or a directory outside the project.
-fn contained(root: &Path, relative: &Path) -> Result<PathBuf, StoreError> {
+pub(crate) fn contained(root: &Path, relative: &Path) -> Result<PathBuf, StoreError> {
     if relative.as_os_str().is_empty()
         || relative
             .components()
@@ -364,7 +397,7 @@ fn contained(root: &Path, relative: &Path) -> Result<PathBuf, StoreError> {
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-fn create_private_directory(directory: &Path) -> Result<(), StoreError> {
+pub(crate) fn create_private_directory(directory: &Path) -> Result<(), StoreError> {
     fs::create_dir_all(directory).map_err(|error| {
         StoreError::Storage(format!(
             "cannot create the private research directory: {error}"
@@ -432,7 +465,7 @@ fn commit(
 /// are never read, and the caller holds the lock, so none belongs to a write
 /// still in progress.
 #[cfg_attr(not(test), allow(dead_code))]
-fn remove_interrupted_writes(path: &Path) {
+pub(crate) fn remove_interrupted_writes(path: &Path) {
     let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
         return;
     };

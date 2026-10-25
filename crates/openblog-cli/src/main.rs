@@ -12,6 +12,7 @@ mod fsutil;
 mod git;
 mod hashnode;
 mod http;
+mod notebook_store;
 mod portable_export;
 mod publish;
 mod safe_http;
@@ -394,6 +395,9 @@ fn run(raw: &[String]) -> Result<(), String> {
             if let Some(summary) = check_source_library(&root, &site.config.contributors)? {
                 println!("{summary}");
             }
+            if let Some(summary) = check_research_notebook(&root, &site.config.contributors)? {
+                println!("{summary}");
+            }
             Ok(())
         }
         "themes" => {
@@ -768,6 +772,23 @@ fn check_source_library(
             "OK: private source library {} has {count} source{}; builds never read or publish it.",
             source_store::LIBRARY_FILE,
             if count == 1 { "" } else { "s" }
+        )
+    }))
+}
+
+/// Validate the private research notebook when one is stored. Like the
+/// source library it is never built, so a missing notebook is not mentioned.
+fn check_research_notebook(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Result<Option<String>, String> {
+    let snapshot = notebook_store::load(root, contributors).map_err(|error| error.to_string())?;
+    Ok(snapshot.stored.then(|| {
+        format!(
+            "OK: private research notebook {} has {} passage(s) and {} note(s); builds never read or publish it.",
+            notebook_store::NOTEBOOK_FILE,
+            snapshot.notebook.passages.len(),
+            snapshot.notebook.notes.len()
         )
     }))
 }
