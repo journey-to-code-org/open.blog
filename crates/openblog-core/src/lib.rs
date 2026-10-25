@@ -15,6 +15,7 @@
 pub mod accessibility;
 pub mod assistant_guide;
 pub mod capability;
+pub mod collaboration;
 pub mod config;
 pub mod contributor;
 pub mod date;
@@ -32,6 +33,7 @@ pub mod recipe;
 pub mod render;
 pub mod research;
 pub mod search;
+pub mod shared_source;
 pub mod slug;
 pub mod theme;
 pub mod video;

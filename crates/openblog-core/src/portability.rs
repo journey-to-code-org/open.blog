@@ -185,6 +185,7 @@ pub struct PortableProjection<'a> {
     credits: &'a [ResolvedCredit],
     references: &'a [ResearchReference],
     research: Option<&'a ResearchMetadata>,
+    shared: Option<&'a crate::shared_source::SharedAttribution>,
     capabilities: &'a [CapabilityDescriptor],
     html: &'a str,
     markdown: &'a str,
@@ -649,6 +650,7 @@ impl<'a> PortableProjection<'a> {
             credits: &post.credits,
             references,
             research: post.research.as_ref(),
+            shared: post.shared_attribution.as_ref(),
             capabilities: &post.capabilities,
             html: &post.html,
             markdown: &post.authored_markdown,
@@ -778,6 +780,9 @@ impl<'a> PortableProjection<'a> {
         }
         if let Some(research) = self.research {
             html.push_str(&research.work_meta_html());
+        }
+        if let Some(shared) = self.shared {
+            html.push_str(&shared.html());
         }
         if let Some(video) = self.video {
             html.push_str(&video.production_notes_html());
@@ -1012,6 +1017,38 @@ impl<'a> PortableProjection<'a> {
             }
         }
 
+        if let Some(shared) = self.shared {
+            output.push_str(
+                "## Shared reflection source
+
+",
+            );
+            if let Some(question) = &shared.question {
+                output.push_str(&format!(
+                    "Guiding question: {}
+
+",
+                    shared_markdown_text(question)
+                ));
+            }
+            if let Some(source) = &shared.source {
+                let name = match &source.url {
+                    Some(url) => format!(
+                        "[{}]({})",
+                        shared_markdown_text(&source.title),
+                        markdown_destination(&self.resolve_link(url)?)
+                    ),
+                    None => shared_markdown_text(&source.title),
+                };
+                output.push_str(&format!(
+                    "Source ({}): {name}
+
+",
+                    source.kind.label()
+                ));
+            }
+        }
+
         if let (Some(source_url), Some(_)) = (self.source_url, &self.source_notice) {
             output.push_str(&format!(
                 "Originally published at <{}>.\n\n",
@@ -1172,6 +1209,29 @@ impl<'a> PortableProjection<'a> {
                     "license",
                     self.resolve_link(license)?,
                 ));
+            }
+        }
+        if let Some(shared) = self.shared {
+            if let Some(question) = &shared.question {
+                facts.push(SemanticFact::new(
+                    "shared-source",
+                    "guiding question",
+                    question,
+                ));
+            }
+            if let Some(source) = &shared.source {
+                facts.push(SemanticFact::new(
+                    "shared-source",
+                    "source title",
+                    &source.title,
+                ));
+                if let Some(url) = &source.url {
+                    facts.push(SemanticFact::new(
+                        "shared-source",
+                        "source link",
+                        self.resolve_link(url)?,
+                    ));
+                }
             }
         }
         if let Some(source) = self.source_url {
@@ -1641,13 +1701,19 @@ fn markdown_text(value: &str) -> String {
     for character in normalized.chars() {
         if matches!(
             character,
-            '\\' | '[' | ']' | '*' | '_' | '`' | '#' | '>' | '|'
+            '\\' | '[' | ']' | '*' | '_' | '~' | '`' | '#' | '>' | '|'
         ) {
             escaped.push('\\');
         }
         escaped.push(character);
     }
     escaped
+}
+
+/// Markdown text for untrusted public values: `<` and `&` are escaped too, so a title or question
+/// can never become raw HTML or an entity in an export.
+fn shared_markdown_text(value: &str) -> String {
+    markdown_text(value).replace('<', r"\<").replace('&', r"\&")
 }
 
 fn markdown_destination(value: &str) -> String {

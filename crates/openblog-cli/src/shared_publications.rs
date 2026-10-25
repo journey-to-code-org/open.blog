@@ -1,0 +1,460 @@
+//! Private, file-backed shared publication records.
+//!
+//! Each record lives in its own JSON file under `.openblog/private/`, which `openblog init`
+//! ignores in Git and `openblog publish` refuses to commit. Nothing here reads or writes the
+//! content directory, so creating, failing, or revoking a record leaves canonical content and
+//! generated output unchanged.
+
+use std::collections::BTreeSet;
+use std::fs;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+
+use openblog_core::collaboration::{
+    NewSharedPublication, SharedPublication, SharedPublicationError, MAX_SHARED_PUBLICATION_BYTES,
+};
+
+use crate::auth;
+
+pub const DIRECTORY: &str = ".openblog/private/collaboration/publications";
+const MAX_ID_ATTEMPTS: usize = 8;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CreateError {
+    Invalid(SharedPublicationError),
+    Storage(String),
+}
+
+fn directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(DIRECTORY))
+        .map_err(|_| "shared publication storage resolves outside the project".to_string())
+}
+
+/// A new opaque publication ID. It carries no title, so file names reveal nothing.
+fn random_publication_id() -> Result<String, String> {
+    let bytes: [u8; 6] = auth::random_bytes()?;
+    Ok(format!(
+        "shared-{}",
+        bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    ))
+}
+
+/// Create a record under a fresh opaque ID without ever replacing an existing file.
+pub fn create(root: &Path, new: NewSharedPublication) -> Result<SharedPublication, CreateError> {
+    create_with(root, new, random_publication_id, |from, to| {
+        fs::hard_link(from, to)
+    })
+}
+
+/// The record is written completely to a private temporary file and then linked into place.
+/// Linking fails when the target exists, so two creators can never overwrite each other, and a
+/// crash leaves either no record or a complete one. The temporary file is always removed.
+fn create_with(
+    root: &Path,
+    mut new: NewSharedPublication,
+    mut next_id: impl FnMut() -> Result<String, String>,
+    link: impl Fn(&Path, &Path) -> io::Result<()>,
+) -> Result<SharedPublication, CreateError> {
+    let directory = directory(root).map_err(CreateError::Storage)?;
+    for _ in 0..MAX_ID_ATTEMPTS {
+        new.publication_id = next_id().map_err(CreateError::Storage)?;
+        let record = SharedPublication::create(&new).map_err(CreateError::Invalid)?;
+        let text = record_text(&record).map_err(CreateError::Storage)?;
+        create_private_directory(&directory).map_err(CreateError::Storage)?;
+        let target = directory.join(format!("{}.json", record.publication_id));
+        let temporary =
+            temporary_path(&directory, &record.publication_id).map_err(CreateError::Storage)?;
+        write_private_file(&temporary, text.as_bytes()).map_err(CreateError::Storage)?;
+        let linked = link(&temporary, &target);
+        let _ = fs::remove_file(&temporary);
+        match linked {
+            Ok(()) => return Ok(record),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(CreateError::Storage(format!(
+                    "cannot store the shared publication: {error}"
+                )))
+            }
+        }
+    }
+    Err(CreateError::Storage(
+        "cannot choose an unused shared publication ID".into(),
+    ))
+}
+
+/// Every readable record, in file-name order. A record that is malformed, oversized, a symlink,
+/// or stored under a name other than its own publication ID grants nothing and is skipped.
+pub fn load_all(root: &Path) -> Result<Vec<(PathBuf, SharedPublication)>, String> {
+    let directory = directory(root)?;
+    let entries = match fs::read_dir(&directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("cannot read shared publications: {error}")),
+    };
+    let mut paths = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("cannot read shared publications: {error}"))?;
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if file_type.is_file() && !name.starts_with('.') && name.ends_with(".json") {
+            paths.push(entry.path());
+        }
+    }
+    paths.sort();
+    let mut records = Vec::new();
+    for path in paths {
+        if fs::metadata(&path).map_or(true, |metadata| {
+            metadata.len() > MAX_SHARED_PUBLICATION_BYTES as u64
+        }) {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(record) = SharedPublication::from_json(&text) else {
+            continue;
+        };
+        let stem = path.file_stem().and_then(|stem| stem.to_str());
+        if stem == Some(record.publication_id.as_str()) {
+            records.push((path, record));
+        }
+    }
+    Ok(records)
+}
+
+/// Contributor registry keys that some record binds, so the registry cannot rename or remove a
+/// key that a binding would follow if it were reused.
+pub fn bound_contributor_ids(root: &Path) -> Result<BTreeSet<String>, String> {
+    Ok(load_all(root)?
+        .into_iter()
+        .flat_map(|(_, record)| record.authorization.bindings)
+        .map(|binding| binding.contributor_id)
+        .collect())
+}
+
+/// Remove every binding for an Admin username, so an account created later under the same
+/// name inherits nothing. Returns how many records changed.
+pub fn revoke_admin_user(root: &Path, admin_user: &str) -> Result<usize, String> {
+    let mut changed = 0;
+    for (path, record) in load_all(root)? {
+        let Some(revoked) = record.without_admin_user(admin_user) else {
+            continue;
+        };
+        let text = record_text(&revoked)?;
+        let directory = path.parent().ok_or("invalid shared publication path")?;
+        let temporary = temporary_path(directory, &revoked.publication_id)?;
+        write_private_file(&temporary, text.as_bytes())?;
+        fs::rename(&temporary, &path).map_err(|error| {
+            let _ = fs::remove_file(&temporary);
+            format!("cannot update a shared publication: {error}")
+        })?;
+        changed += 1;
+    }
+    Ok(changed)
+}
+
+fn record_text(record: &SharedPublication) -> Result<String, String> {
+    serde_json::to_string_pretty(record)
+        .map(|text| format!("{text}\n"))
+        .map_err(|error| format!("cannot serialize the shared publication: {error}"))
+}
+
+fn temporary_path(directory: &Path, publication_id: &str) -> Result<PathBuf, String> {
+    let token = auth::random_token()?;
+    Ok(directory.join(format!(".{publication_id}.{}.tmp", &token[..16])))
+}
+
+fn create_private_directory(directory: &Path) -> Result<(), String> {
+    fs::create_dir_all(directory)
+        .map_err(|error| format!("cannot create shared publication storage: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
+            .map_err(|error| format!("cannot protect shared publication storage: {error}"))?;
+    }
+    Ok(())
+}
+
+fn write_private_file(path: &Path, contents: &[u8]) -> Result<(), String> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let result = options.open(path).and_then(|mut file| {
+        file.write_all(contents)?;
+        file.sync_all()
+    });
+    result.map_err(|error| {
+        let _ = fs::remove_file(path);
+        format!("cannot write the shared publication: {error}")
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use openblog_core::collaboration::{NewParticipant, NewSourceReference, SourceKind};
+    use std::sync::{Arc, Barrier};
+
+    struct Root(PathBuf);
+
+    impl Drop for Root {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn root(tag: &str) -> Root {
+        let path = std::env::temp_dir().join(format!(
+            "ob-shared-publications-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        Root(path)
+    }
+
+    fn request(admin_user: &str) -> NewSharedPublication {
+        NewSharedPublication {
+            title: "Listening together".into(),
+            sources: vec![NewSourceReference {
+                kind: SourceKind::Podcast,
+                title: "Episode 4".into(),
+                url: "https://example.org/4".into(),
+                ..NewSourceReference::default()
+            }],
+            creator: NewParticipant {
+                admin_user: admin_user.into(),
+                contributor_id: "ada".into(),
+                display_name: "Ada".into(),
+            },
+            ..NewSharedPublication::default()
+        }
+    }
+
+    fn stored_files(root: &Path) -> Vec<String> {
+        let mut names = fs::read_dir(root.join(DIRECTORY))
+            .map(|entries| {
+                entries
+                    .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    fn fixed_ids(ids: &[&str]) -> impl FnMut() -> Result<String, String> {
+        let mut ids = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
+        ids.reverse();
+        move || ids.pop().ok_or_else(|| "no more IDs".to_string())
+    }
+
+    #[test]
+    fn creation_stores_one_private_record_under_an_opaque_id() {
+        let root = root("create");
+        let record = create(&root.0, request("ada-admin")).unwrap();
+        assert!(record.publication_id.starts_with("shared-"));
+        assert_eq!(record.publication_id.len(), "shared-".len() + 12);
+        assert_eq!(
+            stored_files(&root.0),
+            [format!("{}.json", record.publication_id)]
+        );
+        let loaded = load_all(&root.0).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].1, record);
+        let text = fs::read_to_string(&loaded[0].0).unwrap();
+        assert!(!text.contains("Listening together\n") && text.ends_with("}\n"));
+        assert!(!root.0.join("content").exists());
+    }
+
+    #[test]
+    fn a_taken_id_is_never_overwritten_and_the_next_one_is_used() {
+        let root = root("collision");
+        let first = create_with(
+            &root.0,
+            request("ada-admin"),
+            fixed_ids(&["shared-taken"]),
+            |from, to| fs::hard_link(from, to),
+        )
+        .unwrap();
+        let before = fs::read(root.0.join(DIRECTORY).join("shared-taken.json")).unwrap();
+        let mut second_request = request("grace-admin");
+        second_request.title = "Another".into();
+        let second = create_with(
+            &root.0,
+            second_request,
+            fixed_ids(&["shared-taken", "shared-fresh"]),
+            |from, to| fs::hard_link(from, to),
+        )
+        .unwrap();
+        assert_eq!(first.publication_id, "shared-taken");
+        assert_eq!(second.publication_id, "shared-fresh");
+        assert_eq!(
+            fs::read(root.0.join(DIRECTORY).join("shared-taken.json")).unwrap(),
+            before
+        );
+        assert_eq!(
+            stored_files(&root.0),
+            ["shared-fresh.json", "shared-taken.json"]
+        );
+
+        let exhausted = create_with(
+            &root.0,
+            request("linus-admin"),
+            || Ok("shared-taken".to_string()),
+            |from, to| fs::hard_link(from, to),
+        );
+        assert!(matches!(exhausted, Err(CreateError::Storage(_))));
+        assert_eq!(stored_files(&root.0).len(), 2);
+    }
+
+    #[test]
+    fn a_failed_write_rolls_back_without_leaving_files() {
+        let root = root("rollback");
+        let failed = create_with(
+            &root.0,
+            request("ada-admin"),
+            fixed_ids(&["shared-broken"]),
+            |_, _| Err(io::Error::new(io::ErrorKind::PermissionDenied, "disk full")),
+        );
+        assert!(matches!(failed, Err(CreateError::Storage(_))));
+        assert!(stored_files(&root.0).is_empty());
+        assert!(load_all(&root.0).unwrap().is_empty());
+
+        let mut invalid = request("ada-admin");
+        invalid.sources[0].url = "javascript:alert(1)".into();
+        assert!(matches!(
+            create(&root.0, invalid),
+            Err(CreateError::Invalid(_))
+        ));
+        assert!(stored_files(&root.0).is_empty());
+    }
+
+    #[test]
+    fn concurrent_creators_each_get_their_own_record() {
+        let root = root("concurrent");
+        let barrier = Arc::new(Barrier::new(4));
+        let threads = (0..4)
+            .map(|index| {
+                let path = root.0.clone();
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let mut ids = vec!["shared-race".to_string(), format!("shared-race-{index}")];
+                    ids.reverse();
+                    barrier.wait();
+                    create_with(
+                        &path,
+                        request(&format!("writer-{index}")),
+                        move || ids.pop().ok_or_else(|| "no more IDs".to_string()),
+                        |from, to| fs::hard_link(from, to),
+                    )
+                    .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut ids = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap().publication_id)
+            .collect::<Vec<_>>();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), 4);
+        let loaded = load_all(&root.0).unwrap();
+        assert_eq!(loaded.len(), 4);
+        let winner = loaded
+            .iter()
+            .find(|(_, record)| record.publication_id == "shared-race")
+            .expect("one creator won the shared ID");
+        assert_eq!(winner.1.authorization.bindings.len(), 1);
+    }
+
+    #[test]
+    fn unreadable_misnamed_and_partial_records_are_skipped() {
+        let root = root("skip");
+        let record = create(&root.0, request("ada-admin")).unwrap();
+        let directory = root.0.join(DIRECTORY);
+        fs::write(directory.join("broken.json"), "{ not json").unwrap();
+        fs::write(directory.join(".shared-x.0123.tmp"), "{").unwrap();
+        fs::copy(
+            directory.join(format!("{}.json", record.publication_id)),
+            directory.join("shared-copy.json"),
+        )
+        .unwrap();
+        let loaded = load_all(&root.0).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].1.publication_id, record.publication_id);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn storage_behind_a_symlink_outside_the_project_is_refused() {
+        let root = root("symlink");
+        let outside = root.0.with_extension("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(root.0.join(".openblog")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.0.join(".openblog/private")).unwrap();
+        assert!(matches!(
+            create(&root.0, request("ada-admin")),
+            Err(CreateError::Storage(_))
+        ));
+        assert!(fs::read_dir(&outside).unwrap().next().is_none());
+        let _ = fs::remove_dir_all(outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_record_stored_as_a_symlink_grants_nothing() {
+        let root = root("symlink-record");
+        let elsewhere = root.0.with_extension("elsewhere");
+        let _ = fs::remove_dir_all(&elsewhere);
+        fs::create_dir_all(&elsewhere).unwrap();
+        let other = create(&elsewhere, request("ada-admin")).unwrap();
+        fs::create_dir_all(root.0.join(DIRECTORY)).unwrap();
+        let name = format!("{}.json", other.publication_id);
+        std::os::unix::fs::symlink(
+            elsewhere.join(DIRECTORY).join(&name),
+            root.0.join(DIRECTORY).join(&name),
+        )
+        .unwrap();
+        assert!(load_all(&root.0).unwrap().is_empty());
+        assert!(bound_contributor_ids(&root.0).unwrap().is_empty());
+        let _ = fs::remove_dir_all(elsewhere);
+    }
+
+    #[test]
+    fn revoking_an_admin_user_removes_only_their_bindings() {
+        let root = root("revoke");
+        let ada = create(&root.0, request("ada-admin")).unwrap();
+        let grace = create(&root.0, request("grace-admin")).unwrap();
+        assert_eq!(
+            bound_contributor_ids(&root.0).unwrap(),
+            BTreeSet::from(["ada".to_string()])
+        );
+
+        assert_eq!(revoke_admin_user(&root.0, "ada-admin").unwrap(), 1);
+        assert_eq!(revoke_admin_user(&root.0, "ada-admin").unwrap(), 0);
+        let loaded = load_all(&root.0).unwrap();
+        let find = |id: &str| {
+            loaded
+                .iter()
+                .find(|(_, record)| record.publication_id == id)
+                .map(|(_, record)| record.clone())
+                .unwrap()
+        };
+        let revoked = find(&ada.publication_id);
+        assert!(revoked.authorization.bindings.is_empty());
+        assert_eq!(revoked.authorization.revision, 2);
+        assert_eq!(find(&grace.publication_id), grace);
+        assert_eq!(stored_files(&root.0).len(), 2);
+    }
+}

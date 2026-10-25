@@ -353,7 +353,7 @@ pub fn portability_sidecar_path(post_path: &str) -> Option<String> {
     Some(format!("{stem}.portability.json"))
 }
 
-fn valid_registry_key(value: &str) -> bool {
+pub(crate) fn valid_registry_key(value: &str) -> bool {
     !value.is_empty()
         && !value.starts_with('-')
         && !value.ends_with('-')
@@ -363,7 +363,7 @@ fn valid_registry_key(value: &str) -> bool {
         && !value.contains("--")
 }
 
-fn safe_profile_url(value: &str) -> bool {
+pub(crate) fn safe_profile_url(value: &str) -> bool {
     if value
         .chars()
         .any(|character| character.is_control() || character.is_whitespace())

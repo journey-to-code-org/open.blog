@@ -5,6 +5,50 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-25
+
+- Fixed a guiding question or source title containing a tilde pair, such as `~this~`, stopping the site build and Admin preview; the text now exports literally.
+- Posts can now publish the source of a shared reflection. `guidingQuestion`, `sharedSourceTitle`,
+  `sharedSourceUrl`, and `sharedSourceType` in front matter show the guiding question and the
+  original source's title, link, and type beside the work, in Admin preview, the built page, RSS,
+  JSON Feed, `llms-full.txt`, and portable HTML, Markdown, and text. The source is always a plain
+  link, so an unsupported provider degrades to the link. Only these four values are published;
+  invitations, drafts, participants, and other collaboration state never reach output. An unsafe
+  link, a bad type, or oversized text stops the build with a clear message instead of publishing.
+- Added an optional **Suggest details from link** button to each source in a shared reflection.
+  For YouTube and CodePen links, the same providers the embed renderer supports, Admin Studio asks
+  the provider's oEmbed service for a title and creator and fills only fields you left empty,
+  telling you what it filled. It never fetches transcripts or pages, refuses redirects and
+  non-public addresses, and gives up after six seconds. A timeout, refusal, missing details, or an
+  unsupported link changes nothing and never blocks saving. Nothing is stored until you create the
+  reflection. Suggested fields carry a "Suggested by" note until you edit them, and an answer that
+  arrives after you changed the link or removed the source is discarded.
+- Added a versioned, group-safe collaboration contract in `openblog-core` with ordered
+  participant, contribution, reveal, layout, and approval collections, explicit size limits, a
+  derived two-person projection, revision-checked replacement, and one non-identifying error for
+  unsafe identifiers, spoofed names, profile URLs, Markdown, or unknown fields.
+- Defined shared-publication language for sources, participants, collaboration roles,
+  contribution drafts, reveals, approvals, and published assemblies, kept apart from posts,
+  contributors, work credits, and Admin users, with fixtures for legacy posts and groups of any size.
+- Added a publication-scoped collaboration authorization policy that binds an Admin user and a
+  contributor registry key to one participant. Site owner, coordinator, contributor, editor, and
+  reader roles are explicit. Access is denied by default, checked against the draft's owner and
+  reveal list from the contract, and creates no authorship, credit, or approval. Changing a
+  binding or its roles is itself authorized: only a site owner can grant or revoke the site owner
+  role, and the last site owner cannot be removed. Admin usernames and binding names now share
+  one validation rule.
+- Added **Content → Shared reflections** to Admin Studio: start a private shared reflection from
+  a video, article, podcast, book, or other source, with or without a link, plus a working title
+  or guiding question, using labelled fields and examples instead of Markdown. Each one is stored
+  atomically as a versioned private record outside `content/` with ordered source references,
+  normalized HTTP(S) links, and the creator bound as site owner. Unsafe links, unknown fields, and
+  identity claims in the request are refused without echoing them, and no post, credit, build, or
+  feed changes.
+- Added a View publication collaboration action, listed shared reflections only to bound
+  participants, and removed an account's bindings when `openblog user remove` or
+  `openblog user add` reuses its name. Contributors bound to a shared reflection can no longer be
+  removed from the registry.
+
 ## [0.17.2] - 2026-10-24
 
 - Web sandbox HTML, CSS, and JavaScript editors and configured-runner lessons now use the same

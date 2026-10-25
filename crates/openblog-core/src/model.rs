@@ -15,6 +15,7 @@ use crate::markdown::{self, CodeRunnerRenderOptions, Heading, RenderOptions};
 use crate::profile::{self, ProfileBehavior};
 use crate::recipe::Recipe;
 use crate::research::{self, EvidenceFinding, ResearchMetadata};
+use crate::shared_source::SharedAttribution;
 use crate::slug::{from_file_stem, slugify};
 use crate::video::VideoMetadata;
 
@@ -204,6 +205,9 @@ pub struct Post {
     pub video: Option<VideoMetadata>,
     /// Set for outdoor logs using the field-journal profile.
     pub field_journal: Option<FieldJournalMetadata>,
+    /// Approved public source attribution of a shared reflection (title, link, type, guiding
+    /// question); never any private collaboration state.
+    pub shared_attribution: Option<SharedAttribution>,
     /// Per-post code-block overrides from front matter (`highlight`, `lineNumbers`).
     pub code_highlight: Option<bool>,
     pub code_line_numbers: Option<bool>,
@@ -767,6 +771,7 @@ pub fn load_post(
     };
     let research = (profile.behavior == ProfileBehavior::Research)
         .then(|| ResearchMetadata::from_source(fm, &doc.body, doc.body_line));
+    let shared_attribution = SharedAttribution::from_front_matter(fm)?;
     let video =
         (profile.behavior == ProfileBehavior::Video).then(|| VideoMetadata::from_front_matter(fm));
     let field_journal = (profile.behavior == ProfileBehavior::FieldJournal)
@@ -920,6 +925,7 @@ pub fn load_post(
         research,
         video,
         field_journal,
+        shared_attribution,
         code_highlight: fm
             .get_bool("highlight")
             .or_else(|| fm.get_bool("codeHighlighting")),

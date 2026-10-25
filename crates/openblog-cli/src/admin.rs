@@ -19,6 +19,11 @@ use std::time::Duration;
 
 use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
+use openblog_core::collaboration::{
+    AuthorizationAction, AuthorizationContext, AuthorizationRole, AuthorizationTarget,
+    NewParticipant, NewSharedPublication, NewSourceReference, SharedPublication,
+    SharedPublicationError, SourceField, SourceKind,
+};
 use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::markdown::RenderOptions;
@@ -595,6 +600,9 @@ fn authenticated_api(
         ("POST", "assistant/context/url/save") => save_url_context(state, req),
         ("GET", "contributors") => get_contributors(state),
         ("PUT", "contributors") => save_contributors(state, req),
+        ("GET", "collaboration/publications") => list_shared_publications(state, session),
+        ("POST", "collaboration/publications") => create_shared_publication(state, req, session),
+        ("POST", "collaboration/publications/source-metadata") => shared_source_metadata(req),
         ("GET", "status") => status(state),
         ("GET", "analytics") => {
             if !state.analytics_enabled {
@@ -4403,6 +4411,24 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             }),
         );
     }
+    // A binding follows its registry key by name, so a bound key must never be freed for reuse.
+    let bound = match crate::shared_publications::bound_contributor_ids(&state.root) {
+        Ok(bound) => bound,
+        Err(error) => return Response::error(500, &error),
+    };
+    let bound_removed = removed
+        .iter()
+        .filter(|id| bound.contains(*id))
+        .collect::<Vec<_>>();
+    if !bound_removed.is_empty() {
+        return Response::json(
+            422,
+            &json!({
+                "error": "Contributors who take part in a shared reflection cannot be removed.",
+                "contributors": bound_removed,
+            }),
+        );
+    }
 
     candidate_json["contributors"] = json!(candidate_config.contributors);
     let written = match serde_json::to_string_pretty(&candidate_json) {
@@ -4430,6 +4456,266 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             "build": build_json,
         }),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Shared publications
+// ---------------------------------------------------------------------------
+
+/// The create request. Unknown fields are refused, so a body cannot name an Admin user,
+/// participant, role, or binding: identity comes from the session and the registry.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct SharedPublicationRequest {
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    guiding_question: String,
+    #[serde(default)]
+    contributor_id: String,
+    sources: Vec<SharedSourceRequest>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct SharedSourceRequest {
+    kind: SourceKind,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    creator: String,
+    #[serde(default)]
+    publisher: String,
+    #[serde(default)]
+    published: String,
+    #[serde(default)]
+    isbn: String,
+}
+
+fn shared_problem(field: &str, message: &str) -> Response {
+    Response::json(422, &json!({ "error": message, "field": field }))
+}
+
+/// A field-specific message for the requester's own submission. It never repeats a value.
+fn shared_publication_problem(error: SharedPublicationError) -> Response {
+    let source_message = |index: usize, field: SourceField| {
+        let number = index + 1;
+        let (key, message) = match field {
+            SourceField::Title => ("title", format!("Source {number}: add a title with visible text, up to 300 bytes, on one line.")),
+            SourceField::Url => ("url", format!("Source {number}: paste a full web address that starts with https:// or http://, without a username or password.")),
+            SourceField::Creator => ("creator", format!("Source {number}: shorten who made it to 200 bytes on one line.")),
+            SourceField::Publisher => ("publisher", format!("Source {number}: shorten the publisher to 200 bytes on one line.")),
+            SourceField::Published => ("published", format!("Source {number}: write the date briefly, such as 2019 or March 2021.")),
+            SourceField::Isbn => ("isbn", format!("Source {number}: an ISBN has 10 or 13 digits and is only used for books.")),
+        };
+        shared_problem(&format!("sources.{index}.{key}"), &message)
+    };
+    match error {
+        SharedPublicationError::TitleOrQuestionRequired => {
+            shared_problem("title", "Add a working title or a guiding question.")
+        }
+        SharedPublicationError::Title => shared_problem(
+            "title",
+            "Use a title with visible text, up to 300 bytes, on one line.",
+        ),
+        SharedPublicationError::GuidingQuestion => shared_problem(
+            "guidingQuestion",
+            "Use a guiding question with visible text, up to 1,000 bytes, on one line.",
+        ),
+        SharedPublicationError::NoSources => {
+            shared_problem("sources", "Add the source you are reflecting on.")
+        }
+        SharedPublicationError::TooManySources => {
+            shared_problem("sources", "A shared reflection can list at most 20 sources.")
+        }
+        SharedPublicationError::Source { index, field } => source_message(index, field),
+        SharedPublicationError::Creator => shared_problem(
+            "contributorId",
+            "This contributor profile cannot join a shared reflection. Check its public name in Contributors.",
+        ),
+        SharedPublicationError::InvalidRecord => {
+            Response::error(500, "The shared reflection could not be prepared.")
+        }
+    }
+}
+
+/// What a bound participant may read about a publication: never bindings, other participants,
+/// Admin usernames, or contribution drafts.
+fn shared_publication_summary(record: &SharedPublication, roles: &[AuthorizationRole]) -> Json {
+    json!({
+        "publicationId": record.publication_id,
+        "title": record.title,
+        "guidingQuestion": record.guiding_question,
+        "sources": record.sources,
+        "roles": roles,
+    })
+}
+
+/// Server-side identity facts for authorization: current account names and registry keys.
+fn collaboration_identities(
+    root: &Path,
+    config: &SiteConfig,
+) -> Result<(Vec<String>, Vec<String>), Response> {
+    let users = Users::load(&root.join(&config.admin.users_file))
+        .map_err(|error| Response::error(500, &error))?;
+    Ok((
+        users.users.iter().map(|user| user.name.clone()).collect(),
+        config.contributors.keys().cloned().collect(),
+    ))
+}
+
+fn list_shared_publications(state: &AppState, session: &auth::Session) -> Response {
+    let _content_transaction = lock(&state.build);
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let (admin_users, contributor_ids) = match collaboration_identities(&state.root, &config) {
+        Ok(identities) => identities,
+        Err(response) => return response,
+    };
+    let admin_users = admin_users.iter().map(String::as_str).collect::<Vec<_>>();
+    let contributor_ids = contributor_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let records = match crate::shared_publications::load_all(&state.root) {
+        Ok(records) => records,
+        Err(error) => return Response::error(500, &error),
+    };
+    let publications = records
+        .iter()
+        .filter_map(|(_, record)| {
+            let context = AuthorizationContext {
+                publication_id: &record.publication_id,
+                authenticated_admin_user: &session.user,
+                active_admin_users: &admin_users,
+                contributor_ids: &contributor_ids,
+                collaboration: &record.collaboration,
+                target: AuthorizationTarget::Publication,
+            };
+            record
+                .authorization
+                .authorize(&context, AuthorizationAction::ViewPublication)
+                .ok()
+                .map(|binding| shared_publication_summary(record, &binding.roles))
+        })
+        .collect::<Vec<_>>();
+    Response::json(200, &json!({ "publications": publications }))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceMetadataRequest {
+    url: String,
+}
+
+/// Optional help for one source link: the embed the renderer would use (found offline) and, for
+/// a supported provider, bounded suggestions labelled with their provider. Nothing is stored and
+/// no outcome is an error, so authoring never depends on a provider answering.
+fn shared_source_metadata(req: &Request) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<SourceMetadataRequest>(&req.body) else {
+        return Response::error(400, "Send the link to look up.");
+    };
+    if body.url.len() > 2048 {
+        return Response::json(200, &json!({ "status": "unsupported" }));
+    }
+    use crate::source_metadata::Lookup;
+    let embed_json = |found: &openblog_core::embed::Embed| json!({ "provider": found.provider, "link": found.link, "linkLabel": found.link_label });
+    let payload = match crate::source_metadata::lookup(&body.url) {
+        Lookup::Unsupported => json!({ "status": "unsupported" }),
+        Lookup::Unavailable(message, found) => {
+            json!({ "status": "unavailable", "message": message, "embed": embed_json(&found) })
+        }
+        Lookup::Found(suggestion, found) => {
+            json!({ "status": "found", "suggestion": suggestion, "embed": embed_json(&found) })
+        }
+    };
+    Response::json(200, &payload)
+}
+
+fn create_shared_publication(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<SharedPublicationRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This shared reflection request is not valid. Reload Admin Studio and try again.",
+        );
+    };
+    if !openblog_core::collaboration::valid_admin_username(&session.user) {
+        return shared_problem(
+            "",
+            "Your sign-in name cannot join a shared reflection. Ask the site owner for an account named with lowercase letters, digits, dots, hyphens, or underscores.",
+        );
+    }
+    let _status = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let Some(contributor) = config.contributors.get(&body.contributor_id) else {
+        return shared_problem(
+            "contributorId",
+            "Choose the contributor profile you will appear as.",
+        );
+    };
+    let new = NewSharedPublication {
+        publication_id: String::new(),
+        title: body.title,
+        guiding_question: body.guiding_question,
+        sources: body
+            .sources
+            .into_iter()
+            .map(|source| NewSourceReference {
+                kind: source.kind,
+                title: source.title,
+                url: source.url,
+                creator: source.creator,
+                publisher: source.publisher,
+                published: source.published,
+                isbn: source.isbn,
+            })
+            .collect(),
+        creator: NewParticipant {
+            admin_user: session.user.clone(),
+            contributor_id: body.contributor_id.clone(),
+            display_name: contributor.name.clone(),
+        },
+    };
+    match crate::shared_publications::create(&state.root, new) {
+        Ok(record) => {
+            eprintln!(
+                "admin: created shared publication {}",
+                record.publication_id
+            );
+            let roles = record.authorization.bindings[0].roles.clone();
+            Response::json(
+                201,
+                &json!({ "publication": shared_publication_summary(&record, &roles) }),
+            )
+        }
+        Err(crate::shared_publications::CreateError::Invalid(error)) => {
+            shared_publication_problem(error)
+        }
+        Err(crate::shared_publications::CreateError::Storage(error)) => {
+            eprintln!("admin: shared publication not stored: {error}");
+            Response::error(
+                500,
+                "The shared reflection could not be saved. Nothing was created; try again.",
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -11320,5 +11606,489 @@ mod tests {
                 .iter()
                 .any(|(name, value)| name == "Content-Type" && value.starts_with("text/css")));
         }
+    }
+
+    // ---- shared publications
+
+    fn register_contributors(f: &Fixture, contributors: Json) {
+        let path = f.dir.join("openblog.json");
+        let mut config: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        config["contributors"] = contributors;
+        fs::write(path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+    }
+
+    fn login_as(f: &Fixture, username: &str, password: &str) -> (String, String) {
+        let resp = handle(
+            &f.state,
+            &json_req(
+                "POST",
+                "/admin/api/login",
+                json!({ "username": username, "password": password }),
+            ),
+        );
+        assert_eq!(resp.status, 200, "{}", String::from_utf8_lossy(&resp.body));
+        let cookie = resp
+            .headers
+            .iter()
+            .find(|(k, _)| k == "Set-Cookie")
+            .unwrap()
+            .1
+            .clone();
+        (
+            cookie.split(';').next().unwrap().to_string(),
+            body_json(&resp)["csrf"].as_str().unwrap().to_string(),
+        )
+    }
+
+    fn add_admin_user(f: &Fixture, username: &str, password: &str) {
+        let path = f.dir.join(".openblog/users.json");
+        let mut users = Users::load(&path).unwrap();
+        users.set(username, password).unwrap();
+        users.save(&path).unwrap();
+    }
+
+    /// Every file under `dir` with its bytes, so a test can prove nothing changed.
+    fn tree_snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        fn visit(dir: &Path, base: &Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            let Ok(entries) = fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    visit(&path, base, out);
+                } else {
+                    out.insert(
+                        path.strip_prefix(base).unwrap().to_path_buf(),
+                        fs::read(&path).unwrap(),
+                    );
+                }
+            }
+        }
+        let mut out = BTreeMap::new();
+        visit(dir, dir, &mut out);
+        out
+    }
+
+    fn tree_contains(dir: &Path, needle: &str) -> Vec<PathBuf> {
+        tree_snapshot(dir)
+            .into_iter()
+            .filter(|(_, bytes)| String::from_utf8_lossy(bytes).contains(needle))
+            .map(|(path, _)| path)
+            .collect()
+    }
+
+    fn create_shared(f: &Fixture, session: &(String, String), body: Json) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/collaboration/publications", body),
+                session,
+                true,
+            ),
+        )
+    }
+
+    #[test]
+    fn source_metadata_lookup_needs_a_session_and_never_fetches_unsupported_links() {
+        let f = fixture("shared-metadata");
+        let session = login_ok(&f);
+        let path = "/admin/api/collaboration/publications/source-metadata";
+        let anonymous = handle(
+            &f.state,
+            &json_req("POST", path, json!({ "url": "https://example.com" })),
+        );
+        assert_eq!(anonymous.status, 401);
+        let no_csrf = handle(
+            &f.state,
+            &authed(
+                json_req("POST", path, json!({ "url": "https://example.com" })),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(no_csrf.status, 403);
+        for url in [
+            "https://example.com/a",
+            "http://127.0.0.1/admin",
+            "javascript:alert(1)",
+            "",
+        ] {
+            let resp = handle(
+                &f.state,
+                &authed(
+                    json_req("POST", path, json!({ "url": url })),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(resp.status, 200, "{url}");
+            assert_eq!(
+                body_json(&resp),
+                json!({ "status": "unsupported" }),
+                "{url}"
+            );
+        }
+        let too_long = handle(
+            &f.state,
+            &authed(
+                json_req("POST", path, json!({ "url": "h".repeat(5000) })),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(body_json(&too_long), json!({ "status": "unsupported" }));
+        for bad in [json!({}), json!({ "url": "x", "extra": 1 })] {
+            let resp = handle(
+                &f.state,
+                &authed(json_req("POST", path, bad), &session, true),
+            );
+            assert_eq!(resp.status, 400);
+        }
+        assert!(shared_records(&f).is_empty());
+    }
+
+    fn list_shared(f: &Fixture, session: &(String, String)) -> Json {
+        let resp = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/collaboration/publications"),
+                session,
+                false,
+            ),
+        );
+        assert_eq!(resp.status, 200, "{}", String::from_utf8_lossy(&resp.body));
+        body_json(&resp)
+    }
+
+    fn shared_records(f: &Fixture) -> Vec<String> {
+        let mut names = fs::read_dir(f.dir.join(crate::shared_publications::DIRECTORY))
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
+    fn reflection_request() -> Json {
+        json!({
+            "title": "Marker title 7f3c: on attention",
+            "guidingQuestion": "Marker question 7f3c: what changed?",
+            "contributorId": "mikey-writer",
+            "sources": [
+                {
+                    "kind": "video",
+                    "title": "Marker video 7f3c",
+                    "url": "https://www.youtube.com/watch?v=marker7f3c",
+                    "creator": "A channel"
+                },
+                {
+                    "kind": "book",
+                    "title": "Über das Zuhören — 聴く",
+                    "creator": "Ada Lovelace",
+                    "publisher": "Marker press 7f3c",
+                    "published": "1843",
+                    "isbn": "978-0-14-143954-9"
+                },
+                { "kind": "other", "title": "A conversation without a link" }
+            ]
+        })
+    }
+
+    #[test]
+    fn shared_reflection_creation_is_private_and_leaves_canonical_content_unchanged() {
+        let f = fixture("shared-create");
+        register_contributors(
+            &f,
+            json!({ "mikey-writer": { "name": "Mikey 🌊" }, "grace": { "name": "Grace" } }),
+        );
+        let session = login_ok(&f);
+        let content_before = tree_snapshot(&f.dir.join("content"));
+
+        let no_csrf = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/collaboration/publications",
+                    reflection_request(),
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(no_csrf.status, 403);
+        assert!(shared_records(&f).is_empty());
+
+        let resp = create_shared(&f, &session, reflection_request());
+        assert_eq!(resp.status, 201, "{}", String::from_utf8_lossy(&resp.body));
+        let created = body_json(&resp)["publication"].clone();
+        let id = created["publicationId"].as_str().unwrap().to_string();
+        assert!(id.starts_with("shared-"));
+        assert_eq!(created["title"], "Marker title 7f3c: on attention");
+        assert_eq!(
+            created["guidingQuestion"],
+            "Marker question 7f3c: what changed?"
+        );
+        assert_eq!(created["roles"], json!(["siteOwner", "contributor"]));
+        let sources = created["sources"].as_array().unwrap();
+        assert_eq!(
+            sources
+                .iter()
+                .map(|source| source["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["source-1", "source-2", "source-3"]
+        );
+        assert_eq!(sources[1]["title"], "Über das Zuhören — 聴く");
+        assert_eq!(sources[1]["isbn"], "978-0-14-143954-9");
+        assert!(sources[2].get("url").is_none());
+        // Bindings, participants, and Admin usernames stay on the server.
+        let text = created.to_string();
+        for private in [
+            "mikey",
+            "adminUser",
+            "bindings",
+            "participant-1",
+            "authorization",
+        ] {
+            assert!(!text.contains(private), "{private} leaked into {text}");
+        }
+
+        assert_eq!(shared_records(&f), [format!("{id}.json")]);
+        let stored = openblog_core::collaboration::SharedPublication::from_json(
+            &fs::read_to_string(
+                f.dir
+                    .join(crate::shared_publications::DIRECTORY)
+                    .join(format!("{id}.json")),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let binding = &stored.authorization.bindings[0];
+        assert_eq!(binding.admin_user, "mikey");
+        assert_eq!(binding.contributor_id, "mikey-writer");
+        assert_eq!(
+            stored.collaboration.participants[0].display_name,
+            "Mikey 🌊"
+        );
+
+        // Nothing canonical changed, and a full build publishes none of it.
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        for marker in [
+            "7f3c",
+            id.as_str(),
+            "Zuhören",
+            "mikey-writer",
+            "participant-1",
+        ] {
+            assert!(
+                tree_contains(&dist, marker).is_empty(),
+                "{marker} reached generated output"
+            );
+        }
+
+        let listed = list_shared(&f, &session);
+        assert_eq!(listed["publications"], json!([created]));
+    }
+
+    #[test]
+    fn shared_reflection_requests_fail_safely_without_writing_or_echoing_input() {
+        let f = fixture("shared-reject");
+        register_contributors(&f, json!({ "mikey-writer": { "name": "Mikey" } }));
+        let session = login_ok(&f);
+        let content_before = tree_snapshot(&f.dir.join("content"));
+
+        let with = |change: &dyn Fn(&mut Json)| {
+            let mut body = reflection_request();
+            change(&mut body);
+            create_shared(&f, &session, body)
+        };
+        let cases: Vec<(&str, Response, &str)> = vec![
+            (
+                "javascript link",
+                with(&|body| body["sources"][0]["url"] = json!("javascript:alert('7f3c')")),
+                "sources.0.url",
+            ),
+            (
+                "credential link",
+                with(&|body| body["sources"][1]["url"] = json!("https://user:7f3c@example.org/")),
+                "sources.1.url",
+            ),
+            (
+                "data link",
+                with(&|body| body["sources"][2]["url"] = json!("data:text/html,7f3c")),
+                "sources.2.url",
+            ),
+            (
+                "no title or question",
+                with(&|body| {
+                    body["title"] = json!(" ");
+                    body["guidingQuestion"] = json!("");
+                }),
+                "title",
+            ),
+            (
+                "no sources",
+                with(&|body| body["sources"] = json!([])),
+                "sources",
+            ),
+            (
+                "blank source title",
+                with(&|body| body["sources"][0]["title"] = json!("\u{200B}")),
+                "sources.0.title",
+            ),
+            (
+                "isbn on a video",
+                with(&|body| body["sources"][0]["isbn"] = json!("0-86547-454-X")),
+                "sources.0.isbn",
+            ),
+            (
+                "unregistered contributor",
+                with(&|body| body["contributorId"] = json!("grace-7f3c")),
+                "contributorId",
+            ),
+            (
+                "spoofed admin user",
+                with(&|body| body["adminUser"] = json!("grace-7f3c")),
+                "",
+            ),
+            (
+                "spoofed participant",
+                with(&|body| body["participants"] = json!([{ "id": "p-7f3c" }])),
+                "",
+            ),
+            (
+                "unknown source kind",
+                with(&|body| body["sources"][0]["kind"] = json!("tweet-7f3c")),
+                "",
+            ),
+        ];
+        for (name, resp, field) in cases {
+            assert_eq!(
+                resp.status,
+                422,
+                "{name}: {}",
+                String::from_utf8_lossy(&resp.body)
+            );
+            let body = String::from_utf8_lossy(&resp.body).into_owned();
+            assert!(!body.contains("7f3c"), "{name} echoed input: {body}");
+            if !field.is_empty() {
+                assert_eq!(body_json(&resp)["field"], field, "{name}");
+            }
+        }
+
+        let mut plain = authed(
+            req("POST", "/admin/api/collaboration/publications"),
+            &session,
+            true,
+        );
+        plain.body = reflection_request().to_string().into_bytes();
+        assert_eq!(handle(&f.state, &plain).status, 415);
+
+        assert!(shared_records(&f).is_empty());
+        assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+    }
+
+    #[test]
+    fn shared_reflections_are_listed_only_to_their_bound_participants() {
+        let f = fixture("shared-list");
+        register_contributors(
+            &f,
+            json!({ "mikey-writer": { "name": "Mikey" }, "grace": { "name": "Grace" } }),
+        );
+        add_admin_user(&f, "grace", "another correct horse");
+        let mikey = login_ok(&f);
+        let grace = login_as(&f, "grace", "another correct horse");
+
+        let resp = create_shared(&f, &mikey, reflection_request());
+        assert_eq!(resp.status, 201);
+        assert_eq!(list_shared(&f, &grace)["publications"], json!([]));
+
+        let mut theirs = reflection_request();
+        theirs["title"] = json!("Grace's reflection");
+        theirs["contributorId"] = json!("grace");
+        assert_eq!(create_shared(&f, &grace, theirs).status, 201);
+        let mine = list_shared(&f, &mikey)["publications"].clone();
+        assert_eq!(mine.as_array().unwrap().len(), 1);
+        assert_eq!(mine[0]["title"], "Marker title 7f3c: on attention");
+        let hers = list_shared(&f, &grace)["publications"].clone();
+        assert_eq!(hers.as_array().unwrap().len(), 1);
+        assert_eq!(hers[0]["title"], "Grace's reflection");
+
+        // A removed registry key stops the binding at once, even before anyone cleans it up.
+        register_contributors(&f, json!({ "grace": { "name": "Grace" } }));
+        assert_eq!(list_shared(&f, &mikey)["publications"], json!([]));
+
+        assert_eq!(
+            handle(
+                &f.state,
+                &req("GET", "/admin/api/collaboration/publications")
+            )
+            .status,
+            401
+        );
+    }
+
+    #[test]
+    fn contributors_bound_to_a_shared_reflection_cannot_be_removed() {
+        let f = fixture("shared-registry");
+        register_contributors(
+            &f,
+            json!({ "mikey-writer": { "name": "Mikey" }, "grace": { "name": "Grace" } }),
+        );
+        let session = login_ok(&f);
+        assert_eq!(
+            create_shared(&f, &session, reflection_request()).status,
+            201
+        );
+        let registry = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/contributors"), &session, false),
+        ));
+        let etag = registry["etag"].as_str().unwrap();
+
+        let refused = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({ "etag": etag, "contributors": { "grace": { "name": "Grace" } } }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(refused.status, 422);
+        assert!(body_json(&refused)["error"]
+            .as_str()
+            .unwrap()
+            .contains("shared"));
+        assert_eq!(body_json(&refused)["contributors"], json!(["mikey-writer"]));
+
+        let unbound_removed = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({ "etag": etag, "contributors": { "mikey-writer": { "name": "Mikey" } } }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            unbound_removed.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&unbound_removed.body)
+        );
     }
 }
