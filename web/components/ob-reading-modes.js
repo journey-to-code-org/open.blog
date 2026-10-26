@@ -34,6 +34,7 @@ import {
   countsByMode,
   describe,
   localStore,
+  pagePath,
   printNote,
   readPreference,
   resolveMode,
@@ -337,14 +338,15 @@ class ObReadingModes extends HTMLElement {
     const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
     if (!link) return;
     // A link to this page written in full (https://site/post/#id) counts as
-    // much as `#id`: same origin, path and query, with a fragment.
+    // much as `#id`: same origin, path (`/post/` and `/post/index.html` are one page) and query, with a
+    // fragment.
     let url;
     try {
       url = new URL(link.href, location.href);
     } catch {
       return;
     }
-    if (url.origin !== location.origin || url.pathname !== location.pathname || url.search !== location.search) return;
+    if (url.origin !== location.origin || pagePath(url.pathname) !== pagePath(location.pathname) || url.search !== location.search) return;
     const id = this.#idOf(url.hash.slice(1));
     const target = this.#reveal(id);
     // The browser follows the link and scrolls; the focus follows it there.

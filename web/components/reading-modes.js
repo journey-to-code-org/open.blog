@@ -53,6 +53,14 @@ export function shouldShow(mode, level, always = false) {
   return isLevel(level) ? shows(mode, level, always) : true;
 }
 
+/**
+ * A page's path without a trailing `index.html`: `/post/` and `/post/index.html` are the same page
+ * (a static host serves one for the other), so a link written either way points here.
+ */
+export function pagePath(pathname) {
+  return typeof pathname === "string" ? pathname.replace(/\/index\.html$/, "/") : "";
+}
+
 /** The mode to open in: the reader's saved choice, else the author's default, else standard. */
 export function resolveMode(preference, authorDefault) {
   if (isMode(preference)) return preference;

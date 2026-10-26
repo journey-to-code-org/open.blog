@@ -13,6 +13,7 @@ import {
   countsByMode,
   describe,
   isMode,
+  pagePath,
   printNote,
   readPreference,
   resolveMode,
@@ -147,4 +148,16 @@ test("paper says what the printed mode left out, and nothing when it left out no
   assert.equal(printNote("standard", 3), "Printed in Standard mode; 3 supplements not shown.");
   assert.equal(printNote("guided", 1), "Printed in Guided mode; 1 supplement not shown.");
   assert.equal(printNote("deep-dive", 0), "");
+});
+
+test("a page's path is the same with or without a trailing index.html", () => {
+  assert.equal(pagePath("/post/index.html"), "/post/");
+  assert.equal(pagePath("/post/"), "/post/");
+  assert.equal(pagePath("/index.html"), "/");
+  assert.equal(pagePath("/blog/post/index.html"), "/blog/post/");
+  // Only a whole last segment: other files and other names are other pages.
+  assert.equal(pagePath("/post/myindex.html"), "/post/myindex.html");
+  assert.equal(pagePath("/post/other.html"), "/post/other.html");
+  assert.equal(pagePath("/post"), "/post");
+  assert.equal(pagePath(undefined), "");
 });
