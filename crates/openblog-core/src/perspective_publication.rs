@@ -117,24 +117,9 @@ impl PublishedPerspective {
         approved: DateTime,
     ) -> Result<Self, String> {
         let copy = &hosted.copy;
-        let work = PublishedWork::of_post(post, config);
-        let document = PassageDocument::of_post(post, config);
-        let target = TargetStatus::from(
-            &document.resolve(&copy.provenance.target, Some(&copy.provenance.revision)),
-        );
-        let facts = ModerationFacts {
-            state: hosted.state,
-            revision: copy.revision,
-            approved_revision: hosted.approved_revision,
-            approved_consent: hosted.approved_consent,
-            clarification_asked: hosted.clarification_asked,
-            content_retained: true,
-        };
-        let response = copy
-            .approved_response(&facts, ParticipationMode::Open, &work, &target)
-            .ok_or_else(|| {
-                "This reflection may not be shown now: it is not approved at its current text under a consent that allows publication, or it is about another work.".to_string()
-            })?;
+        let response = Self::response_of(hosted, post, config).ok_or_else(|| {
+            "This reflection may not be shown now: it is not approved at its current text under a consent that allows publication, or it is about another work.".to_string()
+        })?;
         let item = Self {
             id: hosted.id.to_ascii_lowercase(),
             post: source.to_string(),
@@ -150,6 +135,35 @@ impl PublishedPerspective {
         };
         item.validate()?;
         Ok(item)
+    }
+
+    /// Whether the one projection shows a hosted copy on `post` now: the
+    /// check a publication and Admin's "must it come off" both make. `None`
+    /// post (the work is gone) shows nothing.
+    pub fn shown_now(hosted: &HostedPerspective, post: Option<&Post>, config: &SiteConfig) -> bool {
+        post.is_some_and(|post| Self::response_of(hosted, post, config).is_some())
+    }
+
+    fn response_of(
+        hosted: &HostedPerspective,
+        post: &Post,
+        config: &SiteConfig,
+    ) -> Option<crate::third_perspective::ApprovedResponse> {
+        let copy = &hosted.copy;
+        let work = PublishedWork::of_post(post, config);
+        let document = PassageDocument::of_post(post, config);
+        let target = TargetStatus::from(
+            &document.resolve(&copy.provenance.target, Some(&copy.provenance.revision)),
+        );
+        let facts = ModerationFacts {
+            state: hosted.state,
+            revision: copy.revision,
+            approved_revision: hosted.approved_revision,
+            approved_consent: hosted.approved_consent,
+            clarification_asked: hosted.clarification_asked,
+            content_retained: true,
+        };
+        copy.approved_response(&facts, ParticipationMode::Open, &work, &target)
     }
 
     fn validate(&self) -> Result<(), String> {

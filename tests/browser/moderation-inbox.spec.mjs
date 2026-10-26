@@ -388,3 +388,38 @@ test("a reflection the reader withdrew is taken off its post from its card, by t
   expect(synced).toEqual([{ id: ID(11) }]);
   await expect(page.locator(`[data-moderation-id="${ID(11)}"]`).getByRole("button", { name: "Take it off the post" })).toHaveCount(0);
 });
+
+test("published reflections that must come off are counted on every tab, and taken off from the banner", async ({ page }) => {
+  let audit = {
+    checked: 2,
+    truncated: false,
+    mustComeOff: [{ id: ID(21), post: "posts/tides.md" }],
+    unknown: [{ id: ID(22), post: "posts/tides.md" }],
+  };
+  const synced = [];
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_([], { state: new URL(route.request().url()).searchParams.get("state") })));
+  await page.route(`${origin}/admin/api/engagement/third-perspectives/published`, (route) => json(route, 200, audit));
+  await page.route(`${origin}/admin/api/engagement/third-perspectives/unpublish`, async (route) => {
+    synced.push(route.request().postDataJSON());
+    audit = { ...audit, mustComeOff: [] };
+    return json(route, 200, { published: false, build: { ok: true, posts: 1 } });
+  });
+  await signIn(page);
+  // Pending, with no card for it, and under another filter: the banner is on every tab.
+  for (const hash of ["pending", "approved", "withdrawn?kind=third-perspective"]) {
+    await page.goto(`${origin}/admin/#/moderation/${hash}`);
+    await expect(page.locator('[data-perspective-notice="mustComeOff"]')).toContainText("1 published reflection must come off its post");
+    await expect(page.locator('[data-perspective-notice="unknown"]')).toContainText("cannot be checked against the hosted copy");
+  }
+  // The Withdrawn tab no longer says these were never published.
+  await expect(page.getByText("never published", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("stays on its post until you take it off", { exact: false })).toBeVisible();
+  // Keyboard: take it off from the banner.
+  const button = page.locator('[data-perspective-notice="mustComeOff"]').getByRole("button", { name: "Take it off the post" });
+  await button.focus();
+  await page.keyboard.press("Enter");
+  await expect(queueStatus(page)).toContainText("Taken off its post.");
+  expect(synced).toEqual([{ id: ID(21) }]);
+  await expect(page.locator('[data-perspective-notice="mustComeOff"]')).toHaveCount(0);
+  await expect(page.locator('[data-perspective-notice="unknown"]')).toBeVisible();
+});

@@ -304,7 +304,7 @@ export const MODERATION_KINDS = [
 ];
 const MODERATION_STATE_NOTES = {
   clarification: "These wait for the reader’s answer through their private receipt. The text asked about can never be approved; you can still reject it.",
-  withdrawn: "Readers took these back through their private receipts, and their text was deleted at once. They are never published and cannot be changed.",
+  withdrawn: "Readers took these back through their private receipts, and the hosted copy of their text was deleted at once. They cannot be changed. A withdrawn reflection that was already published stays on its post until you take it off: the notice above counts them, and each has its own button.",
 };
 
 /** The inbox's address for one state and kind filter. */
@@ -442,7 +442,7 @@ export function feedbackPublicationMismatch(item) {
  */
 export function perspectivePublicationMismatch(item) {
   if (item.published === false && item.mayBeShown === true) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
-  if (item.published === true && item.mayBeShown === true && item.nameOutOfDate === true) return { notice: "The reader no longer shows their name, but the post still does. Update it now.", action: "publish", label: "Update it on the post" };
+  if (item.published === true && item.mayBeShown === null) return { notice: "It is on the post, but this page cannot tell whether it may stay: the hosted copy cannot say (Third Perspectives are switched off or rolled back). Check it, and take it off if it should not be shown.", action: "unpublish", label: "Take it off the post" };
   if (item.published !== true || item.mayBeShown !== false) return null;
   const notice = {
     withdrawn: "The reader withdrew this reflection through their receipt, and its text and name were deleted, but it is still on the post. Take it off now.",
@@ -450,6 +450,23 @@ export function perspectivePublicationMismatch(item) {
     rejected: "Rejected, but still on the post.",
   }[item.status] || "The reader’s consent or this reflection’s state no longer allows it on the post, but it is still there. Take it off now.";
   return { notice, action: "unpublish", label: "Take it off the post" };
+}
+
+/**
+ * What the audit of the published Third Perspectives (`engagement/third-perspectives/published`)
+ * says, in words, for the banner shown on every tab (ADR 0115): how many must come off their posts
+ * now, and how many cannot be told because the hosted function does not read their consent.
+ */
+export function perspectiveAuditNotices(audit) {
+  const count = (list) => (Array.isArray(list) ? list.length : 0);
+  const many = (n) => `${n} published reflection${n === 1 ? "" : "s"}`;
+  const notices = [];
+  const off = count(audit?.mustComeOff);
+  const unknown = count(audit?.unknown);
+  if (off) notices.push({ kind: "mustComeOff", text: `${many(off)} must come off ${off === 1 ? "its post" : "their posts"}: the reader withdrew ${off === 1 ? "it" : "them"}, or ${off === 1 ? "its" : "their"} approval or consent no longer allows ${off === 1 ? "it" : "them"}.` });
+  if (unknown) notices.push({ kind: "unknown", text: `${many(unknown)} cannot be checked against the hosted copy, because Third Perspectives are switched off or rolled back there. Look at ${unknown === 1 ? "it" : "each"}, and take off any that should not be shown.` });
+  if (audit?.truncated) notices.push({ kind: "truncated", text: "More reflections are published than one check reads; the first ones were checked." });
+  return notices;
 }
 
 /** The retention dry run's summary, in words: what would expire or be purged, by kind. */
@@ -12606,6 +12623,8 @@ export class ObAdmin extends AdminElement {
     const stateNote = MODERATION_STATE_NOTES[state] ? h("p", { class: "oba-small" }, MODERATION_STATE_NOTES[state]) : null;
     const queue = h("ol", { class: "oba-feedback-list oba-moderation-list", "aria-labelledby": "oba-moderation-queue-title" });
     const more = h("button", { class: "oba-btn", type: "button", hidden: true }, "Show more");
+    // Published reflections that must come off, seen on every tab (ADR 0115).
+    const perspectiveBanner = h("div", { class: "oba-perspective-banner", "data-perspective-banner": "" });
     const publishedStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "Loading published feedback…");
     const published = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-published-title" });
     const stateTabs = h(
@@ -12647,6 +12666,33 @@ export class ObAdmin extends AdminElement {
       }
     };
 
+    const loadPerspectiveAudit = async () => {
+      let audit;
+      try {
+        audit = await this.api.call("GET", "engagement/third-perspectives/published");
+      } catch (error) {
+        perspectiveBanner.replaceChildren(h("p", { class: "oba-notice", role: "status" }, `Published reflections could not be checked against the hosted copy. ${error.message}`));
+        return;
+      }
+      const notices = perspectiveAuditNotices(audit);
+      const entry = (item, label) => h("li", {}, `${item.post}: `, h("button", { class: "oba-btn", type: "button", "data-perspective-id": item.id, onClick: async (event) => {
+        event.currentTarget.disabled = true;
+        try {
+          await this.api.call("POST", "engagement/third-perspectives/unpublish", { json: { id: item.id } });
+          await reloadAll("Taken off its post. Rebuild or publish to update the live site.", "ok");
+        } catch (error) {
+          event.currentTarget.disabled = false;
+          announce(queueStatus, error.message, "error");
+          queueStatus.focus();
+        }
+      } }, label));
+      perspectiveBanner.replaceChildren(...notices.map((notice) => h("div", { class: notice.kind === "mustComeOff" ? "oba-notice oba-perspective-must-come-off" : "oba-notice", role: notice.kind === "mustComeOff" ? "alert" : "status", "data-perspective-notice": notice.kind },
+        h("p", {}, h("strong", {}, notice.text)),
+        notice.kind === "mustComeOff" ? h("ul", {}, audit.mustComeOff.map((item) => entry(item, "Take it off the post"))) : null,
+        notice.kind === "unknown" ? h("ul", {}, audit.unknown.map((item) => entry(item, "Take it off the post"))) : null,
+      )));
+    };
+
     // One page of the inbox; `append` keeps what is shown and moves focus to the first new item.
     const loadQueue = async (append = false) => {
       const query = new URLSearchParams({ state });
@@ -12677,7 +12723,7 @@ export class ObAdmin extends AdminElement {
     more.addEventListener("click", () => loadQueue(true));
 
     const reloadAll = async (message, kind_) => {
-      await Promise.all([loadQueue(), loadPublished()]);
+      await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
       if (message) {
         announce(queueStatus, message, kind_);
         queueStatus.focus();
@@ -12949,6 +12995,7 @@ export class ObAdmin extends AdminElement {
       this.shell(
         "moderation",
         h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post. Nothing here e-mails anyone."),
+        perspectiveBanner,
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-moderation-queue-title" }, h("h2", { id: "oba-moderation-queue-title" }, "Moderation queue"), stateTabs, kindFilter, stateNote, queueStatus, queue, more),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-retention-title" },
@@ -12957,7 +13004,7 @@ export class ObAdmin extends AdminElement {
           checkRetention, retentionStatus, retentionReport),
       ),
     );
-    await Promise.all([loadQueue(), loadPublished()]);
+    await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
   }
 
   // ---- editor

@@ -684,6 +684,9 @@ fn authenticated_api(
         ("POST", "engagement/third-perspectives/unpublish") => {
             sync_published_perspective(state, req, session, false)
         }
+        ("GET", "engagement/third-perspectives/published") => {
+            published_perspectives_audit(state, session)
+        }
         ("GET", "engagement/feedback/published") => published_feedback(state),
         ("PUT", "engagement/feedback/response") => respond_to_feedback(state, req),
         ("POST", "engagement/feedback/revision-note") => record_revision_note(state, req),
@@ -4892,23 +4895,31 @@ fn unpublish_perspective(path: &Path, id: &str) -> Result<(), String> {
 }
 
 /// Whether a published Third Perspective must come off its post now: the
-/// hosted copy is no longer one the projection shows (withdrawn, removed,
-/// rejected, purged, reopened or under a consent that no longer allows it).
-fn perspective_must_come_off(item: &moderation_inbox::InboxItem) -> bool {
+/// hosted copy is no longer one the one projection shows (withdrawn,
+/// removed, rejected, purged, reopened, under a consent that no longer allows
+/// it, or about a work that is gone). `None` when it cannot be told: the
+/// hosted function does not read the consent an approval covers (Third
+/// Perspectives switched off or rolled back), so an approved copy may or may
+/// not be shown.
+fn perspective_must_come_off(
+    site: &Site,
+    third_perspectives: bool,
+    item: &moderation_inbox::InboxItem,
+) -> Option<bool> {
     match item.perspective() {
         Some(hosted) => {
-            let copy = &hosted.copy;
-            let approved = hosted
-                .approved_consent
-                .and_then(|number| copy.consent_record(number));
-            !(hosted.state == ModerationState::Approved
-                && hosted.approved_revision == Some(copy.revision)
-                && hosted.clarification_asked != Some(copy.revision)
-                && copy.consent().publish
-                && approved.is_some_and(|record| record.publish))
+            if !third_perspectives && hosted.state == ModerationState::Approved {
+                return None;
+            }
+            let post = feedback_moderation::post_for_work(site, &hosted.copy.provenance.work);
+            Some(!perspective_publication::PublishedPerspective::shown_now(
+                hosted,
+                post,
+                &site.config,
+            ))
         }
         // A purged item keeps no text: nothing of it may stay public.
-        None => item.kind == ParticipationKind::ThirdPerspective,
+        None => Some(item.kind == ParticipationKind::ThirdPerspective),
     }
 }
 
@@ -4936,9 +4947,6 @@ fn sync_published_perspective(
             Ok(found) => found,
             Err(response) => return response,
         };
-    if item.kind != ParticipationKind::ThirdPerspective {
-        return Response::error(404, "No such Third Perspective");
-    }
     let sources = match inbox_sources(state) {
         Ok(sources) => sources,
         Err(response) => return response,
@@ -4946,6 +4954,24 @@ fn sync_published_perspective(
     let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
         inbox.actor(&item).role()
     });
+    apply_perspective_sync(state, role, third_perspectives, &item, &id, publish)
+}
+
+/// What a publish or take-off does once the hosted copy is read and the
+/// account's role on it is known: only a Third Perspective, only the site
+/// Admin, a publish only of an approved copy the projection shows now, and a
+/// take-off only of one that may not be shown (or cannot be told).
+fn apply_perspective_sync(
+    state: &AppState,
+    role: moderation::ActorRole,
+    third_perspectives: bool,
+    item: &moderation_inbox::InboxItem,
+    id: &str,
+    publish: bool,
+) -> Response {
+    if item.kind != ParticipationKind::ThirdPerspective {
+        return Response::error(404, "No such Third Perspective");
+    }
     if role != moderation::ActorRole::SiteAdmin {
         return Response::json(
             403,
@@ -4970,8 +4996,8 @@ fn sync_published_perspective(
             Some(hosted) => publish_approved_perspective(&path, &site, hosted),
             None => Err("Its text was deleted, so it cannot be published".into()),
         }
-    } else if perspective_must_come_off(&item) {
-        unpublish_perspective(&path, &id)
+    } else if perspective_must_come_off(&site, third_perspectives, item) != Some(false) {
+        unpublish_perspective(&path, id)
     } else {
         Err("This reflection is approved and the reader's consent allows it, so it stays on the post. Remove it in the inbox to take it off.".into())
     };
@@ -4984,6 +5010,71 @@ fn sync_published_perspective(
         if publish { "published" } else { "unpublished" }
     );
     Response::json(200, &json!({ "published": publish, "build": build }))
+}
+
+/// The most published reflections one audit reads from the hosted copy.
+const PERSPECTIVE_AUDIT_LIMIT: usize = 200;
+
+/// `GET engagement/third-perspectives/published`: every reflection the site
+/// publishes, checked against its hosted copy, so a withdrawal or a removal
+/// that left one on its post is seen on every tab of the inbox, not only on
+/// the card under one filter (ADR 0115). Answers only for the site Admin of
+/// each reflection's work, and lists only the reflections that must come off
+/// or whose hosted state cannot be told (Third Perspectives switched off or
+/// rolled back), never their text.
+fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Response {
+    let path = match third_perspectives_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let file = match load_third_perspectives(&path) {
+        Ok(file) => file,
+        Err(response) => return response,
+    };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let mut must_come_off = Vec::new();
+    let mut unknown = Vec::new();
+    for record in file.items.iter().take(PERSPECTIVE_AUDIT_LIMIT) {
+        let entry = json!({ "id": record.id, "post": record.post });
+        match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &record.id) {
+            Ok(Some((protocol, third_perspectives, item))) => {
+                let (role, state_now) =
+                    sources.inbox(session, protocol, third_perspectives, |inbox| {
+                        (
+                            inbox.actor(&item).role(),
+                            perspective_must_come_off(inbox.site, third_perspectives, &item),
+                        )
+                    });
+                if role != moderation::ActorRole::SiteAdmin {
+                    continue;
+                }
+                match state_now {
+                    Some(true) => must_come_off.push(entry),
+                    None => unknown.push(entry),
+                    Some(false) => {}
+                }
+            }
+            // The hosted copy is gone altogether: nothing may stay public.
+            Ok(None) => {
+                if retention_admin(&sources, session) {
+                    must_come_off.push(entry);
+                }
+            }
+            Err(response) => return response,
+        }
+    }
+    Response::json(
+        200,
+        &json!({
+            "checked": file.items.len().min(PERSPECTIVE_AUDIT_LIMIT),
+            "truncated": file.items.len() > PERSPECTIVE_AUDIT_LIMIT,
+            "mustComeOff": must_come_off,
+            "unknown": unknown,
+        }),
+    )
 }
 
 // ---- The moderation inbox (ADR 0105)
@@ -5213,16 +5304,12 @@ fn inbox_view(
                 Some(file) => json!(file.get(&item.id).is_some()),
                 None => Json::Null,
             };
-            view["mayBeShown"] = json!(!perspective_must_come_off(item));
-            // A name the reader no longer shows must not stay on the post.
-            let shown_name = item
-                .perspective()
-                .and_then(|hosted| hosted.copy.consent().attribution.public_name());
-            view["nameOutOfDate"] = json!(perspectives
-                .and_then(|file| file.get(&item.id))
-                .is_some_and(
-                    |record| record.name.is_some() && record.name.as_deref() != shown_name
-                ));
+            // `null` when the hosted copy cannot say (the flag is off or rolled back).
+            view["mayBeShown"] =
+                match perspective_must_come_off(inbox.site, inbox.third_perspectives, item) {
+                    Some(must) => json!(!must),
+                    None => Json::Null,
+                };
         } else {
             view["published"] = match published {
                 Some(file) => json!(file.get(&item.id).is_some()),
@@ -5390,6 +5477,24 @@ fn hosted_inbox_item(
     ),
     Response,
 > {
+    hosted_inbox_lookup(state, source, id)?.ok_or_else(|| Response::error(404, "No such item"))
+}
+
+/// The same, with `None` for an item the hosted function answers it does not
+/// hold, which is not an error of reaching it.
+#[allow(clippy::type_complexity)]
+fn hosted_inbox_lookup(
+    state: &AppState,
+    source: moderation_inbox::Source,
+    id: &str,
+) -> Result<
+    Option<(
+        moderation_inbox::Protocol,
+        bool,
+        moderation_inbox::InboxItem,
+    )>,
+    Response,
+> {
     let (_, value) = hosted_moderation_call(state, &[("id", id), ("source", source.id())], None)?;
     let page = moderation_inbox::read_page(&value).map_err(|error| Response::error(502, &error))?;
     if page.invalid > 0 {
@@ -5400,11 +5505,11 @@ fn hosted_inbox_item(
     }
     let protocol = page.protocol;
     let third_perspectives = page.third_perspectives;
-    page.items
+    Ok(page
+        .items
         .into_iter()
         .find(|item| item.id == id && item.source == source)
-        .map(|item| (protocol, third_perspectives, item))
-        .ok_or_else(|| Response::error(404, "No such item"))
+        .map(|item| (protocol, third_perspectives, item)))
 }
 
 const INBOX_CHANGED: &str = "This item changed since you loaded it. Review it again before acting.";
@@ -19287,8 +19392,9 @@ mod tests {
         fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
-    fn feedback_routes() -> [(&'static str, &'static str); 11] {
+    fn feedback_routes() -> [(&'static str, &'static str); 12] {
         [
+            ("GET", "/admin/api/engagement/third-perspectives/published"),
             ("POST", "/admin/api/engagement/third-perspectives/publish"),
             ("POST", "/admin/api/engagement/third-perspectives/unpublish"),
             ("GET", "/admin/api/engagement/moderation"),
@@ -19362,8 +19468,17 @@ mod tests {
         let named = copy("Mina", true);
         let approved = item(&named, "approved");
         let pending = item(&named, "pending");
-        assert!(!perspective_must_come_off(&approved));
-        assert!(perspective_must_come_off(&pending));
+        assert_eq!(
+            perspective_must_come_off(&site, true, &approved),
+            Some(false)
+        );
+        assert_eq!(perspective_must_come_off(&site, true, &pending), Some(true));
+        // Without the consent an approval covers, an approved copy is unknown; a pending one is not.
+        assert_eq!(perspective_must_come_off(&site, false, &approved), None);
+        assert_eq!(
+            perspective_must_come_off(&site, false, &pending),
+            Some(true)
+        );
         assert!(
             publish_approved_perspective(&path, &site, pending.perspective().unwrap()).is_err(),
             "pending is never published"
@@ -19400,18 +19515,8 @@ mod tests {
         };
         let view = inbox_view(&inbox, &approved, None, Some(&file)).unwrap();
         assert_eq!(
-            (
-                &view["published"],
-                &view["mayBeShown"],
-                &view["nameOutOfDate"]
-            ),
-            (&json!(true), &json!(true), &json!(false))
-        );
-        // A name the reader no longer shows is out of date on the post.
-        let hidden = item(&copy("Mina", false), "approved");
-        assert_eq!(
-            inbox_view(&inbox, &hidden, None, Some(&file)).unwrap()["nameOutOfDate"],
-            true
+            (&view["published"], &view["mayBeShown"]),
+            (&json!(true), &json!(true))
         );
         // Withdrawn by the reader and purged: it must come off, and does.
         let withdrawn = moderation_inbox::InboxItem::from_value(&json!({
@@ -19420,7 +19525,10 @@ mod tests {
             "receivedAt": "2026-10-26T10:00:00Z", "work": post.url, "purgedAt": "2026-10-28T10:00:00Z",
         }))
         .unwrap();
-        assert!(perspective_must_come_off(&withdrawn));
+        assert_eq!(
+            perspective_must_come_off(&site, true, &withdrawn),
+            Some(true)
+        );
         let view = inbox_view(&inbox, &withdrawn, None, Some(&file)).unwrap();
         assert_eq!(
             (&view["published"], &view["mayBeShown"]),
@@ -19455,6 +19563,112 @@ mod tests {
             refused.contains("third-perspectives.json: item 1:"),
             "{refused}"
         );
+    }
+
+    #[test]
+    fn publishing_and_taking_off_a_third_perspective_is_the_site_admins_and_follows_the_hosted_copy(
+    ) {
+        use openblog_core::third_perspective::{
+            ConsentChoices, Intake, LocalReflection, PerspectiveTarget, ReaderAttribution,
+        };
+        let f = fixture("perspective-sync-routes");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let document = PassageDocument::of_post(&post, &site.config);
+        let copy = LocalReflection {
+            work: post.url.clone(),
+            revision: document.revision.clone(),
+            target: PerspectiveTarget::work(),
+            category: None,
+            body: "A reader’s reading.".into(),
+            attribution: ReaderAttribution::named("Mina", true),
+            seen_at: None,
+        }
+        .submission(ConsentChoices {
+            publish: true,
+            clarification: false,
+            feature: false,
+        })
+        .receive(
+            openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+            Intake::Hosted {
+                receipt_digest: "5e".repeat(32),
+            },
+        )
+        .unwrap();
+        let record: Json = serde_json::from_str(&copy.to_json()).unwrap();
+        let item = |status: &str| {
+            let approved = status == "approved";
+            moderation_inbox::InboxItem::from_value(&json!({
+                "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": status, "version": 2,
+                "moderatedAt": "2026-10-27T09:00:00Z", "reason": null,
+                "feedback": {"version": 1, "kind": "third-perspective", "body": copy.body, "details": copy.stored_details(), "provenance": record["provenance"]},
+                "itemRevision": 1, "approvedRevision": if approved { json!(1) } else { Json::Null },
+                "clarificationAsked": null, "clarificationConsent": false,
+                "approvedConsent": if approved { json!(1) } else { Json::Null },
+            }))
+            .unwrap()
+        };
+        let path = f
+            .dir
+            .join("content")
+            .join(perspective_publication::THIRD_PERSPECTIVES_FILE);
+        let sync = |role, item: &moderation_inbox::InboxItem, publish| {
+            apply_perspective_sync(&f.state, role, true, item, FEEDBACK_ITEM_ID, publish)
+        };
+        let admin = moderation::ActorRole::SiteAdmin;
+        let approved = item("approved");
+        // Only the site Admin changes what the site publishes.
+        for role in [
+            moderation::ActorRole::ContributingAuthor,
+            moderation::ActorRole::Coordinator,
+            moderation::ActorRole::Public,
+        ] {
+            for publish in [true, false] {
+                assert_eq!(sync(role, &approved, publish).status, 403);
+            }
+        }
+        assert!(!path.exists());
+        // A copy that is not approved is never published.
+        let refused = sync(admin, &item("pending"), true);
+        assert_eq!(refused.status, 409);
+        assert!(!path.exists());
+        // Something that is not a Third Perspective is not found, whoever asks.
+        let question = moderation_inbox::InboxItem::from_value(&json!({
+            "source": "feedback", "id": FEEDBACK_ITEM_ID, "kind": "question", "status": "withdrawn",
+            "version": 4, "revision": 1, "moderatedAt": "2026-10-28T10:00:00Z", "reason": null,
+            "receivedAt": "2026-10-26T10:00:00Z", "work": post.url, "purgedAt": "2026-10-28T10:00:00Z",
+        }))
+        .unwrap();
+        for role in [admin, moderation::ActorRole::ContributingAuthor] {
+            for publish in [true, false] {
+                assert_eq!(sync(role, &question, publish).status, 404);
+            }
+        }
+        // An approved copy under a consent that allows it is published, and
+        // stays on its post until the hosted copy no longer allows it.
+        assert_eq!(sync(admin, &approved, true).status, 200);
+        assert!(path.exists());
+        let kept = sync(admin, &approved, false);
+        assert_eq!(kept.status, 409, "it may be shown, so it is not taken off");
+        let file = perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(file.items.len(), 1);
+        // A withdrawn copy must come off, and a hosted copy that cannot say
+        // (consent not read) may be taken off too.
+        assert_eq!(sync(admin, &item("removed"), false).status, 200);
+        assert!(perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
+        assert_eq!(sync(admin, &approved, true).status, 200);
+        let unknown =
+            apply_perspective_sync(&f.state, admin, false, &approved, FEEDBACK_ITEM_ID, false);
+        assert_eq!(unknown.status, 200);
     }
 
     #[test]
