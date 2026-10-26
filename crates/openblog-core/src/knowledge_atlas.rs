@@ -318,7 +318,7 @@ impl Confidence {
 }
 
 /// How an asserting or dissenting party is identified.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AttributionKind {
     /// The site author's own reading.
@@ -1887,7 +1887,8 @@ fn check_graph(
         }
     }
 
-    let mut seen: BTreeSet<(RelationshipKind, String, String, String)> = BTreeSet::new();
+    type Party = (AttributionKind, Option<String>, Option<String>);
+    let mut seen: BTreeSet<(RelationshipKind, String, String, Party)> = BTreeSet::new();
     let mut edges: BTreeMap<RelationshipKind, Vec<(usize, &str, &str)>> = BTreeMap::new();
     for (index, r) in relationships {
         if first.get(r.id.as_str()) != Some(&("relationships", *index)) {
@@ -1946,8 +1947,13 @@ fn check_graph(
         }
 
         // One assertion per party per edge: a second party may assert the same
-        // edge, a second copy from the same party is noise.
-        let party = serde_json::to_string(&r.asserted_by).unwrap_or_default();
+        // edge, a second copy from the same party is noise. The party is who it
+        // is, not whatever unknown fields ride along with it.
+        let party = (
+            r.asserted_by.kind,
+            r.asserted_by.source.clone(),
+            r.asserted_by.name.clone(),
+        );
         let (a, b) = if spec.symmetric && r.from > r.to {
             (r.to.clone(), r.from.clone())
         } else {
@@ -2544,7 +2550,22 @@ mod tests {
             .expect("second party");
         rival.id = "r-infl-3".into();
         assert_eq!(
+            codes_of(atlas.upsert_relationship(rival.clone(), links)),
+            vec![AtlasDiagnosticCode::DuplicateRelationship]
+        );
+        // Unknown fields on the party do not make it a different party.
+        rival.asserted_by.extra.insert("memo".into(), json!("again"));
+        assert_eq!(
             codes_of(atlas.upsert_relationship(rival, links)),
+            vec![AtlasDiagnosticCode::DuplicateRelationship]
+        );
+        let mut again = sample();
+        let mut copy = again["relationships"][1].clone();
+        copy["id"] = json!("r-infl-copy");
+        copy["assertedBy"] = json!({"kind": "author", "memo": "again"});
+        again["relationships"].as_array_mut().unwrap().push(copy);
+        assert_eq!(
+            codes(parse(again)),
             vec![AtlasDiagnosticCode::DuplicateRelationship]
         );
     }
