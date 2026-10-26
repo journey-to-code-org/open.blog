@@ -45,6 +45,16 @@ All notable changes to open.blog are recorded here. Releases follow
 - Chronology prompts from `openblog check` are now always listed in the same order, even when two
   parties record the same author.
 
+### Fixed
+
+- Keeping your draft after someone else changed the atlas no longer mixes up two pieces of evidence
+  that cite the same source and passage. Before, removing or reordering evidence elsewhere could
+  make one item lose its stored fields and take the other's (introduced in 0.29.0 for relationship
+  and dissent evidence). Evidence now rests on its own stored copy wherever it moved, told apart by
+  its locators when several items share a source and passage, and otherwise keeps your draft's copy.
+  This repairs keep-draft for relationship evidence from the atlas release, and covers dating
+  evidence too.
+
 ## [0.33.0] - 2026-10-26
 
 - Defined how reader questions, corrections and annotations will point at published text. A

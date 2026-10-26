@@ -803,7 +803,7 @@ test("a rebased draft keeps its own copy of an item whose stored index now holds
   newer.contestedBy = [{ by: { kind: "named", name: "A later editor" }, note: "Doubts the attribution.", own: "second", added: "elsewhere" }];
   rebaseAtlasRelationshipDraft(draft, newer);
   const sent = atlasRelationshipPayload(draft);
-  assert.deepEqual(sent.evidence, [{ source: "slings-2003", passage: "p-1", own: "second" }], "the evidence item at index 1 does not rest on another stored item at index 1");
+  assert.deepEqual(sent.evidence, [{ source: "slings-2003", passage: "p-1", own: "second", added: "elsewhere" }], "the evidence item rests on its own stored copy, now at index 0, and never on another item at index 1");
   assert.equal(sent.contestedBy.length, 1);
   assert.equal(sent.contestedBy[0].own, "second", "the dissent keeps its own fields");
   assert.equal(sent.contestedBy[0].added, undefined, "the dissent takes no fields from another stored dissent");
@@ -817,6 +817,59 @@ test("a rebased draft keeps its own copy of an item whose stored index now holds
   assert.deepEqual(kept.evidence.map((item) => item.own), ["first", "second"], "an item removed elsewhere ahead of the draft's items neither loses nor borrows fields");
   assert.deepEqual(kept.contestedBy.map((item) => item.own), ["first", "second"]);
   assert.equal(kept.contestedBy[1].by.name, "A later editor");
+});
+
+// Two evidence items citing the same source and passage, told apart only by their locators.
+const TWINS = () => [
+  { source: "slings-2003", passage: "p-1", locators: [{ kind: "page", value: "1" }], own: "A" },
+  { source: "slings-2003", passage: "p-1", locators: [{ kind: "page", value: "2" }], own: "B" },
+];
+const removedA = () => [{ ...TWINS()[1], added: "b" }];
+const swapped = () => [
+  { ...TWINS()[1], added: "b" },
+  { ...TWINS()[0], added: "a" },
+];
+const checkTwins = (sent, expected, message) => {
+  assert.deepEqual(sent.map((item) => [item.own, item.added, item.locators[0].value]), expected, message);
+};
+
+test("evidence citing the same source and passage twice never rests on the other item after a removal or a swap elsewhere", () => {
+  const record = RELATIONSHIP();
+  record.evidence = TWINS();
+  record.contestedBy[0].evidence = TWINS();
+  for (const [change, expected] of [
+    [removedA, [["A", undefined, "1"], ["B", "b", "2"]]],
+    [swapped, [["A", "a", "1"], ["B", "b", "2"]]],
+  ]) {
+    const draft = atlasRelationshipDraft(record);
+    const newer = RELATIONSHIP();
+    newer.evidence = change();
+    newer.contestedBy[0].evidence = change();
+    rebaseAtlasRelationshipDraft(draft, newer);
+    const sent = atlasRelationshipPayload(draft);
+    checkTwins(sent.evidence, expected, `relationship evidence after ${change.name}: A keeps its own fields and B takes only its own`);
+    checkTwins(sent.contestedBy[0].evidence, expected, `dissent evidence after ${change.name}`);
+  }
+});
+
+test("a dating's evidence citing the same source and passage twice never rests on the other item after a removal or a swap elsewhere", () => {
+  const stored = (evidence) => ({ id: "birth", aspect: "birth", date: { at: { year: -428 } }, assertedBy: { kind: "author" }, confidence: "tentative", evidence, visibility: "private" });
+  for (const [change, expected] of [
+    [removedA, [["A", undefined, "1"], ["B", "b", "2"]]],
+    [swapped, [["A", "a", "1"], ["B", "b", "2"]]],
+  ]) {
+    const opened = [stored(TWINS())];
+    const datings = opened.map((item) => atlasDatingDraft(item));
+    rebaseAtlasDatings(datings, [stored(change())], opened);
+    checkTwins(atlasDatingPayload(datings[0]).evidence, expected, `dating evidence after ${change.name}`);
+  }
+  // A pair only one item holds is still followed wherever it moves.
+  const opened = [stored([{ source: "other", locators: [{ kind: "page", value: "9" }] }, TWINS()[0]])];
+  const datings = opened.map((item) => atlasDatingDraft(item));
+  rebaseAtlasDatings(datings, [stored([{ ...TWINS()[0], added: "a" }])], opened);
+  const sent = atlasDatingPayload(datings[0]).evidence;
+  assert.equal(sent[0].added, undefined, "an item removed elsewhere borrows nothing");
+  assert.equal(sent[1].added, "a", "a moved item rests on its own newer copy");
 });
 
 test("removing asks first, a linked entry is refused with the reason, and unresolved notes are reported", withDom(async () => {

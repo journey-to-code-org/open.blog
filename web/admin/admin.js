@@ -2053,10 +2053,11 @@ export function atlasDissentDraft(record = {}, from = null) {
  * Rests a relationship draft on a newer stored copy. Every nested item read
  * from the store takes the newer copy of the item it came from, wherever that
  * item still exists, so fields added elsewhere at any level survive the save.
- * An item rests on the newer copy only while the stored item at its index is
- * still the same item (evidence: the same source and passage; a dissent: the
- * same party). When items were removed elsewhere, the index points at another
- * item, and the draft keeps its own copy rather than take that item's fields.
+ * A dissent rests on the newer copy only while the stored dissent at its index
+ * is still the same party; evidence rests on the newer item known by its
+ * source and passage (see `rebaseAtlasEvidence`). When an item cannot be told
+ * apart from another, the draft keeps its own copy rather than take that
+ * item's fields.
  */
 export function rebaseAtlasRelationshipDraft(draft, current) {
   const stored = (list, from) => (Array.isArray(list) && Number.isInteger(from) && list[from] && typeof list[from] === "object" ? list[from] : null);
@@ -2067,15 +2068,17 @@ export function rebaseAtlasRelationshipDraft(draft, current) {
     return text(x.kind) === text(y.kind) && text(x.source) === text(y.source) && text(x.name) === text(y.name);
   };
   const openedFrom = draft.original?.dates;
+  const openedEvidence = draft.original?.evidence;
   draft.original = structuredClone(current);
   draft.assertedBy.original = structuredClone(current.assertedBy || { kind: "author" });
-  rebaseAtlasEvidence(draft.evidence, current.evidence);
+  rebaseAtlasEvidence(draft.evidence, current.evidence, openedEvidence);
   for (const dissent of draft.contestedBy) {
     const newer = stored(current.contestedBy, dissent.from);
     if (!newer || !sameDissent(newer, dissent.original)) continue;
+    const opened = dissent.original?.evidence;
     dissent.original = structuredClone(newer);
     dissent.by.original = structuredClone(newer.by || { kind: "author" });
-    rebaseAtlasEvidence(dissent.evidence, newer.evidence);
+    rebaseAtlasEvidence(dissent.evidence, newer.evidence, opened);
   }
   // Datings carry ids, so they rest on the newer copy by identity, never by position.
   rebaseAtlasDatings(draft.datings || [], current.dates, openedFrom);
@@ -2505,15 +2508,41 @@ export function validateAtlasDatings(datings, { owner = "", ownerId = "", kinds 
 }
 
 /**
- * Rests nested evidence drafts on a newer stored list. An item rests on the
- * stored item at the index it was read from only while that is still the
- * same item (the same source and passage); otherwise it keeps its own copy.
+ * Rests nested evidence drafts on a newer stored list. Evidence has no id, so
+ * an item is known by its source and passage, but only while that pair is
+ * unambiguous: exactly one item in the copy the draft was opened from
+ * (`opened`) and exactly one in the newer list share it, and the draft rests
+ * on that newer item wherever it now sits. When several items share the pair,
+ * the newer item must also carry the opened copy's locators; if that still
+ * leaves several, only the one at the draft's own index qualifies. Otherwise
+ * the draft keeps its own copy rather than borrow another item's fields.
  */
-function rebaseAtlasEvidence(drafts, list) {
+function rebaseAtlasEvidence(drafts, list, opened) {
   const text = (value) => (typeof value === "string" ? value : "");
+  const object = (value) => value && typeof value === "object";
+  const pair = (value) => (object(value) ? JSON.stringify([text(value.source), text(value.passage)]) : null);
+  const locators = (value) => (Array.isArray(value?.locators) ? value.locators : []);
+  const sameLocators = (a, b) => {
+    const [x, y] = [locators(a), locators(b)];
+    return x.length === y.length && x.every((item, index) => object(item) && object(y[index]) && sameLocator(item, y[index]));
+  };
+  const items = Array.isArray(list) ? list : [];
+  const before = Array.isArray(opened) ? opened : drafts.filter((item) => Number.isInteger(item.from)).map((item) => item.original);
+  const count = (values, key) => values.filter((value) => pair(value) === key).length;
   for (const item of drafts) {
-    const newer = Array.isArray(list) && Number.isInteger(item.from) && list[item.from] && typeof list[item.from] === "object" ? list[item.from] : null;
-    if (newer && text(newer.source) === text(item.original?.source) && text(newer.passage) === text(item.original?.passage)) item.original = structuredClone(newer);
+    if (!Number.isInteger(item.from) || !object(item.original)) continue;
+    const key = pair(item.original);
+    const candidates = items.filter((value) => pair(value) === key);
+    let newer = null;
+    if (candidates.length === 1 && count(before, key) === 1) newer = candidates[0];
+    else {
+      const matching = candidates.filter((value) => sameLocators(value, item.original));
+      if (matching.length === 1) newer = matching[0];
+      else if (matching.includes(items[item.from])) newer = items[item.from];
+    }
+    if (!newer) continue;
+    item.original = structuredClone(newer);
+    item.from = items.indexOf(newer);
   }
 }
 
@@ -2532,12 +2561,13 @@ export function rebaseAtlasDatings(datings, stored, openedFrom = []) {
     const newer = dating.storedId ? byId.get(dating.storedId) : null;
     if (!newer) continue;
     const date = newer.date && typeof newer.date === "object" ? newer.date : {};
+    const opened = dating.original?.evidence;
     dating.original = structuredClone(newer);
     dating.dateExtras = extrasOf(date, DATE_FORM_KEYS);
     for (const slot of DATE_SLOTS) if (date[slot] && typeof date[slot] === "object") dating.points[slot].extras = extrasOf(date[slot], POINT_KEYS);
     if (date.relative && typeof date.relative === "object") dating.relative.extras = extrasOf(date.relative, RELATIVE_KEYS);
     dating.assertedBy.original = structuredClone(newer.assertedBy || { kind: "author" });
-    rebaseAtlasEvidence(dating.evidence, newer.evidence);
+    rebaseAtlasEvidence(dating.evidence, newer.evidence, opened);
   }
   const known = new Set([...(Array.isArray(openedFrom) ? openedFrom : []).map((item) => item?.id), ...datings.map((dating) => dating.storedId).filter(Boolean)]);
   const added = list.filter((item) => !known.has(item.id)).map((item) => atlasDatingDraft(item));
