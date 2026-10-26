@@ -10,7 +10,8 @@ Code: `openblog_core::reading_depth`.
 Opt in per post with `readingModes: true` in the front matter, or with `readingModes: {default:
 guided}` to also choose the mode the post opens in (`standard`, `guided` or `deep-dive`; standard
 if absent). `true`, `yes` and `on` and any map opt in, `false`, `no` and `off` opt out, and
-anything else is off with a warning; a map never switches the post off. Then write a block quote whose first
+anything else is off with a warning. A map opts in unless it says `enabled: false`; a key other
+than `default` and `enabled` is reported and ignored. Then write a block quote whose first
 line is a marker:
 
 ```markdown
@@ -73,21 +74,44 @@ post's headings. The reader's saved choice opens first, then the author's defaul
 The build writes every supplement visible; it never writes `hidden`. `data-ob-level` is the
 effective level. Controls hide a supplement whose `data-ob-level` the chosen mode does not show and
 restore all of them without script. Ids are positional for one revision of the post and are not
-stored; `ob-supplement-` is reserved. A generated note cited only inside supplements has
+stored; `ob-supplement-` is reserved: a heading `{#id}`, footnote label or raw HTML `id` an opted-in post
+writes with that prefix is renamed with `section-` and reported (a post that has not opted in is
+never touched), and a U+0000 in such a post is read as U+FFFD. A generated note cited only inside supplements has
 `data-ob-supplement="ob-supplement-1 ob-supplement-3"` naming them.
 
 ## The control (no JavaScript needed to read; script adds it)
 
-`<ob-reading-modes default="guided">` wraps the article prose of a post that has supplements. It adds
+`<ob-reading-modes default="guided" data-ob-base="/blog">` (the base path only for a site under a
+folder) wraps the article prose of a post that has supplements. It adds
 a `fieldset` "Reading mode" with three native radio buttons (Standard, Guided, Deep dive), each with a
 description linked by `aria-describedby`, and a "Use the author's default" button. It sets `hidden`
 on the supplements the chosen mode does not show and never on one with `data-ob-always`; announces
-each change in a polite status region; keeps the choice in `localStorage` key `ob-reading-mode`
-(a mode name, on this device only, never sent anywhere; blocked storage is tolerated and said);
+each change in a polite status region; keeps the choice in `localStorage` key `ob-reading-mode`, or
+`ob-reading-mode:/blog` for a site under a folder, so project sites that share an origin do not
+share it (a mode name, on this device only, never sent anywhere; blocked storage is tolerated and said);
 and, when the address names something inside a hidden supplement (or a note that names one), shows
 that supplement, moves focus to the target and says so. The fade-in runs only when motion is not
 reduced. The shared rules are in `web/components/reading-modes.js`, checked against
-`tests/fixtures/reading-modes.json` by both the Rust and Node tests. Decisions: ADR 0172, ADR 0173.
+`tests/fixtures/reading-modes.json` by both the Rust and Node tests. Decisions: ADR 0172, ADR 0173, ADR 0174.
+
+## Progressive rendering (ADR 0174)
+
+- The static page is the whole content. Without script nothing is hidden, and portable copies keep
+  every supplement.
+- With script on, the stylesheet hides, until the element is defined, the layers the author's
+  `default` hides, so the page does not paint every layer and then jump. If the script never
+  arrives they return after six seconds. Warnings are never hidden. Reduced motion skips this and
+  shows the full page first.
+- A hidden supplement is `hidden="until-found"` where supported (find in page and links reach it,
+  `beforematch` marks it revealed), else `hidden`.
+- A mode change keeps the first article block in view where it is. Open `<details>` and the
+  checked radio are untouched.
+- A hash change, a click on an in-page link (even to the address already shown), a citation
+  back-link and a find-in-page match show the holding supplement. Another tab's change applies only
+  when it changes the mode, and never hides the supplement that holds focus.
+- A supplement with a missing or unknown level is always shown. Only a layer the reader just
+  chose fades in, and not under reduced motion. The reset button is `aria-disabled`, so it keeps
+  focus.
 
 ## Portable copies
 

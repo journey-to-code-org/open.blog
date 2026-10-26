@@ -919,3 +919,35 @@ fn a_nul_in_a_post_with_supplements_is_read_as_the_replacement_character() {
         "{html:?}"
     );
 }
+
+#[test]
+fn a_site_under_a_folder_names_its_base_path_so_its_saved_choice_is_its_own() {
+    use openblog_core::{generate, LoadOptions, Site, Sources, ThemeSet};
+    let page_for = |url: &str| {
+        let config = SiteConfig::from_json(&format!(
+            r#"{{"title": "T", "url": "{url}", "author": {{"name": "A"}}}}"#
+        ))
+        .unwrap();
+        let site = Site::load(
+            config,
+            Sources {
+                posts: vec![post_source("readingModes: true\n", ARTICLE)],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        generate(&site, &ThemeSet::new())
+            .unwrap()
+            .into_iter()
+            .find(|file| file.path.ends_with("p/index.html"))
+            .unwrap()
+            .contents
+    };
+    assert!(page_for("https://user.github.io/blog")
+        .contains("<ob-reading-modes default=\"standard\" data-ob-base=\"/blog\">"));
+    // A site at the root keeps the markup it had.
+    let root = page_for("https://example.test");
+    assert!(root.contains("<ob-reading-modes default=\"standard\">"));
+    assert!(!root.contains("data-ob-base"));
+}

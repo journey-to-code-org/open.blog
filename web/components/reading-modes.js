@@ -8,10 +8,27 @@
 
 export const MODES = ["standard", "guided", "deep-dive"];
 export const LABELS = { standard: "Standard", guided: "Guided", "deep-dive": "Deep dive" };
-/** The one key the choice is kept under. localStorage is per site (origin). */
+/**
+ * The key the choice is kept under for a site at the root of its host.
+ * localStorage is per origin, not per site: every GitHub Pages project site of
+ * one account shares an origin, so a site under a folder adds its base path
+ * (see [`storageKey`]) and its choice never reaches a sibling site.
+ */
 export const STORAGE_KEY = "ob-reading-mode";
+export const LEVELS = ["guided", "deep-dive"];
+
+/**
+ * The key for a site served under `basePath` ("" at the root, "/blog" for
+ * https://user.github.io/blog/). Anything that is not a plain absolute path is
+ * read as the root.
+ */
+export function storageKey(basePath = "") {
+  const base = typeof basePath === "string" ? basePath.trim().replace(/\/+$/, "") : "";
+  return base.startsWith("/") && base.length > 1 && base.length <= 200 ? `${STORAGE_KEY}:${base}` : STORAGE_KEY;
+}
 
 export const isMode = (value) => typeof value === "string" && MODES.includes(value);
+export const isLevel = (value) => typeof value === "string" && LEVELS.includes(value);
 
 /**
  * Whether `mode` shows a supplement of `level`: standard shows none, guided
@@ -24,6 +41,16 @@ export function shows(mode, level, always = false) {
   if (mode === "guided") return level === "guided";
   if (mode === "deep-dive") return level === "guided" || level === "deep-dive";
   return false;
+}
+
+/**
+ * What the page does with one supplement: [`shows`], except that a supplement
+ * whose level is missing or not one this release knows is always shown. The
+ * build only writes known levels, so this only protects the reader from
+ * hand-edited or newer markup: a layer is never lost to a label it cannot read.
+ */
+export function shouldShow(mode, level, always = false) {
+  return isLevel(level) ? shows(mode, level, always) : true;
 }
 
 /** The mode to open in: the reader's saved choice, else the author's default, else standard. */
@@ -43,9 +70,9 @@ export function localStore() {
 }
 
 /** The saved mode, or null when there is none, it is not a mode, or storage fails. */
-export function readPreference(storage = localStore()) {
+export function readPreference(storage = localStore(), key = STORAGE_KEY) {
   try {
-    const value = storage?.getItem(STORAGE_KEY);
+    const value = storage?.getItem(key);
     return isMode(value) ? value : null;
   } catch {
     return null;
@@ -53,11 +80,11 @@ export function readPreference(storage = localStore()) {
 }
 
 /** Saves the choice on this device only. False when it could not be saved. */
-export function writePreference(storage, mode) {
+export function writePreference(storage, mode, key = STORAGE_KEY) {
   if (!isMode(mode)) return false;
   try {
     if (!storage) return false;
-    storage.setItem(STORAGE_KEY, mode);
+    storage.setItem(key, mode);
     return true;
   } catch {
     return false;
@@ -65,10 +92,10 @@ export function writePreference(storage, mode) {
 }
 
 /** Forgets the saved choice. False when storage failed. */
-export function clearPreference(storage) {
+export function clearPreference(storage, key = STORAGE_KEY) {
   try {
     if (!storage) return false;
-    storage.removeItem(STORAGE_KEY);
+    storage.removeItem(key);
     return true;
   } catch {
     return false;
@@ -80,7 +107,7 @@ const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 /** How many supplements each mode shows, from `[{ level, always }]`. */
 export function countsByMode(items) {
   return Object.fromEntries(
-    MODES.map((mode) => [mode, items.filter((item) => shows(mode, item.level, item.always)).length]),
+    MODES.map((mode) => [mode, items.filter((item) => shouldShow(mode, item.level, item.always)).length]),
   );
 }
 

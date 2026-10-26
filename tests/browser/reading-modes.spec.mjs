@@ -26,12 +26,15 @@ const LIBRARY = JSON.stringify({
     { id: "slings-2003", kind: "edition", of: "plato-republic", title: "Platonis Rempublicam", issued: "2003" },
   ],
 });
+const FILLER = Array.from({ length: 40 }, (_, index) => `Filler paragraph ${index + 1} keeps the article long enough to scroll.\n`).join("\n");
 const BODY = `The article opens here and never changes.
 
 > [!supplement kind=definition level=guided] Aporia
 > A state of puzzlement. ${LONG_WORD}
 
-The argument goes on [@plato-republic].
+The argument goes on [@plato-republic]. See [the manuscripts](#ob-supplement-2-h1).
+
+<details><summary>An aside</summary>Aside words stay open.</details>
 
 > [!supplement kind=evidence level=deep-dive] The manuscripts
 > ### Manuscripts
@@ -46,6 +49,7 @@ The argument goes on [@plato-republic].
 > > [!WARNING]
 > > Do not heat the mixture.
 
+${FILLER}
 The article ends here.
 `;
 const post = (title, front) => `---\ntitle: ${title}\ndate: 2026-10-20\n${front}citations: notes\n---\n${BODY}`;
@@ -61,6 +65,10 @@ test.beforeAll(async () => {
   writeFileSync(library, LIBRARY);
   writeFileSync(join(root, "content", "posts", "modes.md"), post("Reading modes", "readingModes: true\n"));
   writeFileSync(join(root, "content", "posts", "guided.md"), post("Opens guided", "readingModes: {default: guided}\n"));
+  writeFileSync(
+    join(root, "content", "posts", "callout.md"),
+    "---\ntitle: In a warning\ndate: 2026-10-20\nreadingModes: true\n---\nBefore.\n\n> [!WARNING]\n> Check the label first.\n>\n> > [!supplement kind=context level=deep-dive] Why it matters\n> > The label names the allergen.\n\nAfter.\n",
+  );
   writeFileSync(join(root, "content", "posts", "plain.md"), "---\ntitle: Plain\ndate: 2026-10-20\n---\nNo supplements here.\n\n> An ordinary quote.\n");
   const listener = createServer();
   listener.listen(0, "127.0.0.1");
@@ -91,7 +99,9 @@ const control = (page) => page.getByRole("group", { name: "Reading mode", exact:
 const radio = (page, name) => page.getByRole("radio", { name, exact: true });
 const supplement = (page, id) => page.locator(`#ob-supplement-${id}`);
 const visibleSupplements = (page) =>
-  page.locator(".ob-supplement").evaluateAll((nodes) => nodes.filter((node) => node.checkVisibility()).map((node) => node.id));
+  page
+    .locator(".ob-supplement")
+    .evaluateAll((nodes) => nodes.filter((node) => !node.hasAttribute("hidden") && node.checkVisibility()).map((node) => node.id));
 const stored = (page) => page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY);
 
 async function open(page, slug = "modes", hash = "") {
@@ -356,4 +366,200 @@ test("at 400% zoom the control still reaches, labels and operates every option",
   const overflow = await page.evaluate(() => document.querySelector("article").scrollWidth - document.querySelector("article").clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   await context.close();
+});
+
+test("a supplement written inside a warning callout is shown in every mode", async ({ page }) => {
+  await open(page, "callout");
+  const inside = supplement(page, 1);
+  await expect(inside).toHaveAttribute("data-ob-always", "");
+  await expect(inside).toBeVisible();
+  await expect(page.getByText("The label names the allergen.")).toBeVisible();
+  await expect(page.getByText("Check the label first.")).toBeVisible();
+  for (const name of ["Guided", "Deep dive", "Standard"]) {
+    await radio(page, name).check();
+    await expect(inside, name).toBeVisible();
+  }
+});
+
+test("a change to another key, or to the mode already shown, leaves a supplement the reader went into shown; one holding focus is never hidden", async ({ page }) => {
+  await open(page, "modes", "#ob-supplement-2-h1");
+  await expect(page.locator("#ob-supplement-2-h1")).toBeFocused();
+  // With focus elsewhere, only the guard on the key and the mode keeps it shown.
+  await page.evaluate(() => document.activeElement.blur());
+  await page.evaluate(() => window.dispatchEvent(new StorageEvent("storage", { key: "something-else", newValue: "x" })));
+  await expect(supplement(page, 2)).toBeVisible();
+  // The key is ours but the mode is the one already shown (nothing is saved: standard).
+  await page.evaluate((key) => window.dispatchEvent(new StorageEvent("storage", { key })), STORAGE_KEY);
+  await expect(supplement(page, 2)).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new StorageEvent("storage", { key: null })));
+  await expect(supplement(page, 2)).toBeVisible();
+  // Another tab chooses guided, which would hide this deep-dive supplement: not the one holding focus.
+  await page.locator("#ob-supplement-2-h1").focus();
+  await page.evaluate((key) => {
+    localStorage.setItem(key, "guided");
+    window.dispatchEvent(new StorageEvent("storage", { key, newValue: "guided" }));
+  }, STORAGE_KEY);
+  await expect(radio(page, "Guided")).toBeChecked();
+  await expect(supplement(page, 2)).toBeVisible();
+  await expect(page.locator("#ob-supplement-2-h1")).toBeFocused();
+  await expect(supplement(page, 1)).toBeVisible();
+  await page.evaluate((key) => localStorage.removeItem(key), STORAGE_KEY);
+});
+
+test("the reset button keeps keyboard focus when it has nothing left to reset", async ({ page }) => {
+  await open(page);
+  await radio(page, "Guided").check();
+  const reset = page.getByRole("button", { name: "Use the author’s default" });
+  await expect(reset).toBeEnabled();
+  await reset.focus();
+  await page.keyboard.press("Enter");
+  await expect(radio(page, "Standard")).toBeChecked();
+  await expect(reset).toBeDisabled();
+  await expect(reset).toHaveAttribute("aria-disabled", "true");
+  await expect(reset).toBeFocused();
+  // Pressing it again does nothing.
+  await page.keyboard.press("Enter");
+  await expect(reset).toBeFocused();
+});
+
+test("a click on a link to the address already shown reveals the supplement it points into", async ({ page }) => {
+  await open(page, "modes", "#ob-supplement-2-h1");
+  await expect(supplement(page, 2)).toBeVisible();
+  await radio(page, "Guided").check();
+  await expect(supplement(page, 2)).toBeHidden();
+  // The address still says #ob-supplement-2-h1, so following the link fires no hashchange.
+  expect(new URL(page.url()).hash).toBe("#ob-supplement-2-h1");
+  await page.getByRole("link", { name: "the manuscripts" }).click();
+  await expect(supplement(page, 2)).toBeVisible();
+  await expect(page.locator("#ob-supplement-2-h1")).toBeFocused();
+  await expect(page.locator("ob-reading-modes [role=status]")).toContainText("Showed the evidence supplement");
+});
+
+test("an element put back in the page listens again", async ({ page }) => {
+  await open(page);
+  await page.evaluate(() => {
+    const element = document.querySelector("ob-reading-modes");
+    const parent = element.parentNode;
+    const next = element.nextSibling;
+    element.remove();
+    parent.insertBefore(element, next);
+  });
+  await expect(control(page)).toHaveCount(1);
+  await radio(page, "Guided").check();
+  expect(await visibleSupplements(page)).toEqual(["ob-supplement-1", "ob-supplement-4"]);
+  // The address listener works after the move...
+  await page.evaluate(() => { location.hash = "#ob-supplement-2-h1"; });
+  await expect(supplement(page, 2)).toBeVisible();
+  // ...and so does the one for another tab's choice.
+  await page.evaluate((key) => {
+    localStorage.setItem(key, "standard");
+    window.dispatchEvent(new StorageEvent("storage", { key, newValue: "standard" }));
+  }, STORAGE_KEY);
+  await expect(radio(page, "Standard")).toBeChecked();
+  await page.evaluate((key) => localStorage.removeItem(key), STORAGE_KEY);
+});
+
+test("a site under a folder keeps its choice under its base path, not the shared origin's key", async ({ page }) => {
+  await open(page);
+  await page.evaluate(() => {
+    const original = document.querySelector("ob-reading-modes");
+    const copy = original.cloneNode(true);
+    copy.setAttribute("data-ob-base", "/blog");
+    original.replaceWith(copy);
+  });
+  await expect(control(page)).toHaveCount(1);
+  await radio(page, "Deep dive").check();
+  expect(await stored(page)).toBeNull();
+  expect(await page.evaluate((key) => localStorage.getItem(`${key}:/blog`), STORAGE_KEY)).toBe("deep-dive");
+  await page.evaluate((key) => localStorage.removeItem(`${key}:/blog`), STORAGE_KEY);
+});
+
+test("a hidden supplement stays findable and a link into it still shows it", async ({ page }) => {
+  await open(page);
+  // Chromium has hidden=until-found: the words are in the page, skipped until something needs them.
+  await expect(supplement(page, 2)).toHaveAttribute("hidden", "until-found");
+  await expect(page.getByText("Three witnesses agree", { exact: false })).toBeHidden();
+  await page.evaluate(() => { location.hash = "#ob-supplement-2-h1"; });
+  await expect(supplement(page, 2)).toBeVisible();
+  await expect(supplement(page, 2)).not.toHaveAttribute("hidden");
+  await expect(supplement(page, 2)).toHaveAttribute("data-ob-revealed", "");
+  await expect(page.locator("ob-reading-modes [role=status]")).toContainText("Showed the evidence supplement");
+});
+
+test("layers the author's default hides are hidden before script runs, and return if script never does", async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.route(/\/assets\/.*\.js/, (route) => route.abort());
+  await page.goto(`${origin}/modes/`);
+  await expect(page.locator("ob-reading-modes")).toHaveAttribute("default", "standard");
+  expect(await page.evaluate(() => customElements.get("ob-reading-modes") === undefined)).toBe(true);
+  const shown = () =>
+    page.locator(".ob-supplement").evaluateAll((nodes) =>
+      nodes.map((node) => ({ id: node.id, shown: getComputedStyle(node).visibility !== "hidden" && node.getBoundingClientRect().height > 0 })),
+    );
+  // No script yet: standard hides the three ordinary layers, never the warning.
+  expect((await shown()).filter((item) => item.shown).map((item) => item.id)).toEqual(["ob-supplement-4"]);
+  // Without the script nothing is lost for good: every layer comes back by itself.
+  await expect(async () => {
+    expect((await shown()).every((item) => item.shown)).toBe(true);
+  }).toPass({ timeout: 15000 });
+  await context.close();
+});
+
+test("a post that opens guided hides only its deep-dive layers before script runs", async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.route(/\/assets\/.*\.js/, (route) => route.abort());
+  await page.goto(`${origin}/guided/`);
+  const shown = await page.locator(".ob-supplement").evaluateAll((nodes) =>
+    nodes.filter((node) => getComputedStyle(node).visibility !== "hidden" && node.getBoundingClientRect().height > 0).map((node) => node.id),
+  );
+  expect(shown).toEqual(["ob-supplement-1", "ob-supplement-4"]);
+  await context.close();
+});
+
+test("with reduced motion off nothing fades in on load; only a chosen mode does", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await open(page, "guided");
+  const animations = () =>
+    page.locator(".ob-supplement").evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).animationName));
+  expect((await animations()).every((name) => name === "none")).toBe(true);
+  await radio(page, "Deep dive").check();
+  expect((await animations()).filter((name) => name === "ob-supplement-in")).toHaveLength(2);
+});
+
+test("changing the mode keeps the reader's place and an open aside", async ({ page }) => {
+  await open(page);
+  // The browser's own scroll anchoring is switched off, so this is the component keeping the place.
+  await page.addStyleTag({ content: "html, body, article, ob-reading-modes { overflow-anchor: none !important; }" });
+  await page.getByText("An aside", { exact: true }).click();
+  await expect(page.locator("details", { hasText: "An aside" })).toHaveJSProperty("open", true);
+  const filler = page.getByText("Filler paragraph 5 keeps", { exact: false });
+  const place = () => filler.evaluate((node) => Math.round(node.getBoundingClientRect().top));
+  await filler.scrollIntoViewIfNeeded();
+  await page.evaluate(() => window.scrollBy(0, 120));
+  const before = await place();
+  expect(before).toBeGreaterThan(0);
+  for (const mode of ["guided", "deep-dive", "standard"]) {
+    // A choice made without moving the page, as a keyboard choice from the top would be.
+    await page.evaluate((value) => document.querySelector(`input[value="${value}"]`).click(), mode);
+    await expect(page.locator(`input[value="${mode}"]`)).toBeChecked();
+    expect(Math.abs((await place()) - before), mode).toBeLessThanOrEqual(1);
+    await expect(page.locator("details", { hasText: "An aside" })).toHaveJSProperty("open", true);
+  }
+});
+
+test("labels stay on every shown supplement and a layer that cannot be read is never hidden", async ({ page }) => {
+  await open(page);
+  await radio(page, "Deep dive").check();
+  for (const id of [1, 2, 3, 4]) {
+    const label = page.locator(`#ob-supplement-${id}-label`);
+    await expect(label).toBeVisible();
+    await expect(label.locator(".ob-supplement-kind")).not.toBeEmpty();
+    await expect(label.locator(".ob-supplement-level")).toContainText("supplement");
+  }
+  await page.evaluate(() => document.querySelector("#ob-supplement-1").setAttribute("data-ob-level", "mystery"));
+  await radio(page, "Standard").check();
+  await expect(supplement(page, 1)).toBeVisible();
+  await expect(supplement(page, 2)).toBeHidden();
 });

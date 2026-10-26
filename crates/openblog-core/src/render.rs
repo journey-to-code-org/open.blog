@@ -1491,7 +1491,18 @@ impl<'a> Renderer<'a> {
             .filter(|depth| !depth.is_empty())
             .map(|depth| depth.default_mode.as_str());
         if let Some(default_mode) = reading_modes {
-            body.push_str(&format!("<ob-reading-modes default=\"{default_mode}\">"));
+            // A site under a folder (GitHub Pages project sites) shares its
+            // origin's storage with its siblings, so the choice is kept under
+            // the base path (ADR 0174).
+            let base = self.site.config.base_path();
+            let scope = if base.is_empty() {
+                String::new()
+            } else {
+                format!(" data-ob-base=\"{}\"", attr(&base))
+            };
+            body.push_str(&format!(
+                "<ob-reading-modes default=\"{default_mode}\"{scope}>"
+            ));
         }
         body.push_str(&format!(
             "<ob-code{}><div class=\"ob-prose e-content\">{}</div></ob-code>\n",

@@ -15,7 +15,9 @@ import {
   isMode,
   readPreference,
   resolveMode,
+  shouldShow,
   shows,
+  storageKey,
   writePreference,
 } from "../../web/components/reading-modes.js";
 
@@ -105,4 +107,37 @@ test("a mode change is announced with its name and how many supplements are show
   assert.equal(announcement("guided", 2, 3), "Guided reading. Showing 2 of 3 supplements.");
   assert.equal(announcement("deep-dive", 1, 1), "Deep dive reading. Showing 1 of 1 supplement.");
   assert.equal(announcement("standard", 0, 3), "Standard reading. No supplements shown.");
+});
+
+test("a supplement with a level the page cannot read is never hidden", () => {
+  for (const mode of contract.modes) {
+    for (const level of contract.levels) {
+      assert.equal(shouldShow(mode, level), contract.shows[mode][level], `${mode} ${level}`);
+    }
+    for (const unknown of ["other", "", null, undefined, "Guided"]) {
+      assert.equal(shouldShow(mode, unknown), true, `${mode} ${unknown}`);
+    }
+  }
+  assert.deepEqual(countsByMode([{ level: "mystery", always: false }]), { standard: 1, guided: 1, "deep-dive": 1 });
+});
+
+test("the saved choice is kept under the site's base path, so sibling project sites do not share it", () => {
+  assert.equal(storageKey(""), STORAGE_KEY);
+  assert.equal(storageKey(undefined), STORAGE_KEY);
+  assert.equal(storageKey("/blog"), `${STORAGE_KEY}:/blog`);
+  assert.equal(storageKey("/blog/"), `${STORAGE_KEY}:/blog`);
+  assert.notEqual(storageKey("/one"), storageKey("/two"));
+  // Anything that is not a plain absolute path is the root.
+  for (const odd of ["blog", "/", "//", null, 4, "x".repeat(300)]) assert.equal(storageKey(odd), STORAGE_KEY, String(odd));
+  const store = memory();
+  const one = storageKey("/one");
+  const two = storageKey("/two");
+  assert.equal(writePreference(store, "guided", one), true);
+  assert.equal(readPreference(store, one), "guided");
+  assert.equal(readPreference(store, two), null);
+  assert.equal(readPreference(store), null);
+  assert.equal(clearPreference(store, two), true);
+  assert.equal(readPreference(store, one), "guided", "clearing a sibling's key leaves this one");
+  assert.equal(clearPreference(store, one), true);
+  assert.equal(readPreference(store, one), null);
 });

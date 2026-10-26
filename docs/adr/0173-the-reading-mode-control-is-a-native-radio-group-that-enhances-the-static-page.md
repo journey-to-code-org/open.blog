@@ -36,11 +36,13 @@ pixels and 400% zoom, and the choice is a private preference.
   3 supplements." after each change by the reader, and says what was revealed or reset. It is silent
   on load and when another tab changes the choice.
 - **The choice is kept on this device, as a preference only.** `localStorage` key `ob-reading-mode`
-  holds one of the three names; it is per site because storage is per origin, it is read and written
+  holds one of the three names; it is per origin, which is per site only for a site at the root of its
+  host (corrected by [ADR 0174](0174-supplement-layers-render-progressively-from-the-complete-static-page.md):
+  a project site under a folder adds its base path to the key), it is read and written
   in `try`/`catch`, a value that is not a mode is ignored, and nothing is sent anywhere or logged.
   When storage is blocked the choice applies to the page and the announcement says it could not be
   saved. A "Use the author's default" button clears the saved choice and returns to the author's
-  default; it is disabled while nothing is saved.
+  default; it is aria-disabled while nothing is saved (ADR 0174).
 - **Defaults.** Saved choice, else the author's `default` (ADR 0172), else standard.
 - **Reduced motion.** Showing a supplement fades it in over 0.18 seconds only under
   `prefers-reduced-motion: no-preference`; scrolling to a revealed target is instant under `reduce`.

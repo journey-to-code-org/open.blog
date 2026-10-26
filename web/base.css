@@ -2478,7 +2478,10 @@ ob-reading-modes { display: block; }
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.ob-supplement[hidden] { display: none; }
+.ob-supplement[hidden]:not([hidden="until-found"]) { display: none; }
+/* Hidden but findable (ADR 0174): the browser skips the contents, and the box shrinks to nothing so
+   no empty frame is left. Find in page and a link into it reveal it. */
+.ob-supplement[hidden="until-found"] { margin: 0; padding: 0; border-width: 0; background: none; }
 .ob-supplement .ob-supplement { margin-block: 0.9em; }
 .ob-supplement > blockquote { margin: 0; padding: 0; border: 0; background: none; }
 .ob-supplement > blockquote > :first-child { margin-top: 0; }
@@ -2491,10 +2494,23 @@ ob-reading-modes { display: block; }
 .ob-supplement-end strong { font-weight: 600; }
 .ob-supplement[data-ob-always] { --ob-supplement-edge: var(--ob-color-callout-warning, #bf8700); }
 .ob-supplement[data-ob-revealed] { outline: 2px dashed var(--ob-supplement-edge); outline-offset: 2px; }
+/* A supplement fades in only when the reader just chose a mode that shows it and has not asked for
+   reduced motion: never on load, never on a page where script has not applied a mode. */
 @media (prefers-reduced-motion: no-preference) {
-  .ob-supplement:not([hidden]) { animation: ob-supplement-in 0.18s ease-out; }
+  .ob-supplement.ob-just-shown:not([hidden]) { animation: ob-supplement-in 0.18s ease-out; }
 }
 @keyframes ob-supplement-in { from { opacity: 0; } to { opacity: 1; } }
+/* Before script has applied a mode, hide the layers the author's default mode hides, so the page does
+   not paint every layer and then jump. Only where script is on (without it nothing is hidden), and
+   never a warning. The hiding is the animation's first keyframe held through a six second delay, so if
+   the script never arrives the layers return by themselves. */
+@media (scripting: enabled) {
+  ob-reading-modes:not(:defined)[default="standard"] .ob-supplement:not([data-ob-always]),
+  ob-reading-modes:not(:defined)[default="guided"] .ob-supplement[data-ob-level="deep-dive"]:not([data-ob-always]) {
+    animation: ob-supplement-wait 0.01s 6s backwards;
+  }
+}
+@keyframes ob-supplement-wait { from { height: 0; margin: 0; padding: 0; border-width: 0; overflow: hidden; visibility: hidden; } }
 
 .ob-reading-controls {
   margin: 0 0 1.25rem;
@@ -2518,6 +2534,7 @@ ob-reading-modes { display: block; }
 .ob-reading-option label { font-weight: 600; padding-block: 0.4rem; }
 .ob-reading-help { grid-column: 2; margin-top: -0.25rem; font-size: 0.85em; color: var(--ob-color-muted, inherit); overflow-wrap: anywhere; }
 .ob-reading-reset { margin-top: 0.5rem; min-height: 2.75rem; max-width: 100%; }
+.ob-reading-reset[aria-disabled="true"] { opacity: 0.55; cursor: default; }
 @media print {
   .ob-reading-controls { display: none; }
   .ob-supplement { break-inside: avoid; }
