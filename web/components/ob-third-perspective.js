@@ -22,9 +22,11 @@ import { normalizePassageText } from "./passage-target.js";
 import {
   MAX_BODY_CHARS,
   RESPONSE_CATEGORIES,
+  attributedAnchor,
   isCanonicalTime,
   isPassageRevision,
   isWorkPath,
+  readAttributedAnchor,
   readThirdPerspectiveSubmissionJson,
   thirdPerspectiveCopyText,
   thirdPerspectiveSubmissionValue,
@@ -32,6 +34,9 @@ import {
 import { isReceipt, receiptManager, receiptPanel } from "./feedback-receipt.js";
 
 export const DATA_ELEMENT_ID = "ob-passages";
+// Where a shared reflection's author sections are listed, when the site opens author responses (ADR 0165).
+export const ATTRIBUTED_DATA_ELEMENT_ID = "ob-attributed-sections";
+const MAX_ATTRIBUTED = 1000;
 const SUPPORTED_VERSION = 1;
 const MAX_DATA_LENGTH = 8_000_000;
 const SEND_TIMEOUT = 20_000;
@@ -65,6 +70,39 @@ export function readSections(text) {
     sections.push(Object.freeze({ index: position, anchor, title: title === undefined ? undefined : normalizePassageText(title), digest: section.digest }));
   }
   return Object.freeze({ work: data.work, revision: data.revision, sections: Object.freeze(sections) });
+}
+
+/**
+ * The page's author sections as `{ work, sections: [{ anchor, contributor, nth, author, excerpt,
+ * digest }] }`, or null when there are none, they cannot be read, or any one is not exactly what the
+ * build writes (the anchor must be the reserved anchor of its contributor and place). A reader
+ * writes about one by its author and place, never by a side of the page.
+ */
+export function readAttributedSections(text, work) {
+  if (!isText(text) || text.length > MAX_DATA_LENGTH) return null;
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!data || typeof data !== "object" || data.version !== SUPPORTED_VERSION || data.work !== work || !Array.isArray(data.sections)) return null;
+  if (data.sections.length === 0 || data.sections.length > MAX_ATTRIBUTED) return null;
+  const sections = [];
+  for (const section of data.sections) {
+    if (!section || typeof section !== "object") return null;
+    const { anchor, contributor, nth, author, excerpt, digest } = section;
+    const read = readAttributedAnchor(anchor);
+    if (read?.ok !== true || read.contributor !== contributor || read.nth !== nth || anchor !== attributedAnchor(contributor, nth) || !isDigest(digest)) return null;
+    if (!isText(author) || author.length === 0 || author.length > 200 || !isText(excerpt) || excerpt.length > 400) return null;
+    sections.push(Object.freeze({ anchor, contributor, nth, author: normalizePassageText(author), excerpt: normalizePassageText(excerpt), digest }));
+  }
+  return Object.freeze({ work: data.work, sections: Object.freeze(sections) });
+}
+
+/** What a reader reads to choose one author section: whose it is, its place among theirs, its first words. */
+export function attributedLabel(section) {
+  return `${section.author}, section ${section.nth + 1}${section.excerpt ? `: “${section.excerpt}”` : ""}`;
 }
 
 /** A contact link the build allows: a plain mailto: address or an https: page. */
@@ -107,6 +145,7 @@ let instances = 0;
 
 export class ObThirdPerspective extends HTMLElement {
   #passages = null;
+  #attributed = null;
   #endpoint = "";
   #page = "";
   #contact = null;
@@ -126,6 +165,7 @@ export class ObThirdPerspective extends HTMLElement {
     // Without its data or an endpoint the static text stays, as without JavaScript.
     if (!passages || !endpoint) return;
     this.#passages = passages;
+    this.#attributed = readAttributedSections(document.getElementById(ATTRIBUTED_DATA_ELEMENT_ID)?.textContent, passages.work);
     this.#endpoint = endpoint;
     this.#page = this.getAttribute("page") || "";
     this.#contact = safeContact(this.getAttribute("contact"));
@@ -213,11 +253,32 @@ export class ObThirdPerspective extends HTMLElement {
       section.disabled = true;
       sectionSelect.disabled = true;
     }
+    // One author's section of a shared reflection, by author and place (ADR 0165): offered only
+    // where the build listed them.
+    let authorRadio = null;
+    let authorSelect = null;
+    const authorParts = [];
+    if (this.#attributed) {
+      authorRadio = radio("about", "author-section");
+      authorSelect = make("select");
+      for (const [position, item] of this.#attributed.sections.entries()) {
+        const option = make("option", undefined, attributedLabel(item));
+        option.value = String(position);
+        authorSelect.append(option);
+      }
+      const authorField = make("div", "ob-third-perspective-subfield");
+      authorField.append(labelled(authorSelect, `${id}-author-select`, "Author’s section"), authorSelect);
+      authorSelect.addEventListener("change", () => {
+        authorRadio.checked = true;
+      });
+      authorParts.push(choice(authorRadio, labelled(authorRadio, `${id}-author-section`, "One author’s section")), authorField);
+    }
     about.append(
       make("legend", undefined, "What is it about?"),
       choice(work, labelled(work, `${id}-work`, "The whole work")),
       choice(section, labelled(section, `${id}-section`, "One section")),
       sectionField,
+      ...authorParts,
       aboutError,
     );
 
@@ -350,13 +411,17 @@ export class ObThirdPerspective extends HTMLElement {
     });
 
     return {
-      form, alert, about, work, section, sectionSelect, category, categories, body, publication, publishYes, publishNo, name, showName,
+      form, alert, about, work, section, sectionSelect, authorRadio, authorSelect, category, categories, body, publication, publishYes, publishNo, name, showName,
       clarification, submit, status, done, fallback, fallbackMessage, copyArea, copyLabel, retry, copyButton, contactLink, errors, controls, hints,
     };
   }
 
   #target() {
     const ui = this.#ui;
+    if (ui.authorRadio?.checked) {
+      const author = this.#attributed.sections[Number(ui.authorSelect.value)];
+      return author ? { version: 1, kind: "section", section: author.anchor, digest: author.digest } : null;
+    }
     if (!ui.section.checked) return { version: 1, kind: "work" };
     const item = this.#passages.sections[Number(ui.sectionSelect.value)];
     if (!item) return null;
@@ -380,7 +445,7 @@ export class ObThirdPerspective extends HTMLElement {
     }
     for (const group of [ui.about, ui.category, ui.publication]) group.removeAttribute("aria-invalid");
     const errorIds = new Set(Object.values(ui.errors).map((error) => error.id));
-    for (const radio of [ui.work, ui.section, ui.publishYes, ui.publishNo, ...ui.categories]) {
+    for (const radio of [ui.work, ui.section, ui.authorRadio, ui.publishYes, ui.publishNo, ...ui.categories].filter(Boolean)) {
       radio.removeAttribute("aria-invalid");
       // A radio keeps its own description (a prompt's question); only an error's is taken off.
       const kept = (radio.getAttribute("aria-describedby") || "").split(/\s+/).filter((token) => token && !errorIds.has(token));
@@ -396,7 +461,7 @@ export class ObThirdPerspective extends HTMLElement {
     error.textContent = message;
     error.hidden = false;
     ui.alert.textContent = message;
-    const groups = { about: [ui.about, [ui.work, ui.section]], category: [ui.category, ui.categories], publication: [ui.publication, [ui.publishYes, ui.publishNo]] };
+    const groups = { about: [ui.about, [ui.work, ui.section, ui.authorRadio].filter(Boolean)], category: [ui.category, ui.categories], publication: [ui.publication, [ui.publishYes, ui.publishNo]] };
     if (groups[name]) {
       const [group, radios] = groups[name];
       group.setAttribute("aria-invalid", "true");

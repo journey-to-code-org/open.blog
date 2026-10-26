@@ -180,6 +180,49 @@ export function submissionKind(text) {
   }
 }
 
+// Attributed sections (ADRs 0160 and 0161): one author's section of a published shared reflection is
+// the ordinary section target whose anchor is `ob-by-{contributor}-{nth}`, with its digest. The
+// contributor is the public registry key the post's committed credits name. This mirrors
+// crates/openblog-core/src/attributed_perspective.rs, held to the same fixture.
+export const ATTRIBUTED_ANCHOR_PREFIX = "ob-by-";
+export const MAX_ATTRIBUTED_SECTIONS = 1000;
+const MAX_IDENTIFIER_BYTES = 128;
+const REGISTRY_KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** The anchor of the `nth` section (zero-based) written by `contributor`. */
+export const attributedAnchor = (contributor, nth) => `${ATTRIBUTED_ANCHOR_PREFIX}${contributor}-${nth}`;
+
+/**
+ * Read an anchor: `null` when it is an ordinary heading id (it does not start with the reserved
+ * prefix); `{ ok: false }` when it does but is not written exactly as `attributedAnchor` writes
+ * one (so a look-alike is never half-read); otherwise `{ ok: true, contributor, nth }`.
+ */
+export function readAttributedAnchor(anchor) {
+  if (typeof anchor !== "string" || !anchor.startsWith(ATTRIBUTED_ANCHOR_PREFIX)) return null;
+  const rest = anchor.slice(ATTRIBUTED_ANCHOR_PREFIX.length);
+  const at = rest.lastIndexOf("-");
+  if (at < 0) return { ok: false };
+  const contributor = rest.slice(0, at);
+  const place = rest.slice(at + 1);
+  const canonical = place.length >= 1 && place.length <= 3 && /^[0-9]+$/.test(place) && (place === "0" || !place.startsWith("0"));
+  if (!canonical || !REGISTRY_KEY.test(contributor) || utf8Length(contributor) > MAX_IDENTIFIER_BYTES) return { ok: false };
+  const nth = Number(place);
+  return nth < MAX_ATTRIBUTED_SECTIONS ? { ok: true, contributor, nth } : { ok: false };
+}
+
+/**
+ * The attributed reading of a checked section target (`{ kind, section?, digest? }`): `null` for the
+ * whole work and any ordinary heading id; `{ ok: false }` for a reserved anchor that is not exact or
+ * has no digest; otherwise `{ ok: true, contributor, nth, digest }`.
+ */
+export function readAttributedTarget(target) {
+  if (!isObject(target) || typeof target.section !== "string") return null;
+  const anchor = readAttributedAnchor(target.section);
+  if (anchor === null) return null;
+  if (!anchor.ok || target.kind !== "section" || typeof target.digest !== "string") return { ok: false };
+  return { ok: true, contributor: anchor.contributor, nth: anchor.nth, digest: target.digest };
+}
+
 /** Read a target as a Third Perspective reads it: B5's rules, and never a quotation. */
 function readPerspectiveTarget(value, source) {
   if (isObject(value) && value.kind === "quote" && versionIs(scan(source).spans.get("version"), 1)) {
@@ -188,6 +231,8 @@ function readPerspectiveTarget(value, source) {
   const read = readTargetSource(value, source);
   if (!read.ok) return failure(read.error.code === "unsupportedVersion" ? "unsupportedVersion" : "invalidTarget", `\`target\`: ${read.error.message}`);
   if (read.target.kind === "quote") return failure("targetNotAllowed", "a Third Perspective is about the whole work or a section, not a quotation");
+  // The reserved attributed-section anchor space is written exactly, with its digest, or refused.
+  if (readAttributedTarget(read.target)?.ok === false) return failure("invalidTarget", "`target`: not a valid attributed section target");
   return { ok: true, target: read.target };
 }
 
@@ -387,6 +432,8 @@ export function reviseClarificationConsent(copy, clarification, at) {
 
 const describeTarget = (target) => {
   if (target.kind === "work") return "The whole work";
+  const attributed = readAttributedTarget(target);
+  if (attributed?.ok) return `One author’s section: by ${attributed.contributor}, section ${attributed.nth + 1}`;
   return target.section === undefined ? "The opening, before the first heading" : `Section #${target.section}`;
 };
 
