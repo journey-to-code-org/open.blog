@@ -80,6 +80,7 @@ use crate::clock;
 use crate::fsutil;
 use crate::http::{Request, Response};
 use crate::notebook_store;
+use crate::research_review;
 use crate::site::{self, BuildOptions, BuildReport};
 use crate::source_store::{self, StoreError};
 
@@ -758,6 +759,9 @@ fn authenticated_api(
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
+        ("POST", "research/review") => review_before_publication(state, req),
+        ("PUT", "research/review/acknowledgements") => change_acknowledgement(state, req, true),
+        ("DELETE", "research/review/acknowledgements") => change_acknowledgement(state, req, false),
         ("POST", "portability/acknowledge") => acknowledge_portability(state, req),
         ("POST", "quiz/generate") => generate_quiz(state, req),
         ("POST", "rebuild") => rebuild(state),
@@ -12458,50 +12462,68 @@ fn acknowledge_portability(state: &AppState, req: &Request) -> Response {
     )
 }
 
-fn preview(state: &AppState, req: &Request) -> Response {
-    if let Err(r) = require_json(req) {
-        return r;
-    }
-    let body: Json = match serde_json::from_slice(&req.body) {
-        Ok(b) => b,
-        Err(_) => return Response::error(400, "Invalid JSON"),
-    };
+/// A document as the editor holds it, loaded into the site the way a preview
+/// loads it: unsaved fields and body, credits as edited, drafts left out
+/// except this one. The build lock is held while it lives.
+struct DraftSite<'s> {
+    _guard: MutexGuard<'s, BuildStatus>,
+    site: openblog_core::Site,
+    themes: openblog_core::theme::ThemeSet,
+    rel: String,
+    kind: String,
+    /// The composed source, front matter and body, as it would be saved.
+    source: String,
+    /// The line of the composed source where the editor's first body line is.
+    first_body_line: usize,
+    portable_config: openblog_core::config::SiteConfig,
+}
+
+fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>, Response> {
     let text_body = body["body"].as_str().unwrap_or("");
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
-        return Response::error(413, "The post body is too large");
+        return Err(Response::error(413, "The post body is too large"));
     }
     let fields = match fields_from_json(&body["fields"]) {
         Ok(fields) => fields,
-        Err(e) => return Response::error(422, &e),
+        Err(e) => return Err(Response::error(422, &e)),
     };
-    let kind = body["kind"].as_str().unwrap_or("posts");
-    if !matches!(kind, "posts" | "pages" | "series") {
-        return Response::error(422, "kind must be posts, series, or pages");
+    let kind = body["kind"].as_str().unwrap_or("posts").to_string();
+    if !matches!(kind.as_str(), "posts" | "pages" | "series") {
+        return Err(Response::error(422, "kind must be posts, series, or pages"));
     }
     let rel = match body["path"].as_str().filter(|path| !path.is_empty()) {
         Some(path) => match check_rel_path(path) {
             Ok(path_kind) if path_kind == kind => path.to_string(),
-            Ok(_) => return Response::error(422, "path does not match the document kind"),
-            Err(e) => return Response::error(422, &e),
+            Ok(_) => {
+                return Err(Response::error(
+                    422,
+                    "path does not match the document kind",
+                ))
+            }
+            Err(e) => return Err(Response::error(422, &e)),
         },
-        None => match derive_new_path(kind, &fields) {
+        None => match derive_new_path(&kind, &fields) {
             Ok(path) => path,
-            Err(e) => return Response::error(422, &e),
+            Err(e) => return Err(Response::error(422, &e)),
         },
     };
     let source = frontmatter::compose(&fields, text_body);
-    let credit_edit = match requested_credit_edit(&body, kind) {
+    let header_lines = frontmatter::compose(&fields, "").matches('\n').count();
+    let leading = text_body.len() - text_body.trim_start_matches(['\r', '\n']).len();
+    let leading_lines = text_body[..leading].matches('\n').count();
+    let draft_source = source.clone();
+    let credit_edit = match requested_credit_edit(body, &kind) {
         Ok(edit) => edit,
-        Err(error) => return Response::error(422, &error),
+        Err(error) => return Err(Response::error(422, &error)),
     };
-    let _content_transaction = lock(&state.build);
+    let guard = lock(&state.build);
     let mut config = match site::load_config(&state.root) {
         Ok(config) => config,
-        Err(e) => return Response::error(500, &e),
+        Err(e) => return Err(Response::error(500, &e)),
     };
     if kind == "posts" {
         if let Err(error) = resolve_credit_path(&state.root, &config, &rel) {
-            return Response::error(400, &error);
+            return Err(Response::error(400, &error));
         }
     }
     let excluded_sidecar = (!matches!(credit_edit, CreditEdit::Unchanged))
@@ -12510,7 +12532,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
     let mut sources =
         match site::read_sources_excluding(&state.root, &config, excluded_sidecar.as_deref()) {
             Ok(sources) => sources,
-            Err(e) => return Response::error(500, &e),
+            Err(e) => return Err(Response::error(500, &e)),
         };
     for bucket in [&mut sources.posts, &mut sources.series, &mut sources.pages] {
         bucket.retain(|file| file.path != rel);
@@ -12552,9 +12574,200 @@ fn preview(state: &AppState, req: &Request) -> Response {
                 .cloned()
                 .collect();
             let shown = if mine.is_empty() { errors } else { mine };
-            return Response::error(422, &site::content_problems(&shown));
+            return Err(Response::error(422, &site::content_problems(&shown)));
         }
     };
+    Ok(DraftSite {
+        _guard: guard,
+        site: preview_site,
+        themes,
+        rel,
+        kind,
+        source: draft_source,
+        first_body_line: (header_lines + 1).saturating_sub(leading_lines),
+        portable_config,
+    })
+}
+
+/// The research review of a post before it is published or scheduled (#62,
+/// ADR 0135): what the existing research checks say about the draft as the
+/// editor holds it, grouped by what blocks the build and by outcome, with the
+/// author's acknowledgements matched (ADR 0136). It reads only; it never
+/// saves the post, changes research files or publishes anything. A post that
+/// uses neither the Research profile nor citations is not reviewed
+/// (`applies: false`), so publishing it works exactly as before.
+fn review_before_publication(state: &AppState, req: &Request) -> Response {
+    use openblog_core::publication_review::PublicationReview;
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let mut body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    if body["kind"].as_str().unwrap_or("posts") != "posts" || !body["fields"].is_object() {
+        return Response::error(
+            422,
+            "Only a post's fields and body are reviewed before publication",
+        );
+    }
+    // The post is read as a draft, so a citation the build would refuse once
+    // it is published is listed as a finding that blocks publishing, instead
+    // of stopping the review (ADR 0049, ADR 0135).
+    body["fields"]["draft"] = json!("true");
+    let draft = match load_draft_site(state, &body) {
+        Ok(draft) => draft,
+        Err(response) => return response,
+    };
+    let Some(post) = draft
+        .site
+        .posts
+        .iter()
+        .find(|post| post.source == draft.rel)
+    else {
+        return Response::error(422, "The post was not found in the site model");
+    };
+    let evidence: Vec<_> = draft
+        .site
+        .evidence
+        .iter()
+        .filter(|finding| finding.source.path == draft.rel)
+        .cloned()
+        .collect();
+    let citations_opted_in = body["fields"]["citations"]
+        .as_str()
+        .is_some_and(|style| !style.trim().is_empty());
+    // The same test as Evidence Studio's: the Research profile, citations, or a citation finding.
+    let applies = post.research.is_some()
+        || citations_opted_in
+        || post.citations().is_some()
+        || evidence
+            .iter()
+            .any(|finding| finding.code.to_string().starts_with("citation-"));
+    let (acknowledgements, revision, problem) = match research_review::load(&state.root) {
+        Ok(snapshot) => (snapshot.set.acknowledgements, Some(snapshot.revision), None),
+        Err(error) => (Vec::new(), None, Some(error.to_string())),
+    };
+    let (findings, not_reviewed) = if applies {
+        let document = match frontmatter::parse(&draft.source) {
+            Ok(document) => document,
+            Err(error) => return Response::error(422, &error),
+        };
+        let gathered = research_review::gather(
+            &state.root,
+            &draft.portable_config,
+            &research_review::DraftPost {
+                path: &draft.rel,
+                slug: &post.slug,
+                markdown: &document.body,
+                body_line: document.body_line,
+                evidence,
+            },
+        );
+        (gathered.findings, gathered.not_reviewed)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let review = PublicationReview::new(findings, &acknowledgements);
+    let mut view = serde_json::to_value(&review).unwrap_or_else(|_| json!({}));
+    view["applies"] = json!(applies);
+    view["post"] = json!(draft.rel);
+    view["firstBodyLine"] = json!(draft.first_body_line);
+    view["notReviewed"] = json!(not_reviewed);
+    view["acknowledgements"] = json!({
+        "file": research_review::ACKNOWLEDGEMENTS_FILE,
+        "revision": revision,
+        "error": problem,
+    });
+    Response::json(200, &view)
+}
+
+/// Acknowledge an advisory finding, or withdraw an acknowledgement (ADR 0136).
+/// Only a code the contract lets an author acknowledge is accepted; the
+/// change names the file's revision and is written atomically or not at all.
+fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Response {
+    use openblog_core::publication_review::Acknowledgement;
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    if req.body.len() > 16 * 1024 {
+        return Response::error(413, "An acknowledgement is limited to 16 KiB");
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let Some(revision) = body["revision"].as_str() else {
+        return Response::error(400, "Missing acknowledgements revision");
+    };
+    let acknowledgement: Acknowledgement =
+        match serde_json::from_value(body["acknowledgement"].clone()) {
+            Ok(acknowledgement) => acknowledgement,
+            Err(error) => {
+                return Response::error(422, &format!("Invalid acknowledgement: {error}"))
+            }
+        };
+    if let Some(problem) = acknowledgement.problem() {
+        return Response::error(
+            422,
+            &format!("Not acknowledged: {problem}. Nothing was changed."),
+        );
+    }
+    let result = research_review::change(&state.root, revision, |set| {
+        if add {
+            set.add(acknowledgement.clone())
+        } else {
+            set.withdraw(&acknowledgement);
+            Ok(())
+        }
+    });
+    match result {
+        Ok(snapshot) => Response::json(
+            200,
+            &json!({ "revision": snapshot.revision, "acknowledged": add }),
+        ),
+        Err(research_review::StoreError::Conflict) => Response::json(
+            409,
+            &json!({
+                "error": "The acknowledgements changed since this review was read. Nothing was changed; review again.",
+                "conflict": true,
+                "revision": research_review::load(&state.root).ok().map(|snapshot| snapshot.revision),
+            }),
+        ),
+        Err(error @ research_review::StoreError::Invalid(_)) => Response::json(
+            422,
+            &json!({
+                "error": format!("{error}. Nothing was changed."),
+                "file": research_review::ACKNOWLEDGEMENTS_FILE,
+            }),
+        ),
+        Err(research_review::StoreError::Storage(message)) => Response::error(500, &message),
+    }
+}
+
+fn preview(state: &AppState, req: &Request) -> Response {
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(b) => b,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let draft = match load_draft_site(state, &body) {
+        Ok(draft) => draft,
+        Err(response) => return response,
+    };
+    let DraftSite {
+        site: preview_site,
+        themes,
+        rel,
+        kind,
+        portable_config,
+        ..
+    } = &draft;
+    let kind = kind.as_str();
+    let rel = rel.as_str();
+    let text_body = body["body"].as_str().unwrap_or("");
     let target = match kind {
         "posts" => preview_site
             .posts
@@ -12579,7 +12792,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         "series" => preview_site
             .series
             .iter()
-            .find(|series| series.source.as_deref() == Some(rel.as_str()))
+            .find(|series| series.source.as_deref() == Some(rel))
             .map(|series| {
                 (
                     series.url.clone(),
@@ -12622,7 +12835,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         };
         // A published part of a collaborative series previews the series context its external
         // copies carry, exactly as an acknowledgement recomputes it (ADR 0041).
-        let projection = match admin_portable_projection(&preview_site, post, &portable_config) {
+        let projection = match admin_portable_projection(preview_site, post, portable_config) {
             Ok(projection) => projection,
             Err(error) => return Response::error(422, &error),
         };
@@ -12659,7 +12872,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             Err(error) => return Response::error(422, &error),
         };
         let acknowledgement_path =
-            match resolve_portability_acknowledgement_path(&state.root, &preview_site.config, &rel)
+            match resolve_portability_acknowledgement_path(&state.root, &preview_site.config, rel)
             {
                 Ok(path) => path,
                 Err(error) => return Response::error(422, &error),
@@ -12676,7 +12889,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             .collect::<Vec<_>>();
         let destination_tag_plans =
             openblog_core::portability::destination_policies().map(|policy| {
-                openblog_core::portability::destination_tag_plan(policy.provider, &rel, &tags)
+                openblog_core::portability::destination_tag_plan(policy.provider, rel, &tags)
             });
         let diagnostics_by_representation = ["portable-html", "portable-markdown", "portable-text"]
             .into_iter()
@@ -12696,7 +12909,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             .map(|policy| {
                 openblog_core::portability::destination_content_plan(
                     policy.provider,
-                    &rel,
+                    rel,
                     &portable_html,
                 )
             })
@@ -12718,7 +12931,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
     } else {
         Json::Null
     };
-    let social = match social_metadata(&preview_site, &rel) {
+    let social = match social_metadata(preview_site, rel) {
         Ok(meta) => json!({
             "siteName": meta.site_name,
             "title": meta.title,
@@ -12731,7 +12944,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         }),
         Err(e) => return Response::error(422, &e),
     };
-    let document = match generate_document(&preview_site, &themes, &rel) {
+    let document = match generate_document(preview_site, themes, rel) {
         Ok(document) => document,
         Err(e) => return Response::error(422, &e),
     };
@@ -13148,7 +13361,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
     use crate::scaffold;
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
@@ -14333,6 +14546,444 @@ mod tests {
         );
         assert!(body["comparisons"].get("unavailableBecause").is_none());
         assert_eq!(body["notebook"]["passages"][0]["id"], "cave");
+    }
+
+    /// A research post for the pre-publication review (#62): the draft-side
+    /// fixture's research, a saved post `cave` with one claim and no evidence,
+    /// and a site that publishes its atlas, comparisons and claim evidence.
+    fn review_fixture(tag: &str) -> Fixture {
+        let f = draft_research_fixture(tag);
+        fs::write(
+            f.dir.join("content/posts/cave.md"),
+            "---\ntitle: Cave\ndate: 2026-10-01\nprofile: research\ndraft: true\n---\n\nThe cave educates.\n",
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join(crate::claims_store::CLAIMS_FILE),
+            json!({"version": 1, "claims": [
+                {"id": "c1", "post": "cave", "statement": "ob-claim-statement", "uncertainty": "ob-claim-doubt"}
+            ], "links": []})
+            .to_string(),
+        )
+        .unwrap();
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        config["comparisons"] = json!({"publish": true});
+        config["claimEvidence"] = json!({"publish": true});
+        fs::write(&config_path, config.to_string()).unwrap();
+        f
+    }
+
+    fn review_request(body: &str) -> Json {
+        json!({
+            "kind": "posts",
+            "path": "posts/cave.md",
+            "fields": {"title": "Cave", "date": "2026-10-01", "profile": "research", "citations": "notes"},
+            "body": body,
+        })
+    }
+
+    const REVIEW_BODY: &str = "## Abstract\n\nThe cave educates [@slings, page 514].\n\nSee [Plato](/atlas/plato-person/), [the Good](/atlas/the-good/) and [the places](/comparisons/cave-places/).\n\nAlso [@nobody].\n\n## References\n";
+
+    fn review(f: &Fixture, session: &(String, String), body: &str) -> Json {
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/research/review", review_request(body)),
+                session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        body_json(&response)
+    }
+
+    fn finding<'a>(review: &'a Json, code: &str) -> &'a Json {
+        review["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|finding| finding["code"] == code)
+            .unwrap_or_else(|| panic!("no {code} in {review}"))
+    }
+
+    #[test]
+    fn the_review_groups_findings_by_gate_and_outcome_and_blocks_only_on_refusals() {
+        let f = review_fixture("review-groups");
+        let session = login_ok(&f);
+        let before = research_files(&f);
+        let saved_post = fs::read(f.dir.join("content/posts/cave.md")).unwrap();
+        let without_csrf = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/review",
+                    review_request(REVIEW_BODY),
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without_csrf.status, 403);
+        let signed_out = handle(
+            &f.state,
+            &json_req(
+                "POST",
+                "/admin/api/research/review",
+                review_request(REVIEW_BODY),
+            ),
+        );
+        assert_eq!(signed_out.status, 401);
+
+        let review = review(&f, &session, REVIEW_BODY);
+        assert_eq!(review["version"], 1);
+        assert_eq!(review["applies"], true);
+        assert_eq!(review["post"], "posts/cave.md");
+        // The unresolved citation blocks publishing; it is the citation check's own finding.
+        let groups = review["groups"].as_array().unwrap();
+        assert_eq!(groups[0]["name"], "blocking");
+        let blocking: Vec<&str> = groups[0]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|index| {
+                review["findings"][index.as_u64().unwrap() as usize]["code"]
+                    .as_str()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(blocking, vec!["citation-unresolved"]);
+        let unresolved = finding(&review, "citation-unresolved");
+        assert_eq!(unresolved["validator"], "citation-review");
+        assert_eq!(unresolved["gate"], "refuses-when-published");
+        assert_eq!(unresolved["scope"]["object"], "post");
+        assert_eq!(unresolved["scope"]["path"], "posts/cave.md");
+        assert!(unresolved["scope"]["line"].as_u64().is_some());
+        // Every other group is advisory, in the fixed order.
+        let names: Vec<&str> = groups
+            .iter()
+            .map(|group| group["name"].as_str().unwrap())
+            .collect();
+        let order = ["blocking", "detected", "potential", "needs-review"];
+        let rank = |name: &str| order.iter().position(|known| *known == name);
+        assert!(
+            names.windows(2).all(|pair| rank(pair[0]) < rank(pair[1])),
+            "{names:?}"
+        );
+        // A link to an unapproved atlas entry: advisory, at its line, naming the entry.
+        let context = finding(&review, "context-link-unpublished");
+        assert_eq!(context["validator"], "publication-context");
+        assert_eq!(context["check"], "context-link");
+        assert_eq!(context["gate"], "advisory");
+        assert_eq!(
+            context["related"],
+            json!([{"kind": "entry", "id": "the-good"}])
+        );
+        assert_eq!(
+            context["scope"]["line"],
+            review["firstBodyLine"].as_u64().unwrap() + 4
+        );
+        // The claim on this post with no evidence, scoped to the claim.
+        let missing = finding(&review, "claim-evidence-missing");
+        assert_eq!(missing["scope"]["object"], "claim");
+        assert_eq!(missing["scope"]["id"], "c1");
+        // The cited location only a person can check.
+        assert_eq!(
+            finding(&review, "citation-location-review")["outcome"],
+            "needs-review"
+        );
+        // Each outcome counted apart; there is no score, total, pass or resolved field.
+        for outcome in ["detected", "potential", "needsReview"] {
+            assert!(review["counts"][outcome]["found"].as_u64().is_some());
+            assert_eq!(review["counts"][outcome]["acknowledged"], 0);
+        }
+        let text = review.to_string();
+        for word in [
+            "\"score\"",
+            "\"total\"",
+            "\"resolved\"",
+            "\"ready\"",
+            "\"pass\"",
+            "\"verdict\"",
+        ] {
+            assert!(!text.contains(word), "{word} in {text}");
+        }
+        // Private research never rides along: statements, notes, excerpts, rights notes.
+        for private in [
+            "ob-claim-statement",
+            "ob-claim-doubt",
+            "ob-hidden-locator",
+            "ob-rights-note",
+            "Why a cave?",
+            "Behold",
+            "ob-private-dating",
+        ] {
+            assert!(!text.contains(private), "{private} leaked into {text}");
+        }
+        assert!(review["acknowledgements"]["revision"].as_str().is_some());
+        assert_eq!(research_files(&f), before, "the review writes nothing");
+        assert_eq!(
+            fs::read(f.dir.join("content/posts/cave.md")).unwrap(),
+            saved_post
+        );
+        assert!(!f.dir.join(research_review::ACKNOWLEDGEMENTS_FILE).exists());
+    }
+
+    #[test]
+    fn a_post_outside_the_research_capability_is_not_reviewed() {
+        let f = review_fixture("review-opt-in");
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/review",
+                    json!({"kind": "posts", "path": "posts/plain.md",
+                        "fields": {"title": "Plain", "date": "2026-10-01"},
+                        "body": "A link to [the Good](/atlas/the-good/)."}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(response.status, 200);
+        let body = body_json(&response);
+        assert_eq!(body["applies"], false);
+        assert_eq!(body["findings"], json!([]));
+        assert_eq!(body["groups"], json!([]));
+        let pages = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/review",
+                    json!({"kind": "pages", "fields": {}, "body": ""}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(pages.status, 422);
+    }
+
+    #[test]
+    fn an_acknowledgement_never_resolves_a_finding_and_goes_stale_when_it_changes() {
+        let f = review_fixture("review-acknowledge");
+        let session = login_ok(&f);
+        let send = |method: &str, body: Json, with_csrf: bool| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(method, "/admin/api/research/review/acknowledgements", body),
+                    &session,
+                    with_csrf,
+                ),
+            )
+        };
+        let file = f.dir.join(research_review::ACKNOWLEDGEMENTS_FILE);
+        let first = review(&f, &session, REVIEW_BODY);
+        let revision = first["acknowledgements"]["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let context = finding(&first, "context-link-unpublished").clone();
+        let ack = |entry: &Json| {
+            let mut ack = json!({
+                "validator": entry["validator"], "code": entry["code"],
+                "object": entry["scope"]["object"], "fingerprint": entry["fingerprint"],
+            });
+            for part in ["path", "id", "field"] {
+                if !entry["scope"][part].is_null() {
+                    ack[part] = entry["scope"][part].clone();
+                }
+            }
+            ack
+        };
+
+        // A refusing finding cannot be acknowledged, and nothing is written.
+        let refused = send(
+            "PUT",
+            json!({"revision": revision, "acknowledgement": ack(finding(&first, "citation-unresolved"))}),
+            true,
+        );
+        assert_eq!(
+            refused.status,
+            422,
+            "{}",
+            String::from_utf8_lossy(&refused.body)
+        );
+        assert!(!file.exists());
+        // Hostile input is refused before anything is read or written.
+        let mut hostile = ack(&context);
+        hostile["resolved"] = json!(true);
+        assert_eq!(
+            send(
+                "PUT",
+                json!({"revision": revision, "acknowledgement": hostile}),
+                true
+            )
+            .status,
+            422
+        );
+        let mut hostile = ack(&context);
+        hostile["fingerprint"] = json!("../../etc/passwd");
+        assert_eq!(
+            send(
+                "PUT",
+                json!({"revision": revision, "acknowledgement": hostile}),
+                true
+            )
+            .status,
+            422
+        );
+        assert_eq!(
+            send(
+                "PUT",
+                json!({"revision": revision, "acknowledgement": ack(&context)}),
+                false
+            )
+            .status,
+            403
+        );
+        assert!(!file.exists());
+
+        let saved = send(
+            "PUT",
+            json!({"revision": revision, "acknowledgement": ack(&context)}),
+            true,
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let next = body_json(&saved)["revision"].as_str().unwrap().to_string();
+        // A stale revision is refused and leaves the file as it was.
+        let stored = fs::read(&file).unwrap();
+        let conflict = send(
+            "PUT",
+            json!({"revision": revision, "acknowledgement": ack(finding(&first, "claim-evidence-missing"))}),
+            true,
+        );
+        assert_eq!(conflict.status, 409);
+        assert_eq!(body_json(&conflict)["revision"], next.as_str());
+        assert_eq!(fs::read(&file).unwrap(), stored);
+        // The record holds the key and fingerprint only: no note, person or time.
+        let record: Json = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(record["version"], 1);
+        let keys: BTreeSet<&str> = record["acknowledgements"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            BTreeSet::from(["validator", "code", "object", "path", "fingerprint"])
+        );
+
+        // Still listed, still counted, now acknowledged.
+        let second = review(&f, &session, REVIEW_BODY);
+        assert_eq!(
+            finding(&second, "context-link-unpublished")["acknowledgement"],
+            "current"
+        );
+        assert_eq!(
+            second["counts"]["detected"]["found"],
+            first["counts"]["detected"]["found"]
+        );
+        assert_eq!(second["counts"]["detected"]["acknowledged"], 1);
+        assert_eq!(
+            second["findings"].as_array().unwrap().len(),
+            first["findings"].as_array().unwrap().len()
+        );
+
+        // Moving the link down a paragraph keeps it current; changing its address makes it stale.
+        let moved = review(&f, &session, &format!("Intro.\n\n{REVIEW_BODY}"));
+        assert_eq!(
+            finding(&moved, "context-link-unpublished")["acknowledgement"],
+            "current"
+        );
+        let changed = review(
+            &f,
+            &session,
+            &REVIEW_BODY.replace("/atlas/the-good/", "/atlas/the-good/#dates"),
+        );
+        assert_eq!(
+            finding(&changed, "context-link-unpublished")["acknowledgement"],
+            "stale"
+        );
+        assert_eq!(changed["counts"]["detected"]["acknowledged"], 0);
+
+        // Withdrawing restores the unacknowledged finding.
+        let withdrawn = send(
+            "DELETE",
+            json!({"revision": next, "acknowledgement": ack(&context)}),
+            true,
+        );
+        assert_eq!(withdrawn.status, 200);
+        let third = review(&f, &session, REVIEW_BODY);
+        assert!(finding(&third, "context-link-unpublished")["acknowledgement"].is_null());
+    }
+
+    #[test]
+    fn a_private_file_the_build_cannot_read_blocks_publishing_against_that_file_only() {
+        let f = review_fixture("review-integrity");
+        let session = login_ok(&f);
+        let atlas_bytes = fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        fs::write(f.dir.join(crate::atlas_store::ATLAS_FILE), b"{ not json").unwrap();
+        let before = research_files(&f);
+        let broken = review(&f, &session, REVIEW_BODY);
+        let atlas: Vec<&Json> = broken["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|finding| finding["validator"] == "atlas")
+            .collect();
+        assert!(!atlas.is_empty(), "{broken}");
+        for finding in &atlas {
+            assert_eq!(finding["gate"], "refuses");
+            assert_eq!(finding["check"], "atlas-integrity");
+        }
+        assert_eq!(broken["groups"][0]["name"], "blocking");
+        assert_eq!(
+            research_files(&f),
+            before,
+            "nothing is repaired or replaced"
+        );
+
+        // An unreadable library is reported once, against the library; what depends on it is
+        // reported as not reviewed, and the alignments file is never blamed.
+        fs::write(f.dir.join(crate::atlas_store::ATLAS_FILE), atlas_bytes).unwrap();
+        fs::write(f.dir.join(crate::source_store::LIBRARY_FILE), b"{ not json").unwrap();
+        let library = review(&f, &session, "## Abstract\n\nText.\n\n## References\n");
+        let validators: BTreeSet<&str> = library["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|finding| finding["gate"] == "refuses")
+            .map(|finding| finding["validator"].as_str().unwrap())
+            .collect();
+        assert_eq!(validators, BTreeSet::from(["source-library"]), "{library}");
+        assert!(
+            !library.to_string().contains("alignments.json"),
+            "{library}"
+        );
+        assert!(library["notReviewed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["part"] == "published-research"));
     }
 
     #[test]

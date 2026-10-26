@@ -330,6 +330,11 @@ pub fn build_findings(
     }
 }
 
+/// Whether a claims file is stored, readable or not.
+pub fn claims_file_stored(root: &Path) -> bool {
+    !claims_file_absent(root)
+}
+
 /// Whether no claims file is stored at all. A build checks this before
 /// loading, because a load reads the library and notebook first and a site
 /// with no claims file must never be stopped by either.

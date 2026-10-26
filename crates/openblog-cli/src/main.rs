@@ -19,6 +19,7 @@ mod notebook_store;
 mod portable_export;
 mod private_guard;
 mod publish;
+mod research_review;
 mod safe_http;
 mod scaffold;
 mod serve;
