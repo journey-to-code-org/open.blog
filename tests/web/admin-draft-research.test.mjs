@@ -700,3 +700,48 @@ test("the panel builds DOM safely, has no motion, and reflows on narrow screens"
   const panelStyles = styles.slice(styles.indexOf("/* The draft-side research panel"));
   assert.doesNotMatch(panelStyles, /transition|animation/);
 });
+
+// ---------------------------------------------------------------- research checks beside the draft (#194)
+
+test("the draft-side panel counts the draft's research checks apart and opens the one review, never scoring", withDom(async () => {
+  const review = {
+    applies: true,
+    findings: [{}, {}, {}],
+    counts: { detected: { found: 2, acknowledged: 1 }, potential: { found: 1, acknowledged: 0 }, needsReview: { found: 0, acknowledged: 0 } },
+    groups: [{ name: "blocking", findings: [0] }],
+  };
+  const opened = [];
+  const api = fakeApi(DATA());
+  const panel = createDraftResearchPanel({ api, insert: () => "", onChecks: async () => review, onReview: () => opened.push("review") });
+  document.body.append(panel.element);
+  await panel.load();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const line = panel.element.querySelector("[data-draft-research-checks-line]");
+  assert.equal(line.textContent, "1 must be fixed before publishing. Detected: 2 (1 acknowledged). Potential: 1. Needs review: 0.");
+  assert.equal(line.getAttribute("role"), "status");
+  assert.doesNotMatch(line.textContent, /score|ready|passed|resolved/i);
+  const open = panel.element.querySelector("[data-draft-research-checks-open]");
+  assert.equal(open.getAttribute("aria-describedby"), line.id);
+  await open.click();
+  assert.deepEqual(opened, ["review"], "it opens the same review the publication dialog shows");
+
+  // A draft outside the review, an empty review and a failed read each say so, in words.
+  for (const [result, pattern] of [
+    [{ applies: false, findings: [] }, /neither/],
+    [{ applies: true, findings: [] }, /not a judgement of the draft/],
+  ]) {
+    const other = createDraftResearchPanel({ api: fakeApi(DATA()), insert: () => "", onChecks: async () => result, onReview: () => {} });
+    document.body.append(other.element);
+    await other.load();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.match(other.element.querySelector("[data-draft-research-checks-line]").textContent, pattern);
+  }
+  const failing = createDraftResearchPanel({ api: fakeApi(DATA()), insert: () => "", onChecks: async () => { throw new Error("offline"); }, onReview: () => {} });
+  document.body.append(failing.element);
+  await failing.load();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(failing.element.querySelector("[data-draft-research-checks-line]").textContent, /could not be read\. Your draft is unchanged/);
+  // Without the hook (pages) the panel has no checks section at all.
+  const plain = createDraftResearchPanel({ api: fakeApi(DATA()), insert: () => "" });
+  assert.equal(plain.element.querySelector("[data-draft-research-checks]"), null);
+}));

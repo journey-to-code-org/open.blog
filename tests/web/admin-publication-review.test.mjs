@@ -462,3 +462,76 @@ test("the review is labelled, keyboard operable, builds DOM safely and adds no m
   assert.doesNotMatch(css, /transition|animation/);
   assert.match(css, /overflow-wrap: anywhere/);
 });
+
+// ---------------------------------------------------------------- the readiness report (#194, ADR 0148)
+
+const READINESS = () => ({
+  ...structuredClone(JSON.parse(readFileSync(new URL("../fixtures/research-readiness/report.json", import.meta.url), "utf8"))),
+  applies: true,
+  notReviewed: [],
+  acknowledgements: { file: ".openblog/private/research/acknowledgements.json", revision: "rev-1", error: null },
+});
+
+const mountSite = (review, handler = () => ({ revision: "rev-2" })) => {
+  const done = [];
+  const client = api(handler);
+  const view = createPublicationReview({ review, mode: "check", api: client, onDone: (result) => done.push(result), embedded: true, site: true, headingLevel: 3, idPrefix: "oba-readiness-site" });
+  globalThis.document.body.append(view.element);
+  return { view, root: view.element, done, client };
+};
+
+test("the site report inside What will be public lists the shared groups and codes, with no dialog actions", withDom(async () => {
+  const review = READINESS();
+  const { root, view } = mountSite(review);
+  assert.equal(root.dataset.publicationReview, "site");
+  assert.equal(view.heading.tagName, "H3", "it sits under the panel's heading");
+  assert.equal(view.heading.textContent, "Research checks");
+  assert.deepEqual(groupsOf(root), review.groups.map((group) => group.name));
+  for (const section of root.querySelectorAll("[data-review-group]")) {
+    const group = review.groups.find((item) => item.name === section.dataset.reviewGroup);
+    assert.deepEqual(codesIn(section), group.findings.map((index) => review.findings[index].code));
+    assert.equal(section.children[0].tagName, "H4", "groups sit one level under it");
+  }
+  assert.equal(root.querySelector("[data-review-confirm]"), null);
+  assert.equal(root.querySelector("[data-review-cancel]"), null);
+  assert.match(root.querySelector("[data-review-group]").textContent, /The next build would refuse these/);
+  assert.equal(root.querySelector("[data-review-status]").textContent, publicationReviewCountsText(review));
+  // Places and repairs are the site's: the post and its line, opened in the editor.
+  const unresolved = article(root, "citation-unresolved");
+  assert.match(unresolved.textContent, /posts\/cave\.md, line 12/);
+  assert.equal(unresolved.querySelector("[data-review-target]").getAttribute("href"), "#/edit/posts%2Fcave.md");
+  assert.match(unresolved.textContent, /once its post is published/, "a draft only warns, and the finding says so");
+  assert.equal(toggleOf(unresolved), undefined, "a refusal is fixed, not acknowledged");
+  assert.doesNotMatch(root.textContent, /score|\d+%|\bpassed\b|\bverified\b|ready to publish/i);
+}));
+
+test("acknowledging in the site report keeps the finding listed and counted, never resolved", withDom(async () => {
+  const review = READINESS();
+  const { root, client } = mountSite(review);
+  const finding = article(root, "abstract-missing");
+  const toggle = toggleOf(finding);
+  assert.equal(toggle.getAttribute("aria-pressed"), "false", "a stale acknowledgement is not a current one");
+  await toggle.click();
+  await tick();
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls[0].path, "research/review/acknowledgements");
+  assert.equal(client.calls[0].body.revision, "rev-1");
+  assert.equal(toggle.getAttribute("aria-pressed"), "true");
+  assert.ok(article(root, "abstract-missing"), "it is still listed");
+  assert.match(root.querySelector("[data-review-status]").textContent, /it is not resolved/);
+  assert.match(root.querySelector("[data-review-status]").textContent, /Detected: 4 \(1 acknowledged\)/);
+  assert.doesNotMatch(finding.textContent, /Resolved/);
+}));
+
+test("the site panel and the draft panel reuse the one review renderer and add no parallel one", () => {
+  const panel = admin.slice(admin.indexOf("async showPublicPreview()"), admin.indexOf("needsPublicationReview(fields)"));
+  assert.match(panel, /"research\/readiness"/);
+  assert.match(panel, /createPublicationReview\(\{[\s\S]*embedded: true,[\s\S]*site: true/);
+  const post = admin.slice(admin.indexOf("async previewBoundary()"), admin.indexOf("async reviewResearch("));
+  assert.match(post, /"research\/review"[\s\S]*createPublicationReview\(\{[\s\S]*embedded: true/);
+  assert.match(admin, /onChecks: this\.kind === "posts" \? \(\) => this\.readResearchChecks\(\) : null,\s+onReview: \(\) => void this\.reviewResearch\("check"\)/);
+  assert.equal((admin.match(/export function createPublicationReview/g) || []).length, 1);
+  const css = styles.slice(styles.indexOf("/* Research review before publication"));
+  assert.match(css, /\.oba-review\.is-embedded/);
+  assert.doesNotMatch(css.slice(css.indexOf(".oba-review.is-embedded")), /transition|animation/);
+});
