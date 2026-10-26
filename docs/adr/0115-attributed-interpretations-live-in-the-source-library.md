@@ -66,7 +66,9 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
   `openblog check` counts them.
   Store functions create, update, and remove one interpretation under the library revision;
   Admin endpoints and controls arrive with the comparison workspace (#54), and publication only
-  through the projection #55 will define.
+  through the projection #55 will define. (Amended 2026-10-26: the comparison workspace reads
+  interpretations but does not edit them; their Admin endpoints and controls moved to B7.2,
+  authoring interpretations in Admin Studio, [#89](https://github.com/journey-to-code-org/open.blog/issues/89).)
 
 ## Consequences
 

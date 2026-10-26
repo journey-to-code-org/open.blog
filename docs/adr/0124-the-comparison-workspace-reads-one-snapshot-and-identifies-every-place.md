@@ -73,7 +73,8 @@ own.
   behavior are unchanged, and the alignments file format is unchanged.
 - The view is larger (it carries the library and notebook), as the notebook view already does.
 - Interpretations are shown with attribution but still edited outside Admin; their Admin
-  controls, and controls for the remaining version-model fields, are left for a later task.
+  controls, and controls for the remaining version-model fields, are left to B7.2, authoring
+  interpretations in Admin Studio ([#89](https://github.com/journey-to-code-org/open.blog/issues/89)).
 - Public comparison pages stay out of scope (#55).
 
 ## Domain language

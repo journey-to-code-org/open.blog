@@ -53,7 +53,9 @@ open.blog keeps the new fields verbatim as unknown fields.
   Admin never drops them. An edited creator keeps its attribution, note, and unknown fields, and
   an edited reference location keeps its volume and unknown fields; a reference to a record in
   several volumes shows a Volume field. Other controls arrive with the comparison workspace
-  (#54).
+  (#54). (Amended 2026-10-26: the comparison workspace shipped without them; Admin controls for
+  the remaining version-model fields moved to B7.2, authoring interpretations in Admin Studio,
+  [#89](https://github.com/journey-to-code-org/open.blog/issues/89).)
 
 ## Consequences
 
