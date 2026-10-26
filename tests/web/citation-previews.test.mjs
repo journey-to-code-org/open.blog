@@ -563,3 +563,112 @@ test("the page's styles animate only without a reduced-motion preference and nev
   // The width the component measures bounds the preview, not `100vw`.
   assert.match(preview, /\n {2}inline-size: 28rem;\n {2}max-inline-size: var\(--ob-citation-preview-max-inline-size, /);
 });
+
+// ---------- #67: hostile data, browser data and reading position ----------
+
+test("hostile data shapes never pollute objects, throw, or reach another entry", () => {
+  const before = Object.getOwnPropertyNames(Object.prototype).join();
+  const hostile = JSON.stringify({
+    version: 1,
+    constructor: { prototype: { polluted: true } },
+    references: [
+      { id: "__proto__", formatted: "proto", link: "https://example.org/" },
+      { id: "constructor", formatted: "ctor" },
+      { id: "toString", formatted: 42 },
+      { id: "array", formatted: ["not", "text"] },
+      { id: "object", formatted: { toString: "x" } },
+      { id: "ok", formatted: "Fine", link: { href: "https://example.org/" } },
+      { id: "ok", formatted: "A second entry for the same id is ignored", link: "https://evil.example/" },
+    ],
+    citations: [
+      { marker: "__proto__", note: "cite-1", reference: "__proto__" },
+      { marker: "constructor", note: "cite-2", reference: "constructor", formatted: { evil: 1 } },
+      { marker: "m-to-string", note: "cite-3", reference: "toString" },
+      { marker: "m-array", note: "cite-3", reference: "array" },
+      { marker: "m-ok", note: "cite-4", reference: "ok", formatted: 7 },
+      { marker: "m-ok", note: "cite-5", reference: "ok", formatted: "a later duplicate marker is ignored" },
+      { marker: "", note: "cite-6", reference: "ok" },
+      { marker: "m-no-note", note: "", reference: "ok" },
+    ],
+  }).replace('{"version":1,', '{"version":1,"__proto__":{"polluted":true},');
+  assert.ok(hostile.includes('"__proto__":{"polluted":true}'));
+  const previews = readReferences(hostile);
+  assert.equal({}.polluted, undefined);
+  assert.equal(Object.getOwnPropertyNames(Object.prototype).join(), before);
+  assert.deepEqual([...previews.keys()], ["__proto__", "constructor", "m-ok"]);
+  assert.deepEqual(previews.get("__proto__"), { note: "cite-1", text: "proto", locators: "", link: "https://example.org/" });
+  assert.equal(previews.get("constructor").locators, "", "a locator that is not text is dropped");
+  assert.deepEqual(previews.get("m-ok"), { note: "cite-4", text: "Fine", locators: "", link: null });
+  // Deep nesting, huge numbers and a document exactly at the budget never throw.
+  assert.equal(readReferences(`${"[".repeat(100_000)}${"]".repeat(100_000)}`), null);
+  assert.equal(readReferences('{"version":1e999,"references":[],"citations":[]}'), null);
+  const padded = JSON.stringify({ version: 1, references: [], citations: [], pad: "" });
+  const exact = padded.replace('"pad":""', `"pad":"${"x".repeat(1_000_000 - padded.length)}"`);
+  assert.equal(exact.length, 1_000_000);
+  assert.equal(readReferences(exact).size, 0, "at the budget it is read");
+  assert.equal(readReferences(`${exact} `), null, "one character over it is not");
+});
+
+test("only absolute http(s) addresses with a host and no credentials survive, normalized", () => {
+  for (const unsafe of [
+    " javascript:alert(1)", "\u0000javascript:alert(1)", "java\tscript:alert(1)", "java\nscript:alert(1)",
+    "javascript&colon;alert(1)", "jav&#x61;script:alert(1)", "data:,x", "blob:https://example.org/x",
+    "about:blank", "ftp://example.org/", "ws://example.org/", "mailto:a@example.org", "tel:1",
+    "https://user@example.org/", "https://:pw@example.org/", "http://", "https://",
+    String.raw`\\example.org\x`, "[object Object]", undefined, {}, [], true,
+  ]) {
+    assert.equal(safeLink(unsafe), null, JSON.stringify(String(unsafe)));
+  }
+  // What remains is the browser's own serialization: no raw quote, bracket,
+  // space or control character can come through into an attribute or text.
+  for (const [value, expected] of [
+    ["HTTPS://EXAMPLE.ORG/a b?q=<1>\"'", "https://example.org/a%20b?q=%3C1%3E%22%27"],
+    ["https://example.org/\u202ex", "https://example.org/%E2%80%AEx"],
+    [String.raw`https:\\example.org\x`, "https://example.org/x"],
+    ["https://例え.jp/", "https://xn--r8jz45g.jp/"],
+    ["  https://example.org/padded  ", "https://example.org/padded"],
+    ["http:example.org", "http://example.org/"],
+  ]) {
+    assert.equal(safeLink(value), expected, value);
+    assert.doesNotMatch(safeLink(value), /[\s"<>\u0000-\u001f\u202e]/);
+  }
+});
+
+test("using previews changes no browser data, history, scroll position or the marker", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { host, markers, after } = page();
+  const touched = [];
+  const trap = (name) => () => {
+    touched.push(name);
+    throw new Error(`${name} was used`);
+  };
+  Object.defineProperty(document, "cookie", { configurable: true, get: trap("cookie read"), set: trap("cookie write") });
+  globalThis.history = { pushState: trap("history.pushState"), replaceState: trap("history.replaceState"), back: trap("history.back") };
+  window.scrollTo = trap("scrollTo");
+  window.scrollBy = trap("scrollBy");
+  const marker = markers["cite-1-ref-1"];
+  const snapshot = () => Object.values(markers).map((m) => [m.id, m.href, m.getAttribute("role"), m.textContent, m.parentElement.localName]);
+  const original = snapshot();
+  // Every way of opening, using and closing a preview.
+  marker.focus();
+  host.popover.find("ob-citation-preview-source").focus();
+  document.body.dispatch("keydown", { key: "Escape" });
+  markers["cite-2-ref-1"].dispatch("pointerenter", { pointerType: "mouse", bubbles: false });
+  t.mock.timers.tick(250);
+  markers["cite-2-ref-1"].dispatch("pointerleave", { pointerType: "mouse", bubbles: false });
+  t.mock.timers.tick(300);
+  after.focus();
+  markers["cite-3-ref-1"].dispatch("pointerdown", { pointerType: "touch", isPrimary: true });
+  markers["cite-3-ref-1"].focus();
+  markers["cite-3-ref-1"].dispatch("click", { detail: 1 });
+  window.fire(new FakeEvent("resize"));
+  document.body.dispatch("pointerdown", { pointerType: "mouse", isPrimary: true });
+  marker.dispatch("click", { detail: 0 });
+  host.remove();
+  host.disconnectedCallback();
+  assert.deepEqual(touched, []);
+  // The markers are exactly as they were: links to their notes, unchanged.
+  assert.deepEqual(snapshot(), original);
+  assert.equal(document.body.all().filter((node) => node.getAttribute("aria-describedby")).length, 0);
+  delete globalThis.history;
+});
