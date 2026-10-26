@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.38.1] - 2026-10-26
+
+### Fixed
+
+- With `OPENBLOG_CORRECTIONS_ENABLED` on, Admin no longer drops every Third Perspective from the
+  **Moderation inbox**. The hosted function now sends a decision log only with the evidence
+  suggestions that take decisions, and Admin reads a Third Perspective whose log is empty (one
+  that holds a decision is still refused).
+
 ## [0.38.0] - 2026-10-26
 
 - Defined how readers' evidence and the author's correction decisions work, ahead of the forms
