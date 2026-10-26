@@ -1022,9 +1022,16 @@ impl<'a> Inbox<'a> {
                         "feature": consent.feature_revision.is_some(),
                     },
                     "approvedConsent": hosted.approved_consent,
-                    "nameMatchesCredit": work.as_ref().is_some_and(|work| copy.name_matches_credit(&work.credited)),
                     "channel": if copy.can_clarify() { "hosted" } else { "manual" },
                 });
+                // Whether the reader's name matches a credited name says
+                // something about that name, so it goes only to a viewer who
+                // may see the name itself; with one credit it would reveal it.
+                if private_identity || attribution.publish_name {
+                    view["perspective"]["nameMatchesCredit"] = json!(work
+                        .as_ref()
+                        .is_some_and(|work| copy.name_matches_credit(&work.credited)));
+                }
                 // How it would read on the canonical page once approved now.
                 view["publicPreview"] = Value::Null;
                 view["perspectivePreview"] = match (&work, &target) {

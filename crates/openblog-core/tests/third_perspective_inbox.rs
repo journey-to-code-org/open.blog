@@ -5,6 +5,10 @@
 //! where the hosted service records the consent an approval covers, at the
 //! text revision and consent record the moderator saw.
 
+use openblog_core::collaboration::{
+    AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
+    Participant, SharedPublication, SourceKind,
+};
 use openblog_core::config::SiteConfig;
 use openblog_core::invitation::Identities;
 use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
@@ -222,6 +226,101 @@ fn moderators_see_the_category_consent_and_credit_hint_and_never_another_role() 
         !view.to_string().contains(&"5e".repeat(32)),
         "the receipt's digest is never shown"
     );
+}
+
+/// A shared publication over the fixture's one post, with a coordinator and
+/// a contributing author.
+fn shared_record() -> SharedPublication {
+    let mut record = SharedPublication::create(&NewSharedPublication {
+        publication_id: "tides".into(),
+        title: "Tides, together".into(),
+        guiding_question: String::new(),
+        sources: vec![NewSourceReference {
+            kind: SourceKind::Article,
+            title: "Tide tables".into(),
+            ..NewSourceReference::default()
+        }],
+        creator: NewParticipant {
+            admin_user: "owner-admin".into(),
+            contributor_id: "owner".into(),
+            display_name: "Owner".into(),
+        },
+    })
+    .unwrap();
+    for (name, role) in [
+        ("coord", AuthorizationRole::Coordinator),
+        ("writer", AuthorizationRole::Contributor),
+    ] {
+        record.collaboration.participants.push(Participant {
+            id: name.into(),
+            display_name: name.into(),
+            profile_url: None,
+        });
+        record.authorization.bindings.push(IdentityBinding {
+            admin_user: format!("{name}-admin"),
+            contributor_id: name.into(),
+            participant_id: name.into(),
+            roles: vec![role],
+        });
+    }
+    record
+}
+
+#[test]
+fn the_credit_hint_goes_only_to_a_viewer_who_may_see_the_name() {
+    let site = site();
+    let records = [shared_record()];
+    let works = SharedWorks::new(&records, &site);
+    let users = ["owner-admin", "coord-admin", "writer-admin"];
+    let keys = ["owner", "coord", "writer"];
+    let identities = Identities {
+        active_admin_users: &users,
+        contributor_ids: &keys,
+    };
+    let as_viewer = |principal| Inbox {
+        principal,
+        ..inbox(&site, &works, &identities, true)
+    };
+    // The private name matches the site author's credit.
+    let private = InboxItem::from_value(&hosted(
+        &copy(&site, "Ada Lovelace", false),
+        "pending",
+        json!({}),
+    ))
+    .unwrap();
+    let admin = as_viewer(Principal::ModerationToken)
+        .view(&private)
+        .unwrap();
+    assert_eq!(admin["role"], "site-admin");
+    assert_eq!(admin["perspective"]["nameMatchesCredit"], true);
+    for (user, role) in [
+        ("coord-admin", "coordinator"),
+        ("writer-admin", "contributing-author"),
+    ] {
+        let view = as_viewer(Principal::AdminSession { admin_user: user })
+            .view(&private)
+            .unwrap();
+        assert_eq!(view["role"], role, "{user}");
+        assert_eq!(view["reader"]["private"], true, "{user}");
+        assert!(
+            view["perspective"].get("nameMatchesCredit").is_none(),
+            "a {role} never learns whether the hidden name matches a credit"
+        );
+        assert!(!view.to_string().contains("Ada Lovelace"), "{user}");
+    }
+    // A name the reader chose to show carries the hint for anyone who sees it.
+    let shown = InboxItem::from_value(&hosted(
+        &copy(&site, "Ada Lovelace", true),
+        "pending",
+        json!({}),
+    ))
+    .unwrap();
+    let view = as_viewer(Principal::AdminSession {
+        admin_user: "coord-admin",
+    })
+    .view(&shown)
+    .unwrap();
+    assert_eq!(view["perspective"]["nameMatchesCredit"], true);
 }
 
 #[test]
