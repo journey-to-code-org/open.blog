@@ -3,10 +3,12 @@
 -- site that does not opt in never needs it.
 --
 -- Additive only: it creates the feedback table, its moderation audit table,
--- their indexes and one moderation function (ADR 0083). It does not alter,
+-- their indexes and two moderation functions (ADRs 0083 and 0105), and adds
+-- the moderation inbox's columns to those two tables of its own. It does not
 -- rename, drop or rewrite any existing table, column, function or row, so
 -- comments and analytics keep working exactly as before. Running it twice
--- changes nothing. To undo it, see feedback-rollback.sql.
+-- changes nothing; running it again after an upgrade adds only what is new.
+-- To undo it, see feedback-rollback.sql.
 --
 -- The table is private: row level security is on with no policies, the
 -- public roles have no access, and only the Netlify Function (service_role)
@@ -138,5 +140,90 @@ $$;
 
 revoke all on function public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz) from public, anon, authenticated;
 grant execute on function public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz) to service_role;
+
+-- The moderation inbox (ADR 0105). Run this file again to add these to a
+-- table an earlier copy created; on a fresh install they are added here.
+-- Each column is new, with a default or nullable, so every row already
+-- stored reads as revision 1, never asked to clarify, without the reader's
+-- consent to be asked, and nothing it held changes.
+--
+-- The facts the one state machine decides on (ADR 0101): the text's
+-- revision, the revision an approval covers, the revision a clarification
+-- request asked about, and whether the reader agreed to be asked.
+alter table public.openblog_feedback
+  add column if not exists item_revision integer not null default 1 check (item_revision >= 1);
+alter table public.openblog_feedback
+  add column if not exists approved_revision integer check (approved_revision >= 1);
+alter table public.openblog_feedback
+  add column if not exists clarification_asked integer check (clarification_asked >= 1);
+alter table public.openblog_feedback
+  add column if not exists clarification_consent boolean not null default false;
+-- The audit fields ADR 0083 left for the inbox: the item's kind, the
+-- revision the decision was about, and the role the actor had on the item's
+-- work (ADR 0102). Older events have none.
+alter table public.openblog_feedback_events
+  add column if not exists kind text check (kind ~ '^[a-z][a-z0-9-]{0,39}$');
+alter table public.openblog_feedback_events
+  add column if not exists item_revision integer check (item_revision >= 1);
+alter table public.openblog_feedback_events
+  add column if not exists actor_role text check (actor_role ~ '^[a-z][a-z-]{0,31}$');
+
+-- One inbox decision on a feedback item, with its audit event, in one
+-- statement, only while the item still has the state and version both Admin
+-- and the function saw. Which changes are allowed is the code's decision
+-- (netlify/lib/participation-moderation.mjs); this statement also refuses
+-- what must never happen whatever the caller says: approving the text a
+-- clarification asked about, reopening it to anything but clarification, or
+-- asking a reader who did not agree to be asked. A clarification (the
+-- reader's answer, p_body) replaces the text as the next revision. It
+-- returns the changed row, or nothing.
+create or replace function public.openblog_moderate_feedback_item(
+  p_site_id text,
+  p_id uuid,
+  p_expected_version integer,
+  p_from text,
+  p_to text,
+  p_action text,
+  p_reason text,
+  p_actor text,
+  p_actor_role text,
+  p_at timestamptz,
+  p_body text default null,
+  p_details jsonb default null
+)
+returns setof public.openblog_feedback
+language sql
+set search_path = public
+as $$
+  with changed as (
+    update public.openblog_feedback
+       set status = p_to,
+           moderated_at = p_at,
+           moderation_reason = p_reason,
+           version = version + 1,
+           item_revision = case when p_action = 'clarify' then item_revision + 1 else item_revision end,
+           body = case when p_action = 'clarify' then p_body else body end,
+           details = case when p_action = 'clarify' then coalesce(p_details, '{}'::jsonb) else details end,
+           approved_revision = case when p_to = 'approved' then item_revision end,
+           clarification_asked = case when p_action = 'request-clarification' then item_revision else clarification_asked end
+     where id = p_id
+       and site_id = p_site_id
+       and status = p_from
+       and version = p_expected_version
+       and not (p_to = 'approved' and clarification_asked is not distinct from item_revision)
+       and not (p_action = 'reopen' and p_to <> 'clarification' and clarification_asked is not distinct from item_revision)
+       and not (p_action = 'request-clarification' and not clarification_consent)
+       and (p_action <> 'clarify' or p_body is not null)
+    returning *
+  ), logged as (
+    insert into public.openblog_feedback_events
+      (site_id, feedback_id, action, from_status, to_status, reason, actor, at, version, kind, item_revision, actor_role)
+    select site_id, id, p_action, p_from, p_to, p_reason, p_actor, p_at, version, kind, item_revision, p_actor_role from changed
+  )
+  select * from changed;
+$$;
+
+revoke all on function public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb) from public, anon, authenticated;
+grant execute on function public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb) to service_role;
 
 commit;

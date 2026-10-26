@@ -35,7 +35,8 @@ browser script.
    machine running Admin, also set `OPENBLOG_ENGAGEMENT_API_ORIGIN` to the exact endpoint origin;
    this binding prevents the token from being sent to a changed destination.
 
-New comments remain pending until approved in **Admin → Analytics → Comment moderation**. For every
+New comments remain pending until approved in **Admin → Moderation inbox** (see
+[Moderation inbox](#moderation-inbox) below). For every
 public comment read or submission, the function fetches the generated `openblog-comments.json`
 manifest from `OPENBLOG_SITE_ORIGIN` and enforces its open, locked, or hidden policy before querying Supabase.
 Keep that origin current and publicly reachable. Public pages never receive any Supabase key or the
@@ -81,15 +82,12 @@ unchanged and readers can copy their note to the author instead.
 
 ### Moderation
 
-Moderate in **Admin → Reader feedback** (ADR 0083). Admin calls `GET /api/admin/feedback` and
-`PATCH /api/admin/feedback` itself, with the saved moderation token, so the token never reaches
-the browser. A change is `{id, action, from, expectedVersion, reason?, actor?}`: `approve`
-(pending only), `reject` (pending or clarification, with a reason) or `remove` (approved, with a
-reason), where `reason` is one of `spam`, `abusive`, `personal-data`, `off-topic`, `duplicate`,
-`rights` or `other`. The function `openblog_moderate_feedback` applies it only while the item still
-has the state and version the moderator saw, raises the version and records who did what, when
-and why in `openblog_feedback_events`, in one statement; otherwise the route answers `409` with
-the item as it is now. Approved notes are copied, without anything private, to
+Feedback is moderated with comments in **Admin → Moderation inbox**; see
+[Moderation inbox](#moderation-inbox). B5's `GET`/`PATCH /api/admin/feedback` routes (ADR 0083)
+still answer for other tools: a change is `{id, action, from, expectedVersion, reason?, actor?}`
+with `approve`, `reject` or `remove`, applied only while the item still has the state and version
+the moderator saw, with its audit event in `openblog_feedback_events`; otherwise `409` with the
+item as it is now. Approved notes are copied, without anything private, to
 `content/reader-feedback.json` in the site's repository, which the build publishes; the function
 never serves them to readers.
 
@@ -104,3 +102,35 @@ never serves them to readers.
    [`supabase/feedback-rollback.sql`](../../supabase/feedback-rollback.sql). It drops only the
    moderation function, `openblog_feedback_events` and `openblog_feedback`. Without this step the
    tables simply stay unused.
+
+## Moderation inbox
+
+Admin moderates comments and passage feedback in one list, **Admin → Moderation inbox** (ADR
+0104), through `GET` and `PATCH /api/admin/moderation` with the saved moderation token, which never
+reaches the browser. Admin works out, for every item, the role the signed-in account has on that
+item's post (site Admin, coordinator or contributing author of a shared reflection) and shows only
+what that role may see and decide; the function decides every change again from the stored row
+before writing it.
+
+Out of the box the inbox works with the tables you already have and offers what they can store:
+comments can be approved, rejected, removed (stored as rejected) and reopened; feedback can be
+approved, rejected and removed. To offer every decision, including asking a reader to clarify and
+reopening feedback, with a version and an audit event for each comment (ADR 0105):
+
+1. Run [`supabase/moderation.sql`](../../supabase/moderation.sql) in the Supabase SQL editor. It
+   only adds three columns to `openblog_comments` (`version`, `moderation_state`,
+   `moderation_reason`), the private audit table `openblog_comment_events` and the function
+   `openblog_moderate_comment`. Public comment reads are unchanged: `status` still holds only
+   pending, approved or rejected, and a removed comment is stored there as rejected.
+2. If you use passage feedback, run [`supabase/feedback.sql`](../../supabase/feedback.sql) again. It
+   adds `item_revision`, `approved_revision`, `clarification_asked` and `clarification_consent` to
+   `openblog_feedback`, `kind`, `item_revision` and `actor_role` to `openblog_feedback_events`, and
+   the function `openblog_moderate_feedback_item`. Nothing already stored changes.
+3. Set `OPENBLOG_MODERATION_ENABLED` to `true` in Netlify and redeploy. From then on the older
+   `PATCH /api/admin/comments` answers `409`, because it would skip the comment's version, state
+   and audit event.
+
+To undo it, remove `OPENBLOG_MODERATION_ENABLED` and redeploy, then optionally export the audit
+tables and run [`supabase/moderation-rollback.sql`](../../supabase/moderation-rollback.sql), which
+drops exactly what the two steps above added and leaves every comment, feedback item and its
+state in place. Nothing in the inbox e-mails anyone.

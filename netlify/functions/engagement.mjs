@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
+import { INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, legacyCommentStatus, legacySupports, planTransition } from "../lib/participation-moderation.mjs";
 
 const json = (statusCode, value, origin = "") => ({
   statusCode,
@@ -34,8 +35,16 @@ const publicComment = (row) => ({
 
 // A stored feedback row as the moderation item Admin reads (ADRs 0081 and
 // 0083): the ADR 0079 record with its provenance, plus the row id, its
-// moderation state, the version every change must name, and the last reason.
-// The reader's name is shown to moderators only, with their publication choice.
+// moderation state, the version every change must name, and the last reason;
+// with the inbox's schema (ADR 0105), also the facts the state machine
+// decides on. The reader's name is shown to moderators only, with their
+// publication choice; Admin decides who among them may see it (ADR 0102).
+const moderationFacts = (row) => (row.item_revision === undefined ? {} : {
+  itemRevision: row.item_revision,
+  approvedRevision: row.approved_revision ?? null,
+  clarificationAsked: row.clarification_asked ?? null,
+  clarificationConsent: row.clarification_consent === true,
+});
 const hostedFeedback = (row) => {
   const provenance = { version: 1, work: row.work, revision: row.revision, target: row.target };
   const seenAt = row.seen_at ? canonicalTime(row.seen_at) : null;
@@ -50,10 +59,44 @@ const hostedFeedback = (row) => {
     moderatedAt: row.moderated_at ? canonicalTime(row.moderated_at) : null,
     reason: row.moderation_reason ?? null,
     feedback: { version: row.format_version, kind: row.kind, body: row.body, details: row.details || {}, provenance },
+    ...moderationFacts(row),
   };
 };
 
 const FEEDBACK_COLUMNS = "id,status,version,moderated_at,moderation_reason,format_version,kind,work,revision,target,body,details,seen_at,received_at,channel,reader_name,publish_name";
+// What supabase/feedback.sql adds for the moderation inbox (ADR 0105).
+const FEEDBACK_INBOX_COLUMNS = `${FEEDBACK_COLUMNS},item_revision,approved_revision,clarification_asked,clarification_consent`;
+const COMMENT_COLUMNS = "id,path,author_name,body,status,created_at,moderated_at";
+// What supabase/moderation.sql adds to comments (ADR 0105).
+const COMMENT_INBOX_COLUMNS = `${COMMENT_COLUMNS},version,moderation_state,moderation_reason`;
+
+// A comment row as an inbox item (ADR 0104). Without the inbox's schema a
+// comment has only its three statuses and is always at version 1.
+const inboxComment = (row) => ({
+  source: "comment",
+  id: row.id,
+  status: row.moderation_state ?? row.status,
+  version: row.version ?? 1,
+  moderatedAt: row.moderated_at ? canonicalTime(row.moderated_at) : null,
+  reason: row.moderation_reason ?? null,
+  comment: { path: row.path, authorName: row.author_name, body: row.body, createdAt: canonicalTime(row.created_at) },
+});
+const inboxFeedback = (row) => ({ source: "feedback", ...hostedFeedback(row) });
+const inboxItem = (source, row) => (source === "comment" ? inboxComment(row) : inboxFeedback(row));
+
+// The inbox's keyset cursor: a row's own time, to the microsecond, in UTC,
+// and its id. Rows of both stores are merged in this order.
+const ROW_TIME = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,6}))?(Z|[+-]\d\d:\d\d)$/;
+const timeKey = (value) => {
+  const match = ROW_TIME.exec(String(value || ""));
+  if (!match) return null;
+  const date = new Date(`${match[1]}${match[3]}`);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.toISOString().slice(0, 19)}.${(match[2] || "").padEnd(6, "0")}Z`;
+};
+const CURSOR = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z)~([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const INBOX_PAGE = 50;
+const INBOX_UNAVAILABLE = "Run supabase/moderation.sql (and supabase/feedback.sql again if you use passage feedback), then set OPENBLOG_MODERATION_ENABLED=true, to take this decision.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_UNAVAILABLE = "Passage feedback is not available on this site. The page itself is unchanged; you can copy your note and send it to the author instead.";
 
@@ -70,6 +113,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       // Typed passage feedback is off unless the deployer ran
       // supabase/feedback.sql and set this explicitly (ADR 0081).
       feedback: String(env.OPENBLOG_FEEDBACK_ENABLED || "").trim() === "true",
+      // The moderation inbox's full schema (ADR 0105): set only after
+      // running supabase/moderation.sql, and feedback.sql again if feedback
+      // is on. Without it the inbox stores what the older schema can.
+      moderation: String(env.OPENBLOG_MODERATION_ENABLED || "").trim() === "true",
     };
     const required = [values.url, values.key, values.siteId, values.origin, values.adminKey, values.salt];
     if (!required.every(Boolean) || !/^\/(?:[^\\?#\u0000-\u001F]*\/)?$/.test(values.basePath) || values.basePath.includes("//") || values.basePath.split("/").some((segment) => segment === "." || segment === "..")) return null;
@@ -113,8 +160,92 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     return MODES.includes(policy) ? policy : "hidden";
   };
   const feedbackRows = (settings, filters) => {
-    const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, ...filters, select: FEEDBACK_COLUMNS, order: "received_at.asc", limit: "200" });
+    const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, ...filters, select: settings.moderation ? FEEDBACK_INBOX_COLUMNS : FEEDBACK_COLUMNS, order: "received_at.asc", limit: "200" });
     return database(settings, `/rest/v1/openblog_feedback?${params}`);
+  };
+
+  // ---- The moderation inbox (ADRs 0104 and 0105)
+
+  const inboxTable = (source) => (source === "comment" ? "openblog_comments" : "openblog_feedback");
+  const inboxColumns = (settings, source) => (source === "comment"
+    ? (settings.moderation ? COMMENT_INBOX_COLUMNS : COMMENT_COLUMNS)
+    : (settings.moderation ? FEEDBACK_INBOX_COLUMNS : FEEDBACK_COLUMNS));
+
+  // One store's rows in one state after a cursor, oldest first, at most
+  // `limit`. Comments never wait for clarification or are withdrawn, and
+  // without the inbox's schema they are only pending, approved or rejected.
+  const inboxRows = async (settings, source, { state, kind, after, limit }) => {
+    const time = source === "comment" ? "created_at" : "received_at";
+    const conditions = [];
+    if (source === "comment") {
+      if (settings.moderation && state === "removed") conditions.push("moderation_state.eq.removed");
+      else if (!["pending", "approved", "rejected"].includes(state)) return [];
+      else if (settings.moderation) conditions.push(`or(moderation_state.eq.${state},and(moderation_state.is.null,status.eq.${state}))`);
+      else conditions.push(`status.eq.${state}`);
+    } else {
+      conditions.push(`status.eq.${state}`);
+      if (kind) conditions.push(`kind.eq.${kind}`);
+    }
+    if (after) conditions.push(`or(${time}.gt."${after.time}",and(${time}.eq."${after.time}",id.gt.${after.id}))`);
+    const params = new URLSearchParams({
+      site_id: `eq.${settings.siteId}`,
+      and: `(${conditions.join(",")})`,
+      select: inboxColumns(settings, source),
+      order: `${time}.asc,id.asc`,
+      limit: String(limit),
+    });
+    const rows = await database(settings, `/rest/v1/${inboxTable(source)}?${params}`);
+    return (Array.isArray(rows) ? rows : [])
+      .map((row) => ({ source, row, key: timeKey(row[time]), id: String(row.id).toLowerCase() }))
+      .filter((entry) => entry.key);
+  };
+  const inboxRow = async (settings, source, id) => {
+    const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, id: `eq.${id}`, select: inboxColumns(settings, source) });
+    const rows = await database(settings, `/rest/v1/${inboxTable(source)}?${params}`);
+    return Array.isArray(rows) && rows.length ? rows[0] : null;
+  };
+  // The facts the state machine decides on, from a stored row.
+  const inboxFacts = (source, row) => {
+    const item = inboxItem(source, row);
+    return {
+      kind: source === "comment" ? "comment" : row.kind,
+      state: item.status,
+      version: item.version,
+      revision: item.itemRevision ?? 1,
+      clarificationAsked: item.clarificationAsked ?? null,
+      clarificationConsent: item.clarificationConsent === true,
+    };
+  };
+  // Apply one planned change, only while the row still has the state and
+  // version both Admin and this function saw, with its audit event.
+  const applyInboxChange = (settings, source, id, change, version, actor, role) => {
+    const at = canonicalTime(now());
+    if (settings.moderation) {
+      return database(settings, `/rest/v1/rpc/${source === "comment" ? "openblog_moderate_comment" : "openblog_moderate_feedback_item"}`, {
+        method: "POST",
+        body: JSON.stringify({
+          p_site_id: settings.siteId, p_id: id, p_expected_version: version, p_from: change.from, p_to: change.to,
+          p_action: change.action, p_reason: change.reason, p_actor: actor, p_actor_role: role, p_at: at,
+        }),
+      });
+    }
+    if (source === "feedback") {
+      return database(settings, "/rest/v1/rpc/openblog_moderate_feedback", {
+        method: "POST",
+        body: JSON.stringify({
+          p_site_id: settings.siteId, p_id: id, p_expected_version: version, p_from: change.from, p_to: change.to,
+          p_action: change.action, p_reason: change.reason, p_actor: actor, p_at: at,
+        }),
+      });
+    }
+    // An older comment table has no version: the change applies only while
+    // the row still has the status it was read with.
+    const params = new URLSearchParams({ id: `eq.${id}`, site_id: `eq.${settings.siteId}`, status: `eq.${legacyCommentStatus(change.from)}`, select: COMMENT_COLUMNS });
+    return database(settings, `/rest/v1/openblog_comments?${params}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({ status: legacyCommentStatus(change.to), moderated_at: at }),
+    });
   };
   const commentPolicy = (settings, path) => publishedPolicy(settings, "openblog-comments.json", path);
   // One passage feedback kind's mode on one post (ADR 0100), from the
@@ -288,24 +419,85 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const plan = planModeration(body.from, body.action, body.reason);
         if (!plan.ok) return json(422, { error: plan.message, code: plan.code }, corsOrigin);
         const { change } = plan;
-        const rows = await database(settings, "/rest/v1/rpc/openblog_moderate_feedback", {
-          method: "POST",
-          body: JSON.stringify({
-            p_site_id: settings.siteId,
-            p_id: id,
-            p_expected_version: version,
-            p_from: change.from,
-            p_to: change.to,
-            p_action: change.action,
-            p_reason: change.reason,
-            p_actor: auditActor(body.actor),
-            p_at: canonicalTime(now()),
-          }),
-        });
+        // With the inbox's schema the change goes through its function, so
+        // the item's revisions and the audit event's kind, revision and role
+        // are kept as the inbox keeps them (ADR 0105).
+        const rows = await applyInboxChange(settings, "feedback", id, change, version, auditActor(body.actor), "site-admin");
         if (Array.isArray(rows) && rows.length === 1) return json(200, { ok: true, item: hostedFeedback(rows[0]) }, corsOrigin);
         const current = await feedbackRows(settings, { id: `eq.${id}` });
         if (!current.length) return json(404, { error: "No such feedback item.", code: "notFound" }, corsOrigin);
         return json(409, { error: "This item changed since you loaded it. Review it again before acting.", code: "conflict", item: hostedFeedback(current[0]) }, corsOrigin);
+      }
+      if (operation === "admin/moderation") {
+        // The one moderation inbox (ADR 0104): comments and passage feedback
+        // in one list, decided by the one state machine. Admin calls it with
+        // the token, which is the site Admin, naming the role its viewer has
+        // on the item's work (ADR 0102); nothing here is public.
+        if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
+        const protocol = settings.moderation ? "full" : "legacy";
+        const sourceOf = (value) => (value === "comment" || (value === "feedback" && settings.feedback) ? value : "");
+        if (event.httpMethod === "GET") {
+          if (query.id !== undefined) {
+            const source = sourceOf(query.source);
+            if (!UUID.test(String(query.id)) || !source) return json(422, { error: "Name an item by its source and id." }, corsOrigin);
+            const row = await inboxRow(settings, source, String(query.id).toLowerCase());
+            return json(200, { protocol, items: row ? [inboxItem(source, row)] : [], next: null }, corsOrigin);
+          }
+          const state = MODERATION_STATES.includes(query.state) ? query.state : "pending";
+          const kind = query.kind === undefined || query.kind === "" ? "" : String(query.kind);
+          if (kind && !PARTICIPATION_KINDS.includes(kind)) return json(422, { error: "Unknown participation kind." }, corsOrigin);
+          let after = null;
+          if (query.after !== undefined && query.after !== "") {
+            const match = CURSOR.exec(String(query.after));
+            if (!match) return json(422, { error: "Invalid page cursor." }, corsOrigin);
+            after = { time: match[1], id: match[2] };
+          }
+          const limit = Math.min(Math.max(Number.parseInt(query.limit, 10) || INBOX_PAGE, 1), 100);
+          const sources = [];
+          if (!kind || kind === "comment") sources.push("comment");
+          if (settings.feedback && (!kind || Object.hasOwn(FEEDBACK_KINDS, kind))) sources.push("feedback");
+          // Each store's first `limit + 1` rows after the cursor; merged, the
+          // first `limit` are this page's, oldest first.
+          const merged = (await Promise.all(sources.map((source) => inboxRows(settings, source, { state, kind, after, limit: limit + 1 }))))
+            .flat()
+            .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+          const page = merged.slice(0, limit);
+          const last = page.at(-1);
+          return json(200, {
+            protocol,
+            items: page.map((entry) => inboxItem(entry.source, entry.row)),
+            next: merged.length > limit && last ? `${last.key}~${last.id}` : null,
+          }, corsOrigin);
+        }
+        if (event.httpMethod === "PATCH") {
+          const source = sourceOf(body.source);
+          const id = String(body.id || "").toLowerCase();
+          const version = body.expectedVersion;
+          const role = body.actorRole === undefined ? "site-admin" : body.actorRole;
+          if (!source || !UUID.test(id) || !Number.isInteger(version) || version < 1 || version > 2147483647 || !MODERATION_STATES.includes(body.from)
+            || !INBOX_ACTIONS.includes(body.action) || !MODERATOR_ROLES.includes(role)) {
+            return json(422, { error: "Invalid moderation change.", code: "invalid" }, corsOrigin);
+          }
+          const row = await inboxRow(settings, source, id);
+          if (!row) return json(404, { error: "No such item.", code: "notFound" }, corsOrigin);
+          const facts = inboxFacts(source, row);
+          const conflict = (current) => json(409, { error: "This item changed since you loaded it. Review it again before acting.", code: "conflict", item: inboxItem(source, current) }, corsOrigin);
+          if (facts.state !== body.from || facts.version !== version) return conflict(row);
+          // Decided again here, from the stored row, before anything is written.
+          const plan = planTransition(facts, { action: body.action, expectedVersion: version, reason: body.reason, role });
+          if (!plan.ok) {
+            if (plan.code === "stale") return conflict(row);
+            return json(plan.code === "denied" ? 403 : 422, { error: "This moderation change is not allowed.", code: plan.code }, corsOrigin);
+          }
+          if (!settings.moderation && !legacySupports(facts.kind, body.action)) {
+            return json(422, { error: INBOX_UNAVAILABLE, code: "notAllowed" }, corsOrigin);
+          }
+          const rows = await applyInboxChange(settings, source, id, plan.change, version, auditActor(body.actor), role);
+          if (Array.isArray(rows) && rows.length === 1) return json(200, { ok: true, item: inboxItem(source, rows[0]) }, corsOrigin);
+          const current = await inboxRow(settings, source, id);
+          if (!current) return json(404, { error: "No such item.", code: "notFound" }, corsOrigin);
+          return conflict(current);
+        }
       }
       if (operation === "admin/comments" && event.httpMethod === "GET") {
         if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
@@ -316,6 +508,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       }
       if (operation === "admin/comments" && event.httpMethod === "PATCH") {
         if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
+        // With the inbox's schema, a bare status change would skip the
+        // comment's version, its full state and its audit event (ADR 0105).
+        if (settings.moderation) return json(409, { error: "Comments are moderated through /admin/moderation on this site.", code: "useModerationInbox" }, corsOrigin);
         const id = String(body.id || "");
         const status = String(body.status || "");
         if (!/^[0-9a-f-]{36}$/i.test(id) || !["approved", "rejected"].includes(status)) return json(422, { error: "Invalid moderation change." }, corsOrigin);
