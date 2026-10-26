@@ -93,16 +93,17 @@ const labelled = (control, id, text) => {
 
 /**
  * The panel a reader sees after sending a note: their receipt, ready to copy, what it is for, and
- * whether the author may ask them to clarify the note through it.
+ * whether the author may ask them to clarify the note through it. `consent` is what the reader
+ * already chose when sending (a Third Perspective asks first), and `noun` names what they sent.
  */
-export function receiptPanel({ endpoint, receipt }) {
+export function receiptPanel({ endpoint, receipt, consent: initialConsent = false, noun = "note" }) {
   counter += 1;
   const prefix = `ob-receipt-${counter}`;
   const panel = make("section", "ob-receipt");
   const title = make("h3", undefined, "Your private receipt");
   title.id = `${prefix}-title`;
   panel.setAttribute("aria-labelledby", title.id);
-  const explain = make("p", undefined, "Keep this receipt to check on your note, answer the author if they ask you to clarify it, or withdraw it and have it deleted. It is shown only once and is the only way to reach your note: nothing is e-mailed to you and nothing is saved in this browser.");
+  const explain = make("p", undefined, `Keep this receipt to check on your ${noun}, answer the author if they ask you to clarify it, or withdraw it and have it deleted. It is shown only once and is the only way to reach your ${noun}: nothing is e-mailed to you and nothing is saved in this browser.`);
   explain.id = `${prefix}-explain`;
   const field = make("input");
   field.type = "text";
@@ -116,8 +117,9 @@ export function receiptPanel({ endpoint, receipt }) {
   status.setAttribute("role", "status");
   const consent = make("input");
   consent.type = "checkbox";
+  consent.checked = initialConsent === true;
   const row = make("p", "ob-receipt-consent");
-  row.append(consent, " ", labelled(consent, `${prefix}-consent`, "The author may ask me to clarify this note through this receipt"));
+  row.append(consent, " ", labelled(consent, `${prefix}-consent`, `The author may ask me to clarify this ${noun} through this receipt`));
   panel.append(title, explain, labelled(field, `${prefix}-field`, "Receipt"), field, copy, row, status);
   let version = 1;
   copy.addEventListener("click", async () => {
@@ -141,11 +143,11 @@ export function receiptPanel({ endpoint, receipt }) {
     if (code === 200 && data.item) {
       version = data.item.version;
       consent.checked = data.item.consent === true;
-      status.textContent = consent.checked ? "Saved: the author may ask you to clarify this note." : "Saved: the author will not ask you to clarify this note.";
+      status.textContent = consent.checked ? `Saved: the author may ask you to clarify this ${noun}.` : `Saved: the author will not ask you to clarify this ${noun}.`;
     } else {
       consent.checked = data.item ? data.item.consent === true : !wanted;
       if (data.item?.version) version = data.item.version;
-      status.textContent = code === 409 ? "Your note changed since you sent it, so this was not saved. Try again." : receiptProblem(code, data.code);
+      status.textContent = code === 409 ? `Your ${noun} changed since you sent it, so this was not saved. Try again.` : receiptProblem(code, data.code);
     }
   });
   return panel;

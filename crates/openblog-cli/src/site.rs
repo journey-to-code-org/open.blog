@@ -118,6 +118,14 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         "components/ob-abuse-report.js",
         include_str!("../../../web/components/ob-abuse-report.js"),
     ),
+    (
+        "components/ob-third-perspective.js",
+        include_str!("../../../web/components/ob-third-perspective.js"),
+    ),
+    (
+        "components/third-perspective.js",
+        include_str!("../../../web/components/third-perspective.js"),
+    ),
 ];
 
 /// The admin editor. Served only by `serve --admin`, never copied into the
