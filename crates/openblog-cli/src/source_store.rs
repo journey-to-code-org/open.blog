@@ -416,6 +416,35 @@ pub fn remove(
 // Interpretations (ADR 0115) share the library's file, revision, and lock.
 // Admin management arrives with the comparison workspace (#54).
 
+/// The contributor registry as stored now. Interpretation writes call this
+/// inside `change`, under the library lock, because removing a contributor
+/// checks interpretations under that same lock and holds it until the
+/// registry is written: a registry the caller read before the lock could
+/// still list a contributor removed in between. A project with no config
+/// file has no stored registry that could change, so the caller's is used.
+fn registry_under_lock(
+    root: &Path,
+    given: &BTreeMap<String, Contributor>,
+) -> Result<BTreeMap<String, Contributor>, Vec<SourceDiagnostic>> {
+    if !root.join(crate::site::CONFIG_FILE).exists() {
+        return Ok(given.clone());
+    }
+    crate::site::load_config(root)
+        .map(|config| config.contributors)
+        .map_err(|_| {
+            vec![SourceDiagnostic {
+                code: SourceDiagnosticCode::UnresolvedRelationship,
+                index: None,
+                source_id: None,
+                field: Some("interpretations".into()),
+                message: format!(
+                    "the contributor registry in {} cannot be read, so interpreters cannot be checked; repair it and try again",
+                    crate::site::CONFIG_FILE
+                ),
+            }]
+        })
+}
+
 /// Add an interpretation whose identifier is not yet in use.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn create_interpretation(
@@ -437,7 +466,8 @@ pub fn create_interpretation(
                 ),
             }]);
         }
-        library.upsert_interpretation(interpretation.clone(), contributors)
+        let registry = registry_under_lock(root, contributors)?;
+        library.upsert_interpretation(interpretation.clone(), &registry)
     })
     .map(|(snapshot, ())| snapshot)
 }
@@ -454,7 +484,8 @@ pub fn update_interpretation(
         if library.interpretation(&interpretation.id).is_none() {
             return Err(vec![unknown_interpretation(&interpretation.id)]);
         }
-        library.upsert_interpretation(interpretation.clone(), contributors)
+        let registry = registry_under_lock(root, contributors)?;
+        library.upsert_interpretation(interpretation.clone(), &registry)
     })
     .map(|(snapshot, ())| snapshot)
 }
@@ -1328,6 +1359,55 @@ mod tests {
             "an empty list is written as an absent field"
         );
         remove(&root, &after.revision, "e", &registry).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn interpretation_writes_check_the_registry_as_stored_under_the_lock() {
+        let root = temp_root("interpretation-registry");
+        let stale = BTreeMap::from([(
+            "ada".to_string(),
+            openblog_core::contributor::Contributor {
+                name: "Ada".into(),
+                ..Default::default()
+            },
+        )]);
+        let empty = load(&root, &stale).unwrap();
+        let first = create(&root, &empty.revision, work("w"), &stale).unwrap();
+        let edition = create(
+            &root,
+            &first.revision,
+            record("e", ResearchSourceKind::Edition, Some("w")),
+            &stale,
+        )
+        .unwrap();
+        // Ada was removed from the stored registry after the caller read it.
+        fs::write(
+            root.join(crate::site::CONFIG_FILE),
+            r#"{"contributors":{"grace":{"name":"Grace"}}}"#,
+        )
+        .unwrap();
+        let before = fs::read(library_file(&root)).unwrap();
+        let ada = interpretation("e-514a", "e", serde_json::json!({"contributor": "ada"}));
+        let refused =
+            create_interpretation(&root, &edition.revision, ada.clone(), &stale).unwrap_err();
+        assert_eq!(
+            codes(&refused),
+            [SourceDiagnosticCode::UnresolvedRelationship]
+        );
+        assert_eq!(fs::read(library_file(&root)).unwrap(), before);
+        // A contributor added since the caller read the registry is accepted.
+        let grace = interpretation("e-514a", "e", serde_json::json!({"contributor": "grace"}));
+        let saved = create_interpretation(&root, &edition.revision, grace, &stale).unwrap();
+        let refused = update_interpretation(&root, &saved.revision, ada, &stale).unwrap_err();
+        assert_eq!(
+            codes(&refused),
+            [SourceDiagnosticCode::UnresolvedRelationship]
+        );
+        // An unreadable registry refuses the write rather than guessing.
+        fs::write(root.join(crate::site::CONFIG_FILE), "{not json").unwrap();
+        let named = interpretation("e-514b", "e", serde_json::json!({"name": "N"}));
+        assert!(create_interpretation(&root, &saved.revision, named, &stale).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 

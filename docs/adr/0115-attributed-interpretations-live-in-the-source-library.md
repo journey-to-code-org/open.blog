@@ -54,8 +54,10 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
 - **Guards.** A source an interpretation uses cannot be removed (`still-used`, naming the
   interpretation ids). A contributor an interpretation names cannot be removed from the registry
   in Admin; the check reads the library under its lock and holds the lock until the registry is
-  written, and an unreadable library blocks such removals but not other registry edits. Refusals
-  name ids, never interpretation text.
+  written, and an unreadable library blocks such removals but not other registry edits.
+  Creating or updating an interpretation reads the registry again under the library lock, so a
+  contributor removed while the change waited is never named. Refusals name ids, never
+  interpretation text.
 - **Private by default.** Interpretations are never sources, never cited, never part of a
   bibliography export, and no build reads them: a build parses the library with its
   interpretations kept raw and unvalidated, so a problem in one (such as an interpreter whose
