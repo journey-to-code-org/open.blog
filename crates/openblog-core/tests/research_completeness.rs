@@ -341,6 +341,53 @@ fn every_check_has_exactly_one_owner_and_every_row_belongs_to_it() {
 }
 
 #[test]
+fn atlas_family_rows_are_listed_only_under_the_files_that_report_them() {
+    let rows = matrix();
+    let codes = |validator: Validator| -> BTreeSet<&str> {
+        rows.iter()
+            .filter(|row| row.validator == validator)
+            .map(|row| row.code.as_str())
+            .collect()
+    };
+    let (atlas, claims, alignments) = (
+        codes(Validator::Atlas),
+        codes(Validator::Claims),
+        codes(Validator::Alignments),
+    );
+    // Shared parsing and file codes are each file's own.
+    for shared in [
+        "invalid-json",
+        "too-large",
+        "unknown-source",
+        "invalid-locator",
+    ] {
+        assert!(atlas.contains(shared) && claims.contains(shared) && alignments.contains(shared));
+    }
+    // A code only one file reports is never listed under another.
+    for (only, owner) in [
+        ("cycle", &atlas),
+        ("endpoint-kind", &atlas),
+        ("aspect-kind", &atlas),
+        ("unpublished-datings", &atlas),
+        ("anchor-mismatch", &claims),
+        ("unknown-claim", &claims),
+        ("undisclosed-contradiction", &claims),
+        ("missing-original", &alignments),
+        ("stale-locator", &alignments),
+        ("archived-member", &alignments),
+    ] {
+        let listed = [&atlas, &claims, &alignments]
+            .into_iter()
+            .filter(|codes| codes.contains(only))
+            .count();
+        assert_eq!(listed, 1, "{only}");
+        assert!(owner.contains(only), "{only}");
+    }
+    assert!(!alignments.contains("private-reference") && !alignments.contains("missing-evidence"));
+    assert!(!claims.contains("wrong-source-kind") && !claims.contains("invalid-date"));
+}
+
+#[test]
 fn the_rw9_hand_off_checks_each_name_one_check_and_one_owner() {
     let hand_off = [
         ("missing reference", Check::CitationResolution),

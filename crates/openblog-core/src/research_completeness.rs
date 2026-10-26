@@ -487,6 +487,7 @@ const fn spec(check: Check, category: Category, outcome: EvidenceOutcome, gate: 
 /// is mapped, and once mapped it is in the matrix.
 macro_rules! code_table {
     ($all:ident, $lookup:ident, $ty:ident -> $out:ty { $($variant:ident => $row:expr,)* }) => {
+        #[cfg_attr(not(test), allow(dead_code))]
         const $all: &[$ty] = &[$($ty::$variant),*];
         fn $lookup(code: $ty) -> $out {
             match code {
@@ -610,38 +611,114 @@ code_table!(ATLAS_CODES, atlas_spec, AtlasDiagnosticCode -> (Class, Category, Ev
     UnknownAlignment => error(C::Integrity),
 });
 
-/// The notices each file's validator reports, for the matrix.
-const ATLAS_NOTICES: &[(DiagnosticSubject, AtlasDiagnosticCode)] = &[
-    (
-        DiagnosticSubject::Atlas,
-        AtlasDiagnosticCode::PrivateEndpoint,
-    ),
-    (
-        DiagnosticSubject::Atlas,
-        AtlasDiagnosticCode::UnpublishedDatings,
-    ),
-    (
-        DiagnosticSubject::Claims,
-        AtlasDiagnosticCode::PrivateEndpoint,
-    ),
-    (
-        DiagnosticSubject::Claims,
-        AtlasDiagnosticCode::UndisclosedContradiction,
-    ),
-    (
-        DiagnosticSubject::Alignments,
-        AtlasDiagnosticCode::StaleLocator,
-    ),
-    (
-        DiagnosticSubject::Alignments,
-        AtlasDiagnosticCode::ArchivedMember,
-    ),
-];
+use AtlasDiagnosticCode as A;
 
-const SUBJECTS: [DiagnosticSubject; 3] = [
-    DiagnosticSubject::Atlas,
-    DiagnosticSubject::Claims,
-    DiagnosticSubject::Alignments,
+/// The codes each file's validator reports, errors and notices, for the
+/// matrix. A code only another file's validator reports (`cycle` is the
+/// atlas's, `anchor-mismatch` the claims file's, `missing-original` the
+/// alignments file's) has no row under this one.
+const SUBJECT_CODES: [(DiagnosticSubject, &[AtlasDiagnosticCode]); 3] = [
+    (
+        DiagnosticSubject::Atlas,
+        &[
+            A::TooLarge,
+            A::InvalidJson,
+            A::UnsupportedVersion,
+            A::MissingField,
+            A::InvalidField,
+            A::InvalidId,
+            A::DuplicateId,
+            A::UnknownEntry,
+            A::UnknownSource,
+            A::UnknownPassage,
+            A::UnknownLocatorKind,
+            A::InvalidLocator,
+            A::AmbiguousLocator,
+            A::UnknownKind,
+            A::EndpointKind,
+            A::WrongSourceKind,
+            A::SelfRelationship,
+            A::DuplicateRelationship,
+            A::Cycle,
+            A::MissingEvidence,
+            A::EvidenceConflict,
+            A::InvalidVisibility,
+            A::PrivateReference,
+            A::ContributorCredit,
+            A::StillLinked,
+            A::ShadowedField,
+            A::InvalidDate,
+            A::AspectKind,
+            A::DuplicateDating,
+            A::PrivateEndpoint,
+            A::UnpublishedDatings,
+        ],
+    ),
+    (
+        DiagnosticSubject::Claims,
+        &[
+            A::TooLarge,
+            A::InvalidJson,
+            A::UnsupportedVersion,
+            A::MissingField,
+            A::InvalidField,
+            A::InvalidId,
+            A::DuplicateId,
+            A::UnknownSource,
+            A::UnknownPassage,
+            A::UnknownLocatorKind,
+            A::InvalidLocator,
+            A::AmbiguousLocator,
+            A::UnknownKind,
+            A::MissingEvidence,
+            A::InvalidVisibility,
+            A::PrivateReference,
+            A::ContributorCredit,
+            A::StillLinked,
+            A::ShadowedField,
+            A::UnknownClaim,
+            A::DuplicateLink,
+            A::AnchorMismatch,
+            A::UnknownLink,
+            A::StaleAnchor,
+            A::AmbiguousAnchor,
+            A::UnknownPost,
+            A::PrivateEndpoint,
+            A::UndisclosedContradiction,
+        ],
+    ),
+    (
+        DiagnosticSubject::Alignments,
+        &[
+            A::TooLarge,
+            A::InvalidJson,
+            A::UnsupportedVersion,
+            A::MissingField,
+            A::InvalidField,
+            A::InvalidId,
+            A::DuplicateId,
+            A::UnknownSource,
+            A::UnknownPassage,
+            A::UnknownLocatorKind,
+            A::InvalidLocator,
+            A::AmbiguousLocator,
+            A::UnknownKind,
+            A::WrongSourceKind,
+            A::InvalidVisibility,
+            A::ContributorCredit,
+            A::StillLinked,
+            A::ShadowedField,
+            A::UnknownInterpretation,
+            A::DuplicateMember,
+            A::ConflictingMember,
+            A::MissingCounterpart,
+            A::MissingLocator,
+            A::MissingOriginal,
+            A::UnknownAlignment,
+            A::StaleLocator,
+            A::ArchivedMember,
+        ],
+    ),
 ];
 
 fn atlas_family(subject: DiagnosticSubject, code: AtlasDiagnosticCode) -> Spec {
@@ -729,7 +806,9 @@ fn row(code: String, spec: Spec) -> MatrixRow {
 }
 
 /// Every code every existing research check reports, mapped in. The
-/// validator of a row is always its check's owner.
+/// validator of a row is always its check's owner. An atlas-family code has
+/// a row only under the file validators that report it (`SUBJECT_CODES`),
+/// never under all three.
 pub fn matrix() -> Vec<MatrixRow> {
     let mut rows = Vec::new();
     rows.extend(
@@ -747,19 +826,13 @@ pub fn matrix() -> Vec<MatrixRow> {
             .iter()
             .map(|&code| row(code.to_string(), note_spec(code))),
     );
-    for subject in SUBJECTS {
+    for (subject, codes) in SUBJECT_CODES {
         rows.extend(
-            ATLAS_CODES
+            codes
                 .iter()
-                .filter(|&&code| atlas_spec(code).0 == Class::Error)
                 .map(|&code| row(code.to_string(), atlas_family(subject, code))),
         );
     }
-    rows.extend(
-        ATLAS_NOTICES
-            .iter()
-            .map(|&(subject, code)| row(code.to_string(), atlas_family(subject, code))),
-    );
     rows.extend(
         CHRONOLOGY_CODES
             .iter()
@@ -1289,5 +1362,27 @@ impl CompletenessReport {
         let mut json = serde_json::to_string_pretty(self).unwrap_or_default();
         json.push('\n');
         json
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_atlas_family_code_is_listed_under_a_file_that_reports_it() {
+        for code in ATLAS_CODES {
+            assert!(
+                SUBJECT_CODES.iter().any(|(_, codes)| codes.contains(code)),
+                "{code} is reported by no file"
+            );
+        }
+        for (subject, codes) in SUBJECT_CODES {
+            let mut seen = Vec::new();
+            for code in codes {
+                assert!(!seen.contains(code), "{code} twice under {subject:?}");
+                seen.push(*code);
+            }
+        }
     }
 }

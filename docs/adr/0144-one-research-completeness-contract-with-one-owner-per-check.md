@@ -101,7 +101,10 @@ different names, and nothing would say which outcomes may stop a build.
   `citation-unresolved` (citation-review, citation and reference, detected) are
   `refuses-when-published`: a post that publishes them is refused, a draft only warns
   (ADR 0049). Every error of the source library, notebook, atlas, claims and alignments files is
-  `refuses`, outcome `detected`, under that file's integrity check. Their categories: privacy
+  `refuses`, outcome `detected`, under that file's integrity check. The atlas, claims and
+  alignments files share one code enum, so the matrix lists each file's codes explicitly and an
+  error has a row only under the files that report it (`cycle` is the atlas's, `anchor-mismatch`
+  the claims file's, `missing-original` the alignments file's). Their categories: privacy
   failures (`contributor-credit`, `not-private`, `reader-feedback`, `private-reference`,
   `invalid-visibility`) are `public-boundary`; locator codes (`unknown-locator-kind`,
   `invalid-locator`, `ambiguous-locator`, `ambiguous-location`, `missing-locator`) are
