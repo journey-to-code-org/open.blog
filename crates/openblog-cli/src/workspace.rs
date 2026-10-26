@@ -24,6 +24,9 @@ const ATLAS_PATH: &str = ".openblog/private/research/atlas.json";
 const CLAIMS_PATH: &str = ".openblog/private/research/claims.json";
 /// Private passage alignments share the library limit as well.
 const ALIGNMENTS_PATH: &str = ".openblog/private/research/alignments.json";
+/// The private review acknowledgements (ADR 0124), up to their own limit.
+const ACKNOWLEDGEMENTS_PATH: &str = crate::research_review::ACKNOWLEDGEMENTS_FILE;
+const MAX_ACKNOWLEDGEMENTS_TEXT: usize = crate::research_review::MAX_ACKNOWLEDGEMENTS_BYTES;
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
 const BUCKET: &str = "openblog-workspace";
@@ -266,6 +269,7 @@ impl Policy {
             ATLAS_PATH.into(),
             CLAIMS_PATH.into(),
             ALIGNMENTS_PATH.into(),
+            ACKNOWLEDGEMENTS_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
         ]
@@ -285,6 +289,7 @@ impl Policy {
                 | ATLAS_PATH
                 | CLAIMS_PATH
                 | ALIGNMENTS_PATH
+                | ACKNOWLEDGEMENTS_PATH
         ) {
             return true;
         }
@@ -332,6 +337,9 @@ impl Policy {
     }
 
     fn text_limit(&self, path: &str) -> usize {
+        if path == ACKNOWLEDGEMENTS_PATH {
+            return MAX_ACKNOWLEDGEMENTS_TEXT;
+        }
         if [
             LIBRARY_PATH,
             NOTEBOOK_PATH,
@@ -1304,6 +1312,9 @@ mod tests {
             ".openblog/private/research/alignments.json/extra",
             ".openblog/private/research/alignments.json.lock",
             ".openblog/private/research/alignments.json.1-2.tmp",
+            ".openblog/private/research/acknowledgements.json/extra",
+            ".openblog/private/research/acknowledgements.json.lock",
+            ".openblog/private/research/acknowledgements.json.1-2.tmp",
             "content/../.git/config",
             "content/posts/../../secret.md",
             "content\\posts\\escape.md",
@@ -1323,6 +1334,8 @@ mod tests {
             ".openblog/private/research/notebook.json",
             ".openblog/private/research/atlas.json",
             ".openblog/private/research/claims.json",
+            ".openblog/private/research/alignments.json",
+            ".openblog/private/research/acknowledgements.json",
             ".openblog/private/admin-preferences/0000000000000000000000000000000000000000000000000000000000000000.json",
             ".openblog/pending-tracks/0000000000000000000000000000000000000000000000000000000000000000.gpx",
             ".openblog/trash/deleted.md",
@@ -1340,6 +1353,11 @@ mod tests {
         fs::write(&library, &body).unwrap();
         let policy = policy();
         assert_eq!(policy.text_limit("content/posts/a.md"), MAX_TEXT);
+        assert_eq!(
+            policy.text_limit(ACKNOWLEDGEMENTS_PATH),
+            2 * 1024 * 1024,
+            "acknowledgements keep their own 2 MiB limit"
+        );
         let files = policy.scan(&fixture.0).unwrap();
         assert_eq!(files[LIBRARY_PATH], body.as_bytes());
         fs::write(&library, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();

@@ -24,8 +24,8 @@
 //! a public page.
 
 use crate::citations::{
-    public_identifier, resolve_citations, scan_citations, CitationDiagnostic,
-    CitationDiagnosticCode, PublicReference,
+    format_citation, public_identifier, resolve_citations, scan_citations, Citation,
+    CitationDiagnostic, CitationDiagnosticCode, PublicReference,
 };
 use crate::research::{EvidenceCode, EvidenceFinding, EvidenceOutcome, EvidenceSource};
 use crate::source_library::SourceLibrary;
@@ -73,6 +73,7 @@ pub fn review_citations<'l>(
             message,
             repair,
             object: None,
+            facts: Vec::new(),
         }
     };
     let scan = scan_citations(markdown);
@@ -88,6 +89,7 @@ pub fn review_citations<'l>(
                 diagnostic_message(found),
                 syntax_repair(found.code).into(),
             )
+            .with_facts(diagnostic_facts(found))
         })
         .collect();
     if scan.mentions.is_empty() {
@@ -104,14 +106,17 @@ pub fn review_citations<'l>(
             }
             _ => "Add the source to the library or correct the key; write `\\[@` for literal text.",
         };
-        findings.push(finding(
-            EvidenceCode::CitationUnresolved,
-            EvidenceOutcome::Detected,
-            found.line,
-            None,
-            diagnostic_message(found),
-            repair.into(),
-        ));
+        findings.push(
+            finding(
+                EvidenceCode::CitationUnresolved,
+                EvidenceOutcome::Detected,
+                found.line,
+                None,
+                diagnostic_message(found),
+                repair.into(),
+            )
+            .with_facts(diagnostic_facts(found)),
+        );
     }
 
     // Where each reference is first cited, to place reference-level findings.
@@ -143,7 +148,36 @@ pub fn review_citations<'l>(
                             "Write a PMCID as `PMC` and its digits, such as `PMC1234567`, in Admin's Sources view."
                         }
                         .into(),
-                    ));
+                    )
+                    .with_facts([
+                        reference.key.as_str(),
+                        identifier.scheme.as_str(),
+                        identifier.value.as_str(),
+                    ]));
+                }
+                // A web address the publication boundary withholds (ADR 0125).
+                if let Some(problem) = (identifier.scheme == "url")
+                    .then(|| crate::citations::public_url_problem(&identifier.value))
+                    .flatten()
+                {
+                    findings.push(
+                        finding(
+                            EvidenceCode::CitationIdentifierUnpublished,
+                            EvidenceOutcome::Potential,
+                            line,
+                            Some("identifiers".into()),
+                            format!(
+                                "Source `{}` has a web address that is not published because {problem}, so the note and exports leave it out.",
+                                reference.key
+                            ),
+                            "Give the source an address readers can reach, without a key, token or signature, in Admin's Sources view.".into(),
+                        )
+                        .with_facts([
+                            reference.key.as_str(),
+                            identifier.scheme.as_str(),
+                            identifier.value.as_str(),
+                        ]),
+                    );
                 }
             }
         }
@@ -158,7 +192,8 @@ pub fn review_citations<'l>(
                     "If the source has one, add it to `{}` in Admin's Sources view or in your reference manager and import again; open.blog never fills in missing details.",
                     reference.key
                 ),
-            ));
+            )
+            .with_facts([reference.key.as_str()]));
         }
     }
 
@@ -168,13 +203,16 @@ pub fn review_citations<'l>(
         .iter()
         .map(|found| (found.line, found.key.as_deref()))
         .collect();
-    let located: Vec<usize> = scan
+    let located_mentions: Vec<_> = scan
         .mentions
         .iter()
         .filter(|mention| !mention.citation.locators.is_empty())
         .filter(|mention| {
             !unresolved.contains(&(Some(mention.line), Some(mention.citation.key.as_str())))
         })
+        .collect();
+    let located: Vec<usize> = located_mentions
+        .iter()
         .filter_map(|mention| file_line(Some(mention.line)))
         .collect();
     if let Some(&first) = located.first() {
@@ -199,6 +237,12 @@ pub fn review_citations<'l>(
             ),
             repair: "Compare each location with the source itself, for example with a notebook passage captured there.".into(),
             object: None,
+            // Each located citation's key and locators, in reading order:
+            // what the prompt is about, without the lines it names.
+            facts: located_mentions
+                .iter()
+                .map(|mention| citation_fact(&mention.citation))
+                .collect(),
         });
     }
     findings
@@ -207,14 +251,30 @@ pub fn review_citations<'l>(
 /// A diagnostic as a sentence with its code, naming the key but nothing else
 /// from the library or the notebook.
 fn diagnostic_message(found: &CitationDiagnostic) -> String {
-    let code = serde_json::to_value(found.code)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_string))
-        .unwrap_or_default();
+    let code = code_name(found.code);
     match &found.key {
         Some(key) => format!("Citation `{key}`: {} ({code}).", found.message),
         None => format!("{} ({code}).", found.message),
     }
+}
+
+fn code_name(code: CitationDiagnosticCode) -> String {
+    serde_json::to_value(code)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// A diagnostic's code and key, without its line.
+fn diagnostic_facts(found: &CitationDiagnostic) -> Vec<String> {
+    let mut facts = vec![code_name(found.code)];
+    facts.extend(found.key.clone());
+    facts
+}
+
+/// A citation's key and locators in its canonical `[@key, ...]` form.
+fn citation_fact(citation: &Citation) -> String {
+    format_citation(citation).unwrap_or_else(|_| citation.key.clone())
 }
 
 fn syntax_repair(code: CitationDiagnosticCode) -> &'static str {

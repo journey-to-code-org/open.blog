@@ -195,6 +195,17 @@ pub struct Locator {
     pub extra: BTreeMap<String, Value>,
 }
 
+impl Locator {
+    /// The locator as one stated value, `kind value` or `kind value to end`,
+    /// without unknown fields: what a finding about it states.
+    pub fn stated(&self) -> String {
+        match &self.to {
+            Some(to) => format!("{} {} to {to}", self.kind.as_str(), self.value),
+            None => format!("{} {}", self.kind.as_str(), self.value),
+        }
+    }
+}
+
 /// Text copied from a source. It lives in its own object, apart from every
 /// field of author prose, and is stored exactly as quoted: no normalization,
 /// trimming, or markup interpretation. It is someone else's words.

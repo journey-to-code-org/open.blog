@@ -346,6 +346,39 @@ fn quiz_inline(source: &str) -> Result<String, String> {
         .to_string())
 }
 
+/// The HTML writer percent-encodes `[` and `]` in an address, which breaks the
+/// host of an IPv6 literal (`http://%5B2001:db8::1%5D/` names no host).
+/// Write the brackets of an address's authority back, and nothing else.
+fn restore_bracketed_hosts(html: String) -> String {
+    const MARKER: &str = "://%5B";
+    if !html.contains(MARKER) && !html.contains("://%5b") {
+        return html;
+    }
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html.as_str();
+    while let Some(at) = rest
+        .find("://%5")
+        .filter(|&at| matches!(rest.as_bytes().get(at + 5..at + 6), Some(b"B" | b"b")))
+    {
+        let authority = at + 3;
+        let end = rest[authority..]
+            .find(['/', '?', '#', '"', '\'', '<', ' '])
+            .map_or(rest.len(), |end| authority + end);
+        out.push_str(&rest[..authority]);
+        let span = &rest[authority..end];
+        out.push_str(
+            &span
+                .replace("%5B", "[")
+                .replace("%5b", "[")
+                .replace("%5D", "]")
+                .replace("%5d", "]"),
+        );
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn quiz_key(source: &str) -> String {
     // Stable FNV-1a: deliberately small and sufficient for namespacing local UI state.
     let mut hash = 0xcbf29ce484222325u64;
@@ -2227,6 +2260,7 @@ fn render_events<'a>(
     };
     let mut html = String::with_capacity(source_length * 2);
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
+    let mut html = restore_bracketed_hosts(html);
     if options.lazy_images {
         html = html.replace("<img src=", "<img loading=\"lazy\" decoding=\"async\" src=");
     }

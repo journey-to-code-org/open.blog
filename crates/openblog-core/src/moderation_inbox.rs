@@ -363,6 +363,24 @@ fn comment_text_ok(value: &str, max: usize, multiline: bool) -> bool {
             .any(|c| c.is_control() && !(multiline && matches!(c, '\n' | '\r' | '\t')))
 }
 
+/// The hosted service sends an item's decision log wherever its schema keeps one, empty for an
+/// item nobody decided. A Third Perspective or an author response takes no decisions, so an empty
+/// log is no more than absent; one holding a decision is still refused as an unknown field.
+fn drop_empty_decisions(wire: &mut Value) {
+    if let Some(object) = wire.as_object_mut() {
+        let empty = object.get("decisions").is_some_and(|log| {
+            log.is_null()
+                || log
+                    .get("decisions")
+                    .and_then(Value::as_array)
+                    .is_some_and(Vec::is_empty)
+        });
+        if empty {
+            object.remove("decisions");
+        }
+    }
+}
+
 impl InboxItem {
     /// Read one hosted item. A bad item is refused on its own, naming what is
     /// wrong but never repeating what it holds.
@@ -608,15 +626,11 @@ impl InboxItem {
         // row's (empty) log; only an evidence kind takes a decision, so a Third
         // Perspective's and an answer's is not read.
         if wire["feedback"]["kind"] == ParticipationKind::ThirdPerspective.id() {
-            if let Some(object) = wire.as_object_mut() {
-                object.remove("decisions");
-            }
+            drop_empty_decisions(&mut wire);
             return Self::read_perspective(&wire);
         }
         if wire["feedback"]["kind"] == ParticipationKind::AuthorResponse.id() {
-            if let Some(object) = wire.as_object_mut() {
-                object.remove("decisions");
-            }
+            drop_empty_decisions(&mut wire);
             return Self::read_author_response(&wire);
         }
         let hosted = HostedFeedback::from_value(&wire).map_err(|error| error.to_string())?;

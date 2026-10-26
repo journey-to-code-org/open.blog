@@ -388,6 +388,25 @@ test("visual mode keeps generated and hand-written citations byte for byte", wit
   assert.equal(editor.richEditorMarkdown(), markdown.replace(/\n\n$/, "\n"));
 }));
 
+test("visual mode reads backslash-escaped characters as text and writes them back unchanged", withDom(() => {
+  const markdown = [
+    String.raw`> a \[sic\] \*not emphasis\* and \_not\_ either, \`no code\`, a \\ backslash [@q]`,
+    "",
+    String.raw`Not a link: \[x\](y), but **bold \* star** and [a link](/atlas/plato/) stay formatting.`,
+    "",
+    String.raw`Code keeps its backslash: ` + "`a\\*b`" + ".",
+    "",
+  ].join("\n");
+  const editor = visualEditor(markdown);
+  const [quote, paragraph, code] = editor.ui.richBody.children;
+  assert.equal(quote.textContent, "a [sic] *not emphasis* and _not_ either, `no code`, a \\ backslash [@q]");
+  assert.equal(quote.querySelectorAll("em").length, 0);
+  assert.deepEqual(paragraph.children.map((child) => child.tagName), ["STRONG", "A"]);
+  assert.equal(paragraph.querySelector("strong").textContent, "bold * star");
+  assert.equal(code.querySelector("code").textContent, "a\\*b");
+  assert.equal(editor.richEditorMarkdown(), markdown.replace(/\n\n$/, "\n"));
+}));
+
 test("a pasted look-alike chip cannot smuggle Markdown into the draft", withDom(() => {
   const editor = visualEditor("Text.\n");
   const paragraph = editor.ui.richBody.children[0];

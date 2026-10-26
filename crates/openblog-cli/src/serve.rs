@@ -218,6 +218,9 @@ pub fn print_report(report: &site::BuildReport) {
         report.files,
         report.out_dir.display()
     );
+    if let Some(summary) = report.boundary.summary() {
+        println!("{summary}");
+    }
     if report.scheduled > 0 {
         let next = report
             .next_due
