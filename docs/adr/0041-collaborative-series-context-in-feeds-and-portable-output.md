@@ -19,21 +19,21 @@ series context at all, so adding it everywhere would change every existing feed 
 
 - **A series context** (`SeriesContext`, built by `Site::series_context`) is one published part's
   place in a collaborative series: the series name, its canonical page, its position and the
-  number of published parts, the part's named authors in credit order, and the
-  series' named contributors (`series_contributors`, so one person is named once). It exists only
+  number of published parts, the part's named authors in credit order, and the series' named
+  contributors (`series_contributors`, so one person is named once). It exists only
   when the post is a published part of a collaborative series (ADR 0040). Drafts and scheduled
   posts (dated after the time the site was loaded for) are not parts, even on a site that holds
   them because it was loaded with drafts or to preview one, so they never count towards a
   position, a total or the contributors, and neither has a context. Any site loaded at the same
-  time therefore gives a post the same context. Every value is already public on the series page; it
-  reads approved work credits and the series model, never collaboration state, so membership,
+  time therefore gives a post the same context. Every value is already public on the series page;
+  it reads approved work credits and the series model, never collaboration state, so membership,
   approvals, accounts and publication ids cannot reach it.
 - **The projection carries it.** `PortableProjection::for_site` is `from_post` plus the post's
   context; feeds, `openblog export`, syndication and the Admin portable preview use it, so every
   external copy of a part states the same context. The Admin portable preview and a portability
   acknowledgement build their projection through one helper, so the source revision a preview
-  hands out is the one the acknowledgement recomputes, for a published, draft or scheduled part. Without a context the projection is exactly
-  `from_post`'s, byte for byte.
+  hands out is the one the acknowledgement recomputes, for a published, draft or scheduled part.
+  Without a context the projection is exactly `from_post`'s, byte for byte.
 - **Each format states it its own way, and only for a part of a collaborative series:**
   - portable HTML: one paragraph after the work's Contributions list and before the body,
     `<p class="ob-series-context">Part 2 in the series <a href="…/series/letters/">Letters</a>.
@@ -45,8 +45,9 @@ series context at all, so adding it everywhere would change every existing feed 
     taxonomy and is not a link, so the category does not link the series page. A summary-only RSS
     item (`feeds.fullContent: false`) therefore names its series but carries no series link, place
     or authors; those are only in the full content and in JSON Feed;
-  - JSON Feed: an `_open_blog.series` extension object with `title`, `url`, `part`, `parts`,
-    `authors` and `contributors`, which readers that do not know it ignore;
+  - JSON Feed: an `_openblog` extension object (named after the project's `openblog` identifier)
+    with `about`, a link to its documentation in docs/integrations.md, and `series`: `title`,
+    `url`, `part`, `parts`, `authors` and `contributors`. Readers that do not know it ignore it;
   - llms-full.txt: `- Series:`, `- Part authors:` and `- Series contributors:` lines among the
     post's facts.
   Portable HTML, Markdown and text say "Part 2 in the series", never "Part 2 of 4": a copy sent
@@ -57,7 +58,8 @@ series context at all, so adding it everywhere would change every existing feed 
   part reads the same way. A clause with no named author is left out, never shown empty.
 - **Names stay text.** Series and contributor names are escaped for each format (HTML text, XML,
   Markdown text with `<` and `&` escaped, JSON strings) and never linked; the canonical series page
-  is the only link (the RSS category's domain is the series index, an identifier). The site's base URL resolves it, so it is always an absolute HTTP(S) URL.
+  is the only link (the RSS category's domain is the series index, an identifier). The site's
+  base URL resolves it, so it is always an absolute HTTP(S) URL.
 - **Fail closed.** The series link (with its label), the position, each part author and each
   series contributor are semantic facts of the projection, so a portable HTML, Markdown or text
   artifact that loses or changes any of them fails `ensure_semantics` and the build stops with

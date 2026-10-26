@@ -328,8 +328,8 @@ fn feed_items_name_their_series_place_link_and_authors() {
     let feed: serde_json::Value = serde_json::from_str(output(&files, "feed.json")).unwrap();
     let item = json_item(&feed, "l2");
     assert_eq!(
-        item["_open_blog"],
-        serde_json::json!({"series": {
+        item["_openblog"],
+        serde_json::json!({"about": feeds::JSON_FEED_EXTENSION_ABOUT, "series": {
             "title": "Letters",
             "url": SERIES_URL,
             "part": 2,
@@ -343,10 +343,10 @@ fn feed_items_name_their_series_place_link_and_authors() {
         "Part 2 in the series Letters (https://example.test/series/letters/). This part is by Ann, Bo, and Cy. Series contributors: Site Owner, Ann, Bo, Cy, and Dee."
     ));
     assert_eq!(
-        json_item(&feed, "l3")["_open_blog"]["series"]["authors"],
+        json_item(&feed, "l3")["_openblog"]["series"]["authors"],
         serde_json::json!(["Dee"])
     );
-    assert!(json_item(&feed, "g1").get("_open_blog").is_none());
+    assert!(json_item(&feed, "g1").get("_openblog").is_none());
 
     let llms = llms_section(output(&files, "llms-full.txt"), "l2");
     assert!(
@@ -369,7 +369,7 @@ fn feed_items_name_their_series_place_link_and_authors() {
     )));
     let feed: serde_json::Value =
         serde_json::from_str(&feeds::json_feed(&summary).unwrap()).unwrap();
-    assert_eq!(json_item(&feed, "l2")["_open_blog"]["series"]["part"], 2);
+    assert_eq!(json_item(&feed, "l2")["_openblog"]["series"]["part"], 2);
     assert_eq!(json_item(&feed, "l2")["content_text"], "About l2.");
 }
 
@@ -439,7 +439,7 @@ fn a_later_part_leaves_earlier_parts_copies_unchanged() {
     }
     assert_eq!(after.series_context(post_of(&after, "l5")).unwrap().part, 5);
     let feed: serde_json::Value = serde_json::from_str(&feeds::json_feed(&after).unwrap()).unwrap();
-    assert_eq!(json_item(&feed, "l2")["_open_blog"]["series"]["parts"], 5);
+    assert_eq!(json_item(&feed, "l2")["_openblog"]["series"]["parts"], 5);
 }
 
 #[test]
@@ -589,7 +589,7 @@ fn hostile_series_and_contributor_names_stay_text_and_the_build_succeeds() {
 
     let feed: serde_json::Value = serde_json::from_str(output(&files, "feed.json")).unwrap();
     assert_eq!(
-        json_item(&feed, "l2")["_open_blog"]["series"]["title"],
+        json_item(&feed, "l2")["_openblog"]["series"]["title"],
         "<b>Letters</b> [x](javascript:alert(1)) & co"
     );
     let llms = llms_section(output(&files, "llms-full.txt"), "l2");

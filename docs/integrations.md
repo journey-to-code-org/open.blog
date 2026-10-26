@@ -61,14 +61,20 @@ With `feeds.fullContent: false`, RSS retains its description and omits full cont
 uses the same summary as `content_text` to satisfy its required-content contract without
 exporting the body. IDs, dates, ordering, credits and cover URLs retain the same policy.
 
+### Series in feeds
+
 A part of a collaborative series (one that holds a post credited to two or more authors) also
-states its series: the full content says "Part 2 in the series Letters" with a link to the
-series page, the part's authors and the series' contributors (never the number of parts, so a
-copy you syndicated does not change each time the series grows); RSS adds a `category` with the
-series name whose `domain` is the series index (`/series/`), which identifies the taxonomy and does
-not link the series, so a summary-only RSS item names its series but has no series link, place or
-authors; and JSON Feed adds an `_open_blog.series` object with `title`, `url`, `part`,
-`parts`, `authors` and `contributors`. Every other item is unchanged.
+states its series. Every other item is unchanged.
+
+- The full content (and every portable copy) says "Part 2 in the series Letters" with a link to
+  the series page, the part's authors and the series' contributors. It never states the number of
+  parts, so a copy you syndicated does not change each time the series grows.
+- RSS adds a `category` with the series name whose `domain` is the series index (`/series/`).
+  The domain identifies the taxonomy; it does not link the series. A summary-only RSS item
+  (`feeds.fullContent: false`) therefore names its series but has no series link, place or authors.
+- JSON Feed adds an `_openblog` extension object, which readers that do not know it ignore:
+  `about` (a link to this section) and `series`, with `title`, `url`, `part`, `parts` (the number
+  of published parts), `authors` (this part's) and `contributors` (the whole series').
 
 ## Cross-posting
 

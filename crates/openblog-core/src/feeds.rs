@@ -111,6 +111,10 @@ pub fn rss(site: &Site) -> Result<String, String> {
     Ok(out)
 }
 
+/// Where the `_openblog` JSON Feed extension is documented.
+pub const JSON_FEED_EXTENSION_ABOUT: &str =
+    "https://github.com/journey-to-code-org/open.blog/blob/main/docs/integrations.md#series-in-feeds";
+
 /// JSON Feed 1.1: <https://jsonfeed.org/version/1.1>
 pub fn json_feed(site: &Site) -> Result<String, String> {
     let c = &site.config;
@@ -171,9 +175,11 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
                 }
             }
             // A part of a collaborative series carries its series as a JSON Feed extension
-            // object, which readers that do not know it ignore (ADR 0041).
+            // object, which readers that do not know it ignore (ADR 0041). `about` points to its
+            // documentation, as JSON Feed recommends for extensions.
             if let Some(series) = projection.series() {
-                item["_open_blog"] = serde_json::json!({
+                item["_openblog"] = serde_json::json!({
+                    "about": JSON_FEED_EXTENSION_ABOUT,
                     "series": {
                         "title": series.name,
                         "url": projection.resolve_link(&series.url)?,

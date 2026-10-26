@@ -9,7 +9,7 @@ All notable changes to open.blog are recorded here. Releases follow
   to, where it falls ("Part 2 in the series") and who wrote it, with a link to the series page: in
   the full RSS and JSON Feed content, in portable HTML, Markdown and text, in exports and
   syndicated copies, and in llms-full.txt. RSS items also name the series as a category in the
-  site's series taxonomy, and JSON Feed items carry an `_open_blog.series` object. Drafts and
+  site's series taxonomy, and JSON Feed items carry an `_openblog.series` object. Drafts and
   scheduled posts never count, no collaboration details appear, and every other post's feeds and
   copies are unchanged.
 - A series that credits the site owner both as the site author and under their contributor entry
