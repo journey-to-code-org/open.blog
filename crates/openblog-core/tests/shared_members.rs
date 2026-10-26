@@ -136,44 +136,58 @@ fn changing_roles_is_guarded_by_revision_and_role_rules() {
     let grace = id_of(&record, "grace-admin");
     let rev = revision(&record);
     let next = record
-        .change_member_roles("ada-admin", &identities(), &grace, &[Reader], rev)
+        .change_member_roles("ada-admin", &identities(), &grace, &[Reader], rev, NOW)
         .unwrap();
     assert_eq!(revision(&next), rev + 1);
     assert_eq!(next.collaboration, record.collaboration);
     assert_eq!(
-        record.change_member_roles("ada-admin", &identities(), &grace, &[Reader], rev - 1),
+        record.change_member_roles("ada-admin", &identities(), &grace, &[Reader], rev - 1, NOW),
         Err(MemberError::Stale)
     );
     assert_eq!(
-        record.change_member_roles("ada-admin", &identities(), &grace, &[], rev),
+        record.change_member_roles("ada-admin", &identities(), &grace, &[], rev, NOW),
         Err(MemberError::Roles)
     );
     assert_eq!(
-        record.change_member_roles("ada-admin", &identities(), &grace, &[Reader, Reader], rev),
+        record.change_member_roles(
+            "ada-admin",
+            &identities(),
+            &grace,
+            &[Reader, Reader],
+            rev,
+            NOW
+        ),
         Err(MemberError::Roles)
     );
     // A coordinator cannot grant ownership, touch the owner, or act for a plain contributor.
     assert_eq!(
-        record.change_member_roles("linus-admin", &identities(), &grace, &[SiteOwner], rev),
+        record.change_member_roles("linus-admin", &identities(), &grace, &[SiteOwner], rev, NOW),
         Err(MemberError::Denied)
     );
     let ada = id_of(&record, "ada-admin");
     assert_eq!(
-        record.change_member_roles("linus-admin", &identities(), &ada, &[Reader], rev),
+        record.change_member_roles("linus-admin", &identities(), &ada, &[Reader], rev, NOW),
         Err(MemberError::Denied)
     );
     assert_eq!(
-        record.change_member_roles("grace-admin", &identities(), &grace, &[SiteOwner], rev),
+        record.change_member_roles("grace-admin", &identities(), &grace, &[SiteOwner], rev, NOW),
         Err(MemberError::Denied)
     );
     // The only site owner cannot demote themselves.
     assert_eq!(
-        record.change_member_roles("ada-admin", &identities(), &ada, &[Contributor], rev),
+        record.change_member_roles("ada-admin", &identities(), &ada, &[Contributor], rev, NOW),
         Err(MemberError::Denied)
     );
     // Unknown participants read the same as forbidden ones.
     assert_eq!(
-        record.change_member_roles("ada-admin", &identities(), "participant-99", &[Reader], rev),
+        record.change_member_roles(
+            "ada-admin",
+            &identities(),
+            "participant-99",
+            &[Reader],
+            rev,
+            NOW
+        ),
         Err(MemberError::Denied)
     );
 }
@@ -184,7 +198,7 @@ fn removing_a_member_ends_access_but_keeps_credit() {
     let grace = id_of(&record, "grace-admin");
     let rev = revision(&record);
     let next = record
-        .remove_member("linus-admin", &identities(), &grace, rev)
+        .remove_member("linus-admin", &identities(), &grace, rev, NOW)
         .unwrap();
     assert_eq!(revision(&next), rev + 1);
     assert!(next
@@ -211,23 +225,23 @@ fn removal_refuses_stale_state_unauthorised_requests_and_the_last_owner() {
     let grace = id_of(&record, "grace-admin");
     let ada = id_of(&record, "ada-admin");
     assert_eq!(
-        record.remove_member("ada-admin", &identities(), &grace, rev + 1),
+        record.remove_member("ada-admin", &identities(), &grace, rev + 1, NOW),
         Err(MemberError::Stale)
     );
     assert_eq!(
-        record.remove_member("grace-admin", &identities(), &grace, rev),
+        record.remove_member("grace-admin", &identities(), &grace, rev, NOW),
         Err(MemberError::Denied)
     );
     assert_eq!(
-        record.remove_member("linus-admin", &identities(), &ada, rev),
+        record.remove_member("linus-admin", &identities(), &ada, rev, NOW),
         Err(MemberError::Denied)
     );
     assert_eq!(
-        record.remove_member("ada-admin", &identities(), &ada, rev),
+        record.remove_member("ada-admin", &identities(), &ada, rev, NOW),
         Err(MemberError::Denied)
     );
     assert_eq!(
-        record.remove_member("ada-admin", &identities(), "participant-99", rev),
+        record.remove_member("ada-admin", &identities(), "participant-99", rev, NOW),
         Err(MemberError::Denied)
     );
 }

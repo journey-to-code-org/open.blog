@@ -95,6 +95,17 @@ A person whose Admin account holds an explicit binding on one shared publication
 member's access removes only the binding; the participant and the credit for what they wrote stay.
 _Avoid_: User (account administration is separate), contributor (credit, not access)
 
+**Group**:
+The members of one shared publication, from one to the participant cap, all admitted through
+the same invitation seam with no pair-only path. Two is not a special case.
+_Avoid_: Team, organization (out of scope)
+
+**Membership audit**:
+A bounded, newest-first record on a shared publication of who invited, revoked, joined, changed
+roles, or removed whom and when. It names participants and invitation IDs only, never tokens,
+accounts, or prose, and only site owners and coordinators can read it.
+_Avoid_: Activity feed, access log
+
 **Publish gate**:
 The check that publishing a shared publication needs the publish grant and an approval of the
 current revision from every participant who owns a contribution. Site ownership alone never
@@ -149,6 +160,18 @@ counts only while the recomputed binding still matches, so any covered change in
 Only the author can give or withdraw it; a site owner or coordinator cannot, and a publish grant
 never replaces it; the publish gate checks it again at publication (ADR 0022). It is not an electronic signature, and alone it does not assign public credit.
 _Avoid_: Publication, Work credit, timeless consent
+
+**Approval rule**:
+The publication's choice of whose approval publication needs: every author (the default), everyone
+who wrote, the writers plus named participants, or the writers plus every author holding chosen
+roles. Every writer, and everyone named on a synthesis item, always approves; a rule only adds
+approvers and never counts, votes or stands in for anyone. A named person who leaves, or a role no
+author holds, keeps the piece blocked until the rule changes. Site owners and coordinators change
+it against the revision they read, with an explicit confirmation, and a real change clears every
+approval. A coordinator may only keep or add required approvers; dropping anyone the rule
+requires, even someone who has left, takes a site owner. It is bound into every approval and shown in the combined preview. It never changes who
+reads which draft: reveal stays one group (ADR 0052).
+_Avoid_: Quorum, vote, approval threshold, reveal group
 
 **Synthesis item**:
 An optional statement the authors of a shared reflection make together: an agreement, difference,

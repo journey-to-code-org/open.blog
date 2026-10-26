@@ -6,13 +6,107 @@
 //! name stay exactly as they were (ADR 0015). Every operation takes the whole record and returns
 //! the next one, guarded by the policy revision the requester last saw.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::collaboration::{
-    AuthorizationAction, AuthorizationContext, AuthorizationRole, AuthorizationTarget,
+    valid_id, AuthorizationAction, AuthorizationContext, AuthorizationRole, AuthorizationTarget,
     IdentityBinding, SharedPublication,
 };
 use crate::invitation::Identities;
+
+/// The most audit entries a record keeps. The oldest go first, so the trail stays bounded.
+pub const MAX_AUDIT_ENTRIES: usize = 500;
+
+/// What a membership audit entry records.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AuditEvent {
+    Invited,
+    InvitationRevoked,
+    Joined,
+    RolesChanged,
+    Removed,
+}
+
+/// One change to who may act in a publication. It names participants and invitation IDs only,
+/// never a token, an account name, a display name, or any prose, so it can be shown to the
+/// people who manage members without exposing anything else.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AuditEntry {
+    /// Strictly increasing within a record.
+    pub seq: u64,
+    pub at: i64,
+    /// The participant who made the change.
+    pub actor: String,
+    pub event: AuditEvent,
+    /// The participant changed, or the invitation for invitation events.
+    pub subject: String,
+    /// Roles before the change, when there were any.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub from: Vec<AuthorizationRole>,
+    /// Roles after the change, when there are any.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub to: Vec<AuthorizationRole>,
+}
+
+/// Structural rules applied whenever a record is read or written.
+pub(crate) fn valid_audit(audit: &[AuditEntry]) -> bool {
+    audit.len() <= MAX_AUDIT_ENTRIES
+        && audit.windows(2).all(|pair| pair[0].seq < pair[1].seq)
+        && audit.iter().all(|entry| {
+            valid_id(&entry.actor)
+                && valid_id(&entry.subject)
+                && entry.from.len() <= 5
+                && entry.to.len() <= 5
+        })
+}
+
+impl SharedPublication {
+    /// Append an entry, forgetting the oldest when full.
+    pub(crate) fn record_audit(
+        &mut self,
+        at: i64,
+        actor: &str,
+        event: AuditEvent,
+        subject: &str,
+        from: &[AuthorizationRole],
+        to: &[AuthorizationRole],
+    ) {
+        let seq = self
+            .audit
+            .last()
+            .map_or(1, |last| last.seq.saturating_add(1));
+        if self.audit.len() >= MAX_AUDIT_ENTRIES {
+            self.audit.remove(0);
+        }
+        self.audit.push(AuditEntry {
+            seq,
+            at,
+            actor: actor.to_string(),
+            event,
+            subject: subject.to_string(),
+            from: from.to_vec(),
+            to: to.to_vec(),
+        });
+    }
+
+    /// The membership audit trail, newest first, for a requester who may manage members.
+    pub fn audit_for(
+        &self,
+        requester: &str,
+        identities: &Identities<'_>,
+    ) -> Result<Vec<&AuditEntry>, MemberError> {
+        self.authorize(
+            requester,
+            identities,
+            AuthorizationAction::Invite,
+            AuthorizationTarget::Publication,
+        )
+        .map_err(|_| MemberError::Denied)?;
+        Ok(self.audit.iter().rev().collect())
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MemberError {
@@ -141,8 +235,9 @@ impl SharedPublication {
         participant_id: &str,
         roles: &[AuthorizationRole],
         expected_revision: u64,
+        now: i64,
     ) -> Result<Self, MemberError> {
-        self.guard(requester, identities, participant_id, expected_revision)?;
+        let me = self.guard(requester, identities, participant_id, expected_revision)?;
         if roles.is_empty()
             || roles
                 .iter()
@@ -151,11 +246,34 @@ impl SharedPublication {
         {
             return Err(MemberError::Roles);
         }
+        // Submitting the roles a member already holds, in any order, changes nothing: no audit
+        // entry and no new revision. Policy replacement lets anyone who manages members resubmit
+        // unchanged bindings, so recording these would let a coordinator write false entries
+        // about the owner and push real history out of the bounded trail.
+        let current = self
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.participant_id == participant_id)
+            .map(|binding| binding.roles.as_slice())
+            .unwrap_or_default();
+        if current.len() == roles.len() && roles.iter().all(|role| current.contains(role)) {
+            return Ok(self.clone());
+        }
         let mut next = self.clone();
         next.authorization.revision = expected_revision.saturating_add(1);
-        next.binding_mut(participant_id)
-            .ok_or(MemberError::Denied)?
-            .roles = roles.to_vec();
+        let binding = next
+            .binding_mut(participant_id)
+            .ok_or(MemberError::Denied)?;
+        let before = std::mem::replace(&mut binding.roles, roles.to_vec());
+        next.record_audit(
+            now,
+            &me,
+            AuditEvent::RolesChanged,
+            participant_id,
+            &before,
+            roles,
+        );
         let text = serde_json::to_string(&next.authorization).map_err(|_| MemberError::Invalid)?;
         next.authorization = self
             .authorization
@@ -176,8 +294,9 @@ impl SharedPublication {
         identities: &Identities<'_>,
         participant_id: &str,
         expected_revision: u64,
+        now: i64,
     ) -> Result<Self, MemberError> {
-        self.guard(requester, identities, participant_id, expected_revision)?;
+        let me = self.guard(requester, identities, participant_id, expected_revision)?;
         if !self.may(
             requester,
             identities,
@@ -187,10 +306,18 @@ impl SharedPublication {
             return Err(MemberError::Denied);
         }
         let mut next = self.clone();
+        let before = self
+            .authorization
+            .bindings
+            .iter()
+            .find(|binding| binding.participant_id == participant_id)
+            .map(|binding| binding.roles.clone())
+            .unwrap_or_default();
         next.authorization
             .bindings
             .retain(|binding| binding.participant_id != participant_id);
         next.authorization.revision = expected_revision.saturating_add(1);
+        next.record_audit(now, &me, AuditEvent::Removed, participant_id, &before, &[]);
         next.revalidated()
     }
 
@@ -201,14 +328,17 @@ impl SharedPublication {
         identities: &Identities<'_>,
         participant_id: &str,
         expected_revision: u64,
-    ) -> Result<(), MemberError> {
-        self.authorize(
-            requester,
-            identities,
-            AuthorizationAction::Invite,
-            AuthorizationTarget::Publication,
-        )
-        .map_err(|_| MemberError::Denied)?;
+    ) -> Result<String, MemberError> {
+        let me = self
+            .authorize(
+                requester,
+                identities,
+                AuthorizationAction::Invite,
+                AuthorizationTarget::Publication,
+            )
+            .map_err(|_| MemberError::Denied)?
+            .participant_id
+            .clone();
         if self
             .authorization
             .bindings
@@ -220,7 +350,7 @@ impl SharedPublication {
         if self.authorization.revision != expected_revision {
             return Err(MemberError::Stale);
         }
-        Ok(())
+        Ok(me)
     }
 
     fn context<'a>(

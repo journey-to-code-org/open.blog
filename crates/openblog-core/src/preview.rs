@@ -19,8 +19,12 @@
 
 use serde::Serialize;
 
-use crate::approval::{ApprovalSet, ApprovalState, Readiness, Section};
+use crate::approval::{
+    describe_policy, ApprovalPolicy, ApprovalRequirement, ApprovalSet, ApprovalState, Readiness,
+    Section,
+};
 use crate::assembly::display_names;
+use crate::collaboration::AuthorizationRole;
 use crate::collaboration::SharedPublication;
 use crate::draft::DraftSet;
 use crate::escape;
@@ -100,10 +104,51 @@ fn preview_items(
         .collect()
 }
 
+/// The approval rule the piece is reviewed under. It is part of what every approval binds to, so
+/// it is shown with the piece like everything else that binds (ADR 0052).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewRule {
+    pub policy: ApprovalPolicy,
+    /// Advances with every real policy change; approvals given before it no longer count.
+    pub revision: u64,
+    /// The rule as a plain sentence.
+    pub summary: String,
+    /// Display names of participants the rule needs who are no longer authors.
+    pub unmet_named: Vec<String>,
+    /// Roles the rule lists that no current author holds.
+    pub unmet_roles: Vec<AuthorizationRole>,
+}
+
+/// The rule in words, for the preview and for the people who choose it.
+pub fn rule_for(
+    record: &SharedPublication,
+    approvals: &ApprovalSet,
+    subject: &crate::approval::ApprovalSubject<'_>,
+) -> PreviewRule {
+    let policy = approvals.policy().clone();
+    let named = match &policy.requirement {
+        ApprovalRequirement::NamedAuthors(named) => {
+            display_names(record, named.iter().map(String::as_str))
+        }
+        _ => Vec::new(),
+    };
+    let gaps = approvals.gaps(subject);
+    PreviewRule {
+        summary: describe_policy(&policy, &named),
+        revision: approvals.policy_revision(),
+        unmet_named: display_names(record, gaps.named.iter().map(String::as_str)),
+        unmet_roles: gaps.roles,
+        policy,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CombinedPreview {
     pub sections: Vec<PreviewSection>,
+    /// The approval rule, shown because it is part of what every approval binds to.
+    pub rule: PreviewRule,
     /// Every section that exists is shown to the requester. An author who wrote nothing has no
     /// section and does not block it.
     pub complete: bool,
@@ -234,8 +279,10 @@ pub fn build(
         } else {
             None
         };
+        let rule = rule_for(record, approvals, subject);
         let document = document(
             record,
+            &rule,
             &sections,
             &rendered,
             arranged.as_ref(),
@@ -245,6 +292,7 @@ pub fn build(
         );
         Ok(CombinedPreview {
             sections,
+            rule,
             complete,
             ready,
             seen,
@@ -357,8 +405,10 @@ fn arrange(
     Ok(compose(structure.layout, &turns))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn document(
     record: &SharedPublication,
+    rule: &PreviewRule,
     sections: &[PreviewSection],
     rendered: &[Option<String>],
     arranged: Option<&Result<String, ()>>,
@@ -410,6 +460,41 @@ fn document(
     html.push_str(&format!("<h1>{}</h1>\n", escape::text(title)));
     if let Some(attribution) = SharedAttribution::from_record(record) {
         html.push_str(&attribution.html());
+    }
+    html.push_str(&format!(
+        "<p class=\"ob-preview-rule\">Approval rule: {}</p>\n",
+        escape::text(&rule.summary)
+    ));
+    if !rule.unmet_named.is_empty() || !rule.unmet_roles.is_empty() {
+        let mut problems = Vec::new();
+        if !rule.unmet_named.is_empty() {
+            problems.push(format!(
+                "{} can no longer approve",
+                rule.unmet_named.join(", ")
+            ));
+        }
+        for role in &rule.unmet_roles {
+            problems.push(format!(
+                "no author is {}",
+                crate::approval::role_with_article(*role)
+            ));
+        }
+        // Only a site owner can take a named person off the rule (ADR 0052); a coordinator can
+        // change a role requirement.
+        let mut remedies = Vec::new();
+        if !rule.unmet_named.is_empty() {
+            remedies
+                .push("A site owner can take them off the rule, or their access can be restored.");
+        }
+        if !rule.unmet_roles.is_empty() {
+            remedies
+                .push("A coordinator can change the rule, or an author can be given that role.");
+        }
+        html.push_str(&format!(
+            "<p class=\"ob-preview-status\" role=\"note\">This rule cannot be met as things stand: {}. {}</p>\n",
+            escape::text(&problems.join("; ")),
+            escape::text(&remedies.join(" "))
+        ));
     }
     // The placement is public and bound into every approval (ADR 0038), so it is shown here.
     if let Some(placement) = &record.series {

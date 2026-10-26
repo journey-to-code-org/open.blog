@@ -128,6 +128,7 @@ fn approve(set: &DraftSet, approvals: &mut ApprovalSet, who: &str, authors: &[&s
         sections: &sections,
         metadata: &metadata,
         attributed: &[],
+        roles: &[],
     };
     approvals
         .approve(who, who, &subject, &seen, true, T)
