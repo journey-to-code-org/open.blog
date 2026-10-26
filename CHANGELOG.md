@@ -5,6 +5,10 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- A series that credits the site owner both as the site author and under their contributor entry
+  (for example on a shared reflection) now names them once in its list of contributors.
+- Portable Markdown now escapes `<` and `&` in titles, names and other facts, so a name such as
+  `Kim <https://kim.example>` or `AT&amp;T` stays literal text instead of failing the build.
 - A series that holds a collaborative work (a published post credited to two or more authors, such
   as a shared reflection) now says who wrote what. Its page lists the series' contributors, and
   every part, ordinary posts included, shows "By ..." on the series page, inside the previous and
