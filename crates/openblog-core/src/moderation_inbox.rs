@@ -1,7 +1,7 @@
 //! The one participation moderation inbox (ADR 0104).
 //!
-//! Hosted comments and passage feedback, and every later participation kind
-//! once it has a store, are moderated in one list driven by the one state
+//! Hosted comments, passage feedback and abuse reports (ADR 0130), and every
+//! later participation kind once it has a store, are moderated in one list driven by the one state
 //! machine ([`crate::moderation`]). Each item the hosted service returns is
 //! read again here with a strict validator, given the actor its viewer is on
 //! that item's work ([`SharedWorks::actor`]), shown only as far as
@@ -18,17 +18,18 @@ use crate::feedback_moderation::{feedback_review, post_for_work};
 use crate::invitation::Identities;
 use crate::model::Site;
 use crate::moderation::{
-    allowed_reasons, is_public, may_view, Actor, ActorRole, Decision, ItemFacts, ModerationAction,
-    ModerationPolicy, ModerationState, PolicyError, Principal, ReasonCode, Request, SharedWorks,
-    View,
+    allowed_reasons, is_public, may_view, Actor, ActorRole, Decision, Erasure, ItemFacts,
+    ModerationAction, ModerationPolicy, ModerationState, PolicyError, Principal, ReasonCode,
+    Request, RetentionStep, SharedWorks, View,
 };
 use crate::participation::{effective_mode, ParticipationKind, ParticipationMode};
 use crate::scholarly_feedback::{is_uuid, HostedFeedback};
 
-/// The decisions the inbox offers, in the order its cards show them. The
-/// submitter's own actions (clarify, withdraw), expiry and upholding a report
-/// are not the inbox's: readers and the retention job take them, and abuse
-/// reports have no store yet (#226).
+/// The decisions the inbox offers on any item, in the order its cards show
+/// them. The submitter's own actions (clarify, withdraw) and expiry are not
+/// the inbox's: readers, through their receipts, and the retention job take
+/// them. Upholding an abuse report ([`ModerationAction::UpholdReport`]) is
+/// offered on reports alone, decided with the item the report names.
 pub const INBOX_ACTIONS: [ModerationAction; 5] = [
     ModerationAction::Approve,
     ModerationAction::RequestClarification,
@@ -42,6 +43,22 @@ pub const PAGE_SIZE: usize = 50;
 const MAX_PAGE_ITEMS: usize = 200;
 const MAX_COMMENT_CHARS: usize = 4_000;
 const MAX_NAME_CHARS: usize = 80;
+const MAX_TARGET_CHARS: usize = 20_000;
+/// The longest abuse report a reader may write (ADR 0130).
+pub const MAX_REPORT_CHARS: usize = 1_000;
+
+/// The grounds a reader may give for an abuse report: the reasons a
+/// moderator may uphold one for (ADR 0101), never a verdict on facts.
+pub fn report_grounds() -> &'static [ReasonCode] {
+    allowed_reasons(
+        ModerationAction::UpholdReport,
+        ParticipationKind::AbuseReport,
+    )
+}
+
+/// The action id a site Admin sends to delete an item's text and name on a
+/// reader's request ([`ModerationPolicy::erase`]).
+pub const ERASE_ACTION: &str = "erase";
 
 /// What the hosted service can store for moderation (ADR 0105).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,6 +70,12 @@ pub enum Protocol {
     /// rejected, removed (stored as rejected) and reopened, passage feedback
     /// approved, rejected and removed (ADR 0083). Nothing else is offered.
     Legacy,
+    /// The inbox's schema with `supabase/protection.sql` run and
+    /// `OPENBLOG_PROTECTION_ENABLED` set (ADR 0131): everything [`Full`]
+    /// stores, plus abuse reports, purged text and deletion requests.
+    ///
+    /// [`Full`]: Protocol::Full
+    Protected,
 }
 
 impl Protocol {
@@ -60,6 +83,7 @@ impl Protocol {
         match self {
             Protocol::Full => "full",
             Protocol::Legacy => "legacy",
+            Protocol::Protected => "protected",
         }
     }
 
@@ -67,6 +91,7 @@ impl Protocol {
         match id {
             "full" => Some(Protocol::Full),
             "legacy" => Some(Protocol::Legacy),
+            "protected" => Some(Protocol::Protected),
             _ => None,
         }
     }
@@ -75,7 +100,8 @@ impl Protocol {
     pub fn supports(self, kind: ParticipationKind, action: ModerationAction) -> bool {
         use ModerationAction::*;
         match self {
-            Protocol::Full => true,
+            Protocol::Protected => true,
+            Protocol::Full => kind != ParticipationKind::AbuseReport,
             Protocol::Legacy if kind == ParticipationKind::Comment => {
                 matches!(action, Approve | Reject | Remove | Reopen)
             }
@@ -94,6 +120,8 @@ pub enum Source {
     Comment,
     /// `openblog_feedback` (ADR 0080).
     Feedback,
+    /// `openblog_abuse_reports` (ADR 0130).
+    Report,
 }
 
 impl Source {
@@ -101,6 +129,7 @@ impl Source {
         match self {
             Source::Comment => "comment",
             Source::Feedback => "feedback",
+            Source::Report => "report",
         }
     }
 
@@ -108,7 +137,17 @@ impl Source {
         match id {
             "comment" => Some(Source::Comment),
             "feedback" => Some(Source::Feedback),
+            "report" => Some(Source::Report),
             _ => None,
+        }
+    }
+
+    /// Whether this store holds items of `kind`.
+    pub fn holds(self, kind: ParticipationKind) -> bool {
+        match self {
+            Source::Comment => kind == ParticipationKind::Comment,
+            Source::Feedback => ParticipationKind::PASSAGE_FEEDBACK.contains(&kind),
+            Source::Report => kind == ParticipationKind::AbuseReport,
         }
     }
 }
@@ -120,6 +159,32 @@ pub enum Content {
     Comment { author_name: String, body: String },
     /// A passage feedback record with its provenance (ADRs 0078, 0079).
     Feedback(Box<HostedFeedback>),
+    /// An abuse report: the reader's ground and what they wrote, if anything.
+    /// It never names the reporter.
+    Report {
+        ground: ReasonCode,
+        body: Option<String>,
+    },
+    /// Retention or a deletion request purged the text, details and name;
+    /// only the state and the audit trail remain (ADR 0103).
+    Purged,
+}
+
+/// The item an abuse report names, as the hosted service read it with the
+/// report: enough for a moderator to see what was reported and for the
+/// policy to decide an upholding. A feedback reader's name is never sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReportedTarget {
+    pub source: Source,
+    pub id: String,
+    pub kind: ParticipationKind,
+    pub state: ModerationState,
+    pub version: u64,
+    pub revision: u32,
+    /// A comment's author name, shown with it on the post.
+    pub author_name: Option<String>,
+    /// The text, unless it was purged.
+    pub body: Option<String>,
 }
 
 /// One hosted item, read and checked.
@@ -141,6 +206,8 @@ pub struct InboxItem {
     /// The published work's path.
     pub work: String,
     pub content: Content,
+    /// For an abuse report, the item it names, when that item still exists.
+    pub target: Option<ReportedTarget>,
 }
 
 #[derive(Deserialize)]
@@ -165,6 +232,73 @@ struct WireCommentBody {
     author_name: String,
     body: String,
     created_at: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WireReport {
+    #[allow(dead_code)]
+    source: String,
+    id: String,
+    status: String,
+    version: u64,
+    #[serde(default)]
+    moderated_at: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+    received_at: String,
+    work: String,
+    report: WireReportBody,
+    #[serde(default)]
+    target: Option<WireTarget>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WireReportBody {
+    ground: String,
+    #[serde(default)]
+    body: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WireTarget {
+    source: String,
+    id: String,
+    kind: String,
+    status: String,
+    version: u64,
+    #[serde(default = "first_revision")]
+    revision: u32,
+    #[serde(default)]
+    author_name: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+}
+
+fn first_revision() -> u32 {
+    1
+}
+
+/// An item whose text, details and name were purged: its facts only.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct WirePurged {
+    source: String,
+    id: String,
+    kind: String,
+    status: String,
+    version: u64,
+    #[serde(default = "first_revision")]
+    revision: u32,
+    #[serde(default)]
+    moderated_at: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+    received_at: String,
+    work: String,
+    purged_at: String,
 }
 
 /// Whether `value` is a published post path the hosted service accepts.
@@ -196,11 +330,172 @@ impl InboxItem {
     /// Read one hosted item. A bad item is refused on its own, naming what is
     /// wrong but never repeating what it holds.
     pub fn from_value(value: &Value) -> Result<Self, String> {
+        if value.get("purgedAt").is_some_and(|at| !at.is_null()) {
+            return Self::read_purged(value);
+        }
         match value["source"].as_str().and_then(Source::from_id) {
             Some(Source::Comment) => Self::read_comment(value),
             Some(Source::Feedback) => Self::read_feedback(value),
+            Some(Source::Report) => Self::read_report(value),
             None => Err("an inbox item needs a known `source`".into()),
         }
+    }
+
+    fn read_state(
+        source: Source,
+        status: &str,
+        version: u64,
+    ) -> Result<ModerationState, &'static str> {
+        let state = ModerationState::from_id(status)
+            .filter(|state| {
+                // Comments and reports carry no clarification consent and no
+                // receipt.
+                source == Source::Feedback
+                    || !matches!(
+                        state,
+                        ModerationState::Clarification | ModerationState::Withdrawn
+                    )
+            })
+            .ok_or("a hosted item has a state its store cannot hold")?;
+        if version == 0 || version > i32::MAX as u64 {
+            return Err("a hosted item needs a positive `version`");
+        }
+        Ok(state)
+    }
+
+    fn read_reason(reason: Option<String>) -> Result<Option<ReasonCode>, &'static str> {
+        reason
+            .map(|reason| ReasonCode::from_id(&reason).ok_or("a hosted item has an unknown reason"))
+            .transpose()
+    }
+
+    fn read_moderated_at(value: Option<String>) -> Result<Option<DateTime>, &'static str> {
+        value
+            .map(|time| canonical_time(&time).ok_or("`moderatedAt` must be a UTC time"))
+            .transpose()
+    }
+
+    fn read_purged(value: &Value) -> Result<Self, String> {
+        let wire: WirePurged = serde_json::from_value(value.clone())
+            .map_err(|_| "a purged item has an unknown or mistyped field".to_string())?;
+        let source = Source::from_id(&wire.source).ok_or("a purged item needs a known `source`")?;
+        let kind = ParticipationKind::from_id(&wire.kind)
+            .filter(|kind| source.holds(*kind))
+            .ok_or("a purged item has a kind its store cannot hold")?;
+        if !is_uuid(&wire.id) {
+            return Err("a purged item needs a UUID `id`".into());
+        }
+        let state = Self::read_state(source, &wire.status, wire.version)?;
+        if state == ModerationState::Approved && kind.rules().publishable {
+            return Err("a purged item cannot be approved for publication".into());
+        }
+        if !is_site_path(&wire.work) || wire.revision == 0 {
+            return Err("a purged item needs a post path and a revision".into());
+        }
+        let received_at =
+            canonical_time(&wire.received_at).ok_or("a purged item needs a UTC `receivedAt`")?;
+        canonical_time(&wire.purged_at).ok_or("a purged item needs a UTC `purgedAt`")?;
+        Ok(Self {
+            source,
+            id: wire.id,
+            kind,
+            state,
+            version: wire.version,
+            revision: wire.revision,
+            approved_revision: None,
+            clarification_asked: None,
+            clarification_consent: false,
+            reason: Self::read_reason(wire.reason)?,
+            moderated_at: Self::read_moderated_at(wire.moderated_at)?,
+            received_at,
+            work: wire.work,
+            content: Content::Purged,
+            target: None,
+        })
+    }
+
+    fn read_report(value: &Value) -> Result<Self, String> {
+        let wire: WireReport = serde_json::from_value(value.clone())
+            .map_err(|_| "a hosted abuse report has an unknown or mistyped field".to_string())?;
+        if !is_uuid(&wire.id) {
+            return Err("a hosted abuse report needs a UUID `id`".into());
+        }
+        let state = Self::read_state(Source::Report, &wire.status, wire.version)?;
+        if !is_site_path(&wire.work) {
+            return Err("a hosted abuse report needs a post path".into());
+        }
+        let ground = ReasonCode::from_id(&wire.report.ground)
+            .filter(|ground| report_grounds().contains(ground))
+            .ok_or("a hosted abuse report needs one of the report grounds")?;
+        let body = wire
+            .report
+            .body
+            .map(|body| {
+                comment_text_ok(&body, MAX_REPORT_CHARS, true)
+                    .then_some(body)
+                    .ok_or("a hosted abuse report's text must be at most 1,000 characters")
+            })
+            .transpose()?;
+        let received_at = canonical_time(&wire.received_at)
+            .ok_or("a hosted abuse report needs a UTC `receivedAt`")?;
+        let target = wire.target.map(Self::read_target).transpose()?;
+        Ok(Self {
+            source: Source::Report,
+            id: wire.id,
+            kind: ParticipationKind::AbuseReport,
+            state,
+            version: wire.version,
+            revision: 1,
+            approved_revision: None,
+            clarification_asked: None,
+            clarification_consent: false,
+            reason: Self::read_reason(wire.reason)?,
+            moderated_at: Self::read_moderated_at(wire.moderated_at)?,
+            received_at,
+            work: wire.work,
+            content: Content::Report { ground, body },
+            target,
+        })
+    }
+
+    fn read_target(wire: WireTarget) -> Result<ReportedTarget, String> {
+        let source = Source::from_id(&wire.source)
+            .filter(|source| *source != Source::Report)
+            .ok_or("a reported item must be a comment or passage feedback")?;
+        let kind = ParticipationKind::from_id(&wire.kind)
+            .filter(|kind| source.holds(*kind))
+            .ok_or("a reported item has a kind its store cannot hold")?;
+        if !is_uuid(&wire.id) || wire.revision == 0 {
+            return Err("a reported item needs a UUID `id` and a revision".into());
+        }
+        let state = Self::read_state(source, &wire.status, wire.version)?;
+        let author_name = wire
+            .author_name
+            .filter(|_| source == Source::Comment)
+            .map(|name| {
+                comment_text_ok(&name, MAX_NAME_CHARS, false)
+                    .then_some(name)
+                    .ok_or("a reported comment needs a plain author name")
+            })
+            .transpose()?;
+        let body = wire
+            .body
+            .map(|body| {
+                comment_text_ok(&body, MAX_TARGET_CHARS, true)
+                    .then_some(body)
+                    .ok_or("a reported item's text is not plain text")
+            })
+            .transpose()?;
+        Ok(ReportedTarget {
+            source,
+            id: wire.id,
+            kind,
+            state,
+            version: wire.version,
+            revision: wire.revision,
+            author_name,
+            body,
+        })
     }
 
     fn read_comment(value: &Value) -> Result<Self, String> {
@@ -263,6 +558,7 @@ impl InboxItem {
                 author_name: body.author_name,
                 body: body.body,
             },
+            target: None,
         })
     }
 
@@ -287,6 +583,7 @@ impl InboxItem {
             received_at: hosted.feedback.provenance.received_at,
             work: hosted.feedback.provenance.work.clone(),
             content: Content::Feedback(Box::new(hosted)),
+            target: None,
         })
     }
 
@@ -296,23 +593,43 @@ impl InboxItem {
             id: &self.id,
             kind: self.kind,
             work: Some(&self.work),
-            parent: None,
+            parent: self.target.as_ref().map(|target| target.id.as_str()),
             state: self.state,
             version: self.version,
             revision: self.revision,
             approved_revision: self.approved_revision,
             clarification_asked: self.clarification_asked,
             clarification_consent: self.clarification_consent,
-            content_retained: true,
+            content_retained: !matches!(self.content, Content::Purged),
             state_since: self.moderated_at.unwrap_or(self.received_at),
         }
+    }
+
+    /// The facts of the item an abuse report names, on the report's work.
+    pub fn target_facts(&self) -> Option<ItemFacts<'_>> {
+        let target = self.target.as_ref()?;
+        Some(ItemFacts {
+            id: &target.id,
+            kind: target.kind,
+            work: Some(&self.work),
+            parent: None,
+            state: target.state,
+            version: target.version,
+            revision: target.revision,
+            approved_revision: (target.state == ModerationState::Approved)
+                .then_some(target.revision),
+            clarification_asked: None,
+            clarification_consent: false,
+            content_retained: target.body.is_some(),
+            state_since: self.received_at,
+        })
     }
 
     /// The feedback record, for a feedback item.
     pub fn feedback(&self) -> Option<&HostedFeedback> {
         match &self.content {
             Content::Feedback(hosted) => Some(hosted),
-            Content::Comment { .. } => None,
+            _ => None,
         }
     }
 }
@@ -405,6 +722,14 @@ impl<'a> Inbox<'a> {
         expected_version: u64,
         reason: Option<ReasonCode>,
     ) -> Result<Decision, PolicyError> {
+        // Upholding a report is decided with the item it names, as the
+        // hosted service read it with the report (ADR 0103).
+        let target = item.target_facts();
+        let reported_item = if action == ModerationAction::UpholdReport {
+            target.as_ref()
+        } else {
+            None
+        };
         let decision = self.policy.decide(
             &item.facts(),
             &Request {
@@ -413,25 +738,47 @@ impl<'a> Inbox<'a> {
                 expected_version,
                 reason,
                 at: self.now,
-                reported_item: None,
+                reported_item,
             },
         )?;
-        if !INBOX_ACTIONS.contains(&action) || !self.protocol.supports(item.kind, action) {
+        let offered = INBOX_ACTIONS.contains(&action)
+            || (action == ModerationAction::UpholdReport && item.source == Source::Report);
+        if !offered || !self.protocol.supports(item.kind, action) {
             return Err(PolicyError::NotAllowed);
         }
         Ok(decision)
     }
 
-    /// The inbox actions this viewer can take on the item now, each checked
-    /// by the policy with a reason it accepts.
+    /// The decisions this viewer can take on the item now, each checked by
+    /// the policy with a reason it accepts: the inbox actions, and for an
+    /// abuse report, upholding it.
     pub fn actions(&self, item: &InboxItem) -> Vec<ModerationAction> {
         INBOX_ACTIONS
             .into_iter()
+            .chain((item.source == Source::Report).then_some(ModerationAction::UpholdReport))
             .filter(|action| {
                 let reason = allowed_reasons(*action, item.kind).first().copied();
                 self.decide(item, *action, item.version, reason).is_ok()
             })
             .collect()
+    }
+
+    /// A deletion request taken by this viewer (ADR 0130): only the site
+    /// Admin, only on a closed item or an upheld report, and only where the
+    /// hosted service can purge ([`Protocol::Protected`]).
+    pub fn erase(&self, item: &InboxItem, expected_version: u64) -> Result<Erasure, PolicyError> {
+        let erasure =
+            self.policy
+                .erase(&item.facts(), &self.actor(item), expected_version, self.now)?;
+        if self.protocol != Protocol::Protected {
+            return Err(PolicyError::NotAllowed);
+        }
+        Ok(erasure)
+    }
+
+    /// The step retention owes the item now, if any (ADR 0103).
+    pub fn retention_due(&self, item: &InboxItem) -> Option<RetentionStep> {
+        self.policy.retention_due(&item.facts(), self.now)
     }
 
     /// The item as this viewer may see it, or `None` when they may not see
@@ -445,12 +792,18 @@ impl<'a> Inbox<'a> {
         }
         let facts = item.facts();
         let mode = self.mode(item);
-        if !may_view(&actor, &facts, mode, View::Content) {
+        // A purged item has no content left to show; a viewer who would have
+        // seen it still sees its facts, so a decision stays explainable.
+        let scope = ItemFacts {
+            content_retained: true,
+            ..facts
+        };
+        if !may_view(&actor, &scope, mode, View::Content) {
             return None;
         }
         let private_identity = may_view(&actor, &facts, mode, View::PrivateIdentity);
         let post = post_for_work(self.site, &item.work);
-        let actions: Vec<Value> = self
+        let mut actions: Vec<Value> = self
             .actions(item)
             .into_iter()
             .map(|action| {
@@ -462,6 +815,15 @@ impl<'a> Inbox<'a> {
                 })
             })
             .collect();
+        if self.erase(item, item.version).is_ok() {
+            actions.push(json!({
+                "action": ERASE_ACTION,
+                "label": "Delete its text and name",
+                "reasons": [],
+                "guidance": "For a reader who asked you to delete what they sent: deletes its text, details and any name now. The decision stays as it is, and only the private record of decisions remains. This cannot be undone.",
+                "confirm": "I understand that the text and name are deleted for good.",
+            }));
+        }
         let mut view = json!({
             "id": item.id,
             "source": item.source.id(),
@@ -487,6 +849,31 @@ impl<'a> Inbox<'a> {
             "actions": actions,
         });
         match &item.content {
+            Content::Purged => {
+                view["body"] = Value::Null;
+                view["details"] = json!({});
+                view["purged"] = json!(true);
+                view["reader"] = json!({ "publishName": false });
+            }
+            Content::Report { ground, body } => {
+                view["body"] = json!(body);
+                view["details"] = json!({});
+                view["reader"] = json!({ "publishName": false });
+                view["report"] = json!({ "ground": ground.id(), "groundLabel": ground.label() });
+                view["target"] = match &item.target {
+                    Some(target) => json!({
+                        "source": target.source.id(),
+                        "id": target.id,
+                        "kind": target.kind.id(),
+                        "kindLabel": target.kind.label(),
+                        "status": target.state.id(),
+                        "statusLabel": target.state.label(),
+                        "authorName": target.author_name,
+                        "body": target.body,
+                    }),
+                    None => Value::Null,
+                };
+            }
             Content::Comment { author_name, body } => {
                 view["body"] = json!(body);
                 view["details"] = json!({});
@@ -535,6 +922,9 @@ pub fn guidance(policy: &ModerationPolicy, item: &InboxItem, action: ModerationA
         ModerationAction::Approve => {
             "Publishes the reader’s words on the post as theirs, at this revision. It never edits your post, and it does not mean you agree.".into()
         }
+        ModerationAction::Reject if item.kind == ParticipationKind::AbuseReport => {
+            format!("Dismisses the report; the reported item is not changed. {retention}")
+        }
         ModerationAction::Reject => format!("Never shown. {retention}"),
         ModerationAction::Remove => format!("Takes it off the post. {retention}"),
         ModerationAction::RequestClarification => {
@@ -542,6 +932,16 @@ pub fn guidance(policy: &ModerationPolicy, item: &InboxItem, action: ModerationA
         }
         ModerationAction::Reopen => {
             "Returns it to pending for a fresh decision, or to waiting for clarification if the reader was asked about this text and has not answered.".into()
+        }
+        ModerationAction::UpholdReport => {
+            let target = match item.target.as_ref().map(|target| target.state) {
+                Some(ModerationState::Approved) => {
+                    "Takes the reported item off its post in the same decision, with this reason."
+                }
+                Some(_) => "The reported item is already out of public view, so only the report changes.",
+                None => "The reported item no longer exists, so only the report changes.",
+            };
+            format!("{target} The report itself is never published. {retention}")
         }
         _ => String::new(),
     }

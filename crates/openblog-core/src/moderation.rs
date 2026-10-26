@@ -866,6 +866,58 @@ impl RetentionPolicy {
     }
 }
 
+/// When each retention step falls due, for one run of the retention job
+/// ([`ModerationPolicy::cutoffs`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RetentionCutoffs {
+    /// A pending item whose state began at or before this expires.
+    pub pending_until: DateTime,
+    /// An unanswered clarification request from at or before this expires.
+    pub clarification_until: DateTime,
+    /// A closed item's text from at or before this is purged.
+    pub closed_until: DateTime,
+    /// An audit event recorded at or before this is deleted.
+    pub audit_until: DateTime,
+    /// Whether comments are covered (the site set `participation.retention`).
+    pub comments: bool,
+}
+
+impl RetentionCutoffs {
+    /// The form Admin sends the hosted function, with fixed keys.
+    pub fn to_json(&self) -> Value {
+        json!({
+            "pendingUntil": self.pending_until.rfc3339(),
+            "clarificationUntil": self.clarification_until.rfc3339(),
+            "closedUntil": self.closed_until.rfc3339(),
+            "auditUntil": self.audit_until.rfc3339(),
+            "comments": self.comments,
+        })
+    }
+}
+
+/// What a deletion request changes ([`ModerationPolicy::erase`]). Apply the
+/// withdrawal, the purge and both audit events in one write; if it fails,
+/// nothing changed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Erasure {
+    /// The withdrawal taken first, for a submitter's item that was still
+    /// open or public.
+    pub withdrawal: Option<Transition>,
+    /// The purge's audit event. It holds no text.
+    pub purge: AuditEvent,
+    /// The item's state afterwards, which the purge does not change.
+    pub state: ModerationState,
+    /// The item's version afterwards.
+    pub version: u64,
+}
+
+/// Whether a kind's submitters get a private receipt (ADR 0130): the reader
+/// kinds that may be asked to clarify. Comments predate receipts, abuse
+/// reports are anonymous, and authors act through Admin.
+pub fn issues_receipts(kind: ParticipationKind) -> bool {
+    kind.rules().origin == Origin::Reader && kind.rules().clarification
+}
+
 /// A step the retention job owes an item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RetentionStep {
@@ -1126,8 +1178,111 @@ impl ModerationPolicy {
             reason: None,
             at,
             revision: item.revision,
-            version: item.version,
+            // A purge raises the version, so no view from before it can
+            // still act on the item.
+            version: item.version.saturating_add(1),
             related: None,
+        })
+    }
+
+    /// The times at or before which each retention step is due now (ADR
+    /// 0131): an item whose state began at or before its step's time owes
+    /// that step, and an audit event recorded at or before `audit_until` may
+    /// be deleted. `comments` says whether comments are covered at all.
+    pub fn cutoffs(&self, now: DateTime) -> RetentionCutoffs {
+        let before = |days: u32| {
+            DateTime::from_unix(now.unix().saturating_sub(i64::from(days) * DAY_SECONDS))
+        };
+        RetentionCutoffs {
+            pending_until: before(self.retention.pending_days),
+            clarification_until: before(self.retention.clarification_days),
+            closed_until: before(self.retention.closed_days),
+            audit_until: before(self.retention.audit_days),
+            comments: self.comment_retention,
+        }
+    }
+
+    /// A deletion request (ADR 0130): the text, details and reader name of
+    /// one item are deleted now, and only its state and audit trail remain.
+    ///
+    /// - The submitter, proven by their private receipt, may ask for any of
+    ///   their items: one still pending, waiting for clarification or
+    ///   approved is withdrawn first, in the same write, so it is never
+    ///   public again; a rejected or removed one is purged as it is.
+    ///   Comments and abuse reports carry no receipt, so their submitters
+    ///   cannot ask here.
+    /// - The site Admin, acting on a request a reader made some other way,
+    ///   may purge an item that is already closed (rejected, removed or
+    ///   withdrawn) or an upheld abuse report; anything still open or public
+    ///   must be decided first, so no erasure skips a moderation decision.
+    ///
+    /// Checks run in the policy's order: grant, version, retained text,
+    /// state.
+    pub fn erase(
+        &self,
+        item: &ItemFacts<'_>,
+        actor: &Actor<'_>,
+        expected_version: u64,
+        at: DateTime,
+    ) -> Result<Erasure, PolicyError> {
+        let permitted = match actor {
+            Actor::Submitter => issues_receipts(item.kind),
+            Actor::SiteAdmin { .. } => true,
+            _ => false,
+        };
+        if !permitted {
+            return Err(PolicyError::Denied);
+        }
+        if expected_version != item.version {
+            return Err(PolicyError::Stale);
+        }
+        if !item.content_retained {
+            return Err(PolicyError::ContentPurged);
+        }
+        let withdrawal = match (actor, item.state) {
+            (
+                Actor::Submitter,
+                ModerationState::Pending
+                | ModerationState::Clarification
+                | ModerationState::Approved,
+            ) => Some(transition(
+                item,
+                actor,
+                ModerationAction::Withdraw,
+                ModerationState::Withdrawn,
+                None,
+                at,
+            )),
+            (Actor::Submitter, _) => None,
+            (_, ModerationState::Rejected | ModerationState::Removed)
+            | (_, ModerationState::Withdrawn) => None,
+            (_, ModerationState::Approved) if !item.kind.rules().publishable => None,
+            _ => return Err(PolicyError::NotAllowed),
+        };
+        let (state, version) = withdrawal
+            .as_ref()
+            .map_or((item.state, item.version), |change| {
+                (change.to, change.version)
+            });
+        let version = version.saturating_add(1);
+        Ok(Erasure {
+            purge: AuditEvent {
+                item: item.id.to_string(),
+                kind: item.kind,
+                action: AuditAction::PurgeContent,
+                from: Some(state),
+                to: state,
+                actor: actor.role(),
+                actor_id: actor.admin_user().map(str::to_string),
+                reason: None,
+                at,
+                revision: item.revision,
+                version,
+                related: None,
+            },
+            withdrawal,
+            state,
+            version,
         })
     }
 
