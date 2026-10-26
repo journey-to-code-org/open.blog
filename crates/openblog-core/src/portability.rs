@@ -5,7 +5,7 @@ use crate::config::{SiteConfig, SyndicationProvider};
 use crate::contributor::{CreditProvenance, ResolvedCredit};
 use crate::escape;
 use crate::markdown::{CodeRunnerRenderOptions, PortableContext, RenderOptions};
-use crate::model::{CommentsPolicy, Post};
+use crate::model::{CommentsPolicy, Post, SeriesContext, Site};
 use crate::recipe::Recipe;
 use crate::research::{ResearchMetadata, ResearchReference};
 use crate::video::VideoMetadata;
@@ -197,6 +197,8 @@ pub struct PortableProjection<'a> {
     recipe: Option<&'a Recipe>,
     /// Reader discussion the canonical page offers, when it offers any.
     participation: Option<CommentsPolicy>,
+    /// The post's place in a collaborative series, when it is a part of one (ADR 0041).
+    series: Option<SeriesContext>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -606,6 +608,25 @@ impl<'a> PortableProjection<'a> {
         Self::new(post, config, false)
     }
 
+    /// The public projection of one of `site`'s posts, with the post's collaborative series
+    /// context when it has one (ADR 0041). Feeds, exports and syndication use this, so every
+    /// external copy of a part of a collaborative series names and links its series; any other
+    /// post's projection is exactly `from_post`'s.
+    pub fn for_site(site: &Site, post: &'a Post) -> Result<Self, String> {
+        Ok(Self::from_post(post, &site.config)?.with_series(site.series_context(post)))
+    }
+
+    /// The same projection stating `series` as the post's series context. `None` removes it.
+    pub fn with_series(mut self, series: Option<SeriesContext>) -> Self {
+        self.series = series;
+        self
+    }
+
+    /// The collaborative series context this projection states, if any.
+    pub fn series(&self) -> Option<&SeriesContext> {
+        self.series.as_ref()
+    }
+
     /// Build an unpublished projection for the authenticated Admin preview only.
     /// Public feeds and exports must use `from_post`, which rejects drafts.
     pub fn for_authenticated_preview(post: &'a Post, config: &SiteConfig) -> Result<Self, String> {
@@ -653,7 +674,7 @@ impl<'a> PortableProjection<'a> {
             shared: post.shared_attribution.as_ref(),
             capabilities: &post.capabilities,
             html: &post.html,
-            markdown: &post.authored_markdown,
+            markdown: post.publication_markdown(),
             text: &post.text,
             render_options: RenderOptions {
                 smart_punctuation: config.markdown.smart_punctuation,
@@ -664,6 +685,8 @@ impl<'a> PortableProjection<'a> {
                 code_runner: None,
                 // Portable copies show sandboxes as static code, so no libraries load.
                 web_libraries: None,
+                // Generated notes are ordinary footnotes here, linked to the canonical article.
+                citation_notes: None,
             },
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),
@@ -674,6 +697,7 @@ impl<'a> PortableProjection<'a> {
                 && post.comments != CommentsPolicy::Hidden
                 && !config.engagement.endpoint.trim().is_empty())
             .then_some(post.comments),
+            series: None,
         })
     }
 
@@ -779,6 +803,9 @@ impl<'a> PortableProjection<'a> {
                 |url| self.resolve_link(url),
                 None,
             )?);
+        }
+        if let Some(series) = &self.series {
+            html.push_str(&self.series_context_html(series)?);
         }
         if let Some(research) = self.research {
             html.push_str(&research.work_meta_html());
@@ -917,7 +944,7 @@ impl<'a> PortableProjection<'a> {
             has_raw_html: self
                 .arrangement()
                 .map_or(rendered.portable_has_raw_html, |arrangement| {
-                    escape_raw_html(&arrangement.to_markdown(shared_markdown_text)).1 > 0
+                    escape_raw_html(&arrangement.to_markdown(markdown_text)).1 > 0
                 }),
         })
     }
@@ -930,19 +957,14 @@ impl<'a> PortableProjection<'a> {
         // any other body is the authored Markdown itself.
         let source = self.arrangement().map_or_else(
             || self.markdown.to_string(),
-            |arrangement| arrangement.to_markdown(shared_markdown_text),
+            |arrangement| arrangement.to_markdown(markdown_text),
         );
         let (body, raw_html_count) = escape_raw_html(&source);
         let body = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
         let mut output = format!(
             "# {}\n\nCanonical: <{}>\n\n",
-            if self.shared.is_some() {
-                // The title came from a participant, not the site owner: no raw HTML or entity.
-                shared_markdown_text(self.title)
-            } else {
-                markdown_text(self.title)
-            },
+            markdown_text(self.title),
             self.canonical_url
         );
         if let Some(subtitle) = self.subtitle {
@@ -979,6 +1001,15 @@ impl<'a> PortableProjection<'a> {
                 output.push_str(&format!("- {name} — {roles}{orcid}\n"));
             }
             output.push('\n');
+        }
+
+        if let Some(series) = &self.series {
+            if !output.ends_with("\n\n") {
+                output.push('\n');
+            }
+            output.push_str("## Series\n\n");
+            output.push_str(&self.series_context_markdown(series)?);
+            output.push_str("\n\n");
         }
 
         if let Some(research) = self.research {
@@ -1072,17 +1103,17 @@ impl<'a> PortableProjection<'a> {
                     "Guiding question: {}
 
 ",
-                    shared_markdown_text(question)
+                    markdown_text(question)
                 ));
             }
             if let Some(source) = &shared.source {
                 let name = match &source.url {
                     Some(url) => format!(
                         "[{}]({})",
-                        shared_markdown_text(&source.title),
+                        markdown_text(&source.title),
                         markdown_destination(&self.resolve_link(url)?)
                     ),
-                    None => shared_markdown_text(&source.title),
+                    None => markdown_text(&source.title),
                 };
                 output.push_str(&format!(
                     "Source ({}): {name}
@@ -1241,6 +1272,23 @@ impl<'a> PortableProjection<'a> {
                         "unauthenticated",
                     ));
                 }
+            }
+        }
+        if let Some(series) = &self.series {
+            facts.push(
+                SemanticFact::new("series", "series link", self.resolve_link(&series.url)?)
+                    .with_link_label(series.name.clone()),
+            );
+            facts.push(SemanticFact::new(
+                "series",
+                "series position",
+                series_position(series),
+            ));
+            for name in &series.part_authors {
+                facts.push(SemanticFact::new("series", "part author", name));
+            }
+            for name in &series.contributors {
+                facts.push(SemanticFact::new("series", "series contributor", name));
             }
         }
         if let Some(research) = self.research {
@@ -1554,6 +1602,49 @@ impl<'a> PortableProjection<'a> {
             .join("; "))
     }
 
+    /// The series context as one paragraph: "Part 2 in the series <a>Letters</a>. This part is by
+    /// A and B. Series contributors: A, B, and C." Every value is escaped text and the only link is
+    /// the canonical series page (ADR 0041). It never states the number of parts, so a growing
+    /// series does not change its earlier parts' copies.
+    fn series_context_html(&self, series: &SeriesContext) -> Result<String, String> {
+        let names = |names: &[String]| {
+            crate::render::human_list(
+                &names
+                    .iter()
+                    .map(|name| escape::text(name))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        Ok(format!(
+            "<p class=\"ob-series-context\">{} <a href=\"{}\">{}</a>.{}{}</p>\n",
+            series_position(series),
+            escape::attr(&self.resolve_link(&series.url)?),
+            escape::text(&series.name),
+            series_clause(" This part is by ", &names(&series.part_authors)),
+            series_clause(" Series contributors: ", &names(&series.contributors)),
+        ))
+    }
+
+    /// The same sentence as `series_context_html`, as escaped Markdown text and one link.
+    fn series_context_markdown(&self, series: &SeriesContext) -> Result<String, String> {
+        let names = |names: &[String]| {
+            crate::render::human_list(
+                &names
+                    .iter()
+                    .map(|name| markdown_text(name))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        Ok(format!(
+            "{} [{}]({}).{}{}",
+            series_position(series),
+            markdown_text(&series.name),
+            markdown_destination(&self.resolve_link(&series.url)?),
+            series_clause(" This part is by ", &names(&series.part_authors)),
+            series_clause(" Series contributors: ", &names(&series.contributors)),
+        ))
+    }
+
     fn participation_url(&self) -> String {
         format!("{}#{}", self.canonical_url, crate::model::DISCUSSION_ANCHOR)
     }
@@ -1574,7 +1665,7 @@ impl<'a> PortableProjection<'a> {
         let Some(arrangement) = self.arrangement() else {
             return Ok(None);
         };
-        let (body, _) = escape_raw_html(&arrangement.to_markdown(shared_markdown_text));
+        let (body, _) = escape_raw_html(&arrangement.to_markdown(markdown_text));
         let markdown = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
         Ok(Some(markdown_to_text(&markdown)))
@@ -1849,25 +1940,37 @@ fn markdown_to_text(markdown: &str) -> String {
     compact
 }
 
+/// "Part 2 in the series": a part's place in its series' published reading order, without the
+/// number of parts (ADR 0041), so a later part never changes an earlier part's portable copy.
+fn series_position(series: &SeriesContext) -> String {
+    format!("Part {} in the series", series.part)
+}
+
+/// `lead` and an already-escaped list of names as a sentence, or nothing when there are none.
+fn series_clause(lead: &str, names: &str) -> String {
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!("{lead}{names}.")
+    }
+}
+
+/// Markdown text for a public value (a title, a name, a fact): Markdown punctuation, `<` and `&`
+/// are escaped, so the value can never become a link, emphasis, an autolink, raw HTML or an
+/// entity when the export is read back.
 fn markdown_text(value: &str) -> String {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut escaped = String::new();
     for character in normalized.chars() {
         if matches!(
             character,
-            '\\' | '[' | ']' | '*' | '_' | '~' | '`' | '#' | '>' | '|'
+            '\\' | '[' | ']' | '*' | '_' | '~' | '`' | '#' | '>' | '|' | '<' | '&'
         ) {
             escaped.push('\\');
         }
         escaped.push(character);
     }
     escaped
-}
-
-/// Markdown text for untrusted public values: `<` and `&` are escaped too, so a title or question
-/// can never become raw HTML or an entity in an export.
-fn shared_markdown_text(value: &str) -> String {
-    markdown_text(value).replace('<', r"\<").replace('&', r"\&")
 }
 
 fn markdown_destination(value: &str) -> String {

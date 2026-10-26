@@ -256,6 +256,9 @@ pub fn public_metadata(record: &SharedPublication) -> Vec<String> {
             metadata.push(source.kind.label().to_string());
         }
     }
+    if let Some(placement) = &record.series {
+        metadata.extend(placement.binding_values());
+    }
     metadata
 }
 

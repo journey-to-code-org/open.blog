@@ -750,6 +750,17 @@ h2.ob-title {
   margin: 0;
 }
 
+/* Generated citation notes: each links back to every place it is cited. */
+.ob-citation-back {
+  margin-inline-start: 0.25em;
+  text-decoration: none;
+}
+
+.ob-citation-back:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 /* ---------- Syntax highlighting (tokens painted by <ob-code highlight>) ---------- */
 
 .tok-keyword { color: var(--ob-color-code-keyword); }
@@ -1594,6 +1605,15 @@ ob-comments {
 .ob-part-summary {
   color: var(--ob-color-muted);
   font-size: 0.95rem;
+}
+
+/* Who wrote each part, shown only in a series that holds a collaborative work (ADR 0040). */
+.ob-series-contributors {
+  margin: 0.5rem 0 1rem;
+}
+
+.ob-part-credit {
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Pager, archive ---------- */

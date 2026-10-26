@@ -60,7 +60,21 @@ which defines the incremental path from one site author to ordered, work-specifi
 [Assistant provider APIs](research/assistant-provider-apis.md), which records the native-provider
 contracts and why GitHub Copilot is not exposed as a generic API provider, and the
 [research source library format](specs/research-source-library.md), which keeps works,
-editions, translations, witnesses, and references distinct under stable identifiers.
+editions, translations, witnesses, and references distinct under stable identifiers, and the
+[research notebook format](specs/research-notebook.md), which keeps quoted passages and private
+research notes apart from your own prose, with private search and backlinks
+([ADR 0036](adr/0036-private-notebook-search-and-backlinks.md)), and archive, export, import and
+publication-leak guards ([ADR 0037](adr/0037-private-notebook-lifecycle-export-and-leak-guards.md)),
+and the [citation format](specs/citations.md), which points citations at source identifiers with
+compound locators and states what is public and how CSL data is kept or reported lost
+([ADR 0042](adr/0042-citation-keys-are-source-identifiers.md) to
+[ADR 0046](adr/0046-csl-interoperability-policy.md)), with an Admin citation picker that keeps
+citations intact in both writing modes ([ADR 0047](adr/0047-citation-picker-in-the-visual-editor.md)),
+publication as notes or a bibliography through the one publication projection
+([ADR 0048](adr/0048-citations-publish-through-the-one-publication-projection.md),
+[ADR 0049](adr/0049-built-in-citation-styles-locales-and-accessible-notes.md)), and offline
+citation checks with CSL JSON and BibTeX exports of a post's cited references
+([ADR 0050](adr/0050-offline-citation-checks-and-portable-bibliography-exports.md)).
 
 ## Command reference
 
@@ -70,9 +84,10 @@ openblog init [dir] [--title "..."] [--github-pages]
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
-openblog check                          Validate content, themes, and the private source library, write nothing
-openblog export <slug> [--out path] [--write]
-                                        Preview or write portable Markdown
+openblog check                          Validate content, themes, and the private source library and notebook, write nothing
+openblog export <slug> [--format markdown|csl-json|bibtex] [--out path] [--write]
+                                        Preview or write portable Markdown, or the post's
+                                        cited references as CSL JSON or BibTeX
 openblog syndicate <slug> [--target a,b] [--write] [--publish]
                                         Preview or explicitly send portable copies
 openblog themes                         List themes and what they extend

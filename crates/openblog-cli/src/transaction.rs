@@ -23,15 +23,22 @@ impl FileLock {
                 .open(&path)
             {
                 Ok(file) => break file,
-                // On Windows a lock file the previous owner is still deleting
-                // refuses creation with "access denied" for a moment.
                 Err(error)
-                    if (error.kind() == std::io::ErrorKind::AlreadyExists
-                        || (cfg!(windows)
-                            && error.kind() == std::io::ErrorKind::PermissionDenied))
+                    if error.kind() == std::io::ErrorKind::AlreadyExists
                         && started.elapsed() < max_wait =>
                 {
                     std::thread::sleep(Duration::from_millis(100));
+                }
+                // On Windows a lock file the previous owner is still deleting, or one a
+                // scanner briefly holds, refuses creation with "access denied" for a moment.
+                // That is not a live owner, so even a caller that does not wait for one waits
+                // it out rather than reporting another write as active.
+                Err(error)
+                    if crate::fsutil::is_transient_hold(&error)
+                        && started.elapsed()
+                            < max_wait.max(crate::fsutil::TRANSIENT_HOLD_LIMIT) =>
+                {
+                    std::thread::sleep(Duration::from_millis(5));
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     return Err(format!(
@@ -61,9 +68,24 @@ impl FileLock {
     }
 }
 
+/// Test hook: milliseconds `FileLock::drop` sleeps before removing the lock file, so a test can
+/// widen the release window the same way on every platform.
+#[cfg(test)]
+pub(crate) static RELEASE_DELAY_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 impl Drop for FileLock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        #[cfg(test)]
+        {
+            let delay = RELEASE_DELAY_MS.load(std::sync::atomic::Ordering::SeqCst);
+            if delay > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+            }
+        }
+        // A lock file left behind blocks every later write until someone removes it, so a
+        // scanner briefly holding it is waited out.
+        let _ = crate::fsutil::retry_transient(|| fs::remove_file(&self.0));
     }
 }
 
@@ -103,6 +125,45 @@ mod tests {
 
         release.join().unwrap();
         drop(next.unwrap());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// Opens the lock file the way a scanner can: nobody may delete it until the handle closes.
+    #[cfg(windows)]
+    fn hold(path: &Path) -> fs::File {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 1;
+        const FILE_SHARE_WRITE: u32 = 2;
+        fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(path)
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_briefly_held_lock_file_is_still_removed_on_release() {
+        let root = std::env::temp_dir().join(format!(
+            "ob-content-transaction-held-release-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let lock_path = root.join(".openblog").join("content-transaction.lock");
+        let owner = ContentTransactionLock::acquire(&root).unwrap();
+        let held = hold(&lock_path);
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                std::thread::sleep(Duration::from_millis(200));
+                drop(held);
+            });
+            drop(owner);
+        });
+        assert!(
+            !lock_path.exists(),
+            "a stale lock would block every later write"
+        );
+        drop(ContentTransactionLock::acquire(&root).unwrap());
         let _ = fs::remove_dir_all(root);
     }
 }

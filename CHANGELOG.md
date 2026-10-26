@@ -19,6 +19,137 @@ All notable changes to open.blog are recorded here. Releases follow
   changes. The combined preview shows the rule. Changing the sharing rule now refuses to overwrite
   a change made elsewhere.
 
+## [0.27.0] - 2026-10-25
+
+- Defined how citations work, ahead of in-post citations: a citation is `[@key]` or
+  `[@key, page 514; canonical 514a to 520a]`, where the key is a source library id and the
+  locators are the notebook's. It is opt-in, so existing posts, links and footnotes render exactly
+  as before. Only the key, the locators and the formatted reference can become public, never
+  notebook text. CSL import and export now state what is stored, kept as-is, or reported as lost,
+  including citation locators. Nothing on your site changes yet.
+- You can now insert and edit citations from the Admin Write view. **Cite** searches your source
+  library, takes optional locators or copies them from a notebook passage (never its quotation or
+  notes), and inserts `[@key, page 514]` only after the server checks it the way a build will read
+  it. In Visual mode every citation, including hand-written ones, is a chip that keeps its exact
+  Markdown, and Ctrl+Z right after inserting restores the draft and caret exactly. If the library
+  changed meanwhile, nothing is inserted and your choices are kept.
+- Citations are now found with the same Markdown parser the renderer uses, so code, comments,
+  defined `[@label]` links and list continuations are read the same way everywhere. Identifiers in
+  private schemes (such as a local file path) and extra fields on notebook locators are never
+  published with a citation, and CSL citation items keep custom labels and normalise ids the way
+  reference import does.
+- Citations typed or pasted in Visual mode now become chips, and a line whose citations the
+  visual editor cannot read exactly as a build does (such as one inside link text) is kept
+  verbatim instead of being rewritten. Cite refuses a caret inside code or a link in either mode
+  and explains why in the still-open dialog. CSL export writes the current `sub-verbo` label.
+- Posts can now publish their citations. Add `citations: notes` or `citations: bibliography` to a
+  post's front matter and each `[@key, locator]` becomes a numbered note (or a reference list
+  entry) built from the source library, in English, German, French or Spanish. The page, portable
+  copies, feeds and `llms.txt` all show the same notes, and on the page each marker and note link
+  to each other for keyboard and screen-reader users. Only the cited sources' public description
+  is published. An unknown key or ambiguous page stops that post with its line and a fix. Posts
+  without `citations` are unchanged.
+- A draft (or a post waiting for its date) with an unresolved citation no longer stops the build
+  or previews of other posts: it gets a warning and keeps the citation as text until it publishes.
+  A source library edit that would break a published post's citations is refused and names the
+  post and line. `citations: yes` and `on` now work like `true`. **Cite** also refuses a caret
+  inside an autolink, indented code, HTML, a comment, or a code span or link that spans lines.
+- `openblog check`, builds and Evidence Studio now review a post's citations offline in four
+  separate kinds of finding: citations that cannot be read, keys or pages that do not resolve,
+  cited sources missing a detail readers need (such as a title, date or journal), and the cited
+  locations only you can check against the source. Nothing is looked up online, and no finding
+  says whether a source is right or supports a claim. `openblog export <slug> --format
+  csl-json` (or `bibtex`) and Evidence Studio's **Download cited references** save a post's
+  cited references for reference managers, holding only what its notes show and listing
+  anything the format cannot carry.
+
+## [0.26.1] - 2026-10-25
+
+- Two people saving to the same shared reflection at once (drafts, invitations, members, reveal
+  and approval changes) are no longer refused now and then with "another content write is
+  active": a finished request now releases the content lock before the next one starts.
+- On Windows, saves no longer fail with "Access is denied" when another program, such as an
+  antivirus or indexing scanner or a backup or sync client, briefly has the file open. Admin and
+  CLI writes wait out the hold for up to five seconds, and a compare-and-swap save still refuses,
+  rather than overwrites, a file someone changed in the meantime. Reading a shared reflection or
+  the login list while it is being replaced waits the same way instead of failing, and a content
+  lock file such a program holds is no longer left behind to block later writes.
+
+## [0.26.0] - 2026-10-25
+
+- Feeds and portable copies of a part of a collaborative series now say which series it belongs
+  to, where it falls ("Part 2 in the series") and who wrote it, with a link to the series page: in
+  the full RSS and JSON Feed content, in portable HTML, Markdown and text, in exports and
+  syndicated copies, and in llms-full.txt. RSS items also name the series as a category in the
+  site's series taxonomy, and JSON Feed items carry an `_openblog.series` object. Drafts and
+  scheduled posts never count, no collaboration details appear, and every other post's feeds and
+  copies are unchanged.
+- A series that credits the site owner both as the site author and under their contributor entry
+  (for example on a shared reflection) now names them once in its list of contributors.
+- Portable Markdown now escapes `<` and `&` in titles, names and other facts, so a name such as
+  `Kim <https://kim.example>` or `AT&amp;T` stays literal text instead of failing the build.
+  Portable Markdown and text of a post with `<` or `&` in its title, credits or other facts change
+  once as a result, and so does its portable source revision: renew any portability
+  acknowledgements for such posts once in the Admin portable preview.
+- A series that holds a collaborative work (a published post credited to two or more authors, such
+  as a shared reflection) now says who wrote what. Its page lists the series' contributors, and
+  every part, ordinary posts included, shows "By ..." on the series page, inside the previous and
+  next links and in the list of all parts. Names come from each post's approved credits and are
+  plain text, drafts and scheduled posts never appear, and order and links are unchanged. Every
+  other series renders exactly as before.
+- A shared publication can now carry a series placement: the same `series` and `seriesOrder` an
+  ordinary post uses, so it joins the site's existing series, ordering and navigation. Any one-line
+  title works, the placement is part of what every author approves (changing it makes approvals
+  out of date), and records without one publish exactly as before. A series' contributors can be
+  derived from its posts' work credits.
+- The Shared reflections view has a Series panel. Every participant sees the reflection's series,
+  position and the reading order it would join; site owners and coordinators choose an existing
+  series or type a new title, set or clear the position, preview the order and save; site owners
+  can add a new series with its recurring premise. The list and order come from published posts
+  only, a change made against an older read is refused without losing what was typed, and the
+  combined preview now shows the series and position authors are approving.
+
+## [0.25.0] - 2026-10-25
+
+- You can now archive passages and notes you want out of the way, without deleting them, and export
+  and import your private research notebook. Archived entries stay in the file and in exports and
+  come back with Show archived or Restore. Export saves one versioned file of all your private
+  passages and notes, only when you ask and confirm; import previews first, only adds entries the
+  notebook lacks, and refuses any conflict without changing anything. Building, checking and
+  publishing now also refuse to continue when a research export or a copy of the notebook has been
+  saved into content, static or themes, and automated tests check that private research never
+  reaches pages, feeds, search, llms files, portable exports, CSL or BibTeX, logs, error messages or
+  published history.
+- You can now search the private research notebook and see how it connects. The Notebook view
+  filters by source (including its editions and translations), locator kind, concept, and
+  question state beside text search, shows each hit with its source, locators and linked notes,
+  and lists backlinks for the selected passage, its source and a note's concepts. Questions can
+  be marked open or resolved. Everything is computed from the stored files, so it stays correct
+  after edits and archiving, and it is private: nothing reaches the public site, feeds or exports.
+- Fixed capture edit conflicts: after a conflict you now choose between the stored copy and your
+  draft before saving, so a concurrent change is never silently overwritten. Archived sources stay
+  selectable on entries that already use them, and stale field errors clear on the next save.
+- A source edit or import that would leave the research notebook invalid, such as re-pointing a
+  reference so a page locator becomes ambiguous, is now refused with a message naming the affected source (for an import, each record it
+  re-pointed or re-typed).
+- Notebook search and backlinks now send their text in a request body instead of the URL, so a
+  hosting proxy's access log cannot record private research text.
+
+- Defined the private research notebook contract: quoted passages (verbatim excerpt, compound
+  page, folio, line, canonical and custom locators, tied to a source-library record) and
+  observation or question notes that link to passages, sources, and concepts. Every entry is
+  always private with no publication path, quoted text stays apart from your own prose, and a
+  failed change leaves the notebook untouched.
+- You can now capture passages and notes from Admin. A new Notebook view under Research
+  lists, edits and removes them, and a Capture research button in the post editor opens a
+  dialog prefilled with your selected text where you pick a source, add locators and an
+  optional note, then return to exactly where you were writing. Saving needs a real source and
+  the current notebook revision; a stale save keeps your draft and writes nothing. Quoted text
+  is stored as typed and shown only as text. The notebook lives in
+  `.openblog/private/research/notebook.json`, is kept in the hosted workspace, is checked by
+  `openblog check`, and never reaches the built site, feeds, search or exports. A source that
+  a passage or note still uses can no longer be removed from the library.
+
 ## [0.24.0] - 2026-10-25
 
 - A shared reflection that has both an arrangement and an approved continuing conversation

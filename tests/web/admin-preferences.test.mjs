@@ -384,13 +384,13 @@ test("every preset applies its toolbelt modules and the open route always stays 
   const content = ["Overview", "Posts", "Pages", "Series", "Shared reflections"];
   const cases = [
     [{ preset: "simple" }, "overview", content],
-    [{ preset: "simple" }, "sources", [...content, "Sources"]],
-    [{ preset: "guided" }, "posts", [...content, "Sources"]],
-    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Sources", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Sources"]],
+    [{ preset: "simple" }, "sources", [...content, "Sources", "Notebook"]],
+    [{ preset: "guided" }, "posts", [...content, "Sources", "Notebook"]],
+    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Sources", "Notebook", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Sources", "Notebook"]],
     [{ preset: "simple" }, "analytics", [...content, "Analytics"]],
-    [{ preset: "guided" }, "contributors", [...content, "Sources", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Sources", "Contributors"]],
+    [{ preset: "guided" }, "contributors", [...content, "Sources", "Notebook", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Sources", "Notebook", "Contributors"]],
   ];
   for (const [preferences, active, expected] of cases) {
     const app = appWith(fakeApi({}));

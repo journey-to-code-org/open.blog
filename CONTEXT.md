@@ -281,6 +281,42 @@ same placeholder for any turn the requester cannot read (ADR 0021); the unscoped
 publish gate only. The portable equivalent can share it once #173 wires it.
 _Avoid_: Visual order
 
+**Series placement**:
+The optional series reference and position a shared publication carries, written as an ordinary
+Post's `series` and `seriesOrder`. It does not create a separate series entity: the site's
+existing series supplies name, description, theme, ordering and navigation. It is public, so it is
+part of what every author approves (ADR 0038). Site owners and coordinators set it (`PlaceInSeries`) against
+its revision, every participant sees it with the reading order it would join, and only site owners
+add a new series definition (`CreateSeries`); the list and order come from published posts only
+(ADR 0039).
+_Avoid_: Series template
+
+**Series definition**:
+The site-owned `content/series/<slug>.md` that names a series and describes its recurring premise.
+A shared publication never writes one; a site owner may add a new one from its Series panel, and
+it is not public until a part is published (ADR 0039).
+_Avoid_: Series template
+
+**Collaborative work**:
+A published Post whose approved work credits (an explicit credit sidecar) name two or more
+authors. A legacy post's default site-author credit, a single author or a secondary role never
+make one. It is derived from the credits alone, never from collaboration state (ADR 0040).
+_Avoid_: Shared post, joint post
+
+**Collaborative series**:
+An ordinary series with at least one collaborative work among its published parts. Only such a
+series names its contributors on its page and each part's authors in its navigation; every other
+series renders exactly as before, and drafts or scheduled posts never make one (ADR 0040).
+_Avoid_: Collaborative-series entity, series template
+
+**Series context**:
+What a feed item or portable copy of a published part of a collaborative series states about it:
+the series name and canonical link, its place in the published reading order ("Part 2 in the
+series", without the number of parts, so a growing series leaves earlier copies unchanged), the
+part's authors and the series' contributors. Derived from the public series and approved credits
+only; any other post has none and its feeds and copies are unchanged (ADR 0041).
+_Avoid_: Series metadata, series membership
+
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in
 one approved collaboration revision, that a publication operation incorporates into canonical
@@ -292,14 +328,65 @@ _Avoid_: Collaboration transcript, automatic byline, second Post or canonical do
 ## Evidence and identity
 
 **Citation**:
-An in-text pointer connecting a passage to a reference.
-_Avoid_: Reference, source
+An in-text pointer connecting a passage to a reference, written `[@key]` or
+`[@key, page 514]`. Its key is the reference's source identifier and its locators are the
+notebook's. Only its key, locators and the formatted reference are public; it asserts nothing
+about what the source proves.
+_Avoid_: Reference, source, footnote, link
 
 **Reference**:
 A description or resolvable identifier for a work used as evidence or context. In the
 source library, a reference record points at exactly one work, edition, translation, or
 witness, never at another reference or a contributor.
 _Avoid_: Citation when no in-text pointer is meant; contributor or work credit
+
+**Citation key**:
+The source identifier written after `@` in a citation. There is no separate key registry, so a
+citation resolves to exactly one source-library record, archived or not, or is reported.
+_Avoid_: Cite key table, alias, BibTeX key
+
+**Citation chip**:
+How the visual editor shows a citation: one atomic, keyboard-reachable unit that keeps the
+citation's exact Markdown and reopens it in the citation picker. It is an editing aid only; the
+Markdown file stays canonical. Citation text the editor cannot show as chips exactly as the
+scanner reads it stays a protected **Citation text** block instead.
+_Avoid_: Footnote marker, link, tag
+
+**Publication Markdown**:
+The body every public representation of a post is built from: the authored Markdown, or for a
+post that opts in to citations, that body with each citation written as a generated footnote
+and the notes appended. The file on disk never changes.
+_Avoid_: Export, rendered body
+
+**Citation note**:
+A generated, numbered note that publishes a citation: the formatted reference and the
+citation's locators, linked from its marker and back. One per distinct citation in the `notes`
+style.
+_Avoid_: Footnote when an author's own note is meant
+
+**Bibliography**:
+The citation style that publishes each cited reference once, numbered in order of first
+citation, under References, with locators kept next to the marker in the text.
+_Avoid_: References section when the research profile's hand-written list is meant
+
+**Citation check**:
+An offline finding about a post's citations, in one of four separate classes: syntax (the
+citation cannot be read), resolution (its key or locator does not resolve, or an identifier is
+left out), completeness (a cited reference lacks a detail its kind usually has) and location
+review (a cited location only a person can confirm). It never says whether a source is true,
+relevant or supports a claim, and never looks anything up online.
+_Avoid_: Verification, fact check, citation score
+
+**Bibliography export**:
+A post's cited references as CSL JSON or BibTeX, built only from the public description its
+published notes show, with every detail the format cannot carry reported as an omission. It is
+derived from the publication projection, not from the private source library export.
+_Avoid_: Library export, source export
+
+**Formatted reference**:
+The public, plain-text rendering of a reference built only from its bibliographic description
+(title, creators, date, identifiers, preserved CSL variables), never from notebook text.
+_Avoid_: Bibliography entry when the source-library record is meant; CSL style output
 
 **Work identifier**:
 A persistent identifier assigned to a published work, distinct from the page URL where a
@@ -407,6 +494,68 @@ The preview of a CSL JSON import: for each item whether it would create, update,
 unchanged, or conflict with a source, what it keeps, and which fields cannot be stored.
 Nothing is written until a plan with no conflicts is applied.
 _Avoid_: Dry run when the result of applying it is meant
+
+**Notebook**:
+An author's private, versioned collection of quoted passages and research notes that point
+into the source library. It is never content and has no public form of its own; research
+becomes public only through an explicit projection.
+_Avoid_: Source library, bibliography, journal
+
+**Passage**:
+An excerpt of one source-library record together with where in it the excerpt sits. A
+passage keeps its source for life and holds quoted text, never the author's prose.
+_Avoid_: Quote block, citation, annotation
+
+**Quoted excerpt**:
+The verbatim text of a passage, stored exactly as quoted and apart from every field of
+author prose. It is someone else's words and carries no claim that it is accurate or
+permitted to republish.
+_Avoid_: Note text, summary, content
+
+**Locator**:
+One position inside a source, with a kind such as page, folio, line, canonical reference,
+or an `x-` extension kind, and an optional range end. A passage lists several in order for a
+compound location.
+_Avoid_: Location when the single source-library record location is meant; citation
+
+**Notebook revision**:
+The fingerprint of the notebook as stored, which every capture, edit, and removal must name
+so that a change based on an older read is refused instead of overwriting newer research.
+_Avoid_: Version, which names the file format
+
+**Capture**:
+Saving a passage, and optionally a first note about it, into the notebook from Admin without
+leaving the draft. It never changes the draft and never publishes anything.
+_Avoid_: Clip, import, citation
+
+**Research note**:
+The author's own observation or question, linked to passages, sources, or concepts. Always
+private; never a quotation, claim, or citation.
+_Avoid_: Annotation, comment, reader note
+
+**Archived entry**:
+A passage or note the author has set aside. It stays in the notebook file, its links and its
+exports, and is left out of lists, search and the open-question count until the author asks for
+archived entries. Archiving is reversible and never changes who can see the entry.
+_Avoid_: Deleted, hidden, unpublished, private (every entry is private)
+
+**Research bundle**:
+The versioned, explicitly requested export of the whole notebook, marked private so tools can
+recognise and refuse it in public folders. Importing one previews first and only adds entries
+the notebook lacks.
+_Avoid_: Backup of the site, publication, CSL export
+
+**Open question**:
+A research note of kind question that the author has not marked resolved. A question with no
+state written is open. The state is the author's own marking and says nothing about whether an
+answer is correct.
+_Avoid_: Todo, unanswered claim, knowledge gap
+
+**Backlink**:
+An entry in the notebook that points at a passage, a source or a concept, found by reading the
+stored notebook rather than from a saved index. A source's backlinks include entries that point
+at its editions, translations, witnesses and references.
+_Avoid_: Citation, reference, mention
 
 **Source identifier**:
 A stable, author-assigned slug naming one source-library record, independent of its title.

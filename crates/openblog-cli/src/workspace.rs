@@ -16,6 +16,8 @@ const MAX_TEXT: usize = 2 * 1024 * 1024;
 /// The research source library may reach the core 4 MiB library limit.
 const MAX_LIBRARY_TEXT: usize = 4 * 1024 * 1024;
 const LIBRARY_PATH: &str = ".openblog/private/research/sources.json";
+/// The private research notebook shares the library limit.
+const NOTEBOOK_PATH: &str = ".openblog/private/research/notebook.json";
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
 const BUCKET: &str = "openblog-workspace";
@@ -254,6 +256,7 @@ impl Policy {
             ".openblog/private/context".into(),
             ".openblog/private/admin-preferences".into(),
             LIBRARY_PATH.into(),
+            NOTEBOOK_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
         ]
@@ -264,7 +267,10 @@ impl Policy {
             return false;
         }
         let extension = path.rsplit('.').next().unwrap_or("");
-        if matches!(path, "openblog.json" | ".gitignore" | LIBRARY_PATH) {
+        if matches!(
+            path,
+            "openblog.json" | ".gitignore" | LIBRARY_PATH | NOTEBOOK_PATH
+        ) {
             return true;
         }
         if let Some(relative) = path.strip_prefix(&format!("{}/", self.content)) {
@@ -311,7 +317,7 @@ impl Policy {
     }
 
     fn text_limit(&self, path: &str) -> usize {
-        if path == LIBRARY_PATH {
+        if path == LIBRARY_PATH || path == NOTEBOOK_PATH {
             MAX_LIBRARY_TEXT
         } else {
             MAX_TEXT
@@ -956,7 +962,8 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         file.write_all(bytes)
             .and_then(|_| file.sync_all())
             .map_err(|_| "cannot write workspace restore")?;
-        fs::rename(&staging, path).map_err(|_| "cannot install workspace restore".to_string())
+        crate::fsutil::replace_file(&staging, path)
+            .map_err(|_| "cannot install workspace restore".to_string())
     })();
     if result.is_err() {
         let _ = fs::remove_file(staging);
@@ -1264,6 +1271,7 @@ mod tests {
             ".openblog/private/arbitrary.json",
             ".openblog/private/research/other.json",
             ".openblog/private/research/sources.json/extra",
+            ".openblog/private/research/notebook.json/extra",
             "content/../.git/config",
             "content/posts/../../secret.md",
             "content\\posts\\escape.md",
@@ -1280,6 +1288,7 @@ mod tests {
             "static/tracks/uploads/2026/trip.gpx",
             ".openblog/private/context/site.md",
             ".openblog/private/research/sources.json",
+            ".openblog/private/research/notebook.json",
             ".openblog/private/admin-preferences/0000000000000000000000000000000000000000000000000000000000000000.json",
             ".openblog/pending-tracks/0000000000000000000000000000000000000000000000000000000000000000.gpx",
             ".openblog/trash/deleted.md",
@@ -1315,6 +1324,21 @@ mod tests {
         fs::remove_file(&library).unwrap();
         workspace.restore(&fixture.0).unwrap();
         assert_eq!(fs::read_to_string(&library).unwrap(), "{\"sources\":[]}");
+    }
+
+    #[test]
+    fn research_notebook_is_durable_and_allowed_up_to_the_notebook_limit() {
+        let fixture = Fixture::new();
+        let notebook = fixture.0.join(NOTEBOOK_PATH);
+        fs::create_dir_all(notebook.parent().unwrap()).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        fs::write(&notebook, &body).unwrap();
+        let policy = policy();
+        assert_eq!(policy.text_limit(NOTEBOOK_PATH), MAX_LIBRARY_TEXT);
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[NOTEBOOK_PATH], body.as_bytes());
+        fs::write(&notebook, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
+        assert!(policy.scan(&fixture.0).is_err());
     }
 
     #[test]

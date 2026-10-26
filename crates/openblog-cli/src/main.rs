@@ -12,7 +12,9 @@ mod fsutil;
 mod git;
 mod hashnode;
 mod http;
+mod notebook_store;
 mod portable_export;
+mod private_guard;
 mod publish;
 mod safe_http;
 mod scaffold;
@@ -46,7 +48,8 @@ COMMANDS
     user add|passwd|remove|list <name>
                                Manage who can sign in to the admin editor
     check                      Validate content and themes without writing anything
-    export <slug>              Preview or write a portable Markdown article
+    export <slug>              Preview or write a portable Markdown article, or the
+                               post's cited references as CSL JSON or BibTeX
     publish [summary]          Commit changed content with git and push (deploys via CI)
     publish setup              Create the repository and Pages workflow, report what is left
     syndicate <slug>           Plan cross-posting (add --write to create/update remote drafts)
@@ -76,7 +79,10 @@ syndicate OPTIONS
     --json                     Print a deterministic dry-run plan with before/after artifacts
 
 export OPTIONS
-    --format markdown          Portable format (default: markdown)
+    --format markdown|csl-json|bibtex
+                               Portable format (default: markdown); csl-json and bibtex
+                               export the public description of the references the post
+                               cites, and list what the format leaves out
     --out <path>               Output file for an explicit --write
     --write                    Write the export (otherwise print a dry-run preview)
     --json                     Print a versioned dry-run manifest with exact content
@@ -295,21 +301,22 @@ fn run(raw: &[String]) -> Result<(), String> {
         }
         "export" => {
             let slug = args.positional.first().ok_or(
-                "usage: openblog export <slug> [--format markdown] [--out <path>] [--json] [--write]",
+                "usage: openblog export <slug> [--format markdown|csl-json|bibtex] [--out <path>] [--json] [--write]",
             )?;
             let format = args
                 .options
                 .get("format")
                 .map(String::as_str)
                 .unwrap_or("markdown");
-            if format != "markdown" {
-                return Err(format!(
-                    "unsupported portable export format `{format}`; expected `markdown`"
-                ));
-            }
+            let format = portable_export::Format::parse(format).ok_or_else(|| {
+                format!(
+                    "unsupported portable export format `{format}`; expected `markdown`, `csl-json` or `bibtex`"
+                )
+            })?;
             portable_export::run(
                 &root,
                 slug,
+                format,
                 args.options.get("out").map(String::as_str),
                 args.switches.contains("write"),
                 args.switches.contains("json"),
@@ -374,6 +381,7 @@ fn run(raw: &[String]) -> Result<(), String> {
         "analytics" => analytics_command(&root, &args),
         "check" => {
             let (site, themes) = site::load_site(&root, true, None)?;
+            private_guard::refuse_private_research_in_public_inputs(&root, &site.config)?;
             let files = openblog_core::generate(&site, &themes)?;
             println!(
                 "OK: {} posts, {} series, {} tags, {} pages; would write {} generated files.",
@@ -391,7 +399,13 @@ fn run(raw: &[String]) -> Result<(), String> {
             }
             serve::print_accessibility_findings(&site.accessibility);
             serve::print_evidence_findings(&site.evidence);
+            if let Some(summary) = citation_summary(&site) {
+                println!("{summary}");
+            }
             if let Some(summary) = check_source_library(&root, &site.config.contributors)? {
+                println!("{summary}");
+            }
+            if let Some(summary) = check_research_notebook(&root, &site.config.contributors)? {
                 println!("{summary}");
             }
             Ok(())
@@ -755,6 +769,34 @@ fn user_command_with(
     }
 }
 
+/// How many posts publish citations, and a plain statement that their checks
+/// ran offline (ADR 0050); `None` when no post publishes any.
+fn citation_summary(site: &openblog_core::Site) -> Option<String> {
+    let published: Vec<_> = site
+        .posts
+        .iter()
+        .filter_map(|post| post.citations())
+        .collect();
+    if published.is_empty() {
+        return None;
+    }
+    let citations: usize = published.iter().map(|summary| summary.citations).sum();
+    let references: std::collections::BTreeSet<&str> = published
+        .iter()
+        .flat_map(|summary| {
+            summary
+                .references
+                .iter()
+                .map(|reference| reference.key.as_str())
+        })
+        .collect();
+    Some(format!(
+        "OK: {} post(s) publish {citations} citation(s) of {} reference(s). Citation checks ran offline from the source library; no identifier or link was looked up online.",
+        published.len(),
+        references.len()
+    ))
+}
+
 /// Validate the private source library when one is stored. It is never
 /// built, so a missing library is not mentioned.
 fn check_source_library(
@@ -765,9 +807,26 @@ fn check_source_library(
     Ok(snapshot.stored.then(|| {
         let count = snapshot.library.sources.len();
         format!(
-            "OK: private source library {} has {count} source{}; builds never read or publish it.",
+            "OK: private source library {} has {count} source{}; builds publish only the public description of references that opted-in posts cite.",
             source_store::LIBRARY_FILE,
             if count == 1 { "" } else { "s" }
+        )
+    }))
+}
+
+/// Validate the private research notebook when one is stored. Like the
+/// source library it is never built, so a missing notebook is not mentioned.
+fn check_research_notebook(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Result<Option<String>, String> {
+    let snapshot = notebook_store::load(root, contributors).map_err(|error| error.to_string())?;
+    Ok(snapshot.stored.then(|| {
+        format!(
+            "OK: private research notebook {} has {} passage(s) and {} note(s); builds never read or publish it.",
+            notebook_store::NOTEBOOK_FILE,
+            snapshot.notebook.passages.len(),
+            snapshot.notebook.notes.len()
         )
     }))
 }
@@ -790,6 +849,89 @@ fn revoke_shared_publication_bindings(root: &std::path::Path, name: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_reports_the_private_notebook_only_when_it_is_stored() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-notebook-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let contributors = std::collections::BTreeMap::new();
+        assert_eq!(check_research_notebook(&root, &contributors), Ok(None));
+        assert!(!root.join(".openblog").exists());
+
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        std::fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#,
+        )
+        .unwrap();
+        let path = root.join(notebook_store::NOTEBOOK_FILE);
+        std::fs::write(
+            &path,
+            r#"{"version":1,"notes":[{"id":"n","kind":"question","text":"Why?","sources":["w"]}]}"#,
+        )
+        .unwrap();
+        let summary = check_research_notebook(&root, &contributors)
+            .unwrap()
+            .unwrap();
+        assert!(summary.contains("0 passage(s) and 1 note(s)"), "{summary}");
+
+        std::fs::write(
+            &path,
+            r#"{"version":1,"notes":[{"id":"n","kind":"question","text":"Why?","sources":["gone"]}]}"#,
+        )
+        .unwrap();
+        let error = check_research_notebook(&root, &contributors).unwrap_err();
+        assert!(
+            error.contains(".openblog/private/research/notebook.json: notes[0] `n`")
+                && error.contains("(unknown-source)"),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn check_states_that_citation_checks_ran_offline_only_when_posts_cite() {
+        use openblog_core::model::LibrarySource;
+        let load = |body: &str| {
+            openblog_core::Site::load(
+                openblog_core::SiteConfig::default(),
+                openblog_core::Sources {
+                    posts: vec![openblog_core::SourceFile {
+                        path: "posts/p.md".into(),
+                        contents: format!("---\ntitle: P\ndate: 2026-01-01\n{body}"),
+                    }],
+                    source_library: Some(LibrarySource::Text(openblog_core::SourceFile {
+                        path: "sources.json".into(),
+                        contents:
+                            r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#
+                                .into(),
+                    })),
+                    ..Default::default()
+                },
+                openblog_core::LoadOptions::default(),
+            )
+            .unwrap()
+        };
+        assert_eq!(citation_summary(&load("---\nPlain [@w].\n")), None);
+        let summary = citation_summary(&load(
+            "citations: notes\n---\nSee [@w] and [@w, canonical 2].\n",
+        ))
+        .unwrap();
+        assert!(
+            summary.starts_with("OK: 1 post(s) publish 2 citation(s) of 1 reference(s).")
+                && summary.contains("offline")
+                && summary.contains("no identifier or link was looked up online"),
+            "{summary}"
+        );
+    }
 
     #[test]
     fn check_reports_the_private_source_library_only_when_it_is_stored() {

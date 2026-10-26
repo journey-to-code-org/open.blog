@@ -1637,6 +1637,13 @@ impl<'a> Renderer<'a> {
     fn series_box(&self, index: usize, post: &Post, series: &Series) -> String {
         let position = series.posts.iter().position(|&i| i == index).unwrap_or(0);
         let (prev, next) = self.site.series_neighbors(index);
+        // Only a series holding a collaborative work names its parts' authors (ADR 0040); every
+        // other series keeps exactly the markup it always had.
+        let credited = self.site.series_is_collaborative(series);
+        let credit = |part: &Post, lead: &str| match credited.then(|| part_credit(part)).flatten() {
+            Some(by) => format!("{lead}<span class=\"ob-meta ob-part-credit\">{by}</span>"),
+            None => String::new(),
+        };
         let mut h =
             String::from("<aside class=\"ob-series-box\" aria-label=\"Series navigation\">\n");
         h.push_str(&format!(
@@ -1649,17 +1656,19 @@ impl<'a> Renderer<'a> {
         h.push_str("<div class=\"ob-series-nav\">");
         match prev {
             Some(p) => h.push_str(&format!(
-                "<a class=\"ob-series-prev\" rel=\"prev\" href=\"{}\"><span class=\"ob-meta\">Previous part</span><span>{}</span></a>",
+                "<a class=\"ob-series-prev\" rel=\"prev\" href=\"{}\"><span class=\"ob-meta\">Previous part</span><span>{}</span>{}</a>",
                 attr(&p.url),
-                text(&p.title)
+                text(&p.title),
+                credit(p, "")
             )),
             None => h.push_str("<span></span>"),
         }
         match next {
             Some(n) => h.push_str(&format!(
-                "<a class=\"ob-series-next\" rel=\"next\" href=\"{}\"><span class=\"ob-meta\">Next part</span><span>{}</span></a>",
+                "<a class=\"ob-series-next\" rel=\"next\" href=\"{}\"><span class=\"ob-meta\">Next part</span><span>{}</span>{}</a>",
                 attr(&n.url),
-                text(&n.title)
+                text(&n.title),
+                credit(n, "")
             )),
             None => h.push_str("<span></span>"),
         }
@@ -1672,10 +1681,11 @@ impl<'a> Renderer<'a> {
                 ""
             };
             h.push_str(&format!(
-                "<li><a href=\"{}\"{}>{}</a></li>",
+                "<li><a href=\"{}\"{}>{}</a>{}</li>",
                 attr(&part.url),
                 current,
-                text(&part.title)
+                text(&part.title),
+                credit(part, " ")
             ));
         }
         h.push_str("</ol></details>\n</aside>\n");
@@ -1747,15 +1757,32 @@ impl<'a> Renderer<'a> {
                 series.description_html
             ));
         }
+        // Only a series holding a collaborative work names its contributors and each part's
+        // authors (ADR 0040); every other series keeps exactly the markup it always had.
+        let credited = self.site.series_is_collaborative(series);
+        if credited {
+            let names = credit_names(self.site.series_contributors(series));
+            if !names.is_empty() {
+                body.push_str(&format!(
+                    "<p class=\"ob-meta ob-series-contributors\">Contributors: {}</p>\n",
+                    human_list(&names)
+                ));
+            }
+        }
         body.push_str("<ol class=\"ob-series-parts ob-series-parts-full\">\n");
         for (n, &i) in series.posts.iter().enumerate() {
             let post = &self.site.posts[i];
+            let by = match credited.then(|| part_credit(post)).flatten() {
+                Some(by) => format!("<span class=\"ob-part-credit\">{by}</span> · "),
+                None => String::new(),
+            };
             body.push_str(&format!(
-                "<li><a class=\"ob-part\" href=\"{}\"><span class=\"ob-part-number\" aria-hidden=\"true\">{:02}</span><span class=\"ob-part-body\"><span class=\"ob-part-title\">{}</span><span class=\"ob-part-summary\">{}</span><span class=\"ob-meta\">{} · {} min read</span></span></a></li>\n",
+                "<li><a class=\"ob-part\" href=\"{}\"><span class=\"ob-part-number\" aria-hidden=\"true\">{:02}</span><span class=\"ob-part-body\"><span class=\"ob-part-title\">{}</span><span class=\"ob-part-summary\">{}</span><span class=\"ob-meta\">{}{} · {} min read</span></span></a></li>\n",
                 attr(&post.url),
                 n + 1,
                 text(&post.title),
                 text(&post.description),
+                by,
                 self.time(post),
                 post.reading_minutes
             ));
@@ -1990,7 +2017,25 @@ fn author_html(credit: &ResolvedCredit) -> String {
     }
 }
 
-fn human_list(items: &[String]) -> String {
+/// The escaped, non-empty names of `credits`, in order, as plain text: a series names people but
+/// never links or marks them up (ADR 0040).
+fn credit_names<'a>(credits: impl IntoIterator<Item = &'a ResolvedCredit>) -> Vec<String> {
+    credits
+        .into_iter()
+        .map(|credit| credit.contributor.name.trim())
+        .filter(|name| !name.is_empty())
+        .map(text)
+        .collect()
+}
+
+/// "By Ann, Bo, and Cy" for one part of a collaborative series, from the post's approved author
+/// credits in credit order (ADR 0040), or `None` when no author has a name to show.
+fn part_credit(post: &Post) -> Option<String> {
+    let names = credit_names(post.authors());
+    (!names.is_empty()).then(|| format!("By {}", human_list(&names)))
+}
+
+pub(crate) fn human_list(items: &[String]) -> String {
     match items {
         [] => String::new(),
         [only] => only.clone(),
@@ -2075,6 +2120,7 @@ mod tests {
                 credits: Vec::new(),
                 series: vec![src("series/s.md", "---\nname: Series S\ntheme: loud\n---\nAbout S")],
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+                source_library: None,
             },
             LoadOptions::default(),
         )

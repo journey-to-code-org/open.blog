@@ -16,6 +16,7 @@ use crate::collaboration::{valid_admin_username, AuthorizationRole, SharedPublic
 use crate::draft::DraftSet;
 use crate::frontmatter::{self, Value};
 use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
+use crate::shared_series::{SERIES_KEY, SERIES_ORDER_KEY};
 use crate::shared_source::{
     SharedAttribution, QUESTION_KEY, SOURCE_KIND_KEY, SOURCE_TITLE_KEY, SOURCE_URL_KEY,
 };
@@ -231,7 +232,7 @@ const CATEGORIES: [(SynthesisKind, &str, &str); 5] = [
 
 /// Backslash-escape every ASCII punctuation character, which CommonMark always reads as a literal.
 /// A display name is a participant's text and must not become Markdown or HTML.
-fn escape_markdown(text: &str) -> String {
+pub(crate) fn escape_markdown(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         if c.is_ascii_punctuation() {
@@ -456,6 +457,15 @@ pub fn assemble(
                 fields.insert(SOURCE_URL_KEY.into(), scalar(url));
             }
             fields.insert(SOURCE_KIND_KEY.into(), scalar(source.kind.label()));
+        }
+    }
+    // The ordinary series front matter: the site's own series definition supplies the title,
+    // description, theme and navigation (ADR 0038). Approved with the rest (`public_metadata`).
+    if let Some(placement) = &record.series {
+        placement.validate().map_err(|_| AssemblyError::Invalid)?;
+        fields.insert(SERIES_KEY.into(), scalar(&placement.series));
+        if let Some(order) = placement.order {
+            fields.insert(SERIES_ORDER_KEY.into(), scalar(&order.to_string()));
         }
     }
     let path = post_path(record);

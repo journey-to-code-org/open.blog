@@ -484,6 +484,13 @@ fn document(
             escape::text(&problems.join("; "))
         ));
     }
+    // The placement is public and bound into every approval (ADR 0038), so it is shown here.
+    if let Some(placement) = &record.series {
+        html.push_str(&format!(
+            "<p class=\"ob-preview-series\"><strong>Series:</strong> {}</p>\n",
+            escape::text(&placement.label())
+        ));
+    }
     html.push_str("<ol class=\"ob-preview-authors\" aria-label=\"Authors and approval\">\n");
     for section in sections {
         html.push_str(&format!(

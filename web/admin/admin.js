@@ -671,6 +671,986 @@ export function sourceExportLossNotes(losses) {
   return [...bySource].map(([id, fields]) => `${id}: ${[...fields].join(", ")}`);
 }
 
+// ---------------------------------------------------------------- research notebook capture
+
+export const QUESTION_STATES = Object.freeze([
+  { value: "open", label: "Open: still needs an answer" },
+  { value: "resolved", label: "Resolved" },
+]);
+
+/** The JSON body for a notebook search: only the filters that are set. It travels in a POST body, never the URL, so access logs cannot record research text. */
+export function notebookSearchBody(filters) {
+  const body = {};
+  for (const [key, name] of [["query", "q"], ["source", "source"], ["locator", "locator"], ["concept", "concept"], ["state", "state"]]) {
+    const value = String(filters?.[key] ?? "").trim();
+    if (value) body[name] = value;
+  }
+  if (filters?.archived) body.includeArchived = true;
+  return body;
+}
+
+/** One line for an import preview of the private notebook. */
+export function notebookImportSummary(plan) {
+  const counts = plan?.counts || {};
+  return `${counts.create || 0} to add, ${counts.unchanged || 0} already here, ${counts.conflict || 0} in conflict`;
+}
+
+/** The preview rows worth reading: what would be added and what conflicts, never entry text. */
+export function notebookImportRows(plan) {
+  return (plan?.entries || [])
+    .filter((entry) => entry.action !== "unchanged")
+    .map((entry) => ({ action: entry.action, label: entry.action === "create" ? "Add" : "Conflict", name: `${entry.collection === "passages" ? "passage" : "note"} ${entry.id}`, message: entry.message || "" }));
+}
+
+export function searchIsActive(filters) {
+  return ["query", "source", "locator", "concept", "state"].some((key) => String(filters?.[key] ?? "").trim());
+}
+
+/** A one-line description of a search hit's place in the research: source, locators, state. Plain text. */
+export function hitContext(hit) {
+  const parts = [];
+  for (const source of hit.sources || []) parts.push(`${source.label}${source.archived ? " (archived)" : ""}${source.missing ? " (missing)" : ""}`);
+  if (hit.entry === "passage" && hit.locators?.length) parts.push(hit.locators[0]);
+  if (hit.entry === "note") parts.push(hit.kind === "question" ? (hit.state === "resolved" ? "resolved question" : "open question") : "observation");
+  return parts.join(" · ");
+}
+
+export const NOTE_KINDS = Object.freeze([
+  { kind: "observation", label: "Observation" },
+  { kind: "question", label: "Question" },
+]);
+const MAX_NOTEBOOK_TEXT_CHARS = 20000;
+const MAX_PASSAGE_LOCATORS = 8;
+const NOTEBOOK_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+const codePoints = (value) => [...String(value ?? "")].length;
+
+/** A fresh, readable identifier that no passage or note uses. Passages and notes share one id space. */
+export function suggestEntryId(prefix, existingIds = []) {
+  const used = new Set(existingIds);
+  let number = used.size + 1;
+  while (used.has(`${prefix}-${number}`)) number += 1;
+  return `${prefix}-${number}`;
+}
+
+/** Sources an author may quote or note: not archived, ordered by label. */
+export function captureSources(sources) {
+  return (Array.isArray(sources) ? sources : [])
+    .filter((source) => !source.archived)
+    .sort((a, b) => sourceLabel(a).localeCompare(sourceLabel(b)));
+}
+
+/** One locator per line as `kind: value`, with a range written `kind: value to value`. */
+export function parseLocatorLines(value) {
+  return textLines(value).map((line) => {
+    const cut = line.indexOf(":");
+    if (cut < 0) return { kind: "", value: line };
+    const kind = line.slice(0, cut).trim().toLowerCase();
+    const rest = line.slice(cut + 1).trim();
+    const range = rest.indexOf(" to ");
+    return range < 0 ? { kind, value: rest } : { kind, value: rest.slice(0, range).trim(), to: rest.slice(range + 4).trim() };
+  });
+}
+
+export function formatLocatorLines(locators) {
+  return (Array.isArray(locators) ? locators : []).map((locator) => `${locator?.kind ?? ""}: ${locator?.value ?? ""}${locator?.to ? ` to ${locator.to}` : ""}`).join("\n");
+}
+
+export function parseConceptList(value) {
+  return [...new Set(String(value || "").split(/[\s,]+/).map((item) => item.trim().toLowerCase()).filter(Boolean))];
+}
+
+export function passageDraft(record = null, source = "") {
+  const passage = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof passage.id === "string" ? passage.id : "",
+    source: typeof passage.source === "string" ? passage.source : source,
+    excerpt: typeof passage.excerpt?.text === "string" ? passage.excerpt.text : "",
+    language: typeof passage.excerpt?.language === "string" ? passage.excerpt.language : "",
+    locators: formatLocatorLines(passage.locators),
+  };
+}
+
+/** The full passage to send. The excerpt text is sent exactly as typed; unknown stored fields are carried over. */
+export function passageDraftPayload(draft) {
+  const original = draft.original || {};
+  const record = { ...original };
+  delete record.locators;
+  record.id = String(draft.id || "").trim();
+  record.source = draft.source;
+  const excerpt = { ...(original.excerpt || {}), text: String(draft.excerpt ?? "") };
+  const language = String(draft.language || "").trim();
+  if (language) excerpt.language = language;
+  else delete excerpt.language;
+  record.excerpt = excerpt;
+  const locators = keepUnchanged(parseLocatorLines(draft.locators), original.locators, (a, b) => a.kind === b.kind && a.value === b.value && (a.to ?? "") === (b.to ?? ""));
+  if (locators.length) record.locators = locators;
+  return record;
+}
+
+/** A quick, advisory check; the server's validation stays authoritative. */
+export function validatePassageDraft(draft, sources = []) {
+  if (!draft.source || !sources.some((source) => source.id === draft.source)) return { field: "source", message: "Choose the source this passage comes from." };
+  if (!String(draft.excerpt ?? "").trim()) return { field: "excerpt", message: "Enter the quoted text." };
+  if (codePoints(draft.excerpt) > MAX_NOTEBOOK_TEXT_CHARS) return { field: "excerpt", message: `A quoted passage is limited to ${MAX_NOTEBOOK_TEXT_CHARS} characters.` };
+  const locators = parseLocatorLines(draft.locators);
+  if (locators.length > MAX_PASSAGE_LOCATORS) return { field: "locators", message: `A passage may have at most ${MAX_PASSAGE_LOCATORS} locators.` };
+  const bad = locators.findIndex((locator) => !locator.kind || !locator.value);
+  if (bad >= 0) return { field: "locators", message: `Locator ${bad + 1} must look like page: 514 or canonical: 514a to 520a.` };
+  return null;
+}
+
+export function noteDraft(record = null) {
+  const note = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof note.id === "string" ? note.id : "",
+    kind: typeof note.kind === "string" ? note.kind : "observation",
+    text: typeof note.text === "string" ? note.text : "",
+    passages: Array.isArray(note.passages) ? [...note.passages] : [],
+    sources: Array.isArray(note.sources) ? [...note.sources] : [],
+    concepts: (Array.isArray(note.concepts) ? note.concepts : []).join(", "),
+    status: note.status === "resolved" ? "resolved" : "open",
+  };
+}
+
+export function noteDraftPayload(draft) {
+  const original = draft.original || {};
+  const record = { ...original };
+  for (const field of ["passages", "sources", "concepts"]) delete record[field];
+  record.id = String(draft.id || "").trim();
+  record.kind = draft.kind;
+  record.text = String(draft.text ?? "");
+  if (draft.passages.length) record.passages = [...draft.passages];
+  if (draft.sources.length) record.sources = [...draft.sources];
+  const concepts = parseConceptList(draft.concepts);
+  if (concepts.length) record.concepts = concepts;
+  // Only a question has a state, and a question that never had one stays open without writing it.
+  delete record.status;
+  if (draft.kind === "question" && (draft.status === "resolved" || (original.status && draft.status))) record.status = draft.status;
+  return record;
+}
+
+export function validateNoteDraft(draft) {
+  if (!String(draft.text ?? "").trim()) return { field: "text", message: "Write the observation or question." };
+  if (codePoints(draft.text) > MAX_NOTEBOOK_TEXT_CHARS) return { field: "text", message: `A note is limited to ${MAX_NOTEBOOK_TEXT_CHARS} characters.` };
+  if (parseConceptList(draft.concepts).some((concept) => !NOTEBOOK_SLUG.test(concept) || concept.length > 64)) {
+    return { field: "concepts", message: "Concepts are lowercase words separated by commas or spaces, such as allegory, the-good." };
+  }
+  return null;
+}
+
+/** Map a server diagnostic's field path to the form control that edits it. */
+export function notebookDiagnosticControl(field) {
+  const name = String(field || "").replace(/\[\d+\].*$/, "").split(".")[0];
+  if (name === "excerpt") return String(field).endsWith("language") ? "language" : "excerpt";
+  return { source: "source", locators: "locators", text: "text", kind: "kind", passages: "passages", sources: "sources", concepts: "concepts" }[name] || "";
+}
+
+export function notebookErrorMessage(error) {
+  const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
+  if (!diagnostics.length) return error?.data?.error || error?.message || "The research entry could not be saved.";
+  return diagnostics.map((item) => `${item.field ? `${item.field}: ` : ""}${item.message}`).join(" ");
+}
+
+/** A short plain-text label for a passage or note in lists; never markup. */
+export function entryPreview(entry, limit = 90) {
+  const text = String(entry?.excerpt?.text ?? entry?.text ?? "").replace(/\s+/g, " ").trim();
+  const points = [...text];
+  return points.length > limit ? `${points.slice(0, limit - 1).join("")}…` : text;
+}
+
+// ---------------------------------------------------------------- citations
+
+export const MAX_CITATION_LOCATORS = 8;
+// `[@...]` on one line, not escaped, and not a link (`[@x](url)`, `[@x][ref]`).
+// The core scanner (`openblog_core::citations`) is authoritative; this only
+// finds the text the editor shows as a citation and reopens for editing.
+const CITATION_TEXT = /(?<!\\)\[@[^[\]\n]*\](?![([])/g;
+const CITATION_WHOLE = /^\[@[^[\]\n]*\]$/;
+
+function codeSpanRanges(line) {
+  const runs = [...line.matchAll(/`+/g)].map((match) => [match.index, match[0].length]);
+  const ranges = [];
+  for (let index = 0; index < runs.length; index += 1) {
+    const [start, length] = runs[index];
+    const close = runs.findIndex(([, other], at) => at > index && other === length);
+    if (close < 0) continue;
+    ranges.push([start, runs[close][0] + length]);
+    index = close;
+  }
+  return ranges;
+}
+
+/** Citations written in Markdown, outside fenced code and code spans, with their string offsets. */
+export function citationSpans(markdown) {
+  const spans = [];
+  let offset = 0;
+  let fence = null;
+  for (const line of String(markdown ?? "").split("\n")) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !line.slice(marker[0].length).trim()) fence = null;
+    } else if (marker) fence = marker[1];
+    else {
+      const code = codeSpanRanges(line);
+      for (const match of line.matchAll(CITATION_TEXT)) {
+        const start = match.index;
+        const end = start + match[0].length;
+        if (code.some(([from, to]) => start < to && end > from)) continue;
+        if (/^ {0,3}$/.test(line.slice(0, start)) && line[end] === ":") continue; // a reference definition
+        spans.push({ start: offset + start, end: offset + end, text: match[0] });
+      }
+    }
+    offset += line.length + 1;
+  }
+  return spans;
+}
+
+/** The citation the selection is inside (or exactly covers), so the dialog edits it instead of adding another. */
+export function citationAt(markdown, start, end = start) {
+  return citationSpans(markdown).find((span) => (start > span.start && end < span.end) || (start === span.start && end === span.end)) || null;
+}
+
+/** How many backslashes come straight before `at`; an odd count escapes the character there. */
+function backslashesBefore(line, at) {
+  let count = 0;
+  while (at - count > 0 && line[at - count - 1] === "\\") count += 1;
+  return count;
+}
+
+/** Link and image spans on one line of Markdown (`[text](dest)`, `![alt](src)`, `[text][ref]`), with nested brackets, as [start, end] pairs. */
+function markdownLinkRanges(line) {
+  const ranges = [];
+  const escaped = (at) => backslashesBefore(line, at) % 2 === 1;
+  const matching = (from, open, close) => {
+    let depth = 0;
+    for (let index = from; index < line.length; index += 1) {
+      if (line[index] === "\\") index += 1;
+      else if (line[index] === open) depth += 1;
+      else if (line[index] === close && --depth === 0) return index;
+    }
+    return -1;
+  };
+  for (let open = line.indexOf("["); open >= 0; open = line.indexOf("[", open + 1)) {
+    if (escaped(open)) continue;
+    const close = matching(open, "[", "]");
+    if (close < 0) continue;
+    const end = line[close + 1] === "(" ? matching(close + 1, "(", ")") : line[close + 1] === "[" ? matching(close + 1, "[", "]") : -1;
+    if (end >= 0) ranges.push([open > 0 && line[open - 1] === "!" ? open - 1 : open, end + 1]);
+  }
+  return ranges;
+}
+
+/** HTML tag names that start an HTML block (CommonMark type 6), which runs to the next blank line. */
+const HTML_BLOCK_TAGS = new Set("address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table tbody td tfoot th thead title tr track ul".split(" "));
+const HTML_ATTRIBUTES = String.raw`(?:\s+[A-Za-z_:][\w.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>\x60]+))?)*`;
+const HTML_OPEN_TAG = String.raw`<[A-Za-z][A-Za-z0-9-]*${HTML_ATTRIBUTES}\s*\/?>`;
+const HTML_CLOSE_TAG = String.raw`<\/[A-Za-z][A-Za-z0-9-]*\s*>`;
+const HTML_TAG_LINE = new RegExp(String.raw`^(?:${HTML_OPEN_TAG}|${HTML_CLOSE_TAG})\s*$`);
+const INLINE_HTML = new RegExp(String.raw`<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<![A-Za-z][^>]*>|<!\[CDATA\[[\s\S]*?\]\]>|${HTML_OPEN_TAG}|${HTML_CLOSE_TAG}`, "g");
+const AUTOLINK = /<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*>|<[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*>/g;
+
+/** A line without its block quote and list markers, so fences and HTML inside containers are seen too. */
+function containerContent(line) {
+  return line.replace(/^(?: {0,3}>[ \t]?| {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$))*/, "");
+}
+
+/** The width of a line's leading whitespace, with tabs to the next multiple of four. */
+function indentWidth(line) {
+  let width = 0;
+  for (const character of line) {
+    if (character === " ") width += 1;
+    else if (character === "\t") width += 4 - (width % 4);
+    else break;
+  }
+  return width;
+}
+
+/**
+ * How an HTML block that starts on this line ends: a test for its closing
+ * line, `"blank"` for one that runs to the next blank line, or null when the
+ * line starts no HTML block. A lone tag line starts one only after a blank
+ * line, since that kind cannot interrupt a paragraph.
+ */
+function htmlBlockEnd(content, afterBlank) {
+  const rest = /^ {0,3}(<.*)$/.exec(content)?.[1];
+  if (!rest) return null;
+  const raw = /^<(script|pre|style|textarea)(?:\s|>|$)/i.exec(rest);
+  if (raw) return (line) => new RegExp(`</${raw[1]}>`, "i").test(line);
+  if (rest.startsWith("<!--")) return (line) => line.includes("-->");
+  if (rest.startsWith("<?")) return (line) => line.includes("?>");
+  if (rest.startsWith("<![CDATA[")) return (line) => line.includes("]]>");
+  if (/^<![A-Za-z]/.test(rest)) return (line) => line.includes(">");
+  const tag = /^<\/?([A-Za-z][A-Za-z0-9-]*)(?:\s|\/?>|$)/.exec(rest);
+  if (tag && HTML_BLOCK_TAGS.has(tag[1].toLowerCase())) return "blank";
+  if (afterBlank && HTML_TAG_LINE.test(rest)) return "blank";
+  return null;
+}
+
+/** Each line of Markdown as `"code"`, `"html"`, `"blank"` or paragraph `"text"`. */
+function markdownLineKinds(lines) {
+  const kinds = [];
+  let fence = null;
+  let html = null;
+  for (const [index, line] of lines.entries()) {
+    const content = containerContent(line);
+    const blank = !content.trim();
+    const previous = kinds[index - 1];
+    const afterBlank = previous !== "text";
+    if (fence) {
+      const marker = /^\s*(`{3,}|~{3,})\s*$/.exec(content);
+      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length) fence = null;
+      kinds.push("code");
+    } else if (html) {
+      const closes = html === "blank" ? blank : html(line);
+      kinds.push(closes && html === "blank" ? "blank" : "html");
+      if (closes) html = null;
+    } else if (blank) {
+      kinds.push("blank");
+    } else {
+      const marker = /^\s*(`{3,}|~{3,})/.exec(content);
+      const end = htmlBlockEnd(content, afterBlank);
+      if (marker && !(marker[1][0] === "`" && content.slice(marker[0].length).includes("`"))) {
+        fence = marker[1];
+        kinds.push("code");
+      } else if (afterBlank && indentWidth(line.replace(/^(?: {0,3}>[ \t]?)*/, "")) >= 4) {
+        // Indented code, or a paragraph inside a list item; refusing is the safe side.
+        kinds.push("code");
+      } else if (end) {
+        kinds.push("html");
+        if (end === "blank" || !end(line)) html = end;
+      } else kinds.push("text");
+    }
+  }
+  return kinds;
+}
+
+/**
+ * Why a new citation cannot go at `at` in Markdown, where it would not be
+ * read as a citation: `"code"` inside fenced or indented code or a code span
+ * (also one over several lines), `"html"` inside an HTML block, a comment or
+ * a tag, `"link"` inside a link, image, autolink or link reference
+ * definition (also over several lines); otherwise `""`. It errs towards
+ * refusing: a line it cannot be sure about (such as an indented line after a
+ * blank one, which may be code) is refused, and the server checks whatever
+ * is inserted.
+ */
+export function citationInsertionProblem(markdown, at) {
+  const lines = String(markdown ?? "").split("\n");
+  const kinds = markdownLineKinds(lines);
+  let offset = 0;
+  for (const [index, line] of lines.entries()) {
+    const lineEnd = offset + line.length;
+    if (at < offset || at > lineEnd) {
+      offset = lineEnd + 1;
+      continue;
+    }
+    const kind = kinds[index];
+    if (kind === "code" || kind === "html") return kind;
+    if (kind !== "text") return "";
+    // The whole paragraph, since code spans, links and HTML cross lines.
+    let first = index;
+    while (first > 0 && kinds[first - 1] === "text") first -= 1;
+    let last = index;
+    while (last + 1 < lines.length && kinds[last + 1] === "text") last += 1;
+    const start = lines.slice(0, first).reduce((sum, text) => sum + text.length + 1, 0);
+    const paragraph = lines.slice(first, last + 1).join("\n");
+    const column = at - start;
+    const inside = (ranges) => ranges.some(([from, to]) => column > from && column < to);
+    const matches = (pattern) => [...paragraph.matchAll(pattern)].map((match) => [match.index, match.index + match[0].length]);
+    if (inside(codeSpanRanges(paragraph))) return "code";
+    if (inside(matches(INLINE_HTML))) return "html";
+    if (inside(matches(AUTOLINK)) || inside(markdownLinkRanges(paragraph))) return "link";
+    if (index === first && /^ {0,3}\[(?:[^\]\\]|\\.)+\]:/.test(containerContent(line))) return "link";
+    return "";
+  }
+  return "";
+}
+
+/** Read `[@key, kind value to end; ...]` into parts for the dialog. The server re-checks whatever is inserted. */
+export function parseCitationText(text) {
+  const match = /^\[@([^[\]\n]*)\]$/.exec(String(text ?? ""));
+  if (!match) return null;
+  const inner = match[1];
+  const comma = inner.indexOf(",");
+  const key = (comma < 0 ? inner : inner.slice(0, comma)).trim();
+  const locators = comma < 0
+    ? []
+    : inner.slice(comma + 1).split(";").map((part) => {
+        const trimmed = part.trim();
+        const space = trimmed.search(/\s/);
+        const kind = space < 0 ? trimmed : trimmed.slice(0, space);
+        const rest = space < 0 ? "" : trimmed.slice(space).trim();
+        const range = rest.indexOf(" to ");
+        return range < 0 ? { kind, value: rest } : { kind, value: rest.slice(0, range).trim(), to: rest.slice(range + 4).trim() };
+      });
+  return { key, locators };
+}
+
+/** The Markdown a citation is written as; a preview only, since the server returns the text that is inserted. */
+export function formatCitationText({ key = "", locators = [] } = {}) {
+  return `[@${key}${(locators || []).map((locator, index) => `${index ? "; " : ", "}${locator.kind} ${locator.value}${locator.to ? ` to ${locator.to}` : ""}`).join("")}]`;
+}
+
+/** A notebook passage's locators as a citation uses them: kind, value and end only, never other stored fields. */
+export function citationLocatorsFromPassage(passage) {
+  return (Array.isArray(passage?.locators) ? passage.locators : [])
+    .filter((locator) => typeof locator?.kind === "string" && typeof locator?.value === "string")
+    .map((locator) => (typeof locator.to === "string" && locator.to ? { kind: locator.kind, value: locator.value, to: locator.to } : { kind: locator.kind, value: locator.value }));
+}
+
+export function citationDraftPayload(draft) {
+  return {
+    key: String(draft.source || ""),
+    locators: parseLocatorLines(draft.locators).map((locator) => (locator.to ? { kind: locator.kind, value: locator.value, to: locator.to } : { kind: locator.kind, value: locator.value })),
+  };
+}
+
+/** A quick, advisory check; the server's core resolver stays authoritative. */
+export function validateCitationDraft(draft, sources = []) {
+  if (!draft.source) return { field: "source", message: "Choose the source to cite." };
+  if (!sources.some((source) => source.id === draft.source)) return { field: "source", message: "That source is not in the library. Choose another." };
+  const locators = parseLocatorLines(draft.locators);
+  if (locators.length > MAX_CITATION_LOCATORS) return { field: "locators", message: `A citation may have at most ${MAX_CITATION_LOCATORS} locators.` };
+  const bad = locators.findIndex((locator) => !locator.kind || !locator.value);
+  if (bad >= 0) return { field: "locators", message: `Locator ${bad + 1} must look like page: 514 or canonical: 514a to 520a.` };
+  return null;
+}
+
+/**
+ * Insert citation Markdown into a draft. A `replace` span (a citation being
+ * edited) is replaced; otherwise the citation goes at the end of the
+ * selection, after a space when it would touch a word, and the selected text
+ * stays. The caret lands after the citation. Nothing else in the draft moves.
+ */
+export function insertCitationText(value, start, end, markdown, replace = null) {
+  const text = String(value ?? "");
+  if (replace) {
+    const next = text.slice(0, replace.start) + markdown + text.slice(replace.end);
+    const caret = replace.start + markdown.length;
+    return { value: next, start: caret, end: caret };
+  }
+  const at = Math.max(0, Math.min(text.length, Math.max(start, end)));
+  const before = text.slice(0, at);
+  const inserted = (before && !/[\s([]$/.test(before) ? " " : "") + markdown;
+  const caret = at + inserted.length;
+  // A `(` or `[` right after the citation would make it read as a link.
+  const after = /^[([]/.test(text.slice(at)) ? " " : "";
+  return { value: before + inserted + after + text.slice(at), start: caret, end: caret };
+}
+
+/** Sources the picker offers for a search: live sources, plus the one already chosen even if archived. */
+export function citationSourceChoices(sources, query = "", keep = "") {
+  return filterSources(sources, { query, archived: "all" })
+    .filter((source) => !source.archived || source.id === keep)
+    .sort((a, b) => sourceLabel(a).localeCompare(sourceLabel(b)));
+}
+
+/** What a citation check failure means for the author, and which field it belongs to. */
+export function citationFailure(error) {
+  const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
+  if (error?.status === 409) return { field: "source", message: error?.data?.error || "The source library changed. Review the refreshed sources and insert again." };
+  if (!diagnostics.length) return { field: "", message: `The citation could not be checked. Your draft is unchanged. ${error?.data?.error || error?.message || ""}`.trim() };
+  const field = diagnostics.some((item) => ["invalid-key", "unknown-key"].includes(item.code)) ? "source" : "locators";
+  return { field, message: diagnostics.map((item) => item.message).join(" ") };
+}
+
+/**
+ * The citation picker: search the library, choose a source (or start from a
+ * notebook passage, which copies only its locators' kind, value and end),
+ * add optional locators, and check the result with the server, which runs
+ * the core parser and resolver. `state` is { revision, sources, passages,
+ * notebookAvailable } and is refreshed in place when the library is stale.
+ * Nothing changes the draft until `onInsert` receives the checked citation.
+ */
+export function createCitationForm({ api, state, initial = null, idPrefix = "oba-citation", onInsert, onCancel, refuse = null }) {
+  const editing = Boolean(initial);
+  const draft = { source: initial?.key || "", locators: formatLocatorLines(initial?.locators || []), query: "" };
+  let busy = false;
+  const root = h("form", { class: "oba-capture-form oba-citation-form", novalidate: true });
+  const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+  const field = (name, labelText, input, hint) => {
+    input.id = `${idPrefix}-${name}`;
+    if (hint) {
+      input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+      input.setAttribute("data-hint-id", `${idPrefix}-${name}-hint`);
+    }
+    return h("div", { class: "oba-field", "data-citation-field": name }, h("label", { for: input.id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint) : null);
+  };
+  const sourceById = (id) => (state.sources || []).find((source) => source.id === id);
+  const search = h("input", { type: "search", autocomplete: "off", spellcheck: "false", onInput: (event) => { draft.query = event.target.value; renderSources(); } });
+  const sourceList = h("select", { size: 6, onChange: (event) => { draft.source = event.target.value; renderPreview(); } });
+  const passageList = h("select", { onChange: (event) => usePassage(event.target.value) });
+  const locators = h("textarea", { rows: 3, spellcheck: "false", value: draft.locators, onInput: (event) => { draft.locators = event.target.value; renderPreview(); } });
+  const preview = h("output", { class: "oba-citation-preview", id: `${idPrefix}-preview`, "aria-live": "polite" });
+  const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-citation-insert": "true" }, editing ? "Update citation" : "Insert citation");
+  const cancel = h("button", { class: "oba-btn", type: "button", "data-citation-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
+
+  const renderSources = () => {
+    const choices = citationSourceChoices(state.sources, draft.query, draft.source);
+    const chosen = sourceById(draft.source);
+    // The chosen source stays listed while a search hides it, so the choice is never lost silently.
+    if (chosen && !choices.includes(chosen)) choices.unshift(chosen);
+    const label = (source) => `${sourceLabel(source)}${source.archived ? " (archived)" : ""} (${source.kind}, ${source.id})`;
+    sourceList.replaceChildren(...choices.map((source) => h("option", { value: source.id, selected: source.id === draft.source }, label(source))));
+    status.textContent = `${choices.length} source${choices.length === 1 ? "" : "s"} shown.`;
+    renderPreview();
+  };
+  const renderPassages = () => {
+    const passages = Array.isArray(state.passages) ? state.passages : [];
+    const label = (passage) => {
+      const where = formatLocatorLines(citationLocatorsFromPassage(passage)).split("\n")[0];
+      return `${sourceLabel(sourceById(passage.source) || { id: passage.source })} — ${entryPreview({ text: passage.preview }, 60)}${where ? ` (${where})` : ""}`;
+    };
+    passageList.replaceChildren(h("option", { value: "" }, passages.length ? "Choose a passage" : "No passages yet"), ...passages.map((passage) => h("option", { value: passage.id }, label(passage))));
+    passageList.disabled = !passages.length;
+  };
+  const usePassage = (id) => {
+    const passage = (state.passages || []).find((item) => item.id === id);
+    if (!passage) return;
+    draft.source = passage.source;
+    draft.locators = formatLocatorLines(citationLocatorsFromPassage(passage));
+    locators.value = draft.locators;
+    renderSources();
+    status.textContent = "Source and locators copied from the passage. The quotation and any notes stay private.";
+  };
+  const renderPreview = () => {
+    preview.textContent = draft.source ? formatCitationText(citationDraftPayload(draft)) : "Choose a source to preview the citation.";
+  };
+  const control = (name) => ({ source: sourceList, locators, search })[name] || null;
+  const clearInvalid = () => {
+    for (const target of [sourceList, locators]) {
+      target.removeAttribute("aria-invalid");
+      target.setAttribute("aria-describedby", target.getAttribute("data-hint-id") || "");
+    }
+  };
+  const fail = (message, name = "") => {
+    errorBox.hidden = false;
+    errorBox.textContent = message;
+    const target = control(name);
+    if (target) {
+      target.setAttribute("aria-invalid", "true");
+      target.setAttribute("aria-describedby", [target.getAttribute("data-hint-id"), errorBox.id].filter(Boolean).join(" "));
+      target.focus();
+    } else errorBox.focus();
+  };
+
+  root.append(
+    field("search", "Search sources", search, "Matches titles, creators, identifiers and keys."),
+    field("source", "Source", sourceList, "From your private source library. Only its key is written into the post."),
+    state.notebookAvailable === false
+      ? h("p", { class: "oba-notice", "data-citation-notebook": "unavailable" }, "The research notebook could not be read, so passages are not offered. You can still cite any source.")
+      : field("passage", "Start from a notebook passage (optional)", passageList, "Copies the passage's source and locators. Its quotation and notes are not inserted."),
+    field("locators", "Locators (optional)", locators, "One per line as kind: value, such as page: 514, folio: 12r, or canonical: 514a to 520a."),
+    h("p", { class: "oba-small" }, "Citation: ", preview),
+    errorBox,
+    h("div", { class: "oba-toolbar" }, save, cancel),
+    status,
+  );
+  renderPassages();
+  renderSources();
+
+  root.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    errorBox.hidden = true;
+    clearInvalid();
+    const problem = validateCitationDraft(draft, state.sources);
+    if (problem) return fail(problem.message, problem.field);
+    const refused = refuse?.();
+    if (refused) return fail(refused);
+    busy = true;
+    save.disabled = true;
+    status.textContent = "Checking the citation…";
+    try {
+      const result = await api.call("POST", "citations/check", { json: { revision: state.revision, citation: citationDraftPayload(draft) } });
+      busy = false;
+      save.disabled = false;
+      status.textContent = "";
+      // The caller may still refuse (say, the draft cannot take it there); the dialog then stays open with every choice.
+      const declined = onInsert?.(result);
+      if (typeof declined === "string" && declined) fail(declined);
+    } catch (error) {
+      busy = false;
+      save.disabled = false;
+      if (error?.status === 409 && typeof error.data?.revision === "string") {
+        state.revision = error.data.revision;
+        if (Array.isArray(error.data.sources)) state.sources = error.data.sources;
+        renderSources();
+      }
+      const failure = citationFailure(error);
+      status.textContent = "";
+      fail(failure.message, failure.field);
+    }
+  });
+
+  return {
+    element: root,
+    focus: () => (editing ? sourceList : search).focus(),
+  };
+}
+
+/** Child indexes from `root` down to `node`, so a caret can be found again in a restored copy of the editor. */
+function nodePath(root, node) {
+  const path = [];
+  for (let current = node; current && current !== root; current = current.parentNode) {
+    if (!current.parentNode) return null;
+    path.unshift([...current.parentNode.childNodes].indexOf(current));
+  }
+  return path;
+}
+
+function nodeAtPath(root, path) {
+  if (!Array.isArray(path)) return null;
+  let node = root;
+  for (const index of path) node = node?.childNodes?.[index];
+  return node || null;
+}
+
+/** An atomic, keyboard-reachable chip for a citation in the visual editor. Its Markdown is kept verbatim. */
+export function citationChip(text) {
+  return h(
+    "span",
+    {
+      class: "oba-citation",
+      contenteditable: "false",
+      tabindex: "0",
+      role: "button",
+      "data-citation": text,
+      "aria-label": `Citation ${String(text).slice(2, -1)}. Press Enter to edit.`,
+      title: "Edit citation",
+    },
+    text,
+  );
+}
+
+/**
+ * Why a chip cannot go inside a visual-editor element: `"link"` inside a link
+ * (its text would hold `[@...]` and stop being a citation), `"code"` inside
+ * code, a protected block or another chip; otherwise `""`.
+ */
+function visualCitationContainerProblem(element) {
+  if (!element?.closest) return "code";
+  if (element.closest("pre, code, .oba-protected-block, .oba-citation")) return "code";
+  if (element.closest("a")) return "link";
+  return "";
+}
+
+/** Replace `start..end` of a text node with a chip for that text, keeping the text around it. */
+function replaceTextWithChip(node, start, end) {
+  const text = node.nodeValue;
+  const chip = citationChip(text.slice(start, end));
+  const parts = [text.slice(0, start), chip, text.slice(end)].filter((part) => part !== "").map((part) => (typeof part === "string" ? document.createTextNode(part) : part));
+  node.replaceWith(...parts);
+  return chip;
+}
+
+/** Put the caret straight after a node and remember it as the editor's visual selection. */
+function placeCaretAfter(node, editor) {
+  const selection = globalThis.getSelection?.();
+  const caret = document.createRange?.();
+  if (!selection || !caret) return;
+  caret.setStartAfter(node);
+  caret.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(caret);
+  editor.visualSelection = caret.cloneRange();
+}
+
+/**
+ * The capture form shared by the research notebook view and the editor's
+ * capture dialog. It edits one passage (optionally with a first note about it)
+ * or one note. `state` is the notebook as last read ({ revision, sources,
+ * passages, notes }) and is updated in place after every save or conflict.
+ * Nothing is saved until the author submits, and every server message reaches
+ * the page as text.
+ */
+export function createCaptureForm({ api, state, entry = null, entryType = "passage", prefill = {}, idPrefix = "oba-capture", onSaved, onCancel, onRefreshed }) {
+  let type = entry ? entryType : prefill.type === "note" ? "note" : "passage";
+  const editing = Boolean(entry);
+  let passage = type === "passage" ? passageDraft(editing ? entry : null, prefill.source || "") : passageDraft(null, prefill.source || "");
+  let note = type === "note" ? noteDraft(editing ? entry : null) : noteDraft();
+  if (!editing) passage.excerpt = prefill.excerpt || "";
+  let followUp = { text: "", kind: "observation" };
+  let busy = false;
+  // null, or { current } once a save of an existing entry hit a newer notebook:
+  // the author must choose before anything is sent again.
+  let conflict = null;
+  let touched = false;
+  const root = h("form", { class: "oba-capture-form", novalidate: true });
+  const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+  const control = (name) => root.querySelector(`#${idPrefix}-${name}`);
+
+  const field = (name, labelText, input, hint) => {
+    input.id = `${idPrefix}-${name}`;
+    if (hint) {
+      input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+      input.setAttribute("data-hint-id", `${idPrefix}-${name}-hint`);
+    }
+    return h("div", { class: "oba-field", "data-capture-field": name }, h("label", { for: input.id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint) : null);
+  };
+  const fail = (message, name = "") => {
+    errorBox.hidden = false;
+    errorBox.textContent = message;
+    const target = name ? control(name) : null;
+    if (target) {
+      target.setAttribute("aria-invalid", "true");
+      // The hint stays; the error is added to it, never in its place.
+      target.setAttribute("aria-describedby", [target.getAttribute("data-hint-id"), errorBox.id].filter(Boolean).join(" "));
+      target.focus();
+    } else errorBox.focus();
+  };
+  const clearInvalid = () => {
+    for (const target of root.querySelectorAll("[aria-invalid]")) {
+      target.removeAttribute("aria-invalid");
+      const hint = target.getAttribute("data-hint-id");
+      if (hint) target.setAttribute("aria-describedby", hint);
+      else target.removeAttribute("aria-describedby");
+    }
+  };
+  // Archived sources are not offered for new choices, but an entry being
+  // edited keeps the source(s) it already has, marked as archived.
+  const keptSources = editing ? [entry.source, ...(Array.isArray(entry.sources) ? entry.sources : [])].filter(Boolean) : [];
+  const sourceChoices = () => {
+    const live = captureSources(state.sources);
+    const archived = (state.sources || []).filter((source) => source.archived && keptSources.includes(source.id));
+    const label = (source) => `${sourceLabel(source)}${source.archived ? " (archived)" : ""} (${source.kind})`;
+    return [...live, ...archived].map((source) => ({ id: source.id, label: label(source) }));
+  };
+  const sourceSelect = (current, onPick) =>
+    h(
+      "select",
+      { onChange: (event) => onPick(event.target.value) },
+      h("option", { value: "", selected: !current }, "Choose a source"),
+      sourceChoices().map((source) => h("option", { value: source.id, selected: current === source.id }, source.label)),
+    );
+  const checkList = (name, legend, options, chosen, onToggle) =>
+    h(
+      "fieldset",
+      { class: "oba-capture-checks", id: `${idPrefix}-${name}`, tabindex: "-1" },
+      h("legend", {}, legend),
+      options.length
+        ? options.map(([value, label]) => {
+            const id = `${idPrefix}-${name}-${value}`;
+            return h("div", { class: "oba-capture-check" }, h("input", { id, type: "checkbox", value, checked: chosen.includes(value), onChange: (event) => onToggle(value, event.target.checked) }), h("label", { for: id }, label));
+          })
+        : h("p", { class: "oba-small" }, "None yet."),
+    );
+
+  const conflictNotice = () => {
+    if (!editing) return h("p", { class: "oba-notice", role: "alert", "data-capture-conflict": "true" }, "The notebook changed after you opened it, so nothing was saved. Your draft is still here; save again to add it to the latest notebook.");
+    const removed = !conflict.current;
+    return h(
+      "div",
+      { class: "oba-notice", role: "alert", "data-capture-conflict": "true" },
+      h("p", {}, removed ? "This entry was removed from the notebook after you opened it, so nothing was saved. Your draft is still here." : "This entry was changed after you opened it, so nothing was saved. Your draft is still here. Choose which copy to continue with; nothing is overwritten until you save."),
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", "data-capture-conflict-use": "stored", onClick: () => resolveConflict(true) }, removed ? "Discard my draft" : "Use the stored copy"),
+        removed ? null : h("button", { class: "oba-btn", type: "button", "data-capture-conflict-use": "draft", onClick: () => resolveConflict(false) }, "Keep my draft"),
+      ),
+    );
+  };
+
+  const resolveConflict = (useStored) => {
+    if (!conflict) return;
+    const { current } = conflict;
+    conflict = null;
+    errorBox.hidden = true;
+    clearInvalid();
+    if (useStored) {
+      if (!current) {
+        touched = false;
+        onCancel?.();
+        return;
+      }
+      if (type === "passage") passage = passageDraft(current);
+      else note = noteDraft(current);
+      touched = false;
+      say("Showing the stored copy.");
+    } else {
+      // The author has seen the newer copy: the draft now rests on it, and its unknown fields carry over.
+      const draft = type === "passage" ? passage : note;
+      draft.original = structuredClone(current);
+      say("Your draft now rests on the latest copy. Review it, then save.");
+    }
+    render();
+    (root.querySelector(type === "passage" ? `#${idPrefix}-excerpt` : `#${idPrefix}-text`) || root.querySelector("[data-capture-save]"))?.focus();
+  };
+
+  const render = () => {
+    const fields = [];
+    if (!editing) {
+      fields.push(
+        h(
+          "fieldset",
+          { class: "oba-capture-type" },
+          h("legend", {}, "Capture"),
+          [["passage", "A passage from a source"], ["note", "A note"]].map(([value, label]) => {
+            const id = `${idPrefix}-type-${value}`;
+            return h("span", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-type`, value, checked: type === value, onChange: () => { type = value; render(); control(`type-${value}`)?.focus(); } }), h("label", { for: id }, label));
+          }),
+        ),
+      );
+    }
+    if (type === "passage") {
+      fields.push(
+        field("source", "Source", sourceSelect(passage.source, (value) => { passage.source = value; }), editing ? "A passage keeps the source it was quoted from. Record a quotation from another source as a new passage." : "From your private source library."),
+        field("excerpt", "Quoted text", h("textarea", { rows: 5, value: passage.excerpt, spellcheck: "false", onInput: (event) => { passage.excerpt = event.target.value; } }), "Stored exactly as written and shown only as text. It is someone else's words, kept apart from your own."),
+        field("language", "Language (optional)", h("input", { type: "text", value: passage.language, autocomplete: "off", spellcheck: "false", onInput: (event) => { passage.language = event.target.value; } }), "A language tag such as en or grc."),
+        field("locators", "Locators (optional)", h("textarea", { rows: 3, value: passage.locators, spellcheck: "false", onInput: (event) => { passage.locators = event.target.value; } }), "One per line as kind: value, such as page: 514, folio: 12r, or canonical: 514a to 520a."),
+      );
+      if (!editing) {
+        fields.push(
+          h(
+            "fieldset",
+            { class: "oba-capture-follow" },
+            h("legend", {}, "Add a note about this passage (optional)"),
+            field("follow-kind", "Note type", h("select", { onChange: (event) => { followUp.kind = event.target.value; } }, NOTE_KINDS.map((item) => h("option", { value: item.kind, selected: followUp.kind === item.kind }, item.label)))),
+            field("follow-text", "Note", h("textarea", { rows: 3, value: followUp.text, onInput: (event) => { followUp.text = event.target.value; } }), "Your own words. Leave empty to save the passage alone."),
+          ),
+        );
+      }
+    } else {
+      fields.push(
+        field("kind", "Note type", h("select", { onChange: (event) => { note.kind = event.target.value; render(); control("kind")?.focus(); } }, NOTE_KINDS.map((item) => h("option", { value: item.kind, selected: note.kind === item.kind }, item.label)))),
+        note.kind === "question"
+          ? field("status", "Question state", h("select", { onChange: (event) => { note.status = event.target.value; } }, QUESTION_STATES.map((item) => h("option", { value: item.value, selected: note.status === item.value }, item.label))), "Open questions are listed as unresolved in the notebook. Resolving one is your call; nothing checks the answer.")
+          : null,
+        field("text", "Note", h("textarea", { rows: 5, value: note.text, onInput: (event) => { note.text = event.target.value; } }), "Your own observation or question. Quoted text belongs in a passage."),
+        checkList("passages", "Passages this note is about (optional)", state.passages.map((item) => [item.id, `${entryPreview(item, 60)} (${item.id})`]), note.passages, (value, on) => { note.passages = on ? [...note.passages, value] : note.passages.filter((id) => id !== value); }),
+        checkList("sources", "Sources this note is about (optional)", sourceChoices().map((item) => [item.id, item.label]), note.sources, (value, on) => { note.sources = on ? [...note.sources, value] : note.sources.filter((id) => id !== value); }),
+        field("concepts", "Concepts (optional)", h("input", { type: "text", value: note.concepts, autocomplete: "off", spellcheck: "false", onInput: (event) => { note.concepts = event.target.value; } }), "Lowercase words separated by commas, such as allegory, the-good."),
+      );
+    }
+    const noSources = type === "passage" && !sourceChoices().length;
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-capture-save": "true", disabled: busy || noSources || Boolean(conflict && editing) }, editing ? "Save changes" : "Save to notebook");
+    const cancel = h("button", { class: "oba-btn", type: "button", "data-capture-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
+    root.replaceChildren(
+      ...fields,
+      noSources ? h("p", { class: "oba-notice" }, "Add a source to the library first, then capture passages from it. ", h("a", { href: "#/sources" }, "Open sources")) : null,
+      errorBox,
+      conflict ? conflictNotice() : null,
+      h("div", { class: "oba-toolbar" }, save, cancel),
+      status,
+    );
+  };
+
+  const say = (text, kind = "oba-small") => {
+    status.className = kind;
+    status.textContent = text;
+  };
+
+  const refresh = async () => {
+    const latest = await api.call("GET", "research/notebook");
+    Object.assign(state, { revision: latest.revision, sources: latest.sources, passages: latest.passages, notes: latest.notes });
+  };
+
+  const send = async (method, path, key, payload) => {
+    const result = await api.call(method, path, { json: { revision: state.revision, [key]: payload } });
+    Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
+    return result;
+  };
+
+  root.addEventListener("input", () => { touched = true; });
+  root.addEventListener("change", () => { touched = true; });
+  root.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    if (conflict && editing) {
+      fail("Choose the stored copy or keep your draft before saving.");
+      return;
+    }
+    errorBox.hidden = true;
+    clearInvalid();
+    conflict = null;
+    let problem;
+    if (type === "passage") {
+      problem = validatePassageDraft(passage, state.sources);
+      if (!problem && !editing && followUp.text.trim()) problem = validateNoteDraft({ text: followUp.text, concepts: "" });
+      if (problem && !["source", "excerpt", "locators"].includes(problem.field)) problem = { ...problem, field: "follow-text" };
+    } else problem = validateNoteDraft(note);
+    if (problem) return fail(problem.message, problem.field);
+    busy = true;
+    root.querySelector("[data-capture-save]")?.setAttribute("disabled", "");
+    let saved = null;
+    try {
+      if (type === "passage") {
+        if (!editing) passage.id = suggestEntryId("passage", [...state.passages, ...state.notes].map((item) => item.id));
+        say("Saving…");
+        const result = await send(editing ? "PUT" : "POST", "research/passages", "passage", passageDraftPayload(passage));
+        saved = result;
+        let savedNote = null;
+        if (!editing && followUp.text.trim()) {
+          const draft = noteDraft();
+          draft.id = suggestEntryId("note", [...state.passages, ...state.notes].map((item) => item.id));
+          draft.kind = followUp.kind;
+          draft.text = followUp.text;
+          draft.passages = [result.passage.id];
+          draft.sources = [];
+          savedNote = (await send("POST", "research/notes", "note", noteDraftPayload(draft))).note;
+        }
+        busy = false;
+        onSaved?.({ type: "passage", passage: result.passage, note: savedNote });
+      } else {
+        if (!editing) note.id = suggestEntryId("note", [...state.passages, ...state.notes].map((item) => item.id));
+        say("Saving…");
+        const result = await send(editing ? "PUT" : "POST", "research/notes", "note", noteDraftPayload(note));
+        busy = false;
+        onSaved?.({ type: "note", note: result.note });
+      }
+    } catch (error) {
+      busy = false;
+      if (saved) {
+        // The passage is stored and only the follow-up note failed: carry on
+        // as a note about that passage so the author can retry without
+        // quoting the passage twice.
+        type = "note";
+        note = noteDraft();
+        note.kind = followUp.kind;
+        note.text = followUp.text;
+        note.passages = [saved.passage.id];
+        say("");
+        render();
+        fail(`The passage was saved, but the note was not. ${notebookErrorMessage(error)} Fix it and save again, or cancel to keep only the passage.`, notebookDiagnosticControl(error.data?.diagnostics?.[0]?.field));
+        onSaved?.({ type: "passage", passage: saved.passage, note: null, partial: true });
+        return;
+      }
+      if (error.status === 409 && error.data?.conflict) {
+        try {
+          await refresh();
+        } catch {
+          // The next save reports whatever is wrong.
+        }
+        conflict = { current: error.data.current ?? null };
+        say("Not saved: the notebook changed elsewhere.", "oba-error");
+        render();
+        onRefreshed?.();
+        (editing ? root.querySelector("[data-capture-conflict-use]") : root.querySelector("[data-capture-save]"))?.focus();
+        return;
+      }
+      say("Not saved. The stored notebook is unchanged.", "oba-error");
+      render();
+      const first = error.data?.diagnostics?.[0];
+      fail(notebookErrorMessage(error), first ? notebookDiagnosticControl(first.field) : "");
+    }
+  });
+
+  render();
+  return {
+    element: root,
+    isDirty: () => touched && !busy,
+    focus() {
+      (root.querySelector(type === "passage" && !passage.source ? `#${idPrefix}-source` : `#${idPrefix}-${type === "passage" ? "excerpt" : "text"}`) || root.querySelector("input,select,textarea,button"))?.focus();
+    },
+  };
+}
+
 export const SHARED_SOURCE_KINDS = Object.freeze([
   { value: "video", label: "Video", example: "e.g. How to Listen, a talk on YouTube" },
   { value: "article", label: "Article", example: "e.g. The Slow Read, an essay in a magazine" },
@@ -1009,6 +1989,72 @@ function rememberPromptsDismissed(dismissed) {
   } catch {
     // Remembering is a convenience only.
   }
+}
+
+// ---------------------------------------------------------------- shared reflection series
+
+/** The select value for "type a new series title". A series address can never contain brackets. */
+export const NEW_SERIES = "(new)";
+/** The select value for "not in a series". */
+export const NO_SERIES = "";
+const MAX_SERIES_ORDER = 4294967295;
+
+/** A placement as words: "Letters, part 2", or the title alone when no position is set. */
+export function seriesPlacementText(name, order) {
+  if (!name) return "Not part of a series.";
+  return order === null || order === undefined ? `${name} (no position: after any numbered parts, by date)` : `${name}, part ${order}`;
+}
+
+/** One part of a previewed reading order as words, never colour or position alone. */
+export function seriesPartText(part, index) {
+  const position = part?.order === null || part?.order === undefined ? "no position" : `position ${part.order}`;
+  if (part?.thisPublication) return `${index + 1}. This shared reflection (not published yet, ${position})`;
+  return `${index + 1}. ${part?.title || "Untitled part"} (${position})`;
+}
+
+/**
+ * The request body for the chosen series, or a message saying what to fix. An existing series is
+ * referred to by its address, which is what an ordinary post's `series` holds.
+ */
+export function seriesPlacementRequest(choice, title, order) {
+  const text = String(order ?? "").trim();
+  if (text && (!/^\d+$/.test(text) || Number(text) > MAX_SERIES_ORDER)) {
+    return { error: "Use a whole number of 0 or more for the position, or leave it empty.", field: "order" };
+  }
+  const position = text ? Number(text) : null;
+  if (choice === NO_SERIES) return { placement: null };
+  if (choice === NEW_SERIES) {
+    const name = String(title ?? "").trim();
+    if (!name) return { error: "Type the series title, or choose an existing series.", field: "title" };
+    return { placement: { series: name, order: position } };
+  }
+  return { placement: { series: choice, order: position } };
+}
+
+/**
+ * The placement to send, keeping the stored reference when nothing really changed. A stored
+ * placement may be a typed title (such as "Letters Home") that the select shows as the existing
+ * series it resolves to ("letters-home"). Sending that address back would look like a change to
+ * the server, which would bump the revision and make every approval stale, so when the chosen
+ * series is the one the stored reference resolves to (`storedSlug`, the server's slug for it) and
+ * the position is the same, the stored placement is sent exactly as it was.
+ */
+export function keepStoredSeries(placement, stored, storedSlug) {
+  if (!placement || !stored) return placement;
+  const slug = storedSlug || slugify(String(stored.series ?? ""));
+  const sameOrder = (placement.order ?? null) === (stored.order ?? null);
+  return placement.series === slug && sameOrder ? { series: stored.series, order: stored.order ?? null } : placement;
+}
+
+/** Sort a failed series request into what to tell the person. What they typed is never lost. */
+export function seriesFailure(error) {
+  const status = error?.status;
+  const text = error?.data?.error || error?.message || "";
+  if (!status) return { kind: "offline", message: "Could not reach the server. You may be offline. Your choice is still here and has not been saved." };
+  if (status === 409) return { kind: "conflict", message: text || "The series placement changed elsewhere. Your choice is still here; review the current placement and save again." };
+  if (status === 404 || status === 403) return { kind: "denied", message: "You cannot arrange this shared reflection's series, or your access changed. Your choice is still here; reload to check." };
+  if (status === 422) return { kind: "invalid", message: text || "That series choice could not be saved.", field: error?.data?.field || "" };
+  return { kind: "other", message: text || "That did not work. Your choice is still here; try again." };
 }
 
 export const REVEAL_POLICIES = Object.freeze([
@@ -1446,8 +2492,12 @@ export function evidenceReview(findings) {
   return accessibilityReview(findings);
 }
 
-export function evidenceStudioState(findings, research) {
-  if (!research) {
+export function evidenceStudioState(findings, research, citations = null, citationsOptedIn = false) {
+  // A post that opts in to citations (or has any citation finding) keeps the
+  // studio even when its citations could not be published, so a draft's broken
+  // citation is never discarded.
+  const citationFinding = Array.isArray(findings) && findings.some((finding) => String(finding?.code || "").startsWith("citation-"));
+  if (!research && !citations && !citationsOptedIn && !citationFinding) {
     return {
       active: false,
       status: "Evidence checks are not active for this content profile.",
@@ -1460,6 +2510,28 @@ export function evidenceStudioState(findings, research) {
     status: `${review.total} evidence finding${review.total === 1 ? "" : "s"}`,
     review,
   };
+}
+
+/**
+ * The status line after downloading a post's cited references: what was
+ * exported and, per source, the details the format cannot carry. Exports hold
+ * only the public description the post's notes show.
+ */
+export function citationExportStatus(exported) {
+  if (!exported || typeof exported.content !== "string") return "Preview the post again before exporting its references.";
+  const notes = sourceExportLossNotes(exported.losses);
+  const count = Number(exported.count) || 0;
+  return `Exported ${count} cited reference${count === 1 ? "" : "s"} as ${exported.filename}; nothing was looked up online.${notes.length ? ` This format cannot carry: ${notes.join("; ")}.` : ""}`;
+}
+
+/** The citation rows of Evidence Studio's metadata list, as [term, description] pairs. */
+export function citationEvidenceRows(citations) {
+  if (!citations) return [];
+  const count = (value, word) => `${value} ${word}${value === 1 ? "" : "s"}`;
+  return [
+    ["Citations", `${count(Number(citations.citations) || 0, "citation")} of ${count(Number(citations.references) || 0, "reference")}, published as ${citations.style === "bibliography" ? "a bibliography" : "notes"}`],
+    ["Citation checks", "Offline, from your source library; nothing is looked up online"],
+  ];
 }
 
 export function applyPaneSelection(root, buttons, pane) {
@@ -2019,6 +3091,7 @@ function visualProtectedLabel(lines, index) {
   // Protect any destination containing an inner opening parenthesis instead of
   // risking a partial parse and source rewrite.
   if (/!?\[[^\]\n]*\]\([^\s)\n]*\(/.test(text)) return "Advanced link";
+  if (visualCitationProblem(text)) return CITATION_TEXT_LABEL;
   if (visualEmbed(lines[index])) return "Embedded media";
   if (/^\s*\[\^[^\]]+\]:/.test(text) || /\[\^[^\]]+\]/.test(text)) return "Footnote";
   if (index + 1 < lines.length && text.includes("|") && visualTableDivider(lines[index + 1])) return "Table";
@@ -2043,6 +3116,7 @@ export function parseVisualMarkdown(markdown) {
   const lines = (normalized.match(/[^\n]*(?:\n|$)/g) || []).filter(Boolean);
   const blocks = [];
   let index = 0;
+  const citationProblemIn = (from, to) => lines.slice(from, to).some((line) => visualCitationProblem(visualLineText(line)));
   const take = (end, type, extra = {}) => {
     blocks.push({ type, source: lines.slice(index, end).join(""), ...extra });
     index = end;
@@ -2084,7 +3158,7 @@ export function parseVisualMarkdown(markdown) {
         while (end < lines.length && visualLineText(lines[end]).trim()) end += 1;
       } else if (label === "Task list" || label === "Complex list") {
         while (end < lines.length && visualLineText(lines[end]).trim()) end += 1;
-      } else if (label === "Advanced formatting" || label === "Footnote") {
+      } else if (label === "Advanced formatting" || label === "Footnote" || label === CITATION_TEXT_LABEL) {
         while (end < lines.length && visualLineText(lines[end]).trim()) end += 1;
       } else if (label === "Setext heading") {
         end = Math.min(index + 2, lines.length);
@@ -2103,18 +3177,22 @@ export function parseVisualMarkdown(markdown) {
     if (list) {
       let end = index + 1;
       while (end < lines.length && visualLineText(lines[end]).trim() && (visualList(lines[end]) || /^\s{2,}\S/.test(visualLineText(lines[end])))) end += 1;
-      take(end, list[2] ? "ordered-list" : "unordered-list");
+      if (citationProblemIn(index, end)) take(end, "protected", { label: CITATION_TEXT_LABEL });
+      else take(end, list[2] ? "ordered-list" : "unordered-list");
       continue;
     }
     if (visualQuote(lines[index])) {
       let end = index + 1;
       while (end < lines.length && visualQuote(lines[end])) end += 1;
-      take(end, "quote");
+      if (citationProblemIn(index, end)) take(end, "protected", { label: CITATION_TEXT_LABEL });
+      else take(end, "quote");
       continue;
     }
     let end = index + 1;
     while (end < lines.length && visualLineText(lines[end]).trim()) {
-      if (visualFence(lines[end]) || visualHeading(lines[end]) || visualList(lines[end]) || visualQuote(lines[end]) || visualProtectedLabel(lines, end)) break;
+      // Citation text the editor cannot show as chips protects its whole paragraph, so it does not end it.
+      const label = visualProtectedLabel(lines, end);
+      if (visualFence(lines[end]) || visualHeading(lines[end]) || visualList(lines[end]) || visualQuote(lines[end]) || (label && label !== CITATION_TEXT_LABEL)) break;
       end += 1;
     }
     const paragraphLabel = lines.slice(index, end).map((_, offset) => visualProtectedLabel(lines, index + offset)).find(Boolean);
@@ -2133,12 +3211,95 @@ function safeVisualUrl(value) {
   return "";
 }
 
+// Inline formatting the visual editor renders, apart from citations.
+const VISUAL_FORMATTING = /!?\[[^\]\n]*\]\([^\s)]+(?:\s+"[^"]*")?\)|\*\*[^*\n]+\*\*|__[^_\n]+__|`+[^`\n]+`+|\*[^*\n]+\*|_[^_\n]+_/g;
+const CITATION_TEXT_LABEL = "Citation text";
+const VISUAL_WORD = /[\p{L}\p{N}]/u;
+
+/** Citations on one line that the visual editor shows as chips (outside code spans), as [start, end] pairs. */
+function visualCitationRanges(line) {
+  const code = codeSpanRanges(line);
+  return [...line.matchAll(CITATION_TEXT)]
+    .map((match) => [match.index, match.index + match[0].length])
+    .filter(([start, end]) => !code.some(([from, to]) => start < to && end > from));
+}
+
+/**
+ * Formatting on a line, read with its chips masked out, so a `_` or `*`
+ * inside a citation is never taken for emphasis and a chip is never split.
+ */
+function visualFormattingTokens(line, chips) {
+  let masked = line;
+  for (const [start, end] of chips) masked = masked.slice(0, start) + "\u0001".repeat(end - start) + masked.slice(end);
+  return [...masked.matchAll(VISUAL_FORMATTING)].map((match) => [match.index, match.index + match[0].length]);
+}
+
+/** The marker width of an emphasis token that may hold a chip, or 0 when the renderer might not read it as emphasis. */
+function emphasisAroundCitation(line, start, end) {
+  const token = line.slice(start, end);
+  const marker = token[0];
+  if (marker !== "*" && marker !== "_") return 0;
+  const width = token.length > 4 && token.startsWith(marker + marker) && token.endsWith(marker + marker) ? 2 : 1;
+  const inner = token.slice(width, -width);
+  if (!inner || /^\s|\s$/.test(inner)) return 0;
+  // CommonMark never opens or closes `_` emphasis inside a word.
+  if (marker === "_" && (VISUAL_WORD.test(line[start - 1] || "") || VISUAL_WORD.test(line[end] || ""))) return 0;
+  return width;
+}
+
+/**
+ * Whether a line holds `[@` text the visual editor cannot show as chips the
+ * way the core scanner reads it: an escaped backslash before it, a link or
+ * `(...)` straight after it, a malformed bracket, a citation in link text, or
+ * formatting the editor might split differently. Such a block is preserved
+ * verbatim, so no visual edit can turn a citation into text or back.
+ */
+export function visualCitationProblem(line) {
+  const text = String(line ?? "");
+  if (!text.includes("[@")) return false;
+  const code = codeSpanRanges(text);
+  const chips = visualCitationRanges(text);
+  for (let at = text.indexOf("[@"); at >= 0; at = text.indexOf("[@", at + 1)) {
+    if (code.some(([from, to]) => at >= from && at < to)) continue;
+    const slashes = backslashesBefore(text, at);
+    if (slashes % 2 === 1) continue; // `\[@` is text in both editors
+    if (slashes || !chips.some(([start]) => start === at)) return true;
+  }
+  for (const [start, end] of visualFormattingTokens(text, chips)) {
+    const inside = chips.filter(([from, to]) => from < end && to > start);
+    if (!inside.length) continue;
+    if (!inside.every(([from, to]) => from >= start && to <= end)) return true;
+    const width = emphasisAroundCitation(text, start, end);
+    if (!width || visualCitationProblem(text.slice(start + width, end - width))) return true;
+  }
+  return false;
+}
+
 function appendVisualInline(parent, markdown) {
-  const pattern = /(!?\[[^\]\n]*\]\([^\s)]+(?:\s+"[^"]*")?\)|\*\*[^*\n]+\*\*|__[^_\n]+__|`+[^`\n]+`+|\*[^*\n]+\*|_[^_\n]+_)/g;
+  const chips = visualCitationRanges(markdown);
+  const formatting = visualFormattingTokens(markdown, chips);
+  const tokens = [
+    ...formatting.map(([start, end]) => ({ start, end, chip: false })),
+    ...chips.filter(([start, end]) => !formatting.some(([from, to]) => start >= from && end <= to)).map(([start, end]) => ({ start, end, chip: true })),
+  ].sort((a, b) => a.start - b.start);
+  const plain = (text) => document.createTextNode(text.replace(/\\([\\*_`\[\]])/g, "$1"));
   let offset = 0;
-  for (const match of markdown.matchAll(pattern)) {
-    if (match.index > offset) parent.append(document.createTextNode(markdown.slice(offset, match.index).replace(/\\([\\*_`\[\]])/g, "$1")));
-    const token = match[0];
+  let afterChip = false;
+  for (const { start, end, chip } of tokens) {
+    if (start < offset) continue;
+    if (start > offset) {
+      // A `(` escaped after a chip only keeps the citation from reading as a link.
+      const between = markdown.slice(offset, start);
+      parent.append(plain(afterChip && between.startsWith("\\(") ? between.slice(1) : between));
+    }
+    const token = markdown.slice(start, end);
+    offset = end;
+    afterChip = chip;
+    if (chip) {
+      // A citation, generated or hand-written, is one atomic chip that keeps its exact Markdown.
+      parent.append(citationChip(token));
+      continue;
+    }
     const linked = /^(!?)\[([^\]]*)\]\(([^\s)]+)(?:\s+"([^"]*)")?\)$/.exec(token);
     if (linked) {
       const url = safeVisualUrl(linked[3]);
@@ -2157,13 +3318,15 @@ function appendVisualInline(parent, markdown) {
       const emphasis = h("em");
       appendVisualInline(emphasis, token.slice(1, -1));
       parent.append(emphasis);
-    } else {
+    } else if (token.startsWith("`")) {
       const ticks = /^`+/.exec(token)?.[0].length || 1;
       parent.append(h("code", {}, token.slice(ticks, -ticks)));
-    }
-    offset = match.index + token.length;
+    } else parent.append(plain(token));
   }
-  if (offset < markdown.length) parent.append(document.createTextNode(markdown.slice(offset).replace(/\\([\\*_`\[\]])/g, "$1")));
+  if (offset < markdown.length) {
+    const rest = markdown.slice(offset);
+    parent.append(plain(afterChip && rest.startsWith("\\(") ? rest.slice(1) : rest));
+  }
 }
 
 function appendVisualLines(parent, markdown) {
@@ -2178,11 +3341,33 @@ function markdownText(value) {
   return String(value || "").replace(/([\\*_`\[\]])/g, "\\$1");
 }
 
+/**
+ * The Markdown for an element's children. A `(` straight after a citation
+ * chip is escaped, so typing `(see ...)` after a citation never turns it
+ * into a link.
+ */
+function visualChildrenMarkdown(node) {
+  let out = "";
+  let afterChip = false;
+  for (const child of node.childNodes) {
+    const text = visualInlineMarkdown(child);
+    out += afterChip && text.startsWith("(") ? `\\${text}` : text;
+    afterChip = Boolean(child.classList?.contains("oba-citation")) && CITATION_WHOLE.test(text);
+  }
+  return out;
+}
+
 function visualInlineMarkdown(node) {
   if (node.nodeType === Node.TEXT_NODE) return markdownText(node.nodeValue);
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  if (node.classList?.contains("oba-citation")) {
+    // Only well-formed citation text is written back verbatim; anything else
+    // (a pasted look-alike, say) is ordinary escaped text.
+    const citation = node.dataset?.citation;
+    return typeof citation === "string" && CITATION_WHOLE.test(citation) ? citation : markdownText(node.textContent);
+  }
   const tag = node.tagName.toLowerCase();
-  const content = [...node.childNodes].map(visualInlineMarkdown).join("");
+  const content = visualChildrenMarkdown(node);
   if (tag === "strong" || tag === "b") return `**${content}**`;
   if (tag === "em" || tag === "i") return `_${content}_`;
   if (tag === "code") {
@@ -2438,7 +3623,7 @@ export class ObAdmin extends AdminElement {
   shownShellModules() {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
-    if (this.activeRoute === "sources") visible.add("evidence");
+    if (["sources", "research"].includes(this.activeRoute)) visible.add("evidence");
     return visible;
   }
 
@@ -2580,6 +3765,8 @@ export class ObAdmin extends AdminElement {
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
       : active === "sources"
         ? { title: "Sources", detail: "Keep private research sources, editions, translations, and references in one library." }
+      : active === "research"
+        ? { title: "Research notebook", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "shared"
@@ -2612,7 +3799,7 @@ export class ObAdmin extends AdminElement {
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"))),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
@@ -2794,6 +3981,7 @@ export class ObAdmin extends AdminElement {
       { label: "Series", category: "Content", run: () => go("#/series") },
       { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
       { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go("#/sources") },
+      { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go("#/research") },
       { label: "Contributors", category: "Site", keywords: "authors credits orcid identity", run: () => go("#/contributors") },
       { label: "View site", category: "Site", keywords: "public blog", run: () => open("/", "_blank", "noopener") },
       { label: "Advanced tools", category: "Workspace", keywords: "more optional hidden ai assistant research distribution", run: () => this.openAdvancedTools() },
@@ -2952,6 +4140,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
       else if (head === "contributors") await this.showContributors();
       else if (head === "sources") await this.showSources();
+      else if (head === "research") await this.showResearch();
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
       else if (head === "shared") await this.showSharedReflections();
@@ -3813,6 +5002,490 @@ export class ObAdmin extends AdminElement {
     );
   }
 
+  // ---- research notebook
+
+  async showResearch() {
+    let loaded;
+    try {
+      loaded = await this.api.call("GET", "research/notebook");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      // A damaged notebook (or library) is reported, never replaced: show where to repair it.
+      this.mount(
+        this.shell(
+          "research",
+          h("p", { class: "oba-error", role: "alert" }, `The research notebook could not be read. ${notebookErrorMessage(error)}`),
+          error.data?.file ? h("p", { class: "oba-small" }, `Repair ${error.data.file} by hand, then reload this view. Nothing was changed.`) : null,
+        ),
+      );
+      return;
+    }
+    const state = { revision: loaded.revision, sources: loaded.sources, passages: loaded.passages, notes: loaded.notes };
+    const mountedView = this.viewVersion + 1;
+    let selected = null; // null, "new", or { type, id }
+    let form = null;
+    let busy = false;
+    const filters = { query: "", source: "", locator: "", concept: "", state: "", archived: false };
+    let results = null; // the last server search, while any filter is set
+    let searchProblem = "";
+    let searchSequence = 0;
+    let panelSequence = 0;
+
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const say = (text, kind = "oba-small") => {
+      status.className = kind;
+      status.textContent = text;
+    };
+    const search = h("input", { id: "oba-research-search", type: "search", autocomplete: "off", "aria-controls": "oba-research-lists", placeholder: "Quoted text, note, source, or ID" });
+    const count = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const filterSelect = (id, label, name, options) =>
+      h("div", { class: "oba-field" }, h("label", { for: id }, label), h("select", { id, "data-research-filter": name, onChange: (event) => { filters[name] = event.target.value; runSearch(); } }, options.map(([value, text]) => h("option", { value, selected: filters[name] === value }, text))));
+    const locatorKinds = [...new Set(["page", "folio", "line", "section", "chapter", "canonical", "timestamp", ...state.passages.flatMap((passage) => (passage.locators || []).map((locator) => locator.kind))])];
+    const sourceFilter = filterSelect("oba-research-source-filter", "Source", "source", [["", "Any source"], ...[...state.sources].sort((a, b) => sourceLabel(a).localeCompare(sourceLabel(b))).map((source) => [source.id, `${sourceLabel(source)}${source.archived ? " (archived)" : ""}`])]);
+    const locatorFilter = filterSelect("oba-research-locator-filter", "Locator kind", "locator", [["", "Any locator"], ...locatorKinds.map((kind) => [kind, kind])]);
+    const stateFilter = filterSelect("oba-research-state-filter", "Questions", "state", [["", "All entries"], ["open", "Open questions"], ["resolved", "Resolved questions"]]);
+    const concept = h("input", { id: "oba-research-concept-filter", type: "text", autocomplete: "off", spellcheck: "false", "aria-controls": "oba-research-lists", placeholder: "such as allegory" });
+    const resultsNav = h("nav", { "aria-label": "Notebook" });
+    const passageList = h("ul", { class: "oba-source-list", id: "oba-research-passages" });
+    const noteList = h("ul", { class: "oba-source-list", id: "oba-research-notes" });
+    const panel = h("section", { class: "oba-source-editor", "aria-labelledby": "oba-research-heading" });
+    const newButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => open("new") }, "Capture");
+    const sourceById = (id) => state.sources.find((source) => source.id === id);
+    const sourceName = (id) => (sourceById(id) ? sourceLabel(sourceById(id)) : id);
+
+    const confirmDiscard = () => !form?.isDirty() || globalThis.confirm?.("Discard the unsaved research entry?") !== false;
+    const runSearch = async () => {
+      const sequence = ++searchSequence;
+      if (!searchIsActive(filters)) {
+        results = null;
+        searchProblem = "";
+        renderLists();
+        return;
+      }
+      try {
+        const found = await this.api.call("POST", "research/search", { json: notebookSearchBody(filters) });
+        if (sequence !== searchSequence || this.viewVersion !== mountedView) return;
+        results = found;
+        searchProblem = "";
+      } catch (error) {
+        if (sequence !== searchSequence || this.viewVersion !== mountedView) return;
+        results = null;
+        searchProblem = `${notebookErrorMessage(error)} The notebook is unchanged.`;
+      }
+      renderLists();
+    };
+    const refreshSearch = () => {
+      if (searchIsActive(filters)) runSearch();
+      else renderLists();
+    };
+
+    const renderLists = () => {
+      const live = (entry) => !entry.archived;
+      const open_ = state.notes.filter((note) => live(note) && note.kind === "question" && note.status !== "resolved").length;
+      const archivedCount = state.passages.filter((entry) => !live(entry)).length + state.notes.filter((entry) => !live(entry)).length;
+      const livePassages = state.passages.filter(live).length;
+      const liveNotes = state.notes.filter(live).length;
+      const summary = `${livePassages} passage${livePassages === 1 ? "" : "s"}, ${liveNotes} note${liveNotes === 1 ? "" : "s"}, ${open_} open question${open_ === 1 ? "" : "s"}${archivedCount ? `, ${archivedCount} archived${filters.archived ? " (shown)" : ""}` : ""}.`;
+      if (searchIsActive(filters)) {
+        const hits = results?.hits || [];
+        const row = (hit) =>
+          h(
+            "li",
+            {},
+            h(
+              "button",
+              { class: "oba-source-item", type: "button", "data-entry-id": hit.id, "data-entry-type": hit.entry, "data-search-hit": "true", "aria-current": selected?.id === hit.id ? "true" : null, onClick: () => open({ type: hit.entry, id: hit.id }) },
+              h("strong", {}, hit.snippet),
+              h("span", { class: "oba-small" }, `${hitContext(hit)}${hit.archived ? " · archived" : ""}`),
+              hit.matched?.length && filters.query.trim() ? h("span", { class: "oba-small" }, `Matched in ${hit.matched.join(", ")}`) : null,
+              (hit.passages || []).map((passage) => h("span", { class: "oba-small" }, passage.missing ? `About a missing passage (${passage.id})` : `About: ${entryPreview({ text: passage.preview }, 70)}`)),
+              hit.notes?.length ? h("span", { class: "oba-small" }, `${hit.notes.length} linked note${hit.notes.length === 1 ? "" : "s"}`) : null,
+            ),
+          );
+        const broken = results?.broken?.length ? h("p", { class: "oba-notice", role: "alert" }, `${results.broken.length} link${results.broken.length === 1 ? "" : "s"} in the notebook point to missing entries or sources. Repair the notebook file by hand.`) : null;
+        resultsNav.replaceChildren(
+          h("h2", { class: "oba-small-heading", id: "oba-research-results-heading" }, "Results"),
+          searchProblem ? h("p", { class: "oba-error", role: "alert" }, searchProblem) : null,
+          broken,
+          h("ul", { class: "oba-source-list", id: "oba-research-results", "aria-labelledby": "oba-research-results-heading" }, hits.length ? hits.map(row) : results ? h("li", { class: "oba-notice" }, "No entries match these filters.") : null),
+        );
+        count.textContent = results ? `${results.total} match${results.total === 1 ? "" : "es"}${results.truncated ? `, showing the first ${hits.length}` : ""}. ${summary}` : "";
+        return;
+      }
+      const passages = state.passages.filter((entry) => filters.archived || live(entry));
+      const notes = state.notes.filter((entry) => filters.archived || live(entry));
+      const row = (type, entry) =>
+        h(
+          "li",
+          {},
+          h(
+            "button",
+            { class: "oba-source-item", type: "button", "data-entry-id": entry.id, "data-entry-type": type, "aria-current": selected?.id === entry.id ? "true" : null, "aria-label": `${entry.archived ? "Archived " : ""}${type === "passage" ? "Passage" : entry.kind === "question" ? (entry.status === "resolved" ? "Resolved question" : "Open question") : "Observation"}: ${entryPreview(entry, 60)}`, onClick: () => open({ type, id: entry.id }) },
+            h("strong", {}, entryPreview(entry)),
+            h("span", { class: "oba-small" }, `${type === "passage" ? `${sourceName(entry.source)}${entry.locators?.length ? ` · ${formatLocatorLines(entry.locators).split("\n")[0]}` : ""}` : `${entry.kind === "question" ? (entry.status === "resolved" ? "resolved question" : "open question") : entry.kind}${entry.passages?.length ? ` · ${entry.passages.length} passage${entry.passages.length === 1 ? "" : "s"}` : ""}`}${entry.archived ? " · archived" : ""}`),
+          ),
+        );
+      passageList.replaceChildren(...passages.map((entry) => row("passage", entry)));
+      noteList.replaceChildren(...notes.map((entry) => row("note", entry)));
+      if (!passages.length) passageList.replaceChildren(h("li", { class: "oba-notice" }, "No passages yet."));
+      if (!notes.length) noteList.replaceChildren(h("li", { class: "oba-notice" }, "No notes yet."));
+      resultsNav.replaceChildren(h("h2", { class: "oba-small-heading" }, "Passages"), passageList, h("h2", { class: "oba-small-heading" }, "Notes"), noteList);
+      count.textContent = summary;
+    };
+
+    const entryOf = (target) => (target.type === "passage" ? state.passages : state.notes).find((entry) => entry.id === target.id) || null;
+
+    const renderPanel = (moveFocus = false) => {
+      form = null;
+      if (!selected) {
+        panel.replaceChildren(
+          h("h2", { id: "oba-research-heading", tabindex: "-1" }, "Capture"),
+          h("p", { class: "oba-notice" }, state.passages.length || state.notes.length ? "Choose a passage or note to edit it, or capture a new one." : "Capture your first passage or note."),
+        );
+        return;
+      }
+      const entry = selected === "new" ? null : entryOf(selected);
+      if (selected !== "new" && !entry) {
+        selected = null;
+        renderPanel();
+        return;
+      }
+      form = createCaptureForm({
+        api: this.api,
+        state,
+        entry,
+        entryType: selected === "new" ? "passage" : selected.type,
+        idPrefix: "oba-research",
+        onRefreshed: () => {
+          if (this.viewVersion === mountedView) refreshSearch();
+        },
+        onSaved: (result) => {
+          if (this.viewVersion !== mountedView) return;
+          const target = result.note && !result.partial && result.type === "note" ? { type: "note", id: result.note.id } : result.passage ? { type: "passage", id: result.passage.id } : selected;
+          if (result.partial) {
+            refreshSearch();
+            return;
+          }
+          selected = target;
+          refreshSearch();
+          renderPanel(true);
+          say("Saved to the private notebook.", "oba-ok");
+        },
+        onCancel: () => close(),
+      });
+      const linked = entry && selected.type === "passage" ? state.notes.filter((note) => (note.passages || []).includes(entry.id)) : [];
+      const backlinks = entry ? h("div", { class: "oba-research-backlinks", "data-research-backlinks": "true" }) : null;
+      panel.replaceChildren(
+        h("h2", { id: "oba-research-heading", tabindex: "-1" }, entry ? (selected.type === "passage" ? "Passage" : entry.kind === "question" ? "Question" : "Observation") : "Capture"),
+        entry ? h("p", { class: "oba-small" }, `ID ${entry.id}. Private; never published.`) : null,
+        form.element,
+        linked.length ? h("p", { class: "oba-small" }, `${linked.length} note${linked.length === 1 ? "" : "s"} link${linked.length === 1 ? "s" : ""} to this passage, so it cannot be removed until they are.`) : null,
+        backlinks,
+        entry
+          ? h(
+              "div",
+              { class: "oba-toolbar" },
+              h("button", { class: "oba-btn", type: "button", "data-entry-archive": "true", onClick: () => setArchived(!entry.archived) }, entry.archived ? "Restore from archive" : "Archive"),
+              h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-entry-remove": "true", onClick: () => remove() }, selected.type === "passage" ? "Remove passage" : "Remove note"),
+            )
+          : null,
+        entry?.archived ? h("p", { class: "oba-small" }, "Archived: set aside but kept. It stays in the file and in exports, and is hidden from lists and search unless you show archived entries.") : null,
+      );
+      if (moveFocus) panel.querySelector("#oba-research-heading")?.focus();
+      if (backlinks) loadBacklinks(entry, backlinks);
+    };
+
+    /** What points at this entry's passage, source, or concepts, read fresh from the stored notebook. */
+    const loadBacklinks = async (entry, box) => {
+      const sequence = ++panelSequence;
+      const isPassage = selected.type === "passage";
+      const asks = isPassage
+        ? [["passage", entry.id, "Notes about this passage"], ["source", entry.source, `Other research on ${sourceName(entry.source)}`]]
+        : (entry.concepts || []).slice(0, 5).map((concept) => ["concept", concept, `Notes tagged ${concept}`]);
+      const sections = [];
+      for (const [type, id, heading] of asks) {
+        try {
+          const found = await this.api.call("POST", "research/backlinks", { json: { type, id } });
+          if (sequence !== panelSequence || this.viewVersion !== mountedView) return;
+          const others = (found.entries || []).filter((item) => item.id !== entry.id);
+          const headingId = `oba-research-backlinks-${type}-${sections.length}`;
+          sections.push(
+            h(
+              "section",
+              { "aria-labelledby": headingId },
+              h("h3", { class: "oba-small-heading", id: headingId }, heading),
+              others.length
+                ? h(
+                    "ul",
+                    { class: "oba-source-list" },
+                    others.map((item) =>
+                      h(
+                        "li",
+                        {},
+                        h(
+                          "button",
+                          { class: "oba-source-item", type: "button", "data-backlink-id": item.id, onClick: () => open({ type: item.entry, id: item.id }) },
+                          h("strong", {}, item.preview),
+                          h("span", { class: "oba-small" }, `${item.entry === "passage" ? "Passage" : item.kind === "question" ? (item.state === "resolved" ? "Resolved question" : "Open question") : "Observation"}${item.through ? ` · through ${sourceName(item.through)}` : ""}`),
+                        ),
+                      ),
+                    ),
+                  )
+                : h("p", { class: "oba-small" }, "Nothing else yet."),
+            ),
+          );
+        } catch {
+          if (sequence !== panelSequence || this.viewVersion !== mountedView) return;
+          sections.push(h("p", { class: "oba-small" }, `${heading} could not be listed.`));
+        }
+      }
+      box.replaceChildren(...sections);
+    };
+
+    const open = async (target) => {
+      if (!confirmDiscard()) return;
+      if (target !== "new" && !entryOf(target)) {
+        // A hit or backlink from the server may be newer than this view: refresh once and retry.
+        // The refreshed copy is committed only when the panel is re-rendered from it. An open form
+        // was built from the old copy, so keeping the old revision makes its save conflict (409)
+        // instead of silently overwriting a concurrent edit.
+        let latest = null;
+        try {
+          latest = await this.api.call("GET", "research/notebook");
+        } catch {
+          latest = null;
+        }
+        if (this.viewVersion !== mountedView) return;
+        const found = latest && (target.type === "passage" ? latest.passages : latest.notes)?.some((entry) => entry.id === target.id);
+        if (!found) {
+          // Leave the lists, the open form and its revision as they are.
+          say(`That ${target.type} (${target.id}) is no longer in the notebook. The list may be out of date.`, "oba-error");
+          return;
+        }
+        Object.assign(state, { revision: latest.revision, sources: latest.sources, passages: latest.passages, notes: latest.notes });
+      }
+      selected = target;
+      say("");
+      renderLists();
+      renderPanel(true);
+    };
+    const close = () => {
+      if (!confirmDiscard()) return;
+      selected = null;
+      renderLists();
+      renderPanel();
+      newButton.focus();
+    };
+
+    /** Set the selected entry aside, or bring it back. Nothing is deleted. */
+    const setArchived = async (archived) => {
+      if (busy || !selected || selected === "new") return;
+      if (!confirmDiscard()) return;
+      busy = true;
+      try {
+        const result = await this.api.call("POST", "research/archive", { json: { revision: state.revision, type: selected.type, id: selected.id, archived } });
+        if (this.viewVersion !== mountedView) return;
+        Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
+        refreshSearch();
+        renderPanel(true);
+        say(archived ? (filters.archived ? "Archived. It stays in the notebook and in exports." : "Archived. It stays in the notebook and in exports; tick Show archived to see it in lists.") : "Restored from the archive.", "oba-ok");
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(error.status === 409 ? "Not changed: the notebook changed elsewhere. Reload this view and try again." : `${notebookErrorMessage(error)} The stored notebook is unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    const remove = async () => {
+      if (busy || !selected || selected === "new") return;
+      if (globalThis.confirm?.(`Remove this ${selected.type}? It is deleted from the private notebook.`) === false) return;
+      busy = true;
+      try {
+        const result = await this.api.call("DELETE", selected.type === "passage" ? "research/passages" : "research/notes", { json: { revision: state.revision, id: selected.id } });
+        if (this.viewVersion !== mountedView) return;
+        Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
+        selected = null;
+        refreshSearch();
+        renderPanel();
+        say("Removed from the private notebook.", "oba-ok");
+        newButton.focus();
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(error.status === 409 ? "Not removed: the notebook changed elsewhere. Reload this view and try again." : `${notebookErrorMessage(error)} The stored notebook is unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    let typing = null;
+    const typed = () => {
+      // Search as the author pauses, so each keystroke is not a request.
+      clearTimeout(typing);
+      typing = setTimeout(runSearch, 150);
+    };
+    search.addEventListener("input", () => {
+      filters.query = search.value;
+      typed();
+    });
+    concept.addEventListener("input", () => {
+      filters.concept = concept.value.trim().toLowerCase();
+      typed();
+    });
+    const archivedToggle = h("input", { id: "oba-research-archived", type: "checkbox", onChange: (event) => { filters.archived = event.target.checked; refreshSearch(); } });
+
+    // ---- export and import (a private, versioned bundle)
+    const bundleStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const bundleResult = h("div", { class: "oba-source-import-result", id: "oba-research-import-result", tabindex: "-1" });
+    const bundleFile = h("input", { id: "oba-research-import-file", type: "file", accept: ".json,application/json" });
+    const bundlePreview = h("button", { class: "oba-btn", type: "button", "data-research-import-preview": "true", disabled: true }, "Preview import");
+    const bundleApply = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-research-import-apply": "true", hidden: true }, "Apply import");
+    let bundle = null; // the raw file text, held only until it is applied or replaced
+    let previewed = false;
+    const showBundlePlan = (plan, headline) => {
+      const rows = notebookImportRows(plan);
+      bundleResult.replaceChildren(
+        h("p", {}, headline || `Preview: ${notebookImportSummary(plan)}. Nothing has been saved.`),
+        rows.length ? h("ul", { class: "oba-source-import-list" }, rows.map((row) => h("li", { "data-import-action": row.action }, h("strong", {}, `${row.label}: ${row.name}`), row.message ? h("span", { class: "oba-small" }, ` ${row.message}`) : null))) : null,
+      );
+    };
+    const importFailure = (error) => {
+      previewed = false;
+      bundleApply.hidden = true;
+      bundleStatus.className = "oba-error";
+      if (error?.data?.plan) showBundlePlan(error.data.plan, "The import was not applied. Nothing was saved.");
+      else bundleResult.replaceChildren();
+      bundleStatus.textContent = error?.status === 409 ? "The notebook changed since it was read. Reload this view and preview again." : `${notebookErrorMessage(error)} The notebook is unchanged.`;
+    };
+    const runBundleImport = async (apply) => {
+      if (!bundle || busy) return;
+      busy = true;
+      bundlePreview.disabled = bundleApply.disabled = true;
+      try {
+        const result = await this.api.call("POST", "research/import", { json: { revision: state.revision, content: bundle, apply } });
+        if (this.viewVersion !== mountedView) return;
+        bundleStatus.className = "oba-small";
+        if (apply && result.applied) {
+          Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
+          bundle = null;
+          previewed = false;
+          bundleApply.hidden = true;
+          renderLists();
+          refreshSearch();
+          showBundlePlan(result.plan, `Imported: ${notebookImportSummary(result.plan)}.`);
+          bundleStatus.textContent = "Import saved.";
+        } else {
+          state.revision = result.revision;
+          const changes = result.plan.counts.create > 0;
+          previewed = result.applicable && changes;
+          bundleApply.hidden = !previewed;
+          showBundlePlan(result.plan);
+          bundleStatus.textContent = !result.applicable ? "Resolve the conflicts before importing; nothing was saved." : changes ? "Review the preview, then apply the import." : "Everything is already in the notebook.";
+        }
+        bundleResult.focus();
+      } catch (error) {
+        if (this.viewVersion === mountedView) importFailure(error);
+      } finally {
+        busy = false;
+        bundlePreview.disabled = !bundle;
+        bundleApply.disabled = false;
+      }
+    };
+    bundlePreview.addEventListener("click", () => runBundleImport(false));
+    bundleApply.addEventListener("click", () => {
+      if (!previewed) {
+        bundleApply.hidden = true;
+        bundleStatus.textContent = "Preview the file again before applying it.";
+        return;
+      }
+      runBundleImport(true);
+    });
+    bundleFile.addEventListener("change", async () => {
+      const file = bundleFile.files?.[0];
+      bundle = null;
+      previewed = false;
+      bundleApply.hidden = true;
+      bundlePreview.disabled = true;
+      bundleResult.replaceChildren();
+      if (!file) return;
+      try {
+        // Keep the text as read: the server parses it, so large integers in unknown fields are not rounded.
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+        bundle = text;
+        bundlePreview.disabled = false;
+        bundleStatus.className = "oba-small";
+        bundleStatus.textContent = `Loaded ${file.name}. Preview it before importing.`;
+      } catch {
+        bundleStatus.className = "oba-error";
+        bundleStatus.textContent = "That file is not a research bundle (it is not JSON).";
+      }
+    });
+    const exportBundle = async () => {
+      const ok = globalThis.confirm?.("This file will contain all of your private passages and notes, including archived ones. Keep it somewhere private; never place it in content, static or themes. Export it?") !== false;
+      if (!ok) return;
+      try {
+        const result = await this.api.call("POST", "research/export", { json: { includePrivate: true } });
+        const url = URL.createObjectURL(new Blob([result.content], { type: `${result.mediaType};charset=utf-8` }));
+        try {
+          const link = h("a", { href: url, download: result.filename });
+          document.body.append(link);
+          link.click();
+          link.remove();
+        } finally {
+          setTimeout(() => URL.revokeObjectURL(url), 0);
+        }
+        bundleStatus.className = "oba-small";
+        bundleStatus.textContent = `Exported ${result.passages} passage${result.passages === 1 ? "" : "s"} and ${result.notes} note${result.notes === 1 ? "" : "s"} as ${result.filename}. It is private research: keep it out of your public folders.`;
+      } catch (error) {
+        bundleStatus.className = "oba-error";
+        bundleStatus.textContent = notebookErrorMessage(error);
+      }
+    };
+    const exportButton = h("button", { class: "oba-btn", type: "button", "data-research-export": "true", onClick: exportBundle }, "Export notebook");
+    const interchange = h(
+      "details",
+      { class: "oba-source-interchange", "data-research-interchange": "true" },
+      h("summary", {}, "Export and import"),
+      h("p", { class: "oba-small" }, "Export saves a versioned file with all of your private passages and notes, only when you ask. Import previews first, adds entries the notebook does not have, and never overwrites or removes anything. Neither ever publishes research."),
+      h("div", { class: "oba-toolbar" }, exportButton),
+      h("div", { class: "oba-field" }, h("label", { for: "oba-research-import-file" }, "Research export file"), bundleFile),
+      h("div", { class: "oba-toolbar" }, bundlePreview, bundleApply),
+      bundleResult,
+      bundleStatus,
+    );
+
+    renderLists();
+    renderPanel();
+    this.mount(
+      this.shell(
+        "research",
+        h("section", { class: "oba-contributor-intro" }, h("p", {}, "Keep quoted passages, with where they sit in a source, apart from your own notes about them."), h("p", { class: "oba-small" }, `Private author research stored in ${loaded.file}. It never reaches the public site, and saving here changes only that file.`)),
+        h(
+          "div",
+          { class: "oba-toolbar oba-source-filters", role: "search", "aria-label": "Search the notebook" },
+          h("div", { class: "oba-field" }, h("label", { for: "oba-research-search" }, "Search the notebook"), search),
+          sourceFilter,
+          locatorFilter,
+          h("div", { class: "oba-field" }, h("label", { for: "oba-research-concept-filter" }, "Concept"), concept),
+          stateFilter,
+          h("div", { class: "oba-capture-check" }, archivedToggle, h("label", { for: "oba-research-archived" }, "Show archived")),
+          newButton,
+        ),
+        count,
+        status,
+        interchange,
+        h(
+          "div",
+          { class: "oba-source-layout", id: "oba-research-lists" },
+          resultsNav,
+          panel,
+        ),
+      ),
+    );
+  }
+
   // ---- shared reflections
 
   async showSharedReflections(notice = "") {
@@ -3844,6 +5517,7 @@ export class ObAdmin extends AdminElement {
           }),
         ),
         this.draftPanel(publication, index),
+        this.seriesPanel(publication, index),
         this.invitationPanel(publication, index),
       );
     });
@@ -4377,6 +6051,243 @@ export class ObAdmin extends AdminElement {
         const registry = await this.api.call("GET", "contributors");
         profile.replaceChildren(...Object.entries(registry.contributors || {}).map(([key, value]) => h("option", { value: key }, value.name || key)));
         await load();
+      } catch (error) {
+        loaded = false;
+        fail(error);
+      }
+    });
+    return details;
+  }
+
+  // ---- shared reflection series
+
+  /**
+   * Where this reflection sits in one of the site's ordinary series. Every participant sees the
+   * placement and the reading order it gives; site owners and coordinators choose it; site
+   * owners may also add a new series with its recurring premise. The series list and the order
+   * come from the public site only. Loads only when opened.
+   */
+  seriesPanel(publication, index) {
+    const id = publication.publicationId;
+    const prefix = `oba-series-${index}`;
+    const heading = h("h3", { id: `${prefix}-heading`, tabindex: "-1" }, "Series");
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const problem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const current = h("p", { id: `${prefix}-current` });
+    const about = h("p", { class: "oba-small", hidden: true });
+    const orderHeading = h("h4", { id: `${prefix}-order-heading` }, "Reading order");
+    const orderList = h("ol", { class: "oba-series-order", "aria-labelledby": `${prefix}-order-heading` });
+    const orderBox = h("div", { class: "oba-series-preview", hidden: true }, orderHeading, about, orderList);
+
+    const choice = h("select", { id: `${prefix}-choice` });
+    const title = h("input", { id: `${prefix}-title`, type: "text", maxlength: "120", autocomplete: "off", "aria-describedby": `${prefix}-title-help` });
+    const titleField = h("div", { class: "oba-field", hidden: true }, h("label", { for: title.id }, "New series title"), title, h("small", { class: "oba-small", id: `${prefix}-title-help` }, "A series that has no description yet uses this title. A site owner can describe it below or under Series."));
+    const order = h("input", { id: `${prefix}-order`, type: "number", min: "0", step: "1", inputmode: "numeric", "aria-describedby": `${prefix}-order-help` });
+    const previewButton = h("button", { class: "oba-btn", type: "button" }, "Preview order");
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit" }, "Save placement");
+    const form = h(
+      "form",
+      { class: "oba-series-form", novalidate: true, hidden: true, "aria-labelledby": `${prefix}-form-heading` },
+      h("h4", { id: `${prefix}-form-heading` }, "Choose the series"),
+      h("p", { class: "oba-small", id: `${prefix}-consent` }, "Every author approves the series and position together with the piece, and sees them in the combined preview. Saving a change means each author approves again."),
+      h("div", { class: "oba-field" }, h("label", { for: choice.id }, "Series"), choice),
+      titleField,
+      h("div", { class: "oba-field" }, h("label", { for: order.id }, "Position in the series (optional)"), order, h("small", { class: "oba-small", id: `${prefix}-order-help` }, "Parts with a position come first, lowest first; parts with the same position go by date. Leave it empty to follow any numbered parts, by date.")),
+      h("div", { class: "oba-toolbar" }, previewButton, save),
+    );
+    save.setAttribute("aria-describedby", `${prefix}-consent`);
+
+    const newTitle = h("input", { id: `${prefix}-new-title`, type: "text", maxlength: "120", autocomplete: "off" });
+    const premise = h("input", { id: `${prefix}-premise`, type: "text", maxlength: "500", autocomplete: "off", "aria-describedby": `${prefix}-premise-help` });
+    const create = h("button", { class: "oba-btn", type: "submit" }, "Create series");
+    const createForm = h(
+      "form",
+      { class: "oba-series-form", novalidate: true, "aria-labelledby": `${prefix}-create-heading` },
+      h("h5", { id: `${prefix}-create-heading` }, "Add a new series"),
+      h("p", { class: "oba-small" }, "Series belong to the site. This adds a series with a name and its recurring premise; it is not shown to readers until a part is published, and it does not place this reflection in it."),
+      h("div", { class: "oba-field" }, h("label", { for: newTitle.id }, "Series name"), newTitle),
+      h("div", { class: "oba-field" }, h("label", { for: premise.id }, "Recurring premise (optional)"), premise, h("small", { class: "oba-small", id: `${prefix}-premise-help` }, "One line readers see on the series page, such as what each part answers.")),
+      create,
+    );
+    const createBox = h("details", { class: "oba-series-create", hidden: true }, h("summary", {}, "Add a new series (site owners)"), createForm);
+
+    let view = null;
+    const syncTitle = () => {
+      titleField.hidden = choice.value !== NEW_SERIES;
+    };
+    choice.addEventListener("change", syncTitle);
+
+    const fail = (error) => {
+      const failure = seriesFailure(error);
+      problem.textContent = failure.message;
+      problem.hidden = false;
+      problem.focus();
+      return failure;
+    };
+    const clearProblem = () => {
+      problem.hidden = true;
+      problem.textContent = "";
+    };
+
+    // Options are rebuilt from the latest list, keeping whatever the person had chosen.
+    const renderChoices = (choices, selected) => {
+      const known = choices.some((item) => item.slug === selected);
+      const value = known || selected === NO_SERIES || selected === NEW_SERIES ? selected : NEW_SERIES;
+      choice.replaceChildren(
+        h("option", { value: NO_SERIES, selected: value === NO_SERIES }, "Not in a series"),
+        ...choices.map((item) => h("option", { value: item.slug, selected: value === item.slug }, `${item.name} (${item.parts} published ${item.parts === 1 ? "part" : "parts"})`)),
+        h("option", { value: NEW_SERIES, selected: value === NEW_SERIES }, "A new series title..."),
+      );
+      choice.value = value;
+      syncTitle();
+    };
+
+    const renderPreview = (preview) => {
+      orderBox.hidden = !preview;
+      if (!preview) return;
+      orderHeading.textContent = `Reading order: ${preview.name}`;
+      about.hidden = false;
+      about.textContent = preview.defined
+        ? preview.description || "This series has no premise written yet."
+        : "This series has no description yet, so the site will use its title until a site owner describes it.";
+      orderList.replaceChildren(
+        ...(preview.parts || []).map((part, position) =>
+          h(
+            "li",
+            { class: part.thisPublication ? "oba-series-this" : null },
+            part.thisPublication
+              ? h("strong", {}, seriesPartText(part, position))
+              : [seriesPartText(part, position), " ", h("a", { href: part.url, target: "_blank", rel: "noopener noreferrer", "aria-label": `Open ${part.title || "this part"}` }, "Open")],
+          ),
+        ),
+      );
+    };
+
+    /** Show a fresh view. `adopt` copies the stored placement into the controls; after a refused
+     * save it is false, so the person's own choice stays as they left it. */
+    const render = (next, adopt) => {
+      view = next;
+      const preview = next.preview;
+      const name = next.placement ? preview?.name || next.placement.series : "";
+      current.textContent = next.placement ? `Series: ${seriesPlacementText(name, next.placement.order)}` : seriesPlacementText("");
+      if (next.published) current.textContent += " The reflection is published, so its series is now changed in the post itself.";
+      if (adopt) {
+        const stored = next.placement ? (next.series || []).find((item) => item.slug === preview?.slug)?.slug ?? NEW_SERIES : NO_SERIES;
+        if (stored === NEW_SERIES) title.value = next.placement.series;
+        order.value = next.placement?.order ?? "";
+        renderChoices(next.series || [], stored);
+      } else {
+        renderChoices(next.series || [], choice.value);
+      }
+      form.hidden = !next.canPlace;
+      createBox.hidden = !next.canCreate;
+      renderPreview(preview);
+    };
+
+    const url = (extra = "") => `collaboration/series?publicationId=${encodeURIComponent(id)}${extra}`;
+    const load = async (adopt = true) => {
+      render(await this.api.call("GET", url()), adopt);
+    };
+
+    previewButton.addEventListener("click", async () => {
+      clearProblem();
+      const request = seriesPlacementRequest(choice.value, title.value, order.value);
+      if (request.error) {
+        fail({ status: 422, data: { error: request.error } });
+        return;
+      }
+      if (!request.placement) {
+        renderPreview(null);
+        status.textContent = "Not in a series, so there is no reading order to show.";
+        return;
+      }
+      const query = `&series=${encodeURIComponent(request.placement.series)}&order=${request.placement.order ?? ""}`;
+      try {
+        const next = await this.api.call("GET", url(query));
+        renderPreview(next.preview);
+        status.textContent = `Previewing ${next.preview?.name || "the series"}. Nothing has been saved.`;
+      } catch (error) {
+        fail(error);
+      }
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearProblem();
+      const request = seriesPlacementRequest(choice.value, title.value, order.value);
+      if (request.error) {
+        fail({ status: 422, data: { error: request.error } });
+        (request.field === "order" ? order : title).focus();
+        return;
+      }
+      save.disabled = true;
+      try {
+        const placement = keepStoredSeries(request.placement, view?.placement, view?.preview?.slug);
+        const next = await this.api.call("PUT", "collaboration/series", { json: { publicationId: id, expectedRevision: view?.revision ?? 0, placement } });
+        const changed = next.revision !== view?.revision;
+        render(next, true);
+        status.textContent = !changed ? "Nothing changed." : next.placement ? "Series placement saved. Each author approves the piece again, with this placement." : "Removed from the series. Each author approves the piece again.";
+        save.disabled = false;
+        save.focus();
+      } catch (error) {
+        save.disabled = false;
+        const failure = fail(error);
+        // A conflict shows the newest placement around what the person chose, so they can
+        // compare and save again; nothing they typed is replaced.
+        if (failure.kind === "conflict") {
+          try {
+            await load(false);
+          } catch {
+            // The message above still explains what happened.
+          }
+          problem.focus();
+        }
+      }
+    });
+
+    createForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearProblem();
+      if (!newTitle.value.trim()) {
+        fail({ status: 422, data: { error: "Type the series name." } });
+        newTitle.focus();
+        return;
+      }
+      create.disabled = true;
+      try {
+        const made = await this.api.call("POST", "collaboration/series/create", { json: { publicationId: id, title: newTitle.value, premise: premise.value } });
+        newTitle.value = "";
+        premise.value = "";
+        await load(false);
+        renderChoices(view?.series || [], made.slug);
+        status.textContent = `Series ${made.name} added. Choose Save placement to put this reflection in it.`;
+        create.disabled = false;
+        choice.focus();
+      } catch (error) {
+        create.disabled = false;
+        fail(error);
+      }
+    });
+
+    const details = h(
+      "details",
+      { class: "oba-invitations oba-series" },
+      h("summary", {}, "Series"),
+      heading,
+      h("p", { class: "oba-small" }, "A shared reflection can join one of the site's series, which supplies the name, description and reading order. Nothing here is public until the piece is published."),
+      status,
+      problem,
+      current,
+      form,
+      createBox,
+      orderBox,
+    );
+    let loaded = false;
+    details.addEventListener("toggle", async () => {
+      if (!details.open || loaded) return;
+      loaded = true;
+      try {
+        await load(true);
       } catch (error) {
         loaded = false;
         fail(error);
@@ -5917,6 +7828,19 @@ export class Editor {
     ui.evidenceCounts = h("dl", { class: "oba-accessibility-counts", "aria-label": "Evidence finding counts" });
     ui.evidenceFindings = h("div", { class: "oba-accessibility-findings" });
     ui.evidenceMetadata = h("dl", { class: "oba-social-meta", "aria-label": "Resolved research metadata" });
+    ui.evidenceExportStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    ui.evidenceExportCsl = h("button", { class: "oba-btn", type: "button" }, "Download cited references (CSL JSON)");
+    ui.evidenceExportBibtex = h("button", { class: "oba-btn", type: "button" }, "Download cited references (BibTeX)");
+    ui.evidenceExportCsl.addEventListener("click", () => this.exportCitedReferences("csl-json"));
+    ui.evidenceExportBibtex.addEventListener("click", () => this.exportCitedReferences("bibtex"));
+    ui.evidenceExports = h(
+      "section",
+      { class: "oba-evidence-exports", "aria-label": "Portable bibliography", hidden: true },
+      h("h3", {}, "Portable bibliography"),
+      h("p", { class: "oba-small" }, "Only the public description of the references this post cites, exactly as its notes show them."),
+      h("div", { class: "oba-toolbar" }, ui.evidenceExportCsl, ui.evidenceExportBibtex),
+      ui.evidenceExportStatus,
+    );
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
     ui.saveState = h("span", { class: "oba-save-state", role: "status", "aria-live": "polite" }, this.isNew ? "Not saved yet" : "Saved");
@@ -6084,6 +8008,7 @@ export class Editor {
     ui.live = h("span", { class: "oba-small" });
 
     const imageButton = h("button", { class: "oba-btn", type: "button", onClick: () => ui.imageFile.click() }, "Insert image");
+    const captureButton = kind === "posts" ? h("button", { class: "oba-btn", type: "button", "data-research-capture": "true", onClick: () => this.openResearchCapture() }, "Capture research") : null;
     const quizButton = kind === "posts" ? h("button", { class: "oba-btn oba-btn-feature", type: "button", onClick: () => this.openKnowledgeCheck() }, "✦ Add knowledge check") : null;
     ui.imageFile = h("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp,image/avif", class: "oba-sr", tabindex: "-1", "aria-hidden": "true" });
     ui.imageFile.addEventListener("change", async () => {
@@ -6092,7 +8017,7 @@ export class Editor {
       ui.imageFile.value = "";
     });
     const back = h("a", { class: "oba-btn", href: `#/${kind}` }, "← Back");
-    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, quizButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
+    const toolbar = h("div", { class: "oba-toolbar oba-editor-actions" }, back, ui.saveBtn, ui.deleteBtn, imageButton, captureButton, quizButton, ui.imageFile, ui.live, h("span", { class: "oba-small" }, "Ctrl+S saves"));
 
     let savedPreviewWidth = "wide";
     try {
@@ -6150,10 +8075,15 @@ export class Editor {
         ? [
             h("button", { type: "button", class: "oba-format-button", title: "Insert Abstract section", onClick: () => this.addResearchSection("abstract") }, "Abstract"),
             h("button", { type: "button", class: "oba-format-button", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
+            h("button", { type: "button", class: "oba-format-button", title: "Insert or edit a citation", "aria-label": "Cite a source", "data-citation-open": "true", onClick: () => this.openCitationDialog() }, "Cite"),
           ]
         : null,
     );
     ui.formatToolbar.addEventListener("mousedown", () => this.captureVisualSelection());
+    // The status stays rendered (visually hidden while empty) so its first message is announced.
+    ui.citationStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" });
+    ui.citationUndo = h("button", { class: "oba-btn", type: "button", hidden: true, "data-citation-undo": "true", onClick: () => this.undoCitation() }, "Undo citation");
+    ui.citationBar = kind === "posts" ? h("div", { class: "oba-toolbar oba-citation-bar" }, ui.citationStatus, ui.citationUndo) : null;
     ui.assistantStatus = h("p", { class: "oba-assistant-status-copy", role: "status", "aria-live": "polite" }, "Loading assistant configuration…");
     ui.assistantStatusBadge = h("span", { class: "oba-assistant-status-badge", "data-tone": "loading" }, "Checking…");
     ui.assistantProviderType = h("dd", {}, "Loading…");
@@ -6380,6 +8310,7 @@ export class Editor {
             { class: "oba-pane oba-markdown-pane", "data-pane": "write", "aria-label": "Writing editor" },
             paneHeader("Write", "Editor", h("div", { class: "oba-editor-mode" }, ui.editorModeSwitch)),
             ui.formatToolbar,
+            ui.citationBar,
             ui.richBody,
             ui.body,
             ui.assistantAutocomplete,
@@ -6546,11 +8477,12 @@ export class Editor {
                 ),
                 ui.evidenceCounts,
                 ui.evidenceMetadata,
+                ui.evidenceExports,
                 h("h3", {}, "Author-controlled signals"),
                 h(
                   "ul",
                   { class: "oba-accessibility-manual" },
-                  ["Visible Abstract and References sections", "DOI and license syntax", "Resolvable reference links", "Defined Markdown footnotes"].map((item) => h("li", {}, item)),
+                  ["Visible Abstract and References sections", "DOI and license syntax", "Resolvable reference links", "Defined Markdown footnotes", "Citation syntax, keys and reference details", "Cited locations, which only a person can check"].map((item) => h("li", {}, item)),
                 ),
               ),
               ui.evidenceFindings,
@@ -6688,14 +8620,14 @@ export class Editor {
         continue;
       }
       const tag = element.tagName.toLowerCase();
-      const inline = () => [...element.childNodes].map(visualInlineMarkdown).join("").trim();
+      const inline = () => visualChildrenMarkdown(element).trim();
       if (/^h[1-6]$/.test(tag)) blocks.push(`${"#".repeat(Number(tag[1]))} ${inline()}`);
       else if (tag === "ul" || tag === "ol") {
         const listStart = tag === "ol" ? Number(element.getAttribute("start") || 1) : 1;
         blocks.push(
           [...element.children]
             .filter((item) => item.tagName.toLowerCase() === "li")
-            .map((item, index) => `${tag === "ol" ? `${listStart + index}.` : "-"} ${[...item.childNodes].map(visualInlineMarkdown).join("").trim()}`)
+            .map((item, index) => `${tag === "ol" ? `${listStart + index}.` : "-"} ${visualChildrenMarkdown(item).trim()}`)
             .join("\n"),
         );
       } else if (tag === "blockquote") {
@@ -6987,9 +8919,35 @@ export class Editor {
     };
     ui.body.addEventListener("keydown", writingShortcut);
     ui.richBody.addEventListener("keydown", writingShortcut);
+    // Undo after inserting a citation restores the exact prior draft and caret.
+    const citationUndoShortcut = (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "z") return;
+      if (this.citationUndoAvailable()) {
+        event.preventDefault();
+        this.undoCitation();
+      }
+    };
+    ui.body.addEventListener("keydown", citationUndoShortcut);
+    ui.richBody.addEventListener("keydown", citationUndoShortcut);
+    // A citation chip opens the citation dialog to edit it: click, Enter or Space.
+    ui.richBody.addEventListener("click", (event) => {
+      const chip = event.target?.closest?.(".oba-citation");
+      if (chip && ui.richBody.contains(chip)) {
+        event.preventDefault();
+        this.openCitationDialog(chip);
+      }
+    });
+    ui.richBody.addEventListener("keydown", (event) => {
+      const chip = event.target?.closest?.(".oba-citation");
+      if (!chip || !["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      this.openCitationDialog(chip);
+    });
     bindAssistantAutocompleteControls(this, ui);
     ui.richBody.addEventListener("input", (event) => {
       event.stopPropagation();
+      // A citation typed in Visual mode becomes a chip when its closing `]` is typed.
+      if (event.inputType === "insertText" && String(event.data || "").endsWith("]")) this.chipCitationBeforeCaret();
       this.visualChanged();
     });
     ui.previewWidth.addEventListener("input", (e) => e.stopPropagation());
@@ -7034,7 +8992,7 @@ export class Editor {
         await this.insertImage(file);
       } else if (e.currentTarget === ui.richBody) {
         e.preventDefault();
-        document.execCommand("insertText", false, e.clipboardData?.getData("text/plain") || "");
+        this.pasteVisualText(e.clipboardData?.getData("text/plain") || "");
       }
     };
     for (const surface of [ui.body, ui.richBody]) {
@@ -7979,7 +9937,7 @@ export class Editor {
       this.updatePreviewWarnings(preview);
       this.updateSocialPreview(preview.social);
       this.updateAccessibility(preview.accessibility);
-      this.updateEvidence(preview.evidence, preview.research);
+      this.updateEvidence(preview.evidence, preview.research, preview.citations, preview.citationsOptedIn === true);
     } catch (error) {
       if (request !== this.previewRequest) return;
       this.previewResult = null;
@@ -7997,6 +9955,8 @@ export class Editor {
       this.ui.evidenceStatus.textContent = "Evidence checks unavailable";
       this.ui.evidenceCounts.replaceChildren();
       this.ui.evidenceMetadata.replaceChildren();
+      this.citationExports = null;
+      this.ui.evidenceExports.hidden = true;
       this.ui.evidenceFindings.replaceChildren(h("p", { class: "oba-notice" }, "Fix the document validation problems, then run the checks again."));
     }
   }
@@ -8199,12 +10159,15 @@ export class Editor {
     this.ui.accessibilityStatus.textContent = `${review.total} source finding${review.total === 1 ? "" : "s"}`;
   }
 
-  updateEvidence(findings, research) {
-    const state = evidenceStudioState(findings, research);
+  updateEvidence(findings, research, citations = null, citationsOptedIn = false) {
+    const state = evidenceStudioState(findings, research, citations, citationsOptedIn);
+    this.citationExports = citations?.references ? citations.exports : null;
+    this.ui.evidenceExports.hidden = !this.citationExports;
+    this.ui.evidenceExportStatus.textContent = "";
     if (!state.active) {
       this.ui.evidenceCounts.replaceChildren();
       this.ui.evidenceFindings.replaceChildren(
-        h("p", { class: "oba-notice" }, "Evidence checks run only for posts using the Research content profile."),
+        h("p", { class: "oba-notice" }, "Evidence checks run for posts using the Research content profile and for posts that publish citations."),
       );
       this.ui.evidenceMetadata.replaceChildren(
         h("div", {}, h("dt", {}, "Profile"), h("dd", {}, "Research metadata is available for Research posts.")),
@@ -8239,11 +10202,39 @@ export class Editor {
           )),
     );
     this.ui.evidenceMetadata.replaceChildren(
-      h("div", {}, h("dt", {}, "DOI"), h("dd", {}, research.doiUrl || research.doi || "Not supplied")),
-      h("div", {}, h("dt", {}, "License"), h("dd", {}, research.licenseUrl || "Not supplied")),
-      h("div", {}, h("dt", {}, "Linked references"), h("dd", {}, String(research.referenceCount || 0))),
+      ...(research
+        ? [
+            h("div", {}, h("dt", {}, "DOI"), h("dd", {}, research.doiUrl || research.doi || "Not supplied")),
+            h("div", {}, h("dt", {}, "License"), h("dd", {}, research.licenseUrl || "Not supplied")),
+            h("div", {}, h("dt", {}, "Linked references"), h("dd", {}, String(research.referenceCount || 0))),
+          ]
+        : []),
+      ...citationEvidenceRows(citations).map(([term, description]) => h("div", {}, h("dt", {}, term), h("dd", {}, description))),
     );
     this.ui.evidenceStatus.textContent = state.status;
+  }
+
+  /** Download the previewed post's cited references; the draft and the library are never changed. */
+  exportCitedReferences(format) {
+    const exported = this.citationExports?.[format];
+    if (!exported) {
+      this.ui.evidenceExportStatus.textContent = citationExportStatus(null);
+      return;
+    }
+    try {
+      const url = URL.createObjectURL(new Blob([exported.content], { type: `${exported.mediaType};charset=utf-8` }));
+      try {
+        const link = h("a", { href: url, download: exported.filename });
+        document.body.append(link);
+        link.click();
+        link.remove();
+      } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      }
+      this.ui.evidenceExportStatus.textContent = citationExportStatus(exported);
+    } catch (error) {
+      this.ui.evidenceExportStatus.textContent = `The references could not be downloaded: ${error.message}`;
+    }
   }
 
   updateSocialPreview(social) {
@@ -8530,6 +10521,343 @@ export class Editor {
     document.body.append(dialog);
     dialog.showModal();
     title.focus();
+  }
+
+  /**
+   * Where a citation goes: in Markdown, the selection and any citation it sits
+   * in; in Visual, the saved range and any citation chip it touches. A chip or
+   * citation found here is edited in place instead of adding another.
+   */
+  citationTarget(chip = null) {
+    if (this.editorMode === "markdown") {
+      const body = this.ui.body;
+      const start = Number.isInteger(body.selectionStart) ? body.selectionStart : body.value.length;
+      const end = Number.isInteger(body.selectionEnd) ? body.selectionEnd : start;
+      return { mode: "markdown", start, end, span: citationAt(body.value, start, end) };
+    }
+    const range = this.visualSelection?.cloneRange?.() || null;
+    let found = chip;
+    if (!found && range) {
+      const node = range.startContainer?.nodeType === 1 ? range.startContainer : range.startContainer?.parentElement;
+      found = node?.closest?.(".oba-citation") || null;
+      if (!found && range.startContainer === range.endContainer && range.endOffset === range.startOffset + 1) {
+        const selected = range.startContainer?.childNodes?.[range.startOffset];
+        if (selected?.classList?.contains("oba-citation")) found = selected;
+      }
+    }
+    return { mode: "visual", range, chip: found && this.ui.richBody.contains(found) ? found : null };
+  }
+
+  /**
+   * Why a new citation cannot go at the target, as a message for the author,
+   * or "" when it can. Editing an existing citation or chip always can.
+   * Inside code, a link or a protected block a citation would not be read as
+   * one (or would break the link), so the dialog refuses it and keeps the
+   * author's choices.
+   */
+  citationTargetProblem(target) {
+    if (target.span || target.chip) return "";
+    const inCode = "A citation cannot go inside code or a protected block. Cancel, move the caret into ordinary text and choose Cite again; your draft is unchanged.";
+    const inLink = "A citation cannot go inside a link, where it would not be read as a citation. Cancel, move the caret after the link and choose Cite again; your draft is unchanged.";
+    const inHtml = "A citation cannot go inside HTML or a comment, where it would not be read as a citation. Cancel, move the caret into ordinary text and choose Cite again; your draft is unchanged.";
+    if (target.mode === "markdown") {
+      const problem = citationInsertionProblem(this.ui.body.value, Math.max(target.start, target.end));
+      if (problem === "html") return inHtml;
+      return problem === "link" ? inLink : problem ? inCode : "";
+    }
+    const editor = this.ui.richBody;
+    const range = target.range;
+    const container = range ? (range.endContainer?.nodeType === 1 ? range.endContainer : range.endContainer?.parentElement) : null;
+    if (!range || !container || !editor?.contains(container)) return "Place the caret in the text where the citation belongs: cancel, click in your draft and choose Cite again. Your draft is unchanged.";
+    return visualCitationContainerProblem(container) === "link" ? inLink : visualCitationContainerProblem(container) ? inCode : "";
+  }
+
+  /**
+   * Insert or edit a citation. The dialog is modal and keyboard operable;
+   * Cancel or Escape returns focus to the writing surface with the selection
+   * restored and the draft unchanged. A target the citation cannot go in is
+   * reported inside the dialog, which stays open with the author's choices.
+   * Insert checks the citation with the server (the core parser and
+   * resolver) before the draft changes.
+   */
+  async openCitationDialog(chip = null) {
+    if (chip) this.visualSelection = null;
+    else this.captureVisualSelection();
+    const target = this.citationTarget(chip);
+    const existing = target.mode === "markdown" ? target.span?.text : target.chip?.dataset.citation;
+    const initial = existing ? parseCitationText(existing) : null;
+    const trigger = document.activeElement;
+    const dialog = h("dialog", { class: "oba-dialog oba-capture-dialog oba-citation-dialog", "aria-labelledby": "oba-citation-title" });
+    const body = h("div", {}, h("p", { class: "oba-small", role: "status" }, "Loading the source library…"));
+    const returnToDraft = () => {
+      dialog.close();
+      dialog.remove();
+      if (target.chip?.isConnected) {
+        target.chip.focus();
+        return;
+      }
+      const surface = this.writingSurface();
+      surface.focus();
+      if (target.mode === "markdown" && this.editorMode === "markdown") this.ui.body.setSelectionRange(target.start, target.end);
+      else if (this.editorMode === "visual") this.restoreVisualSelection();
+      else if (trigger instanceof HTMLElement && trigger !== surface) trigger.focus?.();
+    };
+    const problem = this.citationTargetProblem(target);
+    dialog.append(
+      h("h2", { id: "oba-citation-title" }, initial ? "Edit citation" : "Insert citation"),
+      h("p", { class: "oba-help" }, "Cite a source from your library. Only the source key and the locators you enter are written into the post; quotations and notes stay private."),
+      problem ? h("p", { class: "oba-notice", "data-citation-target": "refused" }, problem) : null,
+      body,
+    );
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      returnToDraft();
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+    try {
+      const loaded = await this.app.api.call("GET", "citations/library");
+      if (!dialog.isConnected) return;
+      const state = { revision: loaded.revision, sources: loaded.sources || [], passages: loaded.passages || [], notebookAvailable: loaded.notebookAvailable !== false };
+      const form = createCitationForm({
+        api: this.app.api,
+        state,
+        initial,
+        // Checked before the server is asked, so nothing is sent for a target that cannot take a citation.
+        refuse: () => this.citationTargetProblem(target),
+        onInsert: (result) => {
+          if (!CITATION_WHOLE.test(String(result?.markdown || ""))) return "The server returned no citation, so your draft is unchanged.";
+          const refused = this.citationTargetProblem(target);
+          if (refused) return refused;
+          dialog.close();
+          dialog.remove();
+          if (!this.applyCitation(target, result.markdown)) this.writingSurface().focus();
+          return "";
+        },
+        onCancel: returnToDraft,
+      });
+      body.replaceChildren(form.element);
+      form.focus();
+    } catch (error) {
+      if (!dialog.isConnected) return;
+      body.replaceChildren(
+        h("p", { class: "oba-error", role: "alert" }, `The source library could not be read. Your draft is unchanged. ${error.message}`),
+        h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", onClick: returnToDraft }, "Close")),
+      );
+      body.querySelector("button")?.focus();
+    }
+  }
+
+  /** Apply checked citation Markdown to the draft, remembering exactly what to restore on undo. */
+  applyCitation(target, markdown) {
+    if (!CITATION_WHOLE.test(String(markdown || ""))) {
+      this.sayCitation("The server returned no citation, so the draft is unchanged.");
+      return false;
+    }
+    const problem = this.citationTargetProblem(target);
+    if (problem) {
+      this.sayCitation(problem);
+      return false;
+    }
+    if (target.mode === "markdown") {
+      if (this.editorMode !== "markdown") this.setEditorMode("markdown", false);
+      const body = this.ui.body;
+      const before = body.value;
+      const next = insertCitationText(before, target.start, target.end, markdown, target.span);
+      body.value = next.value;
+      body.focus();
+      body.setSelectionRange(next.start, next.end);
+      body.dispatchEvent(new Event("input", { bubbles: true }));
+      this.citationUndo = { mode: "markdown", before, after: body.value, selection: [target.start, target.end] };
+    } else {
+      if (this.editorMode !== "visual") this.setEditorMode("visual", false);
+      this.syncRichToMarkdown();
+      const editor = this.ui.richBody;
+      const before = this.ui.body.value;
+      const visualDirty = Boolean(this.visualDirty);
+      const snapshot = [...editor.childNodes].map((node) => node.cloneNode(true));
+      const path = target.range ? { start: nodePath(editor, target.range.startContainer), startOffset: target.range.startOffset, end: nodePath(editor, target.range.endContainer), endOffset: target.range.endOffset } : null;
+      const chipPath = target.chip ? nodePath(editor, target.chip) : null;
+      const chip = this.insertCitationChip(target, markdown);
+      if (!chip) return false;
+      this.visualChanged();
+      this.citationUndo = { mode: "visual", before, after: this.ui.body.value, snapshot, path, chipPath, visualDirty };
+    }
+    if (this.ui.citationUndo) this.ui.citationUndo.hidden = false;
+    this.sayCitation(`${target.span || target.chip ? "Citation updated" : "Citation inserted"} into your unsaved draft. Press Ctrl+Z or choose Undo citation to restore the draft as it was.`);
+    return true;
+  }
+
+  /** Put a chip at the saved caret (or update the chip being edited) and move the caret after it. The target was checked first. */
+  insertCitationChip(target, markdown) {
+    const editor = this.ui.richBody;
+    let chip = null;
+    if (target.chip && editor.contains(target.chip)) {
+      chip = citationChip(markdown);
+      target.chip.replaceWith(chip);
+    } else {
+      const range = target.range?.cloneRange?.();
+      const container = range ? (range.endContainer?.nodeType === 1 ? range.endContainer : range.endContainer?.parentElement) : null;
+      if (!range || !container) return null;
+      range.collapse(false);
+      chip = citationChip(markdown);
+      const previous = range.startContainer?.nodeType === 3 ? range.startContainer.nodeValue.slice(0, range.startOffset) : "";
+      if (container === editor) {
+        const paragraph = h("p", { "data-visual-block": "paragraph" }, chip);
+        range.insertNode(paragraph);
+      } else {
+        range.insertNode(chip);
+        if (previous && !/[\s([]$/.test(previous)) range.insertNode(document.createTextNode(" "));
+      }
+    }
+    editor.focus();
+    placeCaretAfter(chip, this);
+    return chip;
+  }
+
+  /**
+   * Turn a well-formed citation just typed or pasted in Visual mode into a
+   * chip, so it is written back as a citation instead of escaped text. Only
+   * the text that ends at the caret is looked at, never older text (an
+   * author's escaped `\[@...]` stays text), and never inside code, links or
+   * protected blocks.
+   */
+  chipCitationBeforeCaret() {
+    const selection = globalThis.getSelection?.();
+    if (this.editorMode !== "visual" || !selection?.rangeCount || !selection.isCollapsed) return null;
+    const node = selection.anchorNode;
+    const offset = selection.anchorOffset;
+    if (node?.nodeType !== Node.TEXT_NODE || !this.ui.richBody.contains(node) || visualCitationContainerProblem(node.parentElement)) return null;
+    const match = /(?<!\\)\[@[^[\]\n]*\]$/.exec(node.nodeValue.slice(0, offset));
+    if (!match) return null;
+    const chip = replaceTextWithChip(node, match.index, offset);
+    placeCaretAfter(chip, this);
+    return chip;
+  }
+
+  /** Paste plain text into the visual editor, making each well-formed citation in it a chip. */
+  pasteVisualText(text) {
+    const value = String(text || "");
+    const editor = this.ui.richBody;
+    const selection = globalThis.getSelection?.();
+    const node = selection?.rangeCount ? selection.getRangeAt(0).endContainer : null;
+    const container = node?.nodeType === 1 ? node : node?.parentElement;
+    const matches = container && editor.contains(container) && !visualCitationContainerProblem(container) ? [...value.matchAll(CITATION_TEXT)] : [];
+    let offset = 0;
+    for (const match of matches) {
+      // The input handler usually makes the chip as the text lands; this covers browsers that report the paste differently.
+      document.execCommand("insertText", false, value.slice(offset, match.index + match[0].length));
+      offset = match.index + match[0].length;
+      this.chipCitationBeforeCaret();
+    }
+    if (offset < value.length || !matches.length) document.execCommand("insertText", false, value.slice(offset));
+    if (matches.length) this.visualChanged();
+  }
+
+  citationUndoAvailable() {
+    const undo = this.citationUndo;
+    return Boolean(undo && undo.mode === this.editorMode && this.ui.body.value === undo.after);
+  }
+
+  /** Restore the draft and caret exactly as they were before the last citation was applied. */
+  undoCitation() {
+    const undo = this.citationUndo;
+    this.citationUndo = null;
+    if (this.ui.citationUndo) this.ui.citationUndo.hidden = true;
+    if (!undo || undo.mode !== this.editorMode || this.ui.body.value !== undo.after) {
+      this.sayCitation("Undo is unavailable because the draft changed after the citation was applied.");
+      return false;
+    }
+    this.ui.body.value = undo.before;
+    if (undo.mode === "markdown") {
+      this.ui.body.focus();
+      this.ui.body.setSelectionRange(undo.selection[0], undo.selection[1]);
+    } else {
+      const editor = this.ui.richBody;
+      editor.replaceChildren(...undo.snapshot);
+      this.visualDirty = undo.visualDirty;
+      editor.focus();
+      const chip = undo.chipPath ? nodeAtPath(editor, undo.chipPath) : null;
+      const start = undo.path ? nodeAtPath(editor, undo.path.start) : null;
+      const end = undo.path ? nodeAtPath(editor, undo.path.end) : null;
+      if (chip?.focus) chip.focus();
+      else if (start && end) {
+        const range = document.createRange?.();
+        const selection = globalThis.getSelection?.();
+        if (range && selection) {
+          range.setStart(start, undo.path.startOffset);
+          range.setEnd(end, undo.path.endOffset);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          this.visualSelection = range.cloneRange();
+        }
+      }
+    }
+    this.ui.body.dispatchEvent(new Event("input", { bubbles: true }));
+    this.sayCitation("Citation undone. The draft is as it was before.");
+    return true;
+  }
+
+  sayCitation(message) {
+    if (this.ui?.citationStatus) this.ui.citationStatus.textContent = message;
+  }
+
+  /**
+   * Capture a passage or note from the draft without leaving it. The dialog
+   * is modal; Save and Cancel (and Escape) both return focus to the editing
+   * surface with the author's selection restored, and neither changes the draft.
+   */
+  async openResearchCapture() {
+    this.captureVisualSelection();
+    const selectedText = this.knowledgeCheckTarget().selected;
+    const trigger = document.activeElement;
+    const markdownSelection = this.editorMode === "markdown" ? [this.ui.body.selectionStart, this.ui.body.selectionEnd] : null;
+    const dialog = h("dialog", { class: "oba-dialog oba-capture-dialog", "aria-labelledby": "oba-capture-title" });
+    const body = h("div", {}, h("p", { class: "oba-small", role: "status" }, "Loading the research notebook…"));
+    const returnToDraft = () => {
+      dialog.close();
+      dialog.remove();
+      const surface = this.writingSurface();
+      surface.focus();
+      if (markdownSelection && this.editorMode === "markdown") this.ui.body.setSelectionRange(markdownSelection[0], markdownSelection[1]);
+      else if (this.editorMode === "visual") this.restoreVisualSelection();
+      else if (trigger instanceof HTMLElement && trigger !== surface) trigger.focus?.();
+    };
+    dialog.append(
+      h("h2", { id: "oba-capture-title" }, "Capture research"),
+      h("p", { class: "oba-help" }, "Quote a passage from a source, or record a note. Saved to your private notebook; your draft is not changed."),
+      body,
+    );
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      returnToDraft();
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+    try {
+      const loaded = await this.app.api.call("GET", "research/notebook");
+      if (!dialog.isConnected) return;
+      const state = { revision: loaded.revision, sources: loaded.sources, passages: loaded.passages, notes: loaded.notes };
+      const form = createCaptureForm({
+        api: this.app.api,
+        state,
+        idPrefix: "oba-capture",
+        prefill: { excerpt: selectedText },
+        onSaved: (result) => {
+          if (!result.partial) returnToDraft();
+        },
+        onCancel: returnToDraft,
+      });
+      body.replaceChildren(form.element);
+      form.focus();
+    } catch (error) {
+      if (!dialog.isConnected) return;
+      body.replaceChildren(
+        h("p", { class: "oba-error", role: "alert" }, `The research notebook could not be read. ${notebookErrorMessage(error)}`),
+        h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", onClick: returnToDraft }, "Close")),
+      );
+      body.querySelector("button")?.focus();
+    }
   }
 
   openKnowledgeCheck() {

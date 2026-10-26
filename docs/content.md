@@ -56,6 +56,8 @@ a `#` heading, which is then used. Everything else is optional:
 | `recipe` | Legacy recipe marker. `true` remains supported; new posts should use `profile: recipe`. |
 | `doi` | Research profile only. A DOI name or `https://doi.org/` URL for this work. |
 | `license` | Research profile only. An absolute HTTP or HTTPS URL for the work's license. |
+| `citations` | `notes` or `bibliography` publishes the post's `[@key, locator]` citations from the private source library as numbered notes or a reference list. Without it, `[@...]` stays text. See [Research posts](research-profile.md#citations-notes-and-bibliographies). |
+| `citationLocale` | With `citations`: `en`, `de`, `fr` or `es` for the generated notes. Defaults to the site language when it is one of those, otherwise English. |
 | `videoUrl` | Video profile only. A YouTube watch, short-link, or Shorts URL. |
 | `duration` | Video profile only. A duration such as `12 min 34 sec`, `12:34`, or `PT12M34S`. |
 | `thumbnail` | Video profile only. A site-relative or absolute video thumbnail URL. A `cover` is used as the fallback. |
@@ -536,6 +538,14 @@ Optional Markdown shown at the top of the series page.
 Posts join with `series: getting-started`. Each post then shows "Part 2 of 3" with
 previous and next links and a list of all parts. If you reference a series that has no
 file, one is created from the slug and the build prints a warning.
+
+A series that holds a collaborative work, a published post whose credits name two or more
+authors (such as a shared reflection), also says who wrote what: its page lists the series'
+contributors, and every part, ordinary posts included, shows "By ..." on the series page, in the
+previous and next links and in the list of all parts. Names come from each post's credits and are
+shown as plain text. Every other series looks exactly as before. Feeds, exports and syndicated
+copies of such a series' parts say the same: the series and a link to it, the part's place in it,
+and who wrote it.
 
 ## Pages
 

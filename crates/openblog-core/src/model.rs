@@ -5,6 +5,9 @@
 use std::collections::BTreeMap;
 
 use crate::accessibility::{self, AccessibilityFinding, DocumentAuditInput};
+use crate::bibliography::{
+    self, CitationLocale, CitationNoteLabels, CitationStyle, CitationSummary,
+};
 use crate::capability::CapabilityDescriptor;
 use crate::config::SiteConfig;
 use crate::contributor::{self, CreditProvenance, ResolvedCredit};
@@ -17,6 +20,7 @@ use crate::recipe::Recipe;
 use crate::research::{self, EvidenceFinding, ResearchMetadata};
 use crate::shared_source::SharedAttribution;
 use crate::slug::{from_file_stem, slugify};
+use crate::source_library::SourceLibrary;
 use crate::video::VideoMetadata;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,7 +37,56 @@ pub struct Sources {
     pub credits: Vec<SourceFile>,
     pub series: Vec<SourceFile>,
     pub pages: Vec<SourceFile>,
+    /// Where the private source library comes from, if anywhere. A load
+    /// reads it only when a post that opts in to citations cites something,
+    /// and publishes only the cited references' public description (ADR 0048).
+    pub source_library: Option<LibrarySource>,
 }
+
+/// The private source library as a site load receives it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LibrarySource {
+    /// The library file's project-relative path and text, already in memory.
+    Text(SourceFile),
+    /// A read the load makes at most once, on first need, so a site whose
+    /// posts cite nothing never reads the library at all.
+    Deferred(LibraryReader),
+}
+
+/// Reads the private source library on demand: its project-relative path and
+/// text, `None` while no library is stored, or why it cannot be read safely
+/// (reported only to the posts that need it, never with its contents).
+#[derive(Clone)]
+pub struct LibraryReader(
+    std::sync::Arc<dyn Fn() -> Result<Option<SourceFile>, String> + Send + Sync>,
+);
+
+impl LibraryReader {
+    pub fn new(
+        read: impl Fn() -> Result<Option<SourceFile>, String> + Send + Sync + 'static,
+    ) -> Self {
+        Self(std::sync::Arc::new(read))
+    }
+
+    fn read(&self) -> Result<Option<SourceFile>, String> {
+        (self.0)()
+    }
+}
+
+impl std::fmt::Debug for LibraryReader {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("LibraryReader(..)")
+    }
+}
+
+/// Two readers are equal only when they are the same reader.
+impl PartialEq for LibraryReader {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for LibraryReader {}
 
 /// Validated association between Markdown posts and their adjacent credit
 /// sidecars. Consumers such as Admin Studio use this same index as `Site::load`
@@ -179,6 +232,17 @@ pub struct Post {
     pub aliases: Vec<String>,
     /// Canonical Markdown body retained for portable representations.
     pub(crate) authored_markdown: String,
+    /// The body with its citations published as notes, for a post that opts
+    /// in and cites; every public representation reads it instead of the
+    /// authored body (ADR 0048).
+    pub(crate) published_markdown: Option<String>,
+    /// Why an opted-in post's citations could not be published, for the site
+    /// load to decide: it refuses a post this load publishes and warns about a
+    /// draft or a held-back post, whose citations stay text (ADR 0049).
+    pub(crate) citation_error: Option<String>,
+    /// What the published citations made public, for a post that publishes
+    /// them; portable bibliography exports read it (ADR 0050).
+    pub(crate) citations: Option<CitationSummary>,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -221,12 +285,38 @@ impl Post {
         &self.authored_markdown
     }
 
+    /// The Markdown every public representation is built from: the authored
+    /// body, or for a post that publishes citations, that body with them
+    /// written as generated notes. One body, so the native page, portable
+    /// copies and feeds can never disagree about a citation.
+    pub fn publication_markdown(&self) -> &str {
+        self.published_markdown
+            .as_deref()
+            .unwrap_or(&self.authored_markdown)
+    }
+
+    /// What this post's published citations made public, or `None` when it
+    /// publishes none. Its references are the only input of the portable
+    /// bibliography exports, so they hold exactly what the page shows.
+    pub fn citations(&self) -> Option<&CitationSummary> {
+        self.citations.as_ref()
+    }
+
     /// Actual authors only, in authored credit order. Secondary contributors
     /// remain available through `credits` but never leak into author metadata.
     pub fn authors(&self) -> impl Iterator<Item = &ResolvedCredit> {
         self.credits
             .iter()
             .filter(|credit| credit.roles.iter().any(|role| role.is_author()))
+    }
+
+    /// Whether this is a collaborative work: its approved work credits (an explicit credit
+    /// sidecar, which is what the shared-publication gate writes) name two or more authors
+    /// (ADR 0040). A legacy post's default site-author credit never makes it one, and neither
+    /// does a single credited author.
+    pub fn is_collaborative(&self) -> bool {
+        self.credit_provenance == CreditProvenance::ExplicitSidecar
+            && self.authors().nth(1).is_some()
     }
 
     /// The escaped "Originally published at" notice for a post first published
@@ -260,6 +350,25 @@ pub struct Series {
     pub(crate) accessibility: Vec<AccessibilityFinding>,
     /// Semantic capabilities detected in the authored description.
     pub capabilities: Vec<CapabilityDescriptor>,
+}
+
+/// One published part's place in a collaborative series, as feeds and portable copies state it
+/// (ADR 0041). Built by `Site::series_context`; every value is already public on the series page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeriesContext {
+    /// The series name, from its series definition or its slug.
+    pub name: String,
+    /// The series page, relative to the site root (`/series/<slug>/`).
+    pub url: String,
+    /// One-based position in the series' published reading order.
+    pub part: usize,
+    /// How many published parts the series has. Only the regenerated feeds state it (JSON Feed,
+    /// llms-full.txt); portable copies leave it out so a growing series does not change them.
+    pub parts: usize,
+    /// This part's named authors, in credit order.
+    pub part_authors: Vec<String>,
+    /// The series' named authors, once each, in order of first appearance.
+    pub contributors: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -308,6 +417,9 @@ pub struct Site {
     /// Known view totals per page path, supplied by the caller (for example from
     /// the analytics backup) so static builds can show counts.
     pub view_counts: BTreeMap<String, u64>,
+    /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
+    /// even when a preview or the admin editor loaded it, so it is never a series part.
+    now: Option<DateTime>,
 }
 
 impl Site {
@@ -325,6 +437,17 @@ impl Site {
         let mut evidence = Vec::new();
         let render_options = config.render_options();
         let credit_sidecars = associate_credit_sidecars(&sources);
+        // Read and parsed on first need only, so a site whose posts cite
+        // nothing never reads it and a broken library refuses only the posts
+        // that cite.
+        let parsed_library = std::cell::OnceCell::new();
+        let library = || -> Result<Option<&SourceLibrary>, String> {
+            parsed_library
+                .get_or_init(|| read_library(sources.source_library.as_ref(), &config))
+                .as_ref()
+                .map(Option::as_ref)
+                .map_err(Clone::clone)
+        };
         errors.extend(credit_sidecars.errors.iter().cloned());
 
         // Series definitions first, so posts can reference them.
@@ -362,7 +485,7 @@ impl Site {
                 continue;
             }
             let sidecar = credit_sidecars.by_post.get(&normalized_path).copied();
-            match load_post(file, &config, render_options) {
+            match load_post_in(file, &config, render_options, Citations::Publish(&library)) {
                 Ok(mut post) => {
                     if let Err(error) = apply_credits(&mut post, &config, sidecar) {
                         errors.push(format!(
@@ -401,13 +524,36 @@ impl Site {
                     }
                     let is_preview_target =
                         options.preview_source.as_deref() == Some(post.source.as_str());
-                    if post.draft && !options.include_drafts && !is_preview_target {
+                    let held_back = !options.include_drafts && !is_preview_target;
+                    let scheduled_out = held_back && options.now.is_some_and(|now| post.date > now);
+                    if let Some(error) = post.citation_error.take() {
+                        // Only a post this load publishes is refused (ADR 0049).
+                        // A draft, a post waiting for its date and, in a preview,
+                        // every other document keep their citations as text.
+                        let reason = if post.draft {
+                            Some("while the post is a draft")
+                        } else if scheduled_out {
+                            Some("until the post is due, and must resolve before then")
+                        } else if options.preview_source.is_some() && !is_preview_target {
+                            Some("in this preview")
+                        } else {
+                            None
+                        };
+                        match reason {
+                            Some(reason) => warnings.push(format!(
+                                "{}: citations are not published {reason}: {error}",
+                                file.path
+                            )),
+                            None => {
+                                errors.push(format!("{}: {error}", file.path));
+                                continue;
+                            }
+                        }
+                    }
+                    if post.draft && held_back {
                         continue;
                     }
-                    if !options.include_drafts
-                        && !is_preview_target
-                        && options.now.is_some_and(|now| post.date > now)
-                    {
+                    if scheduled_out {
                         scheduled.push(Scheduled {
                             title: post.title.clone(),
                             slug: post.slug.clone(),
@@ -546,6 +692,7 @@ impl Site {
             accessibility,
             evidence,
             view_counts: BTreeMap::new(),
+            now: options.now,
         })
     }
 
@@ -616,6 +763,97 @@ impl Site {
         (prev, next)
     }
 
+    /// Everyone credited as an author on any published part of the series, once each, in the
+    /// order they first appear reading the series from its first part (ADR 0038). Derived from
+    /// the posts' resolved work credits at read time and never stored, so a changed credit
+    /// changes the answer and a removed one cannot linger. Secondary contributors are not
+    /// included. One person is listed once even when credited under two ids: a legacy post's
+    /// default site-author credit and the owner's registry credit on a shared reflection are the
+    /// same person when their names match (and their profile URLs, when both have one). Two
+    /// distinct registry ids are always two people, whatever their names (ADR 0040).
+    pub fn series_contributors(&self, series: &Series) -> Vec<&crate::contributor::ResolvedCredit> {
+        self.contributors_among(series.posts.iter().copied())
+    }
+
+    fn contributors_among(
+        &self,
+        parts: impl Iterator<Item = usize>,
+    ) -> Vec<&crate::contributor::ResolvedCredit> {
+        let mut out: Vec<&crate::contributor::ResolvedCredit> = Vec::new();
+        for index in parts {
+            for credit in self.posts[index].authors() {
+                if !out.iter().any(|known| same_person(known, credit)) {
+                    out.push(credit);
+                }
+            }
+        }
+        out
+    }
+
+    /// The public series context feeds and portable copies carry for `post` (ADR 0041): only
+    /// when the post is a published part of a collaborative series, and `None` otherwise, so
+    /// every other post's feed items and portable copies stay exactly as they were. Drafts and
+    /// scheduled posts (dated after the time the site was loaded for) are not parts here, even
+    /// on a site that holds them because it was loaded with drafts or to preview one, so they
+    /// neither get a context nor count towards another part's position, total or contributors.
+    /// Any site loaded at the same time therefore gives a post the same context. Everything in it
+    /// is already public on the series page: the series name and URL, the part's place in the
+    /// reading order, and author names from approved work credits. It reads no collaboration
+    /// state.
+    pub fn series_context(&self, post: &Post) -> Option<SeriesContext> {
+        if !self.is_public_part(post) {
+            return None;
+        }
+        let series = self.series_by_slug(post.series.as_deref()?)?;
+        let parts: Vec<usize> = series
+            .posts
+            .iter()
+            .copied()
+            .filter(|&index| self.is_public_part(&self.posts[index]))
+            .collect();
+        let position = parts
+            .iter()
+            .position(|&index| self.posts[index].source == post.source)?;
+        if !parts
+            .iter()
+            .any(|&index| self.posts[index].is_collaborative())
+        {
+            return None;
+        }
+        let names = |credits: Vec<&crate::contributor::ResolvedCredit>| {
+            credits
+                .into_iter()
+                .map(|credit| credit.contributor.name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .collect::<Vec<_>>()
+        };
+        Some(SeriesContext {
+            name: series.name.clone(),
+            url: series.url.clone(),
+            part: position + 1,
+            parts: parts.len(),
+            part_authors: names(self.posts[parts[position]].authors().collect()),
+            contributors: names(self.contributors_among(parts.iter().copied())),
+        })
+    }
+
+    /// Whether `post` is public on this site's production pages: neither a draft nor dated after
+    /// the time the site was loaded for.
+    fn is_public_part(&self, post: &Post) -> bool {
+        !post.draft && self.now.is_none_or(|now| post.date <= now)
+    }
+
+    /// Whether the series names its parts' authors on its page and in its navigation: only when
+    /// one of its published parts is a collaborative work (ADR 0040). Drafts and scheduled posts
+    /// are not parts, so they never switch it on, and a series without a collaborative part
+    /// renders exactly as before.
+    pub fn series_is_collaborative(&self, series: &Series) -> bool {
+        series
+            .posts
+            .iter()
+            .any(|&index| self.posts[index].is_collaborative())
+    }
+
     /// When the next scheduled post becomes public, if any.
     pub fn next_scheduled(&self) -> Option<DateTime> {
         self.scheduled.first().map(|s| s.date)
@@ -653,6 +891,27 @@ impl Site {
     pub fn latest_update(&self) -> Option<DateTime> {
         self.posts.iter().map(|p| p.updated.unwrap_or(p.date)).max()
     }
+}
+
+/// Whether two author credits name the same person for a series' contributor list. The same id
+/// always does. A legacy site-author credit matches a registry credit with the same name when
+/// their profile URLs agree or either has none. Two distinct registry ids never match: the
+/// registry is where people are told apart, so two entries are two people even when they share a
+/// name, or a name and a URL.
+fn same_person(
+    a: &crate::contributor::ResolvedCredit,
+    b: &crate::contributor::ResolvedCredit,
+) -> bool {
+    use crate::contributor::SITE_AUTHOR_ID;
+    if a.contributor_id == b.contributor_id {
+        return true;
+    }
+    if a.contributor_id != SITE_AUTHOR_ID && b.contributor_id != SITE_AUTHOR_ID {
+        return false;
+    }
+    let (a_url, b_url) = (a.contributor.url.trim(), b.contributor.url.trim());
+    a.contributor.name.trim() == b.contributor.name.trim()
+        && (a_url == b_url || a_url.is_empty() || b_url.is_empty())
 }
 
 fn seo_warnings(post: &Post) -> Vec<String> {
@@ -710,6 +969,34 @@ fn seo_warnings(post: &Post) -> Vec<String> {
     warnings
 }
 
+fn is_draft(fm: &FrontMatter) -> bool {
+    fm.get_bool("draft").unwrap_or(false)
+        || first(fm, &["status"]).is_some_and(|s| s.eq_ignore_ascii_case("draft"))
+}
+
+/// The file line of the first citation that would stop `source` publishing
+/// against `library`, for a post that is not a draft and opts in to
+/// citations; `None` for any other post or when every citation resolves.
+/// The source library uses it to refuse an edit that would make a published
+/// post's citations fail (ADR 0049). It reads nothing but its inputs.
+pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
+    let doc = frontmatter::parse(source).ok()?;
+    let fm = &doc.front_matter;
+    if is_draft(fm) {
+        return None;
+    }
+    CitationStyle::from_front_matter(first(fm, &["citations"])).ok()??;
+    let file_line = |line: Option<usize>| line.unwrap_or(1) + doc.body_line.max(1) - 1;
+    let scan = crate::citations::scan_citations(&doc.body);
+    if let Some(found) = scan.diagnostics.first() {
+        return Some(file_line(found.line));
+    }
+    crate::citations::resolve_citations(&scan.mentions, library)
+        .diagnostics
+        .first()
+        .map(|found| file_line(found.line))
+}
+
 fn first<'a>(fm: &'a FrontMatter, keys: &[&str]) -> Option<&'a str> {
     keys.iter()
         .find_map(|k| fm.get(k))
@@ -726,20 +1013,126 @@ fn optional_string(value: Option<&str>) -> Option<String> {
     value.map(str::to_string).filter(|v| !v.is_empty())
 }
 
-/// Parse one post file.
+/// Parse the private library for a load, with a message that names the file
+/// and how to see the problems, never the library's contents.
+fn read_library(
+    source: Option<&LibrarySource>,
+    config: &SiteConfig,
+) -> Result<Option<SourceLibrary>, String> {
+    let read;
+    let file = match source {
+        None => return Ok(None),
+        Some(LibrarySource::Text(file)) => file,
+        Some(LibrarySource::Deferred(reader)) => {
+            read = reader.read().map_err(|reason| {
+                format!("the private source library cannot be read ({reason})")
+            })?;
+            match &read {
+                Some(file) => file,
+                None => return Ok(None),
+            }
+        }
+    };
+    SourceLibrary::parse(&file.contents, &config.contributors)
+        .map(Some)
+        .map_err(|problems| {
+            format!(
+                "the private source library {} has {} problem(s); run `openblog check` to see them",
+                file.path,
+                problems.len()
+            )
+        })
+}
+
+/// How a post load treats a post that opts in to citations.
+enum Citations<'l> {
+    /// Keep them as authored text, for callers that read a post's metadata
+    /// (listings, publication status) without the private library.
+    Unpublished,
+    /// Publish them as notes, reading the library on first need.
+    Publish(&'l dyn Fn() -> Result<Option<&'l SourceLibrary>, String>),
+}
+
+/// Parse one post file. A post that opts in to citations keeps them as
+/// authored text here, since this reads no private library; a site load
+/// ([`Site::load`]) and [`load_post_cited`] publish them.
 pub fn load_post(
     file: &SourceFile,
     config: &SiteConfig,
     options: RenderOptions<'_>,
 ) -> Result<Post, String> {
+    load_post_in(file, config, options, Citations::Unpublished)
+}
+
+/// Parse one post file and publish its citations against `library` exactly
+/// as a site load publishes a post it includes: any citation problem refuses
+/// the post.
+pub fn load_post_cited(
+    file: &SourceFile,
+    config: &SiteConfig,
+    options: RenderOptions<'_>,
+    library: Option<&SourceLibrary>,
+) -> Result<Post, String> {
+    let library = || Ok(library);
+    let mut post = load_post_in(file, config, options, Citations::Publish(&library))?;
+    match post.citation_error.take() {
+        Some(error) => Err(error),
+        None => Ok(post),
+    }
+}
+
+fn load_post_in(
+    file: &SourceFile,
+    config: &SiteConfig,
+    options: RenderOptions<'_>,
+    citations: Citations<'_>,
+) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
     let mut profile = profile::resolve(fm);
     let is_recipe = profile.behavior == ProfileBehavior::Recipe;
+    // Citations are opt-in (ADR 0043): a post without `citations` is read
+    // exactly as before, and so is one that opts in but cites nothing.
+    let citation_style = CitationStyle::from_front_matter(first(fm, &["citations"]))?;
+    let mut citation_error = None;
+    let mut citation_findings = Vec::new();
+    let published = match (citation_style, citations) {
+        (Some(style), Citations::Publish(library)) => {
+            citation_findings = crate::citation_review::review_citations(
+                &file.path,
+                &doc.body,
+                doc.body_line,
+                library,
+            );
+            let locale = CitationLocale::for_post(
+                first(fm, &["citationLocale", "citation_locale"]),
+                &config.language,
+            )?;
+            // A failure keeps the citations as text and is left to the site
+            // load, which knows whether this post is published now.
+            match bibliography::publish_citations(&doc.body, doc.body_line, style, locale, library)
+            {
+                Ok(published) => published.map(|published| (published, locale)),
+                Err(error) => {
+                    citation_error = Some(error);
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
     let rendered = markdown::render(
-        &doc.body,
+        published
+            .as_ref()
+            .map_or(doc.body.as_str(), |(published, _)| &published.markdown),
         RenderOptions {
             recipe: is_recipe,
+            citation_notes: published
+                .as_ref()
+                .map(|(published, locale)| CitationNoteLabels {
+                    prefix: &published.prefix,
+                    locale: *locale,
+                }),
             ..options
         },
     );
@@ -780,8 +1173,7 @@ pub fn load_post(
     if slug.is_empty() {
         return Err("could not derive a slug; add `slug:` to the front matter".into());
     }
-    let draft = fm.get_bool("draft").unwrap_or(false)
-        || first(fm, &["status"]).is_some_and(|s| s.eq_ignore_ascii_case("draft"));
+    let draft = is_draft(fm);
     let comments = CommentsPolicy::parse(first(fm, &["comments"]))?;
     let date = match first(fm, &["date", "published", "publishedAt", "pubDate"]) {
         Some(raw) => DateTime::parse(raw)
@@ -864,14 +1256,37 @@ pub fn load_post(
         embeds_enabled: options.embeds,
         cover_alt: authored_cover.as_ref().map(|_| cover_alt.as_str()),
     });
-    let evidence = if profile.behavior == ProfileBehavior::Research {
+    let mut evidence = if profile.behavior == ProfileBehavior::Research {
         research::audit_document(&file.path, fm, &doc.body, doc.body_line)
     } else {
         Vec::new()
     };
+    // `citations: bibliography` appends the References heading (in the post's
+    // locale) to the published text only, so the authored-body audit above
+    // must not report it missing.
+    if published.is_some() && citation_style == Some(CitationStyle::Bibliography) {
+        evidence.retain(|finding| finding.code != research::EvidenceCode::ReferencesMissing);
+    }
+    evidence.extend(citation_findings);
+    let citation_summary = published
+        .as_ref()
+        .map(|(published, locale)| CitationSummary {
+            style: citation_style.unwrap_or(CitationStyle::Notes),
+            locale: *locale,
+            citations: published.citations,
+            notes: published.notes,
+            references: published.references.clone(),
+        });
     let (credits, credit_provenance) =
         contributor::resolve(&config.author, &config.contributors, None)
             .expect("legacy author resolution cannot fail");
+    let mut capabilities = rendered.capabilities;
+    if published.is_some() {
+        capabilities.push(CapabilityDescriptor::describe(
+            "citations",
+            Some("ob-citation-notes"),
+        ));
+    }
 
     Ok(Post {
         url: config.post_url(&slug),
@@ -896,6 +1311,9 @@ pub fn load_post(
         theme: optional_string(first(fm, &["theme"])),
         aliases: aliases(fm)?,
         authored_markdown: doc.body,
+        published_markdown: published.map(|(published, _)| published.markdown),
+        citation_error,
+        citations: citation_summary,
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
@@ -908,7 +1326,7 @@ pub fn load_post(
         profile_warnings: profile.warnings,
         accessibility,
         evidence,
-        capabilities: rendered.capabilities,
+        capabilities,
         recipe,
         research,
         video,
@@ -1132,6 +1550,7 @@ mod tests {
             credits: Vec::new(),
             series: vec![post("series/guide.md", "---\nname: The Guide\ntheme: paper\n---\nAbout the guide")],
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+            source_library: None,
         });
         assert_eq!(s.posts.len(), 2);
         assert_eq!(s.posts[0].slug, "second");

@@ -238,6 +238,22 @@ protected block visually, or choose **Edit in Markdown** to change its exact sou
 boundary prevents an ordinary visual edit from flattening syntax the visual editor cannot
 represent safely.
 
+### Cite a source while writing
+
+In a post, choose **Cite** in the Write toolbar to insert a citation at the caret in either mode.
+Search the source library by title, creator, identifier or key, choose a source, and add
+optional locators one per line (`page: 514`, `canonical: 514a to 520a`). **Start from a notebook
+passage** copies a passage's source and locators, never its quotation or notes. Insert asks the
+server to check the citation with the same parser and resolver a build uses, then writes
+`[@key, page 514]` into the Markdown. If the library changed since the dialog opened, nothing is
+inserted and the refreshed sources are shown with your choices kept.
+
+In Visual mode each citation, generated or hand-written, is a chip that keeps its exact Markdown.
+Click a chip, or focus it and press Enter, to edit it; in Markdown mode, place the caret inside a
+citation and choose **Cite**. Press Ctrl+Z or **Undo citation** right after inserting to restore
+the draft and caret exactly. Escape closes the dialog without changing anything. See
+[Citation format](specs/citations.md).
+
 ### Test a theme before publishing
 
 The Site preview reports the theme it resolved and renders through the same site model,
@@ -304,8 +320,14 @@ examples, containers, and HTML blocks consistent with the actual build parser. P
 metadata drafts survive profile switches and are included when the document is saved.
 
 Evidence Studio does not score truth, source authority, peer review, methodology, or
-whether a citation supports a claim. Outside the Research profile it explicitly reports
-that the checks are inactive. See [Research posts and Evidence Studio](research-profile.md).
+whether a citation supports a claim. For a post that publishes citations it also lists, as
+separate findings, citations it cannot read or resolve, cited references missing a detail
+readers need (title, creator, date, container, publisher or web address), identifiers left out
+of the notes, and the cited locations only you can check against the source. These checks run
+offline from your source library. **Download cited references** saves the post's references
+as CSL JSON or BibTeX, holding only what its notes show and stating what the format cannot
+carry. Outside the Research profile, a post without citations reports that the checks are
+inactive. See [Research posts and Evidence Studio](research-profile.md).
 
 The **Overview** is the admin home. It summarizes the publishing pipeline, links to quick
 creation flows, shows the size of the content library and recent posts, and surfaces the
@@ -442,6 +464,21 @@ a warning. If your browser cannot copy to the clipboard, select the link and cop
 Everything is reachable by keyboard: **Escape** cancels a confirmation, and results are announced
 to screen readers. The design is recorded in
 [ADR 0015](adr/0015-member-management-separates-access-from-credit.md).
+
+### Putting a shared reflection in a series
+
+Each shared reflection has a **Series** section. Everyone taking part sees which series it will
+join, its position, and the reading order it would have among the parts already published.
+Site owners and coordinators choose an existing series or type a new title, set a position (or
+leave it empty to follow the numbered parts, by date), use **Preview order**, and **Save
+placement**. Choose **Not in a series** and save to remove it. The series and position are shown in
+the combined preview and are part of what every author approves, so saving a change means each
+author approves again. If someone else changed the placement first, your choice stays in the form
+next to the current one and you can save again. Site owners can also **Add a new series** with a
+name and a one-line recurring premise; it is an ordinary series file, not shown to readers until a
+part is published, and other details stay in the Series editor. Once the reflection is published,
+its series is changed in the post like any other. The design is recorded in
+[ADR 0039](adr/0039-arranging-a-shared-reflections-series-in-admin.md).
 
 ## Scheduling
 

@@ -29,7 +29,7 @@ pub struct Users {
 
 impl Users {
     pub fn load(path: &Path) -> Result<Users, String> {
-        match fs::read_to_string(path) {
+        match crate::fsutil::read_to_string(path) {
             Ok(text) => serde_json::from_str(&text)
                 .map_err(|e| format!("{} is not valid: {e}", path.display())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Users::default()),
@@ -50,7 +50,8 @@ impl Users {
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
         }
-        fs::rename(&tmp, path).map_err(|e| format!("cannot replace {}: {e}", path.display()))
+        crate::fsutil::replace_file(&tmp, path)
+            .map_err(|e| format!("cannot replace {}: {e}", path.display()))
     }
 
     pub fn find(&self, name: &str) -> Option<&UserRecord> {
