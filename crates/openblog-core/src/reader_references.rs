@@ -53,9 +53,12 @@ pub struct ReaderReference {
 /// One citation in the text.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ReaderCitation {
-    /// The element id of this citation's marker in the page.
+    /// The element id of this citation's marker in the page. Positional:
+    /// valid for this revision of the page only, so never stored; a durable
+    /// target uses the reference id.
     pub marker: String,
-    /// The element id of the note the marker links to.
+    /// The element id of the note the marker links to. Positional, like
+    /// `marker`.
     pub note: String,
     /// The id of the cited [`ReaderReference`].
     pub reference: String,

@@ -139,6 +139,9 @@ publishes none.
 
 Every citation names a listed reference, every reference is cited, and `check_page` confirms the
 page holds each marker and note id, so each citation resolves to a visible reference without
-JavaScript. The document is written inline as
+JavaScript. Only the reference `id` is stable across revisions: `marker` and `note` ids are
+positional (order of first citation, occurrence and the post's label prefix), valid for the one
+revision whose page carries them, and must not be stored. A durable target uses the reference id,
+or the passage and annotation selectors of #80 and #84. The document is written inline as
 `<script type="application/json" id="ob-references">` with `<`, `>`, `&` and U+2028/9 escaped
 (`to_script_element`); there is no separate file in version 1.

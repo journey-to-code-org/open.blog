@@ -351,7 +351,8 @@ _Avoid_: References section when the research profile's hand-written list is mea
 The versioned data a citation preview reads: each cited reference once under its citation key,
 and each citation with its marker and note ids and its locators, projected from the published
 citations and holding only their public description. It lives inline in the page and is never
-needed to read it.
+needed to read it. Only the reference id is stable; marker and note ids are positional for one
+revision and are never stored.
 _Avoid_: Bibliography data, citation metadata
 
 **Citation check**:

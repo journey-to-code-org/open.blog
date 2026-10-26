@@ -15,7 +15,8 @@
 A3 publishes citations as footnotes whose notes are the visible references. B1 adds a preview
 that shows a reference beside its marker (#66), no-JS anchors (#65) and later stable passage
 targets (#80) and reader annotations (#84), which will name references and markers. They need
-stable ids and one agreed data shape, without a second model of what a citation makes public.
+ids they can rely on and one agreed data shape, without a second model of what a citation makes
+public.
 
 ## Decision
 
@@ -31,6 +32,12 @@ stable ids and one agreed data shape, without a second model of what a citation 
   (`cite-N-ref-K`) and its `note` id (`cite-N`), using the post's generated label prefix, which
   already avoids the author's footnotes. `check_page` confirms the page holds each. Without
   JavaScript the marker links to the note, which is the visible reference.
+- **Marker and note ids are positional, for one revision only.** `N` is the order of first
+  citation, `K` the occurrence, and the prefix depends on the author's own footnotes, so adding,
+  removing or reordering a citation (or adding a footnote named like ours) renumbers them. They
+  tie the data to the page it is embedded in and must not be stored or linked to from elsewhere.
+  A durable target is the reference `id`, or, for a place in the text, the passage and
+  annotation selectors of #80 and #84.
 - **Preview fields**: `preview` (the allowlisted description), `formatted` (the plain-text
   rendering), and `link`, a DOI resolver address or a plain HTTP(S) address without
   credentials, else absent.
@@ -48,7 +55,8 @@ stable ids and one agreed data shape, without a second model of what a citation 
 
 ## Consequences
 
-- Later stories can refer to a reference by id and a marker by id without re-deriving them.
+- Later stories can refer to a reference by its id without re-deriving it; a marker or note id
+  is only meaningful within the page revision that carries the data.
 - Adding a source field never reaches a preview until it is added to the ADR 0044 allowlist.
 - Inline data repeats reference text already in the notes; pages that cite a lot get larger.
 
