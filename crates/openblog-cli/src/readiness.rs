@@ -114,8 +114,27 @@ pub fn applies(root: &Path, site: &Site) -> bool {
         .any(|file| std::fs::symlink_metadata(root.join(file)).is_ok())
 }
 
-/// Read the report of the site as loaded. Reads only; nothing is written.
+/// The report of the site, from one fixed set of posts: every saved post,
+/// whatever the load that is building, serving or checking holds back. A
+/// draft or a post waiting for its date is warn-only in a site report
+/// (`ReviewScope::Site`), so reading it changes no outcome of the build, and
+/// Admin, `check`, `check --json`, `build` and `serve` all list the same
+/// codes in the same order whether or not they include drafts.
+///
+/// When `site` was loaded without every saved post, they are read once more,
+/// and that load is kept for as long as the saved files stay as they are, so
+/// a rebuild of unchanged content or a second reader pays nothing again.
+/// Reads only; nothing is written.
 pub fn report(root: &Path, site: &Site) -> Readiness {
+    match canonical(root) {
+        Some(all) => report_of_all(root, &all),
+        None => report_of_all(root, site),
+    }
+}
+
+/// [`report`] for a site that already holds every saved post: one loaded
+/// with drafts and no clock, as `openblog check` does.
+pub fn report_of_all(root: &Path, site: &Site) -> Readiness {
     let applies = applies(root, site);
     let gathered = if applies {
         gather(root, site)
@@ -308,4 +327,47 @@ fn unread(gathered: &mut Gathered, reads: bool, part: &'static str, file: &str, 
             research_review::first_line(error)
         ),
     });
+}
+
+/// The site with every saved post, kept per project while its saved files are
+/// unchanged. `None` when it cannot be loaded, so the caller's own site is
+/// reported instead of nothing.
+fn canonical(root: &Path) -> Option<std::sync::Arc<Site>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+    type Kept = HashMap<std::path::PathBuf, (u64, Arc<Site>)>;
+    static KEPT: OnceLock<Mutex<Kept>> = OnceLock::new();
+    let kept = KEPT.get_or_init(|| Mutex::new(HashMap::new()));
+    let revision = content_revision(root)?;
+    if let Some((held, site)) = kept.lock().ok()?.get(root) {
+        if *held == revision {
+            return Some(Arc::clone(site));
+        }
+    }
+    let (site, _) = crate::site::load_site(root, true, None).ok()?;
+    let site = Arc::new(site);
+    let mut kept = kept.lock().ok()?;
+    if kept.len() >= 8 {
+        kept.clear();
+    }
+    kept.insert(root.to_path_buf(), (revision, Arc::clone(&site)));
+    Some(site)
+}
+
+/// A fingerprint of every saved file a site load reads for the research
+/// report: the configuration, the content folder and the private research
+/// files. Their bytes, not their times, so two edits in one clock tick are
+/// told apart.
+fn content_revision(root: &Path) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let config = crate::site::load_config(root).ok()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut files = vec![root.join("openblog.json")];
+    files.extend(crate::fsutil::walk(&root.join(&config.paths.content)));
+    files.extend(crate::fsutil::walk(&root.join(".openblog").join("private")));
+    for file in files {
+        file.strip_prefix(root).unwrap_or(&file).hash(&mut hasher);
+        std::fs::read(&file).ok().hash(&mut hasher);
+    }
+    Some(hasher.finish())
 }

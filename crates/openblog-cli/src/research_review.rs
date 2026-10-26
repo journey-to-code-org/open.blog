@@ -30,6 +30,7 @@ use openblog_core::context_links::{self, ContextGap, ContextKind};
 use openblog_core::knowledge_atlas::{Atlas, Links, Visibility};
 use openblog_core::publication_review::{AcknowledgementSet, ObjectKind, ReviewFinding};
 use openblog_core::research::EvidenceFinding;
+use openblog_core::source_review::SourceReviewFinding;
 
 use crate::transaction::FileLock;
 use crate::{alignment_store, atlas_store, claims_store, notebook_store, source_store};
@@ -99,6 +100,8 @@ pub struct DraftPost<'a> {
     pub body_line: usize,
     /// The research-profile and citation findings for this post, from the draft's site load.
     pub evidence: Vec<EvidenceFinding>,
+    /// The source-review findings for this post (ADR 0146), from the same load.
+    pub source_review: Vec<SourceReviewFinding>,
 }
 
 /// A part of the review that could not run, and why. It is never a finding
@@ -139,6 +142,11 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
     gathered
         .findings
         .extend(post.evidence.iter().map(ReviewFinding::from_evidence));
+    gathered.findings.extend(
+        post.source_review
+            .iter()
+            .map(ReviewFinding::from_source_review),
+    );
     let published = read_published(root, config, &mut gathered);
     if published.ready && published.claims_stored {
         claims(root, config, post, &mut gathered);

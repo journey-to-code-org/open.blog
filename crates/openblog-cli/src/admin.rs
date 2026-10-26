@@ -14401,6 +14401,13 @@ fn review_before_publication(state: &AppState, req: &Request) -> Response {
         .filter(|finding| finding.source.path == draft.rel)
         .cloned()
         .collect();
+    let source_review: Vec<_> = draft
+        .site
+        .source_review
+        .iter()
+        .filter(|finding| finding.path.as_deref() == Some(draft.rel.as_str()))
+        .cloned()
+        .collect();
     let citations_opted_in = body["fields"]["citations"]
         .as_str()
         .is_some_and(|style| !style.trim().is_empty());
@@ -14426,6 +14433,7 @@ fn review_before_publication(state: &AppState, req: &Request) -> Response {
                 markdown: &document.body,
                 body_line: document.body_line,
                 evidence,
+                source_review,
             },
         );
         (gathered.findings, gathered.not_reviewed)
@@ -17035,6 +17043,96 @@ mod tests {
         assert!(!admin.to_string().contains("ZqxLeak"), "{admin}");
         assert_clean("the terminal report", readiness.text().as_bytes());
         assert!(!readiness.text().contains("ZqxLeak"));
+    }
+
+    #[test]
+    fn the_readiness_report_is_the_same_whether_or_not_drafts_are_loaded() {
+        let f = boundary_fixture("readiness-drafts");
+        fs::write(
+            f.dir.join("content/posts/wip.md"),
+            "---\ntitle: Work in progress\ndate: 2026-10-02\nprofile: research\ncitations: notes\ndraft: true\n---\n\nAn unfinished thought [@nobody].\n",
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let admin = readiness_of(&f, &session);
+        let codes = listed_codes(&admin);
+        let draft_finding = admin["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["scope"]["path"] == "posts/wip.md");
+        assert!(draft_finding, "the saved draft is reported: {codes:?}");
+        // Admin with drafts off, the build, `check` and `check --json` agree.
+        let no_drafts = Arc::new(AppState::new(f.dir.clone(), None, false, false));
+        let from_admin = body_json(&readiness_site(&no_drafts));
+        assert_eq!(from_admin, admin);
+        let published = site::load_site(&f.dir, false, Some(clock::now()))
+            .unwrap()
+            .0;
+        assert_eq!(crate::readiness::report(&f.dir, &published).view(), admin);
+        let all = site::load_site(&f.dir, true, None).unwrap().0;
+        assert_eq!(crate::readiness::report_of_all(&f.dir, &all).view(), admin);
+        let built = production(&f.dir);
+        let readiness = built.readiness.as_ref().unwrap();
+        assert_eq!(readiness.view(), admin);
+        assert_eq!(printed_codes(&readiness.text()), codes);
+    }
+
+    #[test]
+    fn a_posts_review_lists_the_same_codes_as_the_site_report_for_that_post() {
+        let f = boundary_fixture("readiness-post-source-review");
+        let body =
+            "An edition and a translation of one work [@slings, page 514] and [@bloom, page 3].\n";
+        fs::write(
+            f.dir.join("content/posts/mixed.md"),
+            format!("---\ntitle: Mixed\ndate: 2026-10-03\ncitations: notes\n---\n\n{body}"),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let site_report = readiness_of(&f, &session);
+        let pairs = |view: &Json, only: &str| {
+            let mut pairs: Vec<String> = view["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|finding| finding["scope"]["path"] == only)
+                .map(|finding| {
+                    format!(
+                        "{}: {}",
+                        finding["validator"].as_str().unwrap(),
+                        finding["code"].as_str().unwrap()
+                    )
+                })
+                .collect();
+            pairs.sort();
+            pairs
+        };
+        let expected = pairs(&site_report, "posts/mixed.md");
+        assert!(
+            expected
+                .iter()
+                .any(|pair| pair == "source-review: citation-versions-mixed"),
+            "{expected:?}"
+        );
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/review",
+                    json!({"kind": "posts", "path": "posts/mixed.md",
+                        "fields": {"title": "Mixed", "date": "2026-10-03", "citations": "notes"},
+                        "body": body}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(response.status, 200);
+        let review = body_json(&response);
+        assert_eq!(pairs(&review, "posts/mixed.md"), expected);
+        let counted = review["counts"]["needsReview"]["found"].as_u64().unwrap();
+        assert!(counted >= 1, "{review}");
     }
 
     #[test]

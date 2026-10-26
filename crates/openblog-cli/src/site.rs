@@ -913,7 +913,11 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     // private file the build reads refuses the build while the output folder is
     // still exactly as it was (ADR 0148). Every other finding is for the
     // author to decide and never stops anything.
-    let readiness = crate::readiness::report(root, &site);
+    let readiness = if options.include_drafts && options.now.is_none() {
+        crate::readiness::report_of_all(root, &site)
+    } else {
+        crate::readiness::report(root, &site)
+    };
     if readiness.blocking() > 0 {
         return Err(format!(
             "research readiness: {} finding(s) refuse this build. Nothing was written.

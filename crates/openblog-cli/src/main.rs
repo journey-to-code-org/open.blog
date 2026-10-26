@@ -394,7 +394,7 @@ fn run(raw: &[String]) -> Result<(), String> {
             // The one research report, after the checks above and whether or
             // not they stopped early, so the findings behind a refusal are
             // listed with the same codes and order Admin shows (ADR 0148).
-            let readiness = readiness::report(&root, &site);
+            let readiness = readiness::report_of_all(&root, &site);
             eprint!("{}", readiness.text());
             checked?;
             if readiness.blocking() > 0 {
@@ -840,7 +840,7 @@ fn check_site(
 /// only when a failure of a private file the build reads refuses the next
 /// build. Reads only.
 fn check_json(root: &std::path::Path, site: &openblog_core::Site) -> Result<(), String> {
-    let readiness = readiness::report(root, site);
+    let readiness = readiness::report_of_all(root, site);
     print!("{}", readiness.json());
     if readiness.blocking() > 0 {
         return Err(format!(
