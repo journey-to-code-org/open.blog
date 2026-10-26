@@ -280,8 +280,8 @@ other way to take part is a participation kind, off until you switch it on in `p
 - Everything submitted starts pending, and only what a moderator approves is shown. Nothing is
   ever e-mailed to readers. Nothing is accepted without hosted engagement and an endpoint.
 - `retention` (days, 1 to 3650): unmoderated items expire after `pendingDays`, unanswered
-  clarification requests after `clarificationDays`, the text of rejected and removed items is
-  purged after `closedDays`, and the private moderation record after `auditDays`, which must be
+  clarification requests after `clarificationDays`, the text of rejected and removed items and of
+  upheld abuse reports is purged after `closedDays`, and the private moderation record after `auditDays`, which must be
   at least `closedDays`. Without `retention` these defaults apply to every kind except comments:
   hosted comments are kept as they always were, never expired or purged. Writing `retention`
   yourself, even as `"retention": {}` for the defaults, applies it to comments too.

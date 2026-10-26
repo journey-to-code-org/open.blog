@@ -948,6 +948,76 @@ fn upholding_a_report_removes_its_target_or_changes_nothing() {
     );
 }
 
+/// An upheld report is approved but never public, so nothing keeps its text:
+/// it is purged after `closedDays` like a rejected item, and its audit
+/// events, which name the removal they caused, stay for `auditDays`.
+#[test]
+fn an_upheld_reports_text_is_purged_on_schedule_and_its_audit_stays() {
+    let policy = policy();
+    let target = approved_comment("parent-1");
+    let report = ItemFacts {
+        state_since: day(0),
+        ..item(ParticipationKind::AbuseReport, ModerationState::Pending)
+    };
+    let uphold = Request {
+        at: day(10),
+        ..request(
+            admin(),
+            ModerationAction::UpholdReport,
+            &report,
+            Some(&target),
+        )
+    };
+    let decision = policy.decide(&report, &uphold).unwrap();
+    let upheld = apply(&report, &decision);
+    assert_eq!(upheld.state, ModerationState::Approved);
+    assert_eq!(upheld.state_since, day(10));
+
+    assert_eq!(policy.retention_due(&upheld, day(39)), None);
+    assert_eq!(
+        policy.retention_due(&upheld, day(40)),
+        Some(RetentionStep::PurgeContent)
+    );
+    let purge = policy.purge_event(&upheld, day(40)).unwrap();
+    assert_eq!(purge.action, AuditAction::PurgeContent);
+    assert_eq!(
+        (purge.from, purge.to),
+        (Some(ModerationState::Approved), ModerationState::Approved)
+    );
+    let purged = ItemFacts {
+        content_retained: false,
+        ..upheld
+    };
+    assert_eq!(policy.retention_due(&purged, day(10_000)), None);
+    assert!(!may_view(
+        &admin(),
+        &purged,
+        ParticipationMode::Open,
+        View::Content
+    ));
+    // The upholding and the removal it caused are still on record after the
+    // text is gone, until their own period ends.
+    for event in [
+        &decision.item.audit,
+        &decision.reported_item.as_ref().unwrap().audit,
+    ] {
+        assert!(!policy.audit_due(event.at, day(40)));
+        assert!(!policy.audit_due(event.at, day(374)));
+        assert!(policy.audit_due(event.at, day(375)));
+    }
+
+    // Approved items of every publishable kind are kept while published.
+    for kind in ParticipationKind::ALL {
+        let approved = item(kind, ModerationState::Approved);
+        let due = policy.retention_due(&approved, day(10_000));
+        if kind == ParticipationKind::AbuseReport {
+            assert_eq!(due, Some(RetentionStep::PurgeContent));
+        } else {
+            assert_eq!(due, None, "{kind}");
+        }
+    }
+}
+
 fn decision_of(item: openblog_core::moderation::Transition) -> Decision {
     Decision {
         item,

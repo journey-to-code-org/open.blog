@@ -759,7 +759,8 @@ pub struct RetentionPolicy {
     pub pending_days: u32,
     /// An unanswered clarification request expires the same way.
     pub clarification_days: u32,
-    /// After rejection or removal the text, details and reader name are
+    /// After rejection or removal, or after approval of a kind that is never
+    /// public (an upheld abuse report), the text, details and reader name are
     /// purged. A withdrawn item's are purged at once.
     pub closed_days: u32,
     /// Audit events are kept this long, at least as long as `closed_days`,
@@ -1030,8 +1031,10 @@ impl ModerationPolicy {
     }
 
     /// The step retention owes an item now, if any. Approved items are kept
-    /// while they are published, and comments are never due unless the site
-    /// set retention itself.
+    /// while they are published; an approved item of a kind that is never
+    /// public (an upheld abuse report) is closed, so its text is purged after
+    /// `closed_days` like a rejected one, and its audit events stay. Comments
+    /// are never due unless the site set retention itself.
     pub fn retention_due(&self, item: &ItemFacts<'_>, now: DateTime) -> Option<RetentionStep> {
         if !self.retains(item.kind) {
             return None;
@@ -1040,13 +1043,15 @@ impl ModerationPolicy {
             ModerationState::Pending | ModerationState::Clarification => {
                 self.expiry_due(item, now).then_some(RetentionStep::Expire)
             }
-            ModerationState::Rejected | ModerationState::Removed => (item.content_retained
-                && RetentionPolicy::ended(item.state_since, self.retention.closed_days, now))
-            .then_some(RetentionStep::PurgeContent),
+            ModerationState::Approved if item.kind.rules().publishable => None,
+            ModerationState::Rejected | ModerationState::Removed | ModerationState::Approved => {
+                (item.content_retained
+                    && RetentionPolicy::ended(item.state_since, self.retention.closed_days, now))
+                .then_some(RetentionStep::PurgeContent)
+            }
             ModerationState::Withdrawn => {
                 item.content_retained.then_some(RetentionStep::PurgeContent)
             }
-            ModerationState::Approved => None,
         }
     }
 

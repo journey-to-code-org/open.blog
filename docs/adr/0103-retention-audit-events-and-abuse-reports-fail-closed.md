@@ -26,10 +26,14 @@ tables and the function's adoption to #226.
   | --- | --- | --- |
   | `pendingDays` | 90 | an unmoderated pending item expires: rejected with reason `expired` |
   | `clarificationDays` | 30 | an unanswered clarification request expires the same way |
-  | `closedDays` | 30 | the text, details and reader name of a rejected or removed item are purged |
+  | `closedDays` | 30 | the text, details and reader name of a rejected or removed item, or of an upheld abuse report, are purged |
   | `auditDays` | 365 | audit events are deleted; must be at least `closedDays` |
 
   A withdrawn item's text is due for purging at once. Approved items are kept while published.
+  An approved item of a kind that is never public, which today is an upheld abuse report, is
+  closed for retention: nothing publishes it, so its text, details and reader name are purged
+  `closedDays` after it was upheld, like a rejected item's, while its audit events, and the
+  removal they name, stay for `auditDays`.
 - **Comments are opted in, never swept in.** Hosted comments predate this policy, and today they
   are kept until a moderator acts. While `participation.retention` is absent from `openblog.json`,
   the default periods above apply to every other kind and to no comment: a pending comment never
