@@ -271,10 +271,11 @@ export class ObThirdPerspective extends HTMLElement {
     const showName = make("input");
     showName.type = "checkbox";
     const showNameError = errorFor("showName");
+    const recordHint = hint("record", "A name that is published becomes part of the site’s public record: you can withdraw it later, but copies already published may remain.");
     identity.append(
       make("legend", undefined, "Your name (optional)"),
       field(labelled(name, `${id}-name`, "Name"), nameHint, name, nameError),
-      choice(showName, labelled(showName, `${id}-show-name`, "Show my name with my reflection if it is published")),
+      choice(showName, labelled(showName, `${id}-show-name`, "Show my name with my reflection if it is published"), recordHint),
       showNameError,
     );
 
@@ -331,7 +332,8 @@ export class ObThirdPerspective extends HTMLElement {
 
     const errors = { about: aboutError, category: categoryError, body: bodyError, publication: publicationError, name: nameError, showName: showNameError };
     const controls = { body, name, showName };
-    const hints = { body: bodyHint.id, name: nameHint.id };
+    const hints = { body: bodyHint.id, name: nameHint.id, showName: recordHint.id };
+    showName.setAttribute("aria-describedby", recordHint.id);
     body.setAttribute("aria-describedby", bodyHint.id);
     name.setAttribute("aria-describedby", nameHint.id);
 

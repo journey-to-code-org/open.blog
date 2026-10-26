@@ -360,6 +360,12 @@ other way to take part is a participation kind, off until you switch it on in `p
   `llms-full.txt` link there instead of carrying them
   ([ADR 0115](adr/0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md)).
   A file that cannot be read stops `build` and `check`, as `reader-feedback.json` does.
+  A reader who withdraws a reflection deletes the hosted copy of its text and name; the Moderation
+  inbox then shows, on every tab, that it must come off its post, and the site Admin takes it
+  off. Copies already published (the site's history, feeds and the repository's history) may
+  remain, which is what the form and the withdrawal say to readers, and a name a reader chose to
+  show becomes part of the site's public record. To roll the hosted opt-in back, empty
+  `content/third-perspectives.json` (or hide the kind) first.
 
 The rules are recorded in ADRs [0101](adr/0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
 to [0104](adr/0104-retention-audit-events-and-abuse-reports-fail-closed.md).

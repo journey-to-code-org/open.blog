@@ -43,9 +43,10 @@ function perspectiveStateText(item, purged) {
       return `A moderator asked you to clarify this reflection${why ? ` because ${why}` : ""}. It is not published. Your answer replaces it and goes back for review; what you first wrote is never published.`;
     }
     case "approved":
+      if (item.published === null) return "Approved. This page cannot tell whether it is shown on the work’s page now; the author can.";
       return item.published
-        ? "Approved. It is shown on the work’s page as a reader’s reflection, as you agreed, once the site is next updated."
-        : "Approved, but not shown: it is published only while your consent allows it.";
+        ? "Approved; it appears on the work’s page as a reader’s reflection, as you agreed, once the site is updated."
+        : "Approved, but not shown: it is published only while your consent allows it and the site takes reflections.";
     case "rejected":
       return `Not published: it will not be shown on the work’s page.${purged}`;
     case "removed":
@@ -264,7 +265,7 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
       const withdraw = make("button", undefined, `Withdraw and delete my ${noun}`);
       withdraw.type = "button";
       const confirmRow = make("p", "ob-receipt-confirm");
-      confirmRow.append(confirm, " ", labelled(confirm, `${prefix}-confirm`, item.status === "approved" ? `I want this ${noun} taken off ${where} and its text and my name deleted. This cannot be undone.` : `I want this ${noun}’s text and my name deleted. This cannot be undone.`));
+      confirmRow.append(confirm, " ", labelled(confirm, `${prefix}-confirm`, item.status === "approved" ? `I want this ${noun} taken off ${where} and the hosted copy of its text and my name deleted. I understand that copies already published (the site’s history, feeds and the repository’s history) may remain. This cannot be undone.` : `I want this ${noun}’s text and my name deleted. This cannot be undone.`));
       withdraw.addEventListener("click", async () => {
         if (!confirm.checked) {
           status.textContent = `Confirm that you want the ${noun} deleted first.`;
@@ -275,7 +276,7 @@ export function receiptManager({ endpoint, noun: managed = "note" }) {
         status.textContent = "Withdrawing…";
         const { status: code, data } = await call(endpoint, { receipt, action: "withdraw", expectedVersion: item.version });
         withdraw.disabled = false;
-        if (code === 200 && data.item) show(data.item, item.status === "approved" ? `Your ${noun} was withdrawn and its text and your name deleted. The author has been shown that it must come off ${where}.` : `Your ${noun} was withdrawn and its text and your name deleted.`);
+        if (code === 200 && data.item) show(data.item, item.status === "approved" ? `Your ${noun} was withdrawn and the hosted copy of its text and your name deleted. The author has been shown that it must come off ${where}. Copies already published (the site’s history, feeds and the repository’s history) may remain.` : `Your ${noun} was withdrawn and its text and your name deleted.`);
         else if (code === 409 && data.item) show(data.item, receiptProblem(code, data.code));
         else {
           // Disabling the button while sending took focus from it: the reader is taken to why.

@@ -391,6 +391,8 @@ test("every control is native and labelled, the choices are fieldsets with legen
   assert.equal(ui.control("publish-yes").checked, false);
   assert.equal(ui.control("publish-no").checked, false);
   assert.equal(ui.control("show-name").checked, false);
+  // Choosing to show a name says it becomes part of the site's public record.
+  assert.match(document.getElementById(ui.control("show-name").getAttribute("aria-describedby")).textContent, /becomes part of the site’s public record.*copies already published may remain/);
   assert.equal(ui.control("clarification").checked, false);
   assert.equal(ui.control("category-none").checked, true, "no prompt is a complete choice");
   // A hostile section title is text.

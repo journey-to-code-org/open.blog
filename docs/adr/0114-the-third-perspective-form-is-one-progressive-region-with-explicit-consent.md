@@ -24,7 +24,10 @@ never assumed, and no part of the form may look like a rating or a vote.
   `<section id="ob-third-perspective">`, headed "Offer a Third Perspective", after passage
   feedback and before comments, plus the passage data element (shared with passage feedback, once)
   and the component's module script. Locked and hidden posts, sites that leave the kind off,
-  feeds and portable copies are unchanged; the region is outside the article.
+  feeds and portable copies are unchanged; the region is outside the article. (Amended by
+  [ADR 0115](0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md):
+  a post that shows or offers Third Perspectives now adds one labelled link to its canonical page
+  in portable copies and feeds.)
 - **The static region is the no-JavaScript path.** It says what a reflection is, that it is shown
   only as a reader's, only as the reader agrees and never with scores or votes, and how to write
   to the author instead (`engagement.feedbackContact`, linked): which section, whether it may be

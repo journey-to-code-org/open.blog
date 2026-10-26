@@ -59,13 +59,20 @@ need to know where participation happens without the copy carrying reader words 
   published and whether the hosted copy may be shown now (`mayBeShown`); when they disagree the
   site Admin of the work gets one button (`POST engagement/third-perspectives/publish` or
   `/unpublish`, re-checked against the hosted copy). A reader's withdrawal by receipt reaches the
-  static page only through that button, as for published notes (ADR 0107); the card says so.
+  static page only through that button, as for published notes (ADR 0107). The inbox checks every
+  id in the published file against the hosted copy on each load (`GET
+  engagement/third-perspectives/published`) and shows, on every tab, a banner counting the
+  published reflections that must come off, each with its own take-off button, and another for
+  those whose state cannot be told; the card says so too.
 - **Status by receipt only.** A reader sees their reflection's state only through RD12's receipt:
   waiting for review (never "published"), asked to clarify, approved and shown as a reader's
   reflection, approved but not shown, not published (rejected, removed or expired), or withdrawn.
   The function's `published` flag for this kind is true only while the row is approved at its
   current revision, not waiting on a clarification of it, under an approved consent record that
-  agreed to publication while the consent in effect still does. Lookup is by the receipt's digest
+  agreed to publication while the consent in effect still does, and its kind is not hidden. Where
+  the function does not read the consent column (the flag is off or rolled back) that is unknown:
+  the receipt says it cannot tell, Admin says the state is unknown rather than "must come off",
+  and abuse reports fall back to plain approval at the current text. Lookup is by the receipt's digest
   alone: a guessed or malformed receipt and a request naming an id get the same `404
   unknownReceipt`, the hourly receipt quota applies, and the answer holds no id, private name,
   consent record, digest, moderator or reason beyond a clarification request's. The same
@@ -74,7 +81,9 @@ need to know where participation happens without the copy carrying reader words 
   Perspectives, or offers the form for them, carries the `third-perspectives` capability (a
   planned contract owned by story #201 with #222 as its portability gate). Portable HTML and
   Markdown and the feeds built from them add the labelled note "Third Perspectives: see it on the
-  original article" linking the canonical page, and `llms-full.txt` adds one line with the
+  original article" linking the section of reflections on the canonical page (`#ob-third-perspectives`),
+  or, with nothing approved yet, "take part on the original article" linking the form
+  (`#ob-third-perspective`), and `llms-full.txt` adds one line with the
   canonical address; none carries a reflection, a name, an id or the form. A locked post with
   nothing approved, a hidden post and a site that leaves the kind off are byte-for-byte
   unchanged. This updates ADR 0114's statement that feeds and portable copies of an open post
@@ -101,6 +110,13 @@ need to know where participation happens without the copy carrying reader words 
 - A withdrawal, or a reader hiding their name after approval, reaches the live page after the
   site Admin takes the shown action and the site is rebuilt and deployed; the receipt says the
   author has been shown that it must come off.
+- Withdrawal deletes the hosted copy of the text and name, and the receipt says only that. A
+  reflection already published has been in the site's history, feeds and the repository's history,
+  possibly public and copied; no step here can recall those, so the withdrawal text and the
+  consent form say that copies already published may remain, and that a published name becomes
+  part of the site's public record.
+- Rolling the hosted opt-in back first means emptying `third-perspectives.json` (or hiding the
+  kind), because without the consent column the hosted state of an approved reflection is unknown.
 - Featured reflections (#214) can select from records in this file without a new store.
 
 ## Domain language

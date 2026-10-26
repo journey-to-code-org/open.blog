@@ -200,7 +200,7 @@ test("a reader's receipt names their reflection's state, and pending never reads
 
   const look = manager.getByRole("button", { name: "Look up my reflection" });
   for (const [item, words] of [
-    [reflection({ status: "approved", published: true }), /^Approved\. It is shown on the work’s page as a reader’s reflection/],
+    [reflection({ status: "approved", published: true }), /^Approved; it appears on the work’s page as a reader’s reflection/],
     [reflection({ status: "rejected" }), /^Not published:/],
     [reflection({ status: "withdrawn", purged: true, body: undefined, details: undefined }), /^You withdrew it, so it is not published\./],
   ]) {
@@ -215,7 +215,7 @@ test("a reader's receipt names their reflection's state, and pending never reads
   // An approved reflection can still be withdrawn, said in the reflection's words.
   answer = { body: { item: reflection({ status: "approved", published: true }) } };
   await look.click();
-  await expect(manager.getByLabel("I want this reflection taken off the work’s page and its text and my name deleted. This cannot be undone.")).toBeVisible();
+  await expect(manager.getByLabel("I want this reflection taken off the work’s page and the hosted copy of its text and my name deleted. I understand that copies already published (the site’s history, feeds and the repository’s history) may remain. This cannot be undone.")).toBeVisible();
 
   // A guessed receipt finds nothing and names nobody.
   answer = { status: 404, body: { error: "No note matches this receipt.", code: "unknownReceipt" } };
