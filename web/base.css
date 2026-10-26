@@ -795,7 +795,10 @@ ob-citation-previews {
   z-index: 20;
   display: block;
   box-sizing: border-box;
-  inline-size: min(28rem, calc(100vw - 1rem));
+  /* The component sets the viewport's width without its scrollbar, less the
+     gutters; `100vw` would count a classic scrollbar. */
+  inline-size: 28rem;
+  max-inline-size: var(--ob-citation-preview-max-inline-size, calc(100vw - 1rem));
   max-block-size: min(20rem, 70vh);
   overflow: auto;
   padding: 0.75rem 1rem;

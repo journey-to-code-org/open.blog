@@ -468,7 +468,11 @@ test("the preview stays inside the viewport, below the marker or above it", () =
   marker.focus();
   popover().rect = { left: 110, top: 100, width: 300, height: 120 };
   host.place();
-  assert.deepEqual(popover().style.props, { "--ob-citation-preview-x": "-10px", "--ob-citation-preview-y": "20px" });
+  assert.deepEqual(popover().style.props, {
+    "--ob-citation-preview-max-inline-size": "984px",
+    "--ob-citation-preview-x": "-10px",
+    "--ob-citation-preview-y": "20px",
+  });
   assert.equal(popover().dataset.side, "below");
   // At the right edge it moves left to keep an 8px gutter.
   marker.rect = { left: 900, top: 100, width: 10, height: 16 };
@@ -487,6 +491,12 @@ test("the preview stays inside the viewport, below the marker or above it", () =
   popover().rect = { left: 110, top: 100, width: 264, height: 120 };
   host.place();
   assert.equal(popover().style.props["--ob-citation-preview-x"], `${8 - 110}px`);
+  // Its width is the viewport's without a classic scrollbar (clientWidth),
+  // less both gutters, never `100vw`.
+  assert.equal(popover().style.props["--ob-citation-preview-max-inline-size"], `${280 - 16}px`);
+  document.documentElement.clientWidth = 10;
+  host.place();
+  assert.equal(popover().style.props["--ob-citation-preview-max-inline-size"], "0px");
   // Resizing places it again.
   assert.equal(window.count("resize"), 1);
 });
@@ -550,4 +560,6 @@ test("the page's styles animate only without a reduced-motion preference and nev
   const print = css.slice(css.indexOf("@media print {"));
   assert.match(print, /\.ob-citation-back,\n {2}\.ob-citation-preview \{\n {4}display: none !important;/);
   assert.match(css, /ob-citation-previews \{\n {2}display: none;/);
+  // The width the component measures bounds the preview, not `100vw`.
+  assert.match(preview, /\n {2}inline-size: 28rem;\n {2}max-inline-size: var\(--ob-citation-preview-max-inline-size, /);
 });

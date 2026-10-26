@@ -224,17 +224,20 @@ export class ObCitationPreviews extends HTMLElement {
 
   /**
    * Below the marker, or above it when only that fits, and inside the
-   * viewport's width. The offsets are custom properties set through the CSS
-   * object model, which the page's style policy allows.
+   * viewport's width, which also bounds its own width. The width and offsets
+   * are custom properties set through the CSS object model, which the page's
+   * style policy allows.
    */
   place() {
     if (!this.current || !this.popover || this.popover.hidden) return;
     const style = this.popover.style;
-    style.setProperty("--ob-citation-preview-x", "0px");
-    style.setProperty("--ob-citation-preview-y", "0px");
     const view = document.documentElement;
+    // The layout viewport without a classic scrollbar, unlike `100vw`.
     const width = view.clientWidth;
     const height = view.clientHeight;
+    style.setProperty("--ob-citation-preview-max-inline-size", `${Math.max(0, width - 2 * GUTTER)}px`);
+    style.setProperty("--ob-citation-preview-x", "0px");
+    style.setProperty("--ob-citation-preview-y", "0px");
     const box = this.popover.getBoundingClientRect();
     const mark = this.current.getBoundingClientRect();
     let left = Math.min(mark.left, width - GUTTER - box.width);

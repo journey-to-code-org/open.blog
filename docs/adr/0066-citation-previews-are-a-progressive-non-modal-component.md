@@ -59,9 +59,11 @@ the page.
   locators as readers see them in the notes' locale (`pp. 514–520, l. 3`), absent when there are
   none. It is additive, so the data stays version 1.
 - **No requests, no storage, within the policy.** The component never fetches, never stores
-  anything and adds no inline script or markup style. It positions the preview through two
-  custom properties set with the CSS object model, which `style-src 'self'` allows: below the
-  marker, above it when only that fits, and inside the viewport's width with an 8px gutter.
+  anything and adds no inline script or markup style. It positions the preview through custom
+  properties set with the CSS object model, which `style-src 'self'` allows: below the marker,
+  above it when only that fits, and inside the viewport's width with an 8px gutter. Its greatest
+  width is the root element's `clientWidth` less both gutters, not `100vw`, which would count a
+  classic scrollbar.
 - **Motion and print.** The preview fades in only under `prefers-reduced-motion: no-preference`;
   the global reduced-motion rule removes it otherwise. Print hides it; the notes print.
 - **Disconnection.** Removing the host closes the preview, removes it and its description, clears
