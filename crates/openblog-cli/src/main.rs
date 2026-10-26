@@ -20,6 +20,7 @@ mod notebook_store;
 mod portable_export;
 mod private_guard;
 mod publish;
+mod readiness;
 mod research_review;
 mod safe_http;
 mod scaffold;
@@ -386,66 +387,21 @@ fn run(raw: &[String]) -> Result<(), String> {
         "analytics" => analytics_command(&root, &args),
         "check" => {
             let (mut site, themes) = site::load_site(&root, true, None)?;
-            let files = site::generate_site(&root, &mut site, &themes)?;
-            println!(
-                "OK: {} posts, {} series, {} tags, {} pages; would write {} generated files.",
-                site.posts.len(),
-                site.series.len(),
-                site.tags.len(),
-                site.pages.len(),
-                files.len()
-            );
-            for w in &site.warnings {
-                eprintln!("warning: {w}");
+            if args.switches.contains("json") {
+                return check_json(&root, &site);
             }
-            for warning in portable_export::diagnostics(&site)? {
-                eprintln!("warning: portability: {warning}");
-            }
-            serve::print_accessibility_findings(&site.accessibility);
-            serve::print_evidence_findings(&site.evidence);
-            if let Some(summary) = citation_summary(&site) {
-                println!("{summary}");
-            }
-            if let Some(summary) = check_source_library(&root, &site.config.contributors)? {
-                println!("{summary}");
-            }
-            if let Some(summary) = check_research_notebook(&root, &site.config.contributors)? {
-                println!("{summary}");
-            }
-            if let Some((summary, findings)) =
-                check_source_review(&root, &site.config.contributors, &site.source_review)?
-            {
-                serve::print_source_review_findings(&findings);
-                println!("{summary}");
-            }
-            if let Some((summary, notices)) = check_knowledge_atlas(
-                &root,
-                &site.config.contributors,
-                site.config.knowledge_atlas.publish,
-            )? {
-                for notice in notices {
-                    eprintln!("notice: {notice}");
-                }
-                println!("{summary}");
-            }
-            if let Some((summary, notices, findings)) =
-                check_claims(&root, &site.config.contributors, &site.config.paths.content)?
-            {
-                for notice in notices {
-                    eprintln!("notice: {notice}");
-                }
-                serve::print_evidence_findings(&findings);
-                println!("{summary}");
-            }
-            if let Some((summary, notices)) = check_alignments(
-                &root,
-                &site.config.contributors,
-                site.config.comparisons.publish,
-            )? {
-                for notice in notices {
-                    eprintln!("notice: {notice}");
-                }
-                println!("{summary}");
+            let checked = check_site(&root, &mut site, &themes);
+            // The one research report, after the checks above and whether or
+            // not they stopped early, so the findings behind a refusal are
+            // listed with the same codes and order Admin shows (ADR 0148).
+            let readiness = readiness::report(&root, &site);
+            eprint!("{}", readiness.text());
+            checked?;
+            if readiness.blocking() > 0 {
+                return Err(format!(
+                    "research readiness: {} finding(s) refuse the next build; see above.",
+                    readiness.blocking()
+                ));
             }
             Ok(())
         }
@@ -806,6 +762,93 @@ fn user_command_with(
         }
         _ => Err("usage: openblog user add|passwd|remove|list <name>".into()),
     }
+}
+
+/// The checks `openblog check` has always printed, for a site that loaded.
+fn check_site(
+    root: &std::path::Path,
+    site: &mut openblog_core::Site,
+    themes: &openblog_core::ThemeSet,
+) -> Result<(), String> {
+    let files = site::generate_site(root, site, themes)?;
+    println!(
+        "OK: {} posts, {} series, {} tags, {} pages; would write {} generated files.",
+        site.posts.len(),
+        site.series.len(),
+        site.tags.len(),
+        site.pages.len(),
+        files.len()
+    );
+    for w in &site.warnings {
+        eprintln!("warning: {w}");
+    }
+    for warning in portable_export::diagnostics(site)? {
+        eprintln!("warning: portability: {warning}");
+    }
+    serve::print_accessibility_findings(&site.accessibility);
+    serve::print_evidence_findings(&site.evidence);
+    if let Some(summary) = citation_summary(site) {
+        println!("{summary}");
+    }
+    if let Some(summary) = check_source_library(root, &site.config.contributors)? {
+        println!("{summary}");
+    }
+    if let Some(summary) = check_research_notebook(root, &site.config.contributors)? {
+        println!("{summary}");
+    }
+    if let Some((summary, findings)) =
+        check_source_review(root, &site.config.contributors, &site.source_review)?
+    {
+        serve::print_source_review_findings(&findings);
+        println!("{summary}");
+    }
+    if let Some((summary, notices)) = check_knowledge_atlas(
+        root,
+        &site.config.contributors,
+        site.config.knowledge_atlas.publish,
+    )? {
+        for notice in notices {
+            eprintln!("notice: {notice}");
+        }
+        println!("{summary}");
+    }
+    if let Some((summary, notices, findings)) =
+        check_claims(root, &site.config.contributors, &site.config.paths.content)?
+    {
+        for notice in notices {
+            eprintln!("notice: {notice}");
+        }
+        serve::print_evidence_findings(&findings);
+        println!("{summary}");
+    }
+    if let Some((summary, notices)) = check_alignments(
+        root,
+        &site.config.contributors,
+        site.config.comparisons.publish,
+    )? {
+        for notice in notices {
+            eprintln!("notice: {notice}");
+        }
+        println!("{summary}");
+    }
+    Ok(())
+}
+
+/// `openblog check --json`: the research readiness report of the saved site as
+/// deterministic machine-readable JSON, the same document Admin receives, and
+/// nothing else on standard output. Exits with an error, after printing it,
+/// only when a failure of a private file the build reads refuses the next
+/// build. Reads only.
+fn check_json(root: &std::path::Path, site: &openblog_core::Site) -> Result<(), String> {
+    let readiness = readiness::report(root, site);
+    print!("{}", readiness.json());
+    if readiness.blocking() > 0 {
+        return Err(format!(
+            "research readiness: {} finding(s) refuse the next build.",
+            readiness.blocking()
+        ));
+    }
+    Ok(())
 }
 
 /// How many posts publish citations, and a plain statement that their checks

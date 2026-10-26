@@ -3,6 +3,35 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+- `openblog check` and `openblog build` now review the sources your opted-in posts cite: a
+  quotation (a block quotation or quoted words with a citation) that gives no location, or only
+  a chapter or section; a page in an edition recorded in several volumes that names no volume;
+  a quotation of a work whose editions or translations are recorded; and a post that cites one
+  source under two records with the same DOI or ISBN, or several versions of one work.
+  `openblog check` also reviews the private source library and notebook: two records with the
+  same identifier (an ISBN-10 meets its ISBN-13), two DOIs on one record, an ISBN on a work whose
+  editions are recorded, a translation without a translator, a witness without its repository or
+  shelfmark, and a passage without a location. Every prompt is advisory, runs offline, changes
+  nothing and names records by id; none says whether a source or quotation is accurate.
+
+- Research checks now have one report. Every check on your research (the research profile and
+  citations, claims and their evidence, source review, atlas, chronology, comparison and context
+  link checks, and the private files a build reads) is gathered into the same findings, with the
+  same codes in the same order, wherever you look. **What will be public** in the research
+  workspace lists them under what the next build publishes, with where each one is and how to
+  repair it; **What this post makes public** and the Research panel beside a draft show the same
+  checks for one post, with **Review research checks** opening the review before publishing.
+  `openblog check`, `openblog build` and the preview server print the same findings, grouped the
+  same way, and `openblog check --json` writes the report as deterministic JSON. A finding you
+  have considered can be acknowledged from the keyboard; it stays listed and counted, is never
+  called resolved, and the acknowledgement stops applying when the finding changes. Only a
+  failure of a private file the build reads stops a build, and it stops it before any public file
+  is written. Sites without research print exactly what they printed before. The review before
+  publication and the readiness report now share one contract, so acknowledgements you already
+  made keep working.
+
 ## [0.39.0] - 2026-10-26
 
 - Admin Studio gathers Sources, the research notebook, the Knowledge Atlas, Compare and claims
@@ -221,17 +250,6 @@ All notable changes to open.blog are recorded here. Releases follow
   from the last day. Rate limits now keep only an hourly digest of the client, never one
   that lasts across hours, and a note or comment sent twice within the hour is taken once.
   `supabase/protection-rollback.sql` undoes the schema. Nothing is e-mailed to anyone.
-
-- `openblog check` and `openblog build` now review the sources your opted-in posts cite: a
-  quotation (a block quotation or quoted words with a citation) that gives no location, or only
-  a chapter or section; a page in an edition recorded in several volumes that names no volume;
-  a quotation of a work whose editions or translations are recorded; and a post that cites one
-  source under two records with the same DOI or ISBN, or several versions of one work.
-  `openblog check` also reviews the private source library and notebook: two records with the
-  same identifier (an ISBN-10 meets its ISBN-13), two DOIs on one record, an ISBN on a work whose
-  editions are recorded, a translation without a translator, a witness without its repository or
-  shelfmark, and a passage without a location. Every prompt is advisory, runs offline, changes
-  nothing and names records by id; none says whether a source or quotation is accurate.
 
 ## [0.35.0] - 2026-10-26
 

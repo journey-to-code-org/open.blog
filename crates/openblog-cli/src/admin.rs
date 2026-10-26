@@ -779,6 +779,7 @@ fn authenticated_api(
         ("POST", "preview") => preview(state, req),
         ("POST", "research/review") => review_before_publication(state, req),
         ("GET", "research/boundary") => boundary_site(state),
+        ("GET", "research/readiness") => readiness_site(state),
         ("POST", "research/boundary") => boundary_post(state, req),
         ("PUT", "research/review/acknowledgements") => change_acknowledgement(state, req, true),
         ("DELETE", "research/review/acknowledgements") => change_acknowledgement(state, req, false),
@@ -14410,10 +14411,7 @@ fn review_before_publication(state: &AppState, req: &Request) -> Response {
         || evidence
             .iter()
             .any(|finding| finding.code.to_string().starts_with("citation-"));
-    let (acknowledgements, revision, problem) = match research_review::load(&state.root) {
-        Ok(snapshot) => (snapshot.set.acknowledgements, Some(snapshot.revision), None),
-        Err(error) => (Vec::new(), None, Some(error.to_string())),
-    };
+    let (acknowledgements, ack_info) = research_review::acknowledgements(&state.root);
     let (findings, not_reviewed) = if applies {
         let document = match frontmatter::parse(&draft.source) {
             Ok(document) => document,
@@ -14435,16 +14433,9 @@ fn review_before_publication(state: &AppState, req: &Request) -> Response {
         (Vec::new(), Vec::new())
     };
     let review = PublicationReview::new(findings, &acknowledgements);
-    let mut view = serde_json::to_value(&review).unwrap_or_else(|_| json!({}));
-    view["applies"] = json!(applies);
+    let mut view = research_review::view(&review, applies, &not_reviewed, &ack_info);
     view["post"] = json!(draft.rel);
     view["firstBodyLine"] = json!(draft.first_body_line);
-    view["notReviewed"] = json!(not_reviewed);
-    view["acknowledgements"] = json!({
-        "file": research_review::ACKNOWLEDGEMENTS_FILE,
-        "revision": revision,
-        "error": problem,
-    });
     Response::json(200, &view)
 }
 
@@ -14487,6 +14478,28 @@ fn boundary_site(state: &AppState) -> Response {
     let mut view = serde_json::to_value(&manifest).unwrap_or_else(|_| json!({}));
     view["refused"] = json!(refused);
     Response::json(200, &view)
+}
+
+/// The research readiness report of the saved site (#194, ADR 0148): the
+/// same findings, codes and order `openblog check`, `openblog build` and the
+/// preview print, from the same load. Read-only and Admin-only: it writes
+/// nothing, repairs nothing and publishes nothing.
+fn readiness_site(state: &AppState) -> Response {
+    let guard = lock(&state.build);
+    let loaded = site::load_site(&state.root, state.include_drafts, Some(clock::now()));
+    drop(guard);
+    match loaded {
+        Ok((site, _)) => Response::json(200, &crate::readiness::report(&state.root, &site).view()),
+        Err(error) => Response::json(
+            422,
+            &json!({
+                "error": format!(
+                    "The site could not be loaded, so the research report cannot be read: {} Nothing was changed.",
+                    error.lines().next().unwrap_or_default()
+                ),
+            }),
+        ),
+    }
 }
 
 /// What one post will publish of the research, from the editor's unsaved
@@ -16912,6 +16925,292 @@ mod tests {
             approved["staleApprovals"]["stale-places"].is_null(),
             "{}",
             approved["staleApprovals"]
+        );
+    }
+
+    // ---- the research readiness report (#194, ADR 0148) -------------------------
+
+    fn readiness_of(f: &Fixture, session: &(String, String)) -> Json {
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/readiness"), session, false),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        body_json(&response)
+    }
+
+    /// The `[validator: code]` of each finding in the order a report lists
+    /// them: its groups in turn, each in the contract's order.
+    fn listed_codes(view: &Json) -> Vec<String> {
+        let findings = view["findings"].as_array().unwrap();
+        view["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|group| group["findings"].as_array().unwrap())
+            .map(|position| {
+                let finding = &findings[position.as_u64().unwrap() as usize];
+                format!(
+                    "{}: {}",
+                    finding["validator"].as_str().unwrap(),
+                    finding["code"].as_str().unwrap()
+                )
+            })
+            .collect()
+    }
+
+    fn printed_codes(text: &str) -> Vec<String> {
+        text.lines()
+            .filter(|line| line.starts_with("research "))
+            .filter_map(|line| {
+                let end = line.rfind(']')?;
+                let start = line[..end].rfind('[')?;
+                Some(line[start + 1..end].to_string())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn admin_check_build_and_preview_show_one_readiness_report_with_the_same_codes_and_order() {
+        let f = boundary_fixture("readiness-parity");
+        assert_eq!(
+            handle(&f.state, &req("GET", "/admin/api/research/readiness")).status,
+            401,
+            "an Admin route denies by default"
+        );
+        let session = login_ok(&f);
+        let stores = research_store_files(&f);
+        let admin = readiness_of(&f, &session);
+        assert_eq!(
+            readiness_of(&f, &session),
+            admin,
+            "the report is deterministic"
+        );
+
+        // The build prints the very report Admin reads.
+        let built = production(&f.dir);
+        let readiness = built
+            .readiness
+            .as_ref()
+            .expect("a research site is reported");
+        assert_eq!(admin, readiness.view());
+        // `openblog check --json` is the same document, from the same load.
+        let (site, _) = site::load_site(&f.dir, true, None).unwrap();
+        let check: Json =
+            serde_json::from_str(&crate::readiness::report(&f.dir, &site).json()).unwrap();
+        assert_eq!(admin, check);
+        // And the terminal lists the same codes in the same order as Admin's groups.
+        let codes = listed_codes(&admin);
+        assert!(codes.len() >= 4, "{codes:?}");
+        assert_eq!(printed_codes(&readiness.text()), codes);
+
+        // The rows #62 added, and the unsafe web address, are reported by their owners.
+        for expected in [
+            "publication-context: context-link-unpublished",
+            "citation-review: citation-identifier-unpublished",
+            "alignments: stale-approval",
+        ] {
+            assert!(
+                codes.iter().any(|code| code == expected),
+                "{expected} in {codes:?}"
+            );
+        }
+        // Counts stay apart; nothing is scored or called resolved or ready.
+        let counts = admin["counts"].as_object().unwrap();
+        assert_eq!(
+            counts.keys().collect::<Vec<_>>(),
+            ["detected", "needsReview", "potential"]
+        );
+        for key in ["score", "total", "ready", "resolved", "pass", "passed"] {
+            assert!(!admin.to_string().contains(&format!("\"{key}\"")), "{key}");
+        }
+        // Reading the report writes nothing and shows nothing private.
+        assert_eq!(research_store_files(&f), stores);
+        assert_clean("the readiness report", &serde_json::to_vec(&admin).unwrap());
+        assert!(!admin.to_string().contains("ZqxLeak"), "{admin}");
+        assert_clean("the terminal report", readiness.text().as_bytes());
+        assert!(!readiness.text().contains("ZqxLeak"));
+    }
+
+    #[test]
+    fn a_stale_approval_is_withheld_and_a_blocking_failure_stops_the_build_before_anything_changes()
+    {
+        let f = boundary_fixture("readiness-blocking");
+        let session = login_ok(&f);
+        let admin = readiness_of(&f, &session);
+        let stale = admin["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|finding| finding["code"] == "stale-approval")
+            .expect("the moved passage's approval is stale");
+        assert_eq!(stale["gate"], "withholds");
+        assert!(
+            admin["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|group| group["name"] != "blocking"),
+            "a withheld comparison blocks nothing"
+        );
+
+        let first = production(&f.dir);
+        let before = public_artifacts(&f.dir);
+        let stores = research_store_files(&f);
+        // A damaged atlas the build reads is a blocking failure scoped to that file.
+        fs::write(f.dir.join(crate::atlas_store::ATLAS_FILE), "{ not json").unwrap();
+        let admin = readiness_of(&f, &session);
+        let blocking = admin["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|group| group["name"] == "blocking")
+            .expect("a damaged atlas blocks the next build");
+        let entry = &admin["findings"][blocking["findings"][0].as_u64().unwrap() as usize];
+        assert_eq!(entry["scope"]["object"], "atlas");
+        assert_eq!(entry["gate"], "refuses");
+        let refusal = site::build(
+            &f.dir,
+            &site::BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: Some(clock::now()),
+            },
+        )
+        .err()
+        .expect("the build is refused");
+        assert!(
+            refusal.contains("Knowledge Atlas") || refusal.contains("atlas"),
+            "{refusal}"
+        );
+        assert_eq!(
+            public_artifacts(&f.dir),
+            before,
+            "a refused build changes no public artifact"
+        );
+        let mut after = research_store_files(&f);
+        after.retain(|bytes| bytes != b"{ not json");
+        assert_eq!(
+            after.len() + 1,
+            stores.len(),
+            "only the damaged atlas differs; nothing is repaired"
+        );
+        assert!(first.readiness.is_some());
+    }
+
+    #[test]
+    fn an_acknowledgement_made_in_admin_stays_listed_counted_and_goes_stale_when_the_finding_changes(
+    ) {
+        let f = boundary_fixture("readiness-acknowledge");
+        let session = login_ok(&f);
+        let file = f.dir.join(research_review::ACKNOWLEDGEMENTS_FILE);
+        fs::remove_file(&file).unwrap();
+        let before = readiness_of(&f, &session);
+        let target = before["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|finding| finding["code"] == "context-link-unpublished")
+            .expect("the link to the private entry")
+            .clone();
+        let revision = before["acknowledgements"]["revision"].as_str().unwrap();
+        let mut ack = json!({
+            "validator": target["validator"], "code": target["code"],
+            "object": target["scope"]["object"], "fingerprint": target["fingerprint"],
+        });
+        for part in ["path", "id", "field"] {
+            if !target["scope"][part].is_null() {
+                ack[part] = target["scope"][part].clone();
+            }
+        }
+        // A8's Admin flow writes it; the unified report reads it.
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/research/review/acknowledgements",
+                    json!({"revision": revision, "acknowledgement": ack}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let after = readiness_of(&f, &session);
+        let acknowledged = after["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|finding| finding["code"] == "context-link-unpublished")
+            .unwrap();
+        assert_eq!(acknowledged["acknowledgement"], "current");
+        assert_eq!(
+            after["findings"].as_array().unwrap().len(),
+            before["findings"].as_array().unwrap().len(),
+            "an acknowledged finding is still listed"
+        );
+        assert_eq!(
+            after["counts"]["detected"]["found"],
+            before["counts"]["detected"]["found"]
+        );
+        assert_eq!(after["counts"]["detected"]["acknowledged"], 1);
+        // The terminal says so, in words that never call it resolved.
+        let (site, _) = site::load_site(&f.dir, true, None).unwrap();
+        let text = crate::readiness::report(&f.dir, &site).text();
+        assert!(text.contains("(acknowledged)"), "{text}");
+        assert!(!text.to_lowercase().contains("resolved"), "{text}");
+
+        // The link changes, so what the finding says changes: the record is stale.
+        let post = f.dir.join("content/posts/cave.md");
+        let moved = fs::read_to_string(&post)
+            .unwrap()
+            .replace("/atlas/the-good/", "/atlas/the-good/#dates");
+        fs::write(&post, moved).unwrap();
+        let stale = readiness_of(&f, &session);
+        let entry = stale["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|finding| finding["code"] == "context-link-unpublished")
+            .unwrap();
+        assert_eq!(entry["acknowledgement"], "stale");
+        assert_eq!(stale["counts"]["detected"]["acknowledged"], 0);
+    }
+
+    #[test]
+    fn a_site_without_research_is_not_reported_on_and_its_output_is_unchanged() {
+        let f = fixture("readiness-legacy");
+        let session = login_ok(&f);
+        let admin = readiness_of(&f, &session);
+        assert_eq!(admin["applies"], false);
+        assert_eq!(admin["findings"], json!([]));
+        assert_eq!(admin["groups"], json!([]));
+        let built = production(&f.dir);
+        assert!(built.readiness.is_none());
+        let first = public_artifacts(&f.dir);
+        production(&f.dir);
+        assert_eq!(
+            public_artifacts(&f.dir),
+            first,
+            "builds stay byte for byte equal"
+        );
+        let (site, _) = site::load_site(&f.dir, true, None).unwrap();
+        let readiness = crate::readiness::report(&f.dir, &site);
+        assert_eq!(
+            readiness.text(),
+            "",
+            "check prints nothing more than before"
         );
     }
 

@@ -238,6 +238,9 @@ pub struct BuildReport {
     pub source_review: Vec<openblog_core::source_review::SourceReviewFinding>,
     /// What the research projections published and withheld (ADR 0125).
     pub boundary: openblog_core::publication_boundary::BoundaryManifest,
+    /// The research readiness report the build was checked against (ADR 0148),
+    /// when the site has research to report on; `None` for a site without any.
+    pub readiness: Option<crate::readiness::Readiness>,
 }
 
 pub fn load_config(root: &Path) -> Result<SiteConfig, String> {
@@ -906,6 +909,20 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         },
     )?;
     let (files, boundary) = generate_site_with_boundary(root, &mut site, &themes)?;
+    // The one research report, read before anything is written: a failure of a
+    // private file the build reads refuses the build while the output folder is
+    // still exactly as it was (ADR 0148). Every other finding is for the
+    // author to decide and never stops anything.
+    let readiness = crate::readiness::report(root, &site);
+    if readiness.blocking() > 0 {
+        return Err(format!(
+            "research readiness: {} finding(s) refuse this build. Nothing was written.
+{}",
+            readiness.blocking(),
+            readiness.text().trim_end()
+        ));
+    }
+    let readiness = readiness.applies.then_some(readiness);
     let config = &site.config;
     let mut warnings = site.warnings.clone();
     warnings.extend(
@@ -1002,6 +1019,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         evidence,
         source_review: site.source_review.clone(),
         boundary,
+        readiness,
     })
 }
 

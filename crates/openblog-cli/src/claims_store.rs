@@ -219,6 +219,17 @@ pub fn check_against_library(root: &Path, library: &SourceLibrary) -> Result<(),
 /// two posts claiming one slug are left out, so an anchor in them cannot be
 /// verified.
 pub fn read_saved_posts(root: &Path, content_dir: &str) -> (Drafts, BTreeMap<String, String>) {
+    let posts = saved_post_sources(root, content_dir);
+    drafts_of(
+        posts
+            .iter()
+            .map(|(path, source)| (path.as_str(), source.as_str())),
+    )
+}
+
+/// The saved posts, as (path relative to the content folder, source), with
+/// the same exclusions as [`read_saved_posts`].
+pub fn saved_post_sources(root: &Path, content_dir: &str) -> Vec<(String, String)> {
     let content = root.join(content_dir);
     let mut posts = Vec::new();
     // The build's own walk: a directory symlink that leaves the content
@@ -241,11 +252,7 @@ pub fn read_saved_posts(root: &Path, content_dir: &str) -> (Drafts, BTreeMap<Str
         };
         posts.push((path, source));
     }
-    drafts_of(
-        posts
-            .iter()
-            .map(|(path, source)| (path.as_str(), source.as_str())),
-    )
+    posts
 }
 
 /// [`read_saved_posts`] for a build that has already read its content

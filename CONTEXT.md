@@ -1106,10 +1106,21 @@ _Avoid_: Severity, priority
 
 **Finding gate**:
 What the owning validator does about a finding: advisory (nothing is refused), refuses when
-published (a post publishing the citation is refused), or refuses (the save or build is refused).
-Only deterministic integrity and privacy failures refuse; potential and needs-review findings are
-always advisory.
+published (a post publishing the citation is refused), withholds (a stale approval leaves one
+comparison out of the build and cannot be acknowledged), or refuses (the save or build is
+refused). Only deterministic integrity and privacy failures refuse; potential and needs-review
+findings are always advisory.
 _Avoid_: Blocking review, mandatory resolution
+
+**Research readiness report**:
+The one report of what every research check says about the site as the next build would publish
+it: the contract's findings in its one order, grouped by what the build refuses and then by
+outcome, counted apart, with the author's acknowledgements matched. Admin (What will be public,
+What this post makes public, the Research panel beside a draft), `openblog check` (also as
+`--json`), `openblog build` and the preview that serves a build all show it with the same codes in
+the same order (ADR 0148). It is prompts, never a verdict: it has no score, and only a failure of
+a private file the build reads stops a build, before any public file is written.
+_Avoid_: Readiness score, pass or fail, completeness percentage
 
 **Finding acknowledgement**:
 An author's record that they have considered an advisory finding. It names the finding's key and

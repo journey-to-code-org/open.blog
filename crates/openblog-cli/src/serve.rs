@@ -235,6 +235,9 @@ pub fn print_report(report: &site::BuildReport) {
     print_accessibility_findings(&report.accessibility);
     print_evidence_findings(&report.evidence);
     print_source_review_findings(&report.source_review);
+    if let Some(readiness) = &report.readiness {
+        eprint!("{}", readiness.text());
+    }
 }
 
 /// Source-review findings (ADR 0146), one line each in the shape evidence

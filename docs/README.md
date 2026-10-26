@@ -107,7 +107,10 @@ authored from a selection in Evidence Studio with supporting and contradicting e
 side ([ADR 0073](adr/0073-claims-are-authored-from-a-selection-in-evidence-studio.md)), with
 evidence gaps and provenance prompts that `openblog check`, builds and Evidence Studio report
 alike and that never judge whether a claim is true
-([ADR 0074](adr/0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)), and, when a
+([ADR 0074](adr/0074-evidence-gaps-are-prompts-in-the-shared-finding-contract.md)), gathered with
+every other research check into one readiness report that Admin, `openblog check`, builds and the
+preview show with the same codes in the same order
+([ADR 0148](adr/0148-one-research-readiness-report-across-admin-check-build-and-preview.md)), and, when a
 site opts in, publishes approved claims with their evidence side by side as a section of the
 post, with revision notes the post itself carries
 ([ADR 0075](adr/0075-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md)),
@@ -133,7 +136,8 @@ openblog init [dir] [--title "..."] [--github-pages]
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
-openblog check                          Validate content, themes, and the private source library, notebook, Knowledge Atlas and claims, write nothing
+openblog check [--json]                 Validate content, themes, and the private source library, notebook, Knowledge Atlas and claims, write nothing;
+                                        --json prints the research readiness report as JSON
 openblog export <slug> [--format markdown|csl-json|bibtex] [--out path] [--write]
                                         Preview or write portable Markdown, or the post's
                                         cited references as CSL JSON or BibTeX

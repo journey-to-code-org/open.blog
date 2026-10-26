@@ -34,6 +34,54 @@ use openblog_core::research::EvidenceFinding;
 use crate::transaction::FileLock;
 use crate::{alignment_store, atlas_store, claims_store, notebook_store, source_store};
 
+/// The acknowledgements a report applies, and what to tell the reader about
+/// the file: its revision for the next change to name, or why it cannot be
+/// read. An unreadable file is never repaired and never partly applied.
+pub fn acknowledgements(
+    root: &Path,
+) -> (
+    Vec<openblog_core::publication_review::Acknowledgement>,
+    crate::readiness::Acknowledgements,
+) {
+    match load(root) {
+        Ok(snapshot) => (
+            snapshot.set.acknowledgements,
+            crate::readiness::Acknowledgements {
+                revision: Some(snapshot.revision),
+                error: None,
+            },
+        ),
+        Err(error) => (
+            Vec::new(),
+            crate::readiness::Acknowledgements {
+                revision: None,
+                error: Some(error.to_string()),
+            },
+        ),
+    }
+}
+
+/// A review as Admin and the command line receive it: the contract's
+/// findings, groups and counts, whether the review applies, what could not be
+/// reviewed, and the acknowledgements file's revision. There is no score,
+/// total, pass, ready or resolved field.
+pub fn view(
+    review: &openblog_core::publication_review::PublicationReview,
+    applies: bool,
+    not_reviewed: &[NotReviewed],
+    acknowledgements: &crate::readiness::Acknowledgements,
+) -> serde_json::Value {
+    let mut view = serde_json::to_value(review).unwrap_or_else(|_| serde_json::json!({}));
+    view["applies"] = serde_json::json!(applies);
+    view["notReviewed"] = serde_json::json!(not_reviewed);
+    view["acknowledgements"] = serde_json::json!({
+        "file": ACKNOWLEDGEMENTS_FILE,
+        "revision": acknowledgements.revision,
+        "error": acknowledgements.error,
+    });
+    view
+}
+
 /// Where the acknowledgements live, relative to the project root.
 pub const ACKNOWLEDGEMENTS_FILE: &str = ".openblog/private/research/acknowledgements.json";
 /// The largest acknowledgements file read or written.
@@ -75,10 +123,14 @@ impl Gathered {
 }
 
 /// What the build that publishes the post would read, when it reads it.
-struct Published {
-    atlas: Option<Atlas>,
-    comparisons: Option<PublicComparisons>,
-    alignments: Option<alignment_store::Snapshot>,
+pub(crate) struct Published {
+    pub(crate) atlas: Option<Atlas>,
+    pub(crate) comparisons: Option<PublicComparisons>,
+    pub(crate) alignments: Option<alignment_store::Snapshot>,
+    /// Whether the library and notebook the other files are checked against
+    /// were read, or are not needed (the build reads no research).
+    pub(crate) ready: bool,
+    pub(crate) claims_stored: bool,
 }
 
 /// Gather the review of one post. Reads only; nothing is written.
@@ -87,6 +139,24 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
     gathered
         .findings
         .extend(post.evidence.iter().map(ReviewFinding::from_evidence));
+    let published = read_published(root, config, &mut gathered);
+    if published.ready && published.claims_stored {
+        claims(root, config, post, &mut gathered);
+    }
+    context(post, config, &published, &mut gathered);
+    gathered
+}
+
+/// Read each private file the build that publishes reads, once and on its
+/// own, through the build's own loaders: what stops the build from reading a
+/// file is a finding scoped to that file, and what depends on it is listed as
+/// not reviewed. Shared by the review of one post and of the whole site, so
+/// both see the same files in the same way.
+pub(crate) fn read_published(
+    root: &Path,
+    config: &SiteConfig,
+    gathered: &mut Gathered,
+) -> Published {
     let contributors = &config.contributors;
     let claims_stored = claims_store::claims_file_stored(root);
     let reads_research = config.knowledge_atlas.publish
@@ -136,6 +206,8 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
         atlas: None,
         comparisons: None,
         alignments: None,
+        ready,
+        claims_stored,
     };
     if ready && config.knowledge_atlas.publish {
         match atlas_store::load_for_build(root, contributors) {
@@ -186,12 +258,9 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
         }
     }
 
-    if ready && claims_stored {
-        claims(root, config, post, &mut gathered);
-    }
-
-    context(post, config, &published, &mut gathered);
-    gathered
+    published.ready = ready;
+    published.claims_stored = claims_stored;
+    published
 }
 
 /// This post's claim findings, against the saved drafts as Evidence Studio
@@ -281,12 +350,26 @@ fn context(
     if links.is_empty() {
         return;
     }
+    gathered
+        .findings
+        .extend(link_findings(post.path, &links, config, published));
+    context_pages(&links, published, gathered);
+}
+
+/// The context links of a post that name a page the next build does not
+/// publish, each as the check owning them states it.
+pub(crate) fn link_findings(
+    path: &str,
+    links: &[context_links::ContextLink],
+    config: &SiteConfig,
+    published: &Published,
+) -> Vec<ReviewFinding> {
     let comparison_ids: BTreeSet<&str> = published
         .comparisons
         .iter()
         .flat_map(|projection| projection.comparisons.iter().map(|c| c.id.as_str()))
         .collect();
-    let findings = context_links::review_context_links(&links, |kind, id| match kind {
+    let findings = context_links::review_context_links(links, |kind, id| match kind {
         ContextKind::AtlasEntry => {
             if !config.knowledge_atlas.publish {
                 return Some(ContextGap::NotPublishing);
@@ -319,12 +402,24 @@ fn context(
             }
         }
     });
-    gathered.findings.extend(
-        findings
-            .iter()
-            .map(|finding| ReviewFinding::from_context_link(post.path, finding)),
-    );
+    findings
+        .iter()
+        .map(|finding| ReviewFinding::from_context_link(path, finding))
+        .collect()
+}
 
+/// For each published page the post's links name, what that page leaves out
+/// or asks the author to check.
+fn context_pages(
+    links: &[context_links::ContextLink],
+    published: &Published,
+    gathered: &mut Gathered,
+) {
+    let comparison_ids: BTreeSet<&str> = published
+        .comparisons
+        .iter()
+        .flat_map(|projection| projection.comparisons.iter().map(|c| c.id.as_str()))
+        .collect();
     let linked = |kind: ContextKind| -> BTreeSet<&str> {
         links
             .iter()
@@ -397,7 +492,7 @@ fn context(
     }
 }
 
-fn library_findings(error: source_store::StoreError) -> Vec<ReviewFinding> {
+pub(crate) fn library_findings(error: source_store::StoreError) -> Vec<ReviewFinding> {
     match error {
         source_store::StoreError::Invalid(diagnostics) => diagnostics
             .iter()
@@ -410,7 +505,7 @@ fn library_findings(error: source_store::StoreError) -> Vec<ReviewFinding> {
     }
 }
 
-fn notebook_findings(error: notebook_store::StoreError) -> Vec<ReviewFinding> {
+pub(crate) fn notebook_findings(error: notebook_store::StoreError) -> Vec<ReviewFinding> {
     match error {
         notebook_store::StoreError::Invalid(diagnostics) => diagnostics
             .iter()
@@ -423,7 +518,7 @@ fn notebook_findings(error: notebook_store::StoreError) -> Vec<ReviewFinding> {
     }
 }
 
-fn first_line(text: &str) -> String {
+pub(crate) fn first_line(text: &str) -> String {
     text.lines().next().unwrap_or_default().to_string()
 }
 
