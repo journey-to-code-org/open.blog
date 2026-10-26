@@ -7427,7 +7427,7 @@ export function createBoundaryPreview({ manifest, idPrefix = "oba-boundary", lev
  * "schedule" or "check" (review only). `onDone` receives "confirm", "cancel" or a target to go to.
  * Acknowledging writes only the private acknowledgements file; nothing else is changed here.
  */
-export function createPublicationReview({ review, mode = "check", api, onDone, idPrefix = "oba-review", embedded = false, site = false, headingLevel = 2 }) {
+export function createPublicationReview({ review, mode = "check", api, onDone, idPrefix = "oba-review", embedded = false, site = false, headingLevel = 2, announce = null }) {
   const findings = Array.isArray(review?.findings) ? review.findings : [];
   const groups = Array.isArray(review?.groups) ? review.groups : [];
   const context = { post: String(review?.post || ""), firstBodyLine: Number(review?.firstBodyLine) || 1 };
@@ -7436,9 +7436,12 @@ export function createPublicationReview({ review, mode = "check", api, onDone, i
   const blocking = groups.find((group) => group.name === "blocking")?.findings?.length || 0;
   const verb = mode === "schedule" ? "scheduling" : "publishing";
   const heading = h(`h${Math.min(6, headingLevel)}`, { id: `${idPrefix}-title`, tabindex: "-1" }, site || embedded ? "Research checks" : mode === "check" ? "Research review" : `Research review before ${verb}`);
-  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-review-status": "true" }, publicationReviewCountsText(review));
+  // Embedded in a panel that already has a polite status line, the review does not add a second
+  // live region that would announce the same moment: it hands what it says to that line.
+  const status = h("p", announce ? { class: "oba-small", "data-review-status": "true" } : { class: "oba-small", role: "status", "aria-live": "polite", "data-review-status": "true" }, publicationReviewCountsText(review));
   const say = (text) => {
     status.textContent = text;
+    announce?.(text);
   };
   const counts = review?.counts || {};
   const countOf = (outcome) => {
@@ -10612,6 +10615,9 @@ export class ObAdmin extends AdminElement {
               api: this.api,
               idPrefix: "oba-readiness-site",
               embedded: true,
+              announce: (text) => {
+                status.textContent = text;
+              },
               site: true,
               headingLevel: 3,
               onDone: (outcome) => {
@@ -19000,6 +19006,9 @@ export class Editor {
             api: this.app.api,
             idPrefix: "oba-readiness-post",
             embedded: true,
+            announce: (text) => {
+              ui.boundaryStatus.textContent = text;
+            },
             headingLevel: 4,
             onDone: (outcome) => {
               if (outcome?.kind === "session-ended") this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");

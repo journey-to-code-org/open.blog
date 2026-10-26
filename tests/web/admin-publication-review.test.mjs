@@ -546,3 +546,18 @@ test("the site report's empty state speaks of the site, never calls the research
   assert.equal(root.querySelector("[data-review-status]").textContent, "Detected: 0. Potential: 0. Needs review: 0.");
   assert.equal(root.querySelector("[data-review-blocked]"), null, "an embedded report has no dialog actions");
 }));
+
+test("an embedded report adds no second live region and hands what it says to its panel's status line", withDom(async () => {
+  const spoken = [];
+  const client = api(() => ({ revision: "rev-2" }));
+  const view = createPublicationReview({ review: READINESS(), mode: "check", api: client, embedded: true, site: true, headingLevel: 3, idPrefix: "oba-readiness-site", announce: (text) => spoken.push(text) });
+  globalThis.document.body.append(view.element);
+  const live = view.element.querySelectorAll("*").filter((node) => node.getAttribute("aria-live") || node.getAttribute("role") === "status");
+  assert.equal(live.length, 0, "the panel's own status line is the one polite region");
+  assert.equal(view.status.textContent, publicationReviewCountsText(READINESS()));
+  assert.deepEqual(spoken, [], "nothing is announced on load");
+  const toggle = toggleOf(article(view.element, "abstract-missing"));
+  await toggle.click();
+  await tick();
+  assert.match(spoken.at(-1), /it is not resolved/);
+}));
