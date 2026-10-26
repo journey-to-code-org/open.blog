@@ -156,8 +156,8 @@ test("keyboard: a reader picks a section, a kind and a note, sends it, and hears
   await expect(region.getByRole("radio", { name: "A section" })).toBeChecked();
   await region.getByLabel("Section", { exact: true }).selectOption({ label: "Results" });
   await region.getByLabel("Kind of feedback").selectOption("question");
-  await region.getByLabel("Your note").fill("How was the rise measured?");
-  await region.getByLabel("Your note").press("Tab");
+  await region.getByLabel("Your note", { exact: true }).fill("How was the rise measured?");
+  await region.getByLabel("Your note", { exact: true }).press("Tab");
   await region.getByRole("button", { name: "Send for review" }).focus();
   await page.keyboard.press("Enter");
   // Pending is explicit and announced outside the busy form.
@@ -202,7 +202,7 @@ test("selected words are quoted from the build's passage text and the article ne
   await expect(page.locator(".ob-passage-feedback-quote")).toHaveText("“twice a day”");
   await page.getByLabel("Kind of feedback").selectOption("correction-suggestion");
   await expect(page.getByLabel("Suggested wording (optional)")).toBeVisible();
-  await page.getByLabel("Your note").fill("Only once on Sundays.");
+  await page.getByLabel("Your note", { exact: true }).fill("Only once on Sundays.");
   await page.getByLabel("Suggested wording (optional)").fill("twice a day, once on Sundays");
   await page.getByLabel("Name", { exact: true }).fill("Ada");
   await page.getByLabel("Show my name with this note if the author publishes it").check();
@@ -240,7 +240,7 @@ test("errors are announced, the field is marked and takes focus, and nothing is 
   const service = await mockFeedback(page);
   await open(page);
   await page.getByRole("button", { name: "Send for review" }).click();
-  const note = page.getByLabel("Your note");
+  const note = page.getByLabel("Your note", { exact: true });
   await expect(note).toBeFocused();
   await expect(note).toHaveAttribute("aria-invalid", "true");
   await expect(note).toHaveAccessibleDescription(/Write your note/);
@@ -258,7 +258,7 @@ test("when the service is off the reader gets the note to copy and the author's 
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await mockFeedback(page, { status: 404, body: { error: "Passage feedback is not available on this site.", code: "unavailable" } });
   await open(page);
-  await page.getByLabel("Your note").fill("Is the second rise <b>real</b>?");
+  await page.getByLabel("Your note", { exact: true }).fill("Is the second rise <b>real</b>?");
   await page.getByRole("button", { name: "Send for review" }).click();
   const message = page.locator(".ob-passage-feedback-fallback-message");
   await expect(message).toBeFocused();
@@ -271,7 +271,7 @@ test("when the service is off the reader gets the note to copy and the author's 
   const link = page.getByRole("link", { name: "Write to the author" });
   await expect(link).toHaveAttribute("href", /^mailto:ada@feedback-site\.example\.org\?subject=/);
   // Nothing the reader wrote was cleared.
-  await expect(page.getByLabel("Your note")).toHaveValue("Is the second rise <b>real</b>?");
+  await expect(page.getByLabel("Your note", { exact: true })).toHaveValue("Is the second rise <b>real</b>?");
   await expect(page.locator(".ob-prose b")).toHaveCount(0);
 });
 
@@ -309,7 +309,7 @@ test("it works under a strict content security policy", async ({ page }) => {
   const before = await page.evaluate(() => window.__violations.slice());
   await selectWords(page, "The sun matters too.");
   await page.getByRole("button", { name: "Give feedback on the selected words" }).click();
-  await page.getByLabel("Your note").fill("Which sources say so?");
+  await page.getByLabel("Your note", { exact: true }).fill("Which sources say so?");
   await page.getByRole("button", { name: "Send for review" }).click();
   await expect(page.locator(".ob-passage-feedback-done")).toBeFocused();
   expect(service.submissions[0].target).toMatchObject({ kind: "quote", exact: "The sun matters too." });
