@@ -31,6 +31,27 @@ All notable changes to open.blog are recorded here. Releases follow
   form and the inbox are unchanged, and evidence the service cannot take is given to the reader to
   copy. Nothing is e-mailed to readers.
 
+- A published suggested source or correction now shows what you decided, in context. Under the
+  reader's note on the post, a decision you recorded reads "Author's decision: Correction" (or
+  Clarification, Added as evidence, Declined by the author with your reason, or Already addressed),
+  with the day, the revision the note was about, the revision note that records the change, linked
+  to the post's own Revision notes, the evidence link you recorded, linked to its claim, and your
+  rationale. A suggestion you have not decided reads "Unresolved" on a site that takes evidence,
+  never as a settled correction, and evidence or a note the post no longer publishes is said, not
+  linked. The decision is copied into `reader-feedback.json` (which becomes version 2 only once it
+  holds one) when you approve the note or when you record it on a note that is already on its post,
+  and never with who decided, a passage check or anything the reader wrote. Portable HTML, Markdown
+  and text, full-content feeds and exports gain a "Reader suggestions and the author's decisions"
+  section with each outcome, its revision note and evidence links, and a link to the note on the
+  canonical page; the reader's own words, `llms.txt` and search stay as they were. A site without
+  decisions or evidence builds exactly as before.
+- Fixed review findings on corrections: a decision is refused, with the item reloaded, when the
+  reader's text changed since you read it; a stored evidence submission still moderates when
+  `OPENBLOG_CORRECTIONS_ENABLED` is off; an evidence block that the hosted store could not keep is
+  refused before it uses the reader's quota; a revision note or evidence link cannot be linked from
+  an item whose post is unknown; the form's lists are built once per site; and
+  `supabase/moderation-rollback.sql` drops the decision function.
+
 ## [0.36.0] - 2026-10-26
 
 - Reader participation now has one policy. Comments keep `engagement.comments` and `comments:`

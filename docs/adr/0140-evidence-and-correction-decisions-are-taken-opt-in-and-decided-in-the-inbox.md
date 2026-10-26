@@ -15,6 +15,8 @@
   [ADR 0139](0139-only-the-authors-correction-decision-labels-a-correction.md)
 - Coordinates with: [#218](https://github.com/journey-to-code-org/open.blog/issues/218) (published
   outcomes)
+- Amended by: [ADR 0141](0141-the-authors-decision-is-published-with-an-approved-note-and-carried-into-portable-copies.md)
+  (the decision request names the text revision, the evidence bound, evidence off, the rollback)
 
 ## Context
 

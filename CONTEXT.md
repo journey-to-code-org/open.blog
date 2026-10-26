@@ -1410,6 +1410,19 @@ work's coordinator where the policy and the hosted store allow. It points at a r
 evidence link recorded separately and never edits the post (ADR 0140).
 _Avoid_: Approve, publish, correct
 
+**Published outcome**:
+What a published suggested source or correction came to, on the post's canonical page and in its
+portable copies: the author's decision with its day and rationale, the revision the note was about,
+the post's own revision note that records the change and the evidence link the author recorded,
+each linked only while the post still publishes it. Carried in `reader-feedback.json` (version 2)
+beside the note, and never with who decided or the reader's words in a portable copy (ADR 0141).
+_Avoid_: Fact check, verdict, correction notice for a private submission
+
+**Unresolved suggestion**:
+A published suggested source or correction the author has not decided, shown, on a site that takes
+evidence, as a reader's suggestion and not a settled correction.
+_Avoid_: Pending (moderation), disputed, contested
+
 ## Admin workspace
 
 **Workspace preferences**:

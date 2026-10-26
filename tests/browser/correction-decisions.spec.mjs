@@ -155,7 +155,7 @@ test("the author records a correction by keyboard, each missing field named on i
     items = items.map((item) => (item.id === body.id
       ? { ...item, standing: { id: "accepted-as-correction", label: "Correction", decided: true, correction: true }, decisions: [decided], recordDecision: { ...item.recordDecision, expectedDecisions: 1 } }
       : item));
-    return json(route, 200, { item: null, decision: { outcome: body.outcome, label: "Correction", sequence: 1 } });
+    return json(route, 200, { item: null, decision: { outcome: body.outcome, label: "Correction", sequence: 1 }, outcomePublished: true });
   });
   await signIn(page);
   await page.goto(`${origin}/admin/#/moderation`);
@@ -205,6 +205,7 @@ test("the author records a correction by keyboard, each missing field named on i
   await send.focus();
   await page.keyboard.press("Enter");
   await expect(queueStatus(page)).toHaveText(/^Decision recorded: Correction\. The post, its citations and the Source Library were not changed/);
+  await expect(queueStatus(page)).toContainText("The outcome now shows on the published note.");
   await expect(queueStatus(page)).toBeFocused();
   expect(decisions).toHaveLength(1);
   expect(decisions[0]).toEqual({
@@ -335,7 +336,7 @@ test("a decision names the text revision the author read, and a clarified item i
   expect(decisions).toHaveLength(1);
   expect(decisions[0].itemRevision).toBe(1);
   // Nothing was recorded against the old text: the form is fresh, and the next send carries revision 2.
-  await expect(card().getByRole("radio", { name: "Decline" })).not.toBeChecked();
+  await expect(card().locator("details.oba-decision")).not.toHaveAttribute("open", "");
   await decline();
   await expect(queueStatus(page)).toContainText("Decision recorded");
   expect(decisions).toHaveLength(2);
