@@ -80,7 +80,9 @@ const FEEDBACK_INBOX_COLUMNS = `${FEEDBACK_COLUMNS},item_revision,approved_revis
 const COMMENT_COLUMNS = "id,path,author_name,body,status,created_at,moderated_at";
 // What supabase/moderation.sql adds to comments (ADR 0106).
 const COMMENT_INBOX_COLUMNS = `${COMMENT_COLUMNS},version,moderation_state,moderation_reason`;
-// What engagement protection adds (ADR 0108). A receipt's digest is never read back out.
+// What engagement protection adds (ADR 0108). The receipt_hash column is never read back out;
+// a Third Perspective's details carry the same digest (ADR 0113) so Admin can check the copy it
+// reads back, and no reader or moderator view shows it.
 const FEEDBACK_PROTECTED_COLUMNS = `${FEEDBACK_INBOX_COLUMNS},purged_at`;
 // What Third Perspectives add (ADR 0113): the consent record an approval covers.
 const FEEDBACK_PERSPECTIVE_COLUMNS = `${FEEDBACK_PROTECTED_COLUMNS},approved_consent`;
@@ -838,11 +840,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const plan = planModeration(body.from, body.action, body.reason);
         if (!plan.ok) return json(422, { error: plan.message, code: plan.code }, corsOrigin);
         const { change } = plan;
-        if (settings.thirdPerspectives) {
-          // A Third Perspective's approval must bind the consent it covers: only the inbox does.
-          const stored = await feedbackRows(settings, { id: `eq.${id}` });
-          if (stored[0]?.kind === THIRD_PERSPECTIVE_KIND) return json(409, { error: "Third Perspectives are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
-        }
+        // A Third Perspective's approval must bind the consent it covers, and only the inbox does,
+        // so this route never decides one, whether or not the inbox takes Third Perspectives now.
+        const stored = await feedbackRows(settings, { id: `eq.${id}` });
+        if (stored[0]?.kind === THIRD_PERSPECTIVE_KIND) return json(409, { error: "Third Perspectives are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
         // With the inbox's schema the change goes through its function, so
         // the item's revisions and the audit event's kind, revision and role
         // are kept as the inbox keeps them (ADR 0106).

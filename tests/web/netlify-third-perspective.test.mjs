@@ -308,6 +308,14 @@ test("B5's own feedback view lists only its kinds and never decides a Third Pers
   assert.equal(refused.statusCode, 409);
   assert.equal(JSON.parse(refused.body).code, "useModerationInbox");
   assert.ok(!writes(database).some((entry) => entry.path.includes("/rpc/")));
+
+  // With Third Perspectives switched off, the generic route still never approves one without its consent.
+  const off = fakeDatabase((entry) => (entry.method === "GET" ? [stored()] : []));
+  const offEnv = { ...environment, OPENBLOG_THIRD_PERSPECTIVES_ENABLED: "" };
+  const refusedOff = await handlerFor(off, { env: offEnv })(event("admin/feedback", "PATCH", { headers: ADMIN, body: { id: ID(1), from: "pending", action: "approve", expectedVersion: 1 } }));
+  assert.equal(refusedOff.statusCode, 409);
+  assert.equal(JSON.parse(refusedOff.body).code, "useModerationInbox");
+  assert.equal(writes(off).length, 0);
 });
 
 // ---- The SQL
