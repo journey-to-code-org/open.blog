@@ -3,10 +3,11 @@
 -- site that does not opt in never needs it.
 --
 -- Additive only: it creates the feedback table, its moderation audit table,
--- their indexes, two moderation functions (ADRs 0083 and 0106) and the
--- deletion function engagement protection uses (ADR 0108), and adds the
--- moderation inbox's and protection's columns to those two tables of its
--- own. It does not
+-- their indexes, two moderation functions (ADRs 0083 and 0106), the
+-- deletion function engagement protection uses (ADR 0108) and the moderation
+-- function of Third Perspectives (ADR 0113), and adds the moderation
+-- inbox's, protection's and Third Perspectives' columns to those two tables
+-- of its own. It does not
 -- rename, drop or rewrite any existing table, column, function or row, so
 -- comments and analytics keep working exactly as before. Running it twice
 -- changes nothing; running it again after an upgrade adds only what is new.
@@ -324,5 +325,80 @@ $$;
 
 revoke all on function public.openblog_erase_feedback(text, uuid, integer, boolean, text, text, timestamptz) from public, anon, authenticated;
 grant execute on function public.openblog_erase_feedback(text, uuid, integer, boolean, text, text, timestamptz) to service_role;
+
+-- Third Perspectives (ADR 0113), used only once OPENBLOG_THIRD_PERSPECTIVES_ENABLED
+-- is set, on top of the inbox's and protection's settings. A Third
+-- Perspective is one row of this table with kind `third-perspective`: its
+-- text in `body`, its provenance in the existing columns, and its prompt
+-- category, the digest of the reader's receipt and the reader's numbered
+-- consent records in `details`. The one column below is new and nullable, so
+-- every row already stored reads as before.
+--
+-- The consent record a moderator's approval covers (ADR 0111), set only while
+-- approved. With `approved_revision` it binds an approval to exactly the text
+-- and the consent the moderator saw.
+alter table public.openblog_feedback
+  add column if not exists approved_consent integer check (approved_consent >= 1);
+
+-- One inbox decision on a Third Perspective, with its audit event, in one
+-- statement, only while the item still has the state and version both Admin
+-- and the function saw and its text is kept. It refuses what
+-- openblog_moderate_feedback_item refuses, and an approval that does not
+-- name the consent record in effect or whose reader no longer agrees to
+-- publish. Which changes are allowed is the code's decision; a reader's
+-- clarification is stored by openblog_moderate_feedback_item. It returns the
+-- changed row, or nothing.
+create or replace function public.openblog_moderate_third_perspective(
+  p_site_id text,
+  p_id uuid,
+  p_expected_version integer,
+  p_from text,
+  p_to text,
+  p_action text,
+  p_reason text,
+  p_actor text,
+  p_actor_role text,
+  p_at timestamptz,
+  p_consent integer default null
+)
+returns setof public.openblog_feedback
+language sql
+set search_path = public
+as $$
+  with changed as (
+    update public.openblog_feedback
+       set status = p_to,
+           moderated_at = p_at,
+           moderation_reason = p_reason,
+           version = version + 1,
+           approved_revision = case when p_to = 'approved' then item_revision end,
+           approved_consent = case when p_to = 'approved' then p_consent end,
+           clarification_asked = case when p_action = 'request-clarification' then item_revision else clarification_asked end
+     where id = p_id
+       and site_id = p_site_id
+       and kind = 'third-perspective'
+       and status = p_from
+       and version = p_expected_version
+       and purged_at is null
+       and p_action in ('approve', 'reject', 'request-clarification', 'remove', 'reopen', 'expire')
+       and not (p_to = 'approved' and clarification_asked is not distinct from item_revision)
+       and not (p_action = 'reopen' and p_to <> 'clarification' and clarification_asked is not distinct from item_revision)
+       and not (p_action = 'request-clarification' and not clarification_consent)
+       and (p_to <> 'approved' or (
+         p_consent is not null
+         and details->'consents'->-1->'number' = to_jsonb(p_consent)
+         and details->'consents'->-1->'publish' = 'true'::jsonb
+       ))
+    returning *
+  ), logged as (
+    insert into public.openblog_feedback_events
+      (site_id, feedback_id, action, from_status, to_status, reason, actor, at, version, kind, item_revision, actor_role)
+    select site_id, id, p_action, p_from, p_to, p_reason, p_actor, p_at, version, kind, item_revision, p_actor_role from changed
+  )
+  select * from changed;
+$$;
+
+revoke all on function public.openblog_moderate_third_perspective(text, uuid, integer, text, text, text, text, text, text, timestamptz, integer) from public, anon, authenticated;
+grant execute on function public.openblog_moderate_third_perspective(text, uuid, integer, text, text, text, text, text, text, timestamptz, integer) to service_role;
 
 commit;

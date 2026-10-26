@@ -5,6 +5,10 @@ import {
   INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, REPORT_GROUNDS, commentState, commentStateFilter, issuesReceipts, legacyCommentStatus,
   legacySupports, planErasure, planTransition, planUphold, retentionStep, timeKey,
 } from "../lib/participation-moderation.mjs";
+import {
+  THIRD_PERSPECTIVE_KIND, checkThirdPerspectiveApproval, normalizeReflection, readThirdPerspectiveSubmissionJson, receiveThirdPerspective,
+  reviseClarificationConsent, submissionKind,
+} from "../../web/components/third-perspective.js";
 
 const json = (statusCode, value, origin = "") => ({
   statusCode,
@@ -49,6 +53,9 @@ const moderationFacts = (row) => (row.item_revision === undefined ? {} : {
   approvedRevision: row.approved_revision ?? null,
   clarificationAsked: row.clarification_asked ?? null,
   clarificationConsent: row.clarification_consent === true,
+  // Only a Third Perspective's approval binds a consent record (ADR 0113), and only items of that
+  // kind carry the field, so an older Admin still reads every other item.
+  ...(row.kind === THIRD_PERSPECTIVE_KIND && row.approved_consent !== undefined ? { approvedConsent: row.approved_consent ?? null } : {}),
 });
 const hostedFeedback = (row) => {
   const provenance = { version: 1, work: row.work, revision: row.revision, target: row.target };
@@ -75,6 +82,8 @@ const COMMENT_COLUMNS = "id,path,author_name,body,status,created_at,moderated_at
 const COMMENT_INBOX_COLUMNS = `${COMMENT_COLUMNS},version,moderation_state,moderation_reason`;
 // What engagement protection adds (ADR 0108). A receipt's digest is never read back out.
 const FEEDBACK_PROTECTED_COLUMNS = `${FEEDBACK_INBOX_COLUMNS},purged_at`;
+// What Third Perspectives add (ADR 0113): the consent record an approval covers.
+const FEEDBACK_PERSPECTIVE_COLUMNS = `${FEEDBACK_PROTECTED_COLUMNS},approved_consent`;
 const COMMENT_PROTECTED_COLUMNS = `${COMMENT_INBOX_COLUMNS},purged_at`;
 const REPORT_COLUMNS = "id,target_source,target_id,work,ground,body,status,version,received_at,moderated_at,moderation_reason,purged_at";
 
@@ -140,6 +149,13 @@ const inboxItem = (source, row, targets) => {
   return inboxFeedback(row);
 };
 
+// A Third Perspective's details hold the reader's consent records and their receipt's digest; the
+// reader sees only the prompt category they chose, and whether they may be asked, as `consent`.
+const receiptDetails = (row) => {
+  const details = row.details || {};
+  if (row.kind !== THIRD_PERSPECTIVE_KIND) return details;
+  return typeof details.category === "string" ? { category: details.category } : {};
+};
 // What a reader sees of their own note by its receipt (ADR 0107): its kind,
 // state and version, their own words until they are purged, whether the
 // author asked them to clarify it and why, and whether they agreed to be
@@ -156,9 +172,10 @@ const receiptView = (row) => {
     receivedAt: canonicalTime(row.received_at),
     clarification: asked ? { reason: row.moderation_reason ?? null } : null,
     consent: row.clarification_consent === true,
-    published: row.status === "approved" && row.approved_revision === revision,
+    // An approved Third Perspective is shown only once the canonical page renders it (#222).
+    published: row.status === "approved" && row.approved_revision === revision && row.kind !== THIRD_PERSPECTIVE_KIND,
     purged,
-    ...(purged ? {} : { body: row.body, details: row.details || {} }),
+    ...(purged ? {} : { body: row.body, details: receiptDetails(row) }),
   };
 };
 
@@ -169,6 +186,8 @@ const INBOX_PAGE = 50;
 const INBOX_UNAVAILABLE = "Run supabase/moderation.sql (and supabase/feedback.sql again if you use passage feedback), then set OPENBLOG_MODERATION_ENABLED=true, to take this decision.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_UNAVAILABLE = "Passage feedback is not available on this site. The page itself is unchanged; you can copy your note and send it to the author instead.";
+const PERSPECTIVE_UNAVAILABLE = "This site does not take Third Perspectives through the form. The page itself is unchanged; you can copy your reflection and send it to the author instead.";
+const PERSPECTIVE_INBOX_UNAVAILABLE = "Run supabase/feedback.sql again and set OPENBLOG_THIRD_PERSPECTIVES_ENABLED=true to approve Third Perspectives, so each approval records the consent it covers.";
 // Engagement protection (ADRs 0107 and 0108).
 const PROTECTION_UNAVAILABLE = "This site does not offer receipts or reports through the form. You can write to the author instead.";
 const RECEIPT = /^[A-Za-z0-9_-]{43}$/;
@@ -202,6 +221,9 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     // Receipts, abuse reports, deletion and retention (ADR 0108): set only
     // after running supabase/protection.sql, on top of the inbox's schema.
     values.protection = values.moderation && String(env.OPENBLOG_PROTECTION_ENABLED || "").trim() === "true";
+    // Third Perspectives (ADR 0113): set only after running supabase/feedback.sql again, on top of
+    // passage feedback and protection, because every hosted copy needs its reader's receipt.
+    values.thirdPerspectives = values.protection && values.feedback && String(env.OPENBLOG_THIRD_PERSPECTIVES_ENABLED || "").trim() === "true";
     const required = [values.url, values.key, values.siteId, values.origin, values.adminKey, values.salt];
     if (!required.every(Boolean) || !/^\/(?:[^\\?#\u0000-\u001F]*\/)?$/.test(values.basePath) || values.basePath.includes("//") || values.basePath.split("/").some((segment) => segment === "." || segment === "..")) return null;
     return values;
@@ -254,6 +276,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
   const inboxColumns = (settings, source) => {
     if (source === "report") return REPORT_COLUMNS;
     if (source === "comment") return settings.protection ? COMMENT_PROTECTED_COLUMNS : settings.moderation ? COMMENT_INBOX_COLUMNS : COMMENT_COLUMNS;
+    if (settings.thirdPerspectives) return FEEDBACK_PERSPECTIVE_COLUMNS;
     return settings.protection ? FEEDBACK_PROTECTED_COLUMNS : settings.moderation ? FEEDBACK_INBOX_COLUMNS : FEEDBACK_COLUMNS;
   };
   const rowTimeColumn = (source) => (source === "comment" ? "created_at" : "received_at");
@@ -424,6 +447,16 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       body: JSON.stringify({ status: legacyCommentStatus(change.to), moderated_at: at }),
     });
   };
+  // One inbox decision on a Third Perspective (ADR 0113), through its own function, which also
+  // records the consent record an approval covers and refuses one whose consent changed.
+  const applyPerspectiveChange = (settings, id, change, version, actor, role, consent) => database(settings, "/rest/v1/rpc/openblog_moderate_third_perspective", {
+    method: "POST",
+    body: JSON.stringify({
+      p_site_id: settings.siteId, p_id: id, p_expected_version: version, p_from: change.from, p_to: change.to,
+      p_action: change.action, p_reason: change.reason, p_actor: actor, p_actor_role: role, p_at: canonicalTime(now()),
+      p_consent: change.to === "approved" ? consent : null,
+    }),
+  });
   const commentPolicy = (settings, path) => publishedPolicy(settings, "openblog-comments.json", path);
   // One passage feedback kind's mode on one post (ADR 0101), from the
   // participation manifest; a missing post or kind is "hidden". A site built
@@ -564,6 +597,36 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       }
       if (operation === "feedback" && event.httpMethod === "POST") {
         const text = event.isBase64Encoded ? Buffer.from(String(event.body || ""), "base64").toString("utf8") : String(event.body || "");
+        if (submissionKind(text) === THIRD_PERSPECTIVE_KIND) {
+          // A Third Perspective (ADR 0113): the same route and store, read by its own contract.
+          // Every hosted copy has a receipt, so the reader can always withdraw it.
+          if (!settings.thirdPerspectives) return json(404, { error: PERSPECTIVE_UNAVAILABLE, code: "unavailable" }, corsOrigin);
+          const read = readThirdPerspectiveSubmissionJson(text);
+          if (!read.ok) {
+            const { code, message } = read.error;
+            return json(code === "tooLarge" ? 413 : 422, { error: message, code }, corsOrigin);
+          }
+          const submission = read.submission;
+          const policy = await feedbackPolicy(settings, submission.work, THIRD_PERSPECTIVE_KIND);
+          if (policy !== "open") {
+            return json(403, policy === "locked"
+              ? { error: "This work is not taking Third Perspectives now.", code: "closed" }
+              : { error: PERSPECTIVE_UNAVAILABLE, code: "unavailable" }, corsOrigin);
+          }
+          if (!await consumeQuota(settings, event, "feedback", 5, 500)) {
+            return json(429, { error: "Too much feedback from here. Please try again later.", code: "rateLimited" }, corsOrigin);
+          }
+          const claim = await firstTimeThisHour(settings, event, "feedback", [submission.work, submission.kind, JSON.stringify(submission.target), submission.body]);
+          if (!claim) return json(409, { error: "This reflection was already sent and is waiting for review.", code: "duplicate" }, corsOrigin);
+          const receipt = randomBytes(32).toString("base64url");
+          const { row } = receiveThirdPerspective(submission, canonicalTime(now()), receiptDigest(receipt));
+          const rows = await storedOnce(settings, claim, () => database(settings, "/rest/v1/openblog_feedback?select=id,status,received_at", {
+            method: "POST",
+            headers: { Prefer: "return=representation" },
+            body: JSON.stringify({ site_id: settings.siteId, ...row, status: "pending", receipt_hash: receiptDigest(receipt) }),
+          }));
+          return json(202, { id: rows[0]?.id, status: "pending", receivedAt: row.received_at, receipt }, corsOrigin);
+        }
         const read = readFeedbackSubmissionJson(text);
         if (!read.ok) {
           const { code, message, target } = read.error;
@@ -653,6 +716,25 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             return json(422, { error: "You can change this only while your note is waiting for review.", code: "notAllowed" }, corsOrigin);
           }
           const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, id: `eq.${row.id}`, receipt_hash: `eq.${receiptDigest(receipt)}`, status: "eq.pending", version: `eq.${version}`, purged_at: "is.null", select: FEEDBACK_PROTECTED_COLUMNS });
+          if (row.kind === THIRD_PERSPECTIVE_KIND) {
+            // A Third Perspective keeps every consent the reader gave as a numbered record (ADR
+            // 0110): the change is appended, and the version is raised, so an approval made on
+            // the earlier consent is refused instead of covering this one.
+            if (!settings.thirdPerspectives) return json(404, { error: PERSPECTIVE_UNAVAILABLE, code: "unavailable" }, corsOrigin);
+            const revised = reviseClarificationConsent({
+              body: row.body, revision: facts.revision, provenance: hostedFeedback(row).feedback.provenance, details: row.details || {},
+              state: facts.state, approvedRevision: row.approved_revision ?? null, retained: facts.retained,
+            }, body.consent, canonicalTime(now()));
+            if (!revised.ok) {
+              if (revised.code === "unchanged") return json(200, { item: receiptView(row) }, corsOrigin);
+              return json(422, { error: "Your consent cannot change again on this reflection.", code: revised.code }, corsOrigin);
+            }
+            return answered(await database(settings, `/rest/v1/openblog_feedback?${params}`, {
+              method: "PATCH",
+              headers: { Prefer: "return=representation" },
+              body: JSON.stringify({ details: revised.details, clarification_consent: body.consent, version: version + 1 }),
+            }));
+          }
           return answered(await database(settings, `/rest/v1/openblog_feedback?${params}`, {
             method: "PATCH",
             headers: { Prefer: "return=representation" },
@@ -662,6 +744,20 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         if (action === "clarify") {
           const plan = planTransition(facts, { action: "clarify", expectedVersion: version, role: "submitter" });
           if (!plan.ok) return json(plan.code === "stale" ? 409 : 422, { error: "Your note is not waiting for clarification.", code: plan.code, item: receiptView(row) }, corsOrigin);
+          if (row.kind === THIRD_PERSPECTIVE_KIND) {
+            // A Third Perspective's answer replaces its text as the next revision; its category,
+            // receipt and consent records stay as they are, with when the answer arrived.
+            const answer = normalizeReflection(body.body);
+            if (answer === null) return json(422, { error: "Write your reflection in plain text of up to 4,000 characters.", code: "invalidBody" }, corsOrigin);
+            const at = canonicalTime(now());
+            return answered(await database(settings, "/rest/v1/rpc/openblog_moderate_feedback_item", {
+              method: "POST",
+              body: JSON.stringify({
+                p_site_id: settings.siteId, p_id: row.id, p_expected_version: version, p_from: "clarification", p_to: "pending", p_action: "clarify",
+                p_reason: null, p_actor: READER_ACTOR, p_actor_role: "submitter", p_at: at, p_body: answer, p_details: { ...(row.details || {}), revisedAt: at },
+              }),
+            }));
+          }
           // The answer is read exactly as a new submission about the same
           // passage would be, so it meets every rule the first one did.
           const read = readFeedbackSubmissionJson(JSON.stringify({
@@ -725,7 +821,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const status = MODERATION_STATES.includes(query.status) ? query.status : "pending";
         const kind = query.kind === undefined || query.kind === "" ? "" : String(query.kind);
         if (kind && !Object.hasOwn(FEEDBACK_KINDS, kind)) return json(422, { error: "Unknown feedback kind." }, corsOrigin);
-        const rows = await feedbackRows(settings, { status: `eq.${status}`, ...(kind ? { kind: `eq.${kind}` } : {}) });
+        // B5's own view lists only its four kinds; every other kind is moderated in the inbox.
+        const rows = await feedbackRows(settings, { status: `eq.${status}`, kind: kind ? `eq.${kind}` : `in.(${Object.keys(FEEDBACK_KINDS).join(",")})` });
         return json(200, { feedback: rows.map(hostedFeedback) }, corsOrigin);
       }
       if (operation === "admin/feedback" && event.httpMethod === "PATCH") {
@@ -741,6 +838,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const plan = planModeration(body.from, body.action, body.reason);
         if (!plan.ok) return json(422, { error: plan.message, code: plan.code }, corsOrigin);
         const { change } = plan;
+        if (settings.thirdPerspectives) {
+          // A Third Perspective's approval must bind the consent it covers: only the inbox does.
+          const stored = await feedbackRows(settings, { id: `eq.${id}` });
+          if (stored[0]?.kind === THIRD_PERSPECTIVE_KIND) return json(409, { error: "Third Perspectives are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
+        }
         // With the inbox's schema the change goes through its function, so
         // the item's revisions and the audit event's kind, revision and role
         // are kept as the inbox keeps them (ADR 0106).
@@ -763,7 +865,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             const source = sourceOf(query.source);
             if (!UUID.test(String(query.id)) || !source) return json(422, { error: "Name an item by its source and id." }, corsOrigin);
             const row = await inboxRow(settings, source, String(query.id).toLowerCase());
-            return json(200, { protocol, items: row ? await inboxItems(settings, [{ source, row }]) : [], next: null }, corsOrigin);
+            return json(200, { protocol, thirdPerspectives: settings.thirdPerspectives, items: row ? await inboxItems(settings, [{ source, row }]) : [], next: null }, corsOrigin);
           }
           const state = MODERATION_STATES.includes(query.state) ? query.state : "pending";
           const kind = query.kind === undefined || query.kind === "" ? "" : String(query.kind);
@@ -777,7 +879,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           const limit = Math.min(Math.max(Number.parseInt(query.limit, 10) || INBOX_PAGE, 1), 100);
           const sources = [];
           if (!kind || kind === "comment") sources.push("comment");
-          if (settings.feedback && (!kind || Object.hasOwn(FEEDBACK_KINDS, kind))) sources.push("feedback");
+          if (settings.feedback && (!kind || Object.hasOwn(FEEDBACK_KINDS, kind) || kind === THIRD_PERSPECTIVE_KIND)) sources.push("feedback");
           if (settings.protection && (!kind || kind === "abuse-report")) sources.push("report");
           // Each store's first `limit + 1` rows after the cursor; merged, the
           // first `limit` are this page's, oldest first.
@@ -788,6 +890,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           const last = page.at(-1);
           return json(200, {
             protocol,
+            thirdPerspectives: settings.thirdPerspectives,
             items: await inboxItems(settings, page),
             next: merged.length > limit && last ? `${last.key}~${last.id}` : null,
           }, corsOrigin);
@@ -863,6 +966,21 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           }
           if (!settings.moderation && !legacySupports(facts.kind, body.action)) {
             return json(422, { error: INBOX_UNAVAILABLE, code: "notAllowed" }, corsOrigin);
+          }
+          if (source === "feedback" && facts.kind === THIRD_PERSPECTIVE_KIND) {
+            // An approval binds exactly the text revision and consent record the moderator saw
+            // (ADR 0111), checked here and again by the database in the same statement.
+            if (!settings.thirdPerspectives) {
+              if (plan.change.to === "approved") return json(422, { error: PERSPECTIVE_INBOX_UNAVAILABLE, code: "notAllowed" }, corsOrigin);
+              return changed(await applyInboxChange(settings, source, id, plan.change, version, auditActor(body.actor), role));
+            }
+            let consent = null;
+            if (plan.change.to === "approved") {
+              const check = checkThirdPerspectiveApproval(row, body.seenRevision, body.seenConsent);
+              if (!check.ok) return check.code === "staleRevision" || check.code === "staleConsent" ? conflict(row) : refused(check.code);
+              consent = check.consent;
+            }
+            return changed(await applyPerspectiveChange(settings, id, plan.change, version, auditActor(body.actor), role, consent));
           }
           return changed(await applyInboxChange(settings, source, id, plan.change, version, auditActor(body.actor), role));
         }

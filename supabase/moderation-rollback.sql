@@ -1,5 +1,6 @@
 -- Roll back the moderation inbox's full schema (ADR 0106). Run in the
--- Supabase SQL editor.
+-- Supabase SQL editor. If the site takes Third Perspectives, run
+-- third-perspective-rollback.sql first: their moderation uses these columns.
 --
 -- First remove OPENBLOG_MODERATION_ENABLED from the Netlify environment and
 -- redeploy, so the function stops using what this drops; Admin's inbox then
