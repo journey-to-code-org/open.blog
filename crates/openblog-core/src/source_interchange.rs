@@ -362,27 +362,32 @@ pub fn plan_csl_import(
                     ));
                     record = None;
                 } else {
-                    let merged = merge(existing, parsed, &item.provided);
-                    entry.changes = diff(existing, &merged);
-                    entry.kept = kept_fields(existing, &item.provided);
-                    entry.action = if entry.changes.is_empty() {
-                        ImportAction::Unchanged
-                    } else {
-                        ImportAction::Update
-                    };
-                    // Identifiers the update adds must not belong to another record.
-                    let mut added = merged.clone();
-                    added.identifiers.retain(|identifier| {
-                        let key = identifier_key(&identifier.scheme, &identifier.value);
-                        !existing
-                            .identifiers
-                            .iter()
-                            .any(|held| identifier_key(&held.scheme, &held.value) == key)
-                    });
-                    if let Some(other) =
-                        duplicate_identifier(library, &added, id, &mut seen_identifiers)
-                    {
-                        entry.diagnostics.push(problem(
+                    match merge(existing, parsed, &item.provided) {
+                        Err(conflicts) => {
+                            entry.diagnostics.extend(conflicts);
+                            record = None;
+                        }
+                        Ok(merged) => {
+                            entry.changes = diff(existing, &merged);
+                            entry.kept = kept_fields(existing, &item.provided);
+                            entry.action = if entry.changes.is_empty() {
+                                ImportAction::Unchanged
+                            } else {
+                                ImportAction::Update
+                            };
+                            // Identifiers the update adds must not belong to another record.
+                            let mut added = merged.clone();
+                            added.identifiers.retain(|identifier| {
+                                let key = identifier_key(&identifier.scheme, &identifier.value);
+                                !existing
+                                    .identifiers
+                                    .iter()
+                                    .any(|held| identifier_key(&held.scheme, &held.value) == key)
+                            });
+                            if let Some(other) =
+                                duplicate_identifier(library, &added, id, &mut seen_identifiers)
+                            {
+                                entry.diagnostics.push(problem(
                             SourceDiagnosticCode::DuplicateId,
                             Some(id),
                             "identifiers",
@@ -390,11 +395,13 @@ pub fn plan_csl_import(
                                 "shares an identifier with `{other}`; import it under the id `{other}` or remove the duplicate"
                             ),
                         ));
-                        entry.duplicate_of = Some(other);
-                        entry.changes = Vec::new();
-                        record = None;
-                    } else {
-                        record = Some(merged);
+                                entry.duplicate_of = Some(other);
+                                entry.changes = Vec::new();
+                                record = None;
+                            } else {
+                                record = Some(merged);
+                            }
+                        }
                     }
                 }
             } else if let Some(other) =
@@ -1150,11 +1157,14 @@ fn date_from_csl(value: &Value, unsupported: &mut Vec<Loss>) -> Result<String, S
 /// Merge an incoming item into the record it matches. Only what the item
 /// states changes; every other field of the existing record stays as it is,
 /// and lists are unioned so an import never removes a creator or identifier.
+/// A creator's attribution or note that differs from the one held is
+/// returned as a conflict instead of being merged.
 fn merge(
     existing: &SourceRecord,
     incoming: &SourceRecord,
     provided: &BTreeSet<String>,
-) -> SourceRecord {
+) -> Result<SourceRecord, Vec<SourceDiagnostic>> {
+    let mut conflicts = Vec::new();
     let mut merged = existing.clone();
     if provided.contains("title") {
         merged.title.clone_from(&incoming.title);
@@ -1196,12 +1206,47 @@ fn merge(
         merged.rights.clone_from(&incoming.rights);
     }
     for creator in &incoming.creators {
-        let found = merged.creators.iter_mut().find(|held| {
+        let found = merged.creators.iter_mut().enumerate().find(|(_, held)| {
             held.name == creator.name
                 && (held.role == creator.role || held.role.is_none() || creator.role.is_none())
         });
         match found {
-            Some(held) => {
+            Some((position, held)) => {
+                // Attribution certainty and its note are filled in when the
+                // library has none; two different statements are a conflict
+                // for the author to settle, never a silent choice.
+                match (&held.attribution, creator.attribution) {
+                    (None, Some(stated)) => held.attribution = Some(stated),
+                    (Some(kept), Some(stated)) if *kept != stated => {
+                        conflicts.push(problem(
+                            SourceDiagnosticCode::ConflictingAttribution,
+                            Some(&existing.id),
+                            &format!("creators[{position}].attribution"),
+                            format!(
+                                "the library records {} as {} and the item as {}; make them agree before importing",
+                                creator.name,
+                                kept.as_str(),
+                                stated.as_str()
+                            ),
+                        ));
+                    }
+                    _ => {}
+                }
+                match (&held.note, &creator.note) {
+                    (None, Some(note)) => held.note = Some(note.clone()),
+                    (Some(kept), Some(note)) if kept != note => {
+                        conflicts.push(problem(
+                            SourceDiagnosticCode::ConflictingAttribution,
+                            Some(&existing.id),
+                            &format!("creators[{position}].note"),
+                            format!(
+                                "the library and the item give {} different attribution notes; make them agree before importing",
+                                creator.name
+                            ),
+                        ));
+                    }
+                    _ => {}
+                }
                 for (key, value) in &creator.extra {
                     held.extra
                         .entry(key.clone())
@@ -1233,7 +1278,11 @@ fn merge(
             }
         }
     }
-    merged
+    if conflicts.is_empty() {
+        Ok(merged)
+    } else {
+        Err(conflicts)
+    }
 }
 
 /// Identifier comparison key: the same DOI or ISBN written differently

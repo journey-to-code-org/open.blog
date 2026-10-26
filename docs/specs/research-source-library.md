@@ -173,7 +173,9 @@ items.
 
 A matching id merges rather than replaces: stated title, language, date, relationships,
 location, and archived flag are replaced; creators and identifiers are added when missing;
-unknown fields are overlaid; everything else is kept. An import never changes a kind and
+a matching creator's attribution and note are filled in when the library has none, and a
+different attribution or note is a `conflicting-attribution` conflict; unknown fields are
+overlaid; everything else is kept. An import never changes a kind and
 never removes anything. A shared DOI, ISBN, ISSN, PMID, or PMCID under a different id, or
 two items with one id, is a conflict.
 

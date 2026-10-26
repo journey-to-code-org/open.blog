@@ -916,3 +916,62 @@ fn the_documented_interpretation_example_is_valid() {
         InterpretationKind::Rendering
     );
 }
+
+#[test]
+fn an_import_fills_in_attribution_and_reports_a_differing_one_as_a_conflict() {
+    let export = export_csl_json(&versions()).content;
+    let index = source_index("rhetorica-ad-alexandrum");
+    let held = |edit: &dyn Fn(&mut Value)| {
+        parse(&edited(|value| {
+            edit(&mut value["sources"][index]["creators"][0])
+        }))
+        .unwrap()
+    };
+    let entry = |library: &SourceLibrary| {
+        plan_csl_import(library, &export, &contributors())
+            .unwrap()
+            .entries
+            .into_iter()
+            .find(|entry| entry.source_id.as_deref() == Some("rhetorica-ad-alexandrum"))
+            .unwrap()
+    };
+
+    // The library has no attribution or note for Aristotle: the item's fill in.
+    let bare = held(&|creator| {
+        let creator = creator.as_object_mut().unwrap();
+        creator.remove("attribution");
+        creator.remove("note");
+        creator.remove("role");
+    });
+    let filled = entry(&bare);
+    assert_eq!(filled.action, ImportAction::Update, "{filled:?}");
+    let plan = plan_csl_import(&bare, &export, &contributors()).unwrap();
+    let applied = plan.apply(&bare, &contributors()).unwrap();
+    let creator = &applied.get("rhetorica-ad-alexandrum").unwrap().creators[0];
+    assert_eq!(creator.attribution, Some(AttributionCertainty::Disputed));
+    assert!(creator.note.as_deref().unwrap().contains("Anaximenes"));
+
+    // Two different statements are never settled silently.
+    let doubted = held(&|creator| creator["attribution"] = json!("uncertain"));
+    let conflict = entry(&doubted);
+    assert_eq!(conflict.action, ImportAction::Conflict);
+    assert_eq!(
+        conflict
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, d.field.clone().unwrap_or_default()))
+            .collect::<Vec<_>>(),
+        [(
+            SourceDiagnosticCode::ConflictingAttribution,
+            "creators[0].attribution".to_string()
+        )]
+    );
+    let renoted = held(&|creator| creator["note"] = json!("Another note"));
+    let conflict = entry(&renoted);
+    assert_eq!(conflict.action, ImportAction::Conflict);
+    assert_eq!(
+        conflict.diagnostics[0].field.as_deref(),
+        Some("creators[0].note")
+    );
+    assert!(!conflict.diagnostics[0].message.contains("Another note"));
+}
