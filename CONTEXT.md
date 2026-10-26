@@ -1433,7 +1433,8 @@ _Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy fa
 **Publication boundary**:
 The line between private research and what the public site carries. Nothing crosses it because it
 exists: only what a projection publishes, and only the fields that projection copies, are public
-(ADR 0137). The build checks its output against it before writing anything.
+(ADR 0137). The build checks its output against it before writing anything: structure refuses, text only
+warns outside a projection's machine data.
 _Avoid_: Visibility filter, export rules, privacy setting
 
 **What will be public**:
@@ -1455,23 +1456,29 @@ An approval that no longer holds because what it rests on changed after it was g
 approved comparison whose notebook passage was re-located after the alignment was saved approved,
 which the alignments file records as a fingerprint of the passage's locators. Only a recorded
 fingerprint that no longer matches withholds; an approval made before the record existed never
-does. The item alone is withheld and named, and the author checks it and saves it again; the
-finding cannot be acknowledged while it withholds (ADR 0137).
+does. The item alone is withheld and named, and the author checks it and chooses *Checked -
+approve again*; saving it any other way keeps the recorded places, and the finding cannot be
+acknowledged while it withholds (ADR 0137).
 _Avoid_: Expired approval, invalid comparison
 
 **Unsafe web address**:
 A source's web address the boundary never publishes: not plain `http` or `https`, carrying
-credentials, naming a private or local network host (including numeric, mapped, NAT64 and
-site-local forms), or carrying a query or fragment parameter named like a key, token or signature.
+credentials, naming a private or local network host (including numeric, mapped, compatible,
+6to4, NAT64 and site-local forms), or carrying a query parameter, or a `name=value` fragment
+parameter, whose name has a word like key, token, signature or secret (`author` and `sortKey`
+do not).
 Only the address is withheld; the rest of the reference is published.
 _Avoid_: Broken link, invalid URL
 
 **Private text guard**:
-The build's last check that no generated file, and no static or theme file it copies, carries text
-from a private research file that this build does not publish. Text is compared as shingles of six
-consecutive normalised words, so wrapping, markup, entities, case and punctuation do not hide it;
-what is allowed is the text of the published posts and pages, the approved projections and the
-site's own configuration, never a draft. Private text of fewer than six words is not guarded by
-text. A refusal names the output, the file, the record and the field, never the text, and says to
-remove the text or publish it through a post (ADR 0137).
+The build's heuristic check for text of a private research file in what it publishes. Text is
+compared as shingles of six consecutive normalised words, so wrapping, markup, entities, case and
+punctuation do not hide it, and generated text is cut at published titles, headings, tag, series
+and navigation names, so listing them is no match. What is allowed is the text of the published
+posts and pages, the approved projections and the site's own configuration, never a draft. A hit
+in a projection's machine data (the atlas, comparisons and claim-evidence JSON, a page's citation
+data) refuses the build; a hit anywhere else (pages, feeds, search, static, theme and front-end
+files, a portable Markdown export) is a `boundary:` warning naming the output, the file, the
+record and the field, never the text, and saying to remove it from the public file or keep it.
+Private text of fewer than six words is not guarded by text (ADR 0137).
 _Avoid_: Leak scanner, content filter

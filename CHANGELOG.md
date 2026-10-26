@@ -48,19 +48,29 @@ All notable changes to open.blog are recorded here. Releases follow
   with the fields it copies, and why everything else stays private, from the same projection the
   build writes. Every withheld item opens where it is changed (a claim or evidence link opens its
   post's Evidence Studio once the post is saved). Builds now check their output against it before
-  writing anything: a page or JSON artifact naming an item no projection publishes, or text from a
-  private research file that this build does not publish, refuses the build, naming the file,
-  record and field but never the text, and saying how to fix it. That check reads text as runs of
-  six words, so a quote that is hard-wrapped, emphasised, linked or joined into the search index
-  matches whatever its markup, and a note with punctuation is covered; what counts as published
-  is the text of the posts and pages the build publishes (a draft does not), and the static and
-  theme files it copies are checked too. Private notes shorter than six words are not checked by
-  text. `openblog export` checks the same. A source's web address on a private network (also
-  written as a decimal, octal, hex, mapped or NAT64 address) or carrying a key, token, signature,
-  secret or password in its query or fragment is no longer published (the rest of its reference
-  is; OpenURL `sid` is). An approved comparison is withheld, and cannot be acknowledged, when a
-  passage it aligns was re-located after you saved it approved; comparisons approved before this
-  change are not withheld until you save them again. Both are printed as `boundary:` warnings.
+  writing anything. A page or JSON artifact naming an item no projection publishes, a damaged
+  private file and a private file copied into a public folder refuse the build. A check for text
+  from a private research file reads text as runs of six words, so a quote that is hard-wrapped,
+  emphasised, linked or joined into the search index matches whatever its markup, and a note
+  with punctuation or tags is covered. It refuses only when that text appears in the data the
+  build generates from your approved research (the atlas, comparisons and claim-evidence JSON,
+  and a post's citation data), read field by field. Anywhere else (pages, feeds, the search index,
+  `llms.txt`, static, theme and front-end files, a portable Markdown export) it only warns, with a
+  `boundary:` line naming the output, the private file, the record and the field but never the
+  text, because the text is in a file you placed or wrote and only you can say whether it is meant
+  to be public. A note that lists a post's own headings, your series titles or the address of a
+  generated page no longer warns. Every copied text file is checked whatever its extension,
+  `paths.web` assets included, and a text file too large to check is named. Private notes shorter
+  than six words are not checked by text. A source's web address on a private network (including
+  `.corp`, `.test`, `.home`, benchmarking, multicast and reserved ranges, and numeric, mapped,
+  compatible, 6to4 and NAT64 forms) or carrying a key, token, signature, secret or password in
+  its query or in a `name=value` fragment is no longer published (the rest of its reference is;
+  OpenURL `sid`, `#Authorship`, `?author=`, `?sortKey=` and `?design=` are). A source with an
+  IPv6 address no longer stops the build. An approved comparison is withheld, and cannot be
+  acknowledged, when a passage it aligns was re-located after you saved it approved: saving it
+  again does not approve it again, and Compare offers **Checked - approve again** once you have
+  checked the place; comparisons approved before this change are not withheld until you save
+  them again. Both are printed as `boundary:` warnings.
   `openblog build` adds one line saying how much research it published and withheld, and reads
   your research once instead of several times. Sites that publish no research build byte for
   byte as before.

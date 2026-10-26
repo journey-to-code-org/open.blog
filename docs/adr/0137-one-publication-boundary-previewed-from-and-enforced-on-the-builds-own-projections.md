@@ -70,8 +70,13 @@ projection.
     differ from the recorded fingerprint, the comparison is withheld from `/comparisons/` and
     `comparisons.json`, alone, and the file's `stale-approval` notice says which passage. The notice
     has its own withholding gate: it does not stop a post, and it cannot be acknowledged, because
-    acknowledging would not publish the comparison. The author checks the place and saves the
-    alignment again, which records the passage as it now is (saving it private clears the record).
+    acknowledging would not publish the comparison. The author checks the place and chooses
+    **Checked - approve again** in Compare, which records the passage as it now is
+    (`reapprove: true` on the save). Saving an approved alignment any other way never re-approves:
+    the stored fingerprints are kept, so an edit to its rationale does not make a moved place look
+    checked. They are recorded afresh only for a new alignment, when the visibility changes to
+    approved, or on `reapprove` (a member added since is recorded as it stands); saving it private
+    clears the record. The alignments view lists `staleApprovals` so Compare can offer the control.
     An approval with no record, made before the field existed, is never withheld; neither is one
     whose record cannot be read (a record that is not an object of strings is ignored, not an
     error). The older `stale-locator` notice (a member's own locators differ from its passage's)
@@ -83,73 +88,115 @@ projection.
     claim, support while contradiction is private) and the manifest names the dependency. A claim
     whose anchored words moved keeps publishing its statement without the quote (ADR 0075).
   - A web address in a source's identifiers is published only when `public_url_problem` accepts
-    it: `http` or `https`, no credentials, a public host (not `localhost`, `localhost.localdomain`,
-    `.local`, `.internal`, `.lan`, `.home.arpa`, `.intranet`, a single-label host, or a loopback,
-    private, link-local, carrier-grade, unspecified, site-local (`fec0::/10`) or NAT64
-    (`64:ff9b::/96`) IP; an IPv4 address written in decimal, octal or hex is the same address the
-    URL parser reads, and an IPv4-mapped IPv6 address is checked as its IPv4 address), and no
-    query or fragment parameter whose name, lower-cased and stripped to letters and digits,
-    contains `token`, `secret`, `sig`, `key`, `pass`, `auth`, `pwd`, `session` or `credential`
-    (`passage`, `passages`, `keyword` and `keywords` are exempt). The substring rule withholds
-    some harmless addresses (`?design=`); that is the conservative side. `sid`, which OpenURL
-    uses to name the referring database, is published. Only the address is withheld, from every
-    projection at once through `public_reference`; the rest of the reference is published, and the
-    citation review lists it as `citation-identifier-unpublished` (advisory). Host names are not
-    resolved, so a public name that points at a private address is not detected.
+    it: `http` or `https`, no credentials, a public host and no secret-named parameter. A host is
+    not public when it is `localhost`, `localhost.localdomain`, a single-label host, or ends in
+    `.localhost`, `.local`, `.internal`, `.lan`, `.home.arpa`, `.intranet`, `.corp`, `.test`,
+    `.home` or `.localdomain`; or when it is a loopback, private, link-local, carrier-grade
+    (`100.64.0.0/10`), benchmarking (`198.18.0.0/15`), multicast (`224.0.0.0/4`), reserved
+    (`240.0.0.0/4`), unspecified, site-local (`fec0::/10`), IPv6 multicast or NAT64
+    (`64:ff9b::/96`) address. An IPv4 address written in decimal, octal or hex is the same address
+    the URL parser reads; an IPv4-mapped (`::ffff:a.b.c.d`), IPv4-compatible (`::a.b.c.d`) or
+    6to4 (`2002::/16`) IPv6 address is checked as the IPv4 address it embeds. A query parameter,
+    and a fragment that holds `name=value` pairs (a fragment with no `=` is a heading anchor, not
+    a pair), is secret-named when its name, split into words at `_`, `-`, other punctuation and
+    camelCase (`X-Amz-Signature`, `access_token`, `apiKey`), has a word `token`, `secret`,
+    `password`, `passwd`, `pass`, `pwd`, `sig`, `signature`, `credential`, `auth`,
+    `authorization`, `session`, `jwt` or `bearer`, or `key` alone or after `api`, `access`,
+    `secret`, `private`, `client` and the like, or is one of a few exact compounds (`apikey`,
+    `accesstoken`, `xamzsignature`, ...). Words are matched whole, so `author`, `authors`,
+    `siglum`, `sigla`, `sortKey`, `monkey`, `design`, `passage` and `keyword` publish, and
+    `#Authorship` and `#KeyConcepts` are not parameters; Google Books' `sig=` stays withheld, and
+    the warning says "fragment" when the hit is in the fragment. `sid`, which OpenURL uses to name
+    the referring database, is published. Only the address is withheld, from every projection at
+    once through `public_reference`; the rest of the reference is published, and the citation
+    review lists it as `citation-identifier-unpublished` (advisory). Host names are not resolved,
+    so a public name that points at a private address is not detected. An address with an IPv6
+    literal host is published and links correctly: the HTML writer percent-encodes its brackets,
+    so the authority's brackets are written back, and the portable-html link check compares an
+    escaped bracket and a plain one alike (before, any such source failed the whole build with a
+    missing-link diagnostic).
   - The build prints each newly withheld item as a `boundary:` warning naming its projection,
     object and field; none fails the build.
-- **The output is checked against the boundary before anything is written.** After generating,
-  the build refuses when a page exists for an atlas entry or comparison the manifest does not
-  publish, or when `atlas.json`, `comparisons.json` or `claim-evidence.json` names an item it does
-  not publish.
-- **A systematic guard for private research text.** `PrivateText` holds every string of every
-  private research file (library, notebook, atlas, claims, alignments, acknowledgements; a file
-  that is not JSON is held whole) as *word shingles*: the hashes of every run of six consecutive
-  normalised words. The same normalisation is applied to the private text and to every output, so
-  a sentence matches however an output wrapped, joined or marked it up. For output (HTML, XML,
-  JSON, plain text, feeds) it decodes JSON escapes, removes markup (tag and attribute names vanish
-  and the words around a tag stay adjacent; the values of `content`, `alt`, `title` and similar
-  attributes are runs of their own, so a meta description is guarded), and decodes HTML entities
-  (a feed's escaped `&lt;p&gt;` is removed once more). Private text and public input fields are
-  already text and are not decoded. Both are then folded: every non-alphanumeric run (punctuation,
-  markup remnants, newlines) separates words, letters are lower-cased, full-width forms and
-  ligatures are mapped to plain letters and zero-width characters are dropped. Hard-wrapped
-  quotes, emphasis or a link in the middle of a sentence, a search index or `llms.txt` that joins
-  lines, and a note with parentheses, colons, semicolons or an apostrophe all match.
+- **The structure of the output is checked against the boundary before anything is written.**
+  After generating, the build refuses when a page exists for an atlas entry or comparison the
+  manifest does not publish, or when `atlas.json`, `comparisons.json` or `claim-evidence.json`
+  names an item it does not publish. These structural checks, with the manifest enforcement
+  (nothing is public merely because it exists in the workspace), a damaged private file and the
+  public-folder guard (`refuse_private_research_in_public_inputs`), refuse a build.
+- **A text guard for private research text: it refuses only in machine data, and warns
+  everywhere else.** `PrivateText` holds every string of every private research file (library,
+  notebook, atlas, claims, alignments, acknowledgements; a file that is not JSON is held whole)
+  as *word shingles*: the hashes of every run of six consecutive normalised words. A heuristic
+  match must not refuse an ordinary build, so the guard has two outcomes. A hit inside the
+  machine-data outputs the build generates from the projections (`atlas.json`, `comparisons.json`,
+  `claim-evidence.json`, and a page's reader reference data, `<script id="ob-references">`) is a
+  **refusal**: those carry only what a projection approved, so private text in them is a bug in
+  the projection or in a record. They are scanned field by field, so no shingle spans two fields.
+  A hit anywhere else (HTML pages, feeds, the search index, `llms.txt`, the static, theme and
+  front-end files a build copies, a portable Markdown export) is a **warning**, not a refusal: the
+  text is in a public file the author placed or wrote, which only the author can judge. It is
+  printed by build and check as `boundary: ...`, shown in Admin's **What will be public** (as
+  `textMatches`, and in the build's manifest), and names the output, the private file, the record
+  id and the field as a JSON path, never the text. Its advice is that the text is in a public file
+  the author placed or wrote, so they should remove it there, or keep it if it is meant to be
+  public; nothing was blocked. A site with no private research files reads nothing and produces
+  the same output and messages as before.
+  - **One normalisation for both sides.** Private text and every output are normalised the same
+    way: markup is removed (tag and attribute names vanish and the words around a tag stay
+    adjacent; the values of `content`, `alt`, `title` and similar attributes are runs of their own,
+    so a meta description is guarded), HTML entities are decoded (a feed's escaped `&lt;p&gt;` is
+    removed once more), then every non-alphanumeric run (punctuation, markup remnants, newlines)
+    separates words, letters are lower-cased, full-width forms and ligatures are mapped to plain
+    letters and zero-width characters are dropped. A private note written with `<i>` tags
+    therefore matches the same words in a page that dropped the tags. JSON escapes are decoded
+    only where JSON is meant: a file that parses as JSON is read string by string, and any other
+    generated text is read as written and, when it holds a backslash, once more with its JSON
+    escapes decoded (a JSON string literal in a page or script), so `\theta` and `C:\new` are not
+    turned into a letter and a newline. Hard-wrapped quotes, emphasis or a link in the middle of a
+    sentence, a search index or `llms.txt` that joins lines, and a note with parentheses, colons,
+    semicolons or an apostrophe all match.
   - **Six words.** Fewer would match common clauses of ordinary prose and of the generator's own
-    fixed text; more would miss a short note's echo. Six is a clause: long enough that a match is
-    one text carried twice, short enough that a fragment of a sentence is still found. Hashes (64
-    bit) are kept in a hash map, so the guard scales with the text, not with the number of
-    outputs times notes.
+    fixed text; more would miss a short note's echo. Hashes (64 bit) are kept in a hash map, so the
+    guard scales with the text, not with the number of outputs times notes.
+  - **Output is cut at known public short strings.** The theme sets published titles, headings,
+    tag and series names and navigation labels next to each other (table of contents, series
+    navigation, related posts), so a note that merely lists them would otherwise match a window
+    that no allowed input holds. The generated text is cut at the edges of those strings (post and
+    page titles and subtitles, headings, tag and series names, navigation and social labels, as
+    whole word sequences; a one-word string only where it fills its element), so no shingle spans
+    two of them. The address of every generated page (atlas, comparisons, archive, feeds,
+    pagination, each with and without `index.html`) is allowed with the site's address, as the
+    addresses of posts, pages, tags and series already are.
   - **What is allowed is what this build publishes**, not what is on disk: the title, description,
     cover text, text, rendered HTML, Markdown and tags of each published post, the same of each
-    published page and series, the raw source files of those posts, pages and series (so front
-    matter is covered), `content/reader-feedback.json` when present, `openblog.json`, the addresses
-    of the site's own posts, pages, tags and series, the approved atlas, comparison and claim
-    evidence artifacts, and the public description of each source a published post cites. Drafts,
+    published page and series, the body and the rendered front-matter fields (title, subtitle,
+    description, cover text, tags, series, canonical and source addresses and their aliases) of
+    the source files of those posts, pages and series, `content/reader-feedback.json` when
+    present, `openblog.json`, the addresses above, the approved atlas, comparison and claim
+    evidence artifacts, and the public description of each source a published post cites. A
+    front-matter field the build does not render (an author's memo kept there) is not public input,
+    and a field the build renders under a name not listed would give a warning at worst. Drafts,
     scheduled and held-back posts, any other content file and every source not published are not
-    allowed: a draft that quotes a note does not make the note public. Theme and static files are
-    not allowed either; they are scanned instead.
-  - **Copied files are scanned.** The static and theme files a build copies (text files, and
-    files with no extension) are checked like generated output, before anything is written, so a
-    static file carrying private text refuses the build.
-  - **A refusal names the output, the private file, the record and the field as a JSON path,
-    never the text,** and says what to do: the text appears in a public output but in no post or
-    page this build publishes; remove it from where that output gets it (a static or theme file,
-    a template, the configuration), or publish it deliberately by writing it in a post or
-    approving the item through its projection. A note or passage is never published by itself.
+    allowed: a draft that quotes a note does not make the note public.
+  - **Every copied file is scanned.** The static and theme files a build copies, and the
+    front-end assets of `paths.web` that it writes under `assets/`, are scanned when their first
+    8 KiB are valid UTF-8 with no NUL byte, whatever the extension (`.bib`, `.ris`, `.vtt`,
+    `.tex`, `custom.js`, `CNAME`). A text file over 8 MiB is named in a `boundary:` warning as
+    not scanned, instead of skipped in silence. The embedded assets are the product's own and are
+    not scanned.
   - **Gaps, stated.** Private text of fewer than six words (an id, a date, "ask Dana before
     publishing") is not guarded by text; the projections' allowlists and the structural guards
     keep it out. A paraphrase is not a match. No Unicode normalisation tables are bundled (no new
-    dependency), so a decomposed accent does not equal its precomposed form. Entities beyond
-    the common Latin-1 letters decode to nothing, which can only hide a window, never invent
-    one. Generated text that no published post holds (fixed interface text, the sitemap's
-    structure) is not allowed, so a private note repeating six or more consecutive words of it
-    would refuse a build; the refusal names the note, so the author can change it. A note
-    that only pastes the address of a public page is not a leak.
-  `openblog export` applies the same guard to portable Markdown and to CSL JSON and BibTeX
-  exports. It is defence in depth: an export is built from the post's own text, which the guard
-  allows.
+    dependency), so a decomposed accent does not equal its precomposed form. Entities beyond the
+    common Latin-1 letters decode to nothing, which can only hide a window, never invent one.
+    Generated text that no published post holds (fixed interface text, the sitemap's structure) is
+    not allowed, so a private note repeating six or more consecutive words of it gives a warning
+    that names the note. Because the output is cut at a known string wherever it stands, a private
+    sentence made of nothing but such strings is not found by text. A note that only pastes the
+    address of a public page is not a match.
+  `openblog export` applies the same guard: private text in a CSL JSON or BibTeX export, which is
+  reference data, refuses; in portable Markdown it warns on standard error. It is defence in
+  depth: an export is built from the post's own text, which the guard allows.
 - **A cross-projection leak corpus.** One fixture seeds a distinct sentinel in every private store
   and field (rights and private notes, unknown fields, private identifier schemes, an unsafe
   address, unapproved passages, notes, entries, relationships, datings, claims, links and
@@ -180,16 +227,17 @@ projection.
 
 - An author sees, before publishing, exactly what the next build publishes of their research and
   why everything else stays private, from the same values the build writes.
-- A bug in any projection, template or exporter that would carry private research text into the
-  output stops the build instead of publishing, with a message that says where the text came from.
+- A bug in a projection that would carry private research text into its machine data stops the
+  build instead of publishing, with a message that says where the text came from; the same words
+  anywhere else are named in a warning and the build goes on.
 - A build reads every stored private research file once more, as raw JSON, for the guard; a site
   without research reads nothing new.
-- Text a private note shares, word for word for six words, with generated text that no published
-  post holds would refuse a build. The refusal names the record and field, so the author can
-  change either. Notes of fewer than six words are a gap the guard does not close.
+- Text a private note shares, word for word for six words, with a public file the author wrote
+  or placed is named in a warning, in the build and in Admin, with the record and field. Notes of
+  fewer than six words are a gap the guard does not close.
 - An approved comparison made before this change has no record and keeps publishing if its
   passage is re-located; saving the alignment again records it, and from then on a change is
-  caught.
+  caught. Once recorded, an edit never re-approves: only Checked - approve again does.
 
 ## Domain language
 

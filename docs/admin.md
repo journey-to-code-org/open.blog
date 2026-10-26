@@ -331,9 +331,15 @@ links to where you change it, and **Never published** lists what no projection e
 unsaved changes included: its cited sources, its claims and evidence links, and the atlas and
 comparison pages it links to. Neither changes any file.
 
-Builds check their output against the same boundary before writing: a page for an item no
-projection publishes, or text from a private research file that no public file or approved
-projection holds, refuses the build with the file, record and field it came from. See
+Builds check their output against the same boundary before writing. A page for an item no
+projection publishes, a damaged private file, or text from a private research file inside the
+data generated from your approved research (the atlas, comparisons and claim-evidence JSON, a
+post's citation data) refuses the build, with the file, record and field it came from. The same
+words in any other public file (a page, a feed, the search index, a static, theme or front-end
+file, a portable Markdown export) are only a `boundary:` warning, also shown here, that names the
+output, the private file, the record and the field: the text is in a file you placed or wrote, so
+remove it there or keep it. Saving a comparison does not approve it again when a place moved;
+open it in Compare and choose **Checked - approve again** once you have checked the place. See
 [ADR 0137](adr/0137-one-publication-boundary-previewed-from-and-enforced-on-the-builds-own-projections.md).
 
 ### Compare versions of a passage
