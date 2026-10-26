@@ -630,6 +630,7 @@ fn authenticated_api(
         ("GET", "research/notebook") => list_notebook(state),
         ("GET", "citations/library") => citation_library(state),
         ("POST", "citations/check") => check_citation_request(state, req),
+        ("GET", "research/draft") => draft_research(state),
         ("POST", "research/search") => search_notebook(state, req),
         ("POST", "research/backlinks") => notebook_backlinks(state, req),
         ("POST", "research/archive") => archive_entry(state, req),
@@ -1280,6 +1281,252 @@ fn check_citation_request(state: &AppState, req: &Request) -> Response {
             }),
         ),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Draft-side research panel (#61, ADR 0134)
+// ---------------------------------------------------------------------------
+
+/// A panel part that could not be read: its own message, naming the file.
+/// Store messages name files and ids, never quoted or noted text.
+fn draft_research_problem(what: &str, file: &str, error: &impl std::fmt::Display) -> Json {
+    let detail = error.to_string();
+    json!({
+        "error": format!(
+            "{what} could not be read, so it is not offered here. Nothing was changed. {}",
+            detail.lines().next().unwrap_or_default()
+        ),
+        "file": file,
+    })
+}
+
+/// A rights declaration as the author states it, labelled by the core and
+/// never read as permission (ADR 0085).
+fn draft_research_rights(
+    declared: Option<&openblog_core::source_library::RightsDeclaration>,
+    status: openblog_core::source_library::RightsStatus,
+) -> Json {
+    json!({
+        "status": status.tag(),
+        "label": status.label(),
+        "note": declared.and_then(|rights| rights.note.as_deref()),
+        "license": declared.and_then(|rights| rights.license.as_deref()),
+    })
+}
+
+/// What the draft-side research panel offers (#61, ADR 0134), read-only and
+/// for the author only, like the rest of Admin. Each part is read on its own,
+/// so a store that cannot be read is reported in its part while the others
+/// still work:
+///
+/// - `library`: the sources with the revision a citation check must name,
+///   each version's rights statement, and the interpretations (private and
+///   never cited).
+/// - `notebook`: live passages with their exact wording and language, public
+///   locators and how many notes link to each, and live notes, offered only
+///   for explicit conversion.
+/// - `atlas` and `comparisons`: whether the site publishes them and, per
+///   item, whether the author approved it. A canonical `url` is present only
+///   for an item the next build publishes, so nothing else can be linked, and
+///   an entry lists only the datings its page publishes.
+///
+/// Nothing is written and nothing here is public.
+fn draft_research(state: &AppState) -> Response {
+    use openblog_core::atlas_publication::{entry_url, ATLAS_URL};
+    use openblog_core::comparison_publication::{
+        comparison_url, ComparisonInputs, PublicComparison, COMPARISONS_URL,
+    };
+    let contributors = source_contributors(state);
+    let config = site::load_config(&state.root).ok();
+    let atlas_published = config
+        .as_ref()
+        .is_some_and(|config| config.knowledge_atlas.publish);
+    let comparisons_published = config
+        .as_ref()
+        .is_some_and(|config| config.comparisons.publish);
+
+    let library = match source_store::load(&state.root, &contributors) {
+        Ok(snapshot) => {
+            let sources: Vec<Json> = snapshot
+                .library
+                .sources
+                .iter()
+                .map(|record| {
+                    let mut value = json!(record);
+                    if let Some(status) = record.rights_status() {
+                        value["rightsStatus"] =
+                            draft_research_rights(record.rights.as_ref(), status);
+                    }
+                    value
+                })
+                .collect();
+            let interpretations: Vec<Json> = snapshot
+                .library
+                .interpretations
+                .iter()
+                .map(|interpretation| {
+                    json!({
+                        "id": interpretation.id,
+                        "kind": interpretation.kind,
+                        "source": interpretation.source,
+                        "locators": interpretation
+                            .locators
+                            .iter()
+                            .map(PublicLocator::from)
+                            .collect::<Vec<_>>(),
+                        "language": interpretation.language,
+                        "text": interpretation.text,
+                    })
+                })
+                .collect();
+            json!({
+                "revision": snapshot.revision,
+                "sources": sources,
+                "interpretations": interpretations,
+            })
+        }
+        Err(error) => {
+            draft_research_problem("The source library", source_store::LIBRARY_FILE, &error)
+        }
+    };
+
+    let notebook = match notebook_store::load(&state.root, &contributors) {
+        Ok(snapshot) => {
+            let notebook = &snapshot.notebook;
+            let passages: Vec<Json> = notebook
+                .passages
+                .iter()
+                .filter(|passage| !passage.archived)
+                .map(|passage| {
+                    let notes = notebook
+                        .notes
+                        .iter()
+                        .filter(|note| note.passages.contains(&passage.id))
+                        .count();
+                    json!({
+                        "id": passage.id,
+                        "source": passage.source,
+                        "locators": passage
+                            .locators
+                            .iter()
+                            .map(PublicLocator::from)
+                            .collect::<Vec<_>>(),
+                        "excerpt": {
+                            "text": passage.excerpt.text,
+                            "language": passage.excerpt.language,
+                        },
+                        "notes": notes,
+                    })
+                })
+                .collect();
+            let notes: Vec<Json> = notebook
+                .notes
+                .iter()
+                .filter(|note| !note.archived)
+                .map(|note| {
+                    json!({
+                        "id": note.id,
+                        "kind": note.kind,
+                        "status": note.question_state(),
+                        "text": note.text,
+                        "passages": note.passages,
+                    })
+                })
+                .collect();
+            json!({ "revision": snapshot.revision, "passages": passages, "notes": notes })
+        }
+        Err(error) => draft_research_problem(
+            "The research notebook",
+            notebook_store::NOTEBOOK_FILE,
+            &error,
+        ),
+    };
+
+    let atlas = match atlas_store::load(&state.root, &contributors) {
+        Ok(snapshot) => {
+            let atlas = &snapshot.atlas;
+            let entries: Vec<Json> = atlas
+                .entries
+                .iter()
+                .map(|entry| {
+                    let approved = entry.visibility == knowledge_atlas::Visibility::Approved;
+                    let published = atlas_published && approved;
+                    let datings: Vec<Json> = entry
+                        .dates
+                        .iter()
+                        .filter(|dating| published && atlas.is_dating_projected(&entry.id, dating))
+                        .map(|dating| {
+                            json!({
+                                "id": dating.id,
+                                "aspect": dating.aspect,
+                                "text": date_text(&dating.date),
+                            })
+                        })
+                        .collect();
+                    json!({
+                        "id": entry.id,
+                        "kind": entry.kind,
+                        "label": entry.label,
+                        "aliases": entry.aliases,
+                        "approved": approved,
+                        "url": published.then(|| entry_url(&entry.id)),
+                        "datings": datings,
+                    })
+                })
+                .collect();
+            json!({ "publish": atlas_published, "url": ATLAS_URL, "entries": entries })
+        }
+        Err(error) => {
+            draft_research_problem("The Knowledge Atlas", atlas_store::ATLAS_FILE, &error)
+        }
+    };
+
+    let comparisons = match alignment_store::load(&state.root, &contributors) {
+        Ok(snapshot) => {
+            let inputs = ComparisonInputs {
+                library: &snapshot.library,
+                notebook: &snapshot.notebook,
+                contributors: &contributors,
+            };
+            let items: Vec<Json> = snapshot
+                .alignments
+                .alignments
+                .iter()
+                .map(|alignment| {
+                    let approved = alignment.is_approved();
+                    // Published exactly when the build's projection would publish it.
+                    let published = comparisons_published
+                        && approved
+                        && PublicComparison::project(alignment, inputs).is_ok();
+                    json!({
+                        "id": alignment.id,
+                        "label": alignment.label,
+                        "approved": approved,
+                        "url": published.then(|| comparison_url(&alignment.id)),
+                        "interpretations": alignment
+                            .members
+                            .iter()
+                            .filter_map(|member| member.interpretation.as_deref())
+                            .collect::<Vec<_>>(),
+                    })
+                })
+                .collect();
+            json!({ "publish": comparisons_published, "url": COMPARISONS_URL, "items": items })
+        }
+        Err(error) => {
+            draft_research_problem("The comparisons", alignment_store::ALIGNMENTS_FILE, &error)
+        }
+    };
+
+    Response::json(
+        200,
+        &json!({
+            "library": library,
+            "notebook": notebook,
+            "atlas": atlas,
+            "comparisons": comparisons,
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -13807,6 +14054,203 @@ mod tests {
         );
         assert_eq!(status, 201, "{done}");
         done
+    }
+
+    /// Research for the draft-side panel (#61): the four stores, read-only.
+    fn draft_research_fixture(tag: &str) -> Fixture {
+        let f = fixture(tag);
+        let write = |file: &str, value: Json| {
+            let path = f.dir.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, value.to_string()).unwrap();
+        };
+        write(
+            crate::source_store::LIBRARY_FILE,
+            json!({"version": 1, "sources": [
+                {"id": "plato", "kind": "work", "title": "Politeia"},
+                {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings",
+                    "rights": {"status": "publicDomain", "note": "ob-rights-note"}},
+                {"id": "bloom", "kind": "translation", "of": "plato", "language": "en", "title": "Bloom"}
+            ]}),
+        );
+        write(
+            crate::notebook_store::NOTEBOOK_FILE,
+            json!({"version": 1,
+            "passages": [
+                {"id": "cave", "source": "slings", "excerpt": {"text": "<b>Behold</b> *the* den", "language": "grc"},
+                    "locators": [{"kind": "page", "value": "514", "privateNote": "ob-hidden-locator"}]},
+                {"id": "old", "source": "bloom", "excerpt": {"text": "ob-archived-wording"}, "archived": true}
+            ],
+            "notes": [
+                {"id": "why", "kind": "question", "text": "Why a cave?", "passages": ["cave"]},
+                {"id": "gone", "kind": "observation", "text": "ob-archived-note", "archived": true}
+            ]}),
+        );
+        write(
+            crate::atlas_store::ATLAS_FILE,
+            json!({"version": 2, "entries": [
+                {"id": "plato-person", "kind": "person", "label": "Plato", "visibility": "approved",
+                    "dates": [
+                        {"id": "born", "aspect": "birth", "date": {"at": {"year": -428, "circa": true}},
+                            "assertedBy": {"kind": "author"}, "evidence": [{"source": "slings"}],
+                            "visibility": "approved"},
+                        {"id": "ob-private-dating", "aspect": "death", "date": {"at": {"year": -348}},
+                            "assertedBy": {"kind": "author"}, "unsourced": true}
+                    ]},
+                {"id": "the-good", "kind": "concept", "label": "The Good"}
+            ], "relationships": []}),
+        );
+        write(
+            crate::alignment_store::ALIGNMENTS_FILE,
+            json!({"version": 1, "alignments": [
+                {"id": "cave-places", "label": "The cave", "visibility": "approved",
+                    "members": [{"source": "slings", "passage": "cave"}, {"source": "bloom", "absent": true}]},
+                {"id": "private-places", "members": [{"source": "slings", "passage": "cave"}, {"source": "bloom", "absent": true}]}
+            ]}),
+        );
+        f
+    }
+
+    fn research_files(f: &Fixture) -> Vec<Vec<u8>> {
+        [
+            crate::source_store::LIBRARY_FILE,
+            crate::notebook_store::NOTEBOOK_FILE,
+            crate::atlas_store::ATLAS_FILE,
+            crate::alignment_store::ALIGNMENTS_FILE,
+        ]
+        .iter()
+        .map(|file| fs::read(f.dir.join(file)).unwrap())
+        .collect()
+    }
+
+    #[test]
+    fn the_draft_research_panel_reads_every_store_and_links_only_what_is_published() {
+        let f = draft_research_fixture("draft-research");
+        let response = handle(&f.state, &req("GET", "/admin/api/research/draft"));
+        assert_eq!(response.status, 401);
+        let session = login_ok(&f);
+        let before = research_files(&f);
+        let read = || {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/draft"), &session, false),
+            );
+            assert_eq!(response.status, 200);
+            let text = String::from_utf8_lossy(&response.body).to_string();
+            for hidden in [
+                "ob-hidden-locator",
+                "ob-archived-wording",
+                "ob-archived-note",
+            ] {
+                assert!(!text.contains(hidden), "{hidden} reached the panel");
+            }
+            body_json(&response)
+        };
+
+        let body = read();
+        let library = &body["library"];
+        assert!(library["revision"].as_str().is_some());
+        assert_eq!(
+            library["sources"][1]["rightsStatus"]["status"],
+            "publicDomain"
+        );
+        assert_eq!(
+            library["sources"][1]["rightsStatus"]["label"],
+            "The author states the text is in the public domain"
+        );
+        assert_eq!(
+            library["sources"][1]["rightsStatus"]["note"],
+            "ob-rights-note"
+        );
+        assert_eq!(library["sources"][2]["rightsStatus"]["status"], "unknown");
+        assert!(
+            library["sources"][0].get("rightsStatus").is_none(),
+            "a work has no rights"
+        );
+        let notebook = &body["notebook"];
+        assert_eq!(notebook["passages"].as_array().unwrap().len(), 1);
+        let passage = &notebook["passages"][0];
+        assert_eq!(
+            passage["excerpt"]["text"], "<b>Behold</b> *the* den",
+            "the wording exactly"
+        );
+        assert_eq!(passage["excerpt"]["language"], "grc");
+        assert_eq!(
+            passage["locators"],
+            json!([{"kind": "page", "value": "514"}])
+        );
+        assert_eq!(passage["notes"], 1);
+        assert_eq!(notebook["notes"].as_array().unwrap().len(), 1);
+        assert_eq!(notebook["notes"][0]["text"], "Why a cave?");
+        assert_eq!(notebook["notes"][0]["status"], "open");
+
+        // While the site publishes neither, nothing can be linked, approved or not.
+        assert_eq!(body["atlas"]["publish"], false, "{}", body["atlas"]);
+        assert_eq!(body["atlas"]["entries"][0]["approved"], true);
+        assert_eq!(body["atlas"]["entries"][0]["url"], Json::Null);
+        assert_eq!(body["atlas"]["entries"][0]["datings"], json!([]));
+        assert_eq!(body["comparisons"]["publish"], false);
+        assert_eq!(body["comparisons"]["items"][0]["url"], Json::Null);
+
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        config["comparisons"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let body = read();
+        let entries = &body["atlas"]["entries"];
+        assert_eq!(entries[0]["url"], "/atlas/plato-person/");
+        assert_eq!(
+            entries[0]["datings"].as_array().unwrap().len(),
+            1,
+            "only the published dating"
+        );
+        assert_eq!(entries[0]["datings"][0]["id"], "born");
+        assert!(entries[0]["datings"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("428"));
+        assert_eq!(entries[1]["approved"], false);
+        assert_eq!(
+            entries[1]["url"],
+            Json::Null,
+            "a private entry is never linked"
+        );
+        let items = &body["comparisons"]["items"];
+        assert_eq!(items[0]["url"], "/comparisons/cave-places/");
+        assert_eq!(items[0]["label"], "The cave");
+        assert_eq!(items[1]["url"], Json::Null);
+        assert!(!body.to_string().contains("ob-private-dating"));
+        assert_eq!(research_files(&f), before, "reading writes nothing");
+    }
+
+    #[test]
+    fn a_draft_research_store_that_cannot_be_read_is_reported_in_its_own_part() {
+        let f = draft_research_fixture("draft-research-scoped");
+        let session = login_ok(&f);
+        fs::write(f.dir.join(crate::atlas_store::ATLAS_FILE), b"{ not json").unwrap();
+        let before = research_files(&f);
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/draft"), &session, false),
+        );
+        assert_eq!(response.status, 200);
+        let body = body_json(&response);
+        let problem = body["atlas"]["error"].as_str().unwrap();
+        assert!(
+            problem.starts_with("The Knowledge Atlas could not be read"),
+            "{problem}"
+        );
+        assert_eq!(body["atlas"]["file"], crate::atlas_store::ATLAS_FILE);
+        assert!(body["atlas"].get("entries").is_none());
+        assert_eq!(body["notebook"]["passages"][0]["id"], "cave");
+        assert!(body["library"]["revision"].as_str().is_some());
+        assert_eq!(body["comparisons"]["items"][0]["id"], "cave-places");
+        assert_eq!(
+            research_files(&f),
+            before,
+            "nothing is repaired or replaced"
+        );
     }
 
     #[test]
