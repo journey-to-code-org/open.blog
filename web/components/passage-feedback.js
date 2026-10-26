@@ -14,6 +14,15 @@
 // Everything here is a pure function: nothing is fetched, stored or sent, and
 // a failure is a value for the one submission that caused it, with a code and
 // a message that names the field and never repeats what the reader wrote.
+//
+// Evidence submissions (ADR 0138) are format version 2: a suggested source or
+// a suggested correction with an `evidence` block naming the published claim,
+// evidence link, citation or source it concerns, by the site's public ids.
+// readEvidenceSubmissionJson is the half of
+// crates/openblog-core/src/evidence_submission.rs that the browser and the
+// hosted function share, read against tests/fixtures/evidence-corrections.json.
+// The block is the reader's statement: nothing here checks that an id exists,
+// so a guess never confirms anything private.
 
 import { normalizePassageText, readTargetSource } from "./passage-target.js";
 
@@ -26,6 +35,16 @@ export const MAX_READER_NAME_CHARS = 80;
 export const MAX_WORK_PATH_CHARS = 500;
 // The build's JSON reader refuses documents nested deeper than this.
 const MAX_JSON_DEPTH = 127;
+
+export const EVIDENCE_SUBMISSION_VERSION = 2;
+export const MAX_OFFERED_LOCATORS = 8;
+export const MAX_LOCATOR_VALUE_CHARS = 64;
+/** The kinds whose submissions may carry an evidence block (ADR 0138). */
+export const EVIDENCE_KINDS = Object.freeze(["source-suggestion", "correction-suggestion"]);
+/** How a reader says the evidence they offer bears on the passage: A4's relation ids. */
+export const EVIDENCE_STANCES = Object.freeze(["supports", "contradicts", "contextualizes"]);
+/** The notebook's locator kinds; an `x-` kind is also accepted. */
+export const LOCATOR_KINDS = Object.freeze(["page", "folio", "line", "section", "chapter", "canonical", "timestamp"]);
 
 const kind = (label, workTarget, sourceUrl, suggestedText) => Object.freeze({ label, workTarget, sourceUrl, suggestedText });
 
@@ -195,13 +214,10 @@ const onlyFields = (value, fields) => Object.keys(value).every((key) => fields.h
 const U64_LIMIT = 2n ** 64n;
 
 /**
- * Read a submission from JSON text of at most MAX_SUBMISSION_JSON_BYTES.
- * Returns { ok: true, submission } with a new, frozen submission (text
- * trimmed, the name collapsed to single spaces, the link normalized), or
- * { ok: false, error: { code, message, target? } }. The checks run in the
- * same order as the build's, so both report the same first problem.
+ * Valid JSON text of at most MAX_SUBMISSION_JSON_BYTES as { value, spans }, or a failure: what
+ * both readers check before the version.
  */
-export function readFeedbackSubmissionJson(text) {
+function parseSubmission(text) {
   const source = String(text);
   if (utf8Length(source) > MAX_SUBMISSION_JSON_BYTES) {
     return failure("tooLarge", `a feedback submission is larger than ${MAX_SUBMISSION_JSON_BYTES} bytes`);
@@ -216,16 +232,39 @@ export function readFeedbackSubmissionJson(text) {
   if (deepest > MAX_JSON_DEPTH || overflow || hasLoneSurrogate(value)) {
     return malformed("a feedback submission is not valid JSON");
   }
-  if (!isObject(value)) return malformed("a feedback submission needs `version` 1");
+  return { ok: true, value, spans };
+}
 
-  const versionToken = spans.get("version")?.trim();
-  const version = versionToken !== undefined && /^(?:0|[1-9][0-9]*)$/.test(versionToken) && BigInt(versionToken) < U64_LIMIT ? BigInt(versionToken) : null;
+/** The `version` member exactly as written, as a BigInt, or null when it is not a whole number. */
+function versionOf(value, spans) {
+  if (!isObject(value)) return null;
+  const token = spans.get("version")?.trim();
+  return token !== undefined && /^(?:0|[1-9][0-9]*)$/.test(token) && BigInt(token) < U64_LIMIT ? BigInt(token) : null;
+}
+
+/**
+ * Read a submission from JSON text of at most MAX_SUBMISSION_JSON_BYTES.
+ * Returns { ok: true, submission } with a new, frozen submission (text
+ * trimmed, the name collapsed to single spaces, the link normalized), or
+ * { ok: false, error: { code, message, target? } }. The checks run in the
+ * same order as the build's, so both report the same first problem.
+ */
+export function readFeedbackSubmissionJson(text) {
+  const parsed = parseSubmission(text);
+  if (!parsed.ok) return parsed;
+  const { value, spans } = parsed;
+  if (!isObject(value)) return malformed("a feedback submission needs `version` 1");
+  const version = versionOf(value, spans);
   if (version === null) return malformed("a feedback submission needs `version` 1");
   if (version > BigInt(FEEDBACK_SUBMISSION_VERSION)) {
     return failure("unsupportedVersion", `this feedback submission is version ${version}, newer than the version ${FEEDBACK_SUBMISSION_VERSION} this open.blog reads`);
   }
   if (version !== BigInt(FEEDBACK_SUBMISSION_VERSION)) return malformed("a feedback submission needs `version` 1");
+  return checkFeedback(value, spans);
+}
 
+/** Every B5 rule after the version, in the build's order. */
+function checkFeedback(value, spans) {
   const wrongShape = malformed("a feedback submission has a field this version does not define, or a field of the wrong type");
   const { details = null, attribution = null } = value;
   const shaped =
@@ -300,6 +339,151 @@ export function readFeedbackSubmissionJson(text) {
   return { ok: true, submission: Object.freeze(submission) };
 }
 
+const EVIDENCE_FIELDS = new Set(["claim", "evidenceLink", "citation", "source", "locators", "stance"]);
+const LOCATOR_FIELDS = new Set(["kind", "value", "to"]);
+
+/** A lowercase slug of at most 64 bytes: the shape of A4 claim and link ids and source ids. */
+export function isPublicId(value) {
+  return typeof value === "string" && value.length >= 1 && value.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
+}
+
+/** A locator kind the notebook knows: a named kind, or `x-` and a registry key. */
+export function isLocatorKind(value) {
+  return typeof value === "string" && (LOCATOR_KINDS.includes(value) || (value.length > 2 && value.length <= 64 && value.startsWith("x-") && isPublicId(value)));
+}
+
+const locatorText = (value) => {
+  const text = readerText(value, MAX_LOCATOR_VALUE_CHARS);
+  return text !== null && !/[\n\r\t]/.test(text) ? text : null;
+};
+
+const evidenceFailure = (code, message) => failure(code, message);
+
+/**
+ * Read an evidence block for a submission whose details do (or do not) carry a source link, in the
+ * build's order: shape, references, link needs claim, locators, stance, emptiness. Returns
+ * { ok: true, evidence } with a new, frozen block in canonical form, or a failure.
+ */
+function readEvidence(block, hasSourceUrl) {
+  const wrongShape = malformed("`evidence` has a field this version does not define, or a field of the wrong type");
+  if (!isObject(block)) return malformed("`evidence` must be an object");
+  const optional = (key) => absent(block[key]) || typeof block[key] === "string";
+  const locatorShaped = (locator) =>
+    isObject(locator) && onlyFields(locator, LOCATOR_FIELDS) && typeof locator.kind === "string" && typeof locator.value === "string" && (absent(locator.to) || typeof locator.to === "string");
+  const shaped =
+    onlyFields(block, EVIDENCE_FIELDS) &&
+    ["claim", "evidenceLink", "citation", "source", "stance"].every(optional) &&
+    (absent(block.locators) || (Array.isArray(block.locators) && block.locators.every(locatorShaped)));
+  if (!shaped) return wrongShape;
+  const value = (key) => (absent(block[key]) ? undefined : block[key]);
+  for (const field of ["claim", "evidenceLink", "citation", "source"]) {
+    if (value(field) !== undefined && !isPublicId(value(field))) {
+      return evidenceFailure("invalidReference", `\`evidence.${field}\` must be an id the site publishes: a lowercase slug of at most 64 bytes`);
+    }
+  }
+  if (value("evidenceLink") !== undefined && value("claim") === undefined) {
+    return evidenceFailure("linkWithoutClaim", "`evidence.evidenceLink` needs the `evidence.claim` it belongs to");
+  }
+  const locators = absent(block.locators) ? [] : block.locators;
+  if (locators.length > 0 && value("source") === undefined) {
+    return evidenceFailure("locatorsWithoutSource", "`evidence.locators` need the `evidence.source` they are in");
+  }
+  if (locators.length > MAX_OFFERED_LOCATORS) {
+    return evidenceFailure("tooManyLocators", `\`evidence.locators\` holds at most ${MAX_OFFERED_LOCATORS} locators`);
+  }
+  const outLocators = [];
+  for (const [index, locator] of locators.entries()) {
+    const invalid = evidenceFailure(
+      "invalidLocator",
+      `\`evidence.locators[${index}]\` needs a known kind (page, folio, line, section, chapter, canonical, timestamp or x-…) and a value of 1 to ${MAX_LOCATOR_VALUE_CHARS} characters`,
+    );
+    if (!isLocatorKind(locator.kind)) return invalid;
+    const text = locatorText(locator.value);
+    if (text === null) return invalid;
+    const out = { kind: locator.kind, value: text };
+    if (!absent(locator.to)) {
+      const to = locatorText(locator.to);
+      if (to === null) return invalid;
+      out.to = to;
+    }
+    outLocators.push(Object.freeze(out));
+  }
+  const stance = value("stance");
+  if (stance !== undefined && !EVIDENCE_STANCES.includes(stance)) return malformed("`evidence.stance` must be supports, contradicts or contextualizes");
+  if (stance !== undefined && value("source") === undefined && !hasSourceUrl) {
+    return evidenceFailure("stanceWithoutEvidence", "`evidence.stance` describes offered evidence: give `evidence.source` or `details.sourceUrl`");
+  }
+  const evidence = {};
+  for (const field of ["claim", "evidenceLink", "citation", "source"]) if (value(field) !== undefined) evidence[field] = value(field);
+  if (outLocators.length) evidence.locators = Object.freeze(outLocators);
+  if (stance !== undefined) evidence.stance = stance;
+  if (Object.keys(evidence).length === 0) {
+    return evidenceFailure("emptyEvidence", "`evidence` must name a claim, an evidence link, a citation, a source or a stance");
+  }
+  return { ok: true, evidence: Object.freeze(evidence) };
+}
+
+/**
+ * Read an evidence submission (ADR 0138) from JSON text, as the build's
+ * EvidenceSubmission does: version 1 is B5's submission of an evidence kind,
+ * without a block; version 2 carries `evidence`. Returns { ok: true,
+ * submission } with the B5 submission's fields and, for version 2, a frozen
+ * `evidence`, or { ok: false, error: { code, message, feedbackCode?,
+ * target? } }, where a B5 rule's refusal has the code `feedback` and B5's own
+ * code as `feedbackCode`. Checks run in the build's order: size, JSON,
+ * version, every B5 rule, the kind is an evidence kind, then the block.
+ */
+export function readEvidenceSubmissionJson(text) {
+  const parsed = parseSubmission(text);
+  if (!parsed.ok) return parsed;
+  const { value, spans } = parsed;
+  const version = versionOf(value, spans);
+  const latest = BigInt(EVIDENCE_SUBMISSION_VERSION);
+  if (version !== null && version > latest) {
+    return failure("unsupportedVersion", `this feedback submission is version ${version}, newer than the version ${EVIDENCE_SUBMISSION_VERSION} this open.blog reads`);
+  }
+  if (version !== 1n && version !== latest) return malformed("a feedback submission needs `version` 1 or 2");
+  const hasEvidence = Object.hasOwn(value, "evidence");
+  if (version === 1n && hasEvidence) return malformed("a version 1 feedback submission has no `evidence`; evidence needs version 2");
+  if (version === latest && !hasEvidence) {
+    return failure("missingEvidence", "a version 2 feedback submission needs `evidence`; write it as version 1 without one");
+  }
+  const { evidence: block, ...rest } = value;
+  const read = checkFeedback({ ...rest, version: FEEDBACK_SUBMISSION_VERSION }, spans);
+  if (!read.ok) {
+    const { code, message, target } = read.error;
+    return { ok: false, error: target ? { code: "feedback", feedbackCode: code, message, target } : { code: "feedback", feedbackCode: code, message } };
+  }
+  if (!EVIDENCE_KINDS.includes(read.submission.kind)) {
+    return failure("notEvidenceKind", `a ${read.submission.kind} is not an evidence submission; only a source-suggestion or a correction-suggestion offers evidence`);
+  }
+  if (!hasEvidence) return read;
+  const evidence = readEvidence(block, read.submission.details.sourceUrl !== undefined);
+  if (!evidence.ok) return evidence;
+  return { ok: true, submission: Object.freeze({ ...read.submission, version: EVIDENCE_SUBMISSION_VERSION, evidence: evidence.evidence }) };
+}
+
+/**
+ * Read any submission a site accepts: with `evidence` on (the hosted service
+ * stores evidence blocks), a version 2 or newer document is read as an
+ * evidence submission and everything else as B5's; without it, as B5's,
+ * which refuses version 2. A refused evidence submission's B5 code is
+ * reported as its own `code`, so every caller reads one set of codes.
+ */
+export function readSubmissionJson(text, { evidence = false } = {}) {
+  if (evidence) {
+    const parsed = parseSubmission(text);
+    const version = parsed.ok ? versionOf(parsed.value, parsed.spans) : null;
+    if (version !== null && version >= BigInt(EVIDENCE_SUBMISSION_VERSION)) {
+      const read = readEvidenceSubmissionJson(text);
+      if (read.ok || read.error.code !== "feedback") return read;
+      const { feedbackCode, message, target } = read.error;
+      return failure(feedbackCode, message, target);
+    }
+  }
+  return readFeedbackSubmissionJson(text);
+}
+
 /**
  * The record a receiver keeps, as the build writes it:
  * { version, kind, body, details, provenance } with the ADR 0078 provenance.
@@ -312,19 +496,32 @@ export function receiveFeedback(submission, receivedAt, channel = "hosted") {
   const provenance = { version: 1, work: submission.work, revision: submission.revision, target: submission.target };
   if (submission.seenAt !== undefined && submission.seenAt <= receivedAt) provenance.seenAt = submission.seenAt;
   Object.assign(provenance, { receivedAt, channel, attribution: { ...submission.attribution } });
-  return {
+  const record = {
     version: FEEDBACK_SUBMISSION_VERSION,
     kind: submission.kind,
     body: submission.body,
     details: { ...submission.details },
     provenance,
   };
+  // An evidence submission's record is version 2 with the block beside B5's fields (ADR 0138).
+  if (submission.evidence !== undefined) {
+    record.version = EVIDENCE_SUBMISSION_VERSION;
+    record.evidence = evidenceValue(submission.evidence);
+  }
+  return record;
+}
+
+/** A plain copy of an evidence block in canonical form. */
+function evidenceValue(evidence) {
+  const value = { ...evidence };
+  if (evidence.locators) value.locators = evidence.locators.map((locator) => ({ ...locator }));
+  return value;
 }
 
 /** The canonical JSON value of a submission, as a browser sends it. */
 export function submissionValue(submission) {
   const value = {
-    version: FEEDBACK_SUBMISSION_VERSION,
+    version: submission.evidence === undefined ? FEEDBACK_SUBMISSION_VERSION : EVIDENCE_SUBMISSION_VERSION,
     kind: submission.kind,
     work: submission.work,
     revision: submission.revision,
@@ -334,7 +531,25 @@ export function submissionValue(submission) {
   if (Object.keys(submission.details).length > 0) value.details = submission.details;
   if (submission.seenAt !== undefined) value.seenAt = submission.seenAt;
   if (submission.attribution.name !== undefined || submission.attribution.publishName) value.attribution = submission.attribution;
+  if (submission.evidence !== undefined) value.evidence = evidenceValue(submission.evidence);
   return value;
+}
+
+const STANCE_WORDS = Object.freeze({ supports: "supports the passage", contradicts: "contradicts the passage", contextualizes: "gives context to the passage" });
+
+/** The evidence block in words, one line each, for the copy fallback and reviewers. */
+export function evidenceLines(evidence) {
+  if (!evidence) return [];
+  const lines = [];
+  if (evidence.claim) lines.push(`Claim: ${evidence.claim}`);
+  if (evidence.evidenceLink) lines.push(`Evidence link questioned: ${evidence.evidenceLink}`);
+  if (evidence.citation) lines.push(`Cited source questioned: ${evidence.citation}`);
+  if (evidence.source) {
+    const where = (evidence.locators || []).map((locator) => `${locator.kind} ${locator.value}${locator.to ? `–${locator.to}` : ""}`).join(", ");
+    lines.push(`Source offered: ${evidence.source}${where ? ` (${where})` : ""}`);
+  }
+  if (evidence.stance) lines.push(`The reader says it ${STANCE_WORDS[evidence.stance]}.`);
+  return lines;
 }
 
 const describeTarget = (target) => {
@@ -361,6 +576,7 @@ export function feedbackCopyText(submission, canonicalUrl = "") {
   ];
   if (submission.details.sourceUrl) lines.push(`Source: ${submission.details.sourceUrl}`);
   if (submission.details.suggestedText) lines.push(`Suggested wording: ${submission.details.suggestedText}`);
+  lines.push(...evidenceLines(submission.evidence));
   if (submission.attribution.name !== undefined) {
     lines.push(`Name: ${submission.attribution.name} (${submission.attribution.publishName ? "may be shown with published feedback" : "not for publication"})`);
   }
