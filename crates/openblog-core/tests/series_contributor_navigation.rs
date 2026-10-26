@@ -35,7 +35,7 @@ fn config(site_author: &str) -> SiteConfig {
         ("owner", "Site Owner", "https://example.test/about/"),
         ("owner-bare", "Site Owner", ""),
         ("namesake", "Site Owner", "https://elsewhere.example/"),
-        // A second registry entry for Ann, with her name and link.
+        // A second registry entry with Ann's name and link: still a separate registry entry.
         ("ann-again", "Ann", "https://example.org/ann"),
     ] {
         config.contributors.insert(
@@ -493,7 +493,8 @@ fn a_person_credited_under_two_ids_is_named_once() {
             "{owner}: {series}"
         );
     }
-    // Two registry ids with the same name and link are one person too.
+    // Two registry ids are two people, even with the same name and link: the registry is where
+    // people are told apart, so only the legacy site-author credit is matched by name.
     let files = build(&[(
         vec![
             post("o1", "letters", "2026-04-01", Some(1), ""),
@@ -506,7 +507,7 @@ fn a_person_credited_under_two_ids_is_named_once() {
     )]);
     let series = series_body(page(&files, "series/letters/index.html"));
     assert!(
-        series.contains("Contributors: Ann, Bo, and Cy</p>"),
+        series.contains("Contributors: Ann, Bo, Ann, and Cy</p>"),
         "{series}"
     );
     // A namesake with a different profile link is a different person and keeps their place.

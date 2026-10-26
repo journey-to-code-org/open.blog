@@ -654,8 +654,8 @@ impl Site {
     /// changes the answer and a removed one cannot linger. Secondary contributors are not
     /// included. One person is listed once even when credited under two ids: a legacy post's
     /// default site-author credit and the owner's registry credit on a shared reflection are the
-    /// same person when their names match (and their profile URLs, when both have one), and any
-    /// two credits with the same name and URL are the same person (ADR 0040).
+    /// same person when their names match (and their profile URLs, when both have one). Two
+    /// distinct registry ids are always two people, whatever their names (ADR 0040).
     pub fn series_contributors(&self, series: &Series) -> Vec<&crate::contributor::ResolvedCredit> {
         self.contributors_among(series.posts.iter().copied())
     }
@@ -780,7 +780,9 @@ impl Site {
 
 /// Whether two author credits name the same person for a series' contributor list. The same id
 /// always does. A legacy site-author credit matches a registry credit with the same name when
-/// their profile URLs agree or either has none; any other two credits match on name and URL.
+/// their profile URLs agree or either has none. Two distinct registry ids never match: the
+/// registry is where people are told apart, so two entries are two people even when they share a
+/// name, or a name and a URL.
 fn same_person(
     a: &crate::contributor::ResolvedCredit,
     b: &crate::contributor::ResolvedCredit,
@@ -789,12 +791,12 @@ fn same_person(
     if a.contributor_id == b.contributor_id {
         return true;
     }
-    if a.contributor.name.trim() != b.contributor.name.trim() {
+    if a.contributor_id != SITE_AUTHOR_ID && b.contributor_id != SITE_AUTHOR_ID {
         return false;
     }
     let (a_url, b_url) = (a.contributor.url.trim(), b.contributor.url.trim());
-    let legacy = a.contributor_id == SITE_AUTHOR_ID || b.contributor_id == SITE_AUTHOR_ID;
-    a_url == b_url || (legacy && (a_url.is_empty() || b_url.is_empty()))
+    a.contributor.name.trim() == b.contributor.name.trim()
+        && (a_url == b_url || a_url.is_empty() || b_url.is_empty())
 }
 
 fn seo_warnings(post: &Post) -> Vec<String> {
