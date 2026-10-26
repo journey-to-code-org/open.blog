@@ -151,6 +151,11 @@ pub enum AuthorizationAction {
     /// participant. Only Contributors hold it, and only for themselves, because a named author
     /// must be able to approve the piece, which Editors cannot.
     EditSynthesis,
+    /// Capture, edit and remove the requester's own media moments (ADR 0072 to 0074), and read
+    /// the moments other authors revealed with a draft. Targets the requester's own participant.
+    /// Only Contributors hold it, and only for themselves: a moment proposed for the piece makes
+    /// its owner a required approver, which an Editor cannot be.
+    EditMoments,
     /// Choose how contribution drafts may be revealed. Targets the publication. Coordinators and
     /// site owners hold it; it reveals nothing and reads no draft.
     SetRevealPolicy,
@@ -263,9 +268,8 @@ impl AuthorizationAction {
             | ArrangeReflection | Schedule | Publish | Export | PlaceInSeries | CreateSeries => {
                 TargetKind::Publication
             }
-            ApproveContribution | EditDraft | EditSynthesis | RemoveMember | ManageRoles => {
-                TargetKind::Participant
-            }
+            ApproveContribution | EditDraft | EditSynthesis | EditMoments | RemoveMember
+            | ManageRoles => TargetKind::Participant,
             ViewRevealed | ViewContribution | EditContribution | RevealContribution => {
                 TargetKind::Contribution
             }
@@ -594,7 +598,7 @@ fn role_allows(
         (Contributor | Editor, EditDraft, ResolvedTarget::Participant { id, .. }) => *id == own,
         (
             Contributor,
-            ApproveContribution | EditSynthesis,
+            ApproveContribution | EditSynthesis | EditMoments,
             ResolvedTarget::Participant { id, .. },
         ) => *id == own,
         (
