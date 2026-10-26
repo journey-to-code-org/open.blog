@@ -169,7 +169,7 @@ test("without JavaScript each note says what the author decided, what changed an
   await expect(note(page, 5).locator(".ob-reader-note-outcome")).toHaveCount(0);
   // Evidence the post no longer publishes is said, never linked.
   const withdrawn = note(page, 6);
-  await expect(withdrawn).toContainText("The evidence the author recorded is no longer published on this post.");
+  await expect(withdrawn).toContainText("The evidence the author recorded is not published on this page.");
   await expect(withdrawn.getByRole("link", { name: "Claim 1", exact: true })).toHaveCount(0);
   await context.close();
 });

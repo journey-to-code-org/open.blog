@@ -562,7 +562,7 @@ fn withdrawn_evidence_stale_notes_and_stale_targets_are_said_not_linked() {
     // The evidence link the author recorded is not published on the post: no link, and a sentence.
     let withdrawn = article(notes, ID_WITHDRAWN);
     assert!(
-        withdrawn.contains("The evidence the author recorded is no longer published on this post."),
+        withdrawn.contains("The evidence the author recorded is not published on this page."),
         "{withdrawn}"
     );
     assert!(!withdrawn.contains("Evidence the author recorded:"));
@@ -816,4 +816,24 @@ fn feeds_carry_outcomes_but_never_a_note_and_llms_carry_neither() {
     // llms-full.txt is the post's own text: it carries neither the notes nor their outcomes.
     assert!(!llms.contains("Author’s decision") && !llms.contains("Unresolved"));
     assert!(!llms.contains("It was three times."));
+}
+
+#[test]
+fn a_page_address_is_escaped_in_the_links_an_outcome_carries() {
+    let (site, text) = setup();
+    let post = cave(&site);
+    let file = ReaderFeedbackFile::from_json(&text).unwrap();
+    let document = PassageDocument::of_post(post, &site.config);
+    let items: Vec<&PublishedFeedback> = file.items.iter().collect();
+    let hostile = "https://example.test/a\"onmouseover=\"x&y";
+    let mut linked = 0;
+    for public in openblog_core::feedback_publication::project(&items, post, &document, true) {
+        let Some(outcome) = &public.outcome else {
+            continue;
+        };
+        let html = openblog_core::feedback_publication::outcome_html(&public, outcome, hostile);
+        assert!(!html.contains("\"onmouseover=\""), "{html}");
+        linked += html.matches("href=\"https://example.test/a&quot;onmouseover=&quot;x&amp;y#").count();
+    }
+    assert!(linked >= 2, "the change and the evidence links were checked");
 }

@@ -1891,7 +1891,7 @@ impl<'a> PortableProjection<'a> {
                 ));
             } else if outcome.evidence_withdrawn {
                 output.push_str(
-                    "The evidence the author recorded is no longer published on this post.\n\n",
+                    "The evidence the author recorded is not published on this page.\n\n",
                 );
             }
             if let Some(rationale) = &outcome.rationale {
@@ -2264,12 +2264,12 @@ fn series_clause(lead: &str, names: &str) -> String {
     }
 }
 
-/// Markdown text for a public value (a title, a name, a fact): Markdown punctuation, `<` and `&`
-/// are escaped, so the value can never become a link, emphasis, an autolink, raw HTML or an
-/// entity when the export is read back.
 /// What a portable copy says before it lists the outcomes (ADR 0141).
 const OUTCOMES_INTRO: &str = "Suggested sources and corrections readers sent about this post that the author chose to publish, and what the author decided. An outcome is the author’s record of their own decision, not a finding that a claim is true; a suggestion without a decision is unresolved.";
 
+/// Markdown text for a public value (a title, a name, a fact): Markdown punctuation, `<` and `&`
+/// are escaped, so the value can never become a link, emphasis, an autolink, raw HTML or an
+/// entity when the export is read back.
 fn markdown_text(value: &str) -> String {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut escaped = String::new();

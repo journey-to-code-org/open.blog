@@ -939,7 +939,7 @@ pub fn outcome_html(item: &PublicFeedback, outcome: &PublicOutcome, page: &str) 
     if let Some(change) = &outcome.change {
         let words = change_words(change);
         let words = match &change.fragment {
-            Some(fragment) => format!("<a href=\"{page}#{}\">{}</a>", attr(fragment), text(&words)),
+            Some(fragment) => format!("<a href=\"{}\">{}</a>", attr(&format!("{page}#{fragment}")), text(&words)),
             None => text(&words),
         };
         html.push_str(&format!(
@@ -948,13 +948,13 @@ pub fn outcome_html(item: &PublicFeedback, outcome: &PublicOutcome, page: &str) 
     }
     if let Some(evidence) = &outcome.evidence {
         html.push_str(&format!(
-            "<p class=\"ob-reader-note-evidence\">Evidence the author recorded: <a href=\"{page}#{}\">Claim {}</a>: {}.</p>\n",
-            attr(&evidence.fragment),
+            "<p class=\"ob-reader-note-evidence\">Evidence the author recorded: <a href=\"{}\">Claim {}</a>: {}.</p>\n",
+            attr(&format!("{page}#{}", evidence.fragment)),
             evidence.claim,
             text(&evidence.label)
         ));
     } else if outcome.evidence_withdrawn {
-        html.push_str("<p class=\"ob-reader-note-evidence\">The evidence the author recorded is no longer published on this post.</p>\n");
+        html.push_str("<p class=\"ob-reader-note-evidence\">The evidence the author recorded is not published on this page.</p>\n");
     }
     if let Some(rationale) = &outcome.rationale {
         html.push_str(&format!(
