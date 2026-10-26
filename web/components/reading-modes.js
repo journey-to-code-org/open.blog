@@ -1,4 +1,4 @@
-// The pure rules of reading modes (ADR 0126, 0127, 0128), shared by
+// The pure rules of reading modes (ADR 0140, 0141, 0142), shared by
 // <ob-reading-modes> and its tests. Nothing here touches the page.
 //
 // A reading mode only decides which author-written supplements are shown. The

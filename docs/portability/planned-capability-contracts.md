@@ -16,7 +16,7 @@ behavior, while the contract task owns the portability gate.
 | Historical timelines | [#23](https://github.com/journey-to-code-org/open.blog/issues/23) | [#56](https://github.com/journey-to-code-org/open.blog/issues/56) | Defined |
 | Research workspace publication boundary | [#24](https://github.com/journey-to-code-org/open.blog/issues/24) | [#63](https://github.com/journey-to-code-org/open.blog/issues/63) | Defined |
 | Citation/source previews | [#25](https://github.com/journey-to-code-org/open.blog/issues/25) | [#64](https://github.com/journey-to-code-org/open.blog/issues/64) | Defined |
-| Guided reading | [#26](https://github.com/journey-to-code-org/open.blog/issues/26) | [#68](https://github.com/journey-to-code-org/open.blog/issues/68) | Defined; implemented (`implementation_status` in the registry, ADRs 0126-0130) |
+| Guided reading | [#26](https://github.com/journey-to-code-org/open.blog/issues/26) | [#68](https://github.com/journey-to-code-org/open.blog/issues/68) | Defined; implemented (`implementation_status` in the registry, ADRs 0140-0144) |
 | Knowledge relationships | [#27](https://github.com/journey-to-code-org/open.blog/issues/27) | [#72](https://github.com/journey-to-code-org/open.blog/issues/72) | Defined |
 | Curated reading paths | [#28](https://github.com/journey-to-code-org/open.blog/issues/28) | [#76](https://github.com/journey-to-code-org/open.blog/issues/76) | Defined |
 | Passage questions/corrections | [#29](https://github.com/journey-to-code-org/open.blog/issues/29) | [#80](https://github.com/journey-to-code-org/open.blog/issues/80) | Defined |

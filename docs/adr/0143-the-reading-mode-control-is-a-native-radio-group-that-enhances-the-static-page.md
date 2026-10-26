@@ -1,13 +1,13 @@
-# ADR 0129: The reading-mode control is a native radio group that enhances the static page
+# ADR 0143: The reading-mode control is a native radio group that enhances the static page
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#69](https://github.com/journey-to-code-org/open.blog/issues/69)
 - Parent story: [#26](https://github.com/journey-to-code-org/open.blog/issues/26)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0126](0126-a-supplement-is-a-marked-block-quote-the-author-wrote-into-the-post.md),
-  [ADR 0127](0127-a-reading-mode-only-shows-or-hides-supplements-and-every-representation-stays-complete.md),
-  [ADR 0128](0128-supplements-keep-real-headings-a-visible-boundary-and-warnings-in-every-mode.md)
+- Builds on: [ADR 0140](0140-a-supplement-is-a-marked-block-quote-the-author-wrote-into-the-post.md),
+  [ADR 0141](0141-a-reading-mode-only-shows-or-hides-supplements-and-every-representation-stays-complete.md),
+  [ADR 0142](0142-supplements-keep-real-headings-a-visible-boundary-and-warnings-in-every-mode.md)
 - Contract: [Reading modes](../specs/reading-modes.md)
 
 ## Context
@@ -37,13 +37,13 @@ pixels and 400% zoom, and the choice is a private preference.
   on load and when another tab changes the choice.
 - **The choice is kept on this device, as a preference only.** `localStorage` key `ob-reading-mode`
   holds one of the three names; it is per origin, which is per site only for a site at the root of its
-  host (corrected by [ADR 0130](0130-supplement-layers-render-progressively-from-the-complete-static-page.md):
+  host (corrected by [ADR 0144](0144-supplement-layers-render-progressively-from-the-complete-static-page.md):
   a project site under a folder adds its base path to the key), it is read and written
   in `try`/`catch`, a value that is not a mode is ignored, and nothing is sent anywhere or logged.
   When storage is blocked the choice applies to the page and the announcement says it could not be
   saved. A "Use the author's default" button clears the saved choice and returns to the author's
-  default; it is aria-disabled while nothing is saved (ADR 0130).
-- **Defaults.** Saved choice, else the author's `default` (ADR 0128), else standard.
+  default; it is aria-disabled while nothing is saved (ADR 0144).
+- **Defaults.** Saved choice, else the author's `default` (ADR 0142), else standard.
 - **Reduced motion.** Showing a supplement fades it in over 0.18 seconds only under
   `prefers-reduced-motion: no-preference`; scrolling to a revealed target is instant under `reduce`.
 - **Layout.** The options wrap and stack; descriptions wrap anywhere; at 320 CSS pixels and at 400%

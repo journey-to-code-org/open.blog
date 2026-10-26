@@ -1484,7 +1484,7 @@ impl<'a> Renderer<'a> {
             body.push_str("</ol></details></nav>\n");
         }
         // A post with supplements is enhanced by `<ob-reading-modes>` (ADR
-        // 0128): the page is complete without it, so the element carries only
+        // 0142): the page is complete without it, so the element carries only
         // the author's default mode and the control is built by script.
         let reading_modes = post
             .reading_depth()
@@ -1493,7 +1493,7 @@ impl<'a> Renderer<'a> {
         if let Some(default_mode) = reading_modes {
             // A site under a folder (GitHub Pages project sites) shares its
             // origin's storage with its siblings, so the choice is kept under
-            // the base path (ADR 0130).
+            // the base path (ADR 0144).
             let base = self.site.config.base_path();
             let scope = if base.is_empty() {
                 String::new()

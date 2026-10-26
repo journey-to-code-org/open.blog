@@ -87,7 +87,7 @@ pub struct RenderOptions<'a> {
     /// section (ADR 0075): its prose (description, word count, reading time)
     /// ends at that section's heading, as it ends at generated citation notes.
     pub claim_evidence_section: bool,
-    /// Set for a post that opts in to reading modes (ADR 0126): marked
+    /// Set for a post that opts in to reading modes (ADR 0140): marked
     /// supplements are wrapped in labelled groups and kept out of the post's
     /// own prose. `false` renders every block quote as before.
     pub supplements: bool,
@@ -1694,7 +1694,7 @@ fn assign_heading_ids(
                     continue;
                 };
                 // A heading written inside a supplement already has the id
-                // that names it (ADR 0128); it takes no slug from the post's.
+                // that names it (ADR 0142); it takes no slug from the post's.
                 if supplements
                     && matches!(
                         &events[start],
@@ -2198,7 +2198,7 @@ fn render_events<'a>(
         (parsed_events, Vec::new(), None)
     };
     // The post's own words, built with every push `text` gets except the
-    // words of a supplement (ADR 0126). Only a post with supplements keeps it.
+    // words of a supplement (ADR 0140). Only a post with supplements keeps it.
     let mut own = options.supplements.then(String::new);
     let mut own_end = None;
     // Per open block quote: the supplement it is, for its end marker.
@@ -2309,7 +2309,7 @@ fn render_events<'a>(
                 }
             }
             // A heading inside a supplement is a heading, but not an entry of
-            // the outline (ADR 0128).
+            // the outline (ADR 0142).
             Event::Start(Tag::Heading { level, .. }) if !inside => {
                 heading = Some((*level, events.len(), String::new()));
             }
@@ -2419,7 +2419,7 @@ fn render_events<'a>(
     pulldown_cmark::html::push_html(&mut html, events.into_iter());
     if portable.is_none() {
         // A note cited only inside supplements says which, so the page can
-        // show a supplement a reader navigates into (ADR 0128).
+        // show a supplement a reader navigates into (ADR 0142).
         let mut notes: Vec<_> = cited_in
             .iter()
             .filter(|(name, _)| !cited_outside.contains(*name))

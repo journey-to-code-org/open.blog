@@ -2244,7 +2244,7 @@ fn transformation_summary(capability: &str) -> &'static str {
 }
 
 /// Plain text of Markdown, keeping code and link destinations (shared by the portable text and the
-/// reflection text). With `supplements` (a post that opted in to reading modes, ADR 0126) each
+/// reflection text). With `supplements` (a post that opted in to reading modes, ADR 0140) each
 /// supplement's marker line becomes a line naming it and a line closes it, so the text shows where
 /// it starts and stops without a stylesheet.
 fn markdown_to_text(markdown: &str, supplements: bool) -> String {
@@ -4433,7 +4433,7 @@ A[^a b].
         let native = post.html.clone();
         for contract in registry["contracts"].as_array().unwrap() {
             let id = contract["id"].as_str().unwrap();
-            // An implemented capability (B2, ADR 0127) has its own portable
+            // An implemented capability (B2, ADR 0141) has its own portable
             // fallback instead of a canonical-only label: it must still keep
             // the public prose, but owes no label or canonical-only notice.
             let implemented = contract["implementation_status"].as_str() == Some("implemented");

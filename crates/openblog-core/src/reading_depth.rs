@@ -1,5 +1,5 @@
 //! Author-approved supplements and the reading modes that reveal them
-//! (ADR 0126, ADR 0127).
+//! (ADR 0140, ADR 0141).
 //!
 //! A supplement is a block quote the author marks with a first line
 //! `[!supplement kind=definition level=guided] Optional title`. It is part of
@@ -171,7 +171,7 @@ pub struct Supplement {
     pub effective_depth: Depth,
     /// Whether a warning or caution callout is written inside it (or inside
     /// a supplement nested in it): it is then shown in every mode, never
-    /// hidden (ADR 0128).
+    /// hidden (ADR 0142).
     pub always: bool,
     pub title: Option<String>,
     /// The id of the supplement it is written inside, if any.
@@ -195,7 +195,7 @@ pub struct ReadingDepth {
     pub supplements: Vec<Supplement>,
     pub findings: Vec<Finding>,
     /// The mode the author opened the post in; standard unless the front
-    /// matter says otherwise (ADR 0128). A reader's own choice overrides it.
+    /// matter says otherwise (ADR 0142). A reader's own choice overrides it.
     pub default_mode: ReadingMode,
 }
 
@@ -848,13 +848,13 @@ fn close_tag(supplement: &Supplement) -> String {
     )
 }
 
-/// What the front matter key says about reading modes (ADR 0128).
+/// What the front matter key says about reading modes (ADR 0142).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Setting {
     pub enabled: bool,
     pub default_mode: ReadingMode,
     /// Whether the post wrote a readable default mode itself. When it did
-    /// not, the site's default applies (ADR 0128).
+    /// not, the site's default applies (ADR 0142).
     pub default_written: bool,
     /// What to tell the author when the value was not understood.
     pub warning: Option<String>,

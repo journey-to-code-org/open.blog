@@ -2462,7 +2462,7 @@ ob-back-to-top button:hover {
   .ob-moment-link a::after { content: " (" attr(href) ")"; }
 }
 
-/* Reading modes and supplements (ADR 0126-0128). A supplement is a labelled group that holds the
+/* Reading modes and supplements (ADR 0140-0142). A supplement is a labelled group that holds the
    author's quote and ends with a visible end line, so it reads as set apart with or without this
    stylesheet. The build never hides one: <ob-reading-modes> sets `hidden` from the reader's mode,
    and a supplement holding a warning (data-ob-always) is never hidden. */
@@ -2480,7 +2480,7 @@ ob-reading-modes { display: block; }
 }
 .ob-supplement[hidden]:not([hidden="until-found"]) { display: none; }
 .ob-supplement .ob-supplement { margin-block: 0.9em; }
-/* Hidden but findable (ADR 0130): the browser skips the contents, and the box shrinks to nothing so
+/* Hidden but findable (ADR 0144): the browser skips the contents, and the box shrinks to nothing so
    no empty frame is left, a nested one too (so this follows the nested margin above). Find in page
    and a link into it reveal it. */
 .ob-supplement[hidden="until-found"] { margin: 0; padding: 0; border-width: 0; background: none; }

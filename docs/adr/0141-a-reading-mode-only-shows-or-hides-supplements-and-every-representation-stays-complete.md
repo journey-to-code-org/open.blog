@@ -1,13 +1,13 @@
-# ADR 0127: A reading mode only shows or hides supplements, and every representation stays complete without it
+# ADR 0141: A reading mode only shows or hides supplements, and every representation stays complete without it
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#68](https://github.com/journey-to-code-org/open.blog/issues/68)
 - Parent story: [#26](https://github.com/journey-to-code-org/open.blog/issues/26)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0126](0126-a-supplement-is-a-marked-block-quote-the-author-wrote-into-the-post.md),
+- Builds on: [ADR 0140](0140-a-supplement-is-a-marked-block-quote-the-author-wrote-into-the-post.md),
   [ADR 0004](0004-portable-projections-from-canonical-work.md)
-- Amended by: [ADR 0128](0128-supplements-keep-real-headings-a-visible-boundary-and-warnings-in-every-mode.md)
+- Amended by: [ADR 0142](0142-supplements-keep-real-headings-a-visible-boundary-and-warnings-in-every-mode.md)
 - Contract: [Reading modes](../specs/reading-modes.md)
 
 ## Context
@@ -30,7 +30,7 @@ silently.
   never writes `hidden`. A reader without script, a feed reader, a search engine and a printout all
   get every labelled supplement in document order. Standard mode being "uninterrupted" is therefore an
   enhancement applied by the control (#69/#70): it hides the supplements the chosen mode does not
-  show, from the preference the reader keeps locally (or the author's default mode, ADR 0128), and
+  show, from the preference the reader keeps locally (or the author's default mode, ADR 0142), and
   shows all of them again if script is unavailable. A supplement that holds a warning or caution
   callout is never hidden by any mode. A reader's choice is a local presentation preference and
   is never sent anywhere.
@@ -41,7 +41,7 @@ silently.
   Then the author's words in a real `blockquote`, then a closing paragraph
   `<p class="ob-supplement-end"><strong>End of definition supplement.</strong></p>`. The quote and
   the `strong` labels are structure that a feed reader and a page with no stylesheet both keep, so the
-  boundary is visible without CSS (ADR 0128). It is a group, not a landmark, so many supplements do
+  boundary is visible without CSS (ADR 0142). It is a group, not a landmark, so many supplements do
   not flood a screen reader's landmark list. All text is escaped; the marker line is replaced by the
   label. A supplement that holds a warning or caution callout also has `data-ob-always`.
 - **Portable copies.** Portable HTML, RSS and JSON Feed carry the same visible labelled groups;

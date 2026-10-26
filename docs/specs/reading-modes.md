@@ -1,8 +1,8 @@
 # Reading modes and supplements
 
 The contract for author-approved supplements and the reading modes that reveal them. Decisions:
-[ADR 0126](../adr/0126-a-supplement-is-a-marked-block-quote-the-author-wrote-into-the-post.md) and
-[ADR 0127](../adr/0127-a-reading-mode-only-shows-or-hides-supplements-and-every-representation-stays-complete.md).
+[ADR 0140](../adr/0140-a-supplement-is-a-marked-block-quote-the-author-wrote-into-the-post.md) and
+[ADR 0141](../adr/0141-a-reading-mode-only-shows-or-hides-supplements-and-every-representation-stays-complete.md).
 Code: `openblog_core::reading_depth`.
 
 ## Writing a supplement
@@ -101,9 +101,9 @@ share it (a mode name, on this device only, never sent anywhere; blocked storage
 and, when the address names something inside a hidden supplement (or a note that names one), shows
 that supplement, moves focus to the target and says so. The fade-in runs only when motion is not
 reduced. The shared rules are in `web/components/reading-modes.js`, checked against
-`tests/fixtures/reading-modes.json` by both the Rust and Node tests. Decisions: ADR 0128, ADR 0129, ADR 0130.
+`tests/fixtures/reading-modes.json` by both the Rust and Node tests. Decisions: ADR 0142, ADR 0143, ADR 0144.
 
-## Progressive rendering (ADR 0130)
+## Progressive rendering (ADR 0144)
 
 - The static page is the whole content. Without script nothing is hidden, and portable copies keep
   every supplement.
@@ -123,7 +123,7 @@ reduced. The shared rules are in `web/components/reading-modes.js`, checked agai
   chose fades in, and not under reduced motion. The reset button is `aria-disabled`, so it keeps
   focus.
 
-## Accessibility and comprehension safeguards (ADR 0131)
+## Accessibility and comprehension safeguards (ADR 0145)
 
 - **The article is identifiable in every mode.** A supplement is a boxed group named by its own
   label ("Definition guided supplement Aporia") that ends with an "End of ... supplement." line, so

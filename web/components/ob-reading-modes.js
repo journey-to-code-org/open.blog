@@ -1,5 +1,5 @@
 // <ob-reading-modes> wraps a post that has author-written supplements
-// (ADR 0128). The page is complete without it: every supplement is written out
+// (ADR 0142). The page is complete without it: every supplement is written out
 // visible, labelled and in order, and no control exists until this runs.
 //
 //   default="guided"     - the mode the author opens the post in (standard if absent)
@@ -12,7 +12,7 @@
 // localStorage on this device, as a preference only: it is never sent anywhere
 // and the page works when storage is blocked.
 //
-// Progressive rendering (ADR 0130). The static markup is the whole content; the
+// Progressive rendering (ADR 0144). The static markup is the whole content; the
 // stylesheet hides the layers the author's default mode hides until this runs,
 // and only where script is on, so there is no flash of every layer and no loss
 // without script. A hidden supplement is `hidden="until-found"` where the

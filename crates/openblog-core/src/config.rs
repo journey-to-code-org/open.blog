@@ -93,7 +93,7 @@ pub struct SiteConfig {
     #[serde(skip_serializing_if = "ComparisonsConfig::is_off")]
     pub comparisons: ComparisonsConfig,
     /// The reading mode a post with supplements opens in when the post does
-    /// not say (ADR 0128). Omitted from the written file while it is standard.
+    /// not say (ADR 0142). Omitted from the written file while it is standard.
     #[serde(
         deserialize_with = "ReadingModesConfig::tolerant",
         skip_serializing_if = "ReadingModesConfig::is_default"
@@ -101,7 +101,7 @@ pub struct SiteConfig {
     pub reading_modes: ReadingModesConfig,
 }
 
-/// The site-wide default reading mode (ADR 0128). It only decides where a
+/// The site-wide default reading mode (ADR 0142). It only decides where a
 /// post that opted in with `readingModes` opens; it never opts a post in. A
 /// post's own `readingModes.default` wins, then this, then standard. Read
 /// tolerantly: `"readingModes": {"default": "guided"}` or the bare mode

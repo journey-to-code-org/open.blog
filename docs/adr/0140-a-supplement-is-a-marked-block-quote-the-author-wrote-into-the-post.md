@@ -1,4 +1,4 @@
-# ADR 0126: A supplement is a marked block quote the author wrote into the post, and nothing else ever becomes one
+# ADR 0140: A supplement is a marked block quote the author wrote into the post, and nothing else ever becomes one
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -9,7 +9,7 @@
   [ADR 0043](0043-opt-in-citation-markdown-syntax.md),
   [ADR 0058](0058-publish-one-allowlisted-knowledge-atlas-projection.md),
   [ADR 0059](0059-published-reference-data-for-citation-previews.md)
-- Amended by: [ADR 0128](0128-supplements-keep-real-headings-a-visible-boundary-and-warnings-in-every-mode.md)
+- Amended by: [ADR 0142](0142-supplements-keep-real-headings-a-visible-boundary-and-warnings-in-every-mode.md)
 - Contract: [Reading modes](../specs/reading-modes.md)
 
 ## Context
@@ -29,7 +29,7 @@ that canonical prose and citations are untouched and that every supplement has a
   into the post. Drafts and held-back posts publish nothing, as for every other part of a post. So
   "only author-approved content may appear in any mode" holds because nothing else can reach one.
 - **Opt-in per post.** `readingModes` (or `reading_modes`) in the front matter: `true`, or a map
-  `{default: standard|guided|deep-dive}` that also names the mode the post opens in (ADR 0128). The
+  `{default: standard|guided|deep-dive}` that also names the mode the post opens in (ADR 0142). The
   key is read tolerantly: `true`/`yes`/`on` and any map opt in, `false`/`no`/`off` opt out, and
   anything else is off with a warning. A map never switches the post off. Without it
   every block quote renders exactly as before, markers included, as ordinary quotes. With it but no
@@ -56,7 +56,7 @@ that canonical prose and citations are untouched and that every supplement has a
   "written", so it is not reported.
 - **A marker that cannot be read stays a plain block quote** (the author's words remain), and is
   reported as a finding naming only the start of the marker line. Each finding is added, with the
-  post's path, to the warnings the build, `check` and Admin show (ADR 0128). A title over 120
+  post's path, to the warnings the build, `check` and Admin show (ADR 0142). A title over 120
   characters and a kind over 32 each have their own message and leave the marker a quote; a marker
   whose `[` is escaped (`\[!supplement`) is ordinary text and no finding. Over three levels of nesting,
   over 200 supplements, or more than 1 MiB of Markdown (for the scanner), the excess is left as
@@ -65,7 +65,7 @@ that canonical prose and citations are untouched and that every supplement has a
   post's prose, so the description, word count and reading time are those of the article alone.
   A heading written inside a supplement stays a real heading with its own id, but is not an entry
   of the outline and takes no slug from the post's headings, so no mode adds or removes an entry
-  of the outline and no later heading is renumbered (ADR 0128).
+  of the outline and no later heading is renumbered (ADR 0142).
 - **Citations and footnotes inside a supplement are the post's own.** They are numbered in
   document order, published in the one reference list and checked like any other. A mode never
   changes which references exist or their numbers; it only changes whether the marker is visible.
