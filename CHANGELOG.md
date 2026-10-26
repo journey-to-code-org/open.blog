@@ -29,6 +29,8 @@ All notable changes to open.blog are recorded here. Releases follow
   check`, synced by the hosted workspace, available to Admin through
   `/admin/api/research/alignments`, and never published. A source, interpretation or passage an
   alignment uses cannot be removed until the alignment stops using it.
+- A site that publishes its Knowledge Atlas no longer fails to build when an interpretation in the
+  private source library names a contributor who was later removed from the registry.
 
 ## [0.32.0] - 2026-10-26
 
