@@ -10,6 +10,7 @@ use openblog_core::collaboration::{
 use openblog_core::config::SiteConfig;
 use openblog_core::contributor::Contributor;
 use openblog_core::draft::DraftSet;
+use openblog_core::media_moment::MomentSet;
 use openblog_core::preview::build;
 use openblog_core::reflection::{ReflectionLayout, ReflectionStructure, LAYOUT_CSS, PART_MARKER};
 use openblog_core::synthesis::SynthesisSet;
@@ -94,12 +95,24 @@ fn approve_all(
 ) -> ApprovalSet {
     let mut approvals = ApprovalSet::new();
     for who in ALL {
-        let seen = with_subject(record, s, set, &SynthesisSet::new(), &ALL, |subject| {
-            approvals.binding_for(subject, who).unwrap()
-        });
-        with_subject(record, s, set, &SynthesisSet::new(), &ALL, |subject| {
-            approvals.approve(who, who, subject, &seen, true, T)
-        })
+        let seen = with_subject(
+            record,
+            s,
+            set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &ALL,
+            |subject| approvals.binding_for(subject, who).unwrap(),
+        );
+        with_subject(
+            record,
+            s,
+            set,
+            &SynthesisSet::new(),
+            &MomentSet::new(),
+            &ALL,
+            |subject| approvals.approve(who, who, subject, &seen, true, T),
+        )
         .unwrap();
     }
     approvals
@@ -137,6 +150,7 @@ fn a_piece_without_a_structure_keeps_participant_order_and_never_shows_the_marke
         None,
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -160,6 +174,7 @@ fn the_arranged_post_follows_the_reading_order_and_credits_each_author_once() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -192,6 +207,7 @@ fn side_by_side_is_the_same_dom_order_with_lane_classes_only() {
         Some(&side),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -222,6 +238,7 @@ fn unequal_numbers_of_parts_arrange_without_blank_gaps() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -242,6 +259,7 @@ fn changing_the_layout_or_the_arrangement_makes_standing_approvals_stale_at_the_
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE
@@ -249,7 +267,7 @@ fn changing_the_layout_or_the_arrangement_makes_standing_approvals_stale_at_the_
     .is_ok());
     let blocked = |changed: Option<&ReflectionStructure>| {
         matches!(
-            assemble(&record, changed, &set, &SynthesisSet::new(), &approvals, &ALL, DATE),
+            assemble(&record, changed, &set, &SynthesisSet::new(), &MomentSet::new(), &approvals, &ALL, DATE),
             Err(AssemblyError::Blocked { missing }) if missing == ["Ann", "Bo", "Cy"]
         )
     };
@@ -273,6 +291,7 @@ fn changing_the_layout_or_the_arrangement_makes_standing_approvals_stale_at_the_
         Some(&resaved),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE
@@ -285,6 +304,7 @@ fn changing_the_layout_or_the_arrangement_makes_standing_approvals_stale_at_the_
         None,
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &plain,
         &ALL,
         DATE
@@ -295,6 +315,7 @@ fn changing_the_layout_or_the_arrangement_makes_standing_approvals_stale_at_the_
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &plain,
         &ALL,
         DATE
@@ -316,6 +337,7 @@ fn a_stale_or_unsupported_arrangement_publishes_nothing() {
             Some(&missing_part),
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &approvals,
             &ALL,
             DATE
@@ -333,6 +355,7 @@ fn a_stale_or_unsupported_arrangement_publishes_nothing() {
             Some(s),
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &ApprovalSet::new(),
             &ALL,
             DATE,
@@ -360,6 +383,7 @@ fn hostile_names_and_markup_cannot_break_out_of_the_arrangement() {
             Some(&s),
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &approvals,
             &ALL,
             DATE
@@ -373,6 +397,7 @@ fn hostile_names_and_markup_cannot_break_out_of_the_arrangement() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -395,6 +420,7 @@ fn the_arranged_post_loads_through_the_production_pipeline_in_reading_order() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -454,6 +480,7 @@ fn the_preview_arranges_what_the_requester_may_read_and_shows_one_placeholder_fo
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         "ann",
         &ALL,
@@ -480,6 +507,7 @@ fn the_preview_arranges_what_the_requester_may_read_and_shows_one_placeholder_fo
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         "bo",
         &ALL,
@@ -510,6 +538,7 @@ fn a_complete_arranged_preview_hands_out_the_binding_the_gate_checks() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         "ann",
         &ALL,
@@ -523,6 +552,7 @@ fn a_complete_arranged_preview_hands_out_the_binding_the_gate_checks() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &ALL,
         |subject| approvals.binding_for(subject, "ann").unwrap(),
     );
@@ -534,6 +564,7 @@ fn a_complete_arranged_preview_hands_out_the_binding_the_gate_checks() {
         Some(&s.with_layout(ReflectionLayout::SideBySide)),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         "ann",
         &ALL,
@@ -551,6 +582,7 @@ fn a_complete_arranged_preview_hands_out_the_binding_the_gate_checks() {
         Some(&broken),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         "ann",
         &ALL,
@@ -573,6 +605,7 @@ fn the_preview_without_a_structure_strips_the_marker_too() {
         None,
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &ApprovalSet::new(),
         "ann",
         &ALL,
@@ -611,6 +644,7 @@ fn an_unclosed_fence_in_the_last_turn_cannot_swallow_the_arrangement_markup() {
             Some(&s),
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &approvals,
             &ALL,
             DATE
@@ -625,6 +659,7 @@ fn an_unclosed_fence_in_the_last_turn_cannot_swallow_the_arrangement_markup() {
             None,
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &approvals,
             &ALL,
             DATE
@@ -639,6 +674,7 @@ fn an_unclosed_fence_in_the_last_turn_cannot_swallow_the_arrangement_markup() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE
@@ -660,6 +696,7 @@ fn the_preview_drops_the_turns_of_an_author_with_nothing_written() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         "ann",
         &ALL,
@@ -691,6 +728,7 @@ fn the_other_three_layouts_publish_in_reading_order_with_only_classes_to_place_t
             Some(&s),
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &approvals,
             &ALL,
             DATE,
@@ -730,6 +768,7 @@ fn point_counterpoint_lanes_follow_first_appearance_not_identity() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -787,6 +826,7 @@ fn labels_are_escaped_optional_and_dropped_with_the_turn_they_belong_to() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -814,6 +854,7 @@ fn labels_are_escaped_optional_and_dropped_with_the_turn_they_belong_to() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -837,6 +878,7 @@ fn when_only_one_voice_remains_the_layout_is_one_honest_column() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -855,6 +897,7 @@ fn when_only_one_voice_remains_the_layout_is_one_honest_column() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -877,6 +920,7 @@ fn the_preview_arranges_the_new_layouts_and_their_labels_like_the_post() {
             Some(&s),
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &approvals,
             "ann",
             &ALL,
@@ -910,6 +954,7 @@ fn a_last_turn_ending_in_an_indented_code_block_is_published_not_refused() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -923,6 +968,7 @@ fn a_last_turn_ending_in_an_indented_code_block_is_published_not_refused() {
         None,
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE
@@ -948,6 +994,7 @@ fn a_dialogue_changes_side_only_when_the_speaker_changes() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,
@@ -977,6 +1024,7 @@ fn point_counterpoint_with_three_voices_is_one_column() {
         Some(&s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,

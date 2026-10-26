@@ -14,6 +14,7 @@ use openblog_core::config::SiteConfig;
 use openblog_core::contributor::Contributor;
 use openblog_core::draft::DraftSet;
 use openblog_core::feeds;
+use openblog_core::media_moment::MomentSet;
 use openblog_core::model::{LoadOptions, Site, SourceFile, Sources};
 use openblog_core::portability::{DiagnosticSeverity, PortableProjection};
 use openblog_core::reflection::{
@@ -130,6 +131,7 @@ fn publish(
             Some(s),
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &ALL,
             |subject| approvals.binding_for(subject, who).unwrap(),
         );
@@ -138,6 +140,7 @@ fn publish(
             Some(s),
             &set,
             &SynthesisSet::new(),
+            &MomentSet::new(),
             &ALL,
             |subject| approvals.approve(who, who, subject, &seen, true, T),
         )
@@ -148,6 +151,7 @@ fn publish(
         Some(s),
         &set,
         &SynthesisSet::new(),
+        &MomentSet::new(),
         &approvals,
         &ALL,
         DATE,

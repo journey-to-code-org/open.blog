@@ -3067,6 +3067,83 @@ a.oba-btn-primary {
   }
 }
 
+/* Media moments: located observations and quotations in the reflection's sources. */
+.oba-moments {
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--ob-color-border, currentColor);
+}
+
+.oba-moments-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-moment {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--ob-color-border, currentColor);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-moment-quote {
+  margin: 0.25rem 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--ob-color-border, currentColor);
+}
+
+.oba-moment-quote blockquote {
+  margin: 0;
+}
+
+/* Advice about a quotation: marked by a border and a heading-less list, never by colour alone. */
+.oba-moment-notices {
+  margin: 0.25rem 0;
+  padding: 0.25rem 0.5rem 0.25rem 1.5rem;
+  border-left: 3px solid var(--ob-color-accent, currentColor);
+  font-size: 0.875rem;
+}
+
+.oba-moment-notices[hidden] {
+  display: none;
+}
+
+.oba-moments-form fieldset {
+  min-width: 0;
+  margin: 0.5rem 0;
+}
+
+.oba-moments-form textarea,
+.oba-moments-form input[type="text"],
+.oba-moments-form select {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.oba-moments .oba-btn {
+  min-height: 2.75rem;
+}
+
+.oba-moments h4:focus-visible,
+.oba-moments h5:focus-visible {
+  outline: 3px solid var(--ob-color-accent, currentColor);
+  outline-offset: 2px;
+}
+
+.oba-moments [aria-invalid="true"] {
+  outline: 2px solid var(--oba-danger);
+}
+
+@media (max-width: 44rem) {
+  .oba-moments .oba-toolbar .oba-btn {
+    flex: 1 1 100%;
+  }
+}
+
 /* Citations in the visual editor: atomic chips that keep their Markdown. */
 .oba-citation {
   display: inline;

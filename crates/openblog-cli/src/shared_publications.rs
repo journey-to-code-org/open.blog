@@ -17,6 +17,7 @@ use openblog_core::collaboration::{
 };
 use openblog_core::draft::{DraftSet, MAX_DRAFT_SET_BYTES};
 use openblog_core::invitation::InvitationState;
+use openblog_core::media_moment::{MomentSet, MAX_MOMENT_SET_BYTES};
 use openblog_core::reflection::ReflectionStructure;
 use openblog_core::synthesis::{SynthesisSet, MAX_SYNTHESIS_SET_BYTES};
 
@@ -527,6 +528,56 @@ pub fn replace_synthesis(
         &previous.text,
         Some(&text),
         MAX_SYNTHESIS_SET_BYTES,
+    )
+}
+
+/// Private media moment sets (ADR 0063, 0064), one file per publication, beside the drafts. They
+/// hold quotations and observations, so the directory stays out of Git, generated output, feeds
+/// and exports like the drafts and the synthesis.
+pub const MOMENTS_DIRECTORY: &str = ".openblog/private/collaboration/moments";
+
+/// A moment set as read from disk, with the exact text it came from, so a write built on a stale
+/// read is refused.
+pub struct StoredMoments {
+    pub set: MomentSet,
+    text: Option<String>,
+}
+
+fn moments_directory(root: &Path) -> Result<PathBuf, String> {
+    crate::assistant_storage::contained_target(root, Path::new(MOMENTS_DIRECTORY))
+        .map_err(|_| "moment storage resolves outside the project".to_string())
+}
+
+/// The moments for a publication: empty when nothing was stored. A file that exists but is
+/// malformed is an error, never an empty set, so a bad file cannot drop a proposed moment from
+/// the approval binding and make a piece look approved.
+pub fn load_moments(root: &Path, publication_id: &str) -> Result<StoredMoments, String> {
+    let target = moments_directory(root)?.join(format!("{publication_id}.json"));
+    let text = read_drafts_file(&target).map_err(|_| "the moments file is not usable")?;
+    let set = match &text {
+        Some(text) => {
+            MomentSet::from_json(text).map_err(|_| "the moments file is not usable".to_string())?
+        }
+        None => MomentSet::new(),
+    };
+    Ok(StoredMoments { set, text })
+}
+
+/// Atomically store `next` when the file still holds exactly what `previous` was read from.
+pub fn replace_moments(
+    root: &Path,
+    publication_id: &str,
+    previous: &StoredMoments,
+    next: &MomentSet,
+) -> Result<(), ReplaceError> {
+    let directory = moments_directory(root).map_err(ReplaceError::Storage)?;
+    let text = format!("{}\n", next.to_json());
+    replace_text(
+        &directory,
+        publication_id,
+        &previous.text,
+        Some(&text),
+        MAX_MOMENT_SET_BYTES,
     )
 }
 

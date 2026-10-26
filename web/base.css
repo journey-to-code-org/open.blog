@@ -2012,3 +2012,13 @@ ob-back-to-top button:hover {
   .ob-reflection-roundtable .ob-round { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1rem 2rem; align-items: start; }
   .ob-reflection-roundtable .ob-round-prompt { grid-column: 1 / -1; margin: 0; }
 }
+
+/* Published media moments (ADR 0066): static, no script; long titles and addresses wrap. */
+.ob-moments .ob-moment { overflow-wrap: anywhere; }
+.ob-moments .ob-moment h3 { margin-bottom: 0.25rem; }
+.ob-moment-by { margin-top: 0; font-size: 0.9rem; font-style: italic; }
+.ob-moment-quotation blockquote { margin: 0; }
+.ob-moment-quotation figcaption { margin-top: 0.4rem; font-size: 0.9rem; color: var(--ob-color-muted); }
+@media print {
+  .ob-moment-link a::after { content: " (" attr(href) ")"; }
+}
