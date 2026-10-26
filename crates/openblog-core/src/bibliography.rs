@@ -453,14 +453,18 @@ fn guidance(diagnostics: &[CitationDiagnostic], file_line: impl Fn(usize) -> usi
         .join("; ")
 }
 
-/// A footnote label prefix none of the author's footnotes uses with a
-/// number, so generated notes never collide with hand-written ones. The
-/// author's footnote labels are read with the renderer's parser, and the raw
-/// text is searched too: an undefined `[^cite-1]` is plain text to the parser,
-/// but a generated definition of that label would turn it into a marker.
-/// Both comparisons ignore case, as the parser matches labels.
+/// A footnote label prefix whose generated ids nothing of the author's uses,
+/// so generated notes and markers never collide with hand-written ones: no
+/// footnote label and no heading id (a written `{#id}` or a generated slug,
+/// such as `cite-1` for `## Cite 1`) is `<prefix><n>` or `<prefix><n>-ref-<k>`.
+/// The author's footnote labels and heading ids are read with the renderer's
+/// parser, and the raw text is searched too: an undefined `[^cite-1]` is plain
+/// text to the parser, but a generated definition of that label would turn it
+/// into a marker. Every comparison ignores case, as the parser matches labels.
+/// Raw HTML `id`s are not avoided: reusing a generated id there is refused
+/// when the page is checked, naming the id.
 fn label_prefix(markdown: &str) -> String {
-    let labels: BTreeSet<String> =
+    let mut taken: BTreeSet<String> =
         Parser::new_ext(markdown, crate::markdown::parser_options(false))
             .filter_map(|event| match event {
                 Event::FootnoteReference(label) | Event::Start(Tag::FootnoteDefinition(label)) => {
@@ -469,21 +473,33 @@ fn label_prefix(markdown: &str) -> String {
                 _ => None,
             })
             .collect();
+    taken.extend(
+        crate::markdown::heading_ids(markdown)
+            .iter()
+            .map(|id| id.to_lowercase()),
+    );
     let text = markdown.to_lowercase();
-    let numbered = |rest: &str| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit());
+    let digits = |rest: &str| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit());
+    // A generated note label (`<n>`) or marker id (`<n>-ref-<k>`) after the prefix.
+    let generated = |rest: &str| {
+        digits(rest)
+            || rest
+                .split_once("-ref-")
+                .is_some_and(|(note, occurrence)| digits(note) && digits(occurrence))
+    };
     let in_text = |prefix: &str| {
         let opening = format!("[^{prefix}");
         text.match_indices(&opening).any(|(at, _)| {
             let rest = &text[at + opening.len()..];
-            rest.find(']').is_some_and(|close| numbered(&rest[..close]))
+            rest.find(']').is_some_and(|close| digits(&rest[..close]))
         })
     };
     let mut prefix = String::from("cite-");
     let mut attempt = 2;
     while in_text(&prefix)
-        || labels
+        || taken
             .iter()
-            .any(|label| label.strip_prefix(&prefix).is_some_and(numbered))
+            .any(|id| id.strip_prefix(&prefix).is_some_and(generated))
     {
         prefix = format!("cite{attempt}-");
         attempt += 1;
@@ -785,6 +801,11 @@ mod tests {
             label_prefix("Not numbered [^cite-x] or [^cite-].\n"),
             "cite-"
         );
+        // A label that would be a generated marker id is taken too.
+        assert_eq!(
+            label_prefix("A[^cite-1-ref-1].\n\n[^cite-1-ref-1]: n\n"),
+            "cite2-"
+        );
         let labels = CitationNoteLabels {
             prefix: "cite-",
             locale: CitationLocale::En,
@@ -794,5 +815,25 @@ mod tests {
         assert_eq!(labels.number("cite-01"), None);
         assert_eq!(labels.number("cite-x"), None);
         assert_eq!(labels.number("note"), None);
+    }
+
+    #[test]
+    fn generated_labels_avoid_the_authors_heading_ids() {
+        // A heading slug that is a generated note id or marker id.
+        assert_eq!(label_prefix("## Cite 1\n\nText.\n"), "cite2-");
+        assert_eq!(label_prefix("## Cite 1 ref 2\n\nText.\n"), "cite2-");
+        // A slug made unique with a number is one too.
+        assert_eq!(label_prefix("## Cite\n\n## Cite\n"), "cite2-");
+        // A written `{#id}`, in any case, and then the next prefix as well.
+        assert_eq!(label_prefix("## Intro {#Cite-3}\n\n## Cite2 4\n"), "cite3-");
+        // Slugs that only start like a generated id are not.
+        for free in [
+            "## Cite\n",
+            "## Cite 1a\n",
+            "## Cite 1 ref\n",
+            "## Cite 1 ref 2 more\n",
+        ] {
+            assert_eq!(label_prefix(free), "cite-", "{free}");
+        }
     }
 }

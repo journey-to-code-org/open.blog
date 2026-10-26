@@ -21,6 +21,10 @@ All notable changes to open.blog are recorded here. Releases follow
 - Citation notes now link a DOI stored as `doi:10.x/y` or as a `doi.org` or `dx.doi.org` address
   to `https://doi.org/10.x/y` and show it as `doi:10.x/y`, instead of producing a broken
   `https://doi.org/https://doi.org/...` link (introduced in 0.27.0).
+- In a post that publishes citations, a heading named like a generated note or citation id (such
+  as `## Cite 1`), or a footnote such as `[^notes]` named like the notes heading, no longer shares
+  an id with it, so every in-page link reaches the right place (introduced in 0.27.0). A post
+  whose own HTML reuses a citation id is still refused, and the message now names the id to rename.
 
 ## [0.27.0] - 2026-10-25
 

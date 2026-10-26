@@ -81,7 +81,7 @@ with no citation in the body, the post publishes exactly as before.
 | Step | Rule |
 | --- | --- |
 | Scan and resolve | The core scanner and resolver. For a post the load publishes, any diagnostic, a missing library or an unreadable library refuses the post with its file line, key, code and a repair hint, before anything is written. A draft, a post held back until its date and, in an Admin preview, every other document get a warning instead and keep their citations as text. |
-| Rewrite | Each citation becomes a footnote reference `[^cite-N]` (`cite2-` and so on when the author already uses `cite-` plus a number as a footnote or as literal `[^cite-N]` text, in any case). `bibliography` adds ` (locators)` after the marker. A following `(`, `[` or `:` is escaped. |
+| Rewrite | Each citation becomes a footnote reference `[^cite-N]` (`cite2-` and so on when the author already uses `cite-` plus a number as a footnote or as literal `[^cite-N]` text, or has a footnote or heading id, written or slugged, of the form `cite-N` or `cite-N-ref-K`, in any case). `bibliography` adds ` (locators)` after the marker. A following `(`, `[` or `:` is escaped. |
 | Notes | Appended under `## Notes` or `## References` (localized) as `[^cite-N]: reference, locators.` in order of first citation: one per distinct citation (`notes`) or per reference (`bibliography`). Text is escaped Markdown from the public reference only. |
 | Check | The result is parsed again; it must hold one generated marker per citation and one note per number, or the post is refused. |
 | Publish | `Post::publication_markdown` feeds the native page and the portable projection (portable HTML, Markdown, text, RSS, JSON Feed, `llms.txt`, destinations). The authored file never changes. |
@@ -123,7 +123,8 @@ On the native page a generated marker is
 `<sup class="footnote-reference ob-citation"><a href="#cite-1" id="cite-1-ref-1" role="doc-noteref"><span class="ob-visually-hidden">Citation </span>1</a></sup>`
 and each note ends with one `doc-backlink` per citing marker. The generated heading and notes
 are one `<section class="ob-citation-notes" role="doc-endnotes" aria-labelledby="…">` named by
-that heading's id, and each generated note has `tabindex="-1"`, so following a marker moves focus
+that heading's id, which steps aside from the post's own `{#id}`s, footnote labels and raw HTML
+ids so no other element has it, and each generated note has `tabindex="-1"`, so following a marker moves focus
 to its note without JavaScript; the author's own footnotes stay outside it, unchanged. The
 reached note or marker is outlined (`:target`), long addresses wrap, and print hides only the
 back links ([ADR 0065](../adr/0065-citation-navigation-is-static-html-checked-at-build.md)).
@@ -144,10 +145,11 @@ publishes none.
 
 Every citation names a listed reference, every reference is cited, and `check_page` confirms the
 page holds each marker and note id, so each citation resolves to a visible reference without
-JavaScript: exactly one element carries each id, the marker links to its note, and the page links
-back to the marker. The build runs it on every finished post page and in the Admin preview, and
+JavaScript: exactly one element carries each id and the region's label, the marker links to its
+note, and the page links back to the marker. The build runs it on every finished post page and in the Admin preview, and
 stops with `<source path>: the page's citation anchors do not match its reference data: …` when
-they disagree (for example, authored HTML that repeats a generated id). Only the reference `id` is
+they disagree (for example, authored HTML that repeats a generated id, which the message names
+with a request to rename it). Only the reference `id` is
 stable across revisions: `marker` and `note` ids are
 positional (order of first citation, occurrence and the post's label prefix), valid for the one
 revision whose page carries them, and must not be stored. A durable target uses the reference id,

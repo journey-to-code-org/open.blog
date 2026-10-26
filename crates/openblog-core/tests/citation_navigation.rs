@@ -346,6 +346,10 @@ fn anchors_that_disagree_with_the_data_stop_the_build_naming_the_post() {
             error.contains(&format!("more than one element with id `{id}`")),
             "{error}"
         );
+        assert!(
+            error.contains(&format!("rename the other `id=\"{id}\"` in the post")),
+            "{error}"
+        );
         assert!(!error.contains("PRIVATE-MARKER"));
         let preview = openblog_core::generate_document(&site, &ThemeSet::new(), "posts/cave.md");
         assert!(preview.unwrap_err().starts_with("posts/cave.md: "));
@@ -419,4 +423,25 @@ fn the_notes_region_is_named_by_its_own_heading_whatever_the_author_wrote() {
         .check_page(&missing)
         .unwrap_err()
         .contains("labelled by `notes-4`"));
+}
+
+#[test]
+fn headings_named_like_generated_ids_move_the_generated_ids_aside() {
+    for headings in [
+        "## Cite 1\n\nText.\n",
+        "## Cite 1 ref 1\n\nText.\n",
+        "## Cite 2 ref 1\n\n## Cite\n\n## Cite\n",
+        "## Intro {#cite-3}\n\nText.\n",
+    ] {
+        let body = CITED.replace("## Notes\n", &format!("{headings}\n## Notes\n"));
+        let (site, page) = cited(&body);
+        let data = site.posts[0].reader_references().unwrap();
+        data.check_page(&page).unwrap();
+        assert!(data.citations[0].note.starts_with("cite2-"), "{headings}");
+        let ids = attribute_values(&page, "id");
+        let mut unique = ids.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), ids.len(), "{headings}: duplicate ids");
+    }
 }
