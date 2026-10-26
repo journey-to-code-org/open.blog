@@ -169,6 +169,35 @@ and run [`supabase/protection-rollback.sql`](../../supabase/protection-rollback.
 `moderation-rollback.sql` if you undo that too). It drops exactly what the steps above added and
 leaves every comment and note in its state; text already purged cannot be restored.
 
+## Evidence and correction decisions (optional)
+
+A suggested source or correction may carry the reader's evidence block, and the author can record
+a correction decision on it in the Moderation inbox (ADRs 0116 and 0117). Both need the moderation
+inbox's schema above, then:
+
+1. Run [`supabase/feedback.sql`](../../supabase/feedback.sql) again. It adds two nullable columns
+   to `openblog_feedback`: `evidence` (the reader's block, only on a version 2 row, at most 4 KiB)
+   and `decisions` (the author's append-only decision log), a check that evidence is only stored
+   with format version 2, a trigger (`openblog_feedback_purge_evidence`) that deletes the evidence
+   block whenever a note's text is purged, and the function `openblog_record_feedback_decision`,
+   which appends one decision with a `decide` audit event in `openblog_feedback_events` only while
+   the item is a pending or approved suggestion, not the text a clarification asked about, at the
+   text revision and with the number of decisions the author saw. Nothing already stored changes.
+2. Set `OPENBLOG_CORRECTIONS_ENABLED` to `true` (with `OPENBLOG_FEEDBACK_ENABLED` and
+   `OPENBLOG_MODERATION_ENABLED`) and redeploy. Set `"evidence": true` inside `engagement` in
+   `openblog.json` so the form offers the evidence fields.
+
+The function then takes version 2 submissions at `POST /feedback`, checked by the shared validator
+before the quota and stored pending, lists the evidence block and the decision log in the inbox,
+and records decisions at `POST /admin/decisions` (token only). Without the variable a version 2
+submission is refused with `unsupportedVersion`, as B5 refuses it, and the reader can copy the note
+instead. A decision never changes an item's state, version or approval, never edits a post, a
+citation or the Source Library, and nothing is e-mailed to anyone.
+
+To undo it, remove `OPENBLOG_CORRECTIONS_ENABLED` and redeploy, optionally export the two columns,
+and run [`supabase/corrections-rollback.sql`](../../supabase/corrections-rollback.sql). It drops
+exactly what step 1 added; a note sent with evidence keeps its text and state and is read as the
+version 1 note it then is, and the `decide` audit events stay.
 ## Third Perspectives (optional)
 
 A Third Perspective (ADRs 0109 to 0114) is a reader's own reflection on a work, stored as one

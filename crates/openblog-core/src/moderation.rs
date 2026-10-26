@@ -396,6 +396,19 @@ pub enum ActorRole {
 }
 
 impl ActorRole {
+    pub const ALL: [ActorRole; 6] = [
+        ActorRole::Public,
+        ActorRole::Submitter,
+        ActorRole::SiteAdmin,
+        ActorRole::Coordinator,
+        ActorRole::ContributingAuthor,
+        ActorRole::System,
+    ];
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|role| role.id() == id)
+    }
+
     pub fn id(self) -> &'static str {
         match self {
             ActorRole::Public => "public",
@@ -418,6 +431,13 @@ impl Actor<'_> {
             Actor::ContributingAuthor { .. } => ActorRole::ContributingAuthor,
             Actor::System => ActorRole::System,
         }
+    }
+
+    /// The Admin account acting, for the private record: an Admin session's
+    /// user, or [`MODERATION_TOKEN_ACTOR`] for the hosted token. Never
+    /// anything about a reader.
+    pub fn account(&self) -> Option<&str> {
+        self.admin_user()
     }
 
     pub(crate) fn admin_user(&self) -> Option<&str> {
@@ -718,6 +738,11 @@ pub enum AuditAction {
     Moderate(ModerationAction),
     /// Retention purged the text, details and reader name.
     PurgeContent,
+    /// The author recorded a correction decision on an evidence submission
+    /// (ADR 0117). It is not a moderation action: the item's state, version
+    /// and approval are unchanged, so the event's `from` and `to` are the
+    /// same state.
+    Decide,
 }
 
 impl AuditAction {
@@ -726,6 +751,7 @@ impl AuditAction {
             AuditAction::Submit => "submit",
             AuditAction::Moderate(action) => action.id(),
             AuditAction::PurgeContent => "purge-content",
+            AuditAction::Decide => "decide",
         }
     }
 }
@@ -1384,6 +1410,15 @@ pub fn may_view(
             _ => is_public(item, mode),
         },
     }
+}
+
+/// Whether `actor` may record the author's correction decision on `item`
+/// (ADR 0117): the approve row of the grant list, so the site Admin and a
+/// coordinator of the item's work, never a contributing author, the
+/// submitter, the public or the retention job. A decision speaks for the
+/// work, as an approval does.
+pub fn may_decide(actor: &Actor<'_>, item: &ItemFacts<'_>) -> bool {
+    granted(actor, ModerationAction::Approve, item)
 }
 
 /// The complete grant list; anything not listed is denied.

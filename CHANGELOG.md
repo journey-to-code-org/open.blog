@@ -34,6 +34,55 @@ All notable changes to open.blog are recorded here. Releases follow
   replaced by the heading's own id. No post in this repository is affected; other existing posts
   are unchanged.
 
+## [0.38.0] - 2026-10-26
+
+- Defined how readers' evidence and the author's correction decisions work, ahead of the forms
+  that use them. A suggested source or correction may name the published claim, evidence link or
+  citation it questions and a published source with page or other locations; this is the
+  reader's statement, never checked for truth or counted. Only the author's decision can make a
+  suggestion a correction: accepted as a correction, as a clarification or as evidence (in full or
+  in part), declined with the author's reason, or already addressed, linked to the post's revision
+  note and claim evidence. Decisions are kept in order and never erase the reader's record, and a
+  decision is shown only beside a reader's note that is itself public.
+- Readers can name what a suggested source or correction is about, and you can record what you
+  decided. With `"evidence": true` in `engagement`, the "Questions and corrections" form offers an
+  optional Evidence part on those two kinds: a claim the post publishes, the evidence for it the
+  reader questions, a source the post cites or one the site publishes and where in it, and how the
+  reader says it bears on the passage, all picked from what the site publishes, never typed. In the
+  **Moderation inbox** each note says how it stands (a suggested source, a questioned citation or a
+  suggested correction until you decide, never a correction before), shows the reader's evidence
+  beside the published claim it names, links notes that seem to be about the same thing without
+  counting them, and offers **Record decision**: accept as a correction, a clarification or
+  evidence (in full or in part), decline with your reason, or already addressed, pointing at a
+  revision note and an evidence link you record separately. A decision never edits your post, its
+  citations or the Source Library, never publishes or hides the reader's note, is refused if
+  someone decided first or the reader's text changed, and is kept in the item's private record with
+  an audit entry. To use it, run `supabase/feedback.sql` again and set
+  `OPENBLOG_CORRECTIONS_ENABLED=true`; `supabase/corrections-rollback.sql` undoes it. Without it the
+  form and the inbox are unchanged, and evidence the service cannot take is given to the reader to
+  copy. Nothing is e-mailed to readers.
+
+- A published suggested source or correction now shows what you decided, in context. Under the
+  reader's note on the post, a decision you recorded reads "Author's decision: Correction" (or
+  Clarification, Added as evidence, Declined by the author with your reason, or Already addressed),
+  with the day, the revision the note was about, the revision note that records the change, linked
+  to the post's own Revision notes, the evidence link you recorded, linked to its claim, and your
+  rationale. A suggestion you have not decided reads "Unresolved" on a site that takes evidence,
+  never as a settled correction, and evidence or a note the post no longer publishes is said, not
+  linked. The decision is copied into `reader-feedback.json` (which becomes version 2 only once it
+  holds one) when you approve the note or when you record it on a note that is already on its post,
+  and never with who decided, a passage check or anything the reader wrote. Portable HTML, Markdown
+  and text, full-content feeds and exports gain a "Reader suggestions and the author's decisions"
+  section with each outcome, its revision note and evidence links, and a link to the note on the
+  canonical page; the reader's own words, `llms.txt` and search stay as they were. A site without
+  decisions or evidence builds exactly as before.
+- Fixed review findings on corrections: a decision is refused, with the item reloaded, when the
+  reader's text changed since you read it; a stored evidence submission still moderates when
+  `OPENBLOG_CORRECTIONS_ENABLED` is off; an evidence block that the hosted store could not keep is
+  refused before it uses the reader's quota; a revision note or evidence link cannot be linked from
+  an item whose post is unknown; the form's lists are built once per site; and
+  `supabase/moderation-rollback.sql` drops the decision function.
+
 ## [0.37.0] - 2026-10-26
 
 - Approved Third Perspectives now appear on the work's canonical page, in a "Third Perspectives"

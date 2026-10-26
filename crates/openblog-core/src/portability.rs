@@ -202,6 +202,9 @@ pub struct PortableProjection<'a> {
     /// The claim evidence the post publishes (ADR 0075), which every portable
     /// artifact must carry whole.
     claim_evidence: Option<&'a crate::claim_publication::PostEvidence>,
+    /// The published suggested sources and corrections with their outcome (ADR 0119): what a
+    /// portable copy carries of reader notes, beside the link to the canonical discussion.
+    outcomes: Vec<&'a crate::feedback_publication::PublicFeedback>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -705,6 +708,11 @@ impl<'a> PortableProjection<'a> {
                 .then_some(post.comments),
             series: None,
             claim_evidence: post.claim_evidence(),
+            outcomes: post
+                .reader_feedback()
+                .iter()
+                .filter(|item| item.outcome.is_some())
+                .collect(),
         })
     }
 
@@ -851,6 +859,7 @@ impl<'a> PortableProjection<'a> {
             }
         }
         html.push_str(&rendered.html);
+        html.push_str(&self.outcomes_html());
         // A capability the canonical page offers without a portable fallback yet
         // (a planned or unknown structure) fails closed: its authored content
         // stays visible as ordinary Markdown, and a labeled link points to the
@@ -1127,6 +1136,8 @@ impl<'a> PortableProjection<'a> {
                 ));
             }
         }
+
+        output.push_str(&self.outcomes_markdown());
 
         if let (Some(source_url), Some(_)) = (self.source_url, &self.source_notice) {
             output.push_str(&format!(
@@ -1456,6 +1467,44 @@ impl<'a> PortableProjection<'a> {
                 self.participation_url(),
             ));
         }
+        // Every outcome keeps what it came to, the change it rests on, the evidence link and the
+        // canonical discussion it belongs to (ADR 0119).
+        for item in &self.outcomes {
+            let Some(outcome) = &item.outcome else {
+                continue;
+            };
+            facts.push(SemanticFact::new(
+                "reader-outcome",
+                "outcome",
+                outcome.heading(),
+            ));
+            facts.push(SemanticFact::new(
+                "reader-outcome",
+                "source link",
+                self.discussion_url(&item.id),
+            ));
+            if let Some(change) = &outcome.change {
+                facts.push(SemanticFact::new(
+                    "reader-outcome",
+                    "revision note",
+                    crate::feedback_publication::change_words(change),
+                ));
+            }
+            if let Some(evidence) = &outcome.evidence {
+                facts.push(SemanticFact::new(
+                    "reader-outcome",
+                    "source link",
+                    format!("{}#{}", self.canonical_url, evidence.fragment),
+                ));
+            }
+            if let Some(rationale) = &outcome.rationale {
+                facts.push(SemanticFact::new(
+                    "reader-outcome",
+                    "author rationale",
+                    rationale,
+                ));
+            }
+        }
         let mut fallback_labels = std::collections::HashSet::new();
         for capability in self
             .capabilities
@@ -1740,6 +1789,147 @@ impl<'a> PortableProjection<'a> {
             series_clause(" This part is by ", &names(&series.part_authors)),
             series_clause(" Series contributors: ", &names(&series.contributors)),
         ))
+    }
+
+    /// The canonical page's own place for one published note.
+    fn discussion_url(&self, id: &str) -> String {
+        format!("{}#ob-reader-note-{id}", self.canonical_url)
+    }
+
+    /// The published suggested sources and corrections with the author's decision, or that the
+    /// author has not decided, as an HTML section (ADR 0119). The reader's own words stay on
+    /// the canonical page, which every outcome links to; a name is shown only as the reader
+    /// agreed. Empty when no note has an outcome.
+    fn outcomes_html(&self) -> String {
+        if self.outcomes.is_empty() {
+            return String::new();
+        }
+        let mut html = format!(
+            "<section class=\"ob-reader-outcomes\" aria-label=\"Reader suggestions and the author’s decisions\">\n<h2>Reader suggestions and the author’s decisions</h2>\n<p>{} Read each note, with the reader’s own words, on <a href=\"{}\">the original article</a>.</p>\n",
+            escape::text(OUTCOMES_INTRO),
+            escape::attr(&format!(
+                "{}#{}",
+                self.canonical_url,
+                crate::feedback_publication::READER_FEEDBACK_ANCHOR
+            ))
+        );
+        for item in &self.outcomes {
+            let Some(outcome) = &item.outcome else {
+                continue;
+            };
+            html.push_str(&format!(
+                "<article class=\"ob-reader-outcome\">\n<h3>{} about {}</h3>\n<p class=\"ob-reader-note-meta\">{} · received <time datetime=\"{3}\">{3}</time></p>\n",
+                escape::text(item.kind.label()),
+                escape::text(&crate::feedback_publication::place_words(item)),
+                match &item.provenance.name {
+                    Some(name) => format!("From {}", escape::text(name)),
+                    None => "From a reader".to_string(),
+                },
+                escape::attr(&item.provenance.received),
+            ));
+            html.push_str(&crate::feedback_publication::outcome_html(
+                item,
+                outcome,
+                &self.canonical_url,
+            ));
+            html.push_str(&format!(
+                "<p class=\"ob-reader-note-discussion\"><a href=\"{}\">Discussion of this note on the original article</a></p>\n</article>\n",
+                escape::attr(&self.discussion_url(&item.id))
+            ));
+        }
+        html.push_str("</section>\n");
+        html
+    }
+
+    /// The same section as Markdown, every value escaped as inline text.
+    fn outcomes_markdown(&self) -> String {
+        if self.outcomes.is_empty() {
+            return String::new();
+        }
+        let mut output = format!(
+            "\n## Reader suggestions and the author’s decisions\n\n{} Read each note, with the reader’s own words, on the [original article]({}).\n\n",
+            markdown_text(OUTCOMES_INTRO),
+            markdown_destination(&format!(
+                "{}#{}",
+                self.canonical_url,
+                crate::feedback_publication::READER_FEEDBACK_ANCHOR
+            ))
+        );
+        for item in &self.outcomes {
+            let Some(outcome) = &item.outcome else {
+                continue;
+            };
+            let from = match &item.provenance.name {
+                Some(name) => format!("From {}", markdown_text(name)),
+                None => "From a reader".to_string(),
+            };
+            output.push_str(&format!(
+                "### {} about {}\n\n{from}, received {}. Affected revision: `{}`{}.\n\n**{}**{}\n\n{}\n\n",
+                markdown_text(item.kind.label()),
+                markdown_text(&crate::feedback_publication::place_words(item)),
+                item.provenance.received,
+                item.provenance.revision.replace('`', ""),
+                if item.provenance.stale {
+                    ". The passage has been revised since"
+                } else {
+                    ""
+                },
+                markdown_text(&outcome.heading()),
+                outcome
+                    .decided
+                    .as_ref()
+                    .map(|day| format!(" ({day})"))
+                    .unwrap_or_default(),
+                markdown_text(&outcome.summary()),
+            ));
+            if let Some(change) = &outcome.change {
+                let words = markdown_text(&crate::feedback_publication::change_words(change));
+                let words = match &change.fragment {
+                    Some(fragment) => format!(
+                        "[{words}]({})",
+                        markdown_destination(&format!("{}#{fragment}", self.canonical_url))
+                    ),
+                    None => words,
+                };
+                output.push_str(&format!("What changed: {words}\n\n"));
+            }
+            if let Some(evidence) = &outcome.evidence {
+                output.push_str(&format!(
+                    "Evidence the author recorded: [Claim {}]({}): {}.\n\n",
+                    evidence.claim,
+                    markdown_destination(&format!("{}#{}", self.canonical_url, evidence.fragment)),
+                    markdown_text(&evidence.label)
+                ));
+            } else if outcome.evidence_withdrawn {
+                output.push_str(
+                    "The evidence the author recorded is not published on this page.\n\n",
+                );
+            }
+            if let Some(rationale) = &outcome.rationale {
+                let mut paragraphs = rationale
+                    .replace("\r\n", "\n")
+                    .split("\n\n")
+                    .map(str::trim)
+                    .filter(|paragraph| !paragraph.is_empty())
+                    .map(markdown_text)
+                    .collect::<Vec<_>>()
+                    .into_iter();
+                if let Some(first) = paragraphs.next() {
+                    output.push_str(&format!("The author’s rationale: {first}\n\n"));
+                }
+                for paragraph in paragraphs {
+                    output.push_str(&format!(
+                        "{}\n\n",
+                        crate::bibliography::block_safe(&paragraph)
+                    ));
+                }
+            }
+            output.push_str(&format!(
+                "[Discussion of this note on the original article]({})\n\n",
+                markdown_destination(&self.discussion_url(&item.id))
+            ));
+        }
+        output
     }
 
     /// Where a capability's labelled note points on the canonical article, and
@@ -2110,6 +2300,9 @@ fn series_clause(lead: &str, names: &str) -> String {
         format!("{lead}{names}.")
     }
 }
+
+/// What a portable copy says before it lists the outcomes (ADR 0119).
+const OUTCOMES_INTRO: &str = "Suggested sources and corrections readers sent about this post that the author chose to publish, and what the author decided. An outcome is the author’s record of their own decision, not a finding that a claim is true; a suggestion without a decision is unresolved.";
 
 /// Markdown text for a public value (a title, a name, a fact): Markdown punctuation, `<` and `&`
 /// are escaped, so the value can never become a link, emphasis, an autolink, raw HTML or an

@@ -515,7 +515,7 @@ impl ParentFacts {
 /// Whether `decider` may take `action` on an answer written by `account`.
 /// The one rule beyond RD12's table: nobody approves their own answer
 /// (ADR 0162). Taking one's own words down stays allowed.
-pub fn may_decide(
+pub fn may_decide_answer(
     account: &str,
     decider: &str,
     action: ModerationAction,

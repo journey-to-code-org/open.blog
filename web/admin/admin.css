@@ -3564,3 +3564,43 @@ a.oba-btn-primary {
     flex: 1 1 100%;
   }
 }
+
+/* Correction decisions (ADR 0117): one disclosure per item, beside the moderation decisions, its
+   choices stacked so they reflow at any width or zoom. */
+.oba-decision {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: 0.5rem;
+}
+
+.oba-decision > summary,
+.oba-feedback-decisions > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.oba-decision-choices {
+  display: grid;
+  gap: 0.4rem;
+  min-inline-size: 0;
+  margin: 0.75rem 0;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 0.35rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.oba-decision-choices[hidden],
+.oba-decision [hidden] {
+  display: none;
+}
+
+.oba-decision-choice p {
+  margin: 0.1rem 0 0 1.6rem;
+}
+
+.oba-decision select,
+.oba-decision textarea,
+.oba-decision input[type="text"] {
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}

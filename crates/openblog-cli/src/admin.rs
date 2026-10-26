@@ -678,9 +678,13 @@ fn authenticated_api(
         ("PATCH", "engagement/moderation") => moderate_inbox_item(state, req, session),
         ("POST", "engagement/author-response") => author_answer(state, req, session),
         ("PATCH", "engagement/author-response") => withdraw_author_answer(state, req, session),
+        ("POST", "engagement/moderation/decision") => {
+            record_correction_decision(state, req, session)
+        }
         ("GET", "engagement/retention") => retention_dry_run(state, session),
         ("POST", "engagement/retention") => run_retention(state, req, session),
         ("POST", "engagement/feedback/publish") => publish_feedback(state, req),
+        ("POST", "engagement/feedback/publish-decision") => update_published_decision(state, req),
         ("POST", "engagement/feedback/unpublish") => unpublish_moderated(state, req),
         ("POST", "engagement/third-perspectives/publish") => {
             sync_published_perspective(state, req, session, true)
@@ -4758,6 +4762,7 @@ fn publish_approved_feedback(
     path: &Path,
     site: &Site,
     item: &HostedFeedback,
+    claims: Option<&openblog_core::claims::ClaimSet>,
 ) -> Result<(), String> {
     if item.status != ModerationState::Approved {
         return Err("Only approved feedback is published".into());
@@ -4767,16 +4772,93 @@ fn publish_approved_feedback(
     let (mut file, _) = load_reader_feedback(path).map_err(|_| {
         "reader-feedback.json cannot be read; fix it in source mode, then publish the note from the Approved list".to_string()
     })?;
+    // The author's decision in force on this text goes with the note (ADR 0119); a decision
+    // about an earlier text, or none, publishes none.
+    let decision = decision_to_publish(item, &post.slug, claims);
     let record = feedback_publication::PublishedFeedback::from_record(
         &item.id,
         &post.source.replace('\\', "/"),
         &item.feedback,
         item.moderated_at.unwrap_or_else(clock::now),
-    )?;
+    )?
+    .with_decision(decision)?;
     file.publish(record)?;
     write_reader_feedback(path, &file)
         .map(|_| ())
         .map_err(|_| "reader-feedback.json could not be written".to_string())
+}
+
+/// The author's claims file, for deciding what a public decision may name; `None` when it cannot
+/// be read, in which case no evidence link is published (ADR 0119).
+fn claims_for_publication(state: &AppState) -> Option<openblog_core::claims::ClaimSet> {
+    claims_store::load(&state.root, &source_contributors(state))
+        .ok()
+        .map(|snapshot| snapshot.claims)
+}
+
+/// The decision in force on the item's text as the public file may hold it: an evidence link is
+/// kept only while `claims` approves and publishes it on the post `slug`, and a private claim or
+/// link id is never copied (ADR 0119).
+fn decision_to_publish(
+    item: &HostedFeedback,
+    slug: &str,
+    claims: Option<&openblog_core::claims::ClaimSet>,
+) -> Option<feedback_publication::PublishedDecision> {
+    item.decisions
+        .as_ref()
+        .and_then(|log| feedback_publication::PublishedDecision::in_force(log, item.revision))
+        .map(|decision| decision.with_published_evidence(claims, slug))
+}
+
+/// Put the author's decision in force on an item that is already on its post, or take a
+/// superseded one off (ADR 0119). Nothing else about the published note changes, and an item
+/// that is not published is left alone: recording a decision never publishes a note. Returns
+/// whether the file changed, with the rebuild's result.
+fn publish_decision_outcome(
+    state: &AppState,
+    item: &moderation_inbox::InboxItem,
+) -> Result<Option<Json>, String> {
+    let Some(hosted) = item.feedback() else {
+        return Ok(None);
+    };
+    // Only a note readers see now carries an outcome: approved at its current text.
+    if !moderation::is_public(
+        &item.facts(),
+        openblog_core::participation::ParticipationMode::Open,
+    ) {
+        return Ok(None);
+    }
+    if published_feedback_file(state).is_none_or(|file| file.get(&item.id).is_none()) {
+        return Ok(None);
+    }
+    let site = feedback_site(state).map_err(|_| "The site cannot be read now.".to_string())?;
+    let post = feedback_moderation::post_for_work(&site, &hosted.feedback.provenance.work)
+        .ok_or_else(|| {
+            "No post has this address now, so its outcome is not updated.".to_string()
+        })?;
+    let claims = claims_for_publication(state);
+    let mut status = lock(&state.build);
+    let _transaction = content_transaction(state)
+        .map_err(|_| "The site is being changed; try again in a moment.".to_string())?;
+    let path = reader_feedback_path(state)
+        .map_err(|_| "reader-feedback.json cannot be written".to_string())?;
+    let (mut file, _) = load_reader_feedback(&path)
+        .map_err(|_| "reader-feedback.json cannot be read; fix it in source mode".to_string())?;
+    let decision = decision_to_publish(hosted, &post.slug, claims.as_ref());
+    let Some(current) = file.get(&item.id).cloned() else {
+        return Ok(None);
+    };
+    // Check it as the file is read before writing it, so a decision that would make the file
+    // unreadable is never written.
+    current.with_decision(decision.clone())?;
+    if !file.set_decision(&item.id, decision) {
+        return Ok(None);
+    }
+    write_reader_feedback(&path, &file)
+        .map_err(|_| "reader-feedback.json could not be written".to_string())?;
+    Ok(Some(feedback_build_json(
+        &state.rebuild_locked(&mut status),
+    )))
 }
 
 /// Take one item off the site. The caller holds the content lock.
@@ -5711,6 +5793,20 @@ fn inbox_view(
                 Some(file) => json!(file.get(&item.id).is_some()),
                 None => Json::Null,
             };
+            // Whether the decision on the post is the one in force: a decision recorded when
+            // the file write failed leaves it behind, and the inbox offers to update it.
+            if let (Some(entry), Some(hosted)) = (
+                published.and_then(|file| file.get(&item.id)),
+                item.feedback().filter(|hosted| hosted.decisions.is_some()),
+            ) {
+                let in_force = hosted.decisions.as_ref().and_then(|log| {
+                    feedback_publication::PublishedDecision::in_force(log, hosted.revision)
+                });
+                view["decisionPublished"] = json!(feedback_publication::PublishedDecision::agrees(
+                    entry.decision.as_ref(),
+                    in_force.as_ref()
+                ));
+            }
         }
     }
     Some(view)
@@ -5777,19 +5873,35 @@ fn moderation_inbox_page(state: &AppState, req: &Request, session: &auth::Sessio
         },
         |page| {
             sources.inbox(session, page.protocol, page.third_perspectives, |inbox| {
-                page.items
+                let shown: Vec<(&moderation_inbox::InboxItem, Json)> = page
+                    .items
                     .iter()
                     .filter_map(|item| {
                         inbox_view(inbox, item, published.as_ref(), perspectives.as_ref())
+                            .map(|view| (item, view))
+                    })
+                    .collect();
+                // Possible duplicates, among the items this account may see.
+                let visible: Vec<&moderation_inbox::InboxItem> =
+                    shown.iter().map(|(item, _)| *item).collect();
+                let cues = moderation_inbox::similar_items(&visible);
+                shown
+                    .into_iter()
+                    .map(|(item, mut view)| {
+                        if let Some(similar) = cues.get(&item.id) {
+                            view["similar"] = json!(similar);
+                        }
+                        view
                     })
                     .collect()
             })
         },
     );
-    let collected = match collected {
+    let mut collected = match collected {
         Ok(collected) => collected,
         Err(response) => return response,
     };
+    add_decision_choices(state, &sources.published, &mut collected.items);
     Response::json(
         200,
         &json!({
@@ -6486,8 +6598,14 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
                 .map_err(|_| "third-perspectives.json cannot be written".to_string())
         };
         let outcome = match (approved_note, approved_perspective, &unpublish) {
-            (Some(hosted), _, _) => feedback_path()
-                .and_then(|path| publish_approved_feedback(&path, &sources.published, hosted)),
+            (Some(hosted), _, _) => feedback_path().and_then(|path| {
+                publish_approved_feedback(
+                    &path,
+                    &sources.published,
+                    hosted,
+                    claims_for_publication(state).as_ref(),
+                )
+            }),
             (None, Some(hosted), _) => perspectives_path()
                 .and_then(|path| publish_approved_perspective(&path, &sources.published, hosted)),
             (None, None, Some((target, true))) => {
@@ -6540,6 +6658,458 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
     )
 }
 
+// ---- Correction decisions (ADR 0117)
+//
+// The author's decision about what a reader's suggested source or correction
+// meant for the work, recorded from the Moderation inbox beside moderation,
+// never instead of it. Admin decides it with the one policy and this
+// account's role on the item's work, checks it against the post's own
+// revision notes and the claims file, and the hosted function checks it
+// again from the stored row before appending it to the item's log with an
+// audit event. A decision never edits a post, a citation, a claim or the
+// Source Library: revision notes and evidence links are recorded first,
+// with their own tools, and the decision points at them. Nothing is
+// e-mailed to anyone.
+
+/// What a decision needs that only this server holds: the post's
+/// `evidenceRevisions` items exactly as written, and the claims file.
+fn post_revision_items(state: &AppState, post: &str) -> Result<Vec<String>, String> {
+    let config = site::load_config(&state.root)?;
+    let path = resolve_content_path(&state.root, &config, post)?;
+    let source = fs::read_to_string(&path).map_err(|_| "No such post".to_string())?;
+    let document = frontmatter::parse(&source)?;
+    Ok(
+        match document
+            .front_matter
+            .fields
+            .get(openblog_core::claim_publication::REVISIONS_FIELD)
+        {
+            Some(Value::List(items)) => items.clone(),
+            Some(Value::Scalar(item)) if !item.trim().is_empty() => vec![item.clone()],
+            _ => Vec::new(),
+        },
+    )
+}
+
+/// The decision form's choices that only this server can list, added to the
+/// items of an inbox page that offer "Record decision": the post's revision
+/// notes as written, and the evidence links in the claims file on the post's
+/// claims. Both are recorded with their own tools; the form only points at
+/// them.
+fn add_decision_choices(state: &AppState, published: &Site, items: &mut [Json]) {
+    let offered = |item: &Json| item["recordDecision"].is_object();
+    if !items.iter().any(offered) {
+        return;
+    }
+    let claims = claims_store::load(&state.root, &source_contributors(state))
+        .ok()
+        .map(|snapshot| snapshot.claims);
+    let mut notes: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for item in items.iter_mut().filter(|item| offered(item)) {
+        let Some(post) = item["recordDecision"]["post"].as_str().map(str::to_string) else {
+            item["recordDecision"]["revisionNotes"] = json!([]);
+            item["recordDecision"]["claimEvidence"] = json!([]);
+            continue;
+        };
+        let items_of = notes
+            .entry(post.clone())
+            .or_insert_with(|| post_revision_items(state, &post).unwrap_or_default());
+        item["recordDecision"]["revisionNotes"] = json!(items_of);
+        let slug = published
+            .posts
+            .iter()
+            .find(|candidate| candidate.source.replace('\\', "/") == post)
+            .map(|candidate| candidate.slug.as_str());
+        let links: Vec<Json> = match (&claims, slug) {
+            (Some(set), Some(slug)) => set
+                .claims
+                .iter()
+                .filter(|claim| claim.post == slug)
+                .flat_map(|claim| {
+                    set.links_of(&claim.id)
+                        .filter(|link| set.is_projected(link))
+                        .map(move |link| {
+                        json!({
+                            "claim": claim.id,
+                            "link": link.id,
+                            "label": format!("{} → {} ({}, {})", claim.id, link.id, link.relation.as_str(), link.evidence.source),
+                        })
+                    })
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        item["recordDecision"]["claimEvidence"] = Json::Array(links);
+    }
+}
+
+/// A decision request's content, read strictly: ids from their closed lists,
+/// links as `{post, note}` and `{claim, link}`, and text as given (the policy
+/// trims and bounds it).
+fn decision_content(
+    body: &Json,
+) -> Result<openblog_core::correction_decision::DecisionContent, String> {
+    use openblog_core::correction_decision::{
+        ClaimEvidenceRef, DecisionContent, DecisionOutcome, DeclineReason, Extent, RevisionLink,
+    };
+    let text = |key: &str| -> Result<Option<String>, String> {
+        match &body[key] {
+            Json::Null => Ok(None),
+            Json::String(value) if value.trim().is_empty() => Ok(None),
+            Json::String(value) => Ok(Some(value.clone())),
+            _ => Err(format!("`{key}` must be text")),
+        }
+    };
+    let outcome = body["outcome"]
+        .as_str()
+        .and_then(DecisionOutcome::from_id)
+        .ok_or("Choose what you decided")?;
+    let extent = text("extent")?
+        .map(|id| Extent::from_id(&id).ok_or("Choose all of it or part of it"))
+        .transpose()?;
+    let decline_reason = text("declineReason")?
+        .map(|id| DeclineReason::from_id(&id).ok_or("Choose one of the listed reasons"))
+        .transpose()?;
+    let revision_note = match &body["revisionNote"] {
+        Json::Null => None,
+        value => Some(
+            serde_json::from_value::<RevisionLink>(value.clone())
+                .map_err(|_| "A revision note is the post and one of its notes")?,
+        ),
+    };
+    let claim_evidence = match &body["claimEvidence"] {
+        Json::Null => None,
+        value => Some(
+            serde_json::from_value::<ClaimEvidenceRef>(value.clone())
+                .map_err(|_| "Claim evidence is a claim and one of its evidence links")?,
+        ),
+    };
+    Ok(DecisionContent {
+        outcome,
+        extent,
+        decline_reason,
+        rationale: text("rationale")?,
+        revision_note,
+        claim_evidence,
+        addressed_by: text("addressedBy")?,
+    })
+}
+
+/// Whether the text revision the author read is the item's now. A
+/// clarification the reader answered raises it, and a decision is only ever
+/// about the text its author saw.
+fn decision_revision_is_current(seen: u64, current: u32) -> bool {
+    seen == u64::from(current)
+}
+
+/// Whether the hosted function refused a decision because the item changed
+/// under the author (stale, closed, or awaiting the reader's answer), as
+/// opposed to refusing its content.
+fn hosted_decision_changed(response: &Response) -> bool {
+    serde_json::from_slice::<Json>(&response.body)
+        .ok()
+        .and_then(|body| body["code"].as_str().map(str::to_string))
+        .is_some_and(|code| {
+            matches!(
+                code.as_str(),
+                "stale" | "itemClosed" | "awaitingClarification"
+            )
+        })
+}
+
+/// `POST engagement/moderation/decision`: record the author's correction
+/// decision on one suggested source or correction. The request names the
+/// item, how many decisions on it the author saw, the outcome and what it
+/// rests on, the passage check the author read when the passage moved, and
+/// the author's local day. Who is deciding comes from the session.
+fn record_correction_decision(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+) -> Response {
+    use openblog_core::correction_decision::{passage_check_from_id, DecisionErrorCode};
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let Some(expected) = body["expectedDecisions"]
+        .as_u64()
+        .filter(|count| *count <= 1000)
+    else {
+        return Response::error(422, "Send how many decisions you saw on the item");
+    };
+    // The text revision the author read: a decision is about that text, so a
+    // clarification that changed it since makes the request stale.
+    let Some(seen_revision) = body["itemRevision"]
+        .as_u64()
+        .filter(|revision| (1..=u64::from(u32::MAX)).contains(revision))
+    else {
+        return Response::error(422, "Send the revision of the item’s text you read");
+    };
+    let content = match decision_content(&body) {
+        Ok(content) => content,
+        Err(error) => return Response::json(422, &json!({ "error": error, "code": "malformed" })),
+    };
+    let confirmed_check = match body["confirmCheck"].as_str() {
+        None => None,
+        Some(id) => match passage_check_from_id(id) {
+            Some(check) => Some(check),
+            None => return Response::error(422, "Send the passage check you read"),
+        },
+    };
+    let Some(decided) = body["decided"].as_str() else {
+        return Response::error(422, "Send the day of the decision");
+    };
+    // The author's local day: never more than a day ahead of this server's
+    // UTC day, since UTC offsets span at most one day.
+    let latest = DateTime::from_unix(clock::now().unix() + 86_400).ymd();
+    if decided > latest.as_str() {
+        return Response::json(
+            422,
+            &json!({ "error": "A decision cannot be dated in the future.", "code": "invalidDay" }),
+        );
+    }
+    let (protocol, third_perspectives, item) =
+        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    if item
+        .feedback()
+        .is_none_or(|hosted| hosted.decisions.is_none())
+    {
+        return Response::json(
+            422,
+            &json!({ "error": "The hosted service does not store correction decisions yet: run supabase/feedback.sql again and set OPENBLOG_CORRECTIONS_ENABLED=true.", "code": "unavailable" }),
+        );
+    }
+    // The item another decision addressed, read again, and only on the same
+    // post: an item elsewhere never confirms or denies anything.
+    let addressed = match &content.addressed_by {
+        Some(other) => {
+            match hosted_inbox_item(
+                state,
+                moderation_inbox::Source::Feedback,
+                &other.to_ascii_lowercase(),
+            ) {
+                Ok((_, _, other)) if other.work == item.work => other
+                    .feedback()
+                    .and_then(|hosted| hosted.decisions.clone())
+                    .map(|log| (log, other.revision)),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
+    let conflict_with = |current: &moderation_inbox::InboxItem| {
+        let view = sources.inbox(session, protocol, third_perspectives, |inbox| {
+            inbox_view(inbox, current, published.as_ref(), perspectives.as_ref())
+        });
+        let mut views: Vec<Json> = view.into_iter().collect();
+        add_decision_choices(state, &sources.published, &mut views);
+        Response::json(
+            409,
+            &json!({ "error": "Someone decided on this item, or it changed, since you loaded it. Review it again before deciding.", "code": "conflict", "item": views.pop() }),
+        )
+    };
+    if !decision_revision_is_current(seen_revision, item.revision) {
+        return conflict_with(&item);
+    }
+    let decided_now = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        let view = inbox_view(inbox, &item, published.as_ref(), perspectives.as_ref());
+        let role = inbox.actor(&item).role();
+        let decision = inbox.record_decision(
+            &item,
+            moderation_inbox::DecisionDraft {
+                expected_decisions: expected as u32,
+                content: content.clone(),
+                confirmed_check,
+                decided,
+            },
+            addressed.as_ref().map(|(log, revision)| (log, *revision)),
+        );
+        (view, role, decision)
+    });
+    let (_, role, decision) = decided_now;
+    let refused =
+        |code: &str, message: &str| Response::json(422, &json!({ "error": message, "code": code }));
+    let decision = match decision {
+        Ok(decision) => decision,
+        Err(error) if error.code == DecisionErrorCode::Denied => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot record a correction decision on this item.", "code": "denied" }),
+            )
+        }
+        Err(error) if error.code == DecisionErrorCode::Stale => return conflict_with(&item),
+        Err(error) => {
+            let code = serde_json::to_value(error.code)
+                .ok()
+                .and_then(|code| code.as_str().map(str::to_string))
+                .unwrap_or_default();
+            return refused(&code, &format!("{}.", capitalize(&error.message)));
+        }
+    };
+    // What only this server can check: the note is in the post's front
+    // matter, and the evidence link is in the claims file on a claim of
+    // this post. Both are recorded first, with their own tools.
+    let status = lock(&state.build);
+    let transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    if let Some(link) = &decision.content.revision_note {
+        match post_revision_items(state, &link.post) {
+            Ok(items) if link.found_in(&items) => {}
+            _ => {
+                return refused(
+                    "revisionNoteNotFound",
+                    "The post’s revision notes do not hold that note. Add it to the post first, then choose it.",
+                )
+            }
+        }
+    }
+    if let Some(evidence) = &decision.content.claim_evidence {
+        let snapshot = match claims_store::load(&state.root, &source_contributors(state)) {
+            Ok(snapshot) => snapshot,
+            Err(_) => {
+                return refused(
+                    "unknownClaimEvidence",
+                    "The claims file cannot be read, so the evidence link cannot be checked.",
+                )
+            }
+        };
+        if let Err(error) = evidence.check(&snapshot.claims) {
+            let code = serde_json::to_value(error.code)
+                .ok()
+                .and_then(|code| code.as_str().map(str::to_string))
+                .unwrap_or_default();
+            return refused(&code, &format!("{}.", capitalize(&error.message)));
+        }
+        let slug = moderation_inbox::InboxItem::facts(&item)
+            .work
+            .and_then(|work| feedback_moderation::post_for_work(&sources.published, work))
+            .map(|post| post.slug.clone());
+        let claim_post = snapshot
+            .claims
+            .claim(&evidence.claim)
+            .map(|claim| claim.post.clone());
+        // An item whose post is unknown can link no claim: nothing says the
+        // claim is about the same post.
+        if slug.is_none() || claim_post != slug {
+            return refused(
+                "claimElsewhere",
+                "That evidence link is on a claim of another post.",
+            );
+        }
+    }
+    // The hosted call is slow and can fail: the lock is for reading the post
+    // and the claims only.
+    drop(transaction);
+    drop(status);
+    let request = json!({
+        "id": id,
+        "expectedDecisions": expected,
+        "actor": session.user,
+        "actorRole": role.id(),
+        "decision": decision.to_value(),
+    });
+    let reread = |value: &Json| moderation_inbox::InboxItem::from_value(&value["item"]).ok();
+    let changed = match hosted_inbox_request(
+        state,
+        "admin/decisions",
+        &[],
+        Some(("POST", &request)),
+    ) {
+        Ok((200, value)) => match reread(&value) {
+            Some(changed)
+                if changed.id == id
+                    && changed.state == item.state
+                    && changed
+                        .feedback()
+                        .and_then(|hosted| hosted.decisions.as_ref())
+                        .and_then(|log| log.current())
+                        == Some(&decision) =>
+            {
+                changed
+            }
+            _ => {
+                return Response::error(
+                    502,
+                    "hosted engagement returned an invalid decision response",
+                )
+            }
+        },
+        Ok((409, value)) => {
+            return match reread(&value) {
+                Some(current) => conflict_with(&current),
+                None => conflict_with(&item),
+            };
+        }
+        Ok((403, _)) => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot record a correction decision on this item.", "code": "denied" }),
+            )
+        }
+        Ok((404, _)) => return Response::error(404, "No such item"),
+        Ok(_) => return Response::error(502, "Hosted engagement returned an unexpected answer"),
+        Err(response) if response.status == 422 && hosted_decision_changed(&response) => {
+            // The item closed, or a clarification was asked, between Admin's
+            // read and the hosted one: read it again and say it changed.
+            return match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+                Ok((_, _, current)) => conflict_with(&current),
+                Err(response) => response,
+            };
+        }
+        Err(response) => return response,
+    };
+    eprintln!(
+        "admin: correction decision on feedback {id}: {} by {} as {}",
+        decision.content.outcome.id(),
+        session.user,
+        role.id()
+    );
+    // An item already on its post shows the author's outcome there now; one that is not stays
+    // unpublished, because a decision never publishes a note.
+    let (outcome_published, outcome_error, build) = match publish_decision_outcome(state, &changed)
+    {
+        Ok(Some(build)) => (true, None, Some(build)),
+        Ok(None) => (false, None, None),
+        Err(error) => (false, Some(error), None),
+    };
+    let published = published_feedback_file(state);
+    let view = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        inbox_view(inbox, &changed, published.as_ref(), perspectives.as_ref())
+    });
+    let mut views: Vec<Json> = view.into_iter().collect();
+    add_decision_choices(state, &sources.published, &mut views);
+    Response::json(
+        200,
+        &json!({
+            "item": views.pop(),
+            "decision": {
+                "outcome": decision.content.outcome.id(),
+                "label": decision.content.outcome.label(),
+                "sequence": decision.sequence,
+            },
+            "outcomePublished": outcome_published,
+            "publishError": outcome_error,
+            "build": build,
+        }),
+    )
+}
+
 /// Whether the hosted function stored `to`: exactly, or, for a comment
 /// under the older schema, as the `status` value ADR 0102 maps it to (a
 /// removed comment is stored as rejected).
@@ -6572,14 +7142,20 @@ fn publish_feedback(state: &AppState, req: &Request) -> Response {
         Ok(id) => id,
         Err(response) => return response,
     };
-    let item = match hosted_feedback_item(state, &id) {
-        Ok(item) => item,
+    // Read through the inbox, which carries the decisions: a note put on its post again after a
+    // failed write carries the author's decision with it.
+    let item = match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+        Ok((_, _, item)) => item,
         Err(response) => return response,
+    };
+    let Some(item) = item.feedback() else {
+        return Response::error(404, "No such feedback item");
     };
     let site = match feedback_site(state) {
         Ok(site) => site,
         Err(response) => return response,
     };
+    let claims = claims_for_publication(state);
     let mut status = lock(&state.build);
     let _transaction = match content_transaction(state) {
         Ok(lock) => lock,
@@ -6589,12 +7165,40 @@ fn publish_feedback(state: &AppState, req: &Request) -> Response {
         Ok(path) => path,
         Err(response) => return response,
     };
-    if let Err(error) = publish_approved_feedback(&path, &site, &item) {
+    if let Err(error) = publish_approved_feedback(&path, &site, item, claims.as_ref()) {
         return Response::error(409, &error);
     }
     let build = feedback_build_json(&state.rebuild_locked(&mut status));
     eprintln!("admin: feedback {id} published");
     Response::json(200, &json!({ "published": true, "build": build }))
+}
+
+/// `POST engagement/feedback/publish-decision`: make the decision published with an approved note
+/// the one in force, after a decision whose file write failed (ADR 0119).
+fn update_published_decision(state: &AppState, req: &Request) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let item = match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+        Ok((_, _, item)) => item,
+        Err(response) => return response,
+    };
+    match publish_decision_outcome(state, &item) {
+        Ok(Some(build)) => {
+            eprintln!("admin: published decision of feedback {id} updated");
+            Response::json(200, &json!({ "published": true, "build": build }))
+        }
+        Ok(None) => Response::error(
+            409,
+            "The note is not published, or its decision cannot be published now",
+        ),
+        Err(error) => Response::error(409, &error),
+    }
 }
 
 /// `POST engagement/feedback/unpublish`: take a removed or rejected item off
@@ -6645,7 +7249,8 @@ fn published_feedback_view(
             .find(|post| post.source.replace('\\', "/") == item.post);
         let public = post.and_then(|post| {
             let document = PassageDocument::of_post(post, &site.config);
-            feedback_publication::project(&[item], post, &document).pop()
+            feedback_publication::project(&[item], post, &document, site.config.engagement.evidence)
+                .pop()
         });
         items.push(json!({
             "id": item.id,
@@ -19829,7 +20434,7 @@ mod tests {
         fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
-    fn feedback_routes() -> [(&'static str, &'static str); 14] {
+    fn feedback_routes() -> [(&'static str, &'static str); 16] {
         [
             ("POST", "/admin/api/engagement/author-response"),
             ("PATCH", "/admin/api/engagement/author-response"),
@@ -19838,14 +20443,122 @@ mod tests {
             ("POST", "/admin/api/engagement/third-perspectives/unpublish"),
             ("GET", "/admin/api/engagement/moderation"),
             ("PATCH", "/admin/api/engagement/moderation"),
+            ("POST", "/admin/api/engagement/moderation/decision"),
             ("GET", "/admin/api/engagement/retention"),
             ("POST", "/admin/api/engagement/retention"),
             ("POST", "/admin/api/engagement/feedback/publish"),
+            ("POST", "/admin/api/engagement/feedback/publish-decision"),
             ("POST", "/admin/api/engagement/feedback/unpublish"),
             ("GET", "/admin/api/engagement/feedback/published"),
             ("PUT", "/admin/api/engagement/feedback/response"),
             ("POST", "/admin/api/engagement/feedback/revision-note"),
         ]
+    }
+
+    #[test]
+    fn correction_decisions_are_read_strictly_before_any_hosted_request() {
+        let f = fixture("correction-decisions");
+        let session = login_ok(&f);
+        let decide = |body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/engagement/moderation/decision", body),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let valid = json!({
+            "id": FEEDBACK_ITEM_ID, "expectedDecisions": 0, "itemRevision": 1, "outcome": "declined",
+            "declineReason": "maintains-reading", "rationale": "The survey measured neap tides.",
+            "decided": "2026-10-27",
+        });
+        // Off: it says how to turn hosted engagement on, asking nothing of it.
+        let off = decide(valid.clone());
+        assert_eq!(off.status, 404);
+        assert!(body_json(&off)["error"]
+            .as_str()
+            .unwrap()
+            .contains("Hosted engagement is not turned on"));
+        let with = |key: &str, value: Json| {
+            let mut body = valid.clone();
+            body[key] = value;
+            body
+        };
+        for body in [
+            with("id", json!("../x")),
+            with("expectedDecisions", json!(-1)),
+            with("expectedDecisions", json!("0")),
+            with("itemRevision", json!(null)),
+            with("itemRevision", json!(0)),
+            with("itemRevision", json!("1")),
+            with("outcome", json!("verified")),
+            with("outcome", json!("incorrect")),
+            with("extent", json!("most")),
+            with("declineReason", json!("misinformation")),
+            with("revisionNote", json!("2026-10-27: changed")),
+            with(
+                "claimEvidence",
+                json!({"claim": "a", "link": "b", "votes": 3}),
+            ),
+            with("confirmCheck", json!("stale:moved")),
+            with("decided", json!(null)),
+            with("decided", json!("2999-01-01")),
+            with("rationale", json!(7)),
+            json!("not an object"),
+        ] {
+            let refused = decide(body.clone());
+            assert!(
+                matches!(refused.status, 400 | 422),
+                "{body}: refused before any hosted request, got {}",
+                refused.status
+            );
+        }
+    }
+
+    #[test]
+    fn a_decision_is_about_the_revision_the_author_read() {
+        assert!(decision_revision_is_current(2, 2));
+        assert!(!decision_revision_is_current(1, 2));
+        let changed = |code: &str| {
+            hosted_decision_changed(&Response::json(422, &json!({ "error": "x", "code": code })))
+        };
+        assert!(changed("stale") && changed("itemClosed") && changed("awaitingClarification"));
+        assert!(!changed("malformed") && !changed("denied"));
+    }
+
+    #[test]
+    fn decision_choices_list_the_posts_notes_as_written_and_nothing_else() {
+        let f = fixture("decision-choices");
+        let post = "---\ntitle: Tides\ndate: 2026-10-20\nevidenceRevisions:\n  - \"2026-10-27 tides:  Corrected the height.\"\n---\nThe tide rises.\n";
+        fs::write(f.dir.join("content/posts/tides.md"), post).unwrap();
+        f.state.rebuild().unwrap();
+        let (site, _) = site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+        let mut items = vec![
+            json!({"id": "a", "recordDecision": {"post": "posts/tides.md"}}),
+            json!({"id": "b", "recordDecision": {"post": null}}),
+            json!({"id": "c"}),
+        ];
+        add_decision_choices(&f.state, &site, &mut items);
+        // Exactly as written, so the decision names the note the post holds.
+        assert_eq!(
+            items[0]["recordDecision"]["revisionNotes"],
+            json!(["2026-10-27 tides:  Corrected the height."])
+        );
+        assert_eq!(items[0]["recordDecision"]["claimEvidence"], json!([]));
+        assert_eq!(items[1]["recordDecision"]["revisionNotes"], json!([]));
+        assert!(items[2].get("recordDecision").is_none());
+        // The content a request may carry is read with closed lists only.
+        let content = decision_content(&json!({
+            "outcome": "accepted-as-evidence", "extent": "partial", "rationale": "Only the height.",
+            "revisionNote": {"post": "posts/tides.md", "note": "2026-10-27 tides: x"},
+            "claimEvidence": {"claim": "tides", "link": "tides-noaa"}, "addressedBy": "",
+        }))
+        .unwrap();
+        assert_eq!(content.outcome.id(), "accepted-as-evidence");
+        assert_eq!(content.addressed_by, None);
+        assert!(decision_content(&json!({"outcome": "accepted-as-evidence", "revisionNote": {"post": "p", "note": "n", "extra": 1}})).is_err());
     }
 
     #[test]
@@ -21554,7 +22267,7 @@ mod tests {
             .dir
             .join("content")
             .join(feedback_publication::READER_FEEDBACK_FILE);
-        publish_approved_feedback(&path, &site, &approved).unwrap();
+        publish_approved_feedback(&path, &site, &approved, None).unwrap();
         file = feedback_publication::ReaderFeedbackFile::from_json(
             &fs::read_to_string(&path).unwrap(),
         )
@@ -21562,7 +22275,7 @@ mod tests {
         let view = inbox_view(&inbox, &item("approved"), Some(&file), None).unwrap();
         assert_eq!(view["published"], true);
         assert!(
-            publish_approved_feedback(&path, &site, &current).is_err(),
+            publish_approved_feedback(&path, &site, &current, None).is_err(),
             "pending is never published"
         );
         // Taking a note off the post again needs the hosted state to say it
@@ -21591,7 +22304,7 @@ mod tests {
         .items
         .is_empty());
         unpublish_moderated_feedback(&path, &rejected).unwrap();
-        publish_approved_feedback(&path, &site, &approved).unwrap();
+        publish_approved_feedback(&path, &site, &approved, None).unwrap();
         unpublish_feedback(&path, FEEDBACK_ITEM_ID).unwrap();
         assert!(feedback_publication::ReaderFeedbackFile::from_json(
             &fs::read_to_string(&path).unwrap()
@@ -21603,6 +22316,372 @@ mod tests {
         fs::write(&path, "{not json").unwrap();
         assert!(unpublish_moderated_feedback(&path, &removed).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "{not json");
+        let _ = fs::remove_dir_all(&f.dir);
+    }
+
+    /// A suggested correction of the post's first section, as a hosted item with `decisions`
+    /// holding one decision recorded on text revision `decided_on`.
+    fn decided_item(
+        site: &Site,
+        post: &openblog_core::Post,
+        item_revision: u32,
+        decided_on: u32,
+    ) -> Json {
+        use openblog_core::correction_decision::{
+            decide, CorrectionDecision, DecisionContent, DecisionFacts, DecisionLog,
+            DecisionOutcome, DecisionRequest, Extent, RevisionLink,
+        };
+        use openblog_core::feedback_moderation::PassageCheck;
+        let document = PassageDocument::of_post(post, &site.config);
+        let target = document.section_target(0).unwrap();
+        let record = openblog_core::scholarly_feedback::FeedbackSubmission::from_value(&json!({
+            "version": 1, "kind": "correction-suggestion", "work": post.url,
+            "revision": document.revision, "target": target.to_value(),
+            "body": "It is wrong.", "details": { "suggestedText": "It is right." },
+            "attribution": { "name": "Private Reader", "publishName": false },
+        }))
+        .unwrap()
+        .receive(
+            openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+            openblog_core::feedback_provenance::FeedbackChannel::Hosted,
+        )
+        .unwrap();
+        let facts = DecisionFacts {
+            item: moderation::ItemFacts {
+                id: FEEDBACK_ITEM_ID,
+                kind: ParticipationKind::CorrectionSuggestion,
+                work: Some(&post.url),
+                parent: None,
+                state: ModerationState::Approved,
+                version: 2,
+                revision: decided_on,
+                approved_revision: None,
+                clarification_asked: None,
+                clarification_consent: false,
+                content_retained: true,
+                state_since: openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+            },
+            received: "2026-10-26",
+            post: Some(&post.source),
+            check: PassageCheck::Current,
+            passage_revision: Some(&document.revision),
+        };
+        let request = DecisionRequest {
+            actor: moderation::Actor::SiteAdmin {
+                admin_user: "private-admin-account",
+            },
+            expected_decisions: 0,
+            content: DecisionContent {
+                extent: Some(Extent::Full),
+                revision_note: Some(RevisionLink {
+                    post: post.source.clone(),
+                    note: "2026-10-27: Fixed it after a reader's note.".into(),
+                }),
+                ..DecisionContent::new(DecisionOutcome::AcceptedAsCorrection)
+            },
+            confirmed_check: None,
+            decided: "2026-10-27",
+        };
+        let decision: CorrectionDecision =
+            decide(&facts, &DecisionLog::new(FEEDBACK_ITEM_ID), None, &request).unwrap();
+        let mut log = DecisionLog::new(FEEDBACK_ITEM_ID);
+        log.append(decision).unwrap();
+        json!({
+            "id": FEEDBACK_ITEM_ID, "status": "approved", "version": 2, "moderatedAt": null,
+            "reason": null, "feedback": record.to_value(), "itemRevision": item_revision,
+            "approvedRevision": item_revision, "decisions": log.to_value(),
+        })
+    }
+
+    #[test]
+    fn an_approved_note_publishes_the_decision_in_force_and_a_new_decision_updates_it() {
+        let f = fixture("outcome-publication");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let path = f
+            .dir
+            .join("content")
+            .join(feedback_publication::READER_FEEDBACK_FILE);
+        let read = || {
+            feedback_publication::ReaderFeedbackFile::from_json(&fs::read_to_string(&path).unwrap())
+                .unwrap()
+        };
+        // Approving a note whose decision is in force publishes the decision with it, and only
+        // what is public: no account, no role, no passage check.
+        let item = HostedFeedback::from_value(&decided_item(&site, &post, 1, 1)).unwrap();
+        publish_approved_feedback(&path, &site, &item, None).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"version\": 2"), "{text}");
+        assert_eq!(
+            read()
+                .get(FEEDBACK_ITEM_ID)
+                .unwrap()
+                .decision
+                .as_ref()
+                .unwrap()
+                .outcome,
+            "accepted-as-correction"
+        );
+        for private in [
+            "private-admin-account",
+            "site-admin",
+            "decidedBy",
+            "passageCheck",
+            "Private Reader",
+        ] {
+            assert!(!text.contains(private), "{private}");
+        }
+        // The reader changed the text since the author decided: the decision is about earlier
+        // words, so approving the new text publishes none, and the file is as before again.
+        let clarified = HostedFeedback::from_value(&decided_item(&site, &post, 2, 1)).unwrap();
+        publish_approved_feedback(&path, &site, &clarified, None).unwrap();
+        assert!(read().get(FEEDBACK_ITEM_ID).unwrap().decision.is_none());
+        assert!(fs::read_to_string(&path)
+            .unwrap()
+            .contains("\"version\": 1"));
+
+        // Recording a decision updates a note that is on its post, and publishes nothing else.
+        let hosted_item = moderation_inbox::InboxItem::from_value(&{
+            let mut value = decided_item(&site, &post, 1, 1);
+            value["source"] = json!("feedback");
+            value
+        })
+        .unwrap();
+        let build = publish_decision_outcome(&f.state, &hosted_item)
+            .unwrap()
+            .expect("the note is published, so its outcome is");
+        assert_eq!(build["ok"], true, "{build}");
+        assert!(read().get(FEEDBACK_ITEM_ID).unwrap().decision.is_some());
+        // A note that is not on its post is left alone: a decision never publishes it.
+        unpublish_feedback(&path, FEEDBACK_ITEM_ID).unwrap();
+        assert!(publish_decision_outcome(&f.state, &hosted_item)
+            .unwrap()
+            .is_none());
+        assert!(read().items.is_empty());
+        let _ = fs::remove_dir_all(&f.dir);
+    }
+
+    /// A claims file for the fixture's post: an approved claim with an approved and a private
+    /// link, and a private claim with an approved link.
+    fn write_claims(f: &Fixture, slug: &str) {
+        let library = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::create_dir_all(library.parent().unwrap()).unwrap();
+        fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia"}]}"#,
+        )
+        .unwrap();
+        let claims = json!({"version": 1,
+            "claims": [
+                {"id": "open-claim", "post": slug, "statement": "An open claim.", "visibility": "approved"},
+                {"id": "secret-claim", "post": slug, "statement": "A private claim."}],
+            "links": [
+                {"id": "open-link", "claim": "open-claim", "relation": "supports",
+                 "visibility": "approved", "evidence": {"source": "plato"}},
+                {"id": "secret-link", "claim": "open-claim", "relation": "contextualizes",
+                 "evidence": {"source": "plato"}},
+                {"id": "orphan-link", "claim": "secret-claim", "relation": "supports",
+                 "visibility": "approved", "evidence": {"source": "plato"}}]});
+        let path = f.dir.join(crate::claims_store::CLAIMS_FILE);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, claims.to_string()).unwrap();
+    }
+
+    /// A decided item whose decision names the evidence link `claim`/`link`.
+    fn evidence_item(site: &Site, post: &openblog_core::Post, claim: &str, link: &str) -> Json {
+        let mut value = decided_item(site, post, 1, 1);
+        let mut log = value["decisions"].clone();
+        let decision = &mut log["decisions"][0];
+        decision["outcome"] = json!("accepted-as-evidence");
+        decision["claimEvidence"] = json!({"claim": claim, "link": link});
+        value["decisions"] = log;
+        value
+    }
+
+    #[test]
+    fn private_claim_and_link_ids_never_reach_the_public_file_or_the_choices() {
+        let f = fixture("outcome-claims");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        write_claims(&f, &post.slug);
+        let path = f
+            .dir
+            .join("content")
+            .join(feedback_publication::READER_FEEDBACK_FILE);
+        let claims = claims_for_publication(&f.state).expect("the claims file is read");
+        let read = || fs::read_to_string(&path).unwrap();
+        // The decision form lists only what the post publishes.
+        let mut items =
+            vec![json!({"id": "a", "recordDecision": {"post": post.source.replace('\\', "/")}})];
+        add_decision_choices(&f.state, &site, &mut items);
+        let listed = items[0]["recordDecision"]["claimEvidence"].to_string();
+        assert!(listed.contains("open-link"), "{listed}");
+        for private in ["secret-link", "secret-claim", "orphan-link"] {
+            assert!(!listed.contains(private), "{private} is listed: {listed}");
+        }
+        // A published link is copied; a private one, or one on a private claim, never is, and the
+        // outcome is still published.
+        for (claim, link, kept) in [
+            ("open-claim", "open-link", true),
+            ("open-claim", "secret-link", false),
+            ("secret-claim", "orphan-link", false),
+        ] {
+            let item =
+                HostedFeedback::from_value(&evidence_item(&site, &post, claim, link)).unwrap();
+            publish_approved_feedback(&path, &site, &item, Some(&claims)).unwrap();
+            let text = read();
+            assert_eq!(text.contains("open-link"), kept, "{link}: {text}");
+            assert!(text.contains("accepted-as-evidence"), "{text}");
+            for private in ["secret-link", "secret-claim", "orphan-link"] {
+                assert!(
+                    !text.contains(private),
+                    "{link}: {private} is in the file: {text}"
+                );
+            }
+        }
+        // Without a readable claims file nothing says a link is published, so none is copied.
+        let item =
+            HostedFeedback::from_value(&evidence_item(&site, &post, "open-claim", "open-link"))
+                .unwrap();
+        publish_approved_feedback(&path, &site, &item, None).unwrap();
+        assert!(!read().contains("open-link"));
+        // Recording a decision on a note already on its post applies the same rule.
+        let inbox_item = |value: Json| {
+            moderation_inbox::InboxItem::from_value(&{
+                let mut value = value;
+                value["source"] = json!("feedback");
+                value
+            })
+            .unwrap()
+        };
+        publish_decision_outcome(
+            &f.state,
+            &inbox_item(evidence_item(&site, &post, "open-claim", "secret-link")),
+        )
+        .unwrap()
+        .expect("published");
+        let text = read();
+        assert!(
+            !text.contains("secret-link") && !text.contains("open-link"),
+            "{text}"
+        );
+        publish_decision_outcome(
+            &f.state,
+            &inbox_item(evidence_item(&site, &post, "open-claim", "open-link")),
+        )
+        .unwrap()
+        .expect("published");
+        assert!(read().contains("open-link"));
+        // Neither the file nor the built site names a private id.
+        let dist = f.dir.join("dist");
+        let mut stack = vec![dist];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Ok(text) = fs::read_to_string(&path) {
+                    for private in ["secret-link", "secret-claim", "orphan-link"] {
+                        assert!(
+                            !text.contains(private),
+                            "{} names {private}",
+                            path.display()
+                        );
+                    }
+                }
+            }
+        }
+        let _ = fs::remove_dir_all(&f.dir);
+    }
+
+    #[test]
+    fn a_decision_is_published_only_on_a_note_readers_see_and_a_mismatch_is_repairable() {
+        let f = fixture("outcome-repair");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let path = f
+            .dir
+            .join("content")
+            .join(feedback_publication::READER_FEEDBACK_FILE);
+        let read = || {
+            feedback_publication::ReaderFeedbackFile::from_json(&fs::read_to_string(&path).unwrap())
+                .unwrap()
+        };
+        let inbox_item = |value: Json| {
+            moderation_inbox::InboxItem::from_value(&{
+                let mut value = value;
+                value["source"] = json!("feedback");
+                value
+            })
+            .unwrap()
+        };
+        // Recovery: a note put on its post again is read through the inbox, which carries the
+        // decisions, so the decision is published with it.
+        let undecided = HostedFeedback::from_value(&{
+            let mut value = decided_item(&site, &post, 1, 1);
+            value["decisions"] =
+                openblog_core::correction_decision::DecisionLog::new(FEEDBACK_ITEM_ID).to_value();
+            value
+        })
+        .unwrap();
+        publish_approved_feedback(&path, &site, &undecided, None).unwrap();
+        assert!(read().get(FEEDBACK_ITEM_ID).unwrap().decision.is_none());
+        let decided = inbox_item(decided_item(&site, &post, 1, 1));
+        let recovered = decided.feedback().unwrap();
+        publish_approved_feedback(&path, &site, recovered, None).unwrap();
+        assert!(read().get(FEEDBACK_ITEM_ID).unwrap().decision.is_some());
+        // The inbox flags a file whose decision is not the one in force, and the repair fixes it.
+        let works = moderation::SharedWorks::new(&[], &site);
+        let identities = Identities {
+            active_admin_users: &[],
+            contributor_ids: &[],
+        };
+        let inbox = moderation_inbox::Inbox {
+            site: &site,
+            works: &works,
+            principal: moderation::Principal::ModerationToken,
+            identities: &identities,
+            policy: moderation::ModerationPolicy::default(),
+            protocol: moderation_inbox::Protocol::Full,
+            third_perspectives: false,
+            now: clock::now(),
+        };
+        let flag = |item: &moderation_inbox::InboxItem| {
+            inbox_view(&inbox, item, Some(&read()), None).unwrap()["decisionPublished"].clone()
+        };
+        assert_eq!(flag(&decided), true);
+        let mut file = read();
+        file.set_decision(FEEDBACK_ITEM_ID, None);
+        fs::write(&path, file.to_json()).unwrap();
+        assert_eq!(
+            flag(&decided),
+            false,
+            "a decision the file lacks is flagged"
+        );
+        let build = publish_decision_outcome(&f.state, &decided)
+            .unwrap()
+            .expect("the repair writes the decision");
+        assert_eq!(build["ok"], true, "{build}");
+        assert_eq!(flag(&decided), true);
+        // Only a note readers see carries an outcome: one not approved at its current text is
+        // left as it is.
+        let mut value = decided_item(&site, &post, 2, 1);
+        value["approvedRevision"] = json!(1);
+        let stale = inbox_item(value);
+        assert!(publish_decision_outcome(&f.state, &stale)
+            .unwrap()
+            .is_none());
+        let mut pending = decided_item(&site, &post, 1, 1);
+        pending["status"] = json!("pending");
+        pending["approvedRevision"] = Json::Null;
+        let before = fs::read_to_string(&path).unwrap();
+        assert!(publish_decision_outcome(&f.state, &inbox_item(pending))
+            .unwrap()
+            .is_none());
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
         let _ = fs::remove_dir_all(&f.dir);
     }
 

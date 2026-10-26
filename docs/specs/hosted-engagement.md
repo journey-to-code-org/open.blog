@@ -148,6 +148,23 @@ the change with its audit event only while the item still has that state and ver
 otherwise), and approved notes are published from `content/reader-feedback.json`, never read back
 from the hosted service by a build. Comments, their table and their routes are unchanged.
 
+Evidence submissions and correction decisions (RD6) extend the same two kinds rather than adding a
+third: a suggested source or correction may carry a version 2 evidence block naming the published
+claim, evidence link, citation or source it concerns
+([ADR 0116](../adr/0116-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md)),
+and only the author's correction decision, separate from moderation and kept in an append-only
+log per item, can label one a correction
+([ADR 0117](../adr/0117-only-the-authors-correction-decision-labels-a-correction.md)). Both are
+opt in ([ADR 0118](../adr/0118-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)):
+with `feedback.sql` run again and `OPENBLOG_CORRECTIONS_ENABLED=true`, `POST /feedback` takes
+version 2, checked before the quota and stored pending with its block in `evidence`, and `POST
+/admin/decisions` appends a decision to the item's `decisions` log with a `decide` audit event, only
+while the item is a pending or approved suggestion at the text revision and number of decisions the
+author saw. Without the variable version 2 is refused and no decision is stored. The form lists only
+what the site publishes (`engagement.evidence`), and the Moderation inbox shows how each item
+stands, the reader's evidence beside the claim it names, duplicate cues and "Record decision".
+`corrections-rollback.sql` undoes the schema.
+
 ## Out of scope
 
 - Reader accounts, email collection, avatars, reactions, notifications, nested replies, rich-text

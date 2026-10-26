@@ -1165,7 +1165,14 @@ fn attach_reader_feedback(
             continue;
         }
         let document = crate::passage_target::PassageDocument::of_post(post, config);
-        post.reader_feedback = crate::feedback_publication::project(&items, post, &document);
+        // A suggestion the author has not decided reads as unresolved only where the
+        // site takes evidence submissions (ADR 0119): any other site's page is as before.
+        post.reader_feedback = crate::feedback_publication::project(
+            &items,
+            post,
+            &document,
+            config.engagement.evidence,
+        );
         // Portable copies and feeds carry a labelled link to the canonical
         // page instead of the notes (P6.2).
         post.capabilities.push(CapabilityDescriptor::describe(

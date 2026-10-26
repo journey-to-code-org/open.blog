@@ -9,7 +9,8 @@ use openblog_core::attributed_perspective::{
     admit_response, AttributedSections, ResponseRequest, Standing,
 };
 use openblog_core::author_response::{
-    may_decide, AuthorResponseRequest, HostedAuthorResponse, ParentFacts, ParentRow, StoredStanding,
+    may_decide_answer, AuthorResponseRequest, HostedAuthorResponse, ParentFacts, ParentRow,
+    StoredStanding,
 };
 use openblog_core::collaboration::{
     AuthorizationRole, IdentityBinding, NewParticipant, NewSharedPublication, NewSourceReference,
@@ -100,7 +101,7 @@ fn shared_decision_fixtures_say_who_may_decide_an_answer() {
     for case in fixture["decisions"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let action = ModerationAction::from_id(case["action"].as_str().unwrap()).unwrap();
-        let outcome = may_decide(
+        let outcome = may_decide_answer(
             case["account"].as_str().unwrap(),
             case["decider"].as_str().unwrap(),
             action,
@@ -441,6 +442,11 @@ fn a_stored_answer_that_breaks_any_rule_is_refused_on_its_own() {
     let (_, row) = answer(&site, &record, "mina-admin");
     let good = hosted_answer(&row, "pending", 1);
     assert!(InboxItem::from_value(&good).is_ok());
+    // A function that keeps correction decisions sends every feedback row's
+    // empty log; an answer takes no decision, so it is not read.
+    let mut with_log = good.clone();
+    with_log["decisions"] = json!({"id": ID_ANSWER, "entries": []});
+    assert!(InboxItem::from_value(&with_log).is_ok());
     let mut bare = good.clone();
     bare.as_object_mut().unwrap().remove("source");
     assert!(HostedAuthorResponse::from_value(&bare).is_ok());
