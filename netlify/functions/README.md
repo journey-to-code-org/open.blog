@@ -199,6 +199,13 @@ published only while its approval and the reader's consent in effect both allow 
 approved reflections to `content/third-perspectives.json`, which the site builds from, so pages
 never read these rows. Nothing is e-mailed to anyone.
 
+Before undoing it, take the published reflections off the site: empty `content/third-perspectives.json`
+(or set `"third-perspective": "hidden"` in `participation.kinds`) and rebuild. Without the consent
+column the function cannot tell whether an approved reflection may still be shown, so a receipt says
+it cannot tell, Admin says the state is unknown instead of "must come off", and abuse reports fall
+back to plain approval at the current text. Withdrawals made afterwards are not checked against the
+consent, so nothing a reader withdrew would be flagged for removal.
+
 To undo it, remove `OPENBLOG_THIRD_PERSPECTIVES_ENABLED` and redeploy, optionally export the rows
 (`where kind = 'third-perspective'`), and run
 [`supabase/third-perspective-rollback.sql`](../../supabase/third-perspective-rollback.sql) before

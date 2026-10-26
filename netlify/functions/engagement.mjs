@@ -161,18 +161,21 @@ const receiptDetails = (row) => {
 // Whether an approved Third Perspective may be public now (ADR 0111): approved at its current text,
 // not waiting on a clarification of that text, under an approved consent record that agreed to
 // publication while the consent in effect still does. Only then can the canonical page show it.
+// With the consent column unread (Third Perspectives switched off or rolled back) the answer is
+// unknown, null, and a caller falls back on plain approval at the current text.
 const perspectivePublic = (row) => {
   const revision = row.item_revision ?? 1;
+  if (row.status !== "approved" || row.approved_revision !== revision || row.clarification_asked === revision) return false;
+  if (!("approved_consent" in row)) return null;
   const consents = Array.isArray(row.details?.consents) ? row.details.consents : [];
   const approved = consents.find((record) => record && record.number === row.approved_consent);
-  return row.status === "approved" && row.approved_revision === revision && row.clarification_asked !== revision
-    && approved?.publish === true && consents.at(-1)?.publish === true;
+  return approved?.publish === true && consents.at(-1)?.publish === true;
 };
 // What a reader sees of their own note by its receipt (ADR 0107): its kind,
 // state and version, their own words until they are purged, whether the
 // author asked them to clarify it and why, and whether they agreed to be
 // asked. Never anything about a moderator.
-const receiptView = (row) => {
+const receiptViewOf = (row, hidden = false) => {
   const purged = Boolean(row.purged_at);
   const revision = row.item_revision ?? 1;
   const asked = row.status === "clarification" && row.clarification_asked === revision;
@@ -184,8 +187,9 @@ const receiptView = (row) => {
     receivedAt: canonicalTime(row.received_at),
     clarification: asked ? { reason: row.moderation_reason ?? null } : null,
     consent: row.clarification_consent === true,
-    // A Third Perspective is published only while its consent still allows it (ADR 0115).
-    published: row.kind === THIRD_PERSPECTIVE_KIND ? perspectivePublic(row) : row.status === "approved" && row.approved_revision === revision,
+    // A Third Perspective is published only while its consent still allows it and its kind is not
+    // hidden (ADR 0115). Without the consent column that is unknown, null, never "not shown".
+    published: row.kind === THIRD_PERSPECTIVE_KIND ? (hidden ? false : perspectivePublic(row)) : row.status === "approved" && row.approved_revision === revision,
     purged,
     ...(purged ? {} : { body: row.body, details: receiptDetails(row) }),
   };
@@ -709,6 +713,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const row = await lookup();
         if (!row) return json(404, { error: RECEIPT_UNKNOWN, code: "unknownReceipt" }, corsOrigin);
         const action = body.action ?? "read";
+        const hidden = row.kind === THIRD_PERSPECTIVE_KIND && await feedbackPolicy(settings, row.work, row.kind) === "hidden";
+        const receiptView = (target) => receiptViewOf(target, hidden);
         if (action === "read") return json(200, { item: receiptView(row) }, corsOrigin);
         const version = body.expectedVersion;
         if (!Number.isInteger(version) || version < 1 || version > 2147483647) return json(422, { error: "Reload your note and try again.", code: "invalid" }, corsOrigin);
@@ -809,7 +815,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         const shown = source === "comment"
           ? facts.state === "approved" && await commentPolicy(settings, work) !== "hidden"
           : facts.state === "approved" && target.approved_revision === facts.revision && facts.clarificationAsked !== facts.revision
-            && (facts.kind !== THIRD_PERSPECTIVE_KIND || perspectivePublic(target)) && await feedbackPolicy(settings, work, facts.kind) !== "hidden";
+            && (facts.kind !== THIRD_PERSPECTIVE_KIND || perspectivePublic(target) !== false) && await feedbackPolicy(settings, work, facts.kind) !== "hidden";
         if (!facts.retained || !shown) return unavailable();
         const mode = await feedbackPolicy(settings, work, "abuse-report");
         if (mode !== "open") return unavailable();

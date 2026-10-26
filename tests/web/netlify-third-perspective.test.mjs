@@ -400,3 +400,49 @@ test("Third Perspectives add one nullable column and one function, and their rol
     "alter table if exists public.openblog_feedback drop column if exists approved_consent;",
   ]);
 });
+
+// ---- Switched off or rolled back: the consent column is not read
+
+const { OPENBLOG_THIRD_PERSPECTIVES_ENABLED: _flag, ...flagOff } = environment;
+// What the table answers when the consent column was not selected.
+const withoutConsent = (row) => { const { approved_consent: _consent, ...rest } = row; return rest; };
+const report = (database, env = environment) => handlerFor(database, { env })(event("reports", "POST", { headers: ORIGIN, body: { source: "feedback", id: ID(1), ground: "abusive" } }));
+const reportable = (extra, flagOn) => fakeDatabase((entry) => {
+  if (entry.method === "GET" && entry.path.endsWith("/openblog_feedback")) return [flagOn ? stored(extra) : withoutConsent(stored(extra))];
+  return [];
+});
+const approvedRow = { status: "approved", approved_revision: 1, approved_consent: 1 };
+
+test("reports on a Third Perspective are gated by its consent with the flag on, and by plain approval with it off", async () => {
+  // On: only an approval under a consent that allows publication can be reported.
+  assert.equal((await report(reportable(approvedRow, true))).statusCode, 202);
+  const revoked = { ...approvedRow, details: { ...stored().details, consents: [...stored().details.consents, { number: 2, givenAt: "2026-10-27T10:00:00Z", publish: false, attribution: { publishName: false }, clarification: false }] } };
+  assert.equal((await report(reportable(revoked, true))).statusCode, 404, "a revoked consent is not public, so not reportable");
+  assert.equal((await report(reportable({ ...approvedRow, approved_consent: null }, true))).statusCode, 404);
+  for (const status of ["pending", "removed", "withdrawn"]) assert.equal((await report(reportable({ ...approvedRow, status }, true))).statusCode, 404, status);
+  // Off (or rolled back): reflections that are still published stay reportable, on plain approval at the current text.
+  const off = reportable(approvedRow, false);
+  assert.equal((await report(off, flagOff)).statusCode, 202, "approved at its current text is reportable");
+  assert.equal(off.requests.find((entry) => entry.path.endsWith("/openblog_feedback")).params.select.split(",").includes("approved_consent"), false);
+  assert.equal((await report(reportable({ ...approvedRow, item_revision: 2 }, false), flagOff)).statusCode, 404);
+  assert.equal((await report(reportable({ ...approvedRow, clarification_asked: 1 }, false), flagOff)).statusCode, 404);
+  for (const status of ["pending", "removed", "withdrawn", "rejected"]) assert.equal((await report(reportable({ ...approvedRow, status }, false), flagOff)).statusCode, 404, status);
+  // A hidden kind is never reportable, flag or not.
+  const hidden = fakeDatabase((entry) => (entry.method === "GET" && entry.path.endsWith("/openblog_feedback") ? [withoutConsent(stored(approvedRow))] : []));
+  assert.equal((await handlerFor(hidden, { env: flagOff, mode: "hidden" })(event("reports", "POST", { headers: ORIGIN, body: { source: "feedback", id: ID(1), ground: "abusive" } }))).statusCode, 404);
+});
+
+test("a receipt cannot tell whether an approved reflection is shown when the consent column is not read, and never says it is hidden", async () => {
+  const read = async (extra, { flagOn = false, mode = "open" } = {}) => {
+    const database = fakeDatabase((entry) => (entry.method === "GET" && entry.path.endsWith("/openblog_feedback") ? [flagOn ? stored(extra) : withoutConsent(stored(extra))] : []));
+    const response = await handlerFor(database, { env: flagOn ? environment : flagOff, mode })(event("receipt", "POST", { headers: ORIGIN, body: { receipt: RECEIPT, action: "read" } }));
+    return JSON.parse(response.body).item;
+  };
+  assert.equal((await read(approvedRow)).published, null, "unknown, not false");
+  assert.equal((await read({ ...approvedRow, status: "withdrawn" })).published, false, "a state that is not approved is known not to be shown");
+  assert.equal((await read({ ...approvedRow, item_revision: 2 })).published, false);
+  // A kind the site has hidden is not shown whatever the consent says.
+  assert.equal((await read(approvedRow, { flagOn: true, mode: "hidden" })).published, false);
+  assert.equal((await read(approvedRow, { flagOn: false, mode: "hidden" })).published, false);
+  assert.equal((await read(approvedRow, { flagOn: true })).published, true);
+});
