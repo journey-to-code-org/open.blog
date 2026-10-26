@@ -54,6 +54,8 @@ All notable changes to open.blog are recorded here. Releases follow
   its locators when several items share a source and passage, and otherwise keeps your draft's copy.
   This repairs keep-draft for relationship evidence from the atlas release, and covers dating
   evidence too.
+- On a phone or at high zoom (320 pixels wide), Admin's header now wraps instead of making every
+  Admin view scroll sideways.
 
 ## [0.33.0] - 2026-10-26
 

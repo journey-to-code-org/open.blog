@@ -2298,6 +2298,7 @@ html[data-admin-density="compact"] .oba-pane {
   }
 
   .oba-app-header {
+    flex-wrap: wrap;
     min-height: 4rem;
   }
 

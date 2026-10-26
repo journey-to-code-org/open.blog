@@ -135,6 +135,8 @@ const overflow = (page) =>
     const widest = Math.max(...[region, ...region.querySelectorAll("*")].map((element) => element.getBoundingClientRect().right));
     return Math.max(widest - window.innerWidth, region.scrollWidth - region.clientWidth);
   });
+// The whole page, header included, never scrolls sideways.
+const pageFits = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 
 test("a BCE dating is authored on an entry from the keyboard alone and stored at its stated precision", async ({ page }) => {
   writeResearch(ATLAS(false));
@@ -261,6 +263,7 @@ test("the chronology works at high zoom and on a phone without sideways scrollin
   await openChronology(page);
   await expect(status(page)).toContainText("Showing 4 of 4");
   expect(await overflow(page)).toBeLessThanOrEqual(1);
+  expect(await pageFits(page)).toBe(true);
   // Competing datings stack into one column rather than squeezing.
   const competing = page.locator('[data-chronology-row="entries:plato:birth"] [data-chronology-dating]');
   const [first, second] = [await competing.nth(0).boundingBox(), await competing.nth(1).boundingBox()];
@@ -279,6 +282,7 @@ test("the chronology works at high zoom and on a phone without sideways scrollin
   await page.locator("#oba-atlas-entry-dating-3-at-precision").selectOption("day");
   await expect(page.locator("#oba-atlas-entry-dating-3-at-month")).toBeVisible();
   expect(await overflow(page)).toBeLessThanOrEqual(1);
+  expect(await pageFits(page)).toBe(true);
 });
 
 test("an atlas without datings shows an empty timeline that says so", async ({ page }) => {
