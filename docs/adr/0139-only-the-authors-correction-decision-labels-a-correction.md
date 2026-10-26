@@ -20,6 +20,8 @@
   [#225](https://github.com/journey-to-code-org/open.blog/issues/225) (RD12 policy and inbox),
   [#217](https://github.com/journey-to-code-org/open.blog/issues/217),
   [#218](https://github.com/journey-to-code-org/open.blog/issues/218)
+- Amended by: [ADR 0140](0140-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)
+  (storage, the inbox's "Record decision" and its checks)
 - Contract: `openblog_core::correction_decision`, fixtures in
   `tests/fixtures/evidence-corrections.json` (`decisions`)
 

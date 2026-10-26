@@ -12,8 +12,24 @@ All notable changes to open.blog are recorded here. Releases follow
   suggestion a correction: accepted as a correction, as a clarification or as evidence (in full or
   in part), declined with the author's reason, or already addressed, linked to the post's revision
   note and claim evidence. Decisions are kept in order and never erase the reader's record, and a
-  decision is shown only beside a reader's note that is itself public. Nothing changes on pages,
-  feeds or the hosted service yet.
+  decision is shown only beside a reader's note that is itself public.
+- Readers can name what a suggested source or correction is about, and you can record what you
+  decided. With `"evidence": true` in `engagement`, the "Questions and corrections" form offers an
+  optional Evidence part on those two kinds: a claim the post publishes, the evidence for it the
+  reader questions, a source the post cites or one the site publishes and where in it, and how the
+  reader says it bears on the passage, all picked from what the site publishes, never typed. In the
+  **Moderation inbox** each note says how it stands (a suggested source, a questioned citation or a
+  suggested correction until you decide, never a correction before), shows the reader's evidence
+  beside the published claim it names, links notes that seem to be about the same thing without
+  counting them, and offers **Record decision**: accept as a correction, a clarification or
+  evidence (in full or in part), decline with your reason, or already addressed, pointing at a
+  revision note and an evidence link you record separately. A decision never edits your post, its
+  citations or the Source Library, never publishes or hides the reader's note, is refused if
+  someone decided first or the reader's text changed, and is kept in the item's private record with
+  an audit entry. To use it, run `supabase/feedback.sql` again and set
+  `OPENBLOG_CORRECTIONS_ENABLED=true`; `supabase/corrections-rollback.sql` undoes it. Without it the
+  form and the inbox are unchanged, and evidence the service cannot take is given to the reader to
+  copy. Nothing is e-mailed to readers.
 
 ## [0.36.0] - 2026-10-26
 

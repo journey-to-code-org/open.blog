@@ -106,7 +106,14 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   default, and left out of the file while off) adds "Check, clarify or withdraw a note you sent"
   to the form, where a reader uses the private receipt they were given; switch it on only once the
   hosted function issues receipts (`supabase/protection.sql` and `OPENBLOG_PROTECTION_ENABLED`, see
-  [Privacy, retention and deletion](#privacy-retention-and-deletion)).
+  [Privacy, retention and deletion](#privacy-retention-and-deletion)). `engagement.evidence` (off by
+  default, and left out of the file while off) adds an optional "Evidence" part to suggested sources
+  and corrections: the reader picks a published claim, the evidence for it they question, a source
+  the post cites or one the site publishes and where in it, and how they say it bears on the
+  passage, from lists of what the site publishes, never a private id. Switch it on only once the
+  hosted function stores evidence (`supabase/feedback.sql` run again and
+  `OPENBLOG_CORRECTIONS_ENABLED`); it also lets you record a correction decision on such a note in
+  the **Moderation inbox** (ADR 0140).
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.

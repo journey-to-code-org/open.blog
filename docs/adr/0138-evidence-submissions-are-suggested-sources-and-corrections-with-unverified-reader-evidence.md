@@ -14,6 +14,8 @@
   participation and moderation policy), [#217](https://github.com/journey-to-code-org/open.blog/issues/217)
   (RD6.2 submission and review), [#218](https://github.com/journey-to-code-org/open.blog/issues/218)
   (RD6.3 published outcomes), [ADR 0139](0139-only-the-authors-correction-decision-labels-a-correction.md)
+- Amended by: [ADR 0140](0140-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)
+  (the form, the hosted transport and storage)
 - Contract: `openblog_core::evidence_submission`, fixtures in
   `tests/fixtures/evidence-corrections.json` (`submissions`)
 

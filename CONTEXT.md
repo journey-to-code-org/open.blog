@@ -1391,6 +1391,25 @@ published claim evidence, day), shown only while the reader's item is itself pub
 neither the reader nor who decided.
 _Avoid_: Correction notice for a private submission, decision export
 
+**Evidence choices**:
+What a post's feedback form lets a reader name in an evidence block: the post's published claims
+and their published evidence links, the sources it publishes and the sources the site publishes,
+each by id and public label. Built from public output only, so a reader picks and never types an id
+(ADR 0140).
+_Avoid_: Claim search, source lookup
+
+**Duplicate cue**:
+A link, on an inbox card, to another item on the same page about the same post that points at the
+same passage or names the same claim, evidence link or source. A reason to read them together,
+never a count and never a reason to decide.
+_Avoid_: Vote, tally, merge
+
+**Record decision**:
+The inbox's action for a correction decision, offered beside moderation to the site Admin and the
+work's coordinator where the policy and the hosted store allow. It points at a revision note and an
+evidence link recorded separately and never edits the post (ADR 0140).
+_Avoid_: Approve, publish, correct
+
 ## Admin workspace
 
 **Workspace preferences**:
