@@ -10,7 +10,7 @@ const AUTHOR: &str = r#"{"vocabulary":"crossref","role":"author"}"#;
 const EDITOR: &str = r#"{"vocabulary":"crossref","role":"editor"}"#;
 /// Quotes and an ampersand in a contributor name, which must stay text.
 const HOSTILE: &str = "Eve \"Q\" & O'Brien";
-/// Markup and Markdown in a contributor name, which the portable-output check refuses.
+/// Markup and Markdown in a contributor name, which must stay escaped, unlinked text everywhere.
 const MARKUP: &str = "<img src=x onerror=alert(1)> [Mal](javascript:alert(1)) **bold**";
 
 fn config(site_author: &str) -> SiteConfig {
@@ -26,6 +26,10 @@ fn config(site_author: &str) -> SiteConfig {
         ("dee", "Dee", "https://example.org/dee"),
         ("eve", HOSTILE, "https://example.org/eve"),
         ("mal", MARKUP, ""),
+        // Names a portable Markdown copy would misread as an autolink, an entity or raw HTML.
+        ("kim", "Kim <https://kim.example>", ""),
+        ("att", "AT&amp;T", ""),
+        ("img", "<img src=x>", ""),
         // The site owner in the registry, as a shared reflection credits them, with the site
         // author's own profile link, with none, and a namesake with another link.
         ("owner", "Site Owner", "https://example.test/about/"),
@@ -421,7 +425,7 @@ fn removed_withdrawn_draft_and_scheduled_works_disappear_cleanly() {
 }
 
 #[test]
-fn hostile_names_stay_text_or_fail_the_build() {
+fn hostile_names_stay_escaped_unlinked_text_and_the_build_succeeds() {
     let posts = vec![post("n1", "letters", "2026-04-01", Some(1), "")];
     let files = build(&[(posts.clone(), vec![credits("n1", &["eve", "ann"], &[])])]);
     for html in [
@@ -433,23 +437,38 @@ fn hostile_names_stay_text_or_fail_the_build() {
             "{html}"
         );
     }
-    // A name the portable copy cannot carry faithfully stops the build, so nothing is published.
-    let refused = try_build_as(
-        "Site Owner",
-        &[(posts, vec![credits("n1", &["mal", "ann"], &[])])],
-    );
-    assert!(refused.is_err());
-    // The same name on a post outside any series is refused the same way: the series adds no
-    // new path for a name to reach a page.
-    let loose = file(
-        "posts/loose.md",
-        "---\ntitle: Loose\ndate: 2026-04-01\n---\nx\n",
-    );
-    let refused = try_build_as(
-        "Site Owner",
-        &[(vec![loose], vec![credits("loose", &["mal"], &[])])],
-    );
-    assert!(refused.is_err());
+    // Markup, Markdown links and emphasis, autolinks and entities in a name are published as the
+    // literal text they are, on the series page and in the navigation, and never as markup or a
+    // link. The portable copies carry them faithfully, so the build succeeds.
+    for (id, escaped) in [
+        (
+            "mal",
+            "&lt;img src=x onerror=alert(1)&gt; [Mal](javascript:alert(1)) **bold**",
+        ),
+        ("kim", "Kim &lt;https://kim.example&gt;"),
+        ("att", "AT&amp;amp;T"),
+        ("img", "&lt;img src=x&gt;"),
+    ] {
+        let files = try_build_as(
+            "Site Owner",
+            &[(posts.clone(), vec![credits("n1", &[id, "ann"], &[])])],
+        )
+        .unwrap_or_else(|error| panic!("{id}: {error}"));
+        for html in [
+            series_body(page(&files, "series/letters/index.html")),
+            series_box(page(&files, "n1/index.html")),
+        ] {
+            assert!(html.contains(&format!("By {escaped} and Ann")), "{id}: {html}");
+            assert!(
+                !html.contains("<img")
+                    && !html.contains("<strong")
+                    && !html.contains("javascript:alert(1)\"")
+                    && !html.contains("href=\"https://kim.example")
+                    && !html.contains("href=\"javascript"),
+                "{id}: {html}"
+            );
+        }
+    }
 }
 
 #[test]

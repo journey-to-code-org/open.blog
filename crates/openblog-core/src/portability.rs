@@ -917,7 +917,7 @@ impl<'a> PortableProjection<'a> {
             has_raw_html: self
                 .arrangement()
                 .map_or(rendered.portable_has_raw_html, |arrangement| {
-                    escape_raw_html(&arrangement.to_markdown(shared_markdown_text)).1 > 0
+                    escape_raw_html(&arrangement.to_markdown(markdown_text)).1 > 0
                 }),
         })
     }
@@ -930,19 +930,14 @@ impl<'a> PortableProjection<'a> {
         // any other body is the authored Markdown itself.
         let source = self.arrangement().map_or_else(
             || self.markdown.to_string(),
-            |arrangement| arrangement.to_markdown(shared_markdown_text),
+            |arrangement| arrangement.to_markdown(markdown_text),
         );
         let (body, raw_html_count) = escape_raw_html(&source);
         let body = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
         let mut output = format!(
             "# {}\n\nCanonical: <{}>\n\n",
-            if self.shared.is_some() {
-                // The title came from a participant, not the site owner: no raw HTML or entity.
-                shared_markdown_text(self.title)
-            } else {
-                markdown_text(self.title)
-            },
+            markdown_text(self.title),
             self.canonical_url
         );
         if let Some(subtitle) = self.subtitle {
@@ -1072,17 +1067,17 @@ impl<'a> PortableProjection<'a> {
                     "Guiding question: {}
 
 ",
-                    shared_markdown_text(question)
+                    markdown_text(question)
                 ));
             }
             if let Some(source) = &shared.source {
                 let name = match &source.url {
                     Some(url) => format!(
                         "[{}]({})",
-                        shared_markdown_text(&source.title),
+                        markdown_text(&source.title),
                         markdown_destination(&self.resolve_link(url)?)
                     ),
-                    None => shared_markdown_text(&source.title),
+                    None => markdown_text(&source.title),
                 };
                 output.push_str(&format!(
                     "Source ({}): {name}
@@ -1574,7 +1569,7 @@ impl<'a> PortableProjection<'a> {
         let Some(arrangement) = self.arrangement() else {
             return Ok(None);
         };
-        let (body, _) = escape_raw_html(&arrangement.to_markdown(shared_markdown_text));
+        let (body, _) = escape_raw_html(&arrangement.to_markdown(markdown_text));
         let markdown = portable_markdown_body(&body, self)
             .map_err(|error| format!("{}: {error}", self.source_path))?;
         Ok(Some(markdown_to_text(&markdown)))
@@ -1849,25 +1844,22 @@ fn markdown_to_text(markdown: &str) -> String {
     compact
 }
 
+/// Markdown text for a public value (a title, a name, a fact): Markdown punctuation, `<` and `&`
+/// are escaped, so the value can never become a link, emphasis, an autolink, raw HTML or an
+/// entity when the export is read back.
 fn markdown_text(value: &str) -> String {
     let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut escaped = String::new();
     for character in normalized.chars() {
         if matches!(
             character,
-            '\\' | '[' | ']' | '*' | '_' | '~' | '`' | '#' | '>' | '|'
+            '\\' | '[' | ']' | '*' | '_' | '~' | '`' | '#' | '>' | '|' | '<' | '&'
         ) {
             escaped.push('\\');
         }
         escaped.push(character);
     }
     escaped
-}
-
-/// Markdown text for untrusted public values: `<` and `&` are escaped too, so a title or question
-/// can never become raw HTML or an entity in an export.
-fn shared_markdown_text(value: &str) -> String {
-    markdown_text(value).replace('<', r"\<").replace('&', r"\&")
 }
 
 fn markdown_destination(value: &str) -> String {
