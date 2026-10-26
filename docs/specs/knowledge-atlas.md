@@ -6,18 +6,37 @@ decisions are in [ADR 0053](../adr/0053-knowledge-atlas-entries-keep-their-kind.
 [ADR 0054](../adr/0054-attributed-evidence-based-relationships.md),
 [ADR 0055](../adr/0055-private-knowledge-atlas-storage.md),
 [ADR 0056](../adr/0056-one-lock-order-and-cross-store-research-guards.md) and
-[ADR 0057](../adr/0057-accessible-atlas-authoring-and-a-text-first-explorer.md) and
-[ADR 0058](../adr/0058-publish-one-allowlisted-knowledge-atlas-projection.md). Nothing in it
+[ADR 0057](../adr/0057-accessible-atlas-authoring-and-a-text-first-explorer.md),
+[ADR 0058](../adr/0058-publish-one-allowlisted-knowledge-atlas-projection.md), and, for
+[chronology](#chronology),
+[ADR 0118](../adr/0118-uncertain-dates-are-attributed-datings-at-their-stated-precision.md),
+[ADR 0119](../adr/0119-temporal-relationships-are-relative-datings-never-inferred.md) and
+[ADR 0120](../adr/0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md). Nothing in it
 reaches a public page, feed, search index, `llms.txt` or export except through the
 [publication projection](#publication), which copies approved items only when the site opts in.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "entries": [
     { "id": "plato", "kind": "person", "label": "Plato", "aliases": ["Πλάτων"],
-      "bounds": { "from": -428, "until": -348 } },
-    { "id": "republic", "kind": "work", "label": "Republic", "source": "plato-republic" },
+      "dates": [
+        { "id": "plato-born-dl", "aspect": "birth",
+          "date": { "at": { "year": -428, "circa": true } },
+          "assertedBy": { "kind": "source", "source": "diogenes" },
+          "evidence": [{ "source": "diogenes", "locators": [{ "kind": "canonical", "value": "3.2" }] }] },
+        { "id": "plato-born-nails", "aspect": "birth",
+          "date": { "notBefore": { "year": -424 }, "notAfter": { "year": -423 } },
+          "assertedBy": { "kind": "source", "source": "nails-2002" },
+          "evidence": [{ "source": "nails-2002" }], "confidence": "plausible" }
+      ] },
+    { "id": "republic", "kind": "work", "label": "Republic", "source": "plato-republic",
+      "dates": [
+        { "id": "republic-after-phaedo", "aspect": "composition",
+          "date": { "relative": { "order": "after", "entry": "phaedo", "aspect": "composition" } },
+          "assertedBy": { "kind": "author" }, "unsourced": true }
+      ] },
+    { "id": "phaedo", "kind": "work", "label": "Phaedo" },
     { "id": "allegory", "kind": "concept", "label": "Allegory" }
   ],
   "relationships": [
@@ -36,8 +55,8 @@ reaches a public page, feed, search index, `llms.txt` or export except through t
 `id` (slug, shared with relationships), `kind` (`person`, `work`, `concept`, `movement`,
 `event`), `label` (at most 200 characters), optional `aliases` (20), `summary` (the author's
 prose, 20,000 characters), `source` (work entries only; a source-library record of kind
-`work`), `bounds` (`from`/`until` whole years, negative is BCE, no year 0), and `visibility`
-(`private` default, or `approved`). A notebook note's `concepts` id resolves to the concept
+`work`), `dates` (attributed datings, see [Chronology](#chronology)), and `visibility`
+(`private` default, or `approved`). Version 1's `bounds` is refused in version 2. A notebook note's `concepts` id resolves to the concept
 entry with the same id; an unresolved id is reported, not an error. Removing an entry is
 refused while a relationship joins it; removing a concept that notes link to is allowed and
 reports those notes, whose links are now unresolved.
@@ -45,7 +64,8 @@ reports those notes, whose links are now unresolved.
 ## Relationships
 
 `id`, `kind`, `from`, `to`, `assertedBy`, optional `confidence` (`tentative` default,
-`plausible`, `strong`), `evidence`, `unsourced`, `uncertainty`, `contestedBy`, `visibility`.
+`plausible`, `strong`), `evidence`, `unsourced`, `uncertainty`, `contestedBy`, `dates` (`span`
+datings of when the relationship held), `visibility`.
 
 | kind | from | to | notes |
 | --- | --- | --- | --- |
@@ -73,6 +93,70 @@ entry's approval never makes the atlas invalid.
 
 Unknown fields are preserved at every level; contributor credit fields are refused; diagnostics
 are scoped to collection, index, id and field and never repeat authored text.
+
+## Chronology
+
+Owned by `openblog_core::chronology`. An entry's or relationship's `dates` hold at most 20
+**datings**, each one party's claim about when one aspect happened. Nothing converts calendars,
+reconciles datings, or infers a date, an order or a relationship from another date.
+
+| Field | Rule |
+| --- | --- |
+| `id` | A slug in the atlas's one identifier space (entries, relationships and datings). |
+| `aspect` | See the table below. |
+| `date` | Exactly one form, below. |
+| `assertedBy` | The atlas attribution: `author`, `source` or `named`. |
+| `confidence` | `tentative` (default), `plausible` or `strong`: how firmly that party holds it. |
+| `evidence` / `unsourced` | Atlas evidence, or `"unsourced": true`; never both. Unsourced cannot be `strong` or `approved`. |
+| `note` | Optional, 2,000 characters: doubt, or how the party reckons the date. |
+| `visibility` | `private` (default) or `approved`; approved needs evidence and no `passage`. |
+
+| aspect | applies to | lasts |
+| --- | --- | --- |
+| `span` | every entry; the only aspect of a relationship | yes |
+| `birth`, `death` | person | no |
+| `active` | person, movement | yes |
+| `composition` | work | yes |
+| `publication` | work | no |
+| `emergence` | concept, movement | no |
+
+| Form | Meaning |
+| --- | --- |
+| `{"at": P}` | At one point, at that point's precision. |
+| `{"from": P, "to": P}` | A duration, either end open; only for an aspect that lasts. |
+| `{"notBefore": P, "notAfter": P}` | Some time inside an inclusive window, either end open ("after", "before"). |
+| `{"unknown": true}` | The party says the date is unknown. |
+| `{"relative": {"order": o, "entry": id, "aspect": a}}` | Before, after or during (`o`) another entry's aspect; `during` needs an aspect that lasts. |
+
+A point `P` is exactly one of `{"year": Y}` (optionally `month` 1–12, and `day` only with a
+month), `{"decade": D}` (`1380` is 1380–1389, `-380` is 389–380 BCE; a non-zero multiple of 10)
+or `{"century": C}` (`-4` is 400–301 BCE), plus optional `"circa": true` and, only with a month,
+`"calendar": "gregorian"` or `"julian"`. Years are historical: negative is BCE, there is no
+year 0 (1 BCE, `-1`, is followed by 1 CE, `1`), and magnitudes stay within 100,000. A start
+that begins after its end ends is refused; months and days are compared only when both points
+state the same calendar (or neither), otherwise years are. February may have 29 days.
+
+Any number of datings may date one aspect (competing datings); only the same party giving the
+same date for the same aspect twice is refused (`duplicate-dating`). A relative dating's entry
+must exist and have the aspect, and cannot be the aspect being dated; opposed relative datings
+are valid. Datings never create or support a relationship, and `Atlas::relationships_of` is
+unchanged by them; `Atlas::datings_of` lists an entry's datings and the relative datings that
+point at it. `DateExpr::key` orders absolute datings by their earliest and latest stated day
+(open start first, open end last), then relative datings, then unknown ones;
+`chronology::chronological` breaks ties by id. Order is for display only.
+
+A dating is projected (`Atlas::is_dating_projected`, `Atlas::projected_datings`) only when it is
+approved and cited with no passage, its entry is approved or its relationship is projected, and
+the entry a relative dating points at is approved. Otherwise it stays private, with a
+non-blocking `private-endpoint` notice. No surface publishes datings yet. A dating's sources
+and passages count as uses, so removing them from the library or notebook is refused.
+
+**Version 1.** A `"version": 1` atlas is read as version 2 and written as version 2 by the next
+accepted change; reading never writes. Each entry's `bounds` with a year becomes a dating
+`<id>-span` (or the first free `-span-N`) of aspect `span`, `{"from": {"year": F}, "to":
+{"year": U}}` with the stored years, by the author, `unsourced` and `private`; unknown fields
+inside `bounds` move to `boundsExtra` on that dating (or the entry, if no year was stated). A
+version 1 item that already uses `dates` is refused until renamed.
 
 ## Storage
 
@@ -127,6 +211,8 @@ plus the saved `entry` or `relationship`. `409` carries `conflict`, the latest `
 and the stored `current` copy; `422` carries scoped `diagnostics` and the `file`. An id in a
 removal or exploration request that is not an atlas identifier is `400` and is never echoed.
 
+The entry form says how many datings an entry has and keeps them, with every unknown field,
+unchanged on save; datings are edited in the atlas file for now.
 The editor offers only the entries a relationship kind may join, sources from the library
 and passages from the notebook for evidence, the three kinds of attribution, confidence,
 an uncertainty note and recorded dissents. A relationship needs evidence or the explicit
@@ -146,7 +232,7 @@ passage pointer, both entries approved), and the build writes:
 | Output | Content |
 | --- | --- |
 | `/atlas/` | Published entries grouped by kind, with how many relationships each has, and a link to `atlas.json`. |
-| `/atlas/<id>/` | The entry's label, other names, years, summary and work reference, then its relationships from and to it, each in the stored direction with standing, who asserts it, confidence, cited references and locators, uncertainty and every dissent. |
+| `/atlas/<id>/` | The entry's label, other names, summary and work reference, then its relationships from and to it, each in the stored direction with standing, who asserts it, confidence, cited references and locators, uncertainty and every dissent. |
 | `/atlas.json` | The same projection as compact data (below). |
 
 ```json
@@ -155,7 +241,7 @@ passage pointer, both entries approved), and the build writes:
   "formatVersion": 1,
   "entries": [
     { "id": "plato", "kind": "person", "label": "Plato", "aliases": ["Aristocles"],
-      "bounds": { "from": -428, "until": -348 }, "url": "/atlas/plato/" }
+      "url": "/atlas/plato/" }
   ],
   "relationships": [
     { "id": "r-authored", "kind": "authored", "from": "plato", "to": "republic",
@@ -176,7 +262,8 @@ passage pointer, both entries approved), and the build writes:
 Only the fields shown (and an entry's `summary` and a work's `source`, a dissent's `evidence`)
 are published; sources carry the citation allowlist of ADR 0044. Visibility, `unsourced`,
 passage ids, unknown fields, private entries and relationships, relationships touching a
-private entry and notebook data are never published. Entries, relationships and sources are
+private entry, datings (until the chronology publication slice adds them) and notebook data
+are never published. Entries, relationships and sources are
 sorted by id. A relationship's `kind` is the stored machine value (`member-of`); `label` and
 `inverseLabel` are how it reads in words from each end (`member of`, `has member`), as pages and
 the Admin explorer show it. URLs are root-relative and follow a site's base path, and `<`, `>` and `&` in

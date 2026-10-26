@@ -80,7 +80,14 @@ events typed and records every relationship as an attributed, evidence-backed as
 never presented as consensus, stored privately beside the notebook
 ([ADR 0055](adr/0055-private-knowledge-atlas-storage.md)) with one lock order and guards that
 keep sources and passages it uses from being removed
-([ADR 0056](adr/0056-one-lock-order-and-cross-store-research-guards.md)), and the
+([ADR 0056](adr/0056-one-lock-order-and-cross-store-research-guards.md)), and dates its entries
+and relationships with attributed, cited datings at their stated precision that keep competing
+datings side by side
+([ADR 0118](adr/0118-uncertain-dates-are-attributed-datings-at-their-stated-precision.md)), whose
+only temporal relationship is an asserted relative dating
+([ADR 0119](adr/0119-temporal-relationships-are-relative-datings-never-inferred.md)) and which
+replace version 1's `bounds` privately
+([ADR 0120](adr/0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md)), and the
 [claims and evidence links format](specs/claims-evidence.md), which records the author's own
 reading of which sources support, contradict or contextualize a claim in a draft, with no score
 or verdict ([ADR 0068](adr/0068-claims-and-evidence-links-record-the-authors-reading.md)), never

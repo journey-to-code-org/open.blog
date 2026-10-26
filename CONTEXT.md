@@ -748,6 +748,65 @@ publication projection may copy. An approved relationship touching a private ent
 private and is reported as a notice, never refused.
 _Avoid_: Public relationship, approved relationship when a private endpoint is possible
 
+**Dating**:
+One party's attributed claim about when one aspect of an atlas entry or relationship happened,
+resting on cited evidence (or explicitly unsourced), with a confidence and a note. It is private
+until approved and is never a fact.
+_Avoid_: Date field, the date of something; a date without who gives it
+
+**Dated aspect**:
+What a dating dates: an entry's `span`, a person's `birth`, `death` or `active` period, a work's
+`composition` or `publication`, a concept's or movement's `emergence`, or the `span` during which
+a relationship held. Only span, active and composition last.
+_Avoid_: Event type, role
+
+**Date expression**:
+The one form a dating takes: a point (`at`), a duration (`from`/`to`), a date window
+(`notBefore`/`notAfter`), unknown, or a relative dating.
+_Avoid_: Date string, parsed date
+
+**Date precision**:
+How finely a point is stated: day, month, year, decade or century. A point is read back exactly
+as written; nothing rounds, widens or narrows it.
+_Avoid_: Accuracy, granularity guessed from text
+
+**Circa**:
+A point the party gives as approximate. It is kept beside the point and does not move it.
+_Avoid_: Fuzzy date, estimated (when the party did not say so)
+
+**Date window**:
+The time inside which something happened, with an inclusive earliest (`notBefore`) and latest
+(`notAfter`) point; an open end is what "after" or "before" a date means.
+_Avoid_: Range (ambiguous with a duration), terminus as a stored word
+
+**Unknown date**:
+A party's explicit statement that a date is unknown. It is never coerced to a point and sorts
+after every dated item; having no dating at all simply means undated.
+_Avoid_: Null date, year 0, a placeholder year
+
+**Competing datings**:
+Two or more datings of the same aspect, by different parties or as one party's alternatives.
+They stand side by side in file order; nothing prefers, merges or resolves them.
+_Avoid_: Correct date, consensus date, resolved date
+
+**Relative dating**:
+A dating that places an aspect before, after or during another entry's aspect. It is the atlas's
+only temporal relationship: asserted and cited like any dating, never inferred from absolute
+dates, and never a relationship kind or a reason for one.
+_Avoid_: Preceded or contemporary-of relationship; order inferred from years
+
+**Calendar policy**:
+Years are historical BCE/CE years with no year 0. A month and day may name the calendar they
+are stated in (Gregorian or Julian); nothing converts calendars, and points in different
+calendars are compared by year only.
+_Avoid_: Normalized date, proleptic conversion
+
+**Projected dating**:
+An approved, cited dating with no notebook passage whose entry or relationship is published and,
+if relative, whose other entry is approved. Anything else stays private and is reported as a
+notice, never refused.
+_Avoid_: Public date; approved dating when its owner may be private
+
 **Atlas projection**:
 The one public form of the Knowledge Atlas: approved entries and projected relationships, each
 reduced to an explicit allowlist of fields, with the public description of the sources they use.

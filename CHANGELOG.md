@@ -5,6 +5,20 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- The private Knowledge Atlas can now record uncertain chronology. Entries and relationships
+  carry datings: each says who dates what (a birth, a composition, a span), on which cited
+  evidence and how firmly, at the precision given (a day, month, year, decade or century,
+  optionally circa), as a point, a duration, a window ("before" or "after"), an explicit
+  unknown, or relative to another entry ("composed after the Phaedo"). BCE years have no year 0,
+  calendars are named and never converted, and competing datings are kept side by side and never
+  resolved. A relative dating never becomes or supports a relationship.
+- The atlas file is now version 2. A version 1 atlas is still read, and its next change writes
+  version 2, turning each entry's `bounds` years into a private, unsourced dating by the author
+  with nothing lost. Datings are private by default and approval follows the atlas projection,
+  but no page publishes them yet, so a published atlas page no longer shows an entry's years
+  until a cited, approved dating can be published. The Admin entry form no longer edits years;
+  it keeps an entry's datings unchanged when you save.
+
 ## [0.32.0] - 2026-10-26
 
 - Defined the format for private claims in draft posts and evidence links that record whether a

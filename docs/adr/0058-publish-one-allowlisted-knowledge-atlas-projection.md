@@ -40,7 +40,10 @@ as before.
   `atlas.json` are both rendered from that one value; no surface reads the private atlas.
 - **An allowlist of fields.** Public types name exactly what is published:
   - entry: `id`, `kind`, `label`, `aliases`, `summary`, a work's `source`, `bounds.from` and
-    `bounds.until`, and its canonical `url`;
+    `bounds.until`, and its canonical `url` (amended by
+    [ADR 0120](0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md): `bounds`
+    no longer exists, and datings are not published until the chronology publication slice
+    adds them);
   - relationship: `id`, `kind`, `from`, `to` (the stored direction), `label` and
     `inverseLabel` (display words only), `assertedBy`, `confidence`, `evidence` (source id and
     public locators: kind, value, end), `uncertainty`, the derived `standing`, and
