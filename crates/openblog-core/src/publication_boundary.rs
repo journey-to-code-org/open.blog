@@ -1087,7 +1087,7 @@ fn comparisons(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
         } else if let Some(stale) = stale {
             (
                 Reason::StaleApproval,
-                format!("Comparison `{id}` is approved but withheld from /comparisons/ because its approval is stale ({stale}). Check the place and update the member or its passage to publish it again."),
+                format!("Comparison `{id}` is approved but withheld from /comparisons/ because its approval is stale ({stale}). Check the place, then save the alignment again to approve it as it now stands and publish it again."),
             )
         } else {
             (

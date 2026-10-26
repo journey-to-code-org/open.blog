@@ -215,6 +215,10 @@ pub enum Gate {
     RefusesWhenPublished,
     /// The save, change or build that would write it is refused.
     Refuses,
+    /// The build publishes everything else and leaves this one item out until
+    /// the author fixes it (a stale approval). It does not stop a post and
+    /// cannot be acknowledged: acknowledging would not publish the item.
+    Withholds,
 }
 
 /// The kind of object a finding is scoped to or relates to.
@@ -425,7 +429,7 @@ fn atlas_class(code: AtlasDiagnosticCode) -> (bool, Category, EvidenceOutcome) {
         A::PrivateEndpoint | A::UndisclosedContradiction | A::UnpublishedDatings => {
             (true, C::PublicBoundary, O::Detected)
         }
-        A::StaleLocator => (true, C::Locator, O::NeedsReview),
+        A::StaleLocator | A::StaleApproval => (true, C::Locator, O::NeedsReview),
         A::ArchivedMember => (true, C::Provenance, O::NeedsReview),
         A::UnknownLocatorKind | A::InvalidLocator | A::AmbiguousLocator | A::MissingLocator => {
             error(C::Locator)
@@ -468,6 +472,7 @@ fn atlas_class(code: AtlasDiagnosticCode) -> (bool, Category, EvidenceOutcome) {
 }
 
 fn atlas_spec(subject: DiagnosticSubject, code: AtlasDiagnosticCode) -> Spec {
+    use AtlasDiagnosticCode as A;
     let (notice, category, outcome) = atlas_class(code);
     let check = match (subject, notice) {
         (DiagnosticSubject::Atlas, false) => K::AtlasIntegrity,
@@ -477,7 +482,11 @@ fn atlas_spec(subject: DiagnosticSubject, code: AtlasDiagnosticCode) -> Spec {
         (DiagnosticSubject::Alignments, false) => K::AlignmentsIntegrity,
         (DiagnosticSubject::Alignments, true) => K::AlignmentPlaces,
     };
-    let gate = if notice { G::Advisory } else { G::Refuses };
+    let gate = match (code, notice) {
+        (A::StaleApproval, _) => G::Withholds,
+        (_, true) => G::Advisory,
+        (_, false) => G::Refuses,
+    };
     spec(check, category, outcome, gate)
 }
 
@@ -910,7 +919,7 @@ impl ReviewFinding {
     /// Whether the finding stops this publication: its validator refuses the
     /// build that would publish it. A potential or needs-review finding never does.
     pub fn blocks_publication(&self) -> bool {
-        self.gate != Gate::Advisory
+        matches!(self.gate, Gate::RefusesWhenPublished | Gate::Refuses)
     }
 
     fn key(&self) -> AcknowledgementKey<'_> {

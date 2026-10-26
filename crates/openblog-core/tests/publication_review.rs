@@ -400,3 +400,25 @@ title: Cave
         Some(AcknowledgementState::Current)
     );
 }
+
+#[test]
+fn a_stale_approval_withholds_its_comparison_and_cannot_be_acknowledged() {
+    let stale = ReviewFinding::from_atlas_diagnostic(&notice(
+        DiagnosticSubject::Alignments,
+        AtlasDiagnosticCode::StaleApproval,
+        "cave",
+    ));
+    assert_eq!(stale.gate, Gate::Withholds);
+    assert!(!stale.blocks_publication(), "the post still publishes");
+    assert!(Acknowledgement::of(&stale).is_none());
+    assert!(!acknowledgeable(Validator::Alignments, "stale-approval"));
+    // Locator drift with no recorded approval stays an advisory notice.
+    let drift = ReviewFinding::from_atlas_diagnostic(&notice(
+        DiagnosticSubject::Alignments,
+        AtlasDiagnosticCode::StaleLocator,
+        "cave",
+    ));
+    assert_eq!(drift.gate, Gate::Advisory);
+    assert!(Acknowledgement::of(&drift).is_some());
+    assert!(acknowledgeable(Validator::Alignments, "stale-locator"));
+}

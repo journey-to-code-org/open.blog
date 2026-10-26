@@ -322,11 +322,13 @@ pub struct ComparisonInputs<'a> {
 }
 
 /// Approved alignments whose approval has gone stale (#63, ADR 0137): a
-/// place whose locators no longer match the notebook passage it aligns, so
-/// the passage was re-located after the author approved the comparison. Each
-/// is withheld from the projection, and only it, until the author checks the
-/// place and updates the member or its passage. By alignment id, the field
-/// and the validator's own sentence, naming ids only.
+/// passage the alignment names was re-located after the alignment was last
+/// saved approved, which the alignments file records as a fingerprint of the
+/// passage's locators. Each is withheld from the projection, and only it,
+/// until the author checks the place and saves the alignment again. An
+/// approval with no record (made before the record existed) is never
+/// withheld. By alignment id, the field and the validator's own sentence,
+/// naming ids only.
 pub fn stale_approvals(
     set: &AlignmentSet,
     inputs: ComparisonInputs<'_>,
@@ -337,7 +339,7 @@ pub fn stale_approvals(
     };
     let mut stale = BTreeMap::new();
     for notice in set.notices(links) {
-        if notice.code != crate::knowledge_atlas::AtlasDiagnosticCode::StaleLocator {
+        if notice.code != crate::knowledge_atlas::AtlasDiagnosticCode::StaleApproval {
             continue;
         }
         let Some(id) = notice.id.clone() else {

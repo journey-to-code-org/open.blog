@@ -567,6 +567,10 @@ pub enum AtlasDiagnosticCode {
     MissingOriginal,
     /// An alignment member's locators no longer match its passage (a notice).
     StaleLocator,
+    /// A passage was re-located after the alignment was approved, so the
+    /// approval no longer holds and the comparison is withheld (a notice,
+    /// never acknowledgeable while it withholds).
+    StaleApproval,
     /// An alignment member rests on an archived source or passage (a notice).
     ArchivedMember,
     UnknownAlignment,

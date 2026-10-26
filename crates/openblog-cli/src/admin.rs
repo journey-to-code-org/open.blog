@@ -15480,6 +15480,7 @@ mod tests {
                 {"id": "private-places", "label": leak("alignmentlabel"), "rationale": leak("alignmentrationale"),
                     "members": [{"source": "slings", "passage": "hidden"}, {"source": "bloom", "absent": true}]},
                 {"id": "stale-places", "label": "Moved", "visibility": "approved", "rationale": leak("stalerationale"),
+                    "approvedPassages": {"moved": "0000000000000000"},
                     "members": [{"source": "slings", "passage": "moved", "locators": [{"kind": "page", "value": "601"}]},
                         {"source": "bloom", "absent": true}]}
             ]}),
@@ -15636,7 +15637,7 @@ mod tests {
         assert!(
             report.warnings.iter().any(|w| w.starts_with("boundary:")
                 && w.contains("`stale-places`")
-                && w.contains("members[0].locators")),
+                && w.contains("members[0].passage")),
             "{:?}",
             report.warnings
         );
