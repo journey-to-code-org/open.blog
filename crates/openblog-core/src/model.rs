@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 
 use crate::accessibility::{self, AccessibilityFinding, DocumentAuditInput};
-use crate::bibliography::{self, CitationLocale, CitationNoteLabels, CitationStyle};
+use crate::bibliography::{
+    self, CitationLocale, CitationNoteLabels, CitationStyle, CitationSummary,
+};
 use crate::capability::CapabilityDescriptor;
 use crate::config::SiteConfig;
 use crate::contributor::{self, CreditProvenance, ResolvedCredit};
@@ -238,6 +240,9 @@ pub struct Post {
     /// load to decide: it refuses a post this load publishes and warns about a
     /// draft or a held-back post, whose citations stay text (ADR 0055).
     pub(crate) citation_error: Option<String>,
+    /// What the published citations made public, for a post that publishes
+    /// them; portable bibliography exports read it (ADR 0056).
+    pub(crate) citations: Option<CitationSummary>,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -288,6 +293,13 @@ impl Post {
         self.published_markdown
             .as_deref()
             .unwrap_or(&self.authored_markdown)
+    }
+
+    /// What this post's published citations made public, or `None` when it
+    /// publishes none. Its references are the only input of the portable
+    /// bibliography exports, so they hold exactly what the page shows.
+    pub fn citations(&self) -> Option<&CitationSummary> {
+        self.citations.as_ref()
     }
 
     /// Actual authors only, in authored credit order. Secondary contributors
@@ -939,8 +951,15 @@ fn load_post_in(
     // exactly as before, and so is one that opts in but cites nothing.
     let citation_style = CitationStyle::from_front_matter(first(fm, &["citations"]))?;
     let mut citation_error = None;
+    let mut citation_findings = Vec::new();
     let published = match (citation_style, citations) {
         (Some(style), Citations::Publish(library)) => {
+            citation_findings = crate::citation_review::review_citations(
+                &file.path,
+                &doc.body,
+                doc.body_line,
+                library,
+            );
             let locale = CitationLocale::for_post(
                 first(fm, &["citationLocale", "citation_locale"]),
                 &config.language,
@@ -1093,11 +1112,21 @@ fn load_post_in(
         embeds_enabled: options.embeds,
         cover_alt: authored_cover.as_ref().map(|_| cover_alt.as_str()),
     });
-    let evidence = if profile.behavior == ProfileBehavior::Research {
+    let mut evidence = if profile.behavior == ProfileBehavior::Research {
         research::audit_document(&file.path, fm, &doc.body, doc.body_line)
     } else {
         Vec::new()
     };
+    evidence.extend(citation_findings);
+    let citation_summary = published
+        .as_ref()
+        .map(|(published, locale)| CitationSummary {
+            style: citation_style.unwrap_or(CitationStyle::Notes),
+            locale: *locale,
+            citations: published.citations,
+            notes: published.notes,
+            references: published.references.clone(),
+        });
     let (credits, credit_provenance) =
         contributor::resolve(&config.author, &config.contributors, None)
             .expect("legacy author resolution cannot fail");
@@ -1134,6 +1163,7 @@ fn load_post_in(
         authored_markdown: doc.body,
         published_markdown: published.map(|(published, _)| published.markdown),
         citation_error,
+        citations: citation_summary,
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,

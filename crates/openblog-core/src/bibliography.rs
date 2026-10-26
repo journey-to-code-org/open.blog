@@ -235,6 +235,20 @@ impl CitationNoteLabels<'_> {
     }
 }
 
+/// What a published post's citations made public: its style and locale,
+/// how many citations and notes it has, and each cited reference's public
+/// description in order of first citation. Portable bibliography exports
+/// (CSL JSON, BibTeX) are built from these references, so they hold exactly
+/// what the page shows (ADR 0056).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CitationSummary {
+    pub style: CitationStyle,
+    pub locale: CitationLocale,
+    pub citations: usize,
+    pub notes: usize,
+    pub references: Vec<PublicReference>,
+}
+
 /// A post body with its citations published.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PublishedCitations {
@@ -246,6 +260,8 @@ pub struct PublishedCitations {
     pub prefix: String,
     /// Generated notes (or bibliography entries), numbered from 1.
     pub notes: usize,
+    /// Citations in the body, each now a note marker.
+    pub citations: usize,
     /// Each cited reference once, in order of first citation.
     pub references: Vec<PublicReference>,
 }
@@ -369,6 +385,7 @@ pub fn publish_citations<'l>(
         markdown: out,
         prefix,
         notes: count,
+        citations: scan.mentions.len(),
         references: resolved.references,
     }))
 }

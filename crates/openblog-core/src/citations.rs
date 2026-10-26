@@ -426,7 +426,7 @@ impl Scanner<'_> {
 /// The public face of a reference: bibliographic description only. It is
 /// built from an explicit allowlist, so unknown source fields, the archived
 /// flag, relationships and anything notebook-side cannot appear in it.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PublicReference {
     pub key: String,
     pub kind: &'static str,
@@ -447,7 +447,7 @@ pub struct PublicReference {
     pub csl: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct PublicCreator {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]

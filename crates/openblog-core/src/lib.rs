@@ -18,6 +18,7 @@
 //! - [`source_interchange`]: dry-run CSL JSON import and deterministic CSL JSON / BibTeX export
 //! - [`citations`]: the opt-in `[@key, locator]` syntax, its resolver and CSL citation items
 //! - [`bibliography`]: opt-in publication of citations as numbered notes or a bibliography
+//! - [`citation_review`]: offline syntax, resolution, completeness and location checks of citations
 
 pub mod accessibility;
 pub mod approval;
@@ -26,6 +27,7 @@ pub mod assembly;
 pub mod assistant_guide;
 pub mod bibliography;
 pub mod capability;
+pub mod citation_review;
 pub mod citations;
 pub mod collaboration;
 pub mod config;
