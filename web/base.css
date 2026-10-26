@@ -2462,6 +2462,67 @@ ob-back-to-top button:hover {
   .ob-moment-link a::after { content: " (" attr(href) ")"; }
 }
 
+/* Reading modes and supplements (ADR 0170-0172). A supplement is a labelled group that holds the
+   author's quote and ends with a visible end line, so it reads as set apart with or without this
+   stylesheet. The build never hides one: <ob-reading-modes> sets `hidden` from the reader's mode,
+   and a supplement holding a warning (data-ob-always) is never hidden. */
+ob-reading-modes { display: block; }
+.ob-supplement {
+  --ob-supplement-edge: var(--ob-color-accent, currentColor);
+  margin: 1.4em 0;
+  padding: 0.75rem 1.1rem;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-inline-start: 4px solid var(--ob-supplement-edge);
+  border-radius: var(--ob-radius-sm, 4px);
+  background: color-mix(in srgb, var(--ob-supplement-edge) 6%, transparent);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ob-supplement[hidden] { display: none; }
+.ob-supplement .ob-supplement { margin-block: 0.9em; }
+.ob-supplement > blockquote { margin: 0; padding: 0; border: 0; background: none; }
+.ob-supplement > blockquote > :first-child { margin-top: 0; }
+.ob-supplement > blockquote > :last-child { margin-bottom: 0; }
+.ob-supplement-label { margin: 0 0 0.5em; font-size: 0.9em; }
+.ob-supplement-kind { color: var(--ob-supplement-edge); font-weight: 700; }
+.ob-supplement-level, .ob-supplement-always { color: var(--ob-color-muted, inherit); }
+.ob-supplement-title { font-weight: 600; }
+.ob-supplement-end { margin: 0.6em 0 0; font-size: 0.8em; color: var(--ob-color-muted, inherit); }
+.ob-supplement-end strong { font-weight: 600; }
+.ob-supplement[data-ob-always] { --ob-supplement-edge: var(--ob-color-callout-warning, #bf8700); }
+.ob-supplement[data-ob-revealed] { outline: 2px dashed var(--ob-supplement-edge); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) {
+  .ob-supplement:not([hidden]) { animation: ob-supplement-in 0.18s ease-out; }
+}
+@keyframes ob-supplement-in { from { opacity: 0; } to { opacity: 1; } }
+
+.ob-reading-controls {
+  margin: 0 0 1.25rem;
+  padding: 0.5rem 0.9rem 0.75rem;
+  min-width: 0;
+  border: var(--ob-border-width, 1px) solid var(--ob-color-border, currentColor);
+  border-radius: var(--ob-radius-sm, 4px);
+}
+.ob-reading-controls legend { padding: 0 0.35rem; font-weight: 700; }
+.ob-reading-options { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; }
+.ob-reading-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 0.5rem;
+  flex: 1 1 12rem;
+  min-width: 0;
+  min-height: 2.75rem;
+}
+.ob-reading-option input { width: 1.25rem; height: 1.25rem; margin: 0; }
+.ob-reading-option label { font-weight: 600; padding-block: 0.4rem; }
+.ob-reading-help { grid-column: 2; margin-top: -0.25rem; font-size: 0.85em; color: var(--ob-color-muted, inherit); overflow-wrap: anywhere; }
+.ob-reading-reset { margin-top: 0.5rem; min-height: 2.75rem; max-width: 100%; }
+@media print {
+  .ob-reading-controls { display: none; }
+  .ob-supplement { break-inside: avoid; }
+}
+
 /* Knowledge Atlas datings and timeline (ADR 0099, ADR 0100): static lists that read in order
    without CSS or JavaScript. Competing datings sit side by side where there is room and stack
    on narrow screens; nothing moves. Print shows the whole timeline without its filters. */

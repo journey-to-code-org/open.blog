@@ -719,3 +719,99 @@ fn legacy_pages_without_supplements_do_not_change_when_a_post_opts_in() {
     assert_eq!(plain.prose, opted.prose);
     assert_eq!(plain.headings, opted.headings);
 }
+
+fn shared_contract() -> serde_json::Value {
+    serde_json::from_str(include_str!("../../../tests/fixtures/reading-modes.json")).unwrap()
+}
+
+#[test]
+fn the_modes_agree_with_the_contract_file_the_browser_component_reads() {
+    let contract = shared_contract();
+    let names: Vec<_> = ReadingMode::ALL.iter().map(|mode| mode.as_str()).collect();
+    assert_eq!(
+        names,
+        contract["modes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|name| name.as_str().unwrap())
+            .collect::<Vec<_>>()
+    );
+    let levels = [Depth::Guided, Depth::DeepDive];
+    for mode in ReadingMode::ALL {
+        for level in levels {
+            assert_eq!(
+                mode.shows(level),
+                contract["shows"][mode.as_str()][level.as_str()]
+                    .as_bool()
+                    .unwrap(),
+                "{} {}",
+                mode.as_str(),
+                level.as_str()
+            );
+        }
+    }
+    // The author's default is read exactly as the component reads it: a mode
+    // name is a default, anything else is not.
+    for row in contract["resolve"].as_array().unwrap() {
+        if let Some(default) = row["default"].as_str() {
+            let setting =
+                openblog_core::reading_depth::setting(Some(&format!("{{default: {default}}}")));
+            let expected = ReadingMode::parse(default).unwrap_or(ReadingMode::Standard);
+            assert_eq!(setting.default_mode, expected, "{default}");
+            assert_eq!(
+                setting.warning.is_some(),
+                ReadingMode::parse(default).is_none()
+            );
+        }
+    }
+}
+
+#[test]
+fn the_post_page_carries_the_hooks_the_component_reads_and_only_when_there_are_supplements() {
+    use openblog_core::{generate, LoadOptions, Site, Sources, ThemeSet};
+    let contract = shared_contract();
+    let build = |front: &str, body: &str| {
+        let site = Site::load(
+            config(),
+            Sources {
+                posts: vec![post_source(front, body)],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        generate(&site, &ThemeSet::new())
+            .unwrap()
+            .into_iter()
+            .find(|file| file.path == "posts/p/index.html" || file.path.ends_with("p/index.html"))
+            .unwrap()
+            .contents
+    };
+    let page = build("readingModes: {default: guided}\n", ARTICLE);
+    assert!(
+        page.contains("<ob-reading-modes default=\"guided\"><ob-code"),
+        "{page}"
+    );
+    assert!(page.contains("</ob-code>\n</ob-reading-modes>"));
+    // Every supplement is written out visible: nothing for the page to hide.
+    for (at, _) in page.match_indices("<div class=\"ob-supplement\"") {
+        let tag = &page[at..at + page[at..].find('>').unwrap()];
+        assert!(!tag.contains("hidden"), "{tag}");
+    }
+    for level in page.match_indices("data-ob-level=\"").map(|(at, found)| {
+        let rest = &page[at + found.len()..];
+        &rest[..rest.find('"').unwrap()]
+    }) {
+        assert!(contract["levels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|known| known == level));
+    }
+    let standard = build("readingModes: true\n", ARTICLE);
+    assert!(standard.contains("<ob-reading-modes default=\"standard\">"));
+    // Opted in with no supplement, or not opted in: no element at all.
+    assert!(!build("readingModes: true\n", "Just words.\n").contains("ob-reading-modes"));
+    assert!(!build("", ARTICLE).contains("ob-reading-modes"));
+}

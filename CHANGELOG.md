@@ -13,6 +13,18 @@ All notable changes to open.blog are recorded here. Releases follow
   supplement's words are not counted in the post's word count or reading time, and without script
   every supplement is shown, labelled, in the page, feeds and portable copies. Posts that do not
   opt in are unchanged.
+- Readers can choose standard, guided or deep-dive reading. A post with supplements gets a "Reading
+  mode" group of three radio buttons, each saying what it adds, with a reset to the author's
+  default. It works from the keyboard and with a screen reader, announces each change, respects
+  reduced motion, reflows at 320 pixels and 400% zoom, and remembers the choice on that device only
+  (never sent anywhere; the page works when storage is blocked). Without script nothing is hidden.
+  A link into a hidden supplement shows it. Write `readingModes: {default: guided}` to open a post
+  in another mode. A supplement that holds a `[!WARNING]` or `[!CAUTION]` callout is always shown.
+- Supplements are clearer and safer to write. Each one has a visible boundary even without a
+  stylesheet (a labelled quote ending with "End of ... supplement"), headings inside it stay real
+  headings that do not join the outline or renumber yours, a recipe no longer reads its lists as
+  ingredients, and a marker the build could not read is listed in the build, `check` and Admin
+  warnings with the post. Fixed a crash on a citation inside a supplement.
 
 ## [0.38.0] - 2026-10-26
 

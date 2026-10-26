@@ -478,7 +478,8 @@ _Avoid_: Sidebar, hidden text, alternate version, AI summary
 **Reading mode**:
 A reader's local choice of how many supplements show: `standard` (none), `guided` (guided ones) or
 `deep-dive` (guided and deep-dive ones). It changes visibility only, never the article, and without
-script every supplement is shown.
+script every supplement is shown. A supplement that holds a warning or caution callout is shown in
+every mode. The author may name the mode a post opens in; a reader's saved choice comes first.
 _Avoid_: Reading level, difficulty, personalised view
 
 **Reading depth**:
