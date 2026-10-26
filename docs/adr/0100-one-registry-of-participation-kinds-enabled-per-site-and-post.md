@@ -87,9 +87,26 @@ B5's four kinds use the same ids here. Its interim rule, "feedback follows each 
 setting, whatever `engagement.comments` says, when `engagement.feedback` is on", is the
 `follow-comments` site setting. When B5 merges with this policy:
 
-- `engagement.feedback: true` is read as `follow-comments` for each of the four kinds that
-  `participation.kinds` does not name, and `false` (its default) as `off`, so a site that opted in
-  to B5 sees no change; naming a kind in `participation.kinds` takes precedence.
+- **The fold happens at config load.** When `SiteConfig` loads (where it already validates and
+  normalizes `engagement`), the merge folds `engagement.feedback: true` into
+  `participation.kinds` as `follow-comments` for each of the four kinds that `participation.kinds`
+  does not name; `false` (its default) adds nothing, so they stay `off`. Naming a kind in
+  `participation.kinds` takes precedence. Because the fold runs before anything reads the policy,
+  `any_enabled`, `effective_mode` and the manifest all see the folded settings, so a site that
+  opted in to B5 sees no change and publishes `openblog-participation.json`. The folded entries
+  are derived, not the owner's: writing the configuration back keeps `engagement.feedback` as the
+  owner set it and does not add them to `participation.kinds`.
+- **B5's form gate and offered kinds come from the resolver.** Whether a post shows B5's passage
+  feedback form (ADR 0094 on the B5 branch), and which kinds it offers, are read from
+  `effective_mode(config, post, kind)` for each of the four kinds, never from
+  `engagement.feedback` or `comments:` directly: the form is shown when at least one kind is
+  `open`, it offers exactly the kinds that are `open`, a `locked` kind shows its approved items but
+  is not offered, and a `hidden` kind does neither. The hosted function applies the same per-kind
+  modes from the manifest.
+- **`engagement.feedbackContact` stays under `engagement`.** It is a transport setting, not a kind
+  setting, so it is not moved into `participation`. It is where the copy-and-send fallback points
+  (a `mailto:` address or an HTTPS page) for every reader kind, not only B5's four: Third
+  Perspectives, abuse reports and any later reader kind use the same contact.
 - B5's `openblog-feedback.json` (path to mode) is the per-kind column of this manifest; the hosted
   function reads the kind's mode from `openblog-participation.json` instead, with a missing entry
   meaning hidden, as B5 already treats a missing manifest.
