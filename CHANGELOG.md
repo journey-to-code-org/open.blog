@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-26
+
 - Shared reflections now work for groups of any size up to the participant cap, through the same
   copy-link invitations. Site owners and coordinators see an audit trail of invitations, joins,
   role changes, and removals (participants and roles only, never links or prose), and role
