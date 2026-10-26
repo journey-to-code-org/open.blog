@@ -1772,6 +1772,7 @@ fn portability_diagnostics(
             affected_semantics: Some(match capability.id.as_str() {
                 "knowledge-check" => "Question, choices, answer and explanation remain readable. Scoring, retries and saved attempts remain on the canonical article.".into(),
                 "runnable-code" | "web-sandbox" => "Source and authored results remain readable. Editing and execution remain on the canonical article; Rust may also link to Playground.".into(),
+                "interactive-demo" => "The authored description of the demo remains readable. The live demonstration and anything the reader does in it remain on the canonical article.".into(),
                 "comments" => "Discussion participation and live state remain on the canonical article; the portable copy provides its link.".into(),
                 _ => capability.authored_semantics.into(),
             }),
@@ -1847,6 +1848,9 @@ fn diagnostic_recommended_action(code: &str, capability: &str) -> String {
             "runnable-code" | "web-sandbox" => {
                 "Review the preserved source and keep the canonical link for editing or execution.".into()
             }
+            "interactive-demo" => {
+                "Review the authored description of the demo and keep the canonical link for the live version.".into()
+            }
             _ => "Review the static fallback in the destination preview.".into(),
         },
         "canonical-only-interaction" => {
@@ -1875,6 +1879,9 @@ fn transformation_summary(capability: &str) -> &'static str {
         }
         "web-sandbox" => {
             "The HTML, CSS, and JavaScript sources are preserved; the live preview remains on the canonical article"
+        }
+        "interactive-demo" => {
+            "The authored description of the demo is preserved; the live demonstration remains on the canonical article"
         }
         "raw-html" => {
             "Authored raw HTML is constrained by the portable allowlist and may be shown as literal source"
@@ -2223,6 +2230,18 @@ fn portable_fence_markdown(
             &crate::markdown::portable_quiz_markdown(source)
                 .map_err(|error| format!("portable knowledge-check fallback failed: {error}"))?,
         );
+    } else if language == "demo" {
+        let (kind, body) = crate::markdown::portable_demo_parts(&fence, source)
+            .map_err(|error| format!("portable interactive-demo fallback failed: {error}"))?;
+        if let Some(title) = fence.title.as_deref() {
+            output.push_str(&format!("**{}**\n\n", markdown_text(title)));
+        }
+        output.push_str(&body);
+        output.push_str(&format!(
+            "\n\n[Try the interactive {} on the canonical article]({}).\n",
+            kind.label,
+            markdown_destination(canonical_url)
+        ));
     } else if language.eq_ignore_ascii_case("web") && fence.runnable {
         output.push_str(&portable_web_markdown(
             source,
@@ -3525,6 +3544,101 @@ mod tests {
         assert!(!output.html.contains("<button"));
         assert!(!output.html.contains("<ob-web-sandbox"));
         assert_eq!(output.capabilities[0].id, "web-sandbox");
+    }
+
+    #[test]
+    fn portable_demo_keeps_the_authored_description_and_links_to_the_live_version() {
+        let output = portable(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n```demo fetch-lab title=\"Break fetch\"\nSend `/api/posts/99` and read `response.ok`: it is `false`, yet `fetch()` resolved.\n```\n",
+        );
+        assert!(output.html.contains(
+            "<figure class=\"ob-demo ob-portable-demo\" data-demo=\"fetch-lab\"><figcaption class=\"ob-code-title\">Break fetch</figcaption><p>Send <code>/api/posts/99</code> and read <code>response.ok</code>: it is <code>false</code>, yet <code>fetch()</code> resolved.</p>\n<p class=\"ob-portable-note\">Try the interactive Fetch and storage inspector on <a href=\"https://example.test/blog/work/\">the original article</a>.</p></figure>\n"
+        ), "{}", output.html);
+        assert!(!output.html.contains("<ob-fetch-lab"));
+        assert!(!output.html.contains("<script"));
+        assert_eq!(output.capabilities[0].id, "interactive-demo");
+        assert_eq!(
+            output.capabilities[0].portability,
+            PortabilityLevel::GracefullyTransformed
+        );
+        assert!(output
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "graceful-transformation"
+                && d.capability_id.as_deref() == Some("interactive-demo")));
+    }
+
+    #[test]
+    fn portable_markdown_demo_has_a_caption_the_description_and_a_canonical_link() {
+        let (config, site) = public_post(
+            "---\ntitle: Work\ndate: 2026-10-01\n---\n```demo git-sandbox title=\"Merge it\"\nBranch, commit on both sides, then merge: Git makes a commit with two parents.\n```\n\n```demo component-lab\n```\n",
+        );
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let markdown = projection.portable_markdown().unwrap();
+        assert!(markdown.contains("**Merge it**\n\nBranch, commit on both sides, then merge: Git makes a commit with two parents.\n\n[Try the interactive Git sandbox on the canonical article](https://example.test/blog/work/).\n"), "{markdown}");
+        assert!(markdown.contains("A live custom element with a real shadow root"), "{markdown}");
+        assert!(markdown.contains("[Try the interactive Web Components explorer on the canonical article]"));
+        assert!(!markdown.contains("```demo"));
+        assert!(markdown.contains("Portable fallback"));
+    }
+
+    #[test]
+    fn a_portable_copy_that_loses_a_demos_description_or_live_link_is_flagged() {
+        let (config, site) = public_post(
+            "---
+title: Work
+date: 2026-10-01
+---
+```demo git-sandbox title=\"Merge it\"
+Branch, commit on both sides, then merge.
+```
+",
+        );
+        let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
+        let html = projection.portable_html().unwrap().html;
+        let markdown = projection.portable_markdown().unwrap();
+        for (format, artifact) in [
+            (RepresentationFormat::Html, html.as_str()),
+            (RepresentationFormat::Markdown, markdown.as_str()),
+        ] {
+            let findings = projection.analyze_portable_artifact(format, artifact).unwrap();
+            assert!(findings.is_empty(), "{format:?}: {findings:?}");
+        }
+        for (format, artifact) in [
+            (RepresentationFormat::Html, html.replace("Branch, commit on both sides, then merge.", "")),
+            (RepresentationFormat::Html, html.replace("https://example.test/blog/work/", "https://wrong.example/")),
+            (RepresentationFormat::Markdown, markdown.replace("Branch, commit on both sides, then merge.", "")),
+            (RepresentationFormat::Markdown, markdown.replace("**Merge it**", "")),
+            (RepresentationFormat::Markdown, markdown.replace("Git sandbox", "tool")),
+        ] {
+            let findings = projection.analyze_portable_artifact(format, &artifact).unwrap();
+            assert!(
+                findings.iter().any(|finding| finding.code == "missing-semantic-fact"),
+                "{format:?}: a lost demo fact was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_demo_fails_the_portable_markdown_for_its_source() {
+        let config = SiteConfig::from_json(
+            r#"{"title":"Blog","url":"https://example.test/blog/","postPath":"/{slug}/"}"#,
+        )
+        .unwrap();
+        let error = Site::load(
+            config,
+            Sources {
+                posts: vec![SourceFile {
+                    path: "posts/work.md".into(),
+                    contents: "---\ntitle: Work\ndate: 2026-10-01\n---\n```demo git-sandbox\n[x](http://insecure.test/)\n```\n".into(),
+                }],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .map(|_| ())
+        .unwrap_err();
+        assert!(error[0].contains("absolute https URLs"), "{error:?}");
     }
 
     #[test]

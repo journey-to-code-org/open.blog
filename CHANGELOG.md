@@ -5,12 +5,47 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Three more `demo` kinds embed the labs that began on the series landing pages: `js-evolution`
+  (`<ob-evolution-lab>`, older and newer JavaScript run on the same data), `audio-lab` (`<ob-audio-lab>`,
+  a quiet real Web Audio synth that plays only after Start) and `native-lab` (`<ob-native-lab>`, View
+  Transitions, Web Animations, the popover attribute and the observers, each reporting browser support).
+  They have the same authored fallback, portable output and build-time validation as the other kinds. The
+  JavaScript evolution and Web Audio landing-page labs now import the shared `ob-evolution-model.js` and
+  `ob-audio-core.js` instead of carrying their own copies, with their existing tests unchanged in behavior.
+
+- New `demo` fence: ```` ```demo git-sandbox ````, `fetch-lab` or `component-lab` embeds the matching
+  interactive lesson demo in a post. The fence body is its authored fallback, plain Markdown shown to readers
+  without JavaScript and used as the portable representation: feeds, portable HTML, portable Markdown and
+  syndicated copies carry the caption, the description and a link to the live version on the original
+  article, never the element. The `interactive-demo` capability reports a graceful transformation, the
+  semantic-fact check fails an export that loses the description, label or link, and an unknown kind or a
+  body with raw HTML, images or non-https links fails the build. An empty body uses the kind's own summary.
+
 - Series navigation on a lesson is now the same shape on every part and in every theme. The series box
   always shows a previous and a next control: the first part's previous goes to the series overview
   ("Start of series") and the last part's next goes back to it ("End of series"), instead of leaving an
   empty slot. A decorative path of one cell per part shows where you are (`ol.ob-series-path`,
   `aria-hidden`, since the position is already spoken in "Part N of M" and the list). On narrow screens
   the controls stack, and all are at least 44px tall.
+- New `<ob-component-lab>` element: a live Shadow DOM architecture explorer. It runs a real custom element
+  with a real shadow root; readers change an attribute, add or remove slotted content, tune CSS custom
+  properties, and turn on page CSS or `::part()` styling. It shows the light DOM, the shadow source, the
+  slot assignments and a plain-language reason for what they see, including what page CSS cannot reach.
+  Used on the Web Components series landing page.
+
+- `<ob-git-sandbox>`, `<ob-fetch-lab>` and `<ob-component-lab>` now share `web/components/ob-lab.js`
+  (no-JavaScript fallback handling, element helpers, linked form labels, reduced-motion check).
+
+- New `<ob-fetch-lab>` element: a simulated network inspector and Web Storage panel. Readers edit a request
+  (method, URL, headers, body), send it to a pretend server, and see the raw response, what `fetch()` and
+  `response.json()` would do, and the equivalent code. Presets cover a 404 that does not reject, broken
+  JSON, a network failure and a missing `Content-Type`. The storage panel has a small quota and shows
+  what skipping `JSON.stringify` stores. Nothing is stored or sent; children are the no-JavaScript
+  fallback. Used on the Fetch & Storage series landing page.
+
+- New `<ob-git-sandbox>` element: an in-memory Git a reader can drive with commands or buttons (commit,
+  branch, switch, merge with fast-forward, `--no-ff` and conflicts, log, status, undo). Nothing is stored
+  or sent; children of the element are its no-JavaScript fallback. Used on the Git series landing page.
 
 - `openblog build`, `serve` and `check` no longer print a `graceful-transformation` or
   `canonical-only-interaction` warning for every quiz, runnable example, sandbox and comment box. Those

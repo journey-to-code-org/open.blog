@@ -9,6 +9,7 @@ const PORTABLE_FALLBACKS: &[&str] = &[
     "knowledge-check",
     "runnable-code",
     "web-sandbox",
+    "interactive-demo",
     "comments",
     "raw-html",
     "citations",
@@ -117,6 +118,11 @@ impl CapabilityDescriptor {
             "web-sandbox" => (
                 "An HTML, CSS, and JavaScript exercise with an isolated preview.",
                 Some("source-code"),
+                PortabilityLevel::GracefullyTransformed,
+            ),
+            "interactive-demo" => (
+                "A live demonstration the reader operates, with an authored description of it.",
+                Some("authored-fallback"),
                 PortabilityLevel::GracefullyTransformed,
             ),
             "comments" => (

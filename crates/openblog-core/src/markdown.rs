@@ -127,6 +127,8 @@ pub(crate) struct FenceInfo {
     images: bool,
     /// `libs=react,vue`: site-hosted libraries to inline into a web sandbox.
     libs: Vec<String>,
+    /// The kind named after `demo`, as in ```` ```demo git-sandbox ````.
+    pub(crate) demo: Option<String>,
 }
 
 pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
@@ -211,6 +213,8 @@ pub(crate) fn parse_fence_info(info: &str) -> FenceInfo {
             };
         } else if first && !word.is_empty() {
             out.lang = word.to_string();
+        } else if out.lang == "demo" && out.demo.is_none() && !word.is_empty() {
+            out.demo = Some(word.to_string());
         }
         first = false;
     }
@@ -240,6 +244,8 @@ pub(crate) fn capability_source_ranges(
             let fence = parse_fence_info(&info);
             let id = if info.trim() == "quiz" {
                 "knowledge-check"
+            } else if fence.lang == "demo" {
+                "interactive-demo"
             } else if fence.runnable && fence.lang.eq_ignore_ascii_case("web") {
                 "web-sandbox"
             } else if fence.runnable {
@@ -678,6 +684,161 @@ fn html_line_depth(line: &str) -> i32 {
 /// Recipe sections only ever open and close at the top level of the post:
 /// a heading or list inside a quote, callout, list item, table or footnote
 /// belongs to that container and is left alone.
+/// An interactive demo a post can embed with a `demo` fence. The element is the native
+/// presentation; the authored fallback (or `summary`) is what a reader without JavaScript, a feed
+/// reader, and a syndicated copy all see.
+pub(crate) struct DemoKind {
+    pub(crate) id: &'static str,
+    pub(crate) element: &'static str,
+    pub(crate) label: &'static str,
+    summary: &'static str,
+}
+
+const DEMO_KINDS: &[DemoKind] = &[
+    DemoKind {
+        id: "git-sandbox",
+        element: "ob-git-sandbox",
+        label: "Git sandbox",
+        summary: "An in-memory Git repository you can drive with commands or buttons: make commits, create branches, merge with and without fast-forward, cause a conflict and resolve it, with a graph that updates after every step.",
+    },
+    DemoKind {
+        id: "fetch-lab",
+        element: "ob-fetch-lab",
+        label: "Fetch and storage inspector",
+        summary: "A simulated network inspector and browser storage panel: edit a request, see the raw response, what `fetch()` and `response.json()` would do with it, and what Web Storage keeps.",
+    },
+    DemoKind {
+        id: "component-lab",
+        element: "ob-component-lab",
+        label: "Web Components explorer",
+        summary: "A live custom element with a real shadow root: change an attribute, a slot or a CSS custom property and see how the light DOM, the shadow tree and the slot assignments respond.",
+    },
+    DemoKind {
+        id: "js-evolution",
+        element: "ob-evolution-lab",
+        label: "JavaScript evolution comparison",
+        summary: "Older and newer JavaScript for the same task, side by side: pick a milestone, read both versions, then run the two fixed functions on the same sample data to see that they agree.",
+    },
+    DemoKind {
+        id: "audio-lab",
+        element: "ob-audio-lab",
+        label: "Web Audio signal lab",
+        summary: "A small real Web Audio synth: an oscillator through a low-pass filter to a deliberately quiet output, with a live trace of the filtered signal. Sound plays only after you press Start.",
+    },
+    DemoKind {
+        id: "native-lab",
+        element: "ob-native-lab",
+        label: "Native browser APIs playground",
+        summary: "Three browser-native features on small examples: View Transitions and the Web Animations API, the popover attribute, and the Intersection and Resize observers, each reporting whether your browser supports it.",
+    },
+];
+
+const MAX_DEMO_FALLBACK_BYTES: usize = 20_000;
+
+pub(crate) fn demo_kind(id: &str) -> Option<&'static DemoKind> {
+    DEMO_KINDS.iter().find(|kind| kind.id == id)
+}
+
+fn demo_kind_names() -> String {
+    DEMO_KINDS
+        .iter()
+        .map(|kind| kind.id)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The kind a `demo` fence names, or the authoring error that explains what to write.
+fn demo_kind_for(fence: &FenceInfo) -> Result<&'static DemoKind, String> {
+    match fence.demo.as_deref() {
+        Some(name) => demo_kind(name).ok_or_else(|| {
+            format!(
+                "a `demo` fence names unknown kind `{name}`; known kinds are {}",
+                demo_kind_names()
+            )
+        }),
+        None => Err(format!(
+            "a `demo` fence needs a kind, as in `demo git-sandbox`; known kinds are {}",
+            demo_kind_names()
+        )),
+    }
+}
+
+/// Check a demo's authored fallback, and return the Markdown it stands for. The fallback is
+/// rendered into native pages, feeds and portable copies alike, so it is plain Markdown: no raw
+/// HTML, no images, and only absolute https or mailto links. An empty body means "use the
+/// kind's own summary".
+fn demo_fallback_markdown(kind: &DemoKind, source: &str) -> Result<String, String> {
+    if source.trim().is_empty() {
+        return Ok(kind.summary.to_string());
+    }
+    if source.len() > MAX_DEMO_FALLBACK_BYTES {
+        return Err(format!(
+            "a `demo` fence's fallback must stay under {MAX_DEMO_FALLBACK_BYTES} bytes"
+        ));
+    }
+    for event in Parser::new_ext(source, parser_options(false)) {
+        match event {
+            Event::Html(_) | Event::InlineHtml(_) => {
+                return Err("a `demo` fence's fallback is Markdown: raw HTML is not supported".into())
+            }
+            Event::Start(Tag::Image { .. }) => {
+                return Err("a `demo` fence's fallback cannot contain images; describe what they show".into())
+            }
+            Event::Start(Tag::Link { dest_url, .. })
+                if !(dest_url.starts_with("https://") || dest_url.starts_with("mailto:")) =>
+            {
+                return Err(format!(
+                    "a `demo` fence's fallback links must be absolute https URLs, found `{dest_url}`"
+                ))
+            }
+            _ => {}
+        }
+    }
+    Ok(source.trim().to_string())
+}
+
+/// What a portable Markdown copy needs from a `demo` fence: its kind and its fallback.
+pub(crate) fn portable_demo_parts(
+    fence: &FenceInfo,
+    source: &str,
+) -> Result<(&'static DemoKind, String), String> {
+    let kind = demo_kind_for(fence)?;
+    Ok((kind, demo_fallback_markdown(kind, source)?))
+}
+
+fn render_demo(
+    fence: &FenceInfo,
+    source: &str,
+    canonical_url: Option<&str>,
+) -> Result<String, String> {
+    let (kind, markdown) = portable_demo_parts(fence, source)?;
+    let mut fallback = String::new();
+    pulldown_cmark::html::push_html(&mut fallback, Parser::new_ext(&markdown, parser_options(false)));
+    let caption = fence
+        .title
+        .as_deref()
+        .map(|title| {
+            format!(
+                "<figcaption class=\"ob-code-title\">{}</figcaption>",
+                escape::text(title)
+            )
+        })
+        .unwrap_or_default();
+    Ok(match canonical_url {
+        Some(url) => format!(
+            "<figure class=\"ob-demo ob-portable-demo\" data-demo=\"{id}\">{caption}{fallback}<p class=\"ob-portable-note\">Try the interactive {label} on <a href=\"{url}\">the original article</a>.</p></figure>\n",
+            id = kind.id,
+            label = escape::text(kind.label),
+            url = escape::attr(url),
+        ),
+        None => format!(
+            "<figure class=\"ob-demo\" data-demo=\"{id}\">{caption}<{element}>{fallback}</{element}></figure>\n",
+            id = kind.id,
+            element = kind.element,
+        ),
+    })
+}
+
 fn transform_blocks<'a>(
     events: Vec<Event<'a>>,
     recipe: bool,
@@ -708,6 +869,8 @@ fn transform_blocks<'a>(
     let mut sandbox_source = String::new();
     let mut quiz_group_open = false;
     let mut quiz_occurrences = std::collections::HashMap::new();
+    // An open `demo` fence and its authored fallback text.
+    let mut demo: Option<(FenceInfo, String)> = None;
     // The section a deeper heading switched away from ("### Ingredients for the
     // glaze" inside "## Method"); it resumes when that sub-section ends.
     let mut outer: Option<(Section, u8)> = None;
@@ -771,6 +934,43 @@ fn transform_blocks<'a>(
                     if !next_is_quiz {
                         out.push(Event::Html(CowStr::from("</section>\n")));
                         quiz_group_open = false;
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+        if let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = event {
+            let fence = parse_fence_info(info);
+            if fence.lang == "demo" {
+                demo = Some((fence, String::new()));
+                continue;
+            }
+        }
+        if let Some((_, source)) = demo.as_mut() {
+            match event {
+                Event::Text(text) => source.push_str(text),
+                Event::End(TagEnd::CodeBlock) => {
+                    let (fence, source) = demo.take().unwrap_or_default();
+                    data.capabilities.push(CapabilityDescriptor::describe(
+                        "interactive-demo",
+                        demo_kind_for(&fence).ok().map(|kind| kind.element),
+                    ));
+                    match render_demo(&fence, &source, portable.map(|context| context.canonical_url)) {
+                        Ok(html) => out.push(Event::Html(CowStr::from(html))),
+                        Err(error) => {
+                            data.errors.push(error.clone());
+                            if let Some(capability) = data.capabilities.last_mut() {
+                                capability.add_diagnostic(
+                                    CapabilityDiagnosticCode::MalformedContent,
+                                    "Malformed interactive demo; see the source-scoped Markdown error.",
+                                );
+                            }
+                            out.push(Event::Html(CowStr::from(format!(
+                                "<aside class=\"ob-demo-error\" role=\"alert\">Invalid interactive demo: {}</aside>\n",
+                                escape::text(&error)
+                            ))));
+                        }
                     }
                 }
                 _ => {}
@@ -1759,11 +1959,35 @@ pub(crate) fn portable_semantic_facts(
                             label.unwrap_or(line),
                         ));
                     }
+                } else if fence.lang == "demo" {
+                    // The fallback is plain Markdown and is rendered without smart punctuation,
+                    // so its text, the label and the canonical link must all survive export.
+                    let (kind, markdown) = portable_demo_parts(&fence, &source)?;
+                    for event in Parser::new_ext(&markdown, parser_options(false)) {
+                        if let Event::Text(text) | Event::Code(text) = event {
+                            facts.push(SemanticFact::new("content", "text", text.to_string()));
+                        }
+                    }
+                    facts.push(SemanticFact::new(
+                        "interactive-demo",
+                        "capability label",
+                        kind.label,
+                    ));
+                    facts.push(SemanticFact::new(
+                        "interactive-demo",
+                        "canonical link",
+                        projection.canonical_url(),
+                    ));
                 } else {
                     facts.push(SemanticFact::new("runnable-code", "source", source));
                 }
                 if let Some(title) = fence.title {
-                    facts.push(SemanticFact::new("runnable-code", "title", title));
+                    let capability = if fence.lang == "demo" {
+                        "interactive-demo"
+                    } else {
+                        "runnable-code"
+                    };
+                    facts.push(SemanticFact::new(capability, "title", title));
                 }
             }
             Event::Text(text) | Event::Code(text) => {
@@ -2124,6 +2348,65 @@ mod tests {
             assert!(
                 rendered.capabilities[0].diagnostics[0].message.len()
                     <= crate::capability::MAX_DIAGNOSTIC_MESSAGE_LENGTH
+            );
+        }
+    }
+
+    #[test]
+    fn demo_fences_render_the_element_around_their_authored_fallback() {
+        let r = render(
+            "```demo git-sandbox title=\"Try it\"\nWithout JavaScript, follow the **worked example** below.\n```\n",
+            RenderOptions::default(),
+        );
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(
+            r.html.contains("<figure class=\"ob-demo\" data-demo=\"git-sandbox\"><figcaption class=\"ob-code-title\">Try it</figcaption><ob-git-sandbox><p>Without JavaScript, follow the <strong>worked example</strong> below.</p>\n</ob-git-sandbox></figure>"),
+            "{}",
+            r.html
+        );
+        assert_eq!(r.capabilities.len(), 1);
+        assert_eq!(r.capabilities[0].id, "interactive-demo");
+        assert_eq!(r.capabilities[0].native_renderer, Some("ob-git-sandbox"));
+    }
+
+    #[test]
+    fn an_empty_demo_fence_uses_the_kinds_own_description() {
+        for (kind, element, words) in [
+            ("git-sandbox", "ob-git-sandbox", "in-memory Git"),
+            ("fetch-lab", "ob-fetch-lab", "network inspector"),
+            ("component-lab", "ob-component-lab", "shadow root"),
+            ("js-evolution", "ob-evolution-lab", "Older and newer JavaScript"),
+            ("audio-lab", "ob-audio-lab", "Web Audio synth"),
+            ("native-lab", "ob-native-lab", "popover attribute"),
+        ] {
+            let r = render(&format!("```demo {kind}\n```\n"), RenderOptions::default());
+            assert!(r.errors.is_empty(), "{kind}: {:?}", r.errors);
+            assert!(r.html.contains(&format!("<{element}><p>")), "{}", r.html);
+            assert!(r.html.contains(words), "{kind}: {}", r.html);
+        }
+    }
+
+    #[test]
+    fn invalid_demo_fences_report_what_to_write() {
+        for (source, expected) in [
+            ("```demo\nText\n```\n", "needs a kind"),
+            ("```demo teleporter\nText\n```\n", "unknown kind `teleporter`"),
+            ("```demo git-sandbox\n<b>raw</b>\n```\n", "raw HTML is not supported"),
+            ("```demo git-sandbox\n![x](https://e.test/a.png)\n```\n", "cannot contain images"),
+            ("```demo git-sandbox\n[x](/relative/)\n```\n", "absolute https URLs"),
+            ("```demo git-sandbox\n[x](javascript:alert(1))\n```\n", "absolute https URLs"),
+        ] {
+            let r = render(source, RenderOptions::default());
+            assert!(
+                r.errors.iter().any(|error| error.contains(expected)),
+                "{source:?}: {:?}",
+                r.errors
+            );
+            assert!(r.html.contains("ob-demo-error"), "{}", r.html);
+            assert!(!r.html.contains("<ob-git-sandbox"), "{}", r.html);
+            assert_eq!(
+                r.capabilities[0].diagnostics[0].code,
+                CapabilityDiagnosticCode::MalformedContent
             );
         }
     }

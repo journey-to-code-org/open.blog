@@ -55,6 +55,58 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         include_str!("../../../web/components/ob-web-sandbox.js"),
     ),
     (
+        "components/ob-git-sandbox.js",
+        include_str!("../../../web/components/ob-git-sandbox.js"),
+    ),
+    (
+        "components/ob-git-model.js",
+        include_str!("../../../web/components/ob-git-model.js"),
+    ),
+    (
+        "components/ob-fetch-lab.js",
+        include_str!("../../../web/components/ob-fetch-lab.js"),
+    ),
+    (
+        "components/ob-fetch-model.js",
+        include_str!("../../../web/components/ob-fetch-model.js"),
+    ),
+    (
+        "components/ob-lab.js",
+        include_str!("../../../web/components/ob-lab.js"),
+    ),
+    (
+        "components/ob-component-lab.js",
+        include_str!("../../../web/components/ob-component-lab.js"),
+    ),
+    (
+        "components/ob-component-model.js",
+        include_str!("../../../web/components/ob-component-model.js"),
+    ),
+    (
+        "components/ob-evolution-lab.js",
+        include_str!("../../../web/components/ob-evolution-lab.js"),
+    ),
+    (
+        "components/ob-evolution-model.js",
+        include_str!("../../../web/components/ob-evolution-model.js"),
+    ),
+    (
+        "components/ob-audio-lab.js",
+        include_str!("../../../web/components/ob-audio-lab.js"),
+    ),
+    (
+        "components/ob-audio-core.js",
+        include_str!("../../../web/components/ob-audio-core.js"),
+    ),
+    (
+        "components/ob-native-lab.js",
+        include_str!("../../../web/components/ob-native-lab.js"),
+    ),
+    (
+        "components/ob-native-model.js",
+        include_str!("../../../web/components/ob-native-model.js"),
+    ),
+    (
         "components/ob-highlight.js",
         include_str!("../../../web/components/ob-highlight.js"),
     ),
