@@ -32,6 +32,8 @@ use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
 use openblog_core::draft::{
     ComparisonSlot, DraftError, DraftSet, DraftView, ReadyOutcome, RevealPolicy,
 };
+use openblog_core::feedback_moderation::{self, ModerationAction, ModerationState};
+use openblog_core::feedback_publication;
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::invitation::{
     Identities, Invitation, InvitationError, InvitationField, NewInvitation,
@@ -43,12 +45,14 @@ use openblog_core::knowledge_atlas::{
 use openblog_core::markdown::RenderOptions;
 use openblog_core::media_moment::{location_text, Moment, MomentSet};
 use openblog_core::members::MemberError;
+use openblog_core::passage_target::PassageDocument;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
 use openblog_core::research_bundle;
 use openblog_core::research_notes::{
     NoteDiagnostic, NoteDiagnosticCode, Passage, QuestionState, ResearchNote,
 };
 use openblog_core::research_search::{self, BacklinkTarget, SearchQuery};
+use openblog_core::scholarly_feedback::HostedFeedback;
 use openblog_core::slug::slugify;
 use openblog_core::source_interchange::{self, plan_csl_import};
 use openblog_core::source_library::{SourceDiagnostic, SourceRecord};
@@ -660,6 +664,13 @@ fn authenticated_api(
         ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
         ("GET", "engagement/comments") => hosted_engagement_request(state, req, "admin/comments"),
         ("PATCH", "engagement/comments") => hosted_engagement_request(state, req, "admin/comments"),
+        ("GET", "engagement/feedback") => feedback_queue(state, req),
+        ("PATCH", "engagement/feedback") => moderate_feedback(state, req, session),
+        ("POST", "engagement/feedback/publish") => publish_feedback(state, req),
+        ("POST", "engagement/feedback/unpublish") => unpublish_moderated(state, req),
+        ("GET", "engagement/feedback/published") => published_feedback(state),
+        ("PUT", "engagement/feedback/response") => respond_to_feedback(state, req),
+        ("POST", "engagement/feedback/revision-note") => record_revision_note(state, req),
         ("POST", "assistant/review") => generate_document_review(state, req),
         ("POST", "assistant/complete") => generate_inline_completion(state, req),
         ("POST", "assistant/code-interaction") => generate_code_interaction(state, req),
@@ -3789,6 +3800,7 @@ fn engagement_settings(state: &AppState) -> Response {
             "comments": config.engagement.comments,
             "analytics": config.engagement.analytics,
             "endpoint": config.engagement.endpoint,
+            "feedback": config.engagement.feedback,
             "etag": etag,
             "credential": credential,
         }),
@@ -3866,7 +3878,20 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
         Ok(_) => return Response::error(500, "openblog.json must contain a JSON object"),
         Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
     };
-    value["engagement"] = json!({ "enabled": enabled, "comments": comments, "analytics": analytics, "endpoint": endpoint });
+    // Merge into the existing object, so settings this form does not manage
+    // (the passage-feedback opt-in, ADR 0081) survive a save unchanged.
+    let mut engagement = match value.get("engagement") {
+        Some(Json::Object(existing)) => existing.clone(),
+        _ => serde_json::Map::new(),
+    };
+    engagement.insert("enabled".into(), json!(enabled));
+    engagement.insert("comments".into(), json!(comments));
+    engagement.insert("analytics".into(), json!(analytics));
+    engagement.insert("endpoint".into(), json!(endpoint));
+    if let Some(feedback) = body["feedback"].as_bool() {
+        engagement.insert("feedback".into(), json!(feedback));
+    }
+    value["engagement"] = Json::Object(engagement);
     let candidate = match serde_json::to_string_pretty(&value) {
         Ok(value) => format!("{value}\n"),
         Err(error) => {
@@ -4129,6 +4154,784 @@ fn hosted_engagement_request(state: &AppState, req: &Request, operation: &str) -
         Ok(value) => Response::json(200, &value),
         Err(error) => Response::error(502, &error),
     }
+}
+
+// ---- Passage feedback moderation (ADR 0083)
+//
+// The hosted moderation routes hold the queue; Admin reaches them only
+// through this server, which keeps the bearer token. Every item is re-read
+// with the shared validator and checked against the post as it is now, so a
+// moderator never acts on a passage that silently moved. What a site
+// publishes of approved feedback lives in `reader-feedback.json` in the
+// content folder, written only here, under the content lock.
+
+const MAX_FEEDBACK_REQUEST_BYTES: usize = 16 * 1024;
+
+fn feedback_body(req: &Request) -> Result<Json, Response> {
+    require_json(req)?;
+    if req.body.len() > MAX_FEEDBACK_REQUEST_BYTES {
+        return Err(Response::error(
+            413,
+            "A feedback request is limited to 16 KiB",
+        ));
+    }
+    match serde_json::from_slice::<Json>(&req.body) {
+        Ok(body) if body.is_object() => Ok(body),
+        _ => Err(Response::error(400, "Invalid JSON")),
+    }
+}
+
+fn feedback_id(value: &Json) -> Result<String, Response> {
+    value
+        .as_str()
+        .map(str::to_ascii_lowercase)
+        .filter(|id| HostedFeedback::is_id(id))
+        .ok_or_else(|| Response::error(422, "Name the feedback item by its id"))
+}
+
+/// One request to the hosted feedback routes, with the server-held token.
+/// Unlike the other hosted requests, a `404` for a missing item and a `409`
+/// answer are returned with their bodies, so a conflict can carry the item as
+/// it is now.
+fn hosted_feedback_call(
+    state: &AppState,
+    query: &[(&str, &str)],
+    body: Option<&Json>,
+) -> Result<(u16, Json), Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    if !config.engagement.enabled
+        || !config.engagement.feedback
+        || !valid_engagement_endpoint(&config.engagement.endpoint)
+    {
+        return Err(Response::error(
+            404,
+            "Passage feedback is not turned on: enable hosted engagement with an endpoint and set engagement.feedback in openblog.json.",
+        ));
+    }
+    let credential = match engagement_credential(&state.root, &config.engagement.endpoint) {
+        Ok(Some(credential)) => credential,
+        Ok(None) => {
+            return Err(Response::error(
+                503,
+                "Hosted engagement admin credential is not configured",
+            ))
+        }
+        Err(error) => return Err(Response::error(500, &error)),
+    };
+    let mut url = format!(
+        "{}/admin/feedback",
+        config.engagement.endpoint.trim_end_matches('/')
+    );
+    if !query.is_empty() {
+        url.push('?');
+        url.push_str(
+            &url::form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(query)
+                .finish(),
+        );
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(20)))
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .user_agent(concat!("open.blog-admin/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into();
+    let authorization = format!("Bearer {credential}");
+    let response = match body {
+        Some(body) => agent
+            .patch(&url)
+            .header("Authorization", &authorization)
+            .header("Content-Type", "application/json")
+            .send(body.to_string().as_bytes()),
+        None => agent
+            .get(&url)
+            .header("Authorization", &authorization)
+            .call(),
+    };
+    let mut response = match response {
+        Ok(response) => response,
+        Err(ureq::Error::Timeout(_)) => {
+            return Err(Response::error(504, "Hosted engagement timed out"))
+        }
+        Err(_) => return Err(Response::error(502, "Hosted engagement request failed")),
+    };
+    let status = response.status().as_u16();
+    let bytes = response
+        .body_mut()
+        .with_config()
+        .limit(2 * 1024 * 1024)
+        .read_to_vec()
+        .map_err(|_| Response::error(502, "Cannot read hosted engagement response"))?;
+    let value = serde_json::from_slice::<Json>(&bytes).unwrap_or(Json::Null);
+    hosted_feedback_answer(status, value)
+}
+
+/// What Admin makes of a hosted feedback answer. Messages from the function
+/// are passed on only when short and plain; nothing names the token.
+fn hosted_feedback_answer(status: u16, value: Json) -> Result<(u16, Json), Response> {
+    match status {
+        200 | 409 => Ok((status, value)),
+        404 if value["code"] == "notFound" => Ok((status, value)),
+        404 => Err(Response::error(
+            404,
+            "The hosted function does not offer passage feedback: set OPENBLOG_FEEDBACK_ENABLED=true in Netlify and run supabase/feedback.sql.",
+        )),
+        401 => Err(Response::error(
+            502,
+            "The hosted function refused the saved moderation token",
+        )),
+        422 => Err(Response::error(
+            422,
+            value["error"]
+                .as_str()
+                .filter(|message| message.len() <= 200 && !message.chars().any(char::is_control))
+                .unwrap_or("The hosted function refused the change"),
+        )),
+        _ => Err(Response::error(
+            502,
+            &format!("Hosted engagement returned HTTP {status}"),
+        )),
+    }
+}
+
+/// The items of a hosted answer, each re-read with the shared validator; a
+/// bad item is counted and skipped, never shown half-checked.
+fn hosted_feedback_items(value: &Json) -> Result<(Vec<HostedFeedback>, usize), Response> {
+    let rows = value["feedback"]
+        .as_array()
+        .filter(|rows| rows.len() <= 200)
+        .ok_or_else(|| Response::error(502, "hosted engagement returned invalid feedback"))?;
+    let mut items = Vec::with_capacity(rows.len());
+    let mut invalid = 0;
+    for row in rows {
+        match HostedFeedback::from_value(row) {
+            Ok(item) => items.push(item),
+            Err(_) => invalid += 1,
+        }
+    }
+    Ok((items, invalid))
+}
+
+fn hosted_feedback_item(state: &AppState, id: &str) -> Result<HostedFeedback, Response> {
+    let (_, value) = hosted_feedback_call(state, &[("id", id)], None)?;
+    let (mut items, invalid) = hosted_feedback_items(&value)?;
+    if invalid > 0 {
+        return Err(Response::error(
+            502,
+            "The hosted feedback item is not valid; it was not changed",
+        ));
+    }
+    items
+        .pop()
+        .filter(|item| item.id == id)
+        .ok_or_else(|| Response::error(404, "No such feedback item"))
+}
+
+fn reader_feedback_path(state: &AppState) -> Result<PathBuf, Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    let path = state
+        .root
+        .join(&config.paths.content)
+        .join(feedback_publication::READER_FEEDBACK_FILE);
+    if fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_file()) {
+        return Err(Response::error(
+            409,
+            "reader-feedback.json must be a regular file in the content folder",
+        ));
+    }
+    Ok(path)
+}
+
+/// The published reader feedback and its revision (`etag`); an absent file
+/// is an empty one. A file that cannot be read is refused, naming the file,
+/// and nothing is written over it.
+fn load_reader_feedback(
+    path: &Path,
+) -> Result<(feedback_publication::ReaderFeedbackFile, String), Response> {
+    let bytes = read_optional_bytes(path).map_err(|error| Response::error(500, &error))?;
+    let Some(bytes) = bytes else {
+        return Ok((Default::default(), "absent".into()));
+    };
+    let etag = etag_bytes(&bytes);
+    let text = String::from_utf8(bytes).map_err(|_| {
+        Response::error(
+            409,
+            "reader-feedback.json is not UTF-8; fix it in source mode before moderating",
+        )
+    })?;
+    let file = feedback_publication::ReaderFeedbackFile::from_json(&text).map_err(|error| {
+        Response::error(
+            409,
+            &format!("reader-feedback.json {error}; fix it in source mode before moderating"),
+        )
+    })?;
+    Ok((file, etag))
+}
+
+fn write_reader_feedback(
+    path: &Path,
+    file: &feedback_publication::ReaderFeedbackFile,
+) -> Result<String, String> {
+    let text = file.to_json();
+    write_atomic_bytes(path, text.as_bytes())?;
+    Ok(etag(&text))
+}
+
+fn feedback_build_json(build: &Result<BuildReport, String>) -> Json {
+    match build {
+        Ok(report) => json!({ "ok": true, "posts": report.posts }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    }
+}
+
+/// The site as readers see it now, for checking passages.
+fn feedback_site(state: &AppState) -> Result<Site, Response> {
+    site::load_site(&state.root, false, Some(clock::now()))
+        .map(|(site, _)| site)
+        .map_err(|error| Response::error(500, &error))
+}
+
+/// `GET engagement/feedback?status=`: one state's queue, each item with its
+/// passage check, its public preview and whether the site publishes it.
+fn feedback_queue(state: &AppState, req: &Request) -> Response {
+    let status = req.query.get("status").map_or("pending", String::as_str);
+    let Some(status) = ModerationState::from_id(status) else {
+        return Response::error(422, "Unknown moderation state");
+    };
+    let value = match hosted_feedback_call(state, &[("status", status.id())], None) {
+        Ok((_, value)) => value,
+        Err(response) => return response,
+    };
+    let (items, invalid) = match hosted_feedback_items(&value) {
+        Ok(items) => items,
+        Err(response) => return response,
+    };
+    let site = match feedback_site(state) {
+        Ok(site) => site,
+        Err(response) => return response,
+    };
+    let published = reader_feedback_path(state)
+        .and_then(|path| load_reader_feedback(&path))
+        .ok()
+        .map(|(file, _)| file);
+    Response::json(
+        200,
+        &feedback_queue_view(status, &items, invalid, &site, published.as_ref()),
+    )
+}
+
+/// The queue as Admin shows it. `published` is `None` when the published
+/// file cannot be read, so nothing claims an item is or is not on the site.
+fn feedback_queue_view(
+    status: ModerationState,
+    items: &[HostedFeedback],
+    invalid: usize,
+    site: &Site,
+    published: Option<&feedback_publication::ReaderFeedbackFile>,
+) -> Json {
+    let views: Vec<Json> = items
+        .iter()
+        .map(|item| {
+            let mut view = feedback_moderation::moderation_view(item, site);
+            view["published"] = match published {
+                Some(file) => json!(file.get(&item.id).is_some()),
+                None => Json::Null,
+            };
+            view
+        })
+        .collect();
+    json!({ "status": status.id(), "items": views, "invalid": invalid })
+}
+
+/// Put one approved item on its post, or say why not. The caller holds the
+/// content lock.
+fn publish_approved_feedback(
+    path: &Path,
+    site: &Site,
+    item: &HostedFeedback,
+) -> Result<(), String> {
+    if item.status != ModerationState::Approved {
+        return Err("Only approved feedback is published".into());
+    }
+    let post = feedback_moderation::post_for_work(site, &item.feedback.provenance.work)
+        .ok_or_else(|| "No post has this address now, so the note is not on the site yet. Publish it from the Approved list once the post is back.".to_string())?;
+    let (mut file, _) = load_reader_feedback(path).map_err(|_| {
+        "reader-feedback.json cannot be read; fix it in source mode, then publish the note from the Approved list".to_string()
+    })?;
+    let record = feedback_publication::PublishedFeedback::from_record(
+        &item.id,
+        &post.source.replace('\\', "/"),
+        &item.feedback,
+        item.moderated_at.unwrap_or_else(clock::now),
+    )?;
+    file.publish(record)?;
+    write_reader_feedback(path, &file)
+        .map(|_| ())
+        .map_err(|_| "reader-feedback.json could not be written".to_string())
+}
+
+/// Take one item off the site. The caller holds the content lock.
+fn unpublish_feedback(path: &Path, id: &str) -> Result<(), String> {
+    let (mut file, _) = load_reader_feedback(path).map_err(|_| {
+        "reader-feedback.json cannot be read; remove the note from it in source mode".to_string()
+    })?;
+    if file.unpublish(id) {
+        write_reader_feedback(path, &file)
+            .map_err(|_| "reader-feedback.json could not be written".to_string())?;
+    }
+    Ok(())
+}
+
+/// Take a removed or rejected item off its post, or say why not. The caller
+/// holds the content lock.
+fn unpublish_moderated_feedback(path: &Path, item: &HostedFeedback) -> Result<(), String> {
+    if !matches!(
+        item.status,
+        ModerationState::Removed | ModerationState::Rejected
+    ) {
+        return Err("Only removed or rejected feedback is taken off a post here".into());
+    }
+    unpublish_feedback(path, &item.id)
+}
+
+/// Whether an approval may go ahead given the passage as it is now: a
+/// passage that is not current needs the moderator to name the check they
+/// read, so a re-anchored or stale passage is never approved unseen.
+fn approval_acknowledged(item: &HostedFeedback, site: &Site, acknowledge: Option<&str>) -> bool {
+    let post = feedback_moderation::post_for_work(site, &item.feedback.provenance.work);
+    let document = post.map(|post| PassageDocument::of_post(post, &site.config));
+    let review = feedback_moderation::review_passage(&item.feedback, post.zip(document.as_ref()));
+    !review.check.needs_acknowledgement() || acknowledge == Some(review.check.id())
+}
+
+/// `PATCH engagement/feedback`: approve, reject or remove one item. The
+/// request names the state and version the moderator saw, and, to approve a
+/// passage that is not current, the passage check they read. The item is
+/// read again and its passage checked again first, so nothing is approved on
+/// the strength of an old view; the hosted function then applies the change
+/// only if the item is still as seen, and records the audit event.
+fn moderate_feedback(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let Some(version) = body["version"]
+        .as_u64()
+        .filter(|version| (1..=i32::MAX as u64).contains(version))
+    else {
+        return Response::error(422, "Send the item's version as you loaded it");
+    };
+    let Some(from) = body["from"].as_str().and_then(ModerationState::from_id) else {
+        return Response::error(422, "Send the item's state as you loaded it");
+    };
+    let change = match feedback_moderation::plan(
+        from,
+        body["action"].as_str().unwrap_or(""),
+        body["reason"].as_str(),
+    ) {
+        Ok(change) => change,
+        Err(error) => return Response::error(422, &error.message),
+    };
+    let item = match hosted_feedback_item(state, &id) {
+        Ok(item) => item,
+        Err(response) => return response,
+    };
+    let site = match feedback_site(state) {
+        Ok(site) => site,
+        Err(response) => return response,
+    };
+    let conflict = |item: &HostedFeedback, message: &str| {
+        Response::json(
+            409,
+            &json!({ "error": message, "code": "conflict", "item": feedback_moderation::moderation_view(item, &site) }),
+        )
+    };
+    const CHANGED: &str = "This item changed since you loaded it. Review it again before acting.";
+    if item.status != from || item.version != version {
+        return conflict(&item, CHANGED);
+    }
+    if change.action == ModerationAction::Approve
+        && !approval_acknowledged(&item, &site, body["acknowledge"].as_str())
+    {
+        return conflict(
+            &item,
+            "The passage is not where the reader saw it. Read the passage check as it is now and confirm it before approving.",
+        );
+    }
+    let request = json!({
+        "id": id,
+        "action": change.action.id(),
+        "from": change.from.id(),
+        "expectedVersion": version,
+        "reason": change.reason.map(|reason| reason.id()),
+        "actor": session.user,
+    });
+    let value = match hosted_feedback_call(state, &[], Some(&request)) {
+        Ok((200, value)) => value,
+        Ok((409, value)) => {
+            return match HostedFeedback::from_value(&value["item"]) {
+                Ok(current) => conflict(&current, CHANGED),
+                Err(_) => Response::error(409, CHANGED),
+            }
+        }
+        Ok(_) => return Response::error(404, "No such feedback item"),
+        Err(response) => return response,
+    };
+    let changed = match HostedFeedback::from_value(&value["item"]) {
+        Ok(changed) if changed.id == id && changed.status == change.to => changed,
+        _ => {
+            return Response::error(
+                502,
+                "hosted engagement returned an invalid moderation response",
+            )
+        }
+    };
+    eprintln!(
+        "admin: feedback {id} {} by {}",
+        change.action.id(),
+        session.user
+    );
+    // What the site publishes follows the decision.
+    let mut published = false;
+    let mut publish_error = None;
+    let mut build = None;
+    if matches!(
+        change.action,
+        ModerationAction::Approve | ModerationAction::Remove
+    ) {
+        let mut status = lock(&state.build);
+        let _transaction = match content_transaction(state) {
+            Ok(lock) => lock,
+            Err(response) => return response,
+        };
+        let outcome = reader_feedback_path(state)
+            .map_err(|_| "reader-feedback.json cannot be written".to_string())
+            .and_then(|path| {
+                if change.action == ModerationAction::Approve {
+                    publish_approved_feedback(&path, &site, &changed)
+                } else {
+                    unpublish_feedback(&path, &id)
+                }
+            });
+        match outcome {
+            Ok(()) => {
+                published = change.action == ModerationAction::Approve;
+                build = Some(feedback_build_json(&state.rebuild_locked(&mut status)));
+            }
+            Err(error) => {
+                // A removal that could not be written leaves the note on the
+                // post; say so when the file says so.
+                if change.action == ModerationAction::Remove {
+                    published = reader_feedback_path(state)
+                        .and_then(|path| load_reader_feedback(&path))
+                        .is_ok_and(|(file, _)| file.get(&id).is_some());
+                }
+                publish_error = Some(error)
+            }
+        }
+    }
+    let mut view = feedback_moderation::moderation_view(&changed, &site);
+    view["published"] = json!(published);
+    Response::json(
+        200,
+        &json!({
+            "item": view,
+            "published": published,
+            "publishError": publish_error,
+            "build": build,
+        }),
+    )
+}
+
+/// `POST engagement/feedback/publish`: put an approved item on its post
+/// again, after a failed write or an approval made outside Admin.
+fn publish_feedback(state: &AppState, req: &Request) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let item = match hosted_feedback_item(state, &id) {
+        Ok(item) => item,
+        Err(response) => return response,
+    };
+    let site = match feedback_site(state) {
+        Ok(site) => site,
+        Err(response) => return response,
+    };
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match reader_feedback_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    if let Err(error) = publish_approved_feedback(&path, &site, &item) {
+        return Response::error(409, &error);
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!("admin: feedback {id} published");
+    Response::json(200, &json!({ "published": true, "build": build }))
+}
+
+/// `POST engagement/feedback/unpublish`: take a removed or rejected item off
+/// its post again, after a removal whose file write failed or a decision made
+/// outside Admin.
+fn unpublish_moderated(state: &AppState, req: &Request) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let item = match hosted_feedback_item(state, &id) {
+        Ok(item) => item,
+        Err(response) => return response,
+    };
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match reader_feedback_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    if let Err(error) = unpublish_moderated_feedback(&path, &item) {
+        return Response::error(409, &error);
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!("admin: feedback {id} unpublished");
+    Response::json(200, &json!({ "published": false, "build": build }))
+}
+
+/// Every note the site publishes, each as its post shows it now, with the
+/// file's revision for conflict-safe responses.
+fn published_feedback_view(
+    file: &feedback_publication::ReaderFeedbackFile,
+    etag: &str,
+    site: &Site,
+) -> Json {
+    let mut items = Vec::with_capacity(file.items.len());
+    for item in &file.items {
+        let post = site
+            .posts
+            .iter()
+            .find(|post| post.source.replace('\\', "/") == item.post);
+        let public = post.and_then(|post| {
+            let document = PassageDocument::of_post(post, &site.config);
+            feedback_publication::project(&[item], post, &document).pop()
+        });
+        items.push(json!({
+            "id": item.id,
+            "post": item.post,
+            "postTitle": post.map(|post| post.title.clone()),
+            "postUrl": post.map(|post| post.url.clone()),
+            "kind": item.kind.id(),
+            "kindLabel": item.kind.label(),
+            "body": item.body,
+            "received": item.received,
+            "approved": item.approved,
+            "name": item.name,
+            "response": item.response,
+            "public": public,
+        }));
+    }
+    json!({ "etag": etag, "items": items })
+}
+
+/// `GET engagement/feedback/published`: the notes the site publishes. Needs
+/// no hosted service.
+fn published_feedback(state: &AppState) -> Response {
+    let path = match reader_feedback_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let (file, etag) = match load_reader_feedback(&path) {
+        Ok(loaded) => loaded,
+        Err(response) => return response,
+    };
+    let site = match site::load_site(&state.root, true, Some(clock::now())) {
+        Ok((site, _)) => site,
+        Err(error) => return Response::error(500, &error),
+    };
+    Response::json(200, &published_feedback_view(&file, &etag, &site))
+}
+
+/// `PUT engagement/feedback/response`: set or clear the author's public
+/// response to a published note. The request names the file revision it
+/// loaded; a file changed since is a conflict and nothing is written.
+fn respond_to_feedback(state: &AppState, req: &Request) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let Some(sent) = body["etag"].as_str() else {
+        return Response::error(
+            422,
+            "Send the revision of the published feedback you loaded",
+        );
+    };
+    let response_text = match &body["response"] {
+        Json::Null => None,
+        Json::String(text) => Some(text.as_str()),
+        _ => return Response::error(422, "A response is text"),
+    };
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match reader_feedback_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let (mut file, current) = match load_reader_feedback(&path) {
+        Ok(loaded) => loaded,
+        Err(response) => return response,
+    };
+    if current != sent {
+        return Response::error(
+            409,
+            "The published feedback changed since you loaded it. Reload before responding.",
+        );
+    }
+    if let Err(error) = file.respond(&id, response_text, clock::now()) {
+        return Response::error(422, &error);
+    }
+    let etag = match write_reader_feedback(&path, &file) {
+        Ok(etag) => etag,
+        Err(error) => return Response::error(500, &error),
+    };
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!("admin: feedback {id} response saved");
+    Response::json(
+        200,
+        &json!({ "etag": etag, "response": file.get(&id).and_then(|item| item.response.clone()), "build": build }),
+    )
+}
+
+/// `POST engagement/feedback/revision-note`: record a public revision note in
+/// a post's `evidenceRevisions` front matter (ADR 0075), the author's own
+/// words about what changed. It never edits the post's text; accepting a
+/// suggestion stays a separate edit.
+fn record_revision_note(state: &AppState, req: &Request) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let Some(rel) = body["post"].as_str() else {
+        return Response::error(422, "Name the post the note is about");
+    };
+    if check_rel_path(rel) != Ok("posts") {
+        return Response::error(422, "Revision notes belong to posts");
+    }
+    let note = match revision_note_item(
+        body["date"].as_str(),
+        body["claim"].as_str(),
+        body["note"].as_str().unwrap_or(""),
+        clock::now(),
+    ) {
+        Ok(note) => note,
+        Err(error) => return Response::error(422, &error),
+    };
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let config = match site::load_config(&state.root) {
+        Ok(config) => config,
+        Err(error) => return Response::error(500, &error),
+    };
+    let path = match resolve_content_path(&state.root, &config, rel) {
+        Ok(path) => path,
+        Err(error) => return Response::error(400, &error),
+    };
+    let current = match fs::read_to_string(&path) {
+        Ok(current) => current,
+        Err(_) => return Response::error(404, "No such post"),
+    };
+    let source = match with_revision_note(&current, note) {
+        Ok(source) => source,
+        Err(error) => return Response::error(422, &format!("{rel}: {error}")),
+    };
+    if let Err(problems) =
+        validate_candidate(&state.root, &config, rel, &source, &CreditEdit::Unchanged)
+    {
+        return Response::json(
+            422,
+            &json!({ "error": "The note can't be added to this post yet.", "problems": problems }),
+        );
+    }
+    if let Err(error) = write_atomic(&path, &source) {
+        return Response::error(500, &error);
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!("admin: revision note added to {rel}");
+    Response::json(
+        200,
+        &json!({ "post": rel, "etag": etag(&source), "build": build }),
+    )
+}
+
+/// One `evidenceRevisions` item, `YYYY-MM-DD[ claim-id]: what changed`,
+/// checked with the build's rules. The date defaults to today.
+fn revision_note_item(
+    date: Option<&str>,
+    claim: Option<&str>,
+    note: &str,
+    today: DateTime,
+) -> Result<String, String> {
+    let date = date
+        .map(str::trim)
+        .filter(|date| !date.is_empty())
+        .map_or_else(|| today.ymd(), str::to_string);
+    let note = note.trim();
+    if note.contains(['\n', '\r']) {
+        return Err("Keep a revision note to one line".into());
+    }
+    let item = match claim.map(str::trim).filter(|claim| !claim.is_empty()) {
+        Some(claim) => format!("{date} {claim}: {note}"),
+        None => format!("{date}: {note}"),
+    };
+    openblog_core::claim_publication::revision_notes(std::slice::from_ref(&item))
+        .map_err(|error| error.replace("item 1: ", ""))?;
+    Ok(item)
+}
+
+/// A post's source with one more revision note, every other field and the
+/// body kept. The whole list is checked again, so a note is never added to a
+/// list the build would refuse.
+fn with_revision_note(source: &str, note: String) -> Result<String, String> {
+    let document = frontmatter::parse(source)?;
+    let mut fields = document.front_matter.fields.clone();
+    let field = openblog_core::claim_publication::REVISIONS_FIELD;
+    let mut items = match fields.get(field) {
+        Some(Value::List(items)) => items.clone(),
+        Some(Value::Scalar(item)) if !item.trim().is_empty() => vec![item.clone()],
+        _ => Vec::new(),
+    };
+    items.push(note);
+    openblog_core::claim_publication::revision_notes(&items)?;
+    fields.insert(field.to_string(), Value::List(items));
+    Ok(frontmatter::compose(&fields, &document.body))
 }
 
 struct ProjectSkillFile {
@@ -16309,8 +17112,74 @@ mod tests {
             config.engagement.enabled && config.engagement.comments && config.engagement.analytics
         );
         assert_eq!(config.engagement.endpoint, "https://blog.example/api");
+        assert!(!config.engagement.feedback);
 
-        let saved_json = body_json(&saved);
+        // The passage-feedback opt-in, set in openblog.json, survives a save
+        // that does not mention it, and can be changed explicitly.
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut on_disk: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        on_disk["engagement"]["feedback"] = json!(true);
+        fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&on_disk).unwrap(),
+        )
+        .unwrap();
+        let current = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/settings"),
+                &session,
+                false,
+            ),
+        ));
+        assert_eq!(current["feedback"], true);
+        let kept = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true,
+                        "comments": false,
+                        "analytics": true,
+                        "endpoint": "https://blog.example/api",
+                        "etag": current["etag"],
+                        "credentialAction": "keep",
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(kept.status, 200);
+        let config = site::load_config(&f.dir).unwrap();
+        assert!(config.engagement.feedback && !config.engagement.comments);
+        let off = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/engagement/settings",
+                    json!({
+                        "enabled": true,
+                        "comments": true,
+                        "analytics": true,
+                        "endpoint": "https://blog.example/api",
+                        "feedback": false,
+                        "etag": body_json(&kept)["etag"],
+                        "credentialAction": "keep",
+                    }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(off.status, 200);
+        assert!(!site::load_config(&f.dir).unwrap().engagement.feedback);
+
+        let saved_json = body_json(&off);
         let moved = handle(
             &f.state,
             &authed(
@@ -16351,6 +17220,552 @@ mod tests {
             ),
         );
         assert_eq!(stale.status, 409);
+    }
+
+    /// One received record about the whole of `post`, at `revision` (the
+    /// post's own when `None`), from a reader whose name stays private.
+    fn feedback_record(
+        site: &Site,
+        post: &openblog_core::Post,
+        revision: Option<&str>,
+        selector: &str,
+    ) -> openblog_core::scholarly_feedback::ScholarlyFeedback {
+        let document = PassageDocument::of_post(post, &site.config);
+        let target = match selector {
+            "work" => document.work_target(),
+            _ => {
+                let index = document
+                    .sections
+                    .iter()
+                    .position(|section| section.anchor.is_some())
+                    .unwrap_or(0);
+                document.section_target(index).unwrap()
+            }
+        };
+        openblog_core::scholarly_feedback::FeedbackSubmission::from_value(&json!({
+            "version": 1,
+            "kind": "question",
+            "work": post.url,
+            "revision": revision.unwrap_or(&document.revision),
+            "target": target.to_value(),
+            "body": "Why <b>this</b>?",
+            "seenAt": "2026-10-26T09:58:00Z",
+            "attribution": {"name": "Private Reader", "publishName": false},
+        }))
+        .unwrap()
+        .receive(
+            openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+            openblog_core::feedback_provenance::FeedbackChannel::Hosted,
+        )
+        .unwrap()
+    }
+
+    const FEEDBACK_ITEM_ID: &str = "00000000-0000-4000-8000-0000000000a1";
+
+    fn feedback_routes() -> [(&'static str, &'static str); 7] {
+        [
+            ("GET", "/admin/api/engagement/feedback"),
+            ("PATCH", "/admin/api/engagement/feedback"),
+            ("POST", "/admin/api/engagement/feedback/publish"),
+            ("POST", "/admin/api/engagement/feedback/unpublish"),
+            ("GET", "/admin/api/engagement/feedback/published"),
+            ("PUT", "/admin/api/engagement/feedback/response"),
+            ("POST", "/admin/api/engagement/feedback/revision-note"),
+        ]
+    }
+
+    #[test]
+    fn reader_feedback_routes_deny_by_default_need_csrf_and_explain_when_off() {
+        let f = fixture("feedback-routes");
+        for (method, path) in feedback_routes() {
+            let request = if method == "GET" {
+                req(method, path)
+            } else {
+                json_req(method, path, json!({ "id": FEEDBACK_ITEM_ID }))
+            };
+            assert_eq!(handle(&f.state, &request).status, 401, "{method} {path}");
+        }
+        let session = login_ok(&f);
+        for (method, path) in feedback_routes()
+            .into_iter()
+            .filter(|(method, _)| *method != "GET")
+        {
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req(method, path, json!({ "id": FEEDBACK_ITEM_ID })),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(response.status, 403, "{method} {path}");
+        }
+        // Off by default: the queue says how to turn it on, without asking
+        // any hosted service; what the site publishes is still readable.
+        let queue = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/feedback"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(queue.status, 404);
+        assert!(body_json(&queue)["error"]
+            .as_str()
+            .unwrap()
+            .contains("engagement.feedback"));
+        let published = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/feedback/published"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(published.status, 200);
+        assert_eq!(
+            body_json(&published),
+            json!({ "etag": "absent", "items": [] })
+        );
+        let moderated = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PATCH",
+                    "/admin/api/engagement/feedback",
+                    json!({ "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "pending", "version": 1 }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(moderated.status, 404);
+        let unknown = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PATCH",
+                    "/admin/api/engagement/feedback",
+                    json!({ "id": FEEDBACK_ITEM_ID, "action": "delete", "from": "pending", "version": 1 }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(unknown.status, 422, "refused before any hosted request");
+        let unpublish = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/engagement/feedback/unpublish",
+                    json!({ "id": FEEDBACK_ITEM_ID }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            unpublish.status, 404,
+            "needs the hosted state, so off says so"
+        );
+        let _ = fs::remove_dir_all(&f.dir);
+    }
+
+    #[test]
+    fn author_responses_are_conflict_safe_and_failures_leave_the_file_unchanged() {
+        let f = fixture("feedback-responses");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let record = feedback_record(&site, &post, None, "work");
+        let mut file = feedback_publication::ReaderFeedbackFile::default();
+        file.publish(
+            feedback_publication::PublishedFeedback::from_record(
+                FEEDBACK_ITEM_ID,
+                &post.source,
+                &record,
+                openblog_core::DateTime::parse("2026-10-27T00:00:00Z").unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let path = f
+            .dir
+            .join("content")
+            .join(feedback_publication::READER_FEEDBACK_FILE);
+        fs::write(&path, file.to_json()).unwrap();
+        let session = login_ok(&f);
+        let published = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/feedback/published"),
+                &session,
+                false,
+            ),
+        ));
+        let etag = published["etag"].as_str().unwrap().to_string();
+        assert_eq!(published["items"][0]["id"], FEEDBACK_ITEM_ID);
+        assert_eq!(
+            published["items"][0]["public"]["provenance"]["stale"],
+            false
+        );
+        // The private name never left moderation.
+        assert!(!published.to_string().contains("Private Reader"));
+        assert!(!fs::read_to_string(&path)
+            .unwrap()
+            .contains("Private Reader"));
+
+        let respond = |body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("PUT", "/admin/api/engagement/feedback/response", body),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let before = fs::read(&path).unwrap();
+        for (body, status) in [
+            (
+                json!({ "id": FEEDBACK_ITEM_ID, "etag": "stale", "response": "Thanks." }),
+                409,
+            ),
+            (
+                json!({ "id": FEEDBACK_ITEM_ID, "response": "Thanks." }),
+                422,
+            ),
+            (
+                json!({ "id": FEEDBACK_ITEM_ID, "etag": etag, "response": "bad \u{0007}" }),
+                422,
+            ),
+            (
+                json!({ "id": FEEDBACK_ITEM_ID, "etag": etag, "response": "x".repeat(4_001) }),
+                422,
+            ),
+            (
+                json!({ "id": FEEDBACK_ITEM_ID, "etag": etag, "response": 7 }),
+                422,
+            ),
+            (
+                json!({ "id": "00000000-0000-4000-8000-0000000000ff", "etag": etag, "response": "Thanks." }),
+                422,
+            ),
+            (
+                json!({ "id": "../x", "etag": etag, "response": "Thanks." }),
+                422,
+            ),
+        ] {
+            assert_eq!(respond(body.clone()).status, status, "{body}");
+            assert_eq!(fs::read(&path).unwrap(), before, "{body} changed nothing");
+        }
+        let saved = respond(
+            json!({ "id": FEEDBACK_ITEM_ID, "etag": etag, "response": "Because of <gravity>." }),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved = body_json(&saved);
+        assert_eq!(saved["build"]["ok"], true);
+        assert_eq!(saved["response"]["text"], "Because of <gravity>.");
+        let stored = fs::read_to_string(&path).unwrap();
+        assert!(stored.contains("Because of <gravity>."));
+        // The canonical page shows the note and the response, escaped.
+        let page = fs::read_to_string(
+            f.dir
+                .join("dist")
+                .join(post.url.trim_matches('/'))
+                .join("index.html"),
+        )
+        .unwrap();
+        assert!(page.contains("Reader questions and responses"));
+        assert!(page.contains("Why &lt;b&gt;this&lt;/b&gt;?"));
+        assert!(page.contains("Because of &lt;gravity&gt;."));
+        assert!(!page.contains("Private Reader") && !page.contains("09:58"));
+        // The revision it was saved against is gone: a second save from the
+        // same view is a conflict.
+        assert_eq!(
+            respond(json!({ "id": FEEDBACK_ITEM_ID, "etag": etag, "response": "Again." })).status,
+            409
+        );
+        let cleared =
+            respond(json!({ "id": FEEDBACK_ITEM_ID, "etag": saved["etag"], "response": null }));
+        assert_eq!(cleared.status, 200);
+        assert!(!fs::read_to_string(&path).unwrap().contains("gravity"));
+
+        // A broken file is refused, named, and never written over.
+        fs::write(&path, "{\"version\": 1, \"items\": [{\"id\": \"secret\"}]}").unwrap();
+        let broken = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/feedback/published"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(broken.status, 409);
+        let message = body_json(&broken)["error"].as_str().unwrap().to_string();
+        assert!(
+            message.starts_with("reader-feedback.json item 1:"),
+            "{message}"
+        );
+        assert!(!message.contains("secret"));
+        let current = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/feedback/published"),
+                &session,
+                false,
+            ),
+        ));
+        assert!(current.get("etag").is_none());
+        let _ = fs::remove_dir_all(&f.dir);
+    }
+
+    #[test]
+    fn revision_notes_go_into_the_posts_front_matter_checked_by_the_build_rules() {
+        let f = fixture("feedback-revision-notes");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let path = f.dir.join("content").join(&post.source);
+        let original = fs::read_to_string(&path).unwrap();
+        let session = login_ok(&f);
+        let note = |body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/engagement/feedback/revision-note", body),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        for body in [
+            json!({ "post": post.source, "date": "2026-02-30", "note": "Changed." }),
+            json!({ "post": post.source, "date": "2026-10-28", "note": "" }),
+            json!({ "post": post.source, "date": "2026-10-28", "note": "Two\nlines" }),
+            json!({ "post": post.source, "date": "2026-10-28", "claim": "Bad Id", "note": "Changed." }),
+            json!({ "post": post.source, "date": "2026-10-28", "note": "x".repeat(200) }),
+            json!({ "post": post.source, "note": "bidi \u{202e} text" }),
+            json!({ "post": "pages/about.md", "note": "Changed." }),
+            json!({ "post": "posts/../../secret.md", "note": "Changed." }),
+            json!({ "note": "Changed." }),
+        ] {
+            let response = note(body.clone());
+            assert!(
+                matches!(response.status, 400 | 404 | 422),
+                "{body}: {}",
+                response.status
+            );
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                original,
+                "{body} changed nothing"
+            );
+        }
+        let added = note(json!({
+            "post": post.source, "date": "2026-10-28", "claim": "tides-claim",
+            "note": "Corrected how often the tides were measured after a reader's question.",
+        }));
+        assert_eq!(
+            added.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&added.body)
+        );
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("evidenceRevisions:"));
+        assert!(
+            saved.contains("2026-10-28 tides-claim: Corrected how often the tides were measured")
+        );
+        let document = frontmatter::parse(&saved).unwrap();
+        let before = frontmatter::parse(&original).unwrap();
+        assert_eq!(
+            document.body.trim(),
+            before.body.trim(),
+            "the post's text is never edited"
+        );
+        for (key, value) in &before.front_matter.fields {
+            assert_eq!(
+                document.front_matter.fields.get(key),
+                Some(value),
+                "{key} kept"
+            );
+        }
+        // A second note keeps the first.
+        assert_eq!(
+            note(json!({ "post": post.source, "note": "Another change." })).status,
+            200
+        );
+        let items = frontmatter::parse(&fs::read_to_string(&path).unwrap())
+            .unwrap()
+            .front_matter
+            .get_list("evidenceRevisions");
+        assert_eq!(items.len(), 2);
+        assert!(items[1].ends_with(": Another change."));
+        let _ = fs::remove_dir_all(&f.dir);
+    }
+
+    #[test]
+    fn hosted_feedback_answers_pass_on_no_detail() {
+        assert!(hosted_feedback_answer(200, json!({ "feedback": [] })).is_ok());
+        assert_eq!(
+            hosted_feedback_answer(409, json!({ "code": "conflict" }))
+                .unwrap()
+                .0,
+            409
+        );
+        assert_eq!(
+            hosted_feedback_answer(404, json!({ "code": "notFound" }))
+                .unwrap()
+                .0,
+            404
+        );
+        let off = hosted_feedback_answer(404, json!({ "code": "unavailable" })).unwrap_err();
+        assert_eq!(off.status, 404);
+        assert!(String::from_utf8_lossy(&off.body).contains("OPENBLOG_FEEDBACK_ENABLED"));
+        for (status, value) in [
+            (
+                500,
+                json!({ "error": "relation openblog_feedback does not exist sb_secret_x" }),
+            ),
+            (401, json!({ "error": "Admin authorization is required." })),
+            (
+                422,
+                json!({ "error": format!("{} sb_secret_x", "x".repeat(300)) }),
+            ),
+            (422, json!({ "error": "line\nbreak" })),
+        ] {
+            let response = hosted_feedback_answer(status, value).unwrap_err();
+            let body = String::from_utf8_lossy(&response.body).to_string();
+            assert!(
+                !body.contains("sb_secret") && !body.contains("relation"),
+                "{body}"
+            );
+        }
+        assert_eq!(
+            body_json(
+                &hosted_feedback_answer(422, json!({ "error": "Choose a reason to reject." }))
+                    .unwrap_err()
+            )["error"],
+            "Choose a reason to reject."
+        );
+    }
+
+    #[test]
+    fn a_passage_that_is_not_current_is_approved_only_with_the_check_confirmed() {
+        let f = fixture("feedback-acknowledge");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let hosted = |record: &openblog_core::scholarly_feedback::ScholarlyFeedback,
+                      status: &str| {
+            HostedFeedback::from_value(&json!({
+                "id": FEEDBACK_ITEM_ID, "status": status, "version": 1, "moderatedAt": null,
+                "reason": null, "feedback": record.to_value(),
+            }))
+            .unwrap()
+        };
+        let current = hosted(&feedback_record(&site, &post, None, "section"), "pending");
+        assert!(approval_acknowledged(&current, &site, None));
+        let moved = hosted(
+            &feedback_record(
+                &site,
+                &post,
+                Some("p1:00000000000000000000000000000000"),
+                "section",
+            ),
+            "pending",
+        );
+        assert!(!approval_acknowledged(&moved, &site, None));
+        assert!(!approval_acknowledged(&moved, &site, Some("current")));
+        assert!(!approval_acknowledged(&moved, &site, Some("stale")));
+        assert!(approval_acknowledged(&moved, &site, Some("reanchored")));
+
+        // The queue view says whether the site publishes each item, and
+        // claims nothing when the published file cannot be read.
+        let unknown = feedback_queue_view(
+            ModerationState::Pending,
+            std::slice::from_ref(&current),
+            2,
+            &site,
+            None,
+        );
+        assert_eq!(unknown["items"][0]["published"], Json::Null);
+        assert_eq!(unknown["invalid"], 2);
+        let mut file = feedback_publication::ReaderFeedbackFile::default();
+        let approved = hosted(&feedback_record(&site, &post, None, "section"), "approved");
+        let view = feedback_queue_view(
+            ModerationState::Approved,
+            std::slice::from_ref(&approved),
+            0,
+            &site,
+            Some(&file),
+        );
+        assert_eq!(view["items"][0]["published"], false);
+        let path = f
+            .dir
+            .join("content")
+            .join(feedback_publication::READER_FEEDBACK_FILE);
+        publish_approved_feedback(&path, &site, &approved).unwrap();
+        file = feedback_publication::ReaderFeedbackFile::from_json(
+            &fs::read_to_string(&path).unwrap(),
+        )
+        .unwrap();
+        let view = feedback_queue_view(
+            ModerationState::Approved,
+            std::slice::from_ref(&approved),
+            0,
+            &site,
+            Some(&file),
+        );
+        assert_eq!(view["items"][0]["published"], true);
+        assert!(
+            publish_approved_feedback(&path, &site, &current).is_err(),
+            "pending is never published"
+        );
+        // Taking a note off the post again needs the hosted state to say it
+        // was removed or rejected: an approved or pending note stays.
+        let removed = hosted(&feedback_record(&site, &post, None, "section"), "removed");
+        let rejected = hosted(&feedback_record(&site, &post, None, "section"), "rejected");
+        for kept in [&approved, &current] {
+            assert!(unpublish_moderated_feedback(&path, kept).is_err());
+            assert_eq!(
+                feedback_publication::ReaderFeedbackFile::from_json(
+                    &fs::read_to_string(&path).unwrap()
+                )
+                .unwrap()
+                .items
+                .len(),
+                1,
+                "{} stays on the post",
+                kept.status.id()
+            );
+        }
+        unpublish_moderated_feedback(&path, &removed).unwrap();
+        assert!(feedback_publication::ReaderFeedbackFile::from_json(
+            &fs::read_to_string(&path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
+        unpublish_moderated_feedback(&path, &rejected).unwrap();
+        publish_approved_feedback(&path, &site, &approved).unwrap();
+        unpublish_feedback(&path, FEEDBACK_ITEM_ID).unwrap();
+        assert!(feedback_publication::ReaderFeedbackFile::from_json(
+            &fs::read_to_string(&path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
+        // A file that cannot be read is never written over.
+        fs::write(&path, "{not json").unwrap();
+        assert!(unpublish_moderated_feedback(&path, &removed).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{not json");
+        let _ = fs::remove_dir_all(&f.dir);
     }
 
     #[test]

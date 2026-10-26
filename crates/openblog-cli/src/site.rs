@@ -94,6 +94,18 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         "components/ob-citation-previews.js",
         include_str!("../../../web/components/ob-citation-previews.js"),
     ),
+    (
+        "components/ob-passage-feedback.js",
+        include_str!("../../../web/components/ob-passage-feedback.js"),
+    ),
+    (
+        "components/passage-feedback.js",
+        include_str!("../../../web/components/passage-feedback.js"),
+    ),
+    (
+        "components/passage-target.js",
+        include_str!("../../../web/components/passage-target.js"),
+    ),
 ];
 
 /// The admin editor. Served only by `serve --admin`, never copied into the
@@ -282,6 +294,9 @@ pub fn read_sources_excluding(
     // A deferred read: the load reads the library only when an opted-in post
     // cites something; see `Site::load`.
     sources.source_library = Some(crate::source_store::read_for_build(root));
+    // Approved reader feedback the site publishes (ADR 0083), a versioned
+    // file beside the posts.
+    sources.reader_feedback = read_reader_feedback(root, config)?;
     // Claim evidence is read only while the site publishes it (ADR 0075).
     if config.claim_evidence.publish {
         sources.claim_evidence = Some(crate::claims_store::evidence_for_build(
@@ -290,6 +305,36 @@ pub fn read_sources_excluding(
         ));
     }
     Ok(sources)
+}
+
+/// The published reader feedback file (`reader-feedback.json` in the content
+/// folder), when it exists. Its contents are checked by the site load.
+pub fn read_reader_feedback(
+    root: &Path,
+    config: &SiteConfig,
+) -> Result<Option<SourceFile>, String> {
+    let path = root
+        .join(&config.paths.content)
+        .join(openblog_core::feedback_publication::READER_FEEDBACK_FILE);
+    let display = format!(
+        "{}/{}",
+        config.paths.content.trim_end_matches(['/', '\\']),
+        openblog_core::feedback_publication::READER_FEEDBACK_FILE
+    );
+    match fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("cannot read {display}: {error}")),
+        Ok(metadata) if !metadata.is_file() => {
+            return Err(format!("{display} must be a regular file"))
+        }
+        Ok(_) => {}
+    }
+    let bytes = fs::read(&path).map_err(|error| format!("cannot read {display}: {error}"))?;
+    let contents = String::from_utf8(bytes).unwrap_or_else(|_| "not UTF-8".into());
+    Ok(Some(SourceFile {
+        path: display,
+        contents,
+    }))
 }
 
 /// Walk content deterministically without descending through an unchecked
@@ -654,6 +699,11 @@ pub fn generate_site(
     // rather than publishing posts without it, as a damaged atlas does
     // (ADR 0075). Only here: an Admin save's validation render is not stopped.
     if let Some(error) = &site.claim_evidence_error {
+        return Err(error.clone());
+    }
+    // Published reader feedback that cannot be read refuses the output the
+    // same way, rather than dropping notes the author published (ADR 0083).
+    if let Some(error) = &site.reader_feedback_error {
         return Err(error.clone());
     }
     // Required destinations (including full-content feeds) must succeed before
@@ -1516,6 +1566,47 @@ mod tests {
             .into_iter()
             .map(|file| (fsutil::relative(&output, &file), fs::read(&file).unwrap()))
             .collect()
+    }
+
+    #[test]
+    fn a_published_reader_feedback_file_that_cannot_be_read_refuses_the_build_and_writes_nothing() {
+        let root = project_with_private_library("reader-feedback-broken", "{}");
+        production_build(&root);
+        let output = dist_bytes(&root);
+        let file = root
+            .join("content")
+            .join(openblog_core::feedback_publication::READER_FEEDBACK_FILE);
+        fs::write(
+            &file,
+            r#"{"version":1,"items":[{"id":"ob-reader-secret"}]}"#,
+        )
+        .unwrap();
+        let error = build(
+            &root,
+            &BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .expect("the build is refused");
+        assert!(
+            error.starts_with("content/reader-feedback.json: item 1:"),
+            "{error}"
+        );
+        assert!(!error.contains("ob-reader-secret"));
+        assert_eq!(dist_bytes(&root), output, "nothing was written");
+        // An empty file publishes nothing and the output is as before.
+        fs::write(
+            &file,
+            "{\"version\":1,\"items\":[]}
+",
+        )
+        .unwrap();
+        production_build(&root);
+        assert_eq!(dist_bytes(&root), output);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
