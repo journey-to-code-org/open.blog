@@ -3,7 +3,7 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.39.0] - 2026-10-26
 
 - Admin Studio gathers Sources, the research notebook, the Knowledge Atlas, Compare and claims
   into one **Research workspace** under `#/research/`, with its own navigation that labels every
