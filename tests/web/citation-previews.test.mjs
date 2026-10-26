@@ -58,6 +58,10 @@ class Element extends Target {
   set href(value) { this.setAttribute("href", value); }
   get rel() { return this.getAttribute("rel") ?? ""; }
   set rel(value) { this.setAttribute("rel", value); }
+  // HTMLElement's own `popover` reflects its attribute as a string, as in a
+  // browser, so a component that keeps an element there breaks here too.
+  get popover() { return this.getAttribute("popover"); }
+  set popover(value) { if (value === null) this.removeAttribute("popover"); else this.setAttribute("popover", value); }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
   removeAttribute(name) { this.attributes.delete(name); }
@@ -210,8 +214,8 @@ function page({ data = JSON.stringify(DATA), noteLabel = "Go to note", connect =
   return { host, markers, after, paragraph };
 }
 
-const popoverOf = (host) => host.popover;
-const isOpen = (host) => Boolean(host.popover && !host.popover.hidden);
+const popoverOf = (host) => host.panel;
+const isOpen = (host) => Boolean(host.panel && !host.panel.hidden);
 
 test("reads the data and drops what it cannot trust, entry by entry", () => {
   const previews = readReferences(JSON.stringify(DATA));
@@ -530,7 +534,7 @@ test("without usable data, or for markers that no longer link to their note, not
   for (const data of ["{", JSON.stringify({ ...DATA, version: 2 })]) {
     const { host, markers } = page({ data });
     markers["cite-1-ref-1"].focus();
-    assert.equal(host.popover ?? null, null);
+    assert.equal(host.panel ?? null, null);
     assert.equal(document.count("keydown"), 0);
   }
   // A marker whose link was changed keeps its own behaviour; the others are enhanced.
@@ -545,8 +549,8 @@ test("without usable data, or for markers that no longer link to their note, not
   // Without its localized words there is no note link; the marker still is one.
   const plain = page({ noteLabel: null });
   plain.markers["cite-2-ref-1"].focus();
-  assert.equal(plain.host.popover.find("ob-citation-preview-note"), null);
-  assert.ok(plain.host.popover.find("ob-citation-preview-links").hidden);
+  assert.equal(plain.host.panel.find("ob-citation-preview-note"), null);
+  assert.ok(plain.host.panel.find("ob-citation-preview-links").hidden);
 });
 
 test("the page's styles animate only without a reduced-motion preference and never print it", () => {
@@ -651,7 +655,7 @@ test("using previews changes no browser data, history, scroll position or the ma
   const original = snapshot();
   // Every way of opening, using and closing a preview.
   marker.focus();
-  host.popover.find("ob-citation-preview-source").focus();
+  host.panel.find("ob-citation-preview-source").focus();
   document.body.dispatch("keydown", { key: "Escape" });
   markers["cite-2-ref-1"].dispatch("pointerenter", { pointerType: "mouse", bubbles: false });
   t.mock.timers.tick(250);

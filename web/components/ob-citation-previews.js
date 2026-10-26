@@ -113,7 +113,7 @@ export class ObCitationPreviews extends HTMLElement {
     }
     this.controller = controller;
     instances += 1;
-    this.popover = this.build(`ob-citation-preview-${instances}`, signal);
+    this.panel = this.build(`ob-citation-preview-${instances}`, signal);
     document.addEventListener("keydown", (event) => this.keydown(event), { signal });
     document.addEventListener("pointerdown", (event) => this.outside(event), { signal });
     document.addEventListener("focusin", (event) => this.outside(event), { signal });
@@ -124,19 +124,23 @@ export class ObCitationPreviews extends HTMLElement {
     this.close();
     this.controller?.abort();
     this.controller = null;
-    this.popover?.remove();
-    this.popover = null;
+    this.panel?.remove();
+    this.panel = null;
     this.markers = null;
     this.pressed = null;
   }
 
-  /** The one preview element, moved next to whichever marker it describes. */
+  /**
+   * The one preview element, moved next to whichever marker it describes. It
+   * is kept as `panel`: `popover` is HTMLElement's own attribute and would
+   * turn the element into a string.
+   */
   build(id, signal) {
-    const popover = document.createElement("span");
-    popover.className = "ob-citation-preview";
-    popover.id = id;
-    popover.setAttribute("role", "group");
-    popover.hidden = true;
+    const panel = document.createElement("span");
+    panel.className = "ob-citation-preview";
+    panel.id = id;
+    panel.setAttribute("role", "group");
+    panel.hidden = true;
     const details = document.createElement("span");
     details.className = "ob-citation-preview-details";
     details.id = `${id}-details`;
@@ -147,21 +151,21 @@ export class ObCitationPreviews extends HTMLElement {
     details.append(this.reference, this.locators);
     this.links = document.createElement("span");
     this.links.className = "ob-citation-preview-links";
-    popover.append(details, this.links);
+    panel.append(details, this.links);
     this.details = details;
-    popover.addEventListener("pointerenter", () => clearTimeout(this.closeTimer), { signal });
-    popover.addEventListener("pointerleave", (event) => this.leave(event), { signal });
-    return popover;
+    panel.addEventListener("pointerenter", () => clearTimeout(this.closeTimer), { signal });
+    panel.addEventListener("pointerleave", (event) => this.leave(event), { signal });
+    return panel;
   }
 
   isOpen(marker) {
-    return Boolean(this.popover && !this.popover.hidden && this.current === marker);
+    return Boolean(this.panel && !this.panel.hidden && this.current === marker);
   }
 
   /** Whether keyboard focus is on the open preview's marker or inside the preview. */
   focused() {
     const active = document.activeElement;
-    return Boolean(active && (active === this.current || this.popover?.contains(active)));
+    return Boolean(active && (active === this.current || this.panel?.contains(active)));
   }
 
   open(marker) {
@@ -172,8 +176,8 @@ export class ObCitationPreviews extends HTMLElement {
     this.close();
     this.fill(marker, preview);
     const sup = marker.parentElement;
-    (sup && sup.localName === "sup" ? sup : marker).after(this.popover);
-    this.popover.hidden = false;
+    (sup && sup.localName === "sup" ? sup : marker).after(this.panel);
+    this.panel.hidden = false;
     this.current = marker;
     const described = (marker.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
     if (!described.includes(this.details.id)) described.push(this.details.id);
@@ -187,7 +191,7 @@ export class ObCitationPreviews extends HTMLElement {
     const marker = this.current;
     if (!marker) return;
     this.current = null;
-    if (this.popover) this.popover.hidden = true;
+    if (this.panel) this.panel.hidden = true;
     const described = (marker.getAttribute("aria-describedby") || "")
       .split(/\s+/)
       .filter((token) => token && token !== this.details?.id);
@@ -197,7 +201,7 @@ export class ObCitationPreviews extends HTMLElement {
 
   /** The preview's text, every value assigned as text, and its links. */
   fill(marker, preview) {
-    this.popover.setAttribute("aria-labelledby", marker.id);
+    this.panel.setAttribute("aria-labelledby", marker.id);
     this.reference.textContent = preview.text;
     this.locators.textContent = preview.locators;
     this.locators.hidden = !preview.locators;
@@ -229,8 +233,8 @@ export class ObCitationPreviews extends HTMLElement {
    * style policy allows.
    */
   place() {
-    if (!this.current || !this.popover || this.popover.hidden) return;
-    const style = this.popover.style;
+    if (!this.current || !this.panel || this.panel.hidden) return;
+    const style = this.panel.style;
     const view = document.documentElement;
     // The layout viewport without a classic scrollbar, unlike `100vw`.
     const width = view.clientWidth;
@@ -238,7 +242,7 @@ export class ObCitationPreviews extends HTMLElement {
     style.setProperty("--ob-citation-preview-max-inline-size", `${Math.max(0, width - 2 * GUTTER)}px`);
     style.setProperty("--ob-citation-preview-x", "0px");
     style.setProperty("--ob-citation-preview-y", "0px");
-    const box = this.popover.getBoundingClientRect();
+    const box = this.panel.getBoundingClientRect();
     const mark = this.current.getBoundingClientRect();
     let left = Math.min(mark.left, width - GUTTER - box.width);
     left = Math.max(left, GUTTER);
@@ -248,7 +252,7 @@ export class ObCitationPreviews extends HTMLElement {
       top = mark.top - GAP - box.height;
       side = "above";
     }
-    this.popover.dataset.side = side;
+    this.panel.dataset.side = side;
     style.setProperty("--ob-citation-preview-x", `${Math.round(left - box.left)}px`);
     style.setProperty("--ob-citation-preview-y", `${Math.round(top - box.top)}px`);
   }
@@ -304,7 +308,7 @@ export class ObCitationPreviews extends HTMLElement {
   keydown(event) {
     if (event.key !== "Escape" || !this.current) return;
     const marker = this.current;
-    const inside = this.popover.contains(document.activeElement);
+    const inside = this.panel.contains(document.activeElement);
     this.close();
     if (!inside) return;
     // Focus goes back to the marker without opening the preview again.
@@ -323,7 +327,7 @@ export class ObCitationPreviews extends HTMLElement {
       this.pressed = null;
     }
     if (!this.current) return;
-    if (target === this.current || this.current.contains?.(target) || this.popover.contains(target)) return;
+    if (target === this.current || this.current.contains?.(target) || this.panel.contains(target)) return;
     this.close();
   }
 }
