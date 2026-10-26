@@ -2438,11 +2438,56 @@ fn alignments_view(
         "alignments": snapshot.alignments.alignments,
         "notices": snapshot.alignments.notices(links),
         "notice": openblog_core::alignment::ALIGNMENT_NOTICE,
+        "publication": publication_preview(snapshot, contributors),
     });
     if let (Some(view), Json::Object(extra)) = (view.as_object_mut(), extra) {
         view.extend(extra);
     }
     view
+}
+
+/// What each alignment would publish (ADR 0128), approved or not, so the
+/// author sees before approving which places are quoted and which are only
+/// identified: per alignment, one status per member in member order
+/// (`shown`, `absent`, `unquoted`, or `withheld-rights` / `withheld-length`).
+/// Admin-only like the rest of the view; nothing here is published.
+fn publication_preview(
+    snapshot: &alignment_store::Snapshot,
+    contributors: &BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Json {
+    use openblog_core::comparison_publication::{
+        ComparisonInputs, PublicComparison, Withheld, COMPARISONS_URL, MAX_PUBLIC_EXCERPT_CHARS,
+    };
+    let inputs = ComparisonInputs {
+        library: &snapshot.library,
+        notebook: &snapshot.notebook,
+        contributors,
+    };
+    let mut places = serde_json::Map::new();
+    for alignment in &snapshot.alignments.alignments {
+        let Ok(projected) = PublicComparison::project(alignment, inputs) else {
+            continue;
+        };
+        let statuses: Vec<Json> = projected
+            .places_in_member_order()
+            .into_iter()
+            .map(|place| {
+                json!(match (place.absent, &place.text, place.withheld) {
+                    (true, _, _) => "absent",
+                    (_, Some(_), _) => "shown",
+                    (_, None, Some(Withheld::Rights)) => "withheld-rights",
+                    (_, None, Some(Withheld::Length)) => "withheld-length",
+                    (_, None, None) => "unquoted",
+                })
+            })
+            .collect();
+        places.insert(alignment.id.clone(), Json::Array(statuses));
+    }
+    json!({
+        "url": COMPARISONS_URL,
+        "maxExcerptChars": MAX_PUBLIC_EXCERPT_CHARS,
+        "places": places,
+    })
 }
 
 /// What the comparison workspace (#54) shows beside the alignments, read
@@ -2529,10 +2574,13 @@ fn comparison_context(
 
 fn list_alignments(state: &AppState) -> Response {
     match alignment_store::load(&state.root, &source_contributors(state)) {
-        Ok(snapshot) => Response::json(
-            200,
-            &alignments_view(&snapshot, &source_contributors(state)),
-        ),
+        Ok(snapshot) => {
+            let mut view = alignments_view(&snapshot, &source_contributors(state));
+            view["publication"]["publish"] = json!(site::load_config(&state.root)
+                .map(|config| config.comparisons.publish)
+                .unwrap_or(false));
+            Response::json(200, &view)
+        }
         Err(error) => alignments_store_error(state, error, None),
     }
 }
@@ -2575,6 +2623,7 @@ fn save_alignment(state: &AppState, req: &Request, create: bool) -> Response {
         Ok(snapshot) => {
             let mut view = alignments_view(&snapshot, &contributors);
             view["alignment"] = json!(snapshot.alignments.alignment(&id));
+            attach_comparisons_build(state, &mut view);
             Response::json(if create { 201 } else { 200 }, &view)
         }
         Err(error) => alignments_store_error(state, error, Some(&id)),
@@ -2600,10 +2649,29 @@ fn remove_alignment_item(state: &AppState, req: &Request) -> Response {
         Ok((snapshot, removed)) => {
             let mut view = alignments_view(&snapshot, &source_contributors(state));
             view["removed"] = json!(removed);
+            attach_comparisons_build(state, &mut view);
             Response::json(200, &view)
         }
         Err(error) => alignments_store_error(state, error, Some(id)),
     }
+}
+
+/// While the site publishes comparisons (ADR 0128), a saved alignments change
+/// is published at once, so approving or withdrawing a comparison reaches the
+/// public site without waiting for another save. The outcome travels as
+/// `build`; a site that does not publish comparisons is not rebuilt.
+fn attach_comparisons_build(state: &AppState, view: &mut Json) {
+    let publishes = site::load_config(&state.root)
+        .map(|config| config.comparisons.publish)
+        .unwrap_or(false);
+    view["publication"]["publish"] = json!(publishes);
+    if !publishes {
+        return;
+    }
+    view["build"] = match state.rebuild() {
+        Ok(report) => json!({ "ok": true, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
 }
 
 fn alignments_diagnostics(diagnostics: Vec<AtlasDiagnostic>) -> Response {
@@ -14980,6 +15048,134 @@ mod tests {
     }
 
     #[test]
+    fn approving_a_comparison_previews_its_rights_gate_and_publishes_it_at_once() {
+        let f = fixture_with_sources("comparison-publication");
+        fs::write(
+            f.dir.join(crate::source_store::LIBRARY_FILE),
+            json!({"version": 1, "sources": [
+                {"id": "w", "kind": "work", "title": "W"},
+                {"id": "e", "kind": "edition", "of": "w", "title": "ob-public-edition",
+                    "rights": {"status": "publicDomain", "note": "ob-never-rights-note"}},
+                {"id": "t", "kind": "translation", "of": "w", "language": "he", "title": "T"}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join(crate::notebook_store::NOTEBOOK_FILE),
+            json!({"version": 1, "passages": [
+                {"id": "p-e", "source": "e", "excerpt": {"text": "ob-public-wording"}},
+                {"id": "p-t", "source": "t", "excerpt": {"text": "ob-never-unknown-wording", "language": "he"}}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let list = || {
+            body_json(&handle(
+                &f.state,
+                &authed(
+                    req("GET", "/admin/api/research/alignments"),
+                    &session,
+                    false,
+                ),
+            ))
+        };
+        let send = |method: &str, body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(method, "/admin/api/research/alignments", body),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let empty = list();
+        assert_eq!(empty["publication"]["publish"], false);
+        assert_eq!(empty["publication"]["url"], "/comparisons/");
+        let alignment = json!({"id": "cave", "label": "ob-public-label", "members": [
+            {"source": "e", "passage": "p-e", "note": "ob-never-member-note"},
+            {"source": "t", "passage": "p-t"},
+            {"source": "t", "absent": false, "locators": [{"kind": "page", "value": "2"}]}
+        ]});
+        let created = send(
+            "POST",
+            json!({"revision": empty["revision"], "alignment": alignment}),
+        );
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created = body_json(&created);
+        // The preview names, per place, what a public page would show.
+        assert_eq!(
+            created["publication"]["places"]["cave"],
+            json!(["shown", "withheld-rights", "unquoted"])
+        );
+        assert!(
+            created.get("build").is_none(),
+            "a site that does not publish is not rebuilt"
+        );
+
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["comparisons"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let mut approved = alignment.clone();
+        approved["visibility"] = json!("approved");
+        let saved = send(
+            "PUT",
+            json!({"revision": created["revision"], "alignment": approved}),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved = body_json(&saved);
+        assert_eq!(saved["publication"]["publish"], true);
+        assert_eq!(saved["build"]["ok"], true, "{}", saved["build"]);
+        let dist = f.dir.join("dist");
+        let page = fs::read_to_string(dist.join("comparisons/cave/index.html")).unwrap();
+        assert!(page.contains("ob-public-label") && page.contains("ob-public-wording"));
+        for file in crate::fsutil::walk(&dist) {
+            let text = String::from_utf8_lossy(&fs::read(&file).unwrap()).to_string();
+            assert!(
+                !text.contains("ob-never-"),
+                "{} leaks private research",
+                file.display()
+            );
+        }
+        // Portable copies of posts do not carry comparisons.
+        let (site, _) = crate::site::load_site(&f.dir, false, None).unwrap();
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::from_post(post, &site.config)
+                    .unwrap();
+            assert!(!projection
+                .portable_markdown()
+                .unwrap()
+                .contains("ob-public-label"));
+        }
+
+        // Withdrawing is the same save with approval cleared; the page goes at once.
+        let withdrawn = send(
+            "PUT",
+            json!({"revision": saved["revision"], "alignment": alignment}),
+        );
+        assert_eq!(withdrawn.status, 200);
+        assert_eq!(body_json(&withdrawn)["build"]["ok"], true);
+        assert!(!dist.join("comparisons/cave/index.html").exists());
+        assert!(!fs::read_to_string(dist.join("comparisons.json"))
+            .unwrap()
+            .contains("ob-public-label"));
+    }
+
+    #[test]
     fn alignments_view_carries_versions_exact_wording_and_attributed_interpretations() {
         let f = fixture_with_sources("alignments-compare");
         let config_path = f.dir.join(site::CONFIG_FILE);
@@ -16472,6 +16668,11 @@ mod tests {
                 "atlas_publication.rs",
                 include_str!("../../openblog-core/src/atlas_publication.rs"),
             ),
+            (
+                "comparison_publication.rs",
+                include_str!("../../openblog-core/src/comparison_publication.rs"),
+            ),
+            ("alignment_store.rs", include_str!("alignment_store.rs")),
         ];
         let banned = [
             "println!",

@@ -9,12 +9,14 @@ import {
   alignmentErrorMessage,
   alignmentPayload,
   applyAlignmentState,
+  comparisonBuildText,
   comparisonColumns,
   comparisonExportText,
   interpretersText,
   languageTag,
   locatorText,
   normalizeAdminPreferences,
+  publicPlaceText,
   rebaseAlignmentDraft,
   rightsText,
   rightsToConfirm,
@@ -874,6 +876,70 @@ test("using the stored copy replaces the draft", withDom(async () => {
   await all(root, "data-alignment-conflict-use")[0].click();
   assert.equal(byId(root, "oba-alignment-label").value, "Renamed elsewhere");
   assert.match(root.textContent, /Showing the stored copy/);
+}));
+
+test("approval and the normalization choice round-trip, and nothing else marks an alignment public", () => {
+  const approved = { ...SECOND(), visibility: "approved", publishNormalized: true };
+  assert.deepEqual(alignmentPayload(alignmentDraft(approved)), approved, "an approved alignment round-trips exactly");
+  const draft = alignmentDraft(approved);
+  draft.approved = false;
+  draft.publishNormalized = false;
+  const sent = alignmentPayload(draft);
+  assert.equal(sent.visibility, "private");
+  assert.equal("publishNormalized" in sent, false, "the choice is written only when made");
+  assert.equal(alignmentDraft(SECOND()).approved, false);
+});
+
+test("the public preview reads as what a page would show, never as permission", () => {
+  assert.match(publicPlaceText("shown"), /wording is shown/);
+  assert.match(publicPlaceText("withheld-rights"), /identified and located only, because the version's rights are unknown or reserved/);
+  assert.match(publicPlaceText("withheld-length", 1000), /1000-character excerpt limit/);
+  assert.match(publicPlaceText("unquoted"), /located only/);
+  assert.match(publicPlaceText("absent"), /absent/);
+  assert.equal(publicPlaceText("other"), "");
+  assert.equal(comparisonBuildText(undefined), "");
+  assert.match(comparisonBuildText({ ok: true }), /rebuilt/);
+  assert.match(comparisonBuildText({ ok: false, error: "boom" }), /could not be rebuilt: boom/);
+  for (const status of ["shown", "withheld-rights", "withheld-length", "unquoted", "absent"]) {
+    assert.doesNotMatch(publicPlaceText(status), /allowed|permitted|legal/i);
+  }
+});
+
+test("each place previews its public form, and approving publishes through the same save", withDom(async () => {
+  const publication = { publish: true, url: "/comparisons/", maxExcerptChars: 1000, places: { opening: ["shown", "withheld-rights", "unquoted", "withheld-rights", "absent", "withheld-length"] } };
+  const api = compareApi({
+    "GET research/alignments": () => view({ publication }),
+    "PUT research/alignments": (body) => ({ ...view({ revision: "r2", alignments: [body.alignment, SECOND()], publication }), alignment: body.alignment, build: { ok: true, files: 9 } }),
+  });
+  const { app, root } = mountCompare(api);
+  await app.showCompare("opening");
+  assert.equal(root.querySelector("[data-compare-publication]").dataset.comparePublication, "private");
+  const lines = all(root, "data-compare-public").map((line) => line.dataset.comparePublic);
+  assert.deepEqual(lines, publication.places.opening);
+  await root.querySelector("[data-compare-edit]").click();
+  const approve = byId(root, "oba-alignment-approved");
+  assert.equal(approve.checked, false);
+  assert.match(byId(root, "oba-alignment-approved-hint").textContent, /\/comparisons\/opening\/.*Your notes on places are never published/);
+  await toggle(approve, true);
+  await toggle(byId(root, "oba-alignment-publish-normalized"), true);
+  await submit(root);
+  const sent = api.calls.at(-1).body.alignment;
+  assert.equal(sent.visibility, "approved");
+  assert.equal(sent.publishNormalized, true);
+  assert.match(root.textContent, /The published comparisons were rebuilt/);
+  const status = root.querySelector("[data-compare-publication]");
+  assert.equal(status.dataset.comparePublication, "published");
+  assert.equal(status.querySelector("a").getAttribute("href"), "/comparisons/opening/");
+}));
+
+test("an approved alignment on a site that does not publish says nothing is public yet", withDom(async () => {
+  const api = compareApi({ "GET research/alignments": () => view({ alignments: [{ ...OPENING(), visibility: "approved" }, SECOND()], publication: { publish: false, places: {} } }) });
+  const { app, root } = mountCompare(api);
+  await app.showCompare("opening");
+  const status = root.querySelector("[data-compare-publication]");
+  assert.equal(status.dataset.comparePublication, "approved");
+  assert.match(status.textContent, /comparisons\.publish/);
+  assert.equal(all(root, "data-compare-public").length, 0, "no preview without one from the server");
 }));
 
 test("removing an alignment can be undone", withDom(async () => {

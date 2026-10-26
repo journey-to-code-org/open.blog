@@ -2866,12 +2866,17 @@ export function comparisonExportText(alignment, columns, selected, { normalized 
 
 /** Copy the parts of an alignments response that describe the stored file into the view state. */
 export function applyAlignmentState(state, result) {
-  for (const key of ["revision", "file", "stored", "alignments", "sources", "passages", "interpretations", "notices", "notice", "correspondences"]) {
+  for (const key of ["revision", "file", "stored", "alignments", "sources", "passages", "interpretations", "notices", "notice", "correspondences", "publication"]) {
     if (result && result[key] !== undefined) state[key] = result[key];
   }
   for (const key of ["alignments", "sources", "passages", "interpretations", "notices"]) if (!Array.isArray(state[key])) state[key] = [];
   if (!Array.isArray(state.correspondences) || !state.correspondences.length) state.correspondences = ALIGNMENT_CORRESPONDENCES.map((item) => ({ ...item }));
   if (typeof state.notice !== "string" || !state.notice) state.notice = ALIGNMENT_NOTICE_TEXT;
+  if (!state.publication || typeof state.publication !== "object") state.publication = {};
+  if (!state.publication.places || typeof state.publication.places !== "object") state.publication.places = {};
+  state.publication.publish = state.publication.publish === true;
+  if (typeof state.publication.url !== "string") state.publication.url = "/comparisons/";
+  if (!Number.isInteger(state.publication.maxExcerptChars)) state.publication.maxExcerptChars = 1000;
   return state;
 }
 
@@ -2919,6 +2924,8 @@ export function alignmentDraft(record = null) {
     confidence: ATLAS_CONFIDENCE.some((item) => item.value === alignment.confidence) ? alignment.confidence : "tentative",
     uncertainty: typeof alignment.uncertainty === "string" ? alignment.uncertainty : "",
     recordedBy: atlasAttributionDraft(alignment.recordedBy),
+    approved: alignment.visibility === "approved",
+    publishNormalized: alignment.publishNormalized === true,
   };
 }
 
@@ -2948,6 +2955,35 @@ export function alignmentMemberPayload(draft) {
   return record;
 }
 
+/**
+ * What a public comparison page would show for each place, as the server
+ * previews it (ADR 0128). The statuses follow the author's rights statement
+ * and the excerpt limit; none of them is a judgement of what is permitted.
+ */
+export function publicPlaceText(status, maxChars = 1000) {
+  switch (status) {
+    case "shown":
+      return "On a public page: its wording is shown, with the version's rights statement.";
+    case "withheld-rights":
+      return "On a public page: identified and located only, because the version's rights are unknown or reserved.";
+    case "withheld-length":
+      return `On a public page: identified and located only, because its wording is longer than the ${maxChars}-character excerpt limit.`;
+    case "unquoted":
+      return "On a public page: located only; no wording is quoted for it.";
+    case "absent":
+      return "On a public page: recorded as absent from this version.";
+    default:
+      return "";
+  }
+}
+
+/** What a save or removal did to the published site, when the site publishes comparisons. */
+export function comparisonBuildText(build) {
+  if (!build || typeof build !== "object") return "";
+  if (build.ok) return " The published comparisons were rebuilt.";
+  return ` The change is saved, but the site could not be rebuilt: ${String(build.error || "unknown error")}`;
+}
+
 /** The full alignment to send. Evidence and unknown stored fields, which this form does not edit, are carried over. */
 export function alignmentPayload(draft) {
   const record = { ...(draft.original || {}) };
@@ -2960,7 +2996,9 @@ export function alignmentPayload(draft) {
   record.confidence = draft.confidence;
   if (String(draft.uncertainty ?? "").trim()) record.uncertainty = draft.uncertainty;
   record.recordedBy = atlasAttributionPayload(draft.recordedBy);
-  record.visibility = "private";
+  record.visibility = draft.approved ? "approved" : "private";
+  delete record.publishNormalized;
+  if (draft.publishNormalized) record.publishNormalized = true;
   return record;
 }
 
@@ -3139,6 +3177,37 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
     );
   };
 
+  const publicationEditor = () => {
+    const publication = state.publication || {};
+    const where = `${publication.url || "/comparisons/"}${draft.id || "<identifier>"}/`;
+    const check = (name, labelText, checked, onChange, hint) =>
+      h(
+        "div",
+        { "data-alignment-field": name },
+        h("div", { class: "oba-capture-check" }, h("input", { id: `${idPrefix}-${name}`, type: "checkbox", checked, "aria-describedby": `${idPrefix}-${name}-hint`, "data-hint-id": `${idPrefix}-${name}-hint`, onChange: (event) => onChange(event.target.checked) }), h("label", { for: `${idPrefix}-${name}` }, labelText)),
+        h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint),
+      );
+    return h(
+      "fieldset",
+      { class: "oba-alignment-publication", id: `${idPrefix}-publication`, tabindex: "-1" },
+      h("legend", {}, "Publication"),
+      check(
+        "approved",
+        "Approve this comparison for publication",
+        draft.approved,
+        (on) => { draft.approved = on; },
+        `Your consent to publish it at ${where} and in comparisons.json once the site turns on comparisons.publish: its label, how the places correspond, who aligned them, confidence, rationale, uncertainty and evidence, and each place's version, makers, locators and rights statement. Wording is shown only where you state a version's rights allow it, and only up to ${publication.maxExcerptChars || 1000} characters a place. Your notes on places are never published. Clearing it removes the comparison from the next build.`,
+      ),
+      check(
+        "publish-normalized",
+        "Also publish my normalizations, labelled",
+        draft.publishNormalized,
+        (on) => { draft.publishNormalized = on; },
+        "Each normalization appears beside the original wording, labelled as yours and not the source text, only where that wording is itself shown.",
+      ),
+    );
+  };
+
   const memberEditor = (member, index) => {
     const base = `member-${index}`;
     const number = index + 1;
@@ -3240,6 +3309,7 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
     field("confidence", "Confidence", h("select", { onChange: (event) => { draft.confidence = event.target.value; } }, ATLAS_CONFIDENCE.map((item) => h("option", { value: item.value, selected: draft.confidence === item.value }, item.label))), "How firmly the recorder holds this reading, never how widely it is accepted."),
     field("uncertainty", "What is uncertain (optional)", h("textarea", { rows: 2, value: draft.uncertainty, dir: "auto", onInput: (event) => { draft.uncertainty = event.target.value; } })),
     partyEditor(),
+    publicationEditor(),
   ];
 
   const conflictNotice = () => {
@@ -3316,7 +3386,7 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
       busy = false;
       touched = false;
       say("");
-      onSaved?.({ item: result.alignment || null });
+      onSaved?.({ item: result.alignment || null, build: result.build });
     } catch (error) {
       busy = false;
       if (error.status === 409 && error.data?.conflict) {
@@ -8717,6 +8787,11 @@ export class ObAdmin extends AdminElement {
             ? h("p", { class: "oba-small" }, "A normalization is recorded. Turn on “Show the author's normalizations” to read it.")
             : null,
         place.note ? h("p", { class: "oba-small" }, "Author's note: ", h("bdi", {}, place.note)) : null,
+        (() => {
+          const statuses = selected?.id ? state.publication?.places?.[selected.id] : null;
+          const line = publicPlaceText(Array.isArray(statuses) ? statuses[place.index] : "", state.publication?.maxExcerptChars);
+          return line ? h("p", { class: "oba-small", "data-compare-public": statuses[place.index] }, line) : null;
+        })(),
         place.notices.map((message) => h("p", { class: "oba-notice", "data-compare-place-notice": "true" }, `Check this place: ${message}`)),
         h(
           "div",
@@ -8878,7 +8953,7 @@ export class ObAdmin extends AdminElement {
       );
     };
 
-    const onSaved = ({ item }) => {
+    const onSaved = ({ item, build }) => {
       if (this.viewVersion !== mountedView) return;
       if (item) selected = { id: item.id, editing: false };
       // Places may have moved or gone, so a selection made before the edit is not carried over.
@@ -8886,10 +8961,22 @@ export class ObAdmin extends AdminElement {
       rightsConfirmed = false;
       renderLists();
       renderPanel(true);
-      say("Alignment saved to the private alignments file.", "oba-ok");
+      say(`Alignment saved to the private alignments file.${comparisonBuildText(build)}`, build && !build.ok ? "oba-error" : "oba-ok");
     };
     const onRefreshed = () => {
       if (this.viewVersion === mountedView) renderLists();
+    };
+
+    const publicationStatus = (alignment) => {
+      const publication = state.publication || {};
+      const url = `${publication.url || "/comparisons/"}${alignment.id}/`;
+      if (alignment.visibility !== "approved") {
+        return h("p", { class: "oba-small", "data-compare-publication": "private" }, "Private: not published. Approve it in Edit alignment to publish it; each place below says what a public page would show.");
+      }
+      if (!publication.publish) {
+        return h("p", { class: "oba-small", "data-compare-publication": "approved" }, "Approved for publication, but this site does not publish comparisons: nothing is public until comparisons.publish is turned on in openblog.json.");
+      }
+      return h("p", { class: "oba-small", "data-compare-publication": "published" }, "Approved and published at ", h("a", { href: url }, url), ". Rights statements are your own declarations.");
     };
 
     const renderAlignment = (alignment) => {
@@ -8904,6 +8991,7 @@ export class ObAdmin extends AdminElement {
         alignment.rationale ? h("p", {}, "Why: ", h("bdi", {}, alignment.rationale)) : null,
         alignment.uncertainty ? h("p", {}, "Uncertain: ", h("bdi", {}, alignment.uncertainty)) : null,
         h("p", { class: "oba-notice", "data-compare-notice": "true" }, state.notice),
+        publicationStatus(alignment),
         h(
           "div",
           { class: "oba-toolbar" },
@@ -8929,7 +9017,7 @@ export class ObAdmin extends AdminElement {
         form = createAlignmentForm({ api: this.api, state, item: alignment, idPrefix: "oba-alignment", onSaved, onRefreshed, onCancel: () => (alignment ? open({ id: alignment.id, editing: false }) : close()) });
         panel.replaceChildren(
           heading(alignment ? `Edit ${nameOf(alignment)}` : "New alignment"),
-          h("p", { class: "oba-small" }, "Private; nothing publishes an alignment. Aligning places records where you read them as corresponding, never that they mean the same thing."),
+          h("p", { class: "oba-small" }, "Private unless you approve it for publication below. Aligning places records where you read them as corresponding, never that they mean the same thing."),
           form.element,
         );
       } else renderAlignment(alignment);
@@ -8968,7 +9056,7 @@ export class ObAdmin extends AdminElement {
         chosen = new Set();
         renderLists();
         renderPanel();
-        say("Removed from the private alignments file.", "oba-ok");
+        say(`Removed from the private alignments file.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
         const removed = result.removed;
         if (removed) {
           undoBox.replaceChildren(h("button", { class: "oba-btn", type: "button", "data-compare-undo-remove": removed.id, onClick: () => undo(removed) }, `Undo removing ${nameOf(removed)}`));
