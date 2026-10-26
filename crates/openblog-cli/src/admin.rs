@@ -11753,7 +11753,7 @@ mod tests {
     // Every atlas field holds its own sentinel, including approved items: there is
     // no publication projection yet, so approval must not open any surface either.
 
-    const ATLAS_SENTINELS: [(&str, &str); 9] = [
+    const ATLAS_SENTINELS: [(&str, &str); 14] = [
         ("entry id", "ob-atlas-entry-id-5309"),
         ("label", "ob-atlas-label-5309"),
         ("alias", "ob-atlas-alias-5309"),
@@ -11763,6 +11763,14 @@ mod tests {
         ("uncertainty", "ob-atlas-uncertainty-5309"),
         ("locator", "ob-atlas-locator-5309"),
         ("unknown field", "ob-atlas-extra-5309"),
+        ("dissent note", "ob-atlas-dissent-note-5309"),
+        ("dissenting party", "ob-atlas-dissenter-5309"),
+        (
+            "relationship unknown field",
+            "ob-atlas-relationship-extra-5309",
+        ),
+        ("evidence unknown field", "ob-atlas-evidence-extra-5309"),
+        ("top-level unknown field", "ob-atlas-top-extra-5309"),
     ];
 
     fn atlas_leaked(bytes: &[u8]) -> Vec<&'static str> {
@@ -11806,12 +11814,22 @@ mod tests {
             "from": ATLAS_SENTINELS[0].1, "to": "politeia",
             "assertedBy": {"kind": "named", "name": ATLAS_SENTINELS[5].1},
             "uncertainty": ATLAS_SENTINELS[6].1, "visibility": "approved",
-            "evidence": [{"source": "slings",
+            "contestedBy": [{"by": {"kind": "named", "name": ATLAS_SENTINELS[10].1},
+                "note": ATLAS_SENTINELS[9].1}],
+            "shelf": ATLAS_SENTINELS[11].1,
+            "evidence": [{"source": "slings", "margin": ATLAS_SENTINELS[12].1,
                 "locators": [{"kind": "page", "value": ATLAS_SENTINELS[7].1}]}]}))
         .unwrap();
         crate::atlas_store::create_relationship(&f.dir, &two.revision, relationship, &none)
             .unwrap();
-        let stored = fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        // The store edits entries and relationships only; a top-level unknown
+        // field arrives by hand edit, and the stored atlas stays valid with it.
+        let path = f.dir.join(crate::atlas_store::ATLAS_FILE);
+        let mut document: Json = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        document["workspace"] = json!(ATLAS_SENTINELS[13].1);
+        fs::write(&path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+        crate::atlas_store::load(&f.dir, &none).expect("the hand-edited atlas is valid");
+        let stored = fs::read(&path).unwrap();
         assert_eq!(
             atlas_leaked(&stored).len(),
             ATLAS_SENTINELS.len(),
@@ -11995,6 +12013,11 @@ mod tests {
                 include_str!("../../openblog-core/src/research_notes.rs"),
             ),
             ("private_guard.rs", include_str!("private_guard.rs")),
+            ("atlas_store.rs", include_str!("atlas_store.rs")),
+            (
+                "knowledge_atlas.rs",
+                include_str!("../../openblog-core/src/knowledge_atlas.rs"),
+            ),
         ];
         let banned = [
             "println!",

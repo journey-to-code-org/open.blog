@@ -832,7 +832,7 @@ mod tests {
         );
         fs::write(root.join(crate::notebook_store::NOTEBOOK_FILE), notebook).unwrap();
         let atlas = format!(
-            r#"{{"version":1,"entries":[{{"id":"{ATLAS_MARKER}","kind":"concept","label":"{ATLAS_MARKER} label","summary":"{ATLAS_MARKER} summary","visibility":"approved"}},{{"id":"w","kind":"work","label":"W","source":"{PRIVATE_MARKER}","visibility":"approved"}}],"relationships":[{{"id":"r","kind":"discusses","from":"w","to":"{ATLAS_MARKER}","assertedBy":{{"kind":"author"}},"evidence":[{{"source":"{PRIVATE_MARKER}","locators":[{{"kind":"section","value":"{ATLAS_MARKER}"}}]}}],"uncertainty":"{ATLAS_MARKER} doubt"}}]}}"#
+            r#"{{"version":1,"entries":[{{"id":"{ATLAS_MARKER}","kind":"concept","label":"{ATLAS_MARKER} label","summary":"{ATLAS_MARKER} summary","visibility":"approved"}},{{"id":"w","kind":"work","label":"W","source":"{PRIVATE_MARKER}","visibility":"approved"}}],"relationships":[{{"id":"r","kind":"discusses","from":"w","to":"{ATLAS_MARKER}","assertedBy":{{"kind":"author"}},"evidence":[{{"source":"{PRIVATE_MARKER}","locators":[{{"kind":"section","value":"{ATLAS_MARKER}"}}],"margin":"{ATLAS_MARKER} evidence extra"}}],"uncertainty":"{ATLAS_MARKER} doubt","contestedBy":[{{"by":{{"kind":"named","name":"{ATLAS_MARKER} dissenter"}},"note":"{ATLAS_MARKER} dissent note"}}],"shelf":"{ATLAS_MARKER} relationship extra"}}],"workspace":"{ATLAS_MARKER} top-level extra"}}"#
         );
         // Positive control: the seeded file really is an atlas.
         assert!(openblog_core::research_bundle::looks_like_private_research(
