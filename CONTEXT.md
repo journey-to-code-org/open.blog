@@ -713,8 +713,74 @@ _Avoid_: Source identifier; treating syntax checks as proof the identifier resol
 
 **Source location**:
 A scheme-qualified position, such as a page, folio, line, or timestamp, inside the specific
-work, edition, translation, or witness a reference points at.
+work, edition, translation, or witness a reference points at. In a multi-volume edition or
+witness it also names its volume.
 _Avoid_: Citation, URL fragment
+
+**Realization chain**:
+A record and the records it realizes, followed through `of` up to the work, each keeping its
+own kind: a reference, the edition it points into, the translation that edition prints, and the
+work. A translation in the chain is never read as an edition or as the original work (ADR 0112).
+_Avoid_: Version history, lineage when a revision is meant
+
+**Revision**:
+An edition that revises an earlier edition of the same text, recorded with `revises`. A new
+translation is never a revision; it is its own translation (ADR 0112).
+_Avoid_: Reprint, version, new translation
+
+**Witness identity**:
+The repository and shelfmark that identify one held copy. Two witnesses never share both
+(ADR 0112).
+_Avoid_: Call number alone, CSL archive
+
+**Volume**:
+One physical part of an edition or witness that declares several. A page or folio in such a
+record must name its volume, because pages restart in each (ADR 0112).
+_Avoid_: Issue, part, tome when a separate edition is meant
+
+**Rights declaration**:
+The author's own statement of the rights in one version's text, or in an interpretation's text:
+a rights status, an optional one-line note and, for an open licence, the licence's name. It is
+private and never a legal determination (ADR 0113).
+_Avoid_: Licence check, clearance, permission
+
+**Rights status**:
+One of unknown, rights reserved, permission, open licence, public domain, or own work, as the
+author states it. A version that declares none is unknown, and no version inherits a status
+from the work, edition, or translation it comes from (ADR 0113).
+_Avoid_: Allowed, cleared, copyright status as a fact
+
+**Attribution certainty**:
+How firmly a name is tied to a source or interpretation, as the author records it: stated by the
+source, attributed by tradition or scholarship, uncertain, or disputed. Absent means not recorded,
+never "stated" by inference (ADR 0114).
+_Avoid_: Confidence score, authorship verdict
+
+**Anonymous source**:
+A work, edition, translation, or witness whose source names no maker. Names tradition assigns may
+still be recorded as attributed, uncertain, or disputed, but never as stated (ADR 0114).
+_Avoid_: Unknown author when the creators are simply not filled in
+
+**Interpretation**:
+An attributed rendering or reading of one located place in one exact text in the source library,
+kept beside the library's records. It is private research, never a source, never cited, and
+never a credit (ADR 0115).
+_Avoid_: Translation (a published version), annotation, research note, claim
+
+**Rendering**:
+An interpretation that translates one located place into another language. It names the edition,
+translation, or witness it was made from.
+_Avoid_: Translation when the library's published translation record is meant
+
+**Reading**:
+An interpretation of what one located place means.
+_Avoid_: Claim, evidence, commentary when a library source is meant
+
+**Interpreter**:
+Who made an interpretation: a contributor named by registry key, which reuses their identity
+without creating a work credit, or anyone else by a descriptive name, each with an optional
+attribution certainty. An interpretation with no interpreter is explicitly anonymous (ADR 0115).
+_Avoid_: Credit, author, creator
 
 **Knowledge Atlas**:
 An author's private, versioned map of contextual entries and the attributed relationships between

@@ -5,6 +5,17 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- The private source library can now record more about each version of a work: which earlier
+  edition an edition revises, the repository and shelfmark of a manuscript, how many volumes an
+  edition has (so a page names its volume), and your own statement of the rights in a version's
+  text, which is unknown until you state it and is never a legal judgement. Creators can be
+  marked as stated, attributed, uncertain or disputed, and a work can be marked anonymous. The
+  library can also hold private interpretations: your own or someone else's rendering or reading
+  of a place in an exact edition, translation or manuscript, attributed to a contributor or a
+  named person. Contributors named on an interpretation cannot be removed from the registry
+  until it changes. Existing libraries read and save exactly as before, and none of this is
+  published.
+
 ## [0.31.0] - 2026-10-26
 
 - Contributors to a shared reflection can pin moments to its sources in Admin: a time or range in
