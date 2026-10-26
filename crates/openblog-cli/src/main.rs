@@ -921,8 +921,10 @@ mod tests {
             .unwrap()
         };
         assert_eq!(citation_summary(&load("---\nPlain [@w].\n")), None);
-        let summary =
-            citation_summary(&load("citations: notes\n---\nSee [@w] and [@w, canonical 2].\n")).unwrap();
+        let summary = citation_summary(&load(
+            "citations: notes\n---\nSee [@w] and [@w, canonical 2].\n",
+        ))
+        .unwrap();
         assert!(
             summary.starts_with("OK: 1 post(s) publish 2 citation(s) of 1 reference(s).")
                 && summary.contains("offline")
