@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use crate::accessibility::{self, AccessibilityFinding, DocumentAuditInput};
+use crate::bibliography::{self, CitationLocale, CitationNoteLabels, CitationStyle};
 use crate::capability::CapabilityDescriptor;
 use crate::config::SiteConfig;
 use crate::contributor::{self, CreditProvenance, ResolvedCredit};
@@ -17,6 +18,7 @@ use crate::recipe::Recipe;
 use crate::research::{self, EvidenceFinding, ResearchMetadata};
 use crate::shared_source::SharedAttribution;
 use crate::slug::{from_file_stem, slugify};
+use crate::source_library::SourceLibrary;
 use crate::video::VideoMetadata;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,6 +35,20 @@ pub struct Sources {
     pub credits: Vec<SourceFile>,
     pub series: Vec<SourceFile>,
     pub pages: Vec<SourceFile>,
+    /// The private source library, when one is stored. A load reads it only
+    /// for a post that opts in to citations and has some, and publishes only
+    /// the cited references' public description (ADR 0054).
+    pub source_library: Option<LibrarySource>,
+}
+
+/// The private source library as a site load receives it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LibrarySource {
+    /// The library file's project-relative path and text.
+    Text(SourceFile),
+    /// The library exists but could not be read safely. Only a post that
+    /// needs it is refused, with this reason.
+    Unreadable(String),
 }
 
 /// Validated association between Markdown posts and their adjacent credit
@@ -179,6 +195,10 @@ pub struct Post {
     pub aliases: Vec<String>,
     /// Canonical Markdown body retained for portable representations.
     pub(crate) authored_markdown: String,
+    /// The body with its citations published as notes, for a post that opts
+    /// in and cites; every public representation reads it instead of the
+    /// authored body (ADR 0054).
+    pub(crate) published_markdown: Option<String>,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -219,6 +239,16 @@ impl Post {
     /// Canonical authored Markdown used to derive portable representations.
     pub fn authored_markdown(&self) -> &str {
         &self.authored_markdown
+    }
+
+    /// The Markdown every public representation is built from: the authored
+    /// body, or for a post that publishes citations, that body with them
+    /// written as generated notes. One body, so the native page, portable
+    /// copies and feeds can never disagree about a citation.
+    pub fn publication_markdown(&self) -> &str {
+        self.published_markdown
+            .as_deref()
+            .unwrap_or(&self.authored_markdown)
     }
 
     /// Actual authors only, in authored credit order. Secondary contributors
@@ -325,6 +355,16 @@ impl Site {
         let mut evidence = Vec::new();
         let render_options = config.render_options();
         let credit_sidecars = associate_credit_sidecars(&sources);
+        // Parsed on first need only, so a site without citations never reads it
+        // and a broken library refuses only the posts that cite.
+        let parsed_library = std::cell::OnceCell::new();
+        let library = || -> Result<Option<&SourceLibrary>, String> {
+            parsed_library
+                .get_or_init(|| read_library(sources.source_library.as_ref(), &config))
+                .as_ref()
+                .map(Option::as_ref)
+                .map_err(Clone::clone)
+        };
         errors.extend(credit_sidecars.errors.iter().cloned());
 
         // Series definitions first, so posts can reference them.
@@ -362,7 +402,7 @@ impl Site {
                 continue;
             }
             let sidecar = credit_sidecars.by_post.get(&normalized_path).copied();
-            match load_post(file, &config, render_options) {
+            match load_post_in(file, &config, render_options, Citations::Publish(&library)) {
                 Ok(mut post) => {
                     if let Err(error) = apply_credits(&mut post, &config, sidecar) {
                         errors.push(format!(
@@ -726,20 +766,99 @@ fn optional_string(value: Option<&str>) -> Option<String> {
     value.map(str::to_string).filter(|v| !v.is_empty())
 }
 
-/// Parse one post file.
+/// Parse the private library for a load, with a message that names the file
+/// and how to see the problems, never the library's contents.
+fn read_library(
+    source: Option<&LibrarySource>,
+    config: &SiteConfig,
+) -> Result<Option<SourceLibrary>, String> {
+    match source {
+        None => Ok(None),
+        Some(LibrarySource::Unreadable(reason)) => Err(format!(
+            "the private source library cannot be read ({reason})"
+        )),
+        Some(LibrarySource::Text(file)) => {
+            SourceLibrary::parse(&file.contents, &config.contributors)
+                .map(Some)
+                .map_err(|problems| {
+                    format!(
+                "the private source library {} has {} problem(s); run `openblog check` to see them",
+                file.path,
+                problems.len()
+            )
+                })
+        }
+    }
+}
+
+/// How a post load treats a post that opts in to citations.
+enum Citations<'l> {
+    /// Keep them as authored text, for callers that read a post's metadata
+    /// (listings, publication status) without the private library.
+    Unpublished,
+    /// Publish them as notes, reading the library on first need.
+    Publish(&'l dyn Fn() -> Result<Option<&'l SourceLibrary>, String>),
+}
+
+/// Parse one post file. A post that opts in to citations keeps them as
+/// authored text here, since this reads no private library; a site load
+/// ([`Site::load`]) and [`load_post_cited`] publish them.
 pub fn load_post(
     file: &SourceFile,
     config: &SiteConfig,
     options: RenderOptions<'_>,
 ) -> Result<Post, String> {
+    load_post_in(file, config, options, Citations::Unpublished)
+}
+
+/// Parse one post file and publish its citations against `library` exactly
+/// as a site load does.
+pub fn load_post_cited(
+    file: &SourceFile,
+    config: &SiteConfig,
+    options: RenderOptions<'_>,
+    library: Option<&SourceLibrary>,
+) -> Result<Post, String> {
+    let library = || Ok(library);
+    load_post_in(file, config, options, Citations::Publish(&library))
+}
+
+fn load_post_in(
+    file: &SourceFile,
+    config: &SiteConfig,
+    options: RenderOptions<'_>,
+    citations: Citations<'_>,
+) -> Result<Post, String> {
     let doc = frontmatter::parse(&file.contents)?;
     let fm = &doc.front_matter;
     let mut profile = profile::resolve(fm);
     let is_recipe = profile.behavior == ProfileBehavior::Recipe;
+    // Citations are opt-in (ADR 0049): a post without `citations` is read
+    // exactly as before, and so is one that opts in but cites nothing.
+    let citation_style = CitationStyle::from_front_matter(first(fm, &["citations"]))?;
+    let published = match (citation_style, citations) {
+        (Some(style), Citations::Publish(library)) => {
+            let locale = CitationLocale::for_post(
+                first(fm, &["citationLocale", "citation_locale"]),
+                &config.language,
+            )?;
+            bibliography::publish_citations(&doc.body, doc.body_line, style, locale, library)?
+                .map(|published| (published, locale))
+        }
+        _ => None,
+    };
     let rendered = markdown::render(
-        &doc.body,
+        published
+            .as_ref()
+            .map_or(doc.body.as_str(), |(published, _)| &published.markdown),
         RenderOptions {
             recipe: is_recipe,
+            citation_notes: published
+                .as_ref()
+                .map(|(published, locale)| CitationNoteLabels {
+                    prefix: &published.prefix,
+                    locale: *locale,
+                }),
             ..options
         },
     );
@@ -872,6 +991,13 @@ pub fn load_post(
     let (credits, credit_provenance) =
         contributor::resolve(&config.author, &config.contributors, None)
             .expect("legacy author resolution cannot fail");
+    let mut capabilities = rendered.capabilities;
+    if published.is_some() {
+        capabilities.push(CapabilityDescriptor::describe(
+            "citations",
+            Some("ob-citation-notes"),
+        ));
+    }
 
     Ok(Post {
         url: config.post_url(&slug),
@@ -896,6 +1022,7 @@ pub fn load_post(
         theme: optional_string(first(fm, &["theme"])),
         aliases: aliases(fm)?,
         authored_markdown: doc.body,
+        published_markdown: published.map(|(published, _)| published.markdown),
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
@@ -908,7 +1035,7 @@ pub fn load_post(
         profile_warnings: profile.warnings,
         accessibility,
         evidence,
-        capabilities: rendered.capabilities,
+        capabilities,
         recipe,
         research,
         video,
@@ -1132,6 +1259,7 @@ mod tests {
             credits: Vec::new(),
             series: vec![post("series/guide.md", "---\nname: The Guide\ntheme: paper\n---\nAbout the guide")],
             pages: vec![post("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
+            source_library: None,
         });
         assert_eq!(s.posts.len(), 2);
         assert_eq!(s.posts[0].slug, "second");

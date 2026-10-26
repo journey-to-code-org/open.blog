@@ -16,12 +16,15 @@
 //! - [`research_bundle`]: versioned portable export and dry-run import of that notebook, and the structural check build guards use
 //! - [`research_search`]: deterministic search, filters and backlinks over that private notebook
 //! - [`source_interchange`]: dry-run CSL JSON import and deterministic CSL JSON / BibTeX export
+//! - [`citations`]: the opt-in `[@key, locator]` syntax, its resolver and CSL citation items
+//! - [`bibliography`]: opt-in publication of citations as numbered notes or a bibliography
 
 pub mod accessibility;
 pub mod approval;
 pub mod arrangement;
 pub mod assembly;
 pub mod assistant_guide;
+pub mod bibliography;
 pub mod capability;
 pub mod citations;
 pub mod collaboration;

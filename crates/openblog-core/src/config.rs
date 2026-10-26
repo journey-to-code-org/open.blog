@@ -750,6 +750,7 @@ impl SiteConfig {
                 },
             ),
             web_libraries: Some(&self.web_sandbox.libraries),
+            citation_notes: None,
         }
     }
 
