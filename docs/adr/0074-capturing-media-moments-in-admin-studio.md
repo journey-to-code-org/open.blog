@@ -51,6 +51,11 @@ working link even when an embed is missing, and without exposing anyone's words 
   written once per revision, as ADR 0073 says: an offer of a revision that was already sealed
   shares no later moment edit, and the response says so (`momentsShared: false`). Sealing after the
   offer fails closed: if it cannot be written, the moments stay private.
+  - A seal does not raise the set's revision. Seals are not something a participant edits or sends
+    back, so an offer never makes the revision the writer's panel holds stale; the file's
+    compare-and-swap still refuses a seal written over a concurrent change.
+  - After a successful offer the panel reads the moments again, keeping anything typed, so
+    moments others revealed meanwhile appear.
 - **One subject everywhere.** The stored set is loaded wherever the approval subject is built: the
   combined preview, approving and withdrawing, approval reconciliation, the approval rule view and
   the publish and schedule gate. Reconciliation also drops the moments and seals of anyone who no

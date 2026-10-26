@@ -811,6 +811,42 @@ fn moments_stay_private_until_sealed_to_the_draft_revision_another_author_may_re
     assert_eq!(set.seal("mallory", &ALL, 3), Err(MomentError::Denied));
 }
 
+/// An offer seals the owner's moments, but a seal is not something the owner's panel edits, so it
+/// never makes the revision the panel holds stale: the next add, edit or removal still goes through.
+#[test]
+fn sealing_leaves_the_revision_the_owner_edits_against() {
+    let sources = record().sources;
+    let mut set = MomentSet::new();
+    let shared = add(
+        &mut set,
+        "ann",
+        publish(observe(VIDEO, vec![at("2")], "for the piece")),
+    )
+    .unwrap();
+    let read = set.revision();
+    assert_eq!(set.seal("ann", &ALL, 1), Ok(true));
+    assert!(set.is_sealed("ann", 1));
+    assert_eq!(set.revision(), read, "a seal is not an edit");
+    // The seal is stored all the same: it survives a round trip.
+    let reloaded = MomentSet::from_json(&set.to_json()).unwrap();
+    assert_eq!(reloaded, set);
+    assert!(reloaded.is_sealed("ann", 1));
+    // The revision Ann read before offering still edits.
+    set.edit(
+        "ann",
+        &ALL,
+        read,
+        &sources,
+        &shared,
+        publish(observe(VIDEO, vec![at("2")], "after the offer")),
+    )
+    .unwrap();
+    assert_eq!(set.revision(), read + 1);
+    // A newer seal still leaves the revision where the edit put it.
+    assert_eq!(set.seal("ann", &ALL, 2), Ok(true));
+    assert_eq!(set.revision(), read + 1);
+}
+
 /// Seals are never rewritten, so a seal that covered the source's title would hide every revealed
 /// moment on a source the moment someone corrected it. The binding still notices the change.
 #[test]

@@ -7862,6 +7862,9 @@ export class ObAdmin extends AdminElement {
         const result = await this.api.call(method, path, { json });
         status.textContent = done(result);
         await loadSharing();
+        // An offer seals the writer's proposed moments and a reveal may share others' moments, so
+        // the moments panel reads them again, keeping anything typed there.
+        if (path === "collaboration/reveal/ready") await moments?.load(false);
         // The control that was pressed is gone; keep keyboard and screen-reader users in place.
         sharing.querySelector(`#${prefix}-sharing-heading`)?.focus();
         return true;

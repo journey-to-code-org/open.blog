@@ -57,7 +57,8 @@ early, or to publish words nobody approved.
   - Only authors act. Anyone else is `Denied` for every call, reads included.
   - Only the owner edits or removes a moment. Another author's moment and a missing id give the
     same `Denied`.
-  - Every change names the set revision the caller read, and a mismatch is `Stale`.
+  - Every change names the set revision the caller read, and a mismatch is `Stale`. Sealing is
+    not such a change: it leaves the revision as it was.
   - A change is applied to a copy and kept only when it is valid and storable, so a refused call
     changes nothing.
 - **Approval binding.** `binding_frame` returns a count, then one digest per publication moment in

@@ -720,15 +720,25 @@ impl MomentSet {
         Ok(())
     }
 
-    /// Apply `change` to a copy and keep it only if the result is storable, so a refused change
-    /// leaves the set exactly as it was.
+    /// Apply a participant's `change` to a copy, raise the revision, and keep it only if the
+    /// result is storable, so a refused change leaves the set exactly as it was.
     fn commit(&mut self, change: impl FnOnce(&mut Self)) -> Result<(), MomentError> {
-        let mut next = self.clone();
-        change(&mut next);
-        next.revision = self
+        let revision = self
             .revision
             .checked_add(1)
             .ok_or(MomentError::Invalid(MomentField::Limit))?;
+        self.store(|next| {
+            change(next);
+            next.revision = revision;
+        })
+    }
+
+    /// Apply `change` to a copy and keep it only if the result is storable. The revision is the
+    /// caller's to raise: [`Self::commit`] does for what participants edit, while a seal, which no
+    /// client edits or sends back, leaves it as it was.
+    fn store(&mut self, change: impl FnOnce(&mut Self)) -> Result<(), MomentError> {
+        let mut next = self.clone();
+        change(&mut next);
         if next.to_json().len() > MAX_MOMENT_SET_BYTES {
             return Err(MomentError::Invalid(MomentField::Limit));
         }
@@ -924,6 +934,10 @@ impl MomentSet {
     /// forward: sealing an older or the same revision again leaves the first seal, so an edit made
     /// after a reveal stays private until a newer revision is revealed. Returns whether the
     /// current moments are now the sealed ones.
+    ///
+    /// Sealing leaves [`Self::revision`] as it was: seals are not something a participant edits,
+    /// so an offer never makes the revision the owner's panel holds stale. The stored file's own
+    /// compare-and-swap still refuses a seal written over a concurrent change.
     pub fn seal(
         &mut self,
         owner: &str,
@@ -944,7 +958,7 @@ impl MomentSet {
             revision,
             digest,
         };
-        self.commit(|set| {
+        self.store(|set| {
             set.seals.retain(|existing| existing.participant != owner);
             set.seals.push(seal);
         })?;

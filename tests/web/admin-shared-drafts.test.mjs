@@ -1540,3 +1540,18 @@ test("offering a revision says when later moment edits stay private", withDom(as
   await settle();
   assert.match(textOf(panel), /Your moments changed after you first offered this revision/);
 }));
+
+test("a successful offer reloads the moments panel, keeping what was typed", withDom(async () => {
+  const api = fakeApi({ number: 2, markdown: "mine", reveal: { slots: SLOTS.slice(0, 2).map((slot) => ({ ...slot, ready: false })) } });
+  const { panel } = await openDraft(api);
+  const before = api.state.calls.filter((call) => call.key === "GET collaboration/moments").length;
+  await typeMoment(panel, { observation: "Half-typed note" });
+  // Someone else revealed moments meanwhile; the offer brings them in.
+  api.state.moments = { ...api.state.moments, shared: [{ participant: { id: "p-grace", displayName: "Grace" }, moments: [storedMoment({ id: "moment-9", observation: "Seen after the offer.", intent: "publication" })] }] };
+  await button(panel, "Offer revision 2 to the group").click();
+  await button(panel.querySelector(".oba-confirm"), "Share revision 2").click();
+  await settle();
+  assert.equal(api.state.calls.filter((call) => call.key === "GET collaboration/moments").length, before + 1);
+  assert.match(textOf(momentsRoot(panel)), /Seen after the offer\./);
+  assert.equal(momentField(panel, "observation").value, "Half-typed note");
+}));
