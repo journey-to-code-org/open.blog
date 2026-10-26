@@ -15,6 +15,7 @@ use html5ever::{local_name, ns, QualName};
 use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 use openblog_core::config::{SyndicationProvider, SyndicationTargetConfig};
 use openblog_core::frontmatter;
+use openblog_core::model::SeriesContext;
 use openblog_core::portability::{
     destination_content_plan, destination_payload_plan, destination_policies, destination_policy,
     destination_tag_plan, DestinationContentPlan, DestinationPayloadPlan,
@@ -290,7 +291,8 @@ fn run_with_transport(
         .iter()
         .find(|source| source.path == post.source)
         .ok_or_else(|| format!("cannot find source `{}`", post.source))?;
-    let syndication_post = syndication_post(post, &source.contents, &config)?;
+    let syndication_post =
+        syndication_post(post, &source.contents, &config, loaded.series_context(post))?;
 
     let selected = select_targets(&config, &options.target_names)?;
     let state_path = private_state_path(root, &config.syndication.state_file)?;
@@ -611,6 +613,7 @@ fn syndication_post(
     post: &Post,
     source: &str,
     config: &SiteConfig,
+    series: Option<SeriesContext>,
 ) -> Result<SyndicationPost, String> {
     let document = frontmatter::parse(source)?;
     let source_id = document
@@ -621,7 +624,8 @@ fn syndication_post(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| format!("source:{}", post.source.replace('\\', "/")));
-    let projection = PortableProjection::from_post(post, config)?;
+    // A part of a collaborative series links its canonical series page in the copy (ADR 0041).
+    let projection = PortableProjection::from_post(post, config)?.with_series(series);
     let canonical_url = projection.canonical_url().to_string();
     let canonical = url_context::validate_public_url(&canonical_url)
         .map_err(|error| format!("canonical URL is not public: {error}"))?;
@@ -1851,7 +1855,7 @@ mod tests {
                 LoadOptions::default(),
             )
             .unwrap_or_else(|errors| panic!("{}: {errors:?}", fixture["name"]));
-            let post = syndication_post(&site.posts[0], source, &config)
+            let post = syndication_post(&site.posts[0], source, &config, None)
                 .unwrap_or_else(|error| panic!("{}: {error}", fixture["name"]));
 
             let dev = dev_request(&post, None, false, "test").unwrap();
@@ -1921,7 +1925,7 @@ mod tests {
             },
             LoadOptions::default(),
         ).unwrap();
-        let post = syndication_post(&loaded.posts[0], source, &config).unwrap();
+        let post = syndication_post(&loaded.posts[0], source, &config, None).unwrap();
         let selected = select_targets(&config, &[]).unwrap();
         let plan = dry_run_json_plan(&post, &selected, &State::default(), false);
         assert_eq!(plan["targets"].as_array().unwrap().len(), 5);
@@ -2151,7 +2155,7 @@ mod tests {
                 LoadOptions::default(),
             )
             .unwrap();
-            syndication_post(&site.posts[0], &source, &config)
+            syndication_post(&site.posts[0], &source, &config, None)
                 .unwrap()
                 .revision
         };

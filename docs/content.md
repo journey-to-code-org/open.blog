@@ -541,7 +541,9 @@ A series that holds a collaborative work, a published post whose credits name tw
 authors (such as a shared reflection), also says who wrote what: its page lists the series'
 contributors, and every part, ordinary posts included, shows "By ..." on the series page, in the
 previous and next links and in the list of all parts. Names come from each post's credits and are
-shown as plain text. Every other series looks exactly as before.
+shown as plain text. Every other series looks exactly as before. Feeds, exports and syndicated
+copies of such a series' parts say the same: the series and a link to it, the part's place in it,
+and who wrote it.
 
 ## Pages
 

@@ -466,3 +466,63 @@ fn a_published_shared_reflection_names_its_authors_in_the_series_it_joins() {
         assert!(!series.contains(private), "{private}");
     }
 }
+
+#[test]
+fn a_shared_reflections_feeds_and_copies_carry_its_series_but_no_collaboration_state() {
+    use openblog_core::portability::PortableProjection;
+
+    let (_, made) = placed("shared-0a1b2c3d4e5f", "Notes", Some(2));
+    let solo = file(
+        "posts/solo.md",
+        "---\ntitle: Solo\ndate: 2029-01-01\nseries: notes\nseriesOrder: 1\n---\nx",
+    );
+    let site = load(
+        vec![solo, file(&made.path, &made.source)],
+        vec![file(&made.credits_path, &made.credits)],
+        vec![],
+    );
+    let files = openblog_core::render::generate(&site, &openblog_core::ThemeSet::new()).unwrap();
+    let output = |path: &str| {
+        files
+            .iter()
+            .find(|file| file.path == path)
+            .unwrap_or_else(|| panic!("no {path}"))
+            .contents
+            .clone()
+    };
+    let shared = site.posts.iter().find(|post| post.title != "Solo").unwrap();
+    let solo = site.posts.iter().find(|post| post.title == "Solo").unwrap();
+    let mut public = vec![
+        output("rss.xml"),
+        output("feed.json"),
+        output("llms-full.txt"),
+    ];
+    for post in [shared, solo] {
+        let projection = PortableProjection::for_site(&site, post).unwrap();
+        public.push(projection.portable_html().unwrap().html);
+        public.push(projection.portable_markdown().unwrap());
+        public.push(projection.portable_text().unwrap());
+    }
+    // The series, the shared part's place and its authors travel with every copy.
+    let rss = &public[0];
+    assert!(
+        rss.contains("<category domain=\"https://example.test/series/notes/\">Notes</category>")
+    );
+    assert!(public[3].contains(
+        "Part 2 of 2 in the series <a href=\"https://example.test/series/notes/\">Notes</a>. This part is by Ann and Bo. Series contributors: Site Owner, Ann, and Bo."
+    ));
+    assert!(public[6].contains("Part 1 of 2 in the series"));
+    // No account, publication id, approval or other collaboration state reaches any of them.
+    for text in &public {
+        for private in [
+            "ann-admin",
+            "bo-admin",
+            "shared-0a1b2c3d4e5f",
+            "approv",
+            "binding",
+            "participant",
+        ] {
+            assert!(!text.contains(private), "{private} in {text}");
+        }
+    }
+}

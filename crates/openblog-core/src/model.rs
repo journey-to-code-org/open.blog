@@ -271,6 +271,24 @@ pub struct Series {
     pub capabilities: Vec<CapabilityDescriptor>,
 }
 
+/// One published part's place in a collaborative series, as feeds and portable copies state it
+/// (ADR 0041). Built by `Site::series_context`; every value is already public on the series page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeriesContext {
+    /// The series name, from its series definition or its slug.
+    pub name: String,
+    /// The series page, relative to the site root (`/series/<slug>/`).
+    pub url: String,
+    /// One-based position in the series' published reading order.
+    pub part: usize,
+    /// How many published parts the series has.
+    pub parts: usize,
+    /// This part's named authors, in credit order.
+    pub part_authors: Vec<String>,
+    /// The series' named authors, once each, in order of first appearance.
+    pub contributors: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tag {
     pub name: String,
@@ -634,8 +652,15 @@ impl Site {
     /// same person when their names match (and their profile URLs, when both have one), and any
     /// two credits with the same name and URL are the same person (ADR 0040).
     pub fn series_contributors(&self, series: &Series) -> Vec<&crate::contributor::ResolvedCredit> {
+        self.contributors_among(series.posts.iter().copied())
+    }
+
+    fn contributors_among(
+        &self,
+        parts: impl Iterator<Item = usize>,
+    ) -> Vec<&crate::contributor::ResolvedCredit> {
         let mut out: Vec<&crate::contributor::ResolvedCredit> = Vec::new();
-        for &index in &series.posts {
+        for index in parts {
             for credit in self.posts[index].authors() {
                 if !out.iter().any(|known| same_person(known, credit)) {
                     out.push(credit);
@@ -643,6 +668,51 @@ impl Site {
             }
         }
         out
+    }
+
+    /// The public series context feeds and portable copies carry for `post` (ADR 0041): only
+    /// when the post is a published part of a collaborative series, and `None` otherwise, so
+    /// every other post's feed items and portable copies stay exactly as they were. Drafts are
+    /// not parts here even on a site loaded with them, so a draft neither gets a context nor
+    /// counts towards another part's position, total or contributors. Everything in it is
+    /// already public on the series page: the series name and URL, the part's place in the
+    /// reading order, and author names from approved work credits. It reads no collaboration
+    /// state.
+    pub fn series_context(&self, post: &Post) -> Option<SeriesContext> {
+        if post.draft {
+            return None;
+        }
+        let series = self.series_by_slug(post.series.as_deref()?)?;
+        let parts: Vec<usize> = series
+            .posts
+            .iter()
+            .copied()
+            .filter(|&index| !self.posts[index].draft)
+            .collect();
+        let position = parts
+            .iter()
+            .position(|&index| self.posts[index].source == post.source)?;
+        if !parts
+            .iter()
+            .any(|&index| self.posts[index].is_collaborative())
+        {
+            return None;
+        }
+        let names = |credits: Vec<&crate::contributor::ResolvedCredit>| {
+            credits
+                .into_iter()
+                .map(|credit| credit.contributor.name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .collect::<Vec<_>>()
+        };
+        Some(SeriesContext {
+            name: series.name.clone(),
+            url: series.url.clone(),
+            part: position + 1,
+            parts: parts.len(),
+            part_authors: names(self.posts[parts[position]].authors().collect()),
+            contributors: names(self.contributors_among(parts.iter().copied())),
+        })
     }
 
     /// Whether the series names its parts' authors on its page and in its navigation: only when

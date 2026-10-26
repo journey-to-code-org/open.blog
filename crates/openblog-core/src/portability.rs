@@ -5,7 +5,7 @@ use crate::config::{SiteConfig, SyndicationProvider};
 use crate::contributor::{CreditProvenance, ResolvedCredit};
 use crate::escape;
 use crate::markdown::{CodeRunnerRenderOptions, PortableContext, RenderOptions};
-use crate::model::{CommentsPolicy, Post};
+use crate::model::{CommentsPolicy, Post, SeriesContext, Site};
 use crate::recipe::Recipe;
 use crate::research::{ResearchMetadata, ResearchReference};
 use crate::video::VideoMetadata;
@@ -197,6 +197,8 @@ pub struct PortableProjection<'a> {
     recipe: Option<&'a Recipe>,
     /// Reader discussion the canonical page offers, when it offers any.
     participation: Option<CommentsPolicy>,
+    /// The post's place in a collaborative series, when it is a part of one (ADR 0041).
+    series: Option<SeriesContext>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -606,6 +608,25 @@ impl<'a> PortableProjection<'a> {
         Self::new(post, config, false)
     }
 
+    /// The public projection of one of `site`'s posts, with the post's collaborative series
+    /// context when it has one (ADR 0041). Feeds, exports and syndication use this, so every
+    /// external copy of a part of a collaborative series names and links its series; any other
+    /// post's projection is exactly `from_post`'s.
+    pub fn for_site(site: &Site, post: &'a Post) -> Result<Self, String> {
+        Ok(Self::from_post(post, &site.config)?.with_series(site.series_context(post)))
+    }
+
+    /// The same projection stating `series` as the post's series context. `None` removes it.
+    pub fn with_series(mut self, series: Option<SeriesContext>) -> Self {
+        self.series = series;
+        self
+    }
+
+    /// The collaborative series context this projection states, if any.
+    pub fn series(&self) -> Option<&SeriesContext> {
+        self.series.as_ref()
+    }
+
     /// Build an unpublished projection for the authenticated Admin preview only.
     /// Public feeds and exports must use `from_post`, which rejects drafts.
     pub fn for_authenticated_preview(post: &'a Post, config: &SiteConfig) -> Result<Self, String> {
@@ -674,6 +695,7 @@ impl<'a> PortableProjection<'a> {
                 && post.comments != CommentsPolicy::Hidden
                 && !config.engagement.endpoint.trim().is_empty())
             .then_some(post.comments),
+            series: None,
         })
     }
 
@@ -779,6 +801,9 @@ impl<'a> PortableProjection<'a> {
                 |url| self.resolve_link(url),
                 None,
             )?);
+        }
+        if let Some(series) = &self.series {
+            html.push_str(&self.series_context_html(series)?);
         }
         if let Some(research) = self.research {
             html.push_str(&research.work_meta_html());
@@ -974,6 +999,15 @@ impl<'a> PortableProjection<'a> {
                 output.push_str(&format!("- {name} — {roles}{orcid}\n"));
             }
             output.push('\n');
+        }
+
+        if let Some(series) = &self.series {
+            if !output.ends_with("\n\n") {
+                output.push('\n');
+            }
+            output.push_str("## Series\n\n");
+            output.push_str(&self.series_context_markdown(series)?);
+            output.push_str("\n\n");
         }
 
         if let Some(research) = self.research {
@@ -1236,6 +1270,23 @@ impl<'a> PortableProjection<'a> {
                         "unauthenticated",
                     ));
                 }
+            }
+        }
+        if let Some(series) = &self.series {
+            facts.push(
+                SemanticFact::new("series", "series link", self.resolve_link(&series.url)?)
+                    .with_link_label(series.name.clone()),
+            );
+            facts.push(SemanticFact::new(
+                "series",
+                "series position",
+                series_position(series),
+            ));
+            for name in &series.part_authors {
+                facts.push(SemanticFact::new("series", "part author", name));
+            }
+            for name in &series.contributors {
+                facts.push(SemanticFact::new("series", "series contributor", name));
             }
         }
         if let Some(research) = self.research {
@@ -1549,6 +1600,48 @@ impl<'a> PortableProjection<'a> {
             .join("; "))
     }
 
+    /// The series context as one paragraph: "Part 2 of 4 in the series <a>Letters</a>. This part
+    /// is by A and B. Series contributors: A, B, and C." Every value is escaped text and the only
+    /// link is the canonical series page (ADR 0041).
+    fn series_context_html(&self, series: &SeriesContext) -> Result<String, String> {
+        let names = |names: &[String]| {
+            crate::render::human_list(
+                &names
+                    .iter()
+                    .map(|name| escape::text(name))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        Ok(format!(
+            "<p class=\"ob-series-context\">{} in the series <a href=\"{}\">{}</a>.{}{}</p>\n",
+            series_position(series),
+            escape::attr(&self.resolve_link(&series.url)?),
+            escape::text(&series.name),
+            series_clause(" This part is by ", &names(&series.part_authors)),
+            series_clause(" Series contributors: ", &names(&series.contributors)),
+        ))
+    }
+
+    /// The same sentence as `series_context_html`, as escaped Markdown text and one link.
+    fn series_context_markdown(&self, series: &SeriesContext) -> Result<String, String> {
+        let names = |names: &[String]| {
+            crate::render::human_list(
+                &names
+                    .iter()
+                    .map(|name| markdown_text(name))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        Ok(format!(
+            "{} in the series [{}]({}).{}{}",
+            series_position(series),
+            markdown_text(&series.name),
+            markdown_destination(&self.resolve_link(&series.url)?),
+            series_clause(" This part is by ", &names(&series.part_authors)),
+            series_clause(" Series contributors: ", &names(&series.contributors)),
+        ))
+    }
+
     fn participation_url(&self) -> String {
         format!("{}#{}", self.canonical_url, crate::model::DISCUSSION_ANCHOR)
     }
@@ -1842,6 +1935,20 @@ fn markdown_to_text(markdown: &str) -> String {
         previous_blank = false;
     }
     compact
+}
+
+/// "Part 2 of 4": a part's place in its series' published reading order.
+fn series_position(series: &SeriesContext) -> String {
+    format!("Part {} of {}", series.part, series.parts)
+}
+
+/// `lead` and an already-escaped list of names as a sentence, or nothing when there are none.
+fn series_clause(lead: &str, names: &str) -> String {
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!("{lead}{names}.")
+    }
 }
 
 /// Markdown text for a public value (a title, a name, a fact): Markdown punctuation, `<` and `&`

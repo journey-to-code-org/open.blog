@@ -5,6 +5,12 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Feeds and portable copies of a part of a collaborative series now say which series it belongs
+  to, where it falls ("Part 2 of 4") and who wrote it, with a link to the series page: in the full
+  RSS and JSON Feed content, in portable HTML, Markdown and text, in exports and syndicated copies,
+  and in llms-full.txt. RSS items also name the series as a category linked to the series page, and
+  JSON Feed items carry an `_open_blog.series` object. Drafts and scheduled posts never count, no
+  collaboration details appear, and every other post's feeds and copies are unchanged.
 - A series that credits the site owner both as the site author and under their contributor entry
   (for example on a shared reflection) now names them once in its list of contributors.
 - Portable Markdown now escapes `<` and `&` in titles, names and other facts, so a name such as

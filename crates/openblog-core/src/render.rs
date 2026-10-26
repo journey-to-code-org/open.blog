@@ -2035,7 +2035,7 @@ fn part_credit(post: &Post) -> Option<String> {
     (!names.is_empty()).then(|| format!("By {}", human_list(&names)))
 }
 
-fn human_list(items: &[String]) -> String {
+pub(crate) fn human_list(items: &[String]) -> String {
     match items {
         [] => String::new(),
         [only] => only.clone(),

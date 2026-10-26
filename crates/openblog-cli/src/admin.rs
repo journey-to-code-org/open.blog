@@ -9022,11 +9022,19 @@ fn acknowledge_portability(state: &AppState, req: &Request) -> Response {
     let Some(post) = preview_site.posts.iter().find(|post| post.source == path) else {
         return Response::error(404, "Post was not found");
     };
+    // The series context comes from the public site, as in the preview that handed out the
+    // revision: drafts and scheduled posts are not parts of a series (ADR 0041).
+    let series = site::load_site(&state.root, false, Some(clock::now()))
+        .ok()
+        .and_then(|(public_site, _)| {
+            let post = public_site.posts.iter().find(|post| post.source == path)?;
+            public_site.series_context(post)
+        });
     let projection = match openblog_core::portability::PortableProjection::for_authenticated_preview(
         post,
         &preview_site.config,
     ) {
-        Ok(projection) => projection,
+        Ok(projection) => projection.with_series(series),
         Err(error) => return Response::error(422, &error),
     };
     let revision = match projection.source_revision() {
@@ -9240,12 +9248,14 @@ fn preview(state: &AppState, req: &Request) -> Response {
         let Some(post) = preview_site.posts.iter().find(|post| post.source == rel) else {
             return Response::error(422, "Preview post was not found in the site model");
         };
+        // The preview site is the public site plus this source, so a published part of a
+        // collaborative series previews the series context its external copies carry (ADR 0041).
         let projection =
             match openblog_core::portability::PortableProjection::for_authenticated_preview(
                 post,
                 &portable_config,
             ) {
-                Ok(projection) => projection,
+                Ok(projection) => projection.with_series(preview_site.series_context(post)),
                 Err(error) => return Response::error(422, &error),
             };
         let mut portable_html = match projection.portable_html() {
