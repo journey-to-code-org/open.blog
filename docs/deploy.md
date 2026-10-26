@@ -118,6 +118,24 @@ policies are enforced on the server as well as in the page UI. Set `OPENBLOG_SIT
 the published site lives below `/`. The existing local counter stays the default when hosted
 engagement is off.
 
+#### Optional passage feedback
+
+Typed passage feedback (reader questions, suggested sources and corrections, and other
+interpretations, ADRs 0079 to 0081) is off by default and needs three explicit steps: run the
+additive migration [`supabase/feedback.sql`](../supabase/feedback.sql), set
+`OPENBLOG_FEEDBACK_ENABLED=true` in Netlify, and set `engagement.feedback` to `true` in
+`openblog.json`. The migration only creates the private `openblog_feedback` table; existing comments,
+analytics and their tables are not changed. It also adds the private moderation audit table
+`openblog_feedback_events` and the function `openblog_moderate_feedback` (ADR 0083). Approved notes
+are published from `content/reader-feedback.json` in the repository, so the build needs no access
+to the hosted service. To roll back, unset `OPENBLOG_FEEDBACK_ENABLED` and redeploy, then, if you
+also want the data gone, export it and run
+[`supabase/feedback-rollback.sql`](../supabase/feedback-rollback.sql), which drops only what the
+migration created.
+The [function setup guide](../netlify/functions/README.md#passage-feedback-optional) has the
+details. The engagement function is bundled with esbuild (`[functions."engagement"]` in `netlify.toml`) so it can share
+the feedback validator in `web/components/`.
+
 ### Durable editorial workspace on ephemeral hosts
 
 By default, drafts and unpublished files live **only on the Admin host's filesystem**.

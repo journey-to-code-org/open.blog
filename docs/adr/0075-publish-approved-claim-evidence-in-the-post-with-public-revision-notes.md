@@ -39,7 +39,10 @@ evidence. Existing posts must publish byte for byte as before.
   author turns publication on. There is no per-post switch: a claim already belongs to one post,
   and its approval is consent for that post, so a third switch would add a step without adding
   consent. A post with no published claim and no revision note is published exactly as before,
-  even with the switch on.
+  even with the switch on. (Amended by
+  [ADR 0083](0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md):
+  a site that opts in to passage feedback also publishes revision notes through the evidence
+  section without `claimEvidence.publish`, reading no claims file.)
 - **One projection, `ClaimEvidence`, and allowlisted public types.**
   `openblog_core::claim_publication::ClaimEvidence::project` takes the validated claims file and
   the source library, and nothing else; the notebook is not an input. It copies approved claims

@@ -1,0 +1,142 @@
+-- Optional passage feedback (ADR 0080). Run once in the Supabase SQL editor,
+-- after openblog.sql, only if the site opts in to typed passage feedback. A
+-- site that does not opt in never needs it.
+--
+-- Additive only: it creates the feedback table, its moderation audit table,
+-- their indexes and one moderation function (ADR 0083). It does not alter,
+-- rename, drop or rewrite any existing table, column, function or row, so
+-- comments and analytics keep working exactly as before. Running it twice
+-- changes nothing. To undo it, see feedback-rollback.sql.
+--
+-- The table is private: row level security is on with no policies, the
+-- public roles have no access, and only the Netlify Function (service_role)
+-- reads and writes it. Feedback kinds and moderation states are checked here
+-- for shape only; the allowed values belong to the code (ADR 0079, #211), so
+-- a new kind or state needs no migration.
+
+begin;
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.openblog_feedback (
+  id uuid primary key default gen_random_uuid(),
+  site_id text not null check (char_length(site_id) between 1 and 200),
+  -- The submission format version (ADR 0079).
+  format_version integer not null default 1 check (format_version >= 1),
+  kind text not null check (kind ~ '^[a-z][a-z0-9-]{0,39}$'),
+  -- The work, the passage revision the reader saw and the passage target
+  -- (ADRs 0076, 0078). All three, or none for a future kind that is about
+  -- the site rather than a passage.
+  work text check (char_length(work) between 2 and 500),
+  revision text check (revision ~ '^p[1-9][0-9]{0,3}:[0-9a-f]{32}$'),
+  target jsonb check (jsonb_typeof(target) = 'object' and octet_length(target::text) <= 16384),
+  body text not null check (char_length(body) between 1 and 20000),
+  details jsonb not null default '{}'::jsonb
+    check (jsonb_typeof(details) = 'object' and octet_length(details::text) <= 16384),
+  -- The reader's own clock (optional, untrusted) and the receiver's stamp.
+  seen_at timestamptz,
+  received_at timestamptz not null default now(),
+  channel text not null default 'hosted' check (channel in ('hosted', 'manual')),
+  -- The reader's name is private to moderation unless publish_name is true
+  -- (ADR 0078). It is never copied into openblog_comments.author_name.
+  reader_name text check (char_length(reader_name) between 1 and 80),
+  publish_name boolean not null default false,
+  status text not null default 'pending' check (status ~ '^[a-z][a-z-]{0,31}$'),
+  -- Every moderation change names the version it expects and raises it, so
+  -- two moderators can never both act on one item (ADR 0083).
+  version integer not null default 1 check (version >= 1),
+  moderated_at timestamptz,
+  -- The reason code of the last rejection or removal; never free text.
+  moderation_reason text check (moderation_reason ~ '^[a-z][a-z-]{0,31}$'),
+  constraint openblog_feedback_passage_complete check (
+    (work is null and revision is null and target is null)
+    or (work is not null and revision is not null and target is not null)
+  ),
+  constraint openblog_feedback_consent_needs_name check (reader_name is not null or not publish_name),
+  constraint openblog_feedback_seen_before_received check (seen_at is null or seen_at <= received_at)
+);
+
+-- Moderation columns (ADR 0083), for a table created by an earlier copy of
+-- this file; on a fresh install they already exist and nothing happens.
+alter table public.openblog_feedback
+  add column if not exists version integer not null default 1 check (version >= 1);
+alter table public.openblog_feedback
+  add column if not exists moderation_reason text check (moderation_reason ~ '^[a-z][a-z-]{0,31}$');
+
+create index if not exists openblog_feedback_moderation
+  on public.openblog_feedback (site_id, status, received_at);
+create index if not exists openblog_feedback_work
+  on public.openblog_feedback (site_id, work, status, received_at);
+
+alter table public.openblog_feedback enable row level security;
+-- Revoke service_role too: Supabase's default privileges grant it DELETE and
+-- TRUNCATE, which the function never needs.
+revoke all on public.openblog_feedback from public, anon, authenticated, service_role;
+grant select, insert, update on public.openblog_feedback to service_role;
+
+-- The moderation audit trail (ADR 0083): who changed which item, from which
+-- state to which, why (a reason code), when, and the version it produced.
+-- Never what anyone wrote. Rows are only ever inserted.
+create table if not exists public.openblog_feedback_events (
+  id bigint generated always as identity primary key,
+  site_id text not null check (char_length(site_id) between 1 and 200),
+  feedback_id uuid not null references public.openblog_feedback (id),
+  action text not null check (action ~ '^[a-z][a-z-]{0,31}$'),
+  from_status text not null check (from_status ~ '^[a-z][a-z-]{0,31}$'),
+  to_status text not null check (to_status ~ '^[a-z][a-z-]{0,31}$'),
+  reason text check (reason ~ '^[a-z][a-z-]{0,31}$'),
+  -- An Admin account name, or @moderation-token for the token itself.
+  actor text not null check (char_length(actor) between 1 and 80),
+  at timestamptz not null,
+  version integer not null check (version >= 1)
+);
+
+create index if not exists openblog_feedback_events_item
+  on public.openblog_feedback_events (site_id, feedback_id, at);
+
+alter table public.openblog_feedback_events enable row level security;
+revoke all on public.openblog_feedback_events from public, anon, authenticated, service_role;
+grant select, insert on public.openblog_feedback_events to service_role;
+
+-- One moderation change: applied only while the item still has the state and
+-- version the moderator saw, with its audit event, in one statement. It
+-- returns the changed row, or nothing when the item changed meanwhile or does
+-- not exist. Which changes are allowed is the code's decision (ADR 0083).
+create or replace function public.openblog_moderate_feedback(
+  p_site_id text,
+  p_id uuid,
+  p_expected_version integer,
+  p_from text,
+  p_to text,
+  p_action text,
+  p_reason text,
+  p_actor text,
+  p_at timestamptz
+)
+returns setof public.openblog_feedback
+language sql
+set search_path = public
+as $$
+  with changed as (
+    update public.openblog_feedback
+       set status = p_to,
+           moderated_at = p_at,
+           moderation_reason = p_reason,
+           version = version + 1
+     where id = p_id
+       and site_id = p_site_id
+       and status = p_from
+       and version = p_expected_version
+    returning *
+  ), logged as (
+    insert into public.openblog_feedback_events
+      (site_id, feedback_id, action, from_status, to_status, reason, actor, at, version)
+    select site_id, id, p_action, p_from, p_to, p_reason, p_actor, p_at, version from changed
+  )
+  select * from changed;
+$$;
+
+revoke all on function public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz) from public, anon, authenticated;
+grant execute on function public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz) to service_role;
+
+commit;
