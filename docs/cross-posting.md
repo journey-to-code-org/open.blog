@@ -48,10 +48,13 @@ For a local Markdown artifact, preview it before writing:
 openblog export your-post-slug --format markdown
 openblog export your-post-slug --format markdown --json
 openblog export your-post-slug --format markdown --out exports/your-post.md --write
+openblog export your-post-slug --format bibtex --out exports/your-post.bib --write
 ```
 
 The export does not replace or modify the canonical post, and it refuses to overwrite an
-existing destination file. Full-content RSS and JSON Feed likewise use portable HTML rather
+existing destination file. `--format csl-json` or `--format bibtex` exports the references a
+post that publishes citations cites, with only the public description its notes show, and
+lists what the format cannot carry ([Citation format](specs/citations.md)). Full-content RSS and JSON Feed likewise use portable HTML rather
 than native open.blog component markup; JSON Feed includes a plain-text companion.
 The version-1 JSON export manifest includes exact Markdown bytes, byte count, canonical identity,
 source revision, capability portability levels, and diagnostics. It is dry-run-only, creates no

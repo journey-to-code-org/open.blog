@@ -36,7 +36,16 @@ All notable changes to open.blog are recorded here. Releases follow
 - A draft (or a post waiting for its date) with an unresolved citation no longer stops the build
   or previews of other posts: it gets a warning and keeps the citation as text until it publishes.
   A source library edit that would break a published post's citations is refused and names the
-  post and line. `citations: yes` and `on` now work like `true`.
+  post and line. `citations: yes` and `on` now work like `true`. **Cite** also refuses a caret
+  inside an autolink, indented code, HTML, a comment, or a code span or link that spans lines.
+- `openblog check`, builds and Evidence Studio now review a post's citations offline in four
+  separate kinds of finding: citations that cannot be read, keys or pages that do not resolve,
+  cited sources missing a detail readers need (such as a title, date or journal), and the cited
+  locations only you can check against the source. Nothing is looked up online, and no finding
+  says whether a source is right or supports a claim. `openblog export <slug> --format
+  csl-json` (or `bibtex`) and Evidence Studio's **Download cited references** save a post's
+  cited references for reference managers, holding only what its notes show and listing
+  anything the format cannot carry.
 
 ## [0.25.0] - 2026-10-25
 

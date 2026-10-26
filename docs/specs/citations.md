@@ -89,6 +89,36 @@ with no citation in the body, the post publishes exactly as before.
 A source library edit (`update`, CSL import or removal) that would stop a published, opted-in
 post's citations from resolving is refused with `still-used`, naming the post's path and line.
 
+## Checks
+
+`openblog_core::citation_review` ([ADR 0056](../adr/0056-offline-citation-checks-and-portable-bibliography-exports.md))
+reviews every post that opts in, offline, and reports evidence findings that `openblog check`,
+builds and Evidence Studio show with the post's path and line:
+
+| Code | Outcome | When |
+| --- | --- | --- |
+| `citation-syntax` | detected | a citation cannot be read (malformed, invalid key or locator, too large) |
+| `citation-unresolved` | detected | unknown key or ambiguous locator |
+| `citation-identifier-unpublished` | potential | a PMID or PMCID not in its standard form, left out of notes and exports |
+| `citation-reference-incomplete` | potential | the cited reference has no title; no creator (work, edition, translation); no date (edition, translation, or any CSL type); no container title (journal article, chapter, entry, paper, blog post); no publisher (book, report, thesis, untyped edition); no web address (web page, post). `field` names the detail |
+| `citation-location-review` | needs-review | one per post, listing the lines of resolved citations that give a location: only a person can check that the passage is there |
+
+No finding says whether a source is true, relevant or supports a claim, and nothing is looked
+up online. Posts that do not opt in get none.
+
+## Bibliography exports
+
+A published post's cited references, in order of first citation, export as CSL JSON
+(`export_cited_csl_json`) or BibTeX (`export_cited_bibtex`) from the same public description
+the notes show: no `custom` envelope, relationships, locations, archived flags, unknown fields
+or private identifiers. Each export lists `losses` (`sourceId`, `field`, `reason`) for what the
+format cannot carry.
+
+| Where | Behaviour |
+| --- | --- |
+| `openblog export <slug> --format csl-json\|bibtex` | Dry run prints the content and each omission; `--out <path> --write` writes atomically and never overwrites; `--json` prints `{ version, sourcePath, canonicalUrl, representation, outputFile, bytes, count, offline, omissions, content }`. A post that publishes no citations is refused and nothing is written. |
+| `POST /admin/api/preview` | For a post that publishes citations, `citations` holds `style`, `locale`, `citations`, `notes`, `references`, `offline: true` and `exports` with `csl-json` and `bibtex` entries (`filename`, `mediaType`, `count`, `content`, `losses`); otherwise `null`. |
+
 On the native page a generated marker is
 `<sup class="footnote-reference ob-citation"><a href="#cite-1" id="cite-1-ref-1" role="doc-noteref"><span class="ob-visually-hidden">Citation </span>1</a></sup>`
 and each note ends with one `doc-backlink` per citing marker. Portable copies keep ordinary

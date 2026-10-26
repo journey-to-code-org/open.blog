@@ -320,8 +320,14 @@ examples, containers, and HTML blocks consistent with the actual build parser. P
 metadata drafts survive profile switches and are included when the document is saved.
 
 Evidence Studio does not score truth, source authority, peer review, methodology, or
-whether a citation supports a claim. Outside the Research profile it explicitly reports
-that the checks are inactive. See [Research posts and Evidence Studio](research-profile.md).
+whether a citation supports a claim. For a post that publishes citations it also lists, as
+separate findings, citations it cannot read or resolve, cited references missing a detail
+readers need (title, creator, date, container, publisher or web address), identifiers left out
+of the notes, and the cited locations only you can check against the source. These checks run
+offline from your source library. **Download cited references** saves the post's references
+as CSL JSON or BibTeX, holding only what its notes show and stating what the format cannot
+carry. Outside the Research profile, a post without citations reports that the checks are
+inactive. See [Research posts and Evidence Studio](research-profile.md).
 
 The **Overview** is the admin home. It summarizes the publishing pipeline, links to quick
 creation flows, shows the size of the content library and recent posts, and surfaces the

@@ -311,6 +311,20 @@ The citation style that publishes each cited reference once, numbered in order o
 citation, under References, with locators kept next to the marker in the text.
 _Avoid_: References section when the research profile's hand-written list is meant
 
+**Citation check**:
+An offline finding about a post's citations, in one of four separate classes: syntax (the
+citation cannot be read), resolution (its key or locator does not resolve, or an identifier is
+left out), completeness (a cited reference lacks a detail its kind usually has) and location
+review (a cited location only a person can confirm). It never says whether a source is true,
+relevant or supports a claim, and never looks anything up online.
+_Avoid_: Verification, fact check, citation score
+
+**Bibliography export**:
+A post's cited references as CSL JSON or BibTeX, built only from the public description its
+published notes show, with every detail the format cannot carry reported as an omission. It is
+derived from the publication projection, not from the private source library export.
+_Avoid_: Library export, source export
+
 **Formatted reference**:
 The public, plain-text rendering of a reference built only from its bibliographic description
 (title, creators, date, identifiers, preserved CSL variables), never from notebook text.

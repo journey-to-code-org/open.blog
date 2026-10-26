@@ -69,7 +69,12 @@ and the [citation format](specs/citations.md), which points citations at source 
 compound locators and states what is public and how CSL data is kept or reported lost
 ([ADR 0048](adr/0048-citation-keys-are-source-identifiers.md) to
 [ADR 0052](adr/0052-csl-interoperability-policy.md)), with an Admin citation picker that keeps
-citations intact in both writing modes ([ADR 0053](adr/0053-citation-picker-in-the-visual-editor.md)).
+citations intact in both writing modes ([ADR 0053](adr/0053-citation-picker-in-the-visual-editor.md)),
+publication as notes or a bibliography through the one publication projection
+([ADR 0054](adr/0054-citations-publish-through-the-one-publication-projection.md),
+[ADR 0055](adr/0055-built-in-citation-styles-locales-and-accessible-notes.md)), and offline
+citation checks with CSL JSON and BibTeX exports of a post's cited references
+([ADR 0056](adr/0056-offline-citation-checks-and-portable-bibliography-exports.md)).
 
 ## Command reference
 
@@ -80,8 +85,9 @@ openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
 openblog check                          Validate content, themes, and the private source library and notebook, write nothing
-openblog export <slug> [--out path] [--write]
-                                        Preview or write portable Markdown
+openblog export <slug> [--format markdown|csl-json|bibtex] [--out path] [--write]
+                                        Preview or write portable Markdown, or the post's
+                                        cited references as CSL JSON or BibTeX
 openblog syndicate <slug> [--target a,b] [--write] [--publish]
                                         Preview or explicitly send portable copies
 openblog themes                         List themes and what they extend
