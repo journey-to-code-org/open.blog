@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-25
+
 - Defined how citations work, ahead of in-post citations: a citation is `[@key]` or
   `[@key, page 514; canonical 514a to 520a]`, where the key is a source library id and the
   locators are the notebook's. It is opt-in, so existing posts, links and footnotes render exactly
@@ -46,6 +48,7 @@ All notable changes to open.blog are recorded here. Releases follow
   csl-json` (or `bibtex`) and Evidence Studio's **Download cited references** save a post's
   cited references for reference managers, holding only what its notes show and listing
   anything the format cannot carry.
+
 ## [0.26.1] - 2026-10-25
 
 - Two people saving to the same shared reflection at once (drafts, invitations, members, reveal
