@@ -604,7 +604,7 @@ fn only_the_owner_changes_a_moment_and_strangers_learn_nothing() {
         );
         assert_eq!(set.own(stranger, &ALL).err(), Some(MomentError::Denied));
         assert_eq!(
-            set.revealed(stranger, &ALL, "ann", Some(1), &sources).err(),
+            set.revealed(stranger, &ALL, "ann", Some(1)).err(),
             Some(MomentError::Denied)
         );
     }
@@ -747,7 +747,7 @@ fn moments_stay_private_until_sealed_to_the_draft_revision_another_author_may_re
     .unwrap();
     let nothing: Vec<String> = Vec::new();
     let ids = |set: &MomentSet, readable: Option<u64>| -> Vec<String> {
-        set.revealed("bo", &ALL, "ann", readable, &sources)
+        set.revealed("bo", &ALL, "ann", readable)
             .unwrap()
             .iter()
             .map(|m| m.id().to_string())
@@ -756,22 +756,14 @@ fn moments_stay_private_until_sealed_to_the_draft_revision_another_author_may_re
 
     // Not sealed yet: nothing, exactly as for an author with no moments.
     assert_eq!(ids(&set, Some(1)), nothing);
-    assert_eq!(
-        set.revealed("bo", &ALL, "cy", Some(1), &sources)
-            .unwrap()
-            .len(),
-        0
-    );
-    assert!(!set.is_sealed("ann", 1, &sources));
-    assert!(
-        set.is_sealed("cy", 1, &sources),
-        "nothing to seal is sealed"
-    );
+    assert_eq!(set.revealed("bo", &ALL, "cy", Some(1)).unwrap().len(), 0);
+    assert!(!set.is_sealed("ann", 1));
+    assert!(set.is_sealed("cy", 1), "nothing to seal is sealed");
 
     // Ann reveals draft revision 1: her publication moments go with it, her private one never.
-    assert_eq!(set.seal("ann", &ALL, 1, &sources), Ok(true));
+    assert_eq!(set.seal("ann", &ALL, 1), Ok(true));
     assert_eq!(ids(&set, Some(1)), vec![shared.clone()]);
-    assert!(set.is_sealed("ann", 1, &sources));
+    assert!(set.is_sealed("ann", 1));
     // Bo cannot read Ann's latest revision (an older reveal, or none): nothing.
     assert_eq!(ids(&set, None), nothing);
     assert_eq!(ids(&set, Some(2)), nothing);
@@ -788,15 +780,15 @@ fn moments_stay_private_until_sealed_to_the_draft_revision_another_author_may_re
     )
     .unwrap();
     assert_eq!(ids(&set, Some(1)), nothing);
-    assert_eq!(set.seal("ann", &ALL, 1, &sources), Ok(false));
+    assert_eq!(set.seal("ann", &ALL, 1), Ok(false));
     assert_eq!(ids(&set, Some(1)), nothing);
     // There is no revision 0 to seal.
-    assert_eq!(set.seal("ann", &ALL, 0, &sources), Err(MomentError::Denied));
+    assert_eq!(set.seal("ann", &ALL, 0), Err(MomentError::Denied));
     // Revealing a newer revision shares the edit.
-    assert_eq!(set.seal("ann", &ALL, 2, &sources), Ok(true));
+    assert_eq!(set.seal("ann", &ALL, 2), Ok(true));
     assert_eq!(ids(&set, Some(2)), vec![shared.clone()]);
     // Sealing an older revision never moves the seal back.
-    assert_eq!(set.seal("ann", &ALL, 1, &sources), Ok(false));
+    assert_eq!(set.seal("ann", &ALL, 1), Ok(false));
     assert_eq!(ids(&set, Some(2)), vec![shared]);
 
     // A private edit never disturbs what was revealed.
@@ -814,15 +806,44 @@ fn moments_stay_private_until_sealed_to_the_draft_revision_another_author_may_re
     assert_eq!(ids(&set, Some(2)).len(), 1);
 
     // Someone who is not an author cannot seal.
-    assert_eq!(
-        set.seal("mallory", &ALL, 3, &sources),
-        Err(MomentError::Denied)
-    );
+    assert_eq!(set.seal("mallory", &ALL, 3), Err(MomentError::Denied));
+}
+
+/// Seals are never rewritten, so a seal that covered the source's title would hide every revealed
+/// moment on a source the moment someone corrected it. The binding still notices the change.
+#[test]
+fn editing_a_source_after_a_reveal_keeps_its_moments_revealed_and_stales_the_binding() {
+    let mut sources = record().sources;
+    let mut set = MomentSet::new();
+    let shared = add(
+        &mut set,
+        "ann",
+        publish(observe(VIDEO, vec![at("2")], "for the piece")),
+    )
+    .unwrap();
+    assert_eq!(set.seal("ann", &ALL, 1), Ok(true));
+    let frame = set.binding_frame(&sources);
+
+    sources[0].title = "Attention, together (corrected title)".into();
+
+    let revealed: Vec<&str> = set
+        .revealed("bo", &ALL, "ann", Some(1))
+        .unwrap()
+        .iter()
+        .map(|moment| moment.id())
+        .collect();
+    assert_eq!(revealed, vec![shared.as_str()]);
+    assert!(set.is_sealed("ann", 1));
+    assert_ne!(set.binding_frame(&sources), frame);
+    // A change of link or kind stales the binding the same way, and still leaves the seal.
+    let titled = set.binding_frame(&sources);
+    sources[0].url = Some("https://www.youtube.com/watch?v=kjihgfedcba".into());
+    assert_ne!(set.binding_frame(&sources), titled);
+    assert!(set.is_sealed("ann", 1));
 }
 
 #[test]
 fn a_removed_author_loses_their_moments_and_restoring_them_does_not_bring_them_back() {
-    let sources = record().sources;
     let mut set = MomentSet::new();
     add(
         &mut set,
@@ -830,7 +851,7 @@ fn a_removed_author_loses_their_moments_and_restoring_them_does_not_bring_them_b
         publish(observe(VIDEO, vec![at("1")], "cy's")),
     )
     .unwrap();
-    set.seal("cy", &ALL, 1, &sources).unwrap();
+    set.seal("cy", &ALL, 1).unwrap();
     add(&mut set, "ann", observe(VIDEO, vec![at("2")], "ann's")).unwrap();
     let remaining = ["ann", "bo"];
     assert!(set.reconcile(&remaining));
@@ -846,9 +867,9 @@ fn a_removed_author_loses_their_moments_and_restoring_them_does_not_bring_them_b
         publish(observe(VIDEO, vec![at("1")], "cy's")),
     )
     .unwrap();
-    stale.seal("cy", &ALL, 1, &sources).unwrap();
+    stale.seal("cy", &ALL, 1).unwrap();
     assert!(stale
-        .revealed("ann", &remaining, "cy", Some(1), &sources)
+        .revealed("ann", &remaining, "cy", Some(1))
         .unwrap()
         .is_empty());
 }

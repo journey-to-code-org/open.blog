@@ -357,9 +357,37 @@ impl Moment {
         })
     }
 
+    /// The approval binding digest: the moment's own content and the public face of the source
+    /// it will show (kind, title, link), so a change to either stales standing approvals.
     fn digest(&self, sources: &[SourceReference]) -> String {
+        let face = sources
+            .iter()
+            .find(|source| source.id == self.source)
+            .map(|source| {
+                [
+                    source.kind.label(),
+                    source.title.as_str(),
+                    source.url.as_deref().unwrap_or(""),
+                ]
+            });
+        self.hash(b"openblog-media-moment-v1\0", Some(face))
+    }
+
+    /// The seal digest: the moment's own content only (id, owner, source id, locators, quotation
+    /// with all its fields, observation, intent). It leaves the source's title, link and kind
+    /// out, because a seal is never rewritten: a site owner correcting a source after a reveal
+    /// must not hide every moment revealed on it. Approvals still go stale through [`digest`].
+    ///
+    /// [`digest`]: Moment::digest
+    fn content_digest(&self) -> String {
+        self.hash(b"openblog-media-moment-content-v1\0", None)
+    }
+
+    /// `face` is `Some(None)` for a binding digest whose source is missing, `None` for a content
+    /// digest that never covers the source's face.
+    fn hash(&self, domain: &[u8], face: Option<Option<[&str; 3]>>) -> String {
         let mut hasher = Blake2s256::new();
-        hasher.update(b"openblog-media-moment-v1\0");
+        hasher.update(domain);
         let mut put = |part: &str| {
             hasher.update((part.len() as u64).to_be_bytes());
             hasher.update(part.as_bytes());
@@ -367,14 +395,10 @@ impl Moment {
         put(&self.id);
         put(&self.participant);
         put(&self.source);
-        // The public face of the source the moment will show, so a change to it stales approvals.
-        match sources.iter().find(|source| source.id == self.source) {
-            Some(source) => {
-                put(source.kind.label());
-                put(&source.title);
-                put(source.url.as_deref().unwrap_or(""));
-            }
-            None => put("\0missing"),
+        match face {
+            Some(Some(face)) => face.iter().for_each(|part| put(part)),
+            Some(None) => put("\0missing"),
+            None => {}
         }
         put(&self.locators.len().to_string());
         for locator in &self.locators {
@@ -816,13 +840,14 @@ impl MomentSet {
             .collect()
     }
 
-    /// The digest of the owner's publication moments in order. Private moments never count, so
-    /// editing one never changes what was revealed.
-    fn owner_digest(&self, owner: &str, sources: &[SourceReference]) -> String {
+    /// The digest of the owner's publication moments in order, from their own content only.
+    /// Private moments never count, so editing one never changes what was revealed, and editing a
+    /// source never unseals the moments on it (approvals still go stale, [`Self::binding_frame`]).
+    fn owner_digest(&self, owner: &str) -> String {
         let mut hasher = Blake2s256::new();
         hasher.update(b"openblog-media-moment-seal-v1\0");
         for moment in self.publication_of(owner) {
-            hasher.update(moment.digest(sources).as_bytes());
+            hasher.update(moment.content_digest().as_bytes());
         }
         hex(&hasher.finalize())
     }
@@ -839,7 +864,6 @@ impl MomentSet {
         authors: &[&str],
         owner: &str,
         readable_latest: Option<u64>,
-        sources: &[SourceReference],
     ) -> Result<Vec<&Moment>, MomentError> {
         if !authors.contains(&requester) {
             return Err(MomentError::Denied);
@@ -851,7 +875,7 @@ impl MomentSet {
             self.seals.iter().any(|seal| {
                 seal.participant == owner
                     && seal.revision == revision
-                    && seal.digest == self.owner_digest(owner, sources)
+                    && seal.digest == self.owner_digest(owner)
             })
         });
         Ok(if shown && authors.contains(&owner) {
@@ -862,13 +886,14 @@ impl MomentSet {
     }
 
     /// Whether every publication moment of `owner` is sealed to `revision` as it is now: what a
-    /// preview needs to call the owner's part complete for a reader of that revision.
-    pub fn is_sealed(&self, owner: &str, revision: u64, sources: &[SourceReference]) -> bool {
+    /// preview needs to call the owner's part complete for a reader of that revision. A later edit
+    /// to the source a moment shows leaves it sealed: the seal covers the moments' own content.
+    pub fn is_sealed(&self, owner: &str, revision: u64) -> bool {
         self.publication_of(owner).is_empty()
             || self.seals.iter().any(|seal| {
                 seal.participant == owner
                     && seal.revision == revision
-                    && seal.digest == self.owner_digest(owner, sources)
+                    && seal.digest == self.owner_digest(owner)
             })
     }
 
@@ -883,12 +908,11 @@ impl MomentSet {
         owner: &str,
         authors: &[&str],
         revision: u64,
-        sources: &[SourceReference],
     ) -> Result<bool, MomentError> {
         if !authors.contains(&owner) || !valid_id(owner) || revision == 0 {
             return Err(MomentError::Denied);
         }
-        let digest = self.owner_digest(owner, sources);
+        let digest = self.owner_digest(owner);
         if let Some(seal) = self.seals.iter().find(|seal| seal.participant == owner) {
             if seal.revision >= revision {
                 return Ok(seal.revision == revision && seal.digest == digest);

@@ -38,7 +38,11 @@ early, or to publish words nobody approved.
   carry a quotation whose rights are unknown. A publication moment cannot.
 - **Seals tie moments to a revealed draft revision.** A reveal shares the owner's draft revision N,
   through an exchange commit or a voluntary offer. At that point the caller seals the owner's
-  publication moments to N: the seal is a digest of exactly those moments.
+  publication moments to N: the seal is a digest of exactly those moments' own content (id, owner,
+  source id, locators, every quotation field, observation and intent). It leaves out the source's
+  title, link and type. A seal is never rewritten, so a seal over the source would hide every
+  moment revealed on a source as soon as someone corrected it. A source change still stales
+  approvals through the binding frame, below.
   - Another author sees the owner's publication moments only while both of these hold: the caller
     has checked through `DraftSet::view` that they may read the owner's latest revision N, and the
     seal for N still matches the moments as they are now.
