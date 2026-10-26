@@ -975,3 +975,30 @@ fn an_import_fills_in_attribution_and_reports_a_differing_one_as_a_conflict() {
     );
     assert!(!conflict.diagnostics[0].message.contains("Another note"));
 }
+
+#[test]
+fn an_import_cannot_take_an_interpretations_id() {
+    let library = versions();
+    let plan = plan_csl_import(
+        &library,
+        r#"[{"id": "cave-514a-ada", "type": "book", "title": "A book"}]"#,
+        &contributors(),
+    )
+    .unwrap();
+    let entry = &plan.entries[0];
+    assert_eq!(entry.action, ImportAction::Conflict);
+    assert_eq!(
+        entry
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, d.source_id.as_deref(), d.field.as_deref()))
+            .collect::<Vec<_>>(),
+        [(
+            SourceDiagnosticCode::DuplicateId,
+            Some("cave-514a-ada"),
+            Some("id")
+        )],
+        "the conflict is scoped to the item, not to the interpretation"
+    );
+    assert!(plan.diagnostics.is_empty());
+}

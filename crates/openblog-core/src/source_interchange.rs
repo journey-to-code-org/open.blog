@@ -404,6 +404,17 @@ pub fn plan_csl_import(
                         }
                     }
                 }
+            } else if library.interpretation(id).is_some() {
+                // Sources and interpretations share one set of ids (ADR 0115).
+                entry.diagnostics.push(problem(
+                    SourceDiagnosticCode::DuplicateId,
+                    Some(id),
+                    "id",
+                    format!(
+                        "`{id}` is already used by an interpretation; sources and interpretations share one set of ids, so give the item another id"
+                    ),
+                ));
+                record = None;
             } else if let Some(other) =
                 duplicate_identifier(library, parsed, id, &mut seen_identifiers)
             {

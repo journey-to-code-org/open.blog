@@ -122,6 +122,10 @@ pub fn create(
                 ),
             }]);
         }
+        if library.interpretation(&record.id).is_some() {
+            // Sources and interpretations share one set of ids (ADR 0115).
+            return Err(vec![interpretation_id_taken(&record.id)]);
+        }
         library.upsert(record.clone(), contributors)
     })
     .map(|(snapshot, ())| snapshot)
@@ -338,6 +342,20 @@ fn keep_posts_citable(
             if uncitable.len() == 1 { "" } else { "s" },
         ),
     }])
+}
+
+/// A new source whose id an interpretation already uses, scoped to the
+/// requested source rather than to the interpretation.
+fn interpretation_id_taken(id: &str) -> SourceDiagnostic {
+    SourceDiagnostic {
+        code: SourceDiagnosticCode::DuplicateId,
+        index: None,
+        source_id: Some(id.into()),
+        field: Some("id".into()),
+        message: format!(
+            "`{id}` is already used by an interpretation; sources and interpretations share one set of ids, so choose another id"
+        ),
+    }
 }
 
 fn unknown_source(id: &str) -> SourceDiagnostic {
@@ -1359,6 +1377,39 @@ mod tests {
             "an empty list is written as an absent field"
         );
         remove(&root, &after.revision, "e", &registry).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_new_source_cannot_take_an_interpretations_id() {
+        let root = temp_root("interpretation-id");
+        let empty = load(&root, &none()).unwrap();
+        let first = create(&root, &empty.revision, work("w"), &none()).unwrap();
+        let edition = create(
+            &root,
+            &first.revision,
+            record("e", ResearchSourceKind::Edition, Some("w")),
+            &none(),
+        )
+        .unwrap();
+        let saved = create_interpretation(
+            &root,
+            &edition.revision,
+            interpretation("e-514a", "e", serde_json::json!({"name": "N"})),
+            &none(),
+        )
+        .unwrap();
+        let before = fs::read(library_file(&root)).unwrap();
+        let refused = create(&root, &saved.revision, work("e-514a"), &none()).unwrap_err();
+        let StoreError::Invalid(diagnostics) = &refused else {
+            panic!("{refused:?}");
+        };
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, SourceDiagnosticCode::DuplicateId);
+        assert_eq!(diagnostics[0].source_id.as_deref(), Some("e-514a"));
+        assert_eq!(diagnostics[0].field.as_deref(), Some("id"));
+        assert!(diagnostics[0].message.contains("interpretation"));
+        assert_eq!(fs::read(library_file(&root)).unwrap(), before);
         fs::remove_dir_all(root).unwrap();
     }
 
