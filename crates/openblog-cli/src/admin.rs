@@ -14079,8 +14079,103 @@ mod tests {
         let removed = send("DELETE", json!({"revision": latest, "id": "a1"}), true);
         assert_eq!(removed.status, 200);
         assert_eq!(body_json(&removed)["removed"]["id"], "a1");
-        // A site build never reads the alignments file.
+        // Removing the only alignment leaves the stored list empty.
         assert!(list(&session)["alignments"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn alignments_never_cross_a_publication_boundary() {
+        const SENTINEL: &str = "ob-alignment-sentinel";
+        let f = fixture_with_sources("alignments-leak");
+        let library = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::write(
+            &library,
+            json!({"version": 1, "sources": [
+                {"id": "plato", "kind": "work", "title": "Politeia"},
+                {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings"},
+                {"id": "bloom", "kind": "translation", "of": "plato", "language": "en",
+                    "title": "Bloom"}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let empty = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/research/alignments"),
+                &session,
+                false,
+            ),
+        ));
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/alignments",
+            json!({"revision": empty["revision"], "alignment": {"id": "a1",
+                "label": SENTINEL, "rationale": SENTINEL, "uncertainty": SENTINEL, "members": [
+                {"source": "slings", "locators": [{"kind": "canonical", "value": "514a"}],
+                    "note": SENTINEL, "shelf": SENTINEL},
+                {"source": "bloom", "absent": true, "note": SENTINEL}
+            ]}}),
+        );
+        assert_eq!(status, 201);
+        let stored = fs::read(f.dir.join(crate::alignment_store::ALIGNMENTS_FILE)).unwrap();
+        assert!(String::from_utf8_lossy(&stored).contains(SENTINEL));
+        assert!(openblog_core::research_bundle::looks_like_private_research(
+            &stored
+        ));
+
+        // Rebuild and read every output.
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        let files = crate::fsutil::walk(&dist);
+        assert!(!files.is_empty(), "the build wrote nothing");
+        for file in &files {
+            let name = crate::fsutil::relative(&dist, file);
+            let bytes = fs::read(file).unwrap();
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains(SENTINEL),
+                "dist/{name} exposes an alignment"
+            );
+            assert!(
+                !openblog_core::research_bundle::looks_like_private_research(&bytes),
+                "dist/{name} looks like private research"
+            );
+        }
+        // The public server never serves the file under any spelling.
+        for path in [
+            "/.openblog/private/research/alignments.json",
+            "/.openblog/private/research/alignments.json/",
+            "/%2eopenblog/private/research/alignments.json",
+            "/%2Eopenblog%2Fprivate%2Fresearch%2Falignments.json",
+            "/../.openblog/private/research/alignments.json",
+            "/static/../.openblog/private/research/alignments.json",
+        ] {
+            let response = crate::serve::route(&f.state, &req("GET", path), &dist);
+            assert!(
+                !String::from_utf8_lossy(&response.body).contains(SENTINEL),
+                "{path}"
+            );
+        }
+        // Other Admin views never carry it.
+        for path in [
+            "meta",
+            "sources",
+            "research/notebook",
+            "research/atlas",
+            "research/claims",
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", &format!("/admin/api/{path}")), &session, false),
+            );
+            assert!(
+                !String::from_utf8_lossy(&response.body).contains(SENTINEL),
+                "admin {path}"
+            );
+        }
     }
 
     #[test]
