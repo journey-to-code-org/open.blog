@@ -1,4 +1,4 @@
-//! Moderating passage feedback (ADR 0095).
+//! Moderating passage feedback (ADR 0083).
 //!
 //! A reader's submission starts pending. A moderator approves it, or rejects
 //! it with a reason; an approved item can later be removed with a reason.
@@ -53,7 +53,7 @@ impl ModerationState {
         ModerationState::Withdrawn,
     ];
 
-    /// The stored id, as the `status` column holds it (ADR 0088).
+    /// The stored id, as the `status` column holds it (ADR 0080).
     pub fn id(self) -> &'static str {
         match self {
             ModerationState::Pending => "pending",
@@ -380,7 +380,7 @@ fn stale_reason_id(reason: StaleReason) -> &'static str {
 
 /// The heading title of each section of a post's passage document, by
 /// section index. Anchors can repeat, so each anchor takes the titles of its
-/// headings in order, as the feedback form does (ADR 0094).
+/// headings in order, as the feedback form does (ADR 0082).
 pub fn section_titles(post: &Post, document: &PassageDocument) -> Vec<Option<String>> {
     let mut titles: std::collections::HashMap<&str, std::collections::VecDeque<&str>> =
         std::collections::HashMap::new();

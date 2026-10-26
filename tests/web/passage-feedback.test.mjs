@@ -1,5 +1,5 @@
 // The browser and hosted-function half of the typed-feedback contract (ADRs
-// 0087 to 0089): the same fixtures as crates/openblog-core/tests/
+// 0079 to 0081): the same fixtures as crates/openblog-core/tests/
 // scholarly_feedback.rs, so the hosted function refuses and stores exactly what
 // the build would, plus purity, the copy fallback and hostile input.
 import test from "node:test";

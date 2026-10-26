@@ -1,4 +1,4 @@
-//! Passage targets (ADRs 0084 and 0085): the shared fixtures the browser
+//! Passage targets (ADRs 0076 and 0077): the shared fixtures the browser
 //! module also reads (duplicate text, Unicode, moved, deleted and renumbered
 //! passages, versions), the passage text a post publishes, bounds and
 //! escaping, and failures that stay with the one target that caused them.
@@ -405,7 +405,7 @@ fn embedding(embeds: bool) -> Site {
 }
 
 /// What the build's passage text holds, set against the rendered page. The
-/// browser never derives passage text from the DOM (ADR 0084): the build
+/// browser never derives passage text from the DOM (ADR 0076): the build
 /// publishes it, so the page may show more than the passage text does, but
 /// everything in the passage text is on the page.
 #[test]

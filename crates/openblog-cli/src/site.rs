@@ -294,7 +294,7 @@ pub fn read_sources_excluding(
     // A deferred read: the load reads the library only when an opted-in post
     // cites something; see `Site::load`.
     sources.source_library = Some(crate::source_store::read_for_build(root));
-    // Approved reader feedback the site publishes (ADR 0095), a versioned
+    // Approved reader feedback the site publishes (ADR 0083), a versioned
     // file beside the posts.
     sources.reader_feedback = read_reader_feedback(root, config)?;
     // Claim evidence is read only while the site publishes it (ADR 0075).
@@ -656,7 +656,7 @@ pub fn generate_site(
         return Err(error.clone());
     }
     // Published reader feedback that cannot be read refuses the output the
-    // same way, rather than dropping notes the author published (ADR 0095).
+    // same way, rather than dropping notes the author published (ADR 0083).
     if let Some(error) = &site.reader_feedback_error {
         return Err(error.clone());
     }

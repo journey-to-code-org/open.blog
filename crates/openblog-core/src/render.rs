@@ -65,7 +65,7 @@ struct Meta<'a> {
     /// previews from that data (ADR 0061), present exactly when the data is.
     citation_previews: Option<String>,
     /// The published passage text of a post that offers passage feedback, as
-    /// its `<script type="application/json">` element (ADR 0094); `None` on
+    /// its `<script type="application/json">` element (ADR 0082); `None` on
     /// every other page, which is then written exactly as before.
     passage_data: Option<String>,
     theme: &'a Theme,
@@ -133,7 +133,7 @@ const FEEDBACK_ANCHOR: &str = "ob-feedback";
 /// The id of the page data element that holds a post's passage text.
 pub const PASSAGE_DATA_ELEMENT_ID: &str = "ob-passages";
 
-/// A post's passage text as the feedback form reads it (ADRs 0084, 0094):
+/// A post's passage text as the feedback form reads it (ADRs 0076, 0082):
 /// the work's path, the passage revision and each section's index, anchor,
 /// heading title, text and digest, all computed here by the build. The JSON
 /// is escaped so no text in it can end or confuse the script element.
@@ -447,7 +447,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         "openblog-comments.json".into(),
         serde_json::to_string(&comment_policies).expect("comment policy map is serializable"),
     )?;
-    // Typed passage feedback is opt-in (ADR 0089): only a site that enables
+    // Typed passage feedback is opt-in (ADR 0081): only a site that enables
     // it publishes the policy the hosted function checks, so every other
     // site's output is unchanged. Feedback follows each post's discussion
     // setting until the participation policy (#211) gives it its own.
@@ -779,7 +779,7 @@ impl<'a> Renderer<'a> {
         c.apply_base_path(&c.cdn.apply(&h))
     }
 
-    /// Passage feedback on one post (ADR 0094): the feedback region, whose
+    /// Passage feedback on one post (ADR 0082): the feedback region, whose
     /// static text is the no-JavaScript path, and the post's passage text as
     /// page data for the form. Only an open post on a site that opts in to
     /// hosted feedback has them; every other page is unchanged.
@@ -1371,7 +1371,7 @@ impl<'a> Renderer<'a> {
         }
         body.push_str(&self.chronological_nav(index));
         // Approved reader notes, with the author's responses, are shown on
-        // the canonical page only (ADR 0095), before the form that asks for
+        // the canonical page only (ADR 0083), before the form that asks for
         // more.
         body.push_str(&crate::feedback_publication::render_section(
             post.reader_feedback(),

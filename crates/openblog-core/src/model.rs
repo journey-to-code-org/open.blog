@@ -46,7 +46,7 @@ pub struct Sources {
     /// publishes claim evidence (ADR 0075); `None` otherwise.
     pub claim_evidence: Option<ClaimEvidenceSource>,
     /// The site's published reader feedback (`reader-feedback.json` in the
-    /// content folder, ADR 0095), when the file exists.
+    /// content folder, ADR 0083), when the file exists.
     pub reader_feedback: Option<SourceFile>,
 }
 
@@ -257,7 +257,7 @@ pub struct Post {
     /// decide as for citations: refuse a post it publishes, warn otherwise.
     pub(crate) evidence_error: Option<String>,
     /// The approved reader notes this post's canonical page shows, read
-    /// through the public projection (ADR 0095); empty for most posts.
+    /// through the public projection (ADR 0083); empty for most posts.
     pub(crate) reader_feedback: Vec<crate::feedback_publication::PublicFeedback>,
     pub html: String,
     pub text: String,
@@ -324,7 +324,7 @@ impl Post {
         self.claim_evidence.as_ref()
     }
 
-    /// The approved reader notes this post's canonical page shows (ADR 0095).
+    /// The approved reader notes this post's canonical page shows (ADR 0083).
     pub fn reader_feedback(&self) -> &[crate::feedback_publication::PublicFeedback] {
         &self.reader_feedback
     }
@@ -463,7 +463,7 @@ pub struct Site {
     /// so a load or render that only validates content (an Admin save, a
     /// preview) is not stopped by it.
     pub claim_evidence_error: Option<String>,
-    /// Why the site's published reader feedback cannot be read (ADR 0095).
+    /// Why the site's published reader feedback cannot be read (ADR 0083).
     /// Like `claim_evidence_error`, a full build or `check` refuses while it
     /// is set, and a load that only validates content is not stopped.
     pub reader_feedback_error: Option<String>,
@@ -504,7 +504,7 @@ impl Site {
         // is published as before.
         let mut claim_evidence_error = None;
         // A site that takes passage feedback publishes the author's revision
-        // notes too, without reading any claims file (ADR 0095): a note
+        // notes too, without reading any claims file (ADR 0083): a note
         // recorded after a reader's suggestion led to a change.
         let feedback_notes = config.engagement.enabled
             && config.engagement.feedback
@@ -1098,7 +1098,7 @@ pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
 }
 
 /// Give each post the approved reader notes its canonical page shows (ADR
-/// 0095), or say why the file cannot be read. A post that hides its
+/// 0083), or say why the file cannot be read. A post that hides its
 /// discussion shows none; a note about a post that no longer exists is a
 /// warning, and one about a draft or scheduled post waits for it.
 fn attach_reader_feedback(

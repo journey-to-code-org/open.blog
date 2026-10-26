@@ -1,12 +1,12 @@
-# ADR 0089: The hosted feedback transport is opt-in twice and reuses the engagement function, its quotas and its moderation token
+# ADR 0081: The hosted feedback transport is opt-in twice and reuses the engagement function, its quotas and its moderation token
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#81](https://github.com/journey-to-code-org/open.blog/issues/81)
 - Parent story: [#29](https://github.com/journey-to-code-org/open.blog/issues/29)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0087](0087-typed-scholarly-feedback-kinds-and-one-submission-format.md),
-  [ADR 0088](0088-hosted-feedback-is-one-additive-private-table.md)
+- Builds on: [ADR 0079](0079-typed-scholarly-feedback-kinds-and-one-submission-format.md),
+  [ADR 0080](0080-hosted-feedback-is-one-additive-private-table.md)
 - Coordinates with: [#82](https://github.com/journey-to-code-org/open.blog/issues/82) (forms),
   [#83](https://github.com/journey-to-code-org/open.blog/issues/83) (moderation),
   [#211](https://github.com/journey-to-code-org/open.blog/issues/211) (participation policy),
@@ -39,7 +39,7 @@ e-mailed or notified.
   `403 unavailable`.
 - **One request order.** Configuration, origin (a public submission needs the site's exact
   origin), the switch, then the shared validator (`readFeedbackSubmissionJson` from
-  `web/components/passage-feedback.js`, the ADR 0087 rules, including passage-target number
+  `web/components/passage-feedback.js`, the ADR 0079 rules, including passage-target number
   canonicality read from the exact request text), then the policy, then the existing quota, and
   only then storage. A refused submission (`422`, or `413` when too large) costs no database or
   site request, and its code and message are the build's.
@@ -53,7 +53,7 @@ e-mailed or notified.
   `status`, `channel` or any other field: unknown fields are refused. Every stored row is
   `pending`.
 - **Moderation reuses the token.** `GET /admin/feedback?status=&kind=` lists up to 200 items as
-  `{id, status, moderatedAt, feedback}`, where `feedback` is the ADR 0087 record that
+  `{id, status, moderatedAt, feedback}`, where `feedback` is the ADR 0079 record that
   `openblog_core::scholarly_feedback::HostedFeedback` reads; `PATCH /admin/feedback {id, status}`
   sets `approved` or `rejected` and the moderation time. Both require
   `Authorization: Bearer OPENBLOG_ADMIN_API_KEY`, compared with `timingSafeEqual`. The reader's
@@ -68,7 +68,7 @@ e-mailed or notified.
   names no table, key or host; canonical files, the page and the browser's data are never changed
   by the transport.
 - **The fallback.** With no endpoint, the switch off, a closed post or a failure, the page reads
-  exactly as before, and the copy text of ADR 0087 lets a reader send their note to the author,
+  exactly as before, and the copy text of ADR 0079 lets a reader send their note to the author,
   who can enter it as manual feedback with the same record. Forms that offer it are #82.
 - **Bundling.** The function imports the validator from `web/components/`, so `netlify.toml`
   bundles the engagement function, and only it, with esbuild. Comments, views and analytics
@@ -80,7 +80,7 @@ e-mailed or notified.
   (Third Perspectives, section responses, future questions) share one endpoint, one table, one
   quota family and one moderation token.
 - A deployment can turn the transport off at once with one environment variable, independently
-  of the build and of the database (ADR 0088's rollback).
+  of the build and of the database (ADR 0080's rollback).
 - The validator runs in the function exactly as in the browser and in Rust, held together by
   the shared fixtures; the function's own tests exercise origin, opt-in, policy, quota, replay,
   hostile text, authorization, provider failure and the SQL it relies on.

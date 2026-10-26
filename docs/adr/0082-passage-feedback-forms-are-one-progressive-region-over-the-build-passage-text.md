@@ -1,13 +1,13 @@
-# ADR 0094: Passage feedback forms are one progressive region per open post, over the passage text the build publishes
+# ADR 0082: Passage feedback forms are one progressive region per open post, over the passage text the build publishes
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#82](https://github.com/journey-to-code-org/open.blog/issues/82)
 - Parent story: [#29](https://github.com/journey-to-code-org/open.blog/issues/29)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0084](0084-passage-targets-are-section-anchors-with-quoted-context.md),
-  [ADR 0087](0087-typed-scholarly-feedback-kinds-and-one-submission-format.md),
-  [ADR 0089](0089-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md),
+- Builds on: [ADR 0076](0076-passage-targets-are-section-anchors-with-quoted-context.md),
+  [ADR 0079](0079-typed-scholarly-feedback-kinds-and-one-submission-format.md),
+  [ADR 0081](0081-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md),
   [ADR 0061](0061-citation-previews-are-a-progressive-non-modal-component.md)
 - Coordinates with: [#124](https://github.com/journey-to-code-org/open.blog/issues/124) (P6.2
   canonical-only fallbacks), [#83](https://github.com/journey-to-code-org/open.blog/issues/83)
@@ -15,9 +15,9 @@
 
 ## Context
 
-ADR 0084 decided that the build, not the browser, owns a post's passage text, and that pages would
-publish it only behind the feedback opt-in. ADR 0087 fixed the kinds and the one submission format,
-and ADR 0089 the hosted route. Readers now need a way to use them: pick a passage, say what kind of
+ADR 0076 decided that the build, not the browser, owns a post's passage text, and that pages would
+publish it only behind the feedback opt-in. ADR 0079 fixed the kinds and the one submission format,
+and ADR 0081 the hosted route. Readers now need a way to use them: pick a passage, say what kind of
 note it is and write it, with or without JavaScript, with or without a working service, at 320px and
 under the strict content security policy Admin serves pages with. Pages of sites that do not opt in
 must not change.
@@ -26,7 +26,7 @@ must not change.
 
 - **Where it appears.** Only the page of an *open* post on a site with hosted engagement, an
   endpoint and `engagement.feedback` carries the feature; locked and hidden posts have none, as the
-  hosted function refuses them (ADR 0089). Such a page gains exactly three things: the passage data
+  hosted function refuses them (ADR 0081). Such a page gains exactly three things: the passage data
   element and the component's module script in the head, and one feedback region after the post's
   navigation (`<section id="ob-feedback">`, headed "Questions and corrections"). Every other page,
   feed and portable output is byte-for-byte unchanged, which a build test compares file by file.
@@ -82,7 +82,7 @@ must not change.
 - A reader always has a way to send a passage-specific note: the form, the copy, or the static
   instructions; reading never depends on any of them.
 - Pages that offer feedback carry their passage text a second time, as data; for the posts this is
-  meant for that is small, and it buys exact agreement with the build (ADR 0084).
+  meant for that is small, and it buys exact agreement with the build (ADR 0076).
 - Annotations (#84) can read the same data element; publishing approved feedback (#83) is a build
   projection and needs nothing from the form.
 - Portable copies still carry no form. A labelled canonical link to the feedback region, like the

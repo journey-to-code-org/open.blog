@@ -120,7 +120,7 @@ no build reads it and every post is unchanged.
   without the claim. A malformed note refuses the post, naming the item. A site that takes
   passage feedback (`engagement.feedback`) publishes revision notes in this section even while
   `claimEvidence.publish` is off, without reading any claims file, and Admin's Reader feedback
-  view can add a note after a reader's suggestion led to a change (ADR 0095).
+  view can add a note after a reader's suggestion led to a change (ADR 0083).
 - **Refused, not published partly:** a post whose body would swallow the section (an unclosed
   code block, HTML block or comment), and any portable copy that does not carry every claim's
   heading, contested marker and relation headings in order. A claims file, library or notebook

@@ -31,7 +31,7 @@ const MAX_SHORT_CHARS: usize = 200;
 const MAX_LOCATORS: usize = 8;
 const MAX_LINKS: usize = 100;
 const CREDIT_FIELDS: &[&str] = &["credit", "credits", "contributor", "contributors"];
-/// Fields of reader feedback provenance (ADR 0086): a reader's name and when
+/// Fields of reader feedback provenance (ADR 0078): a reader's name and when
 /// feedback was seen or received never become research.
 const READER_FEEDBACK_FIELDS: &[&str] = &["attribution", "receivedAt", "seenAt"];
 

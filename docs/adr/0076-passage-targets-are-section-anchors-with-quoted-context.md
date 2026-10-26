@@ -1,4 +1,4 @@
-# ADR 0084: Passage targets are section anchors with quoted context, over one published passage text
+# ADR 0076: Passage targets are section anchors with quoted context, over one published passage text
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -108,7 +108,7 @@ without JavaScript, with the hosted service optional.
 
 - A durable reference to published text is a section anchor plus a quotation or a digest, never
   a positional id. Renaming a heading changes its anchor; a quote target then still re-anchors
-  by its text, and a section target by its digest (ADR 0085).
+  by its text, and a section target by its digest (ADR 0077).
 - A browser adapter does not read the DOM for passage text. It uses the text the build
   published, so a page may show more than the passage text (embed captions, raw HTML) without
   any parity risk; text outside it simply cannot be selected into a target. Pages that publish

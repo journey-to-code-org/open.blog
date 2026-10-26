@@ -1,4 +1,4 @@
-// Typed scholarly feedback (ADRs 0087 to 0089): the browser and hosted-function
+// Typed scholarly feedback (ADRs 0079 to 0081): the browser and hosted-function
 // half of the contract in crates/openblog-core/src/scholarly_feedback.rs. Both
 // read tests/fixtures/scholarly-feedback.json and must agree on every code and
 // record.
@@ -302,7 +302,7 @@ export function readFeedbackSubmissionJson(text) {
 
 /**
  * The record a receiver keeps, as the build writes it:
- * { version, kind, body, details, provenance } with the ADR 0086 provenance.
+ * { version, kind, body, details, provenance } with the ADR 0078 provenance.
  * `receivedAt` is the receiver's own canonical time, never the reader's; a
  * `seenAt` later than it (a reader's clock running ahead) is dropped.
  */

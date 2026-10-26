@@ -1,9 +1,9 @@
--- Optional passage feedback (ADR 0088). Run once in the Supabase SQL editor,
+-- Optional passage feedback (ADR 0080). Run once in the Supabase SQL editor,
 -- after openblog.sql, only if the site opts in to typed passage feedback. A
 -- site that does not opt in never needs it.
 --
 -- Additive only: it creates the feedback table, its moderation audit table,
--- their indexes and one moderation function (ADR 0095). It does not alter,
+-- their indexes and one moderation function (ADR 0083). It does not alter,
 -- rename, drop or rewrite any existing table, column, function or row, so
 -- comments and analytics keep working exactly as before. Running it twice
 -- changes nothing. To undo it, see feedback-rollback.sql.
@@ -11,7 +11,7 @@
 -- The table is private: row level security is on with no policies, the
 -- public roles have no access, and only the Netlify Function (service_role)
 -- reads and writes it. Feedback kinds and moderation states are checked here
--- for shape only; the allowed values belong to the code (ADR 0087, #211), so
+-- for shape only; the allowed values belong to the code (ADR 0079, #211), so
 -- a new kind or state needs no migration.
 
 begin;
@@ -21,11 +21,11 @@ create extension if not exists pgcrypto;
 create table if not exists public.openblog_feedback (
   id uuid primary key default gen_random_uuid(),
   site_id text not null check (char_length(site_id) between 1 and 200),
-  -- The submission format version (ADR 0087).
+  -- The submission format version (ADR 0079).
   format_version integer not null default 1 check (format_version >= 1),
   kind text not null check (kind ~ '^[a-z][a-z0-9-]{0,39}$'),
   -- The work, the passage revision the reader saw and the passage target
-  -- (ADRs 0084, 0086). All three, or none for a future kind that is about
+  -- (ADRs 0076, 0078). All three, or none for a future kind that is about
   -- the site rather than a passage.
   work text check (char_length(work) between 2 and 500),
   revision text check (revision ~ '^p[1-9][0-9]{0,3}:[0-9a-f]{32}$'),
@@ -38,12 +38,12 @@ create table if not exists public.openblog_feedback (
   received_at timestamptz not null default now(),
   channel text not null default 'hosted' check (channel in ('hosted', 'manual')),
   -- The reader's name is private to moderation unless publish_name is true
-  -- (ADR 0086). It is never copied into openblog_comments.author_name.
+  -- (ADR 0078). It is never copied into openblog_comments.author_name.
   reader_name text check (char_length(reader_name) between 1 and 80),
   publish_name boolean not null default false,
   status text not null default 'pending' check (status ~ '^[a-z][a-z-]{0,31}$'),
   -- Every moderation change names the version it expects and raises it, so
-  -- two moderators can never both act on one item (ADR 0095).
+  -- two moderators can never both act on one item (ADR 0083).
   version integer not null default 1 check (version >= 1),
   moderated_at timestamptz,
   -- The reason code of the last rejection or removal; never free text.
@@ -56,7 +56,7 @@ create table if not exists public.openblog_feedback (
   constraint openblog_feedback_seen_before_received check (seen_at is null or seen_at <= received_at)
 );
 
--- Moderation columns (ADR 0095), for a table created by an earlier copy of
+-- Moderation columns (ADR 0083), for a table created by an earlier copy of
 -- this file; on a fresh install they already exist and nothing happens.
 alter table public.openblog_feedback
   add column if not exists version integer not null default 1 check (version >= 1);
@@ -74,7 +74,7 @@ alter table public.openblog_feedback enable row level security;
 revoke all on public.openblog_feedback from public, anon, authenticated, service_role;
 grant select, insert, update on public.openblog_feedback to service_role;
 
--- The moderation audit trail (ADR 0095): who changed which item, from which
+-- The moderation audit trail (ADR 0083): who changed which item, from which
 -- state to which, why (a reason code), when, and the version it produced.
 -- Never what anyone wrote. Rows are only ever inserted.
 create table if not exists public.openblog_feedback_events (
@@ -101,7 +101,7 @@ grant select, insert on public.openblog_feedback_events to service_role;
 -- One moderation change: applied only while the item still has the state and
 -- version the moderator saw, with its audit event, in one statement. It
 -- returns the changed row, or nothing when the item changed meanwhile or does
--- not exist. Which changes are allowed is the code's decision (ADR 0095).
+-- not exist. Which changes are allowed is the code's decision (ADR 0083).
 create or replace function public.openblog_moderate_feedback(
   p_site_id text,
   p_id uuid,

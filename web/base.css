@@ -1610,7 +1610,7 @@ ob-comments {
 .ob-comments-form textarea { font: inherit; padding: .65rem; border: 1px solid var(--ob-color-border); border-radius: .35rem; background: var(--ob-color-surface); color: inherit; }
 .ob-comments-form button { justify-self: start; }
 
-/* Passage feedback (ADR 0094): a single-column form that fits 320px, a
+/* Passage feedback (ADR 0082): a single-column form that fits 320px, a
    status line outside the form, a copy-and-send fallback, and a button
    placed next to the reader's selection by the offsets the component sets. */
 .ob-feedback {
@@ -1619,7 +1619,7 @@ ob-comments {
   padding-top: var(--ob-space-6, 1.5rem);
 }
 
-/* Approved reader notes on a post's canonical page (ADR 0095): static text, no script. */
+/* Approved reader notes on a post's canonical page (ADR 0083): static text, no script. */
 .ob-reader-feedback {
   margin-block: var(--ob-space-8, 2rem);
   border-top: 1px solid var(--ob-color-border);

@@ -1,4 +1,4 @@
--- Roll back feedback.sql (ADR 0088). Run in the Supabase SQL editor.
+-- Roll back feedback.sql (ADR 0080). Run in the Supabase SQL editor.
 --
 -- First turn the feature off: remove OPENBLOG_FEEDBACK_ENABLED from the
 -- Netlify environment and redeploy, so nothing writes to the table. Then, if

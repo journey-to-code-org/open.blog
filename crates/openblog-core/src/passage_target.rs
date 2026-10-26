@@ -1,4 +1,4 @@
-//! Stable passage targets in a published post (ADRs 0084 and 0085).
+//! Stable passage targets in a published post (ADRs 0076 and 0077).
 //!
 //! A reader's question, correction or annotation points at a place in a
 //! post's text. Element ids that come from position, such as citation marker
@@ -621,7 +621,7 @@ pub struct PassageTarget {
     pub selector: PassageSelector,
 }
 
-/// The serialized form, one flat object (ADR 0084).
+/// The serialized form, one flat object (ADR 0076).
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireTarget {
@@ -671,7 +671,7 @@ fn check_text(field: &str, value: &str, max: usize, trimmed: bool) -> Result<usi
 }
 
 impl PassageTarget {
-    /// Check every bound and character rule (ADR 0084).
+    /// Check every bound and character rule (ADR 0076).
     pub fn validate(&self) -> Result<(), TargetError> {
         if let Some(anchor) = &self.section {
             let count = anchor.chars().count();
@@ -956,7 +956,7 @@ pub struct Stale {
     pub section_present: bool,
 }
 
-/// The outcome of resolving a target (ADR 0085).
+/// The outcome of resolving a target (ADR 0077).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum Resolution {

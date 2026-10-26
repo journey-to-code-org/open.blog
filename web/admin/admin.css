@@ -3221,7 +3221,7 @@ a.oba-btn-primary {
   }
 }
 
-/* Reader feedback moderation (ADR 0095). */
+/* Reader feedback moderation (ADR 0083). */
 .oba-feedback-list {
   display: grid;
   gap: 1rem;

@@ -554,11 +554,11 @@ pub struct EngagementConfig {
     pub endpoint: String,
     /// Accept typed passage feedback (questions, suggested sources and
     /// corrections, other interpretations) through the hosted function
-    /// (ADR 0089). Off by default; the deployer must also run
+    /// (ADR 0081). Off by default; the deployer must also run
     /// `supabase/feedback.sql` and set `OPENBLOG_FEEDBACK_ENABLED`.
     pub feedback: bool,
     /// Where a reader can send a copied note when the hosted function cannot
-    /// take it (ADR 0094): a `mailto:` address or an `https:` contact page,
+    /// take it (ADR 0082): a `mailto:` address or an `https:` contact page,
     /// shown on pages that offer passage feedback. Empty shows none.
     pub feedback_contact: String,
 }

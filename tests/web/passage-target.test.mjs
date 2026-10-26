@@ -1,4 +1,4 @@
-// The browser half of the passage-target contract (ADRs 0084 and 0085): the
+// The browser half of the passage-target contract (ADRs 0076 and 0077): the
 // same fixtures as crates/openblog-core/tests/passage_targets.rs, so the
 // browser and the build agree on duplicate text, Unicode, moved, deleted and
 // renumbered passages and versions, plus purity and scoped failures.

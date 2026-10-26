@@ -24,7 +24,7 @@
   directory = "netlify/functions"
 
 # Bundle the engagement function into one file, so it can import the shared
-# feedback validator from web/components (ADR 0089). Other functions keep
+# feedback validator from web/components (ADR 0081). Other functions keep
 # Netlify's default bundler.
 [functions."engagement"]
   node_bundler = "esbuild"

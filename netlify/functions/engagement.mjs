@@ -32,8 +32,8 @@ const publicComment = (row) => ({
   ...(row.status ? { status: row.status } : {}),
 });
 
-// A stored feedback row as the moderation item Admin reads (ADRs 0089 and
-// 0095): the ADR 0087 record with its provenance, plus the row id, its
+// A stored feedback row as the moderation item Admin reads (ADRs 0081 and
+// 0083): the ADR 0079 record with its provenance, plus the row id, its
 // moderation state, the version every change must name, and the last reason.
 // The reader's name is shown to moderators only, with their publication choice.
 const hostedFeedback = (row) => {
@@ -68,7 +68,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
       salt: String(env.OPENBLOG_ANALYTICS_SALT || ""),
       basePath: String(env.OPENBLOG_SITE_BASE_PATH || "/").trim(),
       // Typed passage feedback is off unless the deployer ran
-      // supabase/feedback.sql and set this explicitly (ADR 0089).
+      // supabase/feedback.sql and set this explicitly (ADR 0081).
       feedback: String(env.OPENBLOG_FEEDBACK_ENABLED || "").trim() === "true",
     };
     const required = [values.url, values.key, values.siteId, values.origin, values.adminKey, values.salt];
@@ -152,7 +152,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     const query = event.queryStringParameters || {};
     let body = {};
     // A feedback submission is read from its exact text, so the shared
-    // validator can check how its numbers are written (ADR 0087).
+    // validator can check how its numbers are written (ADR 0079).
     const rawFeedback = operation === "feedback" && event.httpMethod === "POST";
     if (mutating && !rawFeedback) {
       try {
@@ -259,7 +259,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         return json(200, { feedback: rows.map(hostedFeedback) }, corsOrigin);
       }
       if (operation === "admin/feedback" && event.httpMethod === "PATCH") {
-        // A change names the state and version the moderator saw (ADR 0095).
+        // A change names the state and version the moderator saw (ADR 0083).
         // The database applies it and records its audit event in one
         // statement, only if the row still has both, so concurrent moderation
         // is refused instead of overwritten.

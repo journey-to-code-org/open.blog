@@ -1,4 +1,4 @@
-//! Approved reader feedback as the site publishes it (ADR 0095).
+//! Approved reader feedback as the site publishes it (ADR 0083).
 //!
 //! When a moderator approves a piece of passage feedback, Admin copies its
 //! public part into `reader-feedback.json` in the content folder, beside the
@@ -143,7 +143,7 @@ pub fn is_post_source(value: &str) -> bool {
 }
 
 /// The author's response text: plain text of 1 to [`MAX_RESPONSE_CHARS`]
-/// characters, trimmed, with the reader-text rules (ADR 0087).
+/// characters, trimmed, with the reader-text rules (ADR 0079).
 pub fn response_text(value: &str) -> Option<String> {
     reader_text(value, MAX_RESPONSE_CHARS)
 }

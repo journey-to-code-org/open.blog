@@ -1,4 +1,4 @@
-//! Where a reader's feedback came from (ADR 0086).
+//! Where a reader's feedback came from (ADR 0078).
 //!
 //! A question, correction or other feedback about a passage is only useful
 //! if it says which text the reader saw: the published work, the passage
@@ -215,7 +215,7 @@ impl FeedbackProvenance {
         Ok(record)
     }
 
-    /// Check every rule (ADR 0086).
+    /// Check every rule (ADR 0078).
     pub fn validate(&self) -> Result<(), ProvenanceError> {
         if !is_work_path(&self.work) {
             return Err(ProvenanceError::new(
@@ -344,7 +344,7 @@ impl FeedbackProvenance {
     }
 
     /// The only form of this record that may appear on a public page, feed
-    /// or export (ADR 0086): the work, the revision the reader saw and the
+    /// or export (ADR 0078): the work, the revision the reader saw and the
     /// day it was received; the passage only while the work still publishes
     /// that text; and the reader's name only with their agreement. The
     /// reader's clock, the channel and an unpublished name never appear.

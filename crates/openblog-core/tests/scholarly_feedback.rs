@@ -1,4 +1,4 @@
-//! Typed scholarly feedback (ADRs 0087 to 0089): the shared fixtures that the
+//! Typed scholarly feedback (ADRs 0079 to 0081): the shared fixtures that the
 //! hosted function's validator (`web/components/passage-feedback.js`) also
 //! reads, plus the record round trip, the manual channel, the moderation item
 //! the hosted function returns, and privacy of what a record may hold.

@@ -40,7 +40,7 @@ evidence. Existing posts must publish byte for byte as before.
   and its approval is consent for that post, so a third switch would add a step without adding
   consent. A post with no published claim and no revision note is published exactly as before,
   even with the switch on. (Amended by
-  [ADR 0095](0095-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md):
+  [ADR 0083](0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md):
   a site that opts in to passage feedback also publishes revision notes through the evidence
   section without `claimEvidence.publish`, reading no claims file.)
 - **One projection, `ClaimEvidence`, and allowlisted public types.**

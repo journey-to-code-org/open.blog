@@ -72,13 +72,13 @@ function. Admin stores the public endpoint in `openblog.json` and a write-only m
 
 The same function carries typed scholarly feedback (questions, suggested sources, suggested
 corrections and other interpretations of a passage) as an opt-in extension of this seam, not a
-second comment system. The submission format and kinds are [ADR 0087](../adr/0087-typed-scholarly-feedback-kinds-and-one-submission-format.md),
-the additive `openblog_feedback` table and its rollback are [ADR 0088](../adr/0088-hosted-feedback-is-one-additive-private-table.md),
-and the transport, its double opt-in, quotas and fallback are [ADR 0089](../adr/0089-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md).
+second comment system. The submission format and kinds are [ADR 0079](../adr/0079-typed-scholarly-feedback-kinds-and-one-submission-format.md),
+the additive `openblog_feedback` table and its rollback are [ADR 0080](../adr/0080-hosted-feedback-is-one-additive-private-table.md),
+and the transport, its double opt-in, quotas and fallback are [ADR 0081](../adr/0081-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md).
 The reader form on each open post, its passage data and its copy-and-send fallback are
-[ADR 0094](../adr/0094-passage-feedback-forms-are-one-progressive-region-over-the-build-passage-text.md).
+[ADR 0082](../adr/0082-passage-feedback-forms-are-one-progressive-region-over-the-build-passage-text.md).
 Moderation, author responses, revision notes and the published notes are
-[ADR 0095](../adr/0095-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md):
+[ADR 0083](../adr/0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md):
 `PATCH /admin/feedback` takes `{id, action, from, expectedVersion, reason?, actor?}` and applies
 the change with its audit event only while the item still has that state and version (`409`
 otherwise), and approved notes are published from `content/reader-feedback.json`, never read back

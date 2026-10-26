@@ -46,7 +46,7 @@ before content is stored.
 
 The same function can accept typed passage feedback: a reader's question, suggested source,
 suggested correction or other interpretation of a passage, with the passage target and the
-revision of the page they saw (ADRs 0087 to 0089). It is off by default. A site that does not opt
+revision of the page they saw (ADRs 0079 to 0081). It is off by default. A site that does not opt
 in needs no extra table, publishes nothing new and behaves exactly as before.
 
 To opt in:
@@ -62,7 +62,7 @@ To opt in:
    enabled with an endpoint). The build then publishes `openblog-feedback.json`, which gives each
    post's feedback policy from its `comments:` setting (`open`, `locked` or `hidden`). The function
    reads it from `OPENBLOG_SITE_ORIGIN` and accepts feedback only for posts marked `open`. Each
-   open post also gets a "Questions and corrections" form (ADR 0094). Optionally set
+   open post also gets a "Questions and corrections" form (ADR 0082). Optionally set
    `"feedbackContact"` inside `engagement` to a `mailto:` address or an `https:` contact page, which
    the form offers when a note cannot be sent.
 
@@ -76,7 +76,7 @@ unchanged and readers can copy their note to the author instead.
 
 ### Moderation
 
-Moderate in **Admin → Reader feedback** (ADR 0095). Admin calls `GET /api/admin/feedback` and
+Moderate in **Admin → Reader feedback** (ADR 0083). Admin calls `GET /api/admin/feedback` and
 `PATCH /api/admin/feedback` itself, with the saved moderation token, so the token never reaches
 the browser. A change is `{id, action, from, expectedVersion, reason?, actor?}`: `approve`
 (pending only), `reject` (pending or clarification, with a reason) or `remove` (approved, with a

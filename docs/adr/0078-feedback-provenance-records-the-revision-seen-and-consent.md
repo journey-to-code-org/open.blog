@@ -1,12 +1,12 @@
-# ADR 0086: Feedback provenance records the revision a reader saw, when, and only consented identity
+# ADR 0078: Feedback provenance records the revision a reader saw, when, and only consented identity
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#80](https://github.com/journey-to-code-org/open.blog/issues/80)
 - Parent story: [#29](https://github.com/journey-to-code-org/open.blog/issues/29)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0084](0084-passage-targets-are-section-anchors-with-quoted-context.md),
-  [ADR 0085](0085-targets-resolve-as-current-reanchored-or-stale.md),
+- Builds on: [ADR 0076](0076-passage-targets-are-section-anchors-with-quoted-context.md),
+  [ADR 0077](0077-targets-resolve-as-current-reanchored-or-stale.md),
   [ADR 0034](0034-private-passages-and-research-notes.md)
 - Coordinates with: [#81](https://github.com/journey-to-code-org/open.blog/issues/81) (hosted
   transport), [#211](https://github.com/journey-to-code-org/open.blog/issues/211) (participation
@@ -33,8 +33,8 @@ static reading must keep working without any hosted service.
   ```
 
   - `work`: the post's site-relative path, validated like the hosted comments' paths.
-  - `revision`: the passage revision of the page the reader saw (ADR 0084).
-  - `target`: the passage target (ADR 0084).
+  - `revision`: the passage revision of the page the reader saw (ADR 0076).
+  - `target`: the passage target (ADR 0076).
   - `seenAt`: when the reader saw the page, by the reader's own clock; optional, untrusted, and
     never later than `receivedAt`. A receiver drops a later value instead of storing it.
   - `receivedAt`: stamped by the receiver (the hosted function, or the author entering a message

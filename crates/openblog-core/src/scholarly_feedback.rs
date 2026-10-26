@@ -1,10 +1,10 @@
 //! Typed scholarly feedback: what a reader sends about a passage, and the
-//! record a receiver keeps (ADRs 0087 and 0088).
+//! record a receiver keeps (ADRs 0079 and 0080).
 //!
 //! A reader asks a question, suggests a source, suggests a correction or
 //! offers another interpretation of a passage of a published post. Each is a
 //! *feedback kind* with its own small set of details, and every one carries
-//! the same [`FeedbackProvenance`] (ADR 0086): the work, the passage revision
+//! the same [`FeedbackProvenance`] (ADR 0078): the work, the passage revision
 //! the reader saw, the passage target and the reader's attribution choice.
 //!
 //! The hosted function (`netlify/functions/engagement.mjs`) reads the same
@@ -550,7 +550,7 @@ struct WireRecord {
 
 impl ScholarlyFeedback {
     /// The record as JSON: `{version, kind, body, details, provenance}`,
-    /// where `provenance` is the ADR 0086 record.
+    /// where `provenance` is the ADR 0078 record.
     pub fn to_value(&self) -> Value {
         let provenance: Value =
             serde_json::from_str(&self.provenance.to_json()).expect("provenance is JSON");
@@ -610,7 +610,7 @@ impl ScholarlyFeedback {
 }
 
 /// Where a hosted item is in moderation: the participation policy's states
-/// (RD12, #211), read by [`crate::feedback_moderation`] (ADR 0095). Public
+/// (RD12, #211), read by [`crate::feedback_moderation`] (ADR 0083). Public
 /// submissions always start [`FeedbackStatus::Pending`]; an id no version
 /// defines is refused rather than misread.
 pub type FeedbackStatus = crate::feedback_moderation::ModerationState;
@@ -622,7 +622,7 @@ pub struct HostedFeedback {
     pub id: String,
     pub status: FeedbackStatus,
     /// The row's moderation version: every change names the version it
-    /// expects and raises it, so concurrent moderation is refused (ADR 0095).
+    /// expects and raises it, so concurrent moderation is refused (ADR 0083).
     pub version: u64,
     pub moderated_at: Option<DateTime>,
     /// Why the item was last rejected or removed, if it was.

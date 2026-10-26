@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 
-// Moderating passage feedback and publishing what was approved (#83, ADR 0095). The hosted queue
+// Moderating passage feedback and publishing what was approved (#83, ADR 0083). The hosted queue
 // is mocked at the Admin API (the real Admin keeps the hosted token and talks to the hosted
 // function itself); responses, revision notes and the canonical page are the real server's.
 // Covers keyboard-only moderation, a moved passage that must be confirmed before approval, reasons,

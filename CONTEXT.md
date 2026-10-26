@@ -926,33 +926,33 @@ _Avoid_: Feedback service, comment system, backend when the opt-in path is meant
 A post's passage text as page data, built by the build: the work, the passage revision and each
 section's index, anchor, heading title, text and digest, in one inert JSON element. Only an open
 post on a site that opts in to feedback carries it; the browser maps selections onto it and never
-re-derives text from the page (ADRs 0084, 0094).
+re-derives text from the page (ADRs 0076, 0082).
 _Avoid_: Page text, DOM text, scraped text
 
 **Feedback region**:
 The section after a post's navigation where a reader sends a passage-specific note. Its static
 text tells a reader without JavaScript how to name a passage and reach the author; the feedback
-form enhances it, and a failed submission falls back to a copy of the note to send (ADR 0094).
+form enhances it, and a failed submission falls back to a copy of the note to send (ADR 0082).
 _Avoid_: Comment box, discussion when the hosted comments are meant
 
 **Feedback moderation**:
 A moderator's decision about one feedback item: approve, reject with a reason, or remove an
 approved item with a reason, in the participation policy's state names (pending, clarification,
 approved, rejected, removed, withdrawn). Each change names the state and version the moderator saw
-and is recorded as an audit event; approval never edits the post (ADR 0095).
+and is recorded as an audit event; approval never edits the post (ADR 0083).
 _Avoid_: Accepting a correction, verdict, review when a moderation decision is meant
 
 **Passage check**:
 What a moderator sees about a feedback item's passage before acting: current, re-anchored after
 the post changed, stale with its reason, or no post at that address. Approving anything but a
-current passage needs the moderator to confirm the check they read (ADR 0095).
+current passage needs the moderator to confirm the check they read (ADR 0083).
 _Avoid_: Fuzzy match, auto-fix
 
 **Published reader feedback**:
 The public part of approved feedback, kept in `reader-feedback.json` in the content folder: the
 kind, text, details, target and revision seen, the days received and approved, a name only with
 consent, and the author's response. Shown on the post's canonical page only, through the public
-provenance; portable copies and feeds carry a labelled link instead (ADR 0095).
+provenance; portable copies and feeds carry a labelled link instead (ADR 0083).
 _Avoid_: Comments, feedback export, moderation record
 
 **Author response**:

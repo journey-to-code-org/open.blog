@@ -1,4 +1,4 @@
-// The moderation rules for passage feedback (ADR 0095): the same table as
+// The moderation rules for passage feedback (ADR 0083): the same table as
 // `openblog_core::feedback_moderation`, held together by
 // tests/fixtures/feedback-moderation.json. The state names are those of the
 // participation and moderation policy (RD12, #211); B5 offers only approve,

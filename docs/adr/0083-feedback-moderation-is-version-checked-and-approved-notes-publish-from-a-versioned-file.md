@@ -1,4 +1,4 @@
-# ADR 0095: Feedback moderation is version-checked and audited, and approved notes publish from a versioned file through the public projection
+# ADR 0083: Feedback moderation is version-checked and audited, and approved notes publish from a versioned file through the public projection
 
 - Status: Accepted
 - Date: 2026-10-26
@@ -6,14 +6,14 @@
 - Parent story: [#29](https://github.com/journey-to-code-org/open.blog/issues/29)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [ADR 0075](0075-publish-approved-claim-evidence-in-the-post-with-public-revision-notes.md),
-  [ADR 0085](0085-targets-resolve-as-current-reanchored-or-stale.md),
-  [ADR 0086](0086-feedback-provenance-records-the-revision-seen-and-consent.md),
-  [ADR 0087](0087-typed-scholarly-feedback-kinds-and-one-submission-format.md),
-  [ADR 0088](0088-hosted-feedback-is-one-additive-private-table.md),
-  [ADR 0089](0089-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md),
-  [ADR 0094](0094-passage-feedback-forms-are-one-progressive-region-over-the-build-passage-text.md)
-- Amends: ADR 0088 (two columns, an audit table and one function in the unreleased
-  `feedback.sql`), ADR 0089 (the moderation `PATCH` contract) and ADR 0075 (a feedback site
+  [ADR 0077](0077-targets-resolve-as-current-reanchored-or-stale.md),
+  [ADR 0078](0078-feedback-provenance-records-the-revision-seen-and-consent.md),
+  [ADR 0079](0079-typed-scholarly-feedback-kinds-and-one-submission-format.md),
+  [ADR 0080](0080-hosted-feedback-is-one-additive-private-table.md),
+  [ADR 0081](0081-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md),
+  [ADR 0082](0082-passage-feedback-forms-are-one-progressive-region-over-the-build-passage-text.md)
+- Amends: ADR 0080 (two columns, an audit table and one function in the unreleased
+  `feedback.sql`), ADR 0081 (the moderation `PATCH` contract) and ADR 0075 (a feedback site
   publishes revision notes)
 - Coordinates with: [#211](https://github.com/journey-to-code-org/open.blog/issues/211) (RD12.1
   moderation state machine), [#225](https://github.com/journey-to-code-org/open.blog/issues/225)
@@ -23,7 +23,7 @@
 
 ## Context
 
-Readers can now send passage feedback to a hosted, pending queue (ADRs 0087 to 0089, 0094). #83
+Readers can now send passage feedback to a hosted, pending queue (ADRs 0079 to 0082). #83
 asks for the rest: moderators approve or reject it, authors respond, and a correction or
 suggestion that led to a change gets a public revision note, with every action auditable and
 conflict-safe, approval never editing the post, and nothing private reaching a public page.
@@ -97,7 +97,7 @@ a second inbox. RD6 (#208) forbids calling a submission a correction before the 
   without `claimEvidence.publish` (without reading any claims file); without either switch
   nothing changes. A note names a claim, a date and the change, and nothing about the reader.
 - **Public output is the canonical page only, through the public projection.** A post's approved
-  notes are read with `FeedbackProvenance::public` (ADR 0086) against the post as published now
+  notes are read with `FeedbackProvenance::public` (ADR 0078) against the post as published now
   and rendered as a static "Reader questions and responses" section before the feedback form:
   the kind (a suggested correction keeps that label; nothing says "Correction"), a link to the
   section, the quotation only while the post still publishes it (otherwise a sentence says the

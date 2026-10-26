@@ -1,4 +1,4 @@
-//! Feedback provenance (ADR 0086): the revision a reader saw and when, the
+//! Feedback provenance (ADR 0078): the revision a reader saw and when, the
 //! receiver's own timestamp, consent-gated names, a public projection that
 //! never republishes removed text, scoped failures, and a hard line between
 //! reader feedback and the author's research notes.

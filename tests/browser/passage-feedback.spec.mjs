@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Passage feedback forms on a published reader page (#82, ADR 0094): keyboard use, a selection
+// Passage feedback forms on a published reader page (#82, ADR 0082): keyboard use, a selection
 // quoted from the build's passage text, announced errors, an explicit pending state, success, the
 // copy-and-send fallback when the service is off, 320px, a strict content security policy, no
 // requests beyond the configured endpoint, and the page without JavaScript or without the opt-in.

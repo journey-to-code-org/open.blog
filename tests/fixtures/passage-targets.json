@@ -1,5 +1,5 @@
 {
-  "about": "Shared passage-target fixtures (ADRs 0084 and 0085), read by crates/openblog-core/tests/passage_targets.rs and tests/web/passage-target.test.mjs. Offsets count Unicode scalar values.",
+  "about": "Shared passage-target fixtures (ADRs 0076 and 0077), read by crates/openblog-core/tests/passage_targets.rs and tests/web/passage-target.test.mjs. Offsets count Unicode scalar values.",
   "documents": {
     "original": {
       "revision": "p1:4a264dbcfbe9d0a56591ff04cbf12ca4",

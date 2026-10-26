@@ -3792,7 +3792,7 @@ fn save_engagement_settings(state: &AppState, req: &Request) -> Response {
         Err(error) => return Response::error(500, &format!("invalid openblog.json: {error}")),
     };
     // Merge into the existing object, so settings this form does not manage
-    // (the passage-feedback opt-in, ADR 0089) survive a save unchanged.
+    // (the passage-feedback opt-in, ADR 0081) survive a save unchanged.
     let mut engagement = match value.get("engagement") {
         Some(Json::Object(existing)) => existing.clone(),
         _ => serde_json::Map::new(),
@@ -4069,7 +4069,7 @@ fn hosted_engagement_request(state: &AppState, req: &Request, operation: &str) -
     }
 }
 
-// ---- Passage feedback moderation (ADR 0095)
+// ---- Passage feedback moderation (ADR 0083)
 //
 // The hosted moderation routes hold the queue; Admin reaches them only
 // through this server, which keeps the bearer token. Every item is re-read

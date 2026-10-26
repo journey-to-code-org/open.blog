@@ -286,7 +286,7 @@ export function normalizeStatusFilter(value) {
   return ["published", "scheduled", "draft", "error"].includes(value) ? value : "all";
 }
 
-// Reader feedback moderation (ADR 0095). The states are the participation policy's (RD12). B5
+// Reader feedback moderation (ADR 0083). The states are the participation policy's (RD12). B5
 // writes four of them; clarification and withdrawn are listed read-only, so an item another tool
 // moved there is still seen, and one waiting for clarification can still be rejected.
 export const FEEDBACK_QUEUE_STATES = ["pending", "approved", "rejected", "removed", "clarification", "withdrawn"];
@@ -10180,7 +10180,7 @@ export class ObAdmin extends AdminElement {
     );
   }
 
-  // ---- reader feedback (ADR 0095)
+  // ---- reader feedback (ADR 0083)
 
   /**
    * Moderate passage feedback through this server, which alone holds the hosted token, and

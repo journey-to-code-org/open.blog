@@ -1,7 +1,7 @@
-//! Passage feedback forms on published pages (#82, ADR 0094): only an open
+//! Passage feedback forms on published pages (#82, ADR 0082): only an open
 //! post on a site that opts in to hosted feedback carries its passage text as
 //! page data, the feedback region with its no-JavaScript text, and the form's
-//! script. The data is the build's own passage text (ADR 0084), escaped so
+//! script. The data is the build's own passage text (ADR 0076), escaped so
 //! no text can end its element. Every other page, feed and file is
 //! byte-for-byte what it is without the opt-in.
 
@@ -181,7 +181,7 @@ fn locked_and_hidden_posts_and_every_other_file_are_unchanged() {
             changed.push(path.as_str());
         }
     }
-    // Only the open post's page, and the policy the hosted function reads (ADR 0089).
+    // Only the open post's page, and the policy the hosted function reads (ADR 0081).
     assert_eq!(changed, ["openblog-feedback.json", "tides/index.html"]);
     assert_eq!(with.len(), without.len() + 1);
 

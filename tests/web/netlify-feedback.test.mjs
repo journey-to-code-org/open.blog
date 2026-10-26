@@ -1,4 +1,4 @@
-// The hosted feedback transport (ADRs 0088 and 0089), exercised through
+// The hosted feedback transport (ADRs 0080 and 0081), exercised through
 // HTTP-shaped events with fake Supabase and site fetches: off by default,
 // shared validation before any request, the site's published policy, the
 // existing quota, a receiver-stamped time, a private reader name kept out of
@@ -424,7 +424,7 @@ test("the migration is additive, private, and matches what the function writes a
   assert.match(statements, /status text not null default 'pending'/);
   assert.match(statements, /reader_name text check/);
   assert.match(statements, /publish_name boolean not null default false/);
-  // Moderation (ADR 0095): a version for every change, a reason code, an
+  // Moderation (ADR 0083): a version for every change, a reason code, an
   // insert-only audit table and one function the public roles cannot run.
   assert.match(statements, /version integer not null default 1 check \(version >= 1\)/);
   assert.match(statements, /moderation_reason text check/);

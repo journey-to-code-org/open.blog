@@ -1,4 +1,4 @@
-// DOM-contract tests for <ob-passage-feedback> (#82, ADR 0094): labelled,
+// DOM-contract tests for <ob-passage-feedback> (#82, ADR 0082): labelled,
 // keyboard-operable controls; selections mapped onto the build's passage text
 // and kept when the selection is lost; selections it cannot quote explained,
 // never guessed; announced errors with focus on the field; an explicit

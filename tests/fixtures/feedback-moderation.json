@@ -1,5 +1,5 @@
 {
-  "about": "Moderation rules for passage feedback (ADR 0095), shared by openblog_core::feedback_moderation and netlify/lib/feedback-moderation.mjs. State names are RD12's (#211). Each case is a change requested from a current state, with the expected next state or the expected refusal code.",
+  "about": "Moderation rules for passage feedback (ADR 0083), shared by openblog_core::feedback_moderation and netlify/lib/feedback-moderation.mjs. State names are RD12's (#211). Each case is a change requested from a current state, with the expected next state or the expected refusal code.",
   "rules": {
     "states": ["pending", "clarification", "approved", "rejected", "removed", "withdrawn"],
     "actions": {

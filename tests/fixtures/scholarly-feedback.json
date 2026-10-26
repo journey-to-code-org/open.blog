@@ -1,5 +1,5 @@
 {
-  "about": "Shared typed-feedback fixtures (ADRs 0087 to 0089), read by crates/openblog-core/tests/scholarly_feedback.rs and tests/web/passage-feedback.test.mjs. A case's JSON text is its `text`, or its `submission` written compactly. `storedRow` is a row as the hosted database returns it and `hostedItem` the moderation item the hosted function makes of it.",
+  "about": "Shared typed-feedback fixtures (ADRs 0079 to 0081), read by crates/openblog-core/tests/scholarly_feedback.rs and tests/web/passage-feedback.test.mjs. A case's JSON text is its `text`, or its `submission` written compactly. `storedRow` is a row as the hosted database returns it and `hostedItem` the moderation item the hosted function makes of it.",
   "receivedAt": "2026-10-26T10:00:00Z",
   "accepted": [
     {

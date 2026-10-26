@@ -1,4 +1,4 @@
-// Passage targets in the browser (ADRs 0084 and 0085). This module is the
+// Passage targets in the browser (ADRs 0076 and 0077). This module is the
 // browser half of the contract in crates/openblog-core/src/passage_target.rs:
 // both read the same fixtures (tests/fixtures/passage-targets.json) and must
 // agree on every result.
@@ -13,7 +13,7 @@
 // reason; it never points at different text.
 //
 // The document is an input: the build computes and publishes the revision, each
-// section's text and each section's digest (ADR 0084). This module never
+// section's text and each section's digest (ADR 0076). This module never
 // computes a revision or a digest and never reads the page's DOM; the browser
 // maps a reader's selection onto the published text. Sections are named by
 // their index, because two sections can share an anchor.

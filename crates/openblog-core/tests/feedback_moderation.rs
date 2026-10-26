@@ -1,5 +1,5 @@
 //! Moderating passage feedback and publishing what was approved (#83, ADR
-//! 0095): the shared moderation rules, the passage check a moderator sees
+//! 0083): the shared moderation rules, the passage check a moderator sees
 //! before acting, the public file of approved notes and its hostile-input
 //! refusals, the canonical-page-only section with its portable link, the
 //! revision notes a feedback site publishes, and privacy leaks.

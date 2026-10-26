@@ -1,4 +1,4 @@
-// Reader feedback moderation in Admin (ADR 0095): the request a moderation action sends names the
+// Reader feedback moderation in Admin (ADR 0083): the request a moderation action sends names the
 // state and version the moderator saw and, for a passage that is not current, the passage check
 // they confirmed; a reader's private name is labelled as private; the public preview never claims
 // a quotation the post no longer has.

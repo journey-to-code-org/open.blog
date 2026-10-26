@@ -1744,7 +1744,7 @@ pub(crate) fn heading_ids(markdown: &str) -> Vec<String> {
         .collect()
 }
 
-/// The passage text of a publication body (ADR 0084), section by section:
+/// The passage text of a publication body (ADR 0076), section by section:
 /// the text before the first heading (no anchor), then each heading's id
 /// with its title and the text up to the next heading of any level. Text is
 /// read from the same events and with the same heading ids as [`render`],

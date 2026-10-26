@@ -1,11 +1,11 @@
-# ADR 0085: A passage target resolves as current, re-anchored or stale, and never silently retargets
+# ADR 0077: A passage target resolves as current, re-anchored or stale, and never silently retargets
 
 - Status: Accepted
 - Date: 2026-10-26
 - Decision issue: [#80](https://github.com/journey-to-code-org/open.blog/issues/80)
 - Parent story: [#29](https://github.com/journey-to-code-org/open.blog/issues/29)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
-- Builds on: [ADR 0084](0084-passage-targets-are-section-anchors-with-quoted-context.md)
+- Builds on: [ADR 0076](0076-passage-targets-are-section-anchors-with-quoted-context.md)
 
 ## Context
 

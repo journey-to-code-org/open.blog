@@ -1,11 +1,11 @@
 // <ob-passage-feedback> turns a post's feedback region into a form for a
 // question, a suggested source, a suggested correction or another
-// interpretation of a passage (ADR 0094). The page is complete without it:
+// interpretation of a passage (ADR 0082). The page is complete without it:
 // the region's static text tells a reader how to send a note to the author.
 //
 // The passage is the whole post, a section, or words the reader selected in
 // the post. A selection is mapped onto the passage text the build published
-// in <script type="application/json" id="ob-passages"> (ADR 0084): the
+// in <script type="application/json" id="ob-passages"> (ADR 0076): the
 // selected string is normalized and found in that section's build text, and
 // the page's DOM is used only to tell which section the selection is in and,
 // when the words occur more than once, which occurrence. The article itself is
