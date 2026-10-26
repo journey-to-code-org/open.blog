@@ -41,13 +41,19 @@ one identifier space of immutable lowercase slugs.
   notebook, because attribution here is about who asserts, not who is credited.
 - **Private by default, consent is explicit.** `visibility` is `private` unless `approved`,
   and is always written. `approved` is only the author's recorded consent for the publication
-  projection (#51); this module copies nothing, the source and notebook stay private, and an
-  approved relationship cannot point at a private entry, cannot be an unsourced draft, and
-  cannot carry a pointer into the private notebook. Until storage exists nothing reads or
-  writes an atlas file, so builds, feeds, search and exports cannot see one. Unlike the
-  notebook, which has no switch at all, the atlas needs per-entry approval (#51); the
-  conservative choice is a field that only a projection may act on, and which is reversible
-  by editing the value.
+  projection (#51); this module copies nothing, and the source and notebook stay private. An
+  approved relationship cannot be an unsourced draft and cannot carry a pointer into the
+  private notebook; both are refused, because approving them could only ever leak or mislead.
+  Whether an approved relationship reaches public output is a projection rule, not a
+  validation rule: it is projected only when it **and both entries it joins** are approved
+  (`Atlas::is_projected`, `Atlas::projected`). An approved relationship that touches a private
+  entry is valid, stays private, and is reported as a non-blocking notice
+  (`Atlas::notices`, code `private-endpoint`). So withdrawing approval from an entry is an
+  ordinary edit that withdraws every relationship touching it, re-approving restores them, and
+  a hand edit of one `visibility` value never makes the file unreadable. Unlike the notebook,
+  which has no switch at all, the atlas needs per-entry approval (#51); the conservative
+  choice is a field that only a projection may act on, and which is reversible by editing the
+  value.
 - **Dates are context, not structure.** `bounds` is an optional coarse year range (negative
   is BCE, no year 0) kept for display. Nothing orders or relates entries by it. Cited,
   uncertain and competing dates are the chronology contract (#56), which supersedes `bounds`
@@ -69,5 +75,6 @@ publication projection are separate slices.
   one place to read and extend.
 - The storage slice (#49) must check library, notebook and atlas together before deleting a
   source or passage (`uses_of_source`, `uses_of_passage`).
-- Approval is a reviewable field, not a bypass: the projection (#51, #72) must re-check it
-  and may copy only approved entries.
+- Approval is a reviewable field, not a bypass: the projection (#51, #72) must re-check it,
+  may copy only approved entries, and copies a relationship only through `is_projected`.
+  Removing approval removes the output, never the data.

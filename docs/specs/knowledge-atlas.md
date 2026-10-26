@@ -59,8 +59,11 @@ entry with the same id; an unresolved id is reported, not an error.
 `assertedBy` and each `contestedBy[].by` is `{"kind": "author"}`, `{"kind": "source",
 "source": id}` or `{"kind": "named", "name": text}`. `evidence[]` is `{"source": id,
 "locators": [...], "passage": id?}` using the notebook's locator format. A relationship needs
-evidence or `"unsourced": true`, never both. An approved relationship needs both endpoints
-approved, evidence, and no `passage` pointer.
+evidence or `"unsourced": true`, never both. An approved relationship needs evidence and no
+`passage` pointer; otherwise it is refused. It reaches the publication projection only when
+both entries it joins are approved too. If either is private the relationship stays private
+and `Atlas::notices` reports a non-blocking `private-endpoint` notice, so withdrawing an
+entry's approval never makes the atlas invalid.
 
 Unknown fields are preserved at every level; contributor credit fields are refused; diagnostics
 are scoped to collection, index, id and field and never repeat authored text.

@@ -1595,6 +1595,66 @@ impl Atlas {
             .collect()
     }
 
+    /// Whether the publication projection may copy this relationship: it is
+    /// approved, and so are both entries it joins. Approval on a relationship
+    /// is consent only for itself, so withdrawing approval from an entry
+    /// silently withdraws every relationship that touches it, and approving it
+    /// again restores them; nothing has to be edited in between.
+    pub fn is_projected(&self, relationship: &Relationship) -> bool {
+        let approved = |id: &str| {
+            self.entry(id)
+                .is_some_and(|e| e.visibility == Visibility::Approved)
+        };
+        relationship.visibility == Visibility::Approved
+            && !relationship.unsourced
+            && !relationship_evidence(relationship).any(|e| e.passage.is_some())
+            && approved(&relationship.from)
+            && approved(&relationship.to)
+    }
+
+    /// The entries and relationships the publication projection may copy, in
+    /// file order. Everything else stays private.
+    pub fn projected(&self) -> (Vec<&Entry>, Vec<&Relationship>) {
+        (
+            self.entries
+                .iter()
+                .filter(|e| e.visibility == Visibility::Approved)
+                .collect(),
+            self.relationships
+                .iter()
+                .filter(|r| self.is_projected(r))
+                .collect(),
+        )
+    }
+
+    /// Non-blocking notices about a valid atlas: approved relationships the
+    /// projection leaves out because an entry they join is private. They never
+    /// make the atlas invalid, and they repeat no authored text.
+    pub fn notices(&self) -> Vec<AtlasDiagnostic> {
+        let mut notices = Vec::new();
+        for (index, r) in self.relationships.iter().enumerate() {
+            if r.visibility != Visibility::Approved {
+                continue;
+            }
+            for (field, id) in [("from", &r.from), ("to", &r.to)] {
+                if self
+                    .entry(id)
+                    .is_some_and(|e| e.visibility != Visibility::Approved)
+                {
+                    notices.push(item_diagnostic(
+                        AtlasDiagnosticCode::PrivateEndpoint,
+                        "relationships",
+                        index,
+                        &r.id,
+                        field,
+                        format!("the entry `{id}` is private, so this approved relationship stays out of public output until the entry is approved"),
+                    ));
+                }
+            }
+        }
+        notices
+    }
+
     /// Deterministic, pretty-printed JSON with a trailing newline.
     pub fn to_json(&self) -> String {
         let mut text = serde_json::to_string_pretty(self).unwrap_or_default();
@@ -1853,10 +1913,10 @@ fn check_graph(
             first.insert(id, (collection, *index));
         }
     }
-    let kinds: BTreeMap<&str, (EntryKind, Visibility)> = entries
+    let kinds: BTreeMap<&str, EntryKind> = entries
         .iter()
         .filter(|(i, e)| first.get(e.id.as_str()) == Some(&("entries", *i)))
-        .map(|(_, e)| (e.id.as_str(), (e.kind, e.visibility)))
+        .map(|(_, e)| (e.id.as_str(), e.kind))
         .collect();
 
     for (index, entry) in entries {
@@ -1908,7 +1968,7 @@ fn check_graph(
                     field,
                     format!("no entry has the id `{id}`"),
                 )),
-                Some((kind, _)) => {
+                Some(kind) => {
                     if !allowed.contains(kind) {
                         let names: Vec<&str> = allowed.iter().map(|k| k.as_str()).collect();
                         diagnostics.push(report(
@@ -2016,18 +2076,6 @@ fn check_graph(
                     "visibility",
                     "an unsourced draft cannot be approved; cite evidence first".into(),
                 ));
-            }
-            for (field, id) in [("from", &r.from), ("to", &r.to)] {
-                if kinds
-                    .get(id.as_str())
-                    .is_some_and(|(_, v)| *v != Visibility::Approved)
-                {
-                    diagnostics.push(report(
-                        AtlasDiagnosticCode::PrivateEndpoint,
-                        field,
-                        format!("an approved relationship cannot point at the private entry `{id}`; approve the entry first or keep the relationship private"),
-                    ));
-                }
             }
             if relationship_evidence(r).any(|e| e.passage.is_some()) {
                 diagnostics.push(report(
@@ -2705,15 +2753,52 @@ mod tests {
 
     #[test]
     fn private_by_default_and_approval_cannot_expose_private_things() {
+        let library = library();
+        let links = Links {
+            library: &library,
+            notebook: &Notebook::default(),
+        };
+        assert_eq!(valid().projected(), (vec![], vec![]), "private by default");
         let mut value = sample();
         value["relationships"][0]["visibility"] = json!("approved");
-        assert_eq!(
-            codes(parse(value.clone())),
-            vec![AtlasDiagnosticCode::PrivateEndpoint; 2]
-        );
+        // An approved relationship between private entries is valid, but it is
+        // not projected, and a notice says why.
+        let waiting = parse(value.clone()).expect("approval never makes the atlas invalid");
+        assert!(!waiting.is_projected(&waiting.relationships[0]));
+        let notices = waiting.notices();
+        assert_eq!(notices.len(), 2);
+        assert!(notices
+            .iter()
+            .all(|n| n.code == AtlasDiagnosticCode::PrivateEndpoint
+                && n.id.as_deref() == Some("r-authored")));
+        assert!(notices.iter().all(|n| !n.message.contains("Plato")));
         value["entries"][0]["visibility"] = json!("approved");
         value["entries"][1]["visibility"] = json!("approved");
-        assert!(parse(value.clone()).is_ok());
+        let mut atlas = parse(value.clone()).expect("valid");
+        assert!(atlas.notices().is_empty());
+        let (entries, relationships) = atlas.projected();
+        assert_eq!(
+            entries.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            vec!["plato", "republic"]
+        );
+        assert_eq!(relationships.len(), 1);
+        // Withdrawing an entry's approval is an ordinary edit that withdraws
+        // the relationships touching it; approving it again restores them.
+        let mut withdrawn = atlas.entries[0].clone();
+        withdrawn.visibility = Visibility::Private;
+        atlas
+            .upsert_entry(withdrawn.clone(), links)
+            .expect("withdrawing approval is never refused");
+        assert_eq!(atlas.projected().1.len(), 0);
+        assert_eq!(atlas.notices().len(), 1);
+        let mut hand_edited = value.clone();
+        hand_edited["entries"][0]["visibility"] = json!("private");
+        assert!(parse(hand_edited).is_ok(), "a hand edit stays readable");
+        withdrawn.visibility = Visibility::Approved;
+        atlas.upsert_entry(withdrawn, links).expect("re-approve");
+        assert_eq!(atlas.projected().1.len(), 1);
+        assert!(atlas.remove_relationship("r-authored", links).is_ok());
+        assert_eq!(atlas.projected().1.len(), 0);
         let mut unsourced = value.clone();
         unsourced["relationships"][0]
             .as_object_mut()

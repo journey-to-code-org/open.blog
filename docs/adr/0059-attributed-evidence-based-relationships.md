@@ -44,6 +44,10 @@ tempts tools to infer edges from dates ("born earlier, therefore influential").
   `standing` field is only an unknown field with no effect. Two parties asserting the same
   edge are two relationships, each with its own attribution; the same party cannot assert an
   edge twice.
+- **Approval is consent for one item.** A relationship's `visibility` covers only that
+  relationship. It is projected only when both entries it joins are approved too, so an
+  approved relationship never drags a private entry into public output, and a private
+  endpoint is a notice rather than an error (ADR 0058).
 - **Cycles.** `part-of` (between entries of one kind) and `specializes` may not form cycles,
   and every relationship on one is reported. Influence may be mutual, so other kinds may.
   Self-relationships are refused.
