@@ -8552,7 +8552,6 @@ export class ObAdmin extends AdminElement {
       };
       list.replaceChildren(...(shown.length ? shown.map(row) : [h("li", { class: "oba-notice" }, total ? "No alignment includes this version." : "No alignments yet. Add one to compare a passage across versions.")]));
       listNav.replaceChildren(h("h2", { class: "oba-small-heading", id: "oba-compare-alignments-heading" }, "Alignments"), list);
-      newButton.disabled = false;
       renderNotices();
     };
 
@@ -8736,6 +8735,9 @@ export class ObAdmin extends AdminElement {
     const onSaved = ({ item }) => {
       if (this.viewVersion !== mountedView) return;
       if (item) selected = { id: item.id, editing: false };
+      // Places may have moved or gone, so a selection made before the edit is not carried over.
+      chosen = new Set();
+      rightsConfirmed = false;
       renderLists();
       renderPanel(true);
       say("Alignment saved to the private alignments file.", "oba-ok");
