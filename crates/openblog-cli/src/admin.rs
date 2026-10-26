@@ -7526,22 +7526,32 @@ fn approval_policy_not_found() -> Response {
     )
 }
 
-/// Whether the signed-in user may choose the approval rule, decided by the single entry point.
-fn may_set_approval_policy(
+/// Whether the signed-in user may choose the approval rule, decided by the single entry point,
+/// and under whose authority: only a site owner may drop someone the rule requires (ADR 0052).
+fn approval_rule_authority(
     transaction: &InvitationTransaction<'_>,
     record: &SharedPublication,
     session: &auth::Session,
-) -> bool {
+) -> Option<openblog_core::approval::RuleAuthority> {
+    use openblog_core::approval::RuleAuthority;
     transaction
         .with_identities(|identities| {
-            record.authorize(
-                &session.user,
-                identities,
-                AuthorizationAction::SetApprovalPolicy,
-                AuthorizationTarget::Publication,
-            )
+            record
+                .authorize(
+                    &session.user,
+                    identities,
+                    AuthorizationAction::SetApprovalPolicy,
+                    AuthorizationTarget::Publication,
+                )
+                .map(|binding| {
+                    if binding.roles.contains(&AuthorizationRole::SiteOwner) {
+                        RuleAuthority::SiteOwner
+                    } else {
+                        RuleAuthority::Coordinator
+                    }
+                })
         })
-        .is_ok()
+        .ok()
 }
 
 /// Active authors who hold the approve grant for themselves: the only people a named or
@@ -7640,18 +7650,22 @@ fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session
     let Some(record) = transaction.record.clone() else {
         return approval_policy_not_found();
     };
-    if !may_set_approval_policy(&transaction, &record, session) {
+    let Some(authority) = approval_rule_authority(&transaction, &record, session) else {
         return approval_policy_not_found();
-    }
+    };
     let inputs = match gate_inputs(state, &transaction, &record) {
         Ok(inputs) => inputs,
         Err(response) => return response,
     };
     let approvers = active_approvers(&transaction, &record, &inputs.active);
-    Response::json(
-        200,
-        &approval_policy_json(&record, &inputs, &inputs.approvals.set, &approvers),
-    )
+    let mut response = approval_policy_json(&record, &inputs, &inputs.approvals.set, &approvers);
+    if let Some(object) = response.as_object_mut() {
+        object.insert(
+            "mayDropApprovers".into(),
+            json!(authority == openblog_core::approval::RuleAuthority::SiteOwner),
+        );
+    }
+    Response::json(200, &response)
 }
 
 /// A site owner or coordinator changes whose approval publication needs, against the policy
@@ -7676,9 +7690,9 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
     let Some(record) = transaction.record.clone() else {
         return approval_policy_not_found();
     };
-    if !may_set_approval_policy(&transaction, &record, session) {
+    let Some(authority) = approval_rule_authority(&transaction, &record, session) else {
         return approval_policy_not_found();
-    }
+    };
     let inputs = match gate_inputs(state, &transaction, &record) {
         Ok(inputs) => inputs,
         Err(response) => return response,
@@ -7704,6 +7718,7 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
                 body.policy.clone(),
                 body.expected_revision,
                 body.confirmed,
+                authority,
                 subject,
                 &approver_ids,
             )
@@ -7729,6 +7744,26 @@ fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session)
                 "confirmed",
                 "Confirm that changing the rule clears every approval, so every required author approves again. Nothing was changed.",
             )
+        }
+        Err(PolicyError::DropsApprovers(dropped)) => {
+            let names = openblog_core::assembly::display_names(
+                &record,
+                dropped.iter().map(String::as_str),
+            );
+            let who = if names.is_empty() {
+                "someone the current rule requires".to_string()
+            } else {
+                names.join(", ")
+            };
+            return Response::json(
+                403,
+                &json!({
+                    "error": format!(
+                        "Only a site owner can change the rule so that {who} no longer has to approve. You can keep or add people who must approve. Nothing was changed."
+                    ),
+                    "field": "policy",
+                }),
+            );
         }
         Err(PolicyError::Unmeetable(gaps)) => {
             let mut problems = Vec::new();
@@ -20671,7 +20706,10 @@ series: letters
         assert_eq!(read["required"], json!(["Mikey", "Grace", "Linus"]));
         assert_eq!(read["missing"], json!(["Linus"]));
         assert_eq!(read["approvers"].as_array().unwrap().len(), 3);
-        assert_eq!(approval_policy_read(&f, &mikey, &id).status, 200);
+        assert_eq!(read["mayDropApprovers"], false);
+        let owner_read = approval_policy_read(&f, &mikey, &id);
+        assert_eq!(owner_read.status, 200);
+        assert_eq!(body_json(&owner_read)["mayDropApprovers"], true);
 
         let before = state_trees(&f);
         let contributing = json!({ "requirement": "contributingAuthors" });
@@ -20727,11 +20765,26 @@ series: letters
         assert_eq!(same.status, 200);
         assert_eq!(body_json(&same)["changed"], false);
         assert_eq!(state_trees(&f), before);
+        // Dropping Linus from the required approvers is a site owner's decision: the coordinator
+        // is refused, with his name and what they may do instead, and nothing changes.
+        let drops = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(&id, 0, contributing.clone(), true),
+            true,
+        );
+        assert_eq!(drops.status, 403);
+        assert_no_prose(&drops);
+        let drops = body_json(&drops);
+        assert_eq!(drops["field"], "policy");
+        let message = drops["error"].as_str().unwrap();
+        assert!(message.contains("Only a site owner") && message.contains("Linus"));
+        assert_eq!(state_trees(&f), before);
 
         // A confirmed change clears every approval, advances the revision once and re-evaluates.
         let changed = approval_policy_write(
             &f,
-            &ada,
+            &mikey,
             rule_body(&id, 0, contributing.clone(), true),
             true,
         );
@@ -20873,18 +20926,19 @@ series: letters
         assert!(preview_document_text(&f, &mikey, &preview).contains("Grace can no longer approve"));
         let read = body_json(&approval_policy_read(&f, &ada, &id));
         assert_eq!(read["unmetNamed"], json!(["Grace"]));
-        // The resolution: a coordinator changes the rule, and the remaining author approves again.
-        let resolved = approval_policy_write(
-            &f,
-            &ada,
-            rule_body(
-                &id,
-                1,
-                json!({ "requirement": "contributingAuthors" }),
-                true,
-            ),
-            true,
-        );
+        // Losing Grace never lowers the bar on a coordinator's say-so: dropping her is refused.
+        let unnamed = json!({ "requirement": "contributingAuthors" });
+        let before = state_trees(&f);
+        let refused =
+            approval_policy_write(&f, &ada, rule_body(&id, 1, unnamed.clone(), true), true);
+        assert_eq!(refused.status, 403);
+        assert!(body_json(&refused)["error"]
+            .as_str()
+            .unwrap()
+            .contains("Grace no longer has to approve"));
+        assert_eq!(state_trees(&f), before);
+        // The resolution: a site owner changes the rule, and the remaining author approves again.
+        let resolved = approval_policy_write(&f, &mikey, rule_body(&id, 1, unnamed, true), true);
         assert_eq!(resolved.status, 200);
         assert_eq!(body_json(&resolved)["unmetNamed"], json!([]));
         assert_eq!(approve_as(&f, &mikey, &id).status, 200);

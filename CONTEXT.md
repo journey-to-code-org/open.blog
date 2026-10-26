@@ -168,7 +168,8 @@ roles. Every writer, and everyone named on a synthesis item, always approves; a 
 approvers and never counts, votes or stands in for anyone. A named person who leaves, or a role no
 author holds, keeps the piece blocked until the rule changes. Site owners and coordinators change
 it against the revision they read, with an explicit confirmation, and a real change clears every
-approval. It is bound into every approval and shown in the combined preview. It never changes who
+approval. A coordinator may only keep or add required approvers; dropping anyone the rule
+requires, even someone who has left, takes a site owner. It is bound into every approval and shown in the combined preview. It never changes who
 reads which draft: reveal stays one group (ADR 0052).
 _Avoid_: Quorum, vote, approval threshold, reveal group
 

@@ -45,8 +45,9 @@ stored groups.
   moved on. Existing sets load unchanged and their approvals stay valid: the old variants' binding
   input is identical.
 - **Changing a rule.** A new action, `SetApprovalPolicy`, targets the publication and is held by
-  site owners and coordinators. `GET/PUT /admin/api/collaboration/approval-policy` go through
-  `SharedPublication::authorize`, and every refusal is the same 404. A change needs the policy
+  site owners and coordinators (a coordinator only within the limit below). `GET/PUT
+  /admin/api/collaboration/approval-policy` go through `SharedPublication::authorize`, and every
+  refusal to someone without the grant is the same 404. A change needs the policy
   revision the requester read (409 if it moved) and an explicit `confirmed` (422 without it),
   because it clears every approval. Resubmitting the current rule in any order is a no-op that
   writes nothing. A rule the authors as they are now could never meet is refused: a named person,
@@ -55,6 +56,17 @@ stored groups.
   never an overwrite. The response re-evaluates the piece under the new rule (who must approve,
   who still has to, what cannot be met). A published reflection's rule no longer changes. A
   scheduled publication meets the new rule when it falls due, like any other change (ADR 0022).
+- **Coordinators only keep or add required approvers (amends ADR 0020).** ADR 0020 gave the
+  policy to the site owner. Coordinators now hold `SetApprovalPolicy` too, but without a limit a
+  coordinator could drop a site owner who wrote nothing from the people whose consent publication
+  waits on. So a rule change carries the requester's authority (`RuleAuthority`, read from the
+  binding the grant came from). The required sets before and after are computed against the
+  piece and the authors as they are now, and a coordinator's change must keep everyone required
+  before. Adding people, changing the scope, or expressing the same people under another rule is
+  allowed. A change that drops anyone, including a named participant who has since left (losing
+  a person never lowers the bar), is refused with 403 and the names of the people it would drop,
+  and only a site owner may make it. The read response says whether the requester may drop
+  approvers (`mayDropApprovers`), so Admin can say so before they try.
 - **Shown with the piece.** The combined preview carries the rule (policy, revision, a plain
   sentence, and anything that cannot be met), in its summary and in the document, like everything
   else that binds. The Admin "Approval rule" block, inside the sharing section, is shown only to

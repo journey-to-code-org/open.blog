@@ -262,6 +262,18 @@ pub fn public_metadata(record: &SharedPublication) -> Vec<String> {
     metadata
 }
 
+/// Whose authority a rule change is made under. Both roles hold the policy grant, but only a
+/// site owner may drop anyone the rule currently requires (amending ADR 0020, recorded in ADR
+/// 0052): a coordinator may only keep or add required approvers, so a coordinator can never
+/// take a site owner, or anyone else, out of the people whose consent publication waits on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuleAuthority {
+    /// May make any rule change, including one that drops required approvers.
+    SiteOwner,
+    /// May make only changes after which everyone currently required is still required.
+    Coordinator,
+}
+
 /// What [`ApprovalSet::change_policy`] did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PolicyChange {
@@ -283,6 +295,9 @@ pub enum PolicyError {
     /// The authors as they are now could never meet this rule. `named` lists participants the
     /// rule needs who cannot approve; `roles` lists roles no current author holds.
     Unmeetable(RuleGaps),
+    /// A coordinator asked for a change that drops these currently required participants (ids,
+    /// in the order the current rule lists them). Only a site owner may make it.
+    DropsApprovers(Vec<String>),
 }
 
 /// Where one author's approval stands against the content as it is now.
@@ -609,13 +624,17 @@ impl ApprovalSet {
     /// confirmation and advances nothing. A real change needs `confirmed`, because it clears every
     /// standing approval, and must be one the authors as they are now could meet: every named
     /// participant, and every author a role rule adds, must be able to approve, and every listed
-    /// role must be held by an author. A change never records, keeps or moves an approval. On any
-    /// error the set is unchanged.
+    /// role must be held by an author. Under [`RuleAuthority::Coordinator`] the change must also
+    /// keep everyone the current rule requires of the piece as it is now, including a named
+    /// participant who can no longer approve: losing a person never lowers the bar unless a site
+    /// owner decides it should. A change never records, keeps or moves an approval. On any error
+    /// the set is unchanged.
     pub fn change_policy(
         &mut self,
         policy: ApprovalPolicy,
         expected_revision: u64,
         confirmed: bool,
+        authority: RuleAuthority,
         subject: &ApprovalSubject<'_>,
         approvers: &[&str],
     ) -> Result<PolicyChange, PolicyError> {
@@ -628,6 +647,18 @@ impl ApprovalSet {
         }
         if !confirmed {
             return Err(PolicyError::Unconfirmed);
+        }
+        if authority == RuleAuthority::Coordinator {
+            let after = subject.required(&policy.requirement);
+            let dropped = subject
+                .required(&self.policy.requirement)
+                .into_iter()
+                .filter(|before| !after.contains(before))
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            if !dropped.is_empty() {
+                return Err(PolicyError::DropsApprovers(dropped));
+            }
         }
         let mut gaps = subject.gaps(&policy.requirement);
         if matches!(
@@ -1155,7 +1186,16 @@ mod tests {
         approvers: &[&str],
     ) -> Result<PolicyChange, PolicyError> {
         let revision = set.policy_revision();
-        piece.with(|s| set.change_policy(policy, revision, true, s, approvers))
+        piece.with(|s| {
+            set.change_policy(
+                policy,
+                revision,
+                true,
+                RuleAuthority::SiteOwner,
+                s,
+                approvers,
+            )
+        })
     }
 
     const APPROVERS: [&str; 3] = ["ann", "bo", "cy"];
@@ -1274,20 +1314,41 @@ mod tests {
         piece.with(|s| {
             // A stale revision, a missing confirmation and a malformed policy change nothing.
             assert_eq!(
-                set.change_policy(named(&["cy"]), 7, true, s, &APPROVERS),
+                set.change_policy(
+                    named(&["cy"]),
+                    7,
+                    true,
+                    RuleAuthority::SiteOwner,
+                    s,
+                    &APPROVERS
+                ),
                 Err(PolicyError::Stale)
             );
             assert_eq!(
-                set.change_policy(named(&["cy"]), 0, false, s, &APPROVERS),
+                set.change_policy(
+                    named(&["cy"]),
+                    0,
+                    false,
+                    RuleAuthority::SiteOwner,
+                    s,
+                    &APPROVERS
+                ),
                 Err(PolicyError::Unconfirmed)
             );
             assert_eq!(
-                set.change_policy(named(&[]), 0, true, s, &APPROVERS),
+                set.change_policy(named(&[]), 0, true, RuleAuthority::SiteOwner, s, &APPROVERS),
                 Err(PolicyError::Invalid)
             );
             // Resubmitting the current policy is a no-op without a confirmation.
             assert_eq!(
-                set.change_policy(ApprovalPolicy::default(), 0, false, s, &APPROVERS),
+                set.change_policy(
+                    ApprovalPolicy::default(),
+                    0,
+                    false,
+                    RuleAuthority::SiteOwner,
+                    s,
+                    &APPROVERS
+                ),
                 Ok(PolicyChange::Unchanged)
             );
         });
@@ -1308,18 +1369,108 @@ mod tests {
     }
 
     #[test]
+    fn a_coordinator_may_keep_or_add_required_approvers_but_never_drop_one() {
+        let piece = group();
+        let coordinator = |set: &mut ApprovalSet, policy: ApprovalPolicy| {
+            let revision = set.policy_revision();
+            piece.with(|s| {
+                set.change_policy(
+                    policy,
+                    revision,
+                    true,
+                    RuleAuthority::Coordinator,
+                    s,
+                    &APPROVERS,
+                )
+            })
+        };
+        let mut set = ApprovalSet::new();
+        set.set_policy(ApprovalPolicy {
+            requirement: ApprovalRequirement::ContributingAuthors,
+            ..Default::default()
+        });
+        // Adding the site owner who wrote nothing keeps Ann and Bo and adds Cy.
+        assert_eq!(
+            coordinator(&mut set, named(&["cy"])),
+            Ok(PolicyChange::Changed { cleared: 0 })
+        );
+        // The same people under another rule, or another scope, drop nobody.
+        assert_eq!(
+            coordinator(&mut set, with_roles(&[AuthorizationRole::SiteOwner])),
+            Ok(PolicyChange::Changed { cleared: 0 })
+        );
+        let whole = ApprovalPolicy {
+            scope: ApprovalScope::WholePiece,
+            ..with_roles(&[AuthorizationRole::SiteOwner])
+        };
+        assert_eq!(
+            coordinator(&mut set, whole.clone()),
+            Ok(PolicyChange::Changed { cleared: 0 })
+        );
+        // Taking the non-writing site owner out again needs a site owner, and changes nothing.
+        approve(&mut set, &piece, "ann");
+        let before = set.clone();
+        let only_writers = ApprovalPolicy {
+            requirement: ApprovalRequirement::ContributingAuthors,
+            scope: ApprovalScope::WholePiece,
+        };
+        assert_eq!(
+            coordinator(&mut set, only_writers.clone()),
+            Err(PolicyError::DropsApprovers(vec!["cy".to_string()]))
+        );
+        assert_eq!(set, before);
+        assert_eq!(
+            change(&mut set, &piece, only_writers, &APPROVERS),
+            Ok(PolicyChange::Changed { cleared: 1 })
+        );
+        // Every author (Di only edits, so cannot approve) to a named rule drops Di.
+        let mut set = ApprovalSet::new();
+        assert_eq!(
+            coordinator(&mut set, named(&["cy"])),
+            Err(PolicyError::DropsApprovers(vec!["di".to_string()]))
+        );
+        // A named participant who is no longer an author is still required: a coordinator cannot
+        // clear them, even with a replacement, but a site owner can.
+        let mut set = ApprovalSet::new();
+        set.set_policy(named(&["zed"]));
+        assert_eq!(
+            coordinator(&mut set, named(&["cy"])),
+            Err(PolicyError::DropsApprovers(vec!["zed".to_string()]))
+        );
+        assert_eq!(
+            coordinator(&mut set, named(&["cy", "zed"])),
+            Err(PolicyError::Unmeetable(RuleGaps {
+                named: vec!["zed".to_string()],
+                roles: Vec::new(),
+            }))
+        );
+        assert_eq!(
+            change(&mut set, &piece, named(&["cy"]), &APPROVERS),
+            Ok(PolicyChange::Changed { cleared: 0 })
+        );
+    }
+
+    #[test]
     fn two_changes_from_one_revision_cannot_both_land() {
         let piece = group();
         let mut set = ApprovalSet::new();
         let read = set.policy_revision();
         piece.with(|s| {
-            set.change_policy(named(&["cy"]), read, true, s, &APPROVERS)
-                .unwrap();
+            set.change_policy(
+                named(&["cy"]),
+                read,
+                true,
+                RuleAuthority::SiteOwner,
+                s,
+                &APPROVERS,
+            )
+            .unwrap();
             assert_eq!(
                 set.change_policy(
                     with_roles(&[AuthorizationRole::SiteOwner]),
                     read,
                     true,
+                    RuleAuthority::SiteOwner,
                     s,
                     &APPROVERS
                 ),

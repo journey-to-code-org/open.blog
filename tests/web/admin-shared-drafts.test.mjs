@@ -1089,6 +1089,10 @@ test("approval rule choices round-trip and never send an empty list", () => {
   assert.equal(approvalRuleFailure({ status: 404 }).kind, "denied");
   assert.equal(approvalRuleFailure({ status: 422, data: { error: "Confirm it." } }).message, "Confirm it.");
   assert.equal(approvalRuleFailure({}).kind, "offline");
+  const owner = approvalRuleFailure({ status: 403, data: { error: "Only a site owner can change the rule so that Grace no longer has to approve.", field: "policy" } });
+  assert.equal(owner.kind, "needsOwner");
+  assert.match(owner.message, /Only a site owner/);
+  assert.equal(approvalRuleFailure({ status: 403, data: { error: "Missing or invalid CSRF token" } }).kind, "denied");
 });
 
 test("only someone who may change the rule loads it, and a writer never asks", withDom(async () => {

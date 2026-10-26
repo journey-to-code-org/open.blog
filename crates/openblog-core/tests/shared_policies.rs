@@ -4,7 +4,7 @@
 
 use openblog_core::approval::{
     ApprovalPolicy, ApprovalRequirement, ApprovalScope, ApprovalSet, PolicyChange, PolicyError,
-    Readiness, RuleGaps,
+    Readiness, RuleAuthority, RuleGaps,
 };
 use openblog_core::assembly::{assemble, with_subject, AssemblyError};
 use openblog_core::collaboration::{
@@ -122,7 +122,14 @@ fn change(
     expected: u64,
 ) -> Result<PolicyChange, PolicyError> {
     with_subject(record, None, set, &SynthesisSet::new(), active, |subject| {
-        approvals.change_policy(next, expected, true, subject, active)
+        approvals.change_policy(
+            next,
+            expected,
+            true,
+            RuleAuthority::SiteOwner,
+            subject,
+            active,
+        )
     })
 }
 

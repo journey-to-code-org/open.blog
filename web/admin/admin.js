@@ -2152,6 +2152,7 @@ export function approvalRuleFailure(error) {
   const text = error?.data?.error || error?.message || "";
   if (!status) return { kind: "offline", message: "Could not reach the server. The rule did not change; try again when you are back." };
   if (status === 409) return { kind: "conflict", message: text || "The approval rule changed elsewhere. Reload to see it; nothing was changed." };
+  if (status === 403 && error?.data?.field === "policy") return { kind: "needsOwner", message: text || "Only a site owner can stop someone from having to approve. Nothing was changed." };
   if (status === 404 || status === 403) return { kind: "denied", message: "You cannot choose the approval rule for this reflection, or your access changed." };
   if (status === 422) return { kind: "invalid", message: text || "That approval rule is not valid. Nothing was changed." };
   return { kind: "other", message: text || "That did not work. Nothing was changed; try again." };
