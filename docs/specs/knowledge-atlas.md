@@ -44,8 +44,8 @@ entry with the same id; an unresolved id is reported, not an error.
 | kind | from | to | notes |
 | --- | --- | --- | --- |
 | `authored` | person | work | read back as "authored by" |
-| `influenced` | person, work, movement, concept | same | needs evidence unless an unsourced draft |
-| `responds-to` | person, work | person, work, movement, concept | |
+| `influenced` | any | any | needs evidence unless an unsourced draft |
+| `responds-to` | person, work | person, work, movement, concept, event | |
 | `disputes` | person, work, movement | person, work, movement, concept | |
 | `member-of` | person | movement | |
 | `participated-in` | person, movement | event | |

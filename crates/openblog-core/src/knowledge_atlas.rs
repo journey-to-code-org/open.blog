@@ -162,8 +162,8 @@ impl RelationshipKind {
             Self::Influenced => (
                 "influenced",
                 "influenced by",
-                &[K::Person, K::Work, K::Movement, K::Concept],
-                &[K::Person, K::Work, K::Movement, K::Concept],
+                ANY,
+                ANY,
                 false,
                 false,
                 false,
@@ -172,7 +172,7 @@ impl RelationshipKind {
                 "responds-to",
                 "answered by",
                 &[K::Person, K::Work],
-                &[K::Person, K::Work, K::Movement, K::Concept],
+                &[K::Person, K::Work, K::Movement, K::Concept, K::Event],
                 false,
                 false,
                 false,
@@ -2339,13 +2339,24 @@ mod tests {
             ("participated-in", "plato", "republic"),
             ("specializes", "allegory", "platonism"),
             ("part-of", "republic", "allegory"),
-            ("influenced", "trial", "plato"),
+            ("responds-to", "trial", "plato"),
+            ("disputes", "allegory", "plato"),
         ];
         for (kind, from, to) in cases {
             assert!(
                 codes(parse(with_relationship(edge("bad", kind, from, to))))
                     .contains(&AtlasDiagnosticCode::EndpointKind),
                 "{kind} {from}->{to}"
+            );
+        }
+        for (kind, from, to) in [
+            ("influenced", "trial", "plato"),
+            ("influenced", "plato", "trial"),
+            ("responds-to", "republic", "trial"),
+        ] {
+            assert!(
+                parse(with_relationship(edge("ok", kind, from, to))).is_ok(),
+                "{kind} {from}->{to}: an event can be answered and can influence or be influenced"
             );
         }
         let mut person_source = sample();
