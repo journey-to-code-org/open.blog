@@ -777,6 +777,34 @@ fn seo_warnings(post: &Post) -> Vec<String> {
     warnings
 }
 
+fn is_draft(fm: &FrontMatter) -> bool {
+    fm.get_bool("draft").unwrap_or(false)
+        || first(fm, &["status"]).is_some_and(|s| s.eq_ignore_ascii_case("draft"))
+}
+
+/// The file line of the first citation that would stop `source` publishing
+/// against `library`, for a post that is not a draft and opts in to
+/// citations; `None` for any other post or when every citation resolves.
+/// The source library uses it to refuse an edit that would make a published
+/// post's citations fail (ADR 0055). It reads nothing but its inputs.
+pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
+    let doc = frontmatter::parse(source).ok()?;
+    let fm = &doc.front_matter;
+    if is_draft(fm) {
+        return None;
+    }
+    CitationStyle::from_front_matter(first(fm, &["citations"])).ok()??;
+    let file_line = |line: Option<usize>| line.unwrap_or(1) + doc.body_line.max(1) - 1;
+    let scan = crate::citations::scan_citations(&doc.body);
+    if let Some(found) = scan.diagnostics.first() {
+        return Some(file_line(found.line));
+    }
+    crate::citations::resolve_citations(&scan.mentions, library)
+        .diagnostics
+        .first()
+        .map(|found| file_line(found.line))
+}
+
 fn first<'a>(fm: &'a FrontMatter, keys: &[&str]) -> Option<&'a str> {
     keys.iter()
         .find_map(|k| fm.get(k))
@@ -940,8 +968,7 @@ fn load_post_in(
     if slug.is_empty() {
         return Err("could not derive a slug; add `slug:` to the front matter".into());
     }
-    let draft = fm.get_bool("draft").unwrap_or(false)
-        || first(fm, &["status"]).is_some_and(|s| s.eq_ignore_ascii_case("draft"));
+    let draft = is_draft(fm);
     let comments = CommentsPolicy::parse(first(fm, &["comments"]))?;
     let date = match first(fm, &["date", "published", "publishedAt", "pubDate"]) {
         Some(raw) => DateTime::parse(raw)

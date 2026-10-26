@@ -124,7 +124,8 @@ pub fn update(
         }
         let before = library.clone();
         library.upsert(record.clone(), contributors)?;
-        keep_notebook_valid(root, &before, library, vec![record.id.clone()])
+        keep_notebook_valid(root, &before, library, vec![record.id.clone()])?;
+        keep_posts_citable(root, &before, library, std::slice::from_ref(&record.id))
     })
     .map(|(snapshot, ())| snapshot)
 }
@@ -163,7 +164,7 @@ pub fn import_csl(
         let plan = plan_csl_import(library, text, contributors)?;
         *library = plan.apply(library, contributors)?;
         // Name the records the import re-pointed or re-typed: those are what can turn a locator ambiguous.
-        let moved = library
+        let moved: Vec<String> = library
             .sources
             .iter()
             .filter(|after| {
@@ -173,7 +174,8 @@ pub fn import_csl(
             })
             .map(|record| record.id.clone())
             .collect();
-        keep_notebook_valid(root, &before, library, moved)?;
+        keep_notebook_valid(root, &before, library, moved.clone())?;
+        keep_posts_citable(root, &before, library, &moved)?;
         Ok(plan)
     })
 }
@@ -213,6 +215,56 @@ fn keep_notebook_valid(
     })
 }
 
+/// A library change must not make a published post uncitable, for example
+/// by re-pointing a reference so a page locator turns ambiguous, or by
+/// removing a cited source: the next build, every scheduled rebuild and every
+/// preview would refuse that post. Each post that is not a draft and opts in
+/// to citations is resolved against the edited library, under the library
+/// lock. The refusal names each post's path and line, never its text. A post
+/// that already failed against the stored library does not block unrelated
+/// edits, and neither does content that cannot be read at all; the build
+/// reports both.
+fn keep_posts_citable(
+    root: &Path,
+    before: &SourceLibrary,
+    after: &SourceLibrary,
+    ids: &[String],
+) -> Result<(), Vec<SourceDiagnostic>> {
+    let Ok(config) = crate::site::load_config(root) else {
+        return Ok(());
+    };
+    let Ok(sources) = crate::site::read_sources(root, &config) else {
+        return Ok(());
+    };
+    let uncitable: Vec<String> = sources
+        .posts
+        .iter()
+        .filter_map(|file| {
+            let line = openblog_core::model::uncitable_line(&file.contents, after)?;
+            openblog_core::model::uncitable_line(&file.contents, before)
+                .is_none()
+                .then(|| format!("{} line {line}", file.path))
+        })
+        .collect();
+    if uncitable.is_empty() {
+        return Ok(());
+    }
+    Err(vec![SourceDiagnostic {
+        code: SourceDiagnosticCode::StillUsed,
+        index: None,
+        source_id: ids.first().cloned(),
+        field: None,
+        message: format!(
+            "the change would stop {} published post{} from resolving {} citations, so nothing was saved ({}); change the citation{} or keep the source as it is",
+            uncitable.len(),
+            if uncitable.len() == 1 { "" } else { "s" },
+            if uncitable.len() == 1 { "its" } else { "their" },
+            uncitable.join(", "),
+            if uncitable.len() == 1 { "" } else { "s" },
+        ),
+    }])
+}
+
 fn unknown_source(id: &str) -> SourceDiagnostic {
     SourceDiagnostic {
         code: SourceDiagnosticCode::UnknownSource,
@@ -247,7 +299,10 @@ pub fn remove(
                 ),
             )]);
         }
-        library.remove(id, contributors)
+        let before = library.clone();
+        let removed = library.remove(id, contributors)?;
+        keep_posts_citable(root, &before, library, &[id.to_string()])?;
+        Ok(removed)
     })
 }
 
@@ -1287,6 +1342,77 @@ mod tests {
         let mut again = now.library.get("slings").unwrap().clone();
         again.title = Some("Slings 2004".into());
         assert!(update(&root, &now.revision, again, &none()).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_change_that_would_make_a_published_post_uncitable_is_refused() {
+        let root = temp_root("posts-guard");
+        let library = serde_json::json!({"version": 1, "sources": [
+            {"id": "plato", "kind": "work", "title": "Politeia"},
+            {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings"},
+            {"id": "ref", "kind": "reference", "of": "slings"},
+            {"id": "spare", "kind": "work", "title": "Spare"}]});
+        store(&root, library.to_string().as_bytes());
+        fs::write(root.join("openblog.json"), r#"{"title":"T"}"#).unwrap();
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        let secret = "PRIVATE-POST-TEXT";
+        fs::write(
+            root.join("content/posts/cave.md"),
+            format!("---\ntitle: Cave\ndate: 2026-10-01\ncitations: notes\n---\n{secret}\n\nSee [@ref, page 514] and [@spare].\n"),
+        )
+        .unwrap();
+        // A draft and a post that does not opt in never block an edit.
+        fs::write(
+            root.join("content/posts/draft.md"),
+            "---\ntitle: Draft\ndraft: true\ncitations: notes\n---\nSee [@ref, page 514].\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("content/posts/plain.md"),
+            "---\ntitle: Plain\ndate: 2026-10-02\n---\nSee [@ref, page 514].\n",
+        )
+        .unwrap();
+        let before = load(&root, &none()).unwrap();
+        let bytes = fs::read(library_file(&root)).unwrap();
+        let refused_with = |error: StoreError| {
+            let StoreError::Invalid(found) = error else {
+                panic!("expected a refusal, got {error:?}")
+            };
+            assert_eq!(found[0].code, SourceDiagnosticCode::StillUsed);
+            assert!(
+                found[0].message.contains("posts/cave.md line 8")
+                    && !found[0].message.contains("draft.md")
+                    && !found[0].message.contains("plain.md")
+                    && !found[0].message.contains(secret),
+                "{}",
+                found[0].message
+            );
+            assert_eq!(fs::read(library_file(&root)).unwrap(), bytes);
+        };
+
+        // Re-pointing the reference at the work makes page 514 ambiguous.
+        let mut moved = before.library.get("ref").unwrap().clone();
+        moved.of = Some("plato".into());
+        refused_with(update(&root, &before.revision, moved, &none()).unwrap_err());
+        let items = serde_json::json!([{"id": "ref", "type": "book",
+            "custom": {"openblog-kind": "reference", "openblog-of": "plato"}}]);
+        refused_with(import_csl(&root, &before.revision, &items.to_string(), &none()).unwrap_err());
+        // Removing a cited source would leave the key unknown.
+        refused_with(remove(&root, &before.revision, "spare", &none()).unwrap_err());
+
+        // A change that keeps every citation resolvable still goes through.
+        let mut renamed = before.library.get("slings").unwrap().clone();
+        renamed.title = Some("Slings 2003".into());
+        let saved = update(&root, &before.revision, renamed, &none()).unwrap();
+
+        // A post that already failed does not freeze the library.
+        fs::write(
+            root.join("content/posts/cave.md"),
+            "---\ntitle: Cave\ndate: 2026-10-01\ncitations: notes\n---\nSee [@gone] and [@spare].\n",
+        )
+        .unwrap();
+        assert!(remove(&root, &saved.revision, "spare", &none()).is_ok());
         fs::remove_dir_all(root).unwrap();
     }
 
