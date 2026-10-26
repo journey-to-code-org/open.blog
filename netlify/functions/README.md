@@ -60,10 +60,12 @@ To opt in:
 3. In `openblog.json`, set `"feedback": true` inside `engagement` (hosted engagement must be
    enabled with an endpoint). The build then publishes `openblog-feedback.json`, which gives each
    post's feedback policy from its `comments:` setting (`open`, `locked` or `hidden`). The function
-   reads it from `OPENBLOG_SITE_ORIGIN` and accepts feedback only for posts marked `open`.
+   reads it from `OPENBLOG_SITE_ORIGIN` and accepts feedback only for posts marked `open`. Each
+   open post also gets a "Questions and corrections" form (ADR 0094). Optionally set
+   `"feedbackContact"` inside `engagement` to a `mailto:` address or an `https:` contact page, which
+   the form offers when a note cannot be sent.
 
-Reader forms are a later change ([#82](https://github.com/journey-to-code-org/open.blog/issues/82));
-the routes are `POST /api/feedback` (public, same-origin only) and `GET`/`PATCH
+The routes are `POST /api/feedback` (public, same-origin only) and `GET`/`PATCH
 /api/admin/feedback` (moderation, `Authorization: Bearer` with `OPENBLOG_ADMIN_API_KEY`). Every
 submission is checked with the same rules as the build, stored `pending` with the time the
 function received it, and limited by the existing hourly quota (5 per client, 500 per site). A
@@ -76,7 +78,7 @@ unchanged and readers can copy their note to the author instead.
 1. Remove `OPENBLOG_FEEDBACK_ENABLED` in Netlify (or set it to anything but `true`) and redeploy.
    Feedback routes stop at once; comments and analytics are unaffected.
 2. Optionally set `"feedback": false` in `openblog.json` and rebuild, which stops publishing
-   `openblog-feedback.json`.
+   `openblog-feedback.json` and removes the forms from posts.
 3. To remove the stored feedback too, export it if you want to keep it, then run
    [`supabase/feedback-rollback.sql`](../../supabase/feedback-rollback.sql). It drops only
    `openblog_feedback`. Without this step the table simply stays unused.

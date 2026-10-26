@@ -75,6 +75,8 @@ corrections and other interpretations of a passage) as an opt-in extension of th
 second comment system. The submission format and kinds are [ADR 0087](../adr/0087-typed-scholarly-feedback-kinds-and-one-submission-format.md),
 the additive `openblog_feedback` table and its rollback are [ADR 0088](../adr/0088-hosted-feedback-is-one-additive-private-table.md),
 and the transport, its double opt-in, quotas and fallback are [ADR 0089](../adr/0089-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md).
+The reader form on each open post, its passage data and its copy-and-send fallback are
+[ADR 0094](../adr/0094-passage-feedback-forms-are-one-progressive-region-over-the-build-passage-text.md).
 Comments, their table and their routes are unchanged.
 
 ## Out of scope

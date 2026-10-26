@@ -30,7 +30,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "home": { "heading": "Latest posts", "intro": "", "showSeries": true },
   "share": { "enabled": true, "networks": ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"] },
   "analytics": { "builtin": true, "showViews": true, "retentionDays": 400, "endpoint": "", "branch": "analytics", "bakeCounts": true },
-  "engagement": { "enabled": false, "comments": true, "analytics": true, "endpoint": "", "feedback": false },
+  "engagement": { "enabled": false, "comments": true, "analytics": true, "endpoint": "", "feedback": false, "feedbackContact": "" },
   "snippets": { "head": "", "postFooter": "", "bodyEnd": "" },
   "relatedPosts": 3,
   "cdn": { "url": "", "paths": ["/assets/", "/themes/", "/images/"], "version": "", "maxAge": 86400 },
@@ -90,6 +90,12 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   (off by default) lets the hosted function accept typed passage feedback: questions, suggested
   sources and corrections, and other interpretations. It needs its own database table and server
   switch; see the [function setup guide](../netlify/functions/README.md#passage-feedback-optional).
+  With it on, each open post gets a "Questions and corrections" form after its navigation (locked
+  and hidden posts get none). A reader picks the whole post, a section or words they selected,
+  the kind and their note; their name is optional and shown only if they agree. Without
+  JavaScript, or when the service cannot take the note, the reader gets instructions or a copy of
+  the note to send to the author. `engagement.feedbackContact` (optional) is where that copy can
+  go: a plain `mailto:` address or an `https:` contact page, linked from the form.
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.

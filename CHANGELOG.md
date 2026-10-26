@@ -32,6 +32,16 @@ All notable changes to open.blog are recorded here. Releases follow
   e-mail is collected or sent. Sites that do not opt in are unchanged. Saving hosted engagement
   settings in Admin now keeps settings the form does not show. Reader forms and moderation screens
   come next.
+- Readers can now send that feedback from the post itself. On sites that opt in, each open post ends
+  with a "Questions and corrections" form: choose the whole post, a section, or words you selected
+  in the post (a button appears next to the selection), say whether it is a question, a suggested
+  source, a suggested correction or another interpretation, and write your note, with an optional
+  name you choose whether to show. The form works with the keyboard and screen readers, announces
+  problems and progress, fits narrow phones and changes nothing in the article. Without JavaScript
+  the page explains how to send a note; when the service is offline, off or failing, the form
+  gives you the note to copy and send to the author, at the address in the new optional
+  `engagement.feedbackContact`. Locked and hidden posts, sites that do not opt in, feeds and
+  portable copies are unchanged.
 
 ## [0.31.0] - 2026-10-26
 

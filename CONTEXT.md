@@ -855,6 +855,19 @@ stores them pending moderation. Without it, the canonical page and a copy-and-se
 remain.
 _Avoid_: Feedback service, comment system, backend when the opt-in path is meant
 
+**Passage data**:
+A post's passage text as page data, built by the build: the work, the passage revision and each
+section's index, anchor, heading title, text and digest, in one inert JSON element. Only an open
+post on a site that opts in to feedback carries it; the browser maps selections onto it and never
+re-derives text from the page (ADRs 0084, 0094).
+_Avoid_: Page text, DOM text, scraped text
+
+**Feedback region**:
+The section after a post's navigation where a reader sends a passage-specific note. Its static
+text tells a reader without JavaScript how to name a passage and reach the author; the feedback
+form enhances it, and a failed submission falls back to a copy of the note to send (ADR 0094).
+_Avoid_: Comment box, discussion when the hosted comments are meant
+
 ## Admin workspace
 
 **Workspace preferences**:
