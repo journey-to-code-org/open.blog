@@ -614,6 +614,13 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
             .into_iter()
             .map(|warning| format!("portability: {warning}")),
     );
+    // Evidence gaps in the private claims file, for the author only: printed
+    // with the other evidence findings, never written to the output.
+    let mut evidence = site.evidence.clone();
+    match crate::claims_store::build_findings(root, &config.contributors, &config.paths.content) {
+        Ok(found) => evidence.extend(found),
+        Err(warning) => warnings.push(warning),
+    }
     let out_dir = options
         .out_override
         .clone()
@@ -702,7 +709,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         out_dir,
         warnings,
         accessibility: site.accessibility.clone(),
-        evidence: site.evidence.clone(),
+        evidence,
     })
 }
 
@@ -1171,6 +1178,83 @@ mod tests {
     }
 
     // ---- Knowledge Atlas publication (A5.4, ADR 0058) ---------------------------
+
+    #[test]
+    fn a_build_reports_claim_gaps_to_the_author_and_writes_nothing_from_them() {
+        const SECRET: &str = "ob-claims-secret-5521";
+        let root = project_with_private_library("claims-gaps", "{}");
+        fs::write(
+            root.join(crate::source_store::LIBRARY_FILE),
+            r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia"}]}"#,
+        )
+        .unwrap();
+        fs::remove_file(root.join(crate::notebook_store::NOTEBOOK_FILE)).unwrap();
+        fs::remove_file(root.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        fs::write(
+            root.join("content/posts/2026-01-07-cave.md"),
+            "---\ntitle: Cave\ndate: 2026-01-07\n---\n\nThe cave educates.\n",
+        )
+        .unwrap();
+        let claim_codes = |report: &BuildReport| -> Vec<String> {
+            report
+                .evidence
+                .iter()
+                .map(|f| f.code.to_string())
+                .filter(|code| code.starts_with("claim-"))
+                .collect()
+        };
+        // No claims file (a CI or static-host build): nothing is reported.
+        let without = production_build(&root);
+        assert!(claim_codes(&without).is_empty());
+        let output = dist_bytes(&root);
+        let claims_file = root.join(crate::claims_store::CLAIMS_FILE);
+        let claims = format!(
+            r#"{{"version":1,"claims":[{{"id":"c1","post":"cave","statement":"{SECRET} statement","uncertainty":"{SECRET} doubt"}},{{"id":"c2","post":"cave","statement":"S"}}],"links":[{{"id":"l1","claim":"c1","relation":"supports","evidence":{{"source":"plato"}},"rationale":"{SECRET} why"}}]}}"#
+        );
+        fs::write(&claims_file, &claims).unwrap();
+        let report = production_build(&root);
+        assert_eq!(
+            claim_codes(&report),
+            [
+                "claim-support-only",
+                "claim-locator-missing",
+                "claim-evidence-missing"
+            ]
+        );
+        let found: Vec<_> = report
+            .evidence
+            .iter()
+            .filter(|f| f.code.to_string().starts_with("claim-"))
+            .collect();
+        assert!(found
+            .iter()
+            .all(|f| f.source.path == "posts/2026-01-07-cave.md"));
+        assert!(found
+            .iter()
+            .all(|f| !format!("{} {}", f.message, f.repair).contains(SECRET)));
+        // The same findings as `openblog check` and Evidence Studio, in order.
+        let snapshot = crate::claims_store::load(&root, &Default::default()).unwrap();
+        let checked = crate::claims_store::review(&snapshot, &root, "content");
+        assert_eq!(found, checked.iter().collect::<Vec<_>>());
+        // Read only: the claims file is untouched and the output unchanged.
+        assert_eq!(fs::read_to_string(&claims_file).unwrap(), claims);
+        assert_eq!(dist_bytes(&root), output);
+
+        // A claims file that cannot be read never stops the build: one
+        // warning names the file and repeats nothing from it.
+        let broken = claims.replace(r#""source":"plato""#, r#""source":"ob-claims-secret-gone""#);
+        fs::write(&claims_file, &broken).unwrap();
+        let report = production_build(&root);
+        assert!(claim_codes(&report).is_empty());
+        let warning = report
+            .warnings
+            .iter()
+            .find(|w| w.contains(crate::claims_store::CLAIMS_FILE))
+            .expect("a warning names the claims file");
+        assert!(!warning.contains(SECRET) && !warning.contains("ob-claims-secret-gone"));
+        assert_eq!(dist_bytes(&root), output);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn dist_bytes(root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
         let output = root.join("dist");

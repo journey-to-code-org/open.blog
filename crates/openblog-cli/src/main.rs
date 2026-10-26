@@ -419,12 +419,13 @@ fn run(raw: &[String]) -> Result<(), String> {
                 }
                 println!("{summary}");
             }
-            if let Some((summary, notices)) =
+            if let Some((summary, notices, findings)) =
                 check_claims(&root, &site.config.contributors, &site.config.paths.content)?
             {
                 for notice in notices {
                     eprintln!("notice: {notice}");
                 }
+                serve::print_evidence_findings(&findings);
                 println!("{summary}");
             }
             Ok(())
@@ -902,48 +903,32 @@ fn check_knowledge_atlas(
 /// projection leaves out, and anchors that no longer match the saved draft,
 /// are non-blocking notices that name ids and states, never authored text.
 /// Counts are given per relation and never combined.
+/// What `check` prints for the claims file: a summary, projection notices
+/// and the evidence findings (ADR 0090).
+type ClaimsCheck = (
+    String,
+    Vec<String>,
+    Vec<openblog_core::research::EvidenceFinding>,
+);
+
 fn check_claims(
     root: &std::path::Path,
     contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
     content_dir: &str,
-) -> Result<Option<(String, Vec<String>)>, String> {
+) -> Result<Option<ClaimsCheck>, String> {
     let snapshot = claims_store::load(root, contributors).map_err(|error| error.to_string())?;
     if !snapshot.stored {
         return Ok(None);
     }
     let set = &snapshot.claims;
-    let mut notices: Vec<String> = set
+    let notices: Vec<String> = set
         .notices()
         .iter()
         .map(|notice| format!("{}: {notice}", claims_store::CLAIMS_FILE))
         .collect();
-    let drafts = claims_store::read_drafts(root, content_dir);
-    for (index, claim) in set.claims.iter().enumerate() {
-        let Some(check) = openblog_core::claims::anchor_status(claim, &drafts) else {
-            continue;
-        };
-        let reason = match check {
-            openblog_core::claims::AnchorCheck::Verified => continue,
-            openblog_core::claims::AnchorCheck::Moved { start } => format!(
-                "its words now start at byte {start} of the saved draft; re-anchor it in Admin"
-            ),
-            openblog_core::claims::AnchorCheck::Stale if !drafts.contains_key(&claim.post) => {
-                format!("no saved post has the slug `{}`", claim.post)
-            }
-            openblog_core::claims::AnchorCheck::Stale => {
-                "its words are no longer in the saved draft; evidence cannot be linked until it is re-anchored".into()
-            }
-            openblog_core::claims::AnchorCheck::Ambiguous => {
-                "its words occur more than once in the saved draft; evidence cannot be linked until it is re-anchored".into()
-            }
-        };
-        notices.push(format!(
-            "{}: claims[{index}] `{}` anchor: {reason} ({}-anchor)",
-            claims_store::CLAIMS_FILE,
-            claim.id,
-            check.as_str()
-        ));
-    }
+    // Anchors that moved or went stale are findings now, in the same list and
+    // order as the build and Evidence Studio show (ADR 0090).
+    let findings = claims_store::review(&snapshot, root, content_dir);
     let mut totals = openblog_core::claims::RelationCounts::default();
     for claim in &set.claims {
         let counts = set.counts(&claim.id);
@@ -951,9 +936,23 @@ fn check_claims(
         totals.contradicts += counts.contradicts;
         totals.contextualizes += counts.contextualizes;
     }
+    let outcome = |wanted: openblog_core::research::EvidenceOutcome| {
+        findings.iter().filter(|f| f.outcome == wanted).count()
+    };
+    let prompts = if findings.is_empty() {
+        "No evidence gaps or review prompts.".to_string()
+    } else {
+        format!(
+            "{} evidence gap(s) and review prompt(s): {} detected, {} potential, {} needing review. They point at what the record lacks or what only you can check, never at whether a claim is true.",
+            findings.len(),
+            outcome(openblog_core::research::EvidenceOutcome::Detected),
+            outcome(openblog_core::research::EvidenceOutcome::Potential),
+            outcome(openblog_core::research::EvidenceOutcome::NeedsReview)
+        )
+    };
     Ok(Some((
         format!(
-            "OK: private claims file {} has {} claim(s) and {} evidence link(s): {} supporting, {} contradicting, {} contextualizing; builds never read or publish it.",
+            "OK: private claims file {} has {} claim(s) and {} evidence link(s): {} supporting, {} contradicting, {} contextualizing; builds never publish it. {prompts}",
             claims_store::CLAIMS_FILE,
             set.claims.len(),
             set.links.len(),
@@ -962,6 +961,7 @@ fn check_claims(
             totals.contextualizes
         ),
         notices,
+        findings,
     )))
 }
 
@@ -1063,24 +1063,44 @@ mod tests {
             r#"{"version":1,"claims":[{"id":"c1","post":"cave","statement":"ob-secret-statement","anchor":{"start":4,"end":8,"text":"cave"}},{"id":"c2","post":"cave","statement":"S","anchor":{"start":0,"end":4,"text":"gone"}}],"links":[{"id":"l1","claim":"c1","relation":"supports","evidence":{"source":"w"},"visibility":"approved"},{"id":"l2","claim":"c1","relation":"contradicts","evidence":{"source":"w"}}]}"#,
         )
         .unwrap();
-        let (summary, notices) = check_claims(&root, &contributors, "content")
+        let (summary, notices, findings) = check_claims(&root, &contributors, "content")
             .unwrap()
             .unwrap();
         assert!(
-            summary.contains("2 claim(s) and 2 evidence link(s): 1 supporting, 1 contradicting, 0 contextualizing; builds never read or publish it."),
+            summary.contains("2 claim(s) and 2 evidence link(s): 1 supporting, 1 contradicting, 0 contextualizing; builds never publish it."),
             "{summary}"
         );
-        assert_eq!(notices.len(), 2, "{notices:?}");
+        assert!(
+            summary.contains("7 evidence gap(s) and review prompt(s): 1 detected, 5 potential, 1 needing review.")
+                && summary.contains("never at whether a claim is true"),
+            "{summary}"
+        );
+        assert_eq!(notices.len(), 1, "{notices:?}");
         assert!(
             notices[0].contains("links[0] `l1` claim") && notices[0].contains("(private-endpoint)"),
             "{notices:?}"
         );
-        assert!(
-            notices[1].contains("claims[1] `c2` anchor") && notices[1].contains("(stale-anchor)"),
-            "{notices:?}"
+        // The anchor that went stale is a finding now, in review order and
+        // named by the post it is about.
+        let codes: Vec<String> = findings.iter().map(|f| f.code.to_string()).collect();
+        assert_eq!(
+            codes,
+            [
+                "claim-contradiction-undiscussed",
+                "claim-locator-missing",
+                "claim-rationale-missing",
+                "claim-locator-missing",
+                "claim-rationale-missing",
+                "claim-anchor-stale",
+                "claim-evidence-missing",
+            ]
         );
+        assert!(findings
+            .iter()
+            .all(|f| f.source.path == "posts/2026-01-07-cave.md"));
         assert!(notices
             .iter()
+            .chain(findings.iter().map(|f| &f.message))
             .all(|n| !n.contains("ob-secret-statement") && !n.contains("gone")));
 
         std::fs::write(

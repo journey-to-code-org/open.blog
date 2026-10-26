@@ -1987,9 +1987,12 @@ fn atlas_store_error(
 
 /// The anchor texts claims are checked against: every saved post's body, by
 /// slug. Unsaved editor text is never used.
-fn claim_drafts(state: &AppState) -> Result<claims::Drafts, Response> {
+/// The saved drafts by slug, with each post's content path for findings.
+type SavedPosts = (claims::Drafts, BTreeMap<String, String>);
+
+fn claim_drafts(state: &AppState) -> Result<SavedPosts, Response> {
     let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
-    Ok(claims_store::read_drafts(
+    Ok(claims_store::read_saved_posts(
         &state.root,
         &config.paths.content,
     ))
@@ -1999,8 +2002,20 @@ fn claim_drafts(state: &AppState) -> Result<claims::Drafts, Response> {
 /// sources and notebook passages, previews only), every anchored claim's
 /// status against the saved drafts, per-relation counts that are never
 /// combined, the projection notices, and which links a projection could copy.
-fn claims_view(snapshot: &claims_store::Snapshot, drafts: &claims::Drafts) -> Json {
+fn claims_view(snapshot: &claims_store::Snapshot, posts: &SavedPosts) -> Json {
+    let (drafts, paths) = posts;
     let set = &snapshot.claims;
+    // The same findings, in the same order, as `openblog check` and builds.
+    let findings = openblog_core::claim_review::review_claims(
+        set,
+        &openblog_core::claim_review::ReviewContext {
+            drafts,
+            paths,
+            claims_file: claims_store::CLAIMS_FILE,
+            library: &snapshot.library,
+            notebook: &snapshot.notebook,
+        },
+    );
     let passages: Vec<Json> = snapshot
         .notebook
         .passages
@@ -2042,6 +2057,7 @@ fn claims_view(snapshot: &claims_store::Snapshot, drafts: &claims::Drafts) -> Js
         "claims": set.claims,
         "links": set.links,
         "notices": set.notices(),
+        "findings": findings,
         "anchors": anchors,
         "counts": counts,
         "projected": projected,
@@ -2054,8 +2070,8 @@ fn claims_view(snapshot: &claims_store::Snapshot, drafts: &claims::Drafts) -> Js
 /// The claims view. With `?path=posts/...md` it also names the slug that
 /// post's claims carry, decided from its saved front matter as a build does.
 fn list_claims(state: &AppState, req: &Request) -> Response {
-    let drafts = match claim_drafts(state) {
-        Ok(drafts) => drafts,
+    let posts = match claim_drafts(state) {
+        Ok(posts) => posts,
         Err(response) => return response,
     };
     let post = match req.query.get("path") {
@@ -2079,7 +2095,7 @@ fn list_claims(state: &AppState, req: &Request) -> Response {
     };
     match claims_store::load(&state.root, &source_contributors(state)) {
         Ok(snapshot) => {
-            let mut view = claims_view(&snapshot, &drafts);
+            let mut view = claims_view(&snapshot, &posts);
             if let Some(post) = post {
                 view["post"] = json!(post);
             }
@@ -2178,12 +2194,12 @@ fn claims_request(req: &Request) -> Result<(Json, String), Response> {
 
 fn claims_saved(
     snapshot: &claims_store::Snapshot,
-    drafts: &claims::Drafts,
+    posts: &SavedPosts,
     key: &str,
     item: Json,
     status: u16,
 ) -> Response {
-    let mut view = claims_view(snapshot, drafts);
+    let mut view = claims_view(snapshot, posts);
     view[key] = item;
     Response::json(status, &view)
 }
@@ -2203,21 +2219,22 @@ fn save_claim(state: &AppState, req: &Request, create: bool) -> Response {
     let id = claim.id.clone();
     let contributors = source_contributors(state);
     let _content = lock(&state.build);
-    let drafts = match claim_drafts(state) {
-        Ok(drafts) => drafts,
+    let posts = match claim_drafts(state) {
+        Ok(posts) => posts,
         Err(response) => return response,
     };
+    let drafts = &posts.0;
     let saved = if create {
-        claims_store::create_claim(&state.root, &revision, claim, &drafts, &contributors)
+        claims_store::create_claim(&state.root, &revision, claim, drafts, &contributors)
     } else {
-        claims_store::update_claim(&state.root, &revision, claim, &drafts, &contributors)
+        claims_store::update_claim(&state.root, &revision, claim, drafts, &contributors)
     };
     match saved {
         Ok(snapshot) => {
             let item = json!(snapshot.claims.claim(&id));
             claims_saved(
                 &snapshot,
-                &drafts,
+                &posts,
                 "claim",
                 item,
                 if create { 201 } else { 200 },
@@ -2240,21 +2257,22 @@ fn save_claim_link(state: &AppState, req: &Request, create: bool) -> Response {
     let id = link.id.clone();
     let contributors = source_contributors(state);
     let _content = lock(&state.build);
-    let drafts = match claim_drafts(state) {
-        Ok(drafts) => drafts,
+    let posts = match claim_drafts(state) {
+        Ok(posts) => posts,
         Err(response) => return response,
     };
+    let drafts = &posts.0;
     let saved = if create {
-        claims_store::create_link(&state.root, &revision, link, &drafts, &contributors)
+        claims_store::create_link(&state.root, &revision, link, drafts, &contributors)
     } else {
-        claims_store::update_link(&state.root, &revision, link, &drafts, &contributors)
+        claims_store::update_link(&state.root, &revision, link, drafts, &contributors)
     };
     match saved {
         Ok(snapshot) => {
             let item = json!(snapshot.claims.link(&id));
             claims_saved(
                 &snapshot,
-                &drafts,
+                &posts,
                 "link",
                 item,
                 if create { 201 } else { 200 },
@@ -2280,8 +2298,8 @@ fn remove_claim_item(state: &AppState, req: &Request, claim: bool) -> Response {
     };
     let contributors = source_contributors(state);
     let _content = lock(&state.build);
-    let drafts = match claim_drafts(state) {
-        Ok(drafts) => drafts,
+    let posts = match claim_drafts(state) {
+        Ok(posts) => posts,
         Err(response) => return response,
     };
     let removed = if claim {
@@ -2290,7 +2308,7 @@ fn remove_claim_item(state: &AppState, req: &Request, claim: bool) -> Response {
         claims_store::remove_link(&state.root, &revision, id, &contributors)
     };
     match removed {
-        Ok(snapshot) => Response::json(200, &claims_view(&snapshot, &drafts)),
+        Ok(snapshot) => Response::json(200, &claims_view(&snapshot, &posts)),
         Err(error) => claims_store_error(state, error, Some((claim, id))),
     }
 }
@@ -13485,6 +13503,66 @@ mod tests {
             claims_list(&f, &session)["anchors"]["admin"]["status"],
             "verified"
         );
+    }
+
+    #[test]
+    fn evidence_studio_gets_the_same_ordered_claim_findings_as_check() {
+        let f = fixture_with_sources("claims-findings");
+        let session = login_ok(&f);
+        claim_post(&f, CLAIM_DRAFT);
+        let empty = claims_list(&f, &session);
+        assert_eq!(empty["findings"], json!([]));
+        let (status, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/claims",
+            json!({"revision": empty["revision"], "claim": {"id": "c1", "post": "cave",
+                "statement": CLAIM_SENTINEL, "anchor": anchor_json("Πλάτων 🙂")}}),
+        );
+        assert_eq!(status, 201, "{created}");
+        // The save response already carries the findings for the new state.
+        assert_eq!(
+            created["findings"][0]["code"], "claim-evidence-missing",
+            "{created}"
+        );
+        let (status, linked) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/links",
+            json!({"revision": created["revision"], "link": {"id": "l1", "claim": "c1",
+                "relation": "contradicts", "evidence": {"source": "slings"}}}),
+        );
+        assert_eq!(status, 201, "{linked}");
+        let stored = stored_claims(&f).unwrap();
+        let view = claims_list(&f, &session);
+        let codes: Vec<&str> = view["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|finding| finding["code"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            codes,
+            [
+                "claim-contradiction-undiscussed",
+                "claim-locator-missing",
+                "claim-rationale-missing"
+            ]
+        );
+        assert_eq!(
+            view["findings"][1]["object"],
+            json!({"claim": "c1", "link": "l1"})
+        );
+        assert_eq!(view["findings"][0]["source"]["path"], CLAIM_POST);
+        // Exactly what `openblog check` and a build report, in the same order.
+        let snapshot = crate::claims_store::load(&f.dir, &source_contributors(&f.state)).unwrap();
+        let checked = crate::claims_store::review(&snapshot, &f.dir, "content");
+        assert_eq!(view["findings"], json!(checked));
+        assert!(!view["findings"].to_string().contains(CLAIM_SENTINEL));
+        // Reading findings changes nothing.
+        assert_eq!(stored_claims(&f).unwrap(), stored);
     }
 
     #[test]

@@ -4,7 +4,9 @@
 //! The claims file lives at [`CLAIMS_FILE`] beside the source library, the
 //! research notebook and the Knowledge Atlas, inside the Git-ignored private
 //! directory and outside content, static files, themes and build output, so no
-//! build, feed, search index, `llms.txt` or export reads it. It points into
+//! feed, search index, `llms.txt`, export or generated page reads it. A build
+//! reads it only to report evidence gaps to the author ([`build_findings`],
+//! ADR 0090), and nothing from it reaches the build's output. It points into
 //! the library and the notebook (source ids, locators, passages) and copies
 //! neither. Every change names the revision it was based on, is validated by
 //! `openblog_core::claims` against the library and notebook as stored, and
@@ -19,7 +21,7 @@
 //! *read* the claims file, which is safe because a claims write holds their
 //! locks for its whole critical section.
 //!
-//! Anchors are checked against the post's saved draft ([`read_drafts`]), and
+//! Anchors are checked against the post's saved draft ([`read_saved_posts`]), and
 //! never against unsaved editor text: a stale or ambiguous range is refused
 //! before anything is written.
 
@@ -35,6 +37,7 @@ use openblog_core::contributor::Contributor;
 use openblog_core::knowledge_atlas::{
     AtlasDiagnostic, AtlasDiagnosticCode, DiagnosticSubject, Links,
 };
+use openblog_core::research::EvidenceFinding;
 use openblog_core::research_notes::Notebook;
 use openblog_core::source_library::SourceLibrary;
 
@@ -185,15 +188,18 @@ pub fn check_against_library(root: &Path, library: &SourceLibrary) -> Result<(),
 }
 
 /// The anchor text of every post the build reads, by slug, from the saved
-/// files with [`claims::anchor_text`]. Posts are decided as the build decides
-/// them ([`crate::site::not_content`] and [`openblog_core::classify_source`]),
-/// so a README or a copy under a `_`-prefixed folder such as `posts/_drafts/`
-/// never shares a slug with the real post. A post that cannot be read, a
-/// symlink, an oversized file, and two posts claiming one slug are left out,
-/// so an anchor in them cannot be verified.
-pub fn read_drafts(root: &Path, content_dir: &str) -> Drafts {
+/// files with [`claims::anchor_text`], and each post's path relative to the
+/// content folder, so findings can name the post they are about. Posts are
+/// decided as the build decides them ([`crate::site::not_content`] and
+/// [`openblog_core::classify_source`]), so a README or a copy under a
+/// `_`-prefixed folder such as `posts/_drafts/` never shares a slug with the
+/// real post. A post that cannot be read, a symlink, an oversized file, and
+/// two posts claiming one slug are left out, so an anchor in them cannot be
+/// verified.
+pub fn read_saved_posts(root: &Path, content_dir: &str) -> (Drafts, BTreeMap<String, String>) {
     let content = root.join(content_dir);
     let mut drafts = Drafts::new();
+    let mut paths = BTreeMap::new();
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     // The build's own walk: a directory symlink that leaves the content
     // folder or loops stops the build, and leaves no draft to verify here.
@@ -220,14 +226,51 @@ pub fn read_drafts(root: &Path, content_dir: &str) -> Drafts {
             continue;
         };
         *seen.entry(slug.clone()).or_default() += 1;
-        drafts.insert(slug, text);
+        drafts.insert(slug.clone(), text);
+        paths.insert(slug, path);
     }
     for (slug, count) in seen {
         if count > 1 {
             drafts.remove(&slug);
+            paths.remove(&slug);
         }
     }
-    drafts
+    (drafts, paths)
+}
+
+/// The evidence gaps and provenance prompts of a loaded claims file
+/// (`openblog_core::claim_review`, ADR 0090), against the saved posts. Read
+/// only: nothing is created, locked or changed.
+pub fn review(snapshot: &Snapshot, root: &Path, content_dir: &str) -> Vec<EvidenceFinding> {
+    let (drafts, paths) = read_saved_posts(root, content_dir);
+    openblog_core::claim_review::review_claims(
+        &snapshot.claims,
+        &openblog_core::claim_review::ReviewContext {
+            drafts: &drafts,
+            paths: &paths,
+            claims_file: CLAIMS_FILE,
+            library: &snapshot.library,
+            notebook: &snapshot.notebook,
+        },
+    )
+}
+
+/// What a build reports about the claims file: its findings when one is
+/// stored, nothing when none is (a CI or static-host build never has one),
+/// and one warning, naming only the file, when it cannot be read. A claims
+/// problem never stops a build, and nothing from the file reaches its output.
+pub fn build_findings(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+    content_dir: &str,
+) -> Result<Vec<EvidenceFinding>, String> {
+    match load(root, contributors) {
+        Ok(snapshot) if snapshot.stored => Ok(review(&snapshot, root, content_dir)),
+        Ok(_) => Ok(Vec::new()),
+        Err(_) => Err(format!(
+            "the private claims file {CLAIMS_FILE} cannot be read, so its evidence gaps were not reviewed; run `openblog check` to see why"
+        )),
+    }
 }
 
 type Edit<'a, T> = dyn Fn(&mut ClaimSet, Links<'_>) -> Result<T, Vec<AtlasDiagnostic>> + 'a;
@@ -1049,7 +1092,7 @@ mod tests {
         fs::write(posts.join("twin-b.md"), "---\nslug: twin\n---\nB").unwrap();
         fs::write(posts.join("broken.md"), "---\ntitle: open").unwrap();
         fs::write(posts.join("notes.txt"), "not a post").unwrap();
-        let drafts = read_drafts(&root, "content");
+        let drafts = read_saved_posts(&root, "content").0;
         assert_eq!(
             drafts.get("on-caves").map(String::as_str),
             Some("The cave\nis dark.")
@@ -1088,7 +1131,7 @@ mod tests {
             "---\ntitle: Loose\n---\nLoose words.",
         )
         .unwrap();
-        let drafts = read_drafts(&root, "content");
+        let drafts = read_saved_posts(&root, "content").0;
         assert_eq!(
             drafts.get("on-caves").map(String::as_str),
             Some("The cave is dark.")

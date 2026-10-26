@@ -33,6 +33,7 @@ pub mod bibliography;
 pub mod capability;
 pub mod citation_review;
 pub mod citations;
+pub mod claim_review;
 pub mod claims;
 pub mod collaboration;
 pub mod config;
