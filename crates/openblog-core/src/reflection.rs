@@ -521,14 +521,11 @@ fn markup_text(input: &str) -> String {
     out
 }
 
-/// Whether `key` is a contributor registry key as the registry writes them:
-/// lowercase ASCII letters, digits and hyphens, so it is safe in an attribute.
+/// Whether `key` is a contributor registry key as the registry writes them
+/// (the one rule a credit's contributor id follows, so a key a post can be
+/// credited under is a key a bound turn can state), safe in an attribute.
 pub(crate) fn is_contributor_key(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= 64
-        && key
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    crate::collaboration::valid_contributor_id(key)
 }
 
 /// The arranged markup shared by the published Post and the preview (ADR 0031). The DOM order is

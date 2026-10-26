@@ -1462,3 +1462,56 @@ fn a_bound_body_is_paired_by_what_it_states_not_by_a_name() {
         "keys stated in the body must be the credits' first-appearance order"
     );
 }
+
+#[test]
+fn a_contributor_key_of_a_hundred_bytes_is_bound_and_attributed() {
+    // Contributor ids allow up to 128 bytes, so a long registry key binds.
+    let long = "a".repeat(100);
+    let composed: Vec<ComposedTurn<'_>> = [("ADA", "One."), ("GRACE", "Two.")]
+        .iter()
+        .enumerate()
+        .map(|(round, (name, text))| ComposedTurn {
+            round,
+            round_prompt: None,
+            display_name: name,
+            label: None,
+            placement: Placement { lane: 0, lanes: 1 },
+            body: (*text).to_string(),
+        })
+        .collect();
+    let bound = compose_bound(
+        ReflectionLayout::Sequential,
+        &composed,
+        &[Some(long.as_str()), Some("grace")],
+    );
+    assert!(bound.contains(&format!("ob-turn-by-{long}")));
+    let mut people = registry();
+    people.insert(
+        long.clone(),
+        Contributor {
+            name: "ADA".into(),
+            ..Contributor::default()
+        },
+    );
+    people.insert(
+        "grace".into(),
+        Contributor {
+            name: "GRACE".into(),
+            ..Contributor::default()
+        },
+    );
+    let sidecar = format!(
+        "{{\"version\":1,\"credits\":[        {{\"contributor\":\"{long}\",\"roles\":[{{\"vocabulary\":\"crossref\",\"role\":\"author\"}}]}},        {{\"contributor\":\"grace\",\"roles\":[{{\"vocabulary\":\"crossref\",\"role\":\"author\"}}]}}]}}"
+    );
+    let published = AttributedSections::from_published(&bound, Some(&sidecar), &people);
+    assert_eq!(published.sections().len(), 2);
+    assert_eq!(published.sections()[0].contribution, long);
+    // A key past the credit rule's limit is still never trusted.
+    let too_long = "a".repeat(129);
+    let unbound = compose_bound(
+        ReflectionLayout::Sequential,
+        &composed,
+        &[Some(too_long.as_str()), Some("grace")],
+    );
+    assert!(!unbound.contains("ob-turn-by-aaa"));
+}
