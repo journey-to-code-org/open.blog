@@ -5,6 +5,15 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Contributors to a shared reflection can pin moments to its sources in Admin: a time or range in
+  a video or podcast, or a page, chapter or other location in text, with a short quotation (its
+  speaker, rights and where the words came from) and their own observation. Moments are private
+  unless proposed for the piece; a proposed moment is shared with the next draft revision its
+  writer offers, every author must approve it, and editing it afterwards asks everyone to approve
+  again. Times are read the same way every time, a malformed one is refused without losing what
+  was typed, and every moment keeps a link to the original source, starting at the moment where
+  the provider allows it. Nothing about moments is published yet.
+
 ## [0.28.0] - 2026-10-26
 
 - Shared reflections now work for groups of any size up to the participant cap, through the same

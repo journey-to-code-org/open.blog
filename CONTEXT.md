@@ -230,12 +230,28 @@ provenance: transcribed, copied, or supplied. It is never a legal determination,
 whose rights are unknown cannot be proposed for the piece (ADR 0072).
 _Avoid_: Licence check, clearance, fair use ruling
 
+**Moment seal**:
+The digest of an owner's proposed media moments, written when the owner offers a draft revision and
+tied to that revision. It covers the moments' own content only, never the source's title or link,
+and it is written once per revision. Another author sees the owner's proposed moments only while
+the seal for the revision they may read still matches them; an edit after the offer stays private
+until a newer revision is offered (ADR 0073, 0074).
+_Avoid_: Snapshot, lock, approval
+
+**EditMoments**:
+The collaboration grant to capture, edit and remove one's own media moments and read the ones other
+authors revealed. Contributors hold it for themselves only, because a proposed moment makes its owner
+a required approver (ADR 0074).
+_Avoid_: EditSynthesis, EditDraft
+
 **Combined preview**:
 The side-effect-free review of the whole piece an author sees before approving: every author's
 section in order at its exact latest revision (an author who wrote nothing has no section and
 does not block it), each author's approval state (approved, awaiting, or
 stale), and whether the piece is complete and ready. A section appears only if the reader may read
-that latest revision; every other case is one identical placeholder. It opens with a "Preview, not
+that latest revision; every other case is one identical placeholder. An author's proposed media
+moments are part of their section: it shows only while they are sealed to the revision shown, and
+the moments the reader may see are listed with it (ADR 0074). It opens with a "Preview, not
 published" notice, runs no script and loads nothing (ADR 0021).
 _Avoid_: Draft view, published page, staging copy
 
