@@ -347,8 +347,8 @@ impl ImportPlan {
     }
 }
 
-/// Whether bytes look like private research: a bundle, or a notebook file
-/// copied out of private storage. Build and publish guards use this to refuse
+/// Whether bytes look like private research: a bundle, or a notebook or
+/// Knowledge Atlas file copied out of private storage. Build and publish guards use this to refuse
 /// public input that would carry private research with it, wherever the file
 /// was saved and whatever it was renamed to. It reads the structure, not any
 /// particular text, so a post that merely quotes the same words is never flagged.
@@ -372,7 +372,7 @@ pub fn looks_like_private_research(bytes: &[u8]) -> bool {
     if root.get("format").and_then(Value::as_str) == Some(BUNDLE_FORMAT) {
         return true;
     }
-    notebook_shaped(&root)
+    notebook_shaped(&root) || crate::knowledge_atlas::looks_like_atlas(&root)
 }
 
 fn notebook_shaped(root: &Map<String, Value>) -> bool {

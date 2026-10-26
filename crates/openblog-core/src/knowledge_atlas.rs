@@ -1360,6 +1360,62 @@ pub enum ConceptLinkStatus {
     WrongKind(EntryKind),
 }
 
+/// Lookup tables over one atlas. Keys are sorted; each list is in file order
+/// and names an item at most once.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AtlasIndex {
+    /// Entry ids of each kind.
+    pub by_kind: BTreeMap<EntryKind, Vec<String>>,
+    /// Ids of the relationships that join each entry, either way round.
+    pub by_entry: BTreeMap<String, Vec<String>>,
+    /// Entries (by `source`) and relationships (by evidence or attribution)
+    /// that use each source-library record: what blocks removing it.
+    pub by_source: BTreeMap<String, Vec<String>>,
+    /// Relationships whose evidence points into each notebook passage: what
+    /// blocks removing the passage.
+    pub by_passage: BTreeMap<String, Vec<String>>,
+}
+
+/// Whether a parsed JSON object has the shape of a Knowledge Atlas file,
+/// judged by structure only (typed entries, or attributed relationships), so
+/// a copy saved into a public folder can be refused without reading any text.
+pub fn looks_like_atlas(root: &Map<String, Value>) -> bool {
+    if root.get("version").and_then(Value::as_u64).is_none() {
+        return false;
+    }
+    let list = |key: &str| root.get(key).and_then(Value::as_array);
+    let (entries, relationships) = (list("entries"), list("relationships"));
+    if entries.is_none() && relationships.is_none() {
+        return false;
+    }
+    let text = |item: &Value, key: &str| item.get(key).is_some_and(Value::is_string);
+    let entry_like = |item: &Value| {
+        text(item, "id")
+            && text(item, "label")
+            && item
+                .get("kind")
+                .and_then(Value::as_str)
+                .and_then(EntryKind::parse)
+                .is_some()
+    };
+    let relationship_like = |item: &Value| {
+        text(item, "id")
+            && text(item, "from")
+            && text(item, "to")
+            && item.get("assertedBy").is_some_and(Value::is_object)
+            && item
+                .get("kind")
+                .and_then(Value::as_str)
+                .and_then(RelationshipKind::parse)
+                .is_some()
+    };
+    let all = entries.is_none_or(|items| items.iter().all(entry_like))
+        && relationships.is_none_or(|items| items.iter().all(relationship_like));
+    let any = entries.is_some_and(|items| !items.is_empty())
+        || relationships.is_some_and(|items| !items.is_empty());
+    all && any
+}
+
 /// What removing an entry did besides removing it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EntryRemoval {
@@ -1595,6 +1651,58 @@ impl Atlas {
             .filter(|r| relationship_evidence(r).any(|e| e.passage.as_deref() == Some(passage)))
             .map(|r| r.id.clone())
             .collect()
+    }
+
+    /// Deterministic lookup tables over the atlas as it is, for storage guards
+    /// and later views. Built from file order alone, so the same file always
+    /// gives the same index; nothing in it is inferred.
+    pub fn index(&self) -> AtlasIndex {
+        let mut index = AtlasIndex::default();
+        for entry in &self.entries {
+            index
+                .by_kind
+                .entry(entry.kind)
+                .or_default()
+                .push(entry.id.clone());
+            if let Some(source) = &entry.source {
+                index
+                    .by_source
+                    .entry(source.clone())
+                    .or_default()
+                    .push(entry.id.clone());
+            }
+        }
+        for r in &self.relationships {
+            let mut ends = vec![&r.from];
+            if r.to != r.from {
+                ends.push(&r.to);
+            }
+            for end in ends {
+                index
+                    .by_entry
+                    .entry(end.clone())
+                    .or_default()
+                    .push(r.id.clone());
+            }
+            for source in relationship_sources(r).collect::<BTreeSet<_>>() {
+                index
+                    .by_source
+                    .entry(source.to_string())
+                    .or_default()
+                    .push(r.id.clone());
+            }
+            let passages: BTreeSet<&str> = relationship_evidence(r)
+                .filter_map(|e| e.passage.as_deref())
+                .collect();
+            for passage in passages {
+                index
+                    .by_passage
+                    .entry(passage.to_string())
+                    .or_default()
+                    .push(r.id.clone());
+            }
+        }
+        index
     }
 
     /// Whether the publication projection may copy this relationship: it is
@@ -3087,6 +3195,62 @@ mod tests {
         assert_eq!(codes(parse(dup)), vec![AtlasDiagnosticCode::DuplicateId]);
         let bom = format!("\u{feff}{}", sample());
         assert_eq!(Atlas::parse(&bom, links).unwrap(), valid());
+    }
+
+    #[test]
+    fn the_index_is_deterministic_and_agrees_with_the_usage_guards() {
+        let mut value = sample();
+        value["relationships"][1]["evidence"] = json!([
+            {"source": "republic-slings", "passage": "p-cave"},
+            {"source": "republic-slings", "passage": "p-cave"}]);
+        let atlas = parse_with(value, &notebook()).expect("valid");
+        let index = atlas.index();
+        assert_eq!(index, atlas.index());
+        let library = library();
+        let notebook = notebook();
+        let again = Atlas::parse(
+            &atlas.to_json(),
+            Links {
+                library: &library,
+                notebook: &notebook,
+            },
+        )
+        .unwrap();
+        assert_eq!(again.index(), index, "the written file indexes the same");
+        assert_eq!(index.by_kind[&EntryKind::Person], vec!["plato"]);
+        assert_eq!(index.by_entry["plato"], vec!["r-authored", "r-infl"]);
+        assert_eq!(index.by_entry["platonism"], vec!["r-infl"]);
+        assert!(!index.by_entry.contains_key("trial"));
+        for (source, users) in &index.by_source {
+            assert_eq!(&atlas.uses_of_source(source), users, "{source}");
+        }
+        assert_eq!(index.by_passage["p-cave"], vec!["r-infl"], "named once");
+        assert_eq!(atlas.uses_of_passage("p-cave"), vec!["r-infl"]);
+    }
+
+    #[test]
+    fn atlas_files_are_recognised_by_structure_not_by_words() {
+        let shaped = |value: Value| match value {
+            Value::Object(map) => looks_like_atlas(&map),
+            _ => false,
+        };
+        assert!(shaped(serde_json::from_str(&valid().to_json()).unwrap()));
+        assert!(shaped(json!({"version": 1, "entries": [
+            {"id": "a", "kind": "concept", "label": "A"}]})));
+        assert!(shaped(json!({"version": 1, "relationships": [
+            {"id": "r", "kind": "related-to", "from": "a", "to": "b",
+             "assertedBy": {"kind": "author"}}]})));
+        for harmless in [
+            json!({"version": 1, "entries": []}),
+            json!({"entries": [{"id": "a", "kind": "concept", "label": "A"}]}),
+            json!({"version": 1, "entries": [{"id": "a", "kind": "post", "label": "A"}]}),
+            json!({"version": 1, "entries": [{"id": "a", "kind": "concept"}]}),
+            json!({"version": 1, "posts": []}),
+            json!({"version": 1, "relationships": [{"id": "r", "kind": "related-to",
+                "from": "a", "to": "b"}]}),
+        ] {
+            assert!(!shaped(harmless.clone()), "{harmless}");
+        }
     }
 
     #[test]
