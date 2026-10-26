@@ -1318,7 +1318,7 @@ fn is_line_break(character: char) -> bool {
 /// Default_Ignorable_Code_Point plus blank-rendering fillers. These remain allowed inside a
 /// name, where joiners, variation selectors, and emoji tags are legitimate, but a name made only
 /// of them would render as nobody.
-fn is_invisible(character: char) -> bool {
+pub(crate) fn is_invisible(character: char) -> bool {
     matches!(
         character,
         '\u{00AD}'

@@ -1825,10 +1825,74 @@ impl SubmittedCopy {
     }
 }
 
+/// Whether `name` is a name the work credits, compared the way a reader would
+/// see it: invisible and default-ignorable characters and combining marks
+/// are dropped, accented Latin letters fold to their base letter, whitespace
+/// collapses and case is ignored. Folding both sides the same way means a
+/// precomposed and a decomposed spelling meet.
 fn matches_credit(name: &str, credited: &[String]) -> bool {
-    let fold = |value: &str| collapse_whitespace(value).to_lowercase();
-    let name = fold(name);
-    credited.iter().any(|credit| fold(credit) == name)
+    let name = credit_fold(name);
+    credited.iter().any(|credit| credit_fold(credit) == name)
+}
+
+fn credit_fold(value: &str) -> String {
+    let visible: String = value
+        .chars()
+        .filter(|&c| !crate::collaboration::is_invisible(c) && !is_combining_mark(c))
+        .collect();
+    collapse_whitespace(&visible)
+        .to_lowercase()
+        .chars()
+        .map(base_letter)
+        .collect()
+}
+
+/// Combining marks, which a decomposed spelling puts after the base letter.
+fn is_combining_mark(c: char) -> bool {
+    matches!(
+        c,
+        '\u{0300}'..='\u{036F}'
+            | '\u{0483}'..='\u{0489}'
+            | '\u{0591}'..='\u{05BD}'
+            | '\u{0610}'..='\u{061A}'
+            | '\u{064B}'..='\u{065F}'
+            | '\u{1AB0}'..='\u{1AFF}'
+            | '\u{1DC0}'..='\u{1DFF}'
+            | '\u{20D0}'..='\u{20FF}'
+            | '\u{FE20}'..='\u{FE2F}'
+    )
+}
+
+/// The base letter of a lowercase Latin letter with a diacritic (Latin-1
+/// Supplement and Latin Extended-A), so a precomposed letter meets the same
+/// letter written with a combining mark. A conservative table: it also folds
+/// letters such as `ø` and `ł`, which only makes more names count as a match.
+fn base_letter(c: char) -> char {
+    const TABLE: [(char, &str); 19] = [
+        ('a', "àáâãäåāăą"),
+        ('c', "çćĉċč"),
+        ('d', "ďđ"),
+        ('e', "èéêëēĕėęě"),
+        ('g', "ĝğġģ"),
+        ('h', "ĥħ"),
+        ('i', "ìíîïĩīĭįı"),
+        ('j', "ĵ"),
+        ('k', "ķ"),
+        ('l', "ĺļľŀł"),
+        ('n', "ñńņňŉ"),
+        ('o', "òóôõöøōŏő"),
+        ('r', "ŕŗř"),
+        ('s', "śŝşš"),
+        ('t', "ţťŧ"),
+        ('u', "ùúûüũūŭůűų"),
+        ('w', "ŵ"),
+        ('y', "ýÿŷ"),
+        ('z', "źżž"),
+    ];
+    TABLE
+        .iter()
+        .find(|(_, folded)| folded.contains(c))
+        .map_or(c, |(base, _)| *base)
 }
 
 // ---------------------------------------------------------------------------

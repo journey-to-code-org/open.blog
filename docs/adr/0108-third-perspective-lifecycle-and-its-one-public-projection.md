@@ -67,8 +67,12 @@ group-authored work.
   - `earlierRevision`: the reader read an earlier revision of the work, so a page can say so;
   - the optional `category`, the plain-text `body` and the day it was `received`;
   - `name`, only while the approved and the current consent show that same name, and never when it
-    matches, ignoring case and spacing, a name the work credits (an author, a member or the
-    group). The inbox sees that match (`name_matches_credit`) so a moderator can ask the reader.
+    matches a name the work credits (an author, a member or the group). The comparison is how a
+    reader would see the names: both sides drop invisible and default-ignorable characters (zero
+    width and joiner characters, word joiner, soft hyphen, variation selectors, tags) and combining
+    marks, fold accented Latin letters to their base letter (Latin-1 and Latin Extended-A, so
+    `José` and a decomposed `Jose` + acute meet), collapse whitespace and ignore case. The
+    check is a conservative hint, not identity: it errs toward hiding a name. The inbox sees that match (`name_matches_credit`) so a moderator can ask the reader.
 
   It has no field for provenance, intake, consent records, moderation state or reasons, revision
   numbers, ids, the reader's clock, the channel or an unpublished name, so no renderer can show

@@ -956,6 +956,63 @@ fn a_manual_copy_is_revoked_by_an_admin_removal_and_purge_and_cannot_be_clarifie
 }
 
 #[test]
+fn a_name_that_only_looks_like_a_credit_is_never_shown() {
+    let work = |credited: &str| PublishedWork {
+        credited: vec![credited.into()],
+        ..tides()
+    };
+    let shown = |name: &str, credited: &str| {
+        submitted(ReaderAttribution::named(name, true))
+            .approved_response(
+                &facts(ModerationState::Approved),
+                true,
+                &work(credited),
+                &whole(),
+            )
+            .unwrap()
+            .name
+    };
+    for name in [
+        "Ada Lovelace",
+        "ada   lovelace",
+        "Ada\u{200B} Lovelace",
+        "\u{2060}Ada Lovelace",
+        "Ada Love\u{00AD}lace",
+        "Ada Lovelace\u{FE0F}",
+        "A\u{0301}da Lovelace",
+    ] {
+        assert_eq!(
+            shown(name, "Ada Lovelace"),
+            None,
+            "{name:?} imitates a credit"
+        );
+    }
+    // Precomposed and decomposed spellings of one name meet, either way round.
+    for (name, credited) in [
+        ("Jose\u{0301} Marti\u{0301}", "José Martí"),
+        ("José Martí", "Jose\u{0301} Marti\u{0301}"),
+        ("José\u{200B} Martí", "José Martí"),
+    ] {
+        assert_eq!(
+            shown(name, credited),
+            None,
+            "{name:?} imitates {credited:?}"
+        );
+        assert!(submitted(ReaderAttribution::named(name, true))
+            .name_matches_credit(&[credited.to_string()]));
+    }
+    // A different person keeps their name.
+    assert_eq!(
+        shown("Ada Lovelace-Smith", "Ada Lovelace").as_deref(),
+        Some("Ada Lovelace-Smith")
+    );
+    assert_eq!(
+        shown("José Marte", "José Martí").as_deref(),
+        Some("José Marte")
+    );
+}
+
+#[test]
 fn feature_consent_binds_to_one_approved_revision() {
     let later = time("2026-10-27T08:00:00Z");
     let feature = ConsentChange {
