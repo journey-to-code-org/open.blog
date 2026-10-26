@@ -67,14 +67,14 @@ research notes apart from your own prose, with private search and backlinks
 publication-leak guards ([ADR 0037](adr/0037-private-notebook-lifecycle-export-and-leak-guards.md)),
 and the [citation format](specs/citations.md), which points citations at source identifiers with
 compound locators and states what is public and how CSL data is kept or reported lost
-([ADR 0048](adr/0048-citation-keys-are-source-identifiers.md) to
-[ADR 0052](adr/0052-csl-interoperability-policy.md)), with an Admin citation picker that keeps
-citations intact in both writing modes ([ADR 0053](adr/0053-citation-picker-in-the-visual-editor.md)),
+([ADR 0042](adr/0042-citation-keys-are-source-identifiers.md) to
+[ADR 0046](adr/0046-csl-interoperability-policy.md)), with an Admin citation picker that keeps
+citations intact in both writing modes ([ADR 0047](adr/0047-citation-picker-in-the-visual-editor.md)),
 publication as notes or a bibliography through the one publication projection
-([ADR 0054](adr/0054-citations-publish-through-the-one-publication-projection.md),
-[ADR 0055](adr/0055-built-in-citation-styles-locales-and-accessible-notes.md)), and offline
+([ADR 0048](adr/0048-citations-publish-through-the-one-publication-projection.md),
+[ADR 0049](adr/0049-built-in-citation-styles-locales-and-accessible-notes.md)), and offline
 citation checks with CSL JSON and BibTeX exports of a post's cited references
-([ADR 0056](adr/0056-offline-citation-checks-and-portable-bibliography-exports.md)).
+([ADR 0050](adr/0050-offline-citation-checks-and-portable-bibliography-exports.md)).
 
 ## Command reference
 

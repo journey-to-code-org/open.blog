@@ -770,7 +770,7 @@ fn user_command_with(
 }
 
 /// How many posts publish citations, and a plain statement that their checks
-/// ran offline (ADR 0056); `None` when no post publishes any.
+/// ran offline (ADR 0050); `None` when no post publishes any.
 fn citation_summary(site: &openblog_core::Site) -> Option<String> {
     let published: Vec<_> = site
         .posts

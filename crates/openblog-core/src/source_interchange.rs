@@ -1427,7 +1427,7 @@ pub fn export_bibtex(library: &SourceLibrary) -> Export {
 }
 
 /// A post's cited references as CSL JSON, in order of first citation: a
-/// portable bibliography (ADR 0056). Unlike [`export_csl_json`] it is built
+/// portable bibliography (ADR 0050). Unlike [`export_csl_json`] it is built
 /// only from the public description ([`PublicReference`]) a published post
 /// already shows, so it carries no `custom` envelope, no relationships,
 /// locations, archived flags, unknown fields or private identifiers. What

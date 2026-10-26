@@ -1,12 +1,12 @@
-# ADR 0055: Two built-in citation styles, four built-in locales, accessible notes, and refusal on any citation problem
+# ADR 0049: Two built-in citation styles, four built-in locales, accessible notes, and refusal on any citation problem
 
 - Status: Accepted (amended below: only a post the load publishes is refused)
 - Date: 2026-10-25
 - Decision issue: [#42](https://github.com/journey-to-code-org/open.blog/issues/42)
 - Parent story: [#19](https://github.com/journey-to-code-org/open.blog/issues/19)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0051](0051-citation-locators-reuse-notebook-locators.md),
-  [ADR 0054](0054-citations-publish-through-the-one-publication-projection.md)
+- Builds on: [ADR 0045](0045-citation-locators-reuse-notebook-locators.md),
+  [ADR 0048](0048-citations-publish-through-the-one-publication-projection.md)
 - Contract: [Citation format](../specs/citations.md)
 
 ## Context
@@ -14,7 +14,7 @@
 Readers need enough information to find a source, in the post's language, and keyboard and
 screen-reader users need to move between a citation and its note. Full CSL style rendering needs
 a CSL processor and style downloads, which are out of scope; generation must stay offline and
-deterministic. ADR 0051 lets resolution drop one bad citation and keep the others, but a
+deterministic. ADR 0045 lets resolution drop one bad citation and keep the others, but a
 published post with a silently missing citation would mislead readers.
 
 ## Decision
@@ -42,7 +42,7 @@ published post with a silently missing citation would mislead readers.
   key, an ambiguous locator, a missing library or an unreadable library stops that post (and so
   the build, as any content error does) before anything is written. Each problem is reported
   with its file line, key, code and a repair hint, and never with other records, notes or
-  notebook text. ADR 0051's per-citation scoping still holds for the resolver and the Admin
+  notebook text. ADR 0045's per-citation scoping still holds for the resolver and the Admin
   picker; publication simply requires all citations to resolve. (Amended below: this applies
   to a post the load actually publishes.)
 

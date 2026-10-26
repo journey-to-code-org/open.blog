@@ -1,4 +1,4 @@
-# ADR 0048: A citation names a reference by its source identifier, never by a new identity
+# ADR 0042: A citation names a reference by its source identifier, never by a new identity
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -25,7 +25,7 @@ record it names when a title is corrected.
   resolves to exactly one record or is reported.
 - A key may name any source-library record, including an archived one, which keeps resolving.
   Authors cite the record whose pages they mean: a page locator on a bare work is refused
-  (ADR 0051).
+  (ADR 0045).
 - **Citation** is the in-text pointer (key plus locators). **Reference** stays the source-library
   record. **Source location** stays a position stored on a reference record, describing where the
   reference sits in its work. A **Locator** is a position given at the point of citation, and is

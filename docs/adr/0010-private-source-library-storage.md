@@ -25,7 +25,7 @@ atomic file replacement.
 
 The library is one JSON file at `.openblog/private/research/sources.json`, owned by the
 CLI's `source_store` module. It is outside the content, static, theme, web, and output
-directories, so no build reads it (amended by [ADR 0054](0054-citations-publish-through-the-one-publication-projection.md):
+directories, so no build reads it (amended by [ADR 0048](0048-citations-publish-through-the-one-publication-projection.md):
 a build reads it, through these same checks, only when a post that opts in to citations cites
 something, and publishes only the cited references' public description), and the build never
 copies anything inside `.openblog/` even when a static or theme directory is configured to

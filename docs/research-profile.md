@@ -158,8 +158,8 @@ the research notebook.
 
 A citation the build cannot resolve (an unknown key, a page cited on a whole work, a malformed
 bracket, or no library) stops that post with its file line and a fix; write `\[@` for literal
-text. See [ADR 0054](adr/0054-citations-publish-through-the-one-publication-projection.md) and
-[ADR 0055](adr/0055-built-in-citation-styles-locales-and-accessible-notes.md).
+text. See [ADR 0048](adr/0048-citations-publish-through-the-one-publication-projection.md) and
+[ADR 0049](adr/0049-built-in-citation-styles-locales-and-accessible-notes.md).
 
 For the product boundary and supporting standards research, see
 [Research and evidence publishing](research/research-evidence-publishing.md) and

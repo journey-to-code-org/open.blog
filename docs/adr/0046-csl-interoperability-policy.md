@@ -1,4 +1,4 @@
-# ADR 0052: State which CSL data survives, which is preserved verbatim and which is reported lost
+# ADR 0046: State which CSL data survives, which is preserved verbatim and which is reported lost
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -6,7 +6,7 @@
 - Parent story: [#19](https://github.com/journey-to-code-org/open.blog/issues/19)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0012](0012-source-library-interchange.md),
-  [ADR 0048](0048-citation-keys-are-source-identifiers.md)
+  [ADR 0042](0042-citation-keys-are-source-identifiers.md)
 - Contract: [Citation format](../specs/citations.md)
 
 ## Context

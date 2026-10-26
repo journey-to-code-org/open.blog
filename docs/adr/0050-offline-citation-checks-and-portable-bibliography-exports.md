@@ -1,4 +1,4 @@
-# ADR 0056: Check citations offline in four separate classes and export cited references from the publication projection
+# ADR 0050: Check citations offline in four separate classes and export cited references from the publication projection
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -7,9 +7,9 @@
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0002](0002-research-profile-and-evidence-capability.md),
   [ADR 0012](0012-source-library-interchange.md),
-  [ADR 0050](0050-what-a-citation-makes-public.md),
-  [ADR 0054](0054-citations-publish-through-the-one-publication-projection.md),
-  [ADR 0055](0055-built-in-citation-styles-locales-and-accessible-notes.md)
+  [ADR 0044](0044-what-a-citation-makes-public.md),
+  [ADR 0048](0048-citations-publish-through-the-one-publication-projection.md),
+  [ADR 0049](0049-built-in-citation-styles-locales-and-accessible-notes.md)
 - Contract: [Citation format](../specs/citations.md)
 
 ## Context
@@ -51,13 +51,13 @@ hosted service.
   such; it is not part of builds, checks or previews.
 - **Where findings appear.** In the site load, so `openblog check`, `openblog build` and the Admin
   preview all show the same findings for the post. For a post the load publishes, syntax and
-  resolution problems still refuse the post (ADR 0055); the findings matter most for drafts,
+  resolution problems still refuse the post (ADR 0049); the findings matter most for drafts,
   whose citations stay text with a warning, and for completeness and location review, which
   never block. Posts that do not opt in get no citation findings, so existing articles, recipes,
   research and contributor output are unchanged.
 - **Exports come from the publication projection.** A published post carries a
   `CitationSummary`: its style, locale, counts and the `PublicReference` of each cited reference
-  in order of first citation (ADR 0050). `export_cited_csl_json` and `export_cited_bibtex` write
+  in order of first citation (ADR 0044). `export_cited_csl_json` and `export_cited_bibtex` write
   only that description, through the same writers and escaping as the library exports of
   ADR 0012, but with no `custom` envelope: no relationships, locations, archived flags, unknown
   fields, notes or private identifier schemes. A malformed PMID or PMCID is not exported. Every

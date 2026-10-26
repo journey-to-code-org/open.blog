@@ -39,7 +39,7 @@ pub struct Sources {
     pub pages: Vec<SourceFile>,
     /// Where the private source library comes from, if anywhere. A load
     /// reads it only when a post that opts in to citations cites something,
-    /// and publishes only the cited references' public description (ADR 0054).
+    /// and publishes only the cited references' public description (ADR 0048).
     pub source_library: Option<LibrarySource>,
 }
 
@@ -234,14 +234,14 @@ pub struct Post {
     pub(crate) authored_markdown: String,
     /// The body with its citations published as notes, for a post that opts
     /// in and cites; every public representation reads it instead of the
-    /// authored body (ADR 0054).
+    /// authored body (ADR 0048).
     pub(crate) published_markdown: Option<String>,
     /// Why an opted-in post's citations could not be published, for the site
     /// load to decide: it refuses a post this load publishes and warns about a
-    /// draft or a held-back post, whose citations stay text (ADR 0055).
+    /// draft or a held-back post, whose citations stay text (ADR 0049).
     pub(crate) citation_error: Option<String>,
     /// What the published citations made public, for a post that publishes
-    /// them; portable bibliography exports read it (ADR 0056).
+    /// them; portable bibliography exports read it (ADR 0050).
     pub(crate) citations: Option<CitationSummary>,
     pub html: String,
     pub text: String,
@@ -527,7 +527,7 @@ impl Site {
                     let held_back = !options.include_drafts && !is_preview_target;
                     let scheduled_out = held_back && options.now.is_some_and(|now| post.date > now);
                     if let Some(error) = post.citation_error.take() {
-                        // Only a post this load publishes is refused (ADR 0055).
+                        // Only a post this load publishes is refused (ADR 0049).
                         // A draft, a post waiting for its date and, in a preview,
                         // every other document keep their citations as text.
                         let reason = if post.draft {
@@ -978,7 +978,7 @@ fn is_draft(fm: &FrontMatter) -> bool {
 /// against `library`, for a post that is not a draft and opts in to
 /// citations; `None` for any other post or when every citation resolves.
 /// The source library uses it to refuse an edit that would make a published
-/// post's citations fail (ADR 0055). It reads nothing but its inputs.
+/// post's citations fail (ADR 0049). It reads nothing but its inputs.
 pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
     let doc = frontmatter::parse(source).ok()?;
     let fm = &doc.front_matter;
@@ -1091,7 +1091,7 @@ fn load_post_in(
     let fm = &doc.front_matter;
     let mut profile = profile::resolve(fm);
     let is_recipe = profile.behavior == ProfileBehavior::Recipe;
-    // Citations are opt-in (ADR 0049): a post without `citations` is read
+    // Citations are opt-in (ADR 0043): a post without `citations` is read
     // exactly as before, and so is one that opts in but cites nothing.
     let citation_style = CitationStyle::from_front_matter(first(fm, &["citations"]))?;
     let mut citation_error = None;

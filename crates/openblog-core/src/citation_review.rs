@@ -1,4 +1,4 @@
-//! Offline review of an opted-in post's citations (ADR 0056).
+//! Offline review of an opted-in post's citations (ADR 0050).
 //!
 //! Four classes of finding stay apart, so an author can tell what kind of
 //! problem each one is and who can fix it:

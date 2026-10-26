@@ -1,4 +1,4 @@
-# ADR 0050: Only the citation key, its locators and the formatted reference are public
+# ADR 0044: Only the citation key, its locators and the formatted reference are public
 
 - Status: Accepted
 - Date: 2026-10-25

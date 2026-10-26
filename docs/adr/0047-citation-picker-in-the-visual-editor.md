@@ -1,13 +1,13 @@
-# ADR 0053: Insert citations through a server-checked picker and keep them as atomic chips
+# ADR 0047: Insert citations through a server-checked picker and keep them as atomic chips
 
 - Status: Accepted
 - Date: 2026-10-25
 - Decision issue: [#41](https://github.com/journey-to-code-org/open.blog/issues/41)
 - Parent story: [#19](https://github.com/journey-to-code-org/open.blog/issues/19)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0049](0049-opt-in-citation-markdown-syntax.md),
-  [ADR 0050](0050-what-a-citation-makes-public.md),
-  [ADR 0051](0051-citation-locators-reuse-notebook-locators.md),
+- Builds on: [ADR 0043](0043-opt-in-citation-markdown-syntax.md),
+  [ADR 0044](0044-what-a-citation-makes-public.md),
+  [ADR 0045](0045-citation-locators-reuse-notebook-locators.md),
   [ADR 0035](0035-private-notebook-storage-and-admin-capture.md)
 - Contract: [Citation format](../specs/citations.md)
 

@@ -9563,7 +9563,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
 }
 
 /// What the previewed post's citations made public, with its portable
-/// bibliography exports (ADR 0056). Both exports are built from the
+/// bibliography exports (ADR 0050). Both exports are built from the
 /// references the preview published, so they match the notes exactly and
 /// hold only their public description; each lists what its format omits.
 fn citation_preview(slug: &str, summary: &openblog_core::bibliography::CitationSummary) -> Json {

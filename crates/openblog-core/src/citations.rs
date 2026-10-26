@@ -4,8 +4,8 @@
 //! A [`Citation`] is the in-text pointer. Its key is a source-library
 //! identifier (never a second identity), its [`Locator`]s are the notebook's
 //! locators, and the **Reference** it points at stays a source-library record
-//! (ADR 0048). Nothing here reads the private notebook: only the citation key,
-//! its locators and the formatted reference are public (ADR 0050).
+//! (ADR 0042). Nothing here reads the private notebook: only the citation key,
+//! its locators and the formatted reference are public (ADR 0044).
 //!
 //! Citations are an opt-in Markdown syntax, `[@key]` or
 //! `[@key, page 514; canonical 514a to 520a]`. Plain CommonMark leaves that
@@ -738,7 +738,7 @@ pub fn check_citation(
     })
 }
 
-/// What CSL interchange does with a CSL variable (ADR 0052).
+/// What CSL interchange does with a CSL variable (ADR 0046).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CslFate {
     /// Mapped to a source-library field and rebuilt on export.

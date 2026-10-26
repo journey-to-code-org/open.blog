@@ -1,11 +1,11 @@
-# ADR 0049: Write citations as opt-in `[@key, locator]` Markdown that existing posts never meet
+# ADR 0043: Write citations as opt-in `[@key, locator]` Markdown that existing posts never meet
 
 - Status: Accepted
 - Date: 2026-10-25
 - Decision issue: [#40](https://github.com/journey-to-code-org/open.blog/issues/40)
 - Parent story: [#19](https://github.com/journey-to-code-org/open.blog/issues/19)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
-- Builds on: [ADR 0048](0048-citation-keys-are-source-identifiers.md),
+- Builds on: [ADR 0042](0042-citation-keys-are-source-identifiers.md),
   [ADR 0002](0002-research-profile-and-evidence-capability.md)
 - Contract: [Citation format](../specs/citations.md)
 

@@ -3,13 +3,13 @@
 //! A post that sets `citations: notes` or `citations: bibliography` in its
 //! front matter has each `[@key, locator]` citation resolved against the
 //! source library and rewritten as an ordinary Markdown footnote reference,
-//! with the generated notes appended under one heading (ADR 0054). Every
+//! with the generated notes appended under one heading (ADR 0048). Every
 //! public representation (the native page, portable HTML, Markdown and text,
 //! feeds and `llms.txt`) then reads that one published Markdown body, so
 //! citations have one semantic projection rather than an exporter of their
 //! own. Only the citation key, its locators and the reference's public
 //! description ([`PublicReference`]) are written; nothing else in the library
-//! and nothing in the notebook can reach the output (ADR 0050).
+//! and nothing in the notebook can reach the output (ADR 0044).
 //!
 //! Output is deterministic: notes are numbered in order of first citation,
 //! text is escaped, and nothing depends on time, locale settings of the
@@ -26,7 +26,7 @@ use crate::citations::{
 };
 use crate::source_library::SourceLibrary;
 
-/// How a post's citations are published (ADR 0055).
+/// How a post's citations are published (ADR 0049).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CitationStyle {
     /// One numbered note per distinct citation (reference and locators); a
@@ -239,7 +239,7 @@ impl CitationNoteLabels<'_> {
 /// how many citations and notes it has, and each cited reference's public
 /// description in order of first citation. Portable bibliography exports
 /// (CSL JSON, BibTeX) are built from these references, so they hold exactly
-/// what the page shows (ADR 0056).
+/// what the page shows (ADR 0050).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CitationSummary {
     pub style: CitationStyle,

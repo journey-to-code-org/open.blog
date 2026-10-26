@@ -4,7 +4,7 @@
 //! directory and outside content, static files, themes, and build output, so
 //! no build copies it. A build reads it only when a post that opts in to
 //! citations cites something, and publishes only those references' public
-//! description ([`read_for_build`], ADR 0054); a site whose posts cite
+//! description ([`read_for_build`], ADR 0048); a site whose posts cite
 //! nothing never reads it. Every change names the revision it was based on,
 //! is validated by `openblog_core::source_library`, and replaces the file by
 //! atomic rename while holding a lock: a refused, failed, or interrupted

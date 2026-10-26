@@ -12,9 +12,9 @@ use crate::{clock, fsutil, site};
 pub enum Format {
     /// The portable Markdown article.
     Markdown,
-    /// The post's cited references as CSL JSON (ADR 0056).
+    /// The post's cited references as CSL JSON (ADR 0050).
     CslJson,
-    /// The post's cited references as BibTeX (ADR 0056).
+    /// The post's cited references as BibTeX (ADR 0050).
     Bibtex,
 }
 
@@ -120,8 +120,8 @@ pub fn run(
 
 /// A post's cited references in a bibliography format. They come from the
 /// post as the site load published it, so the file holds exactly the public
-/// description its notes show (the one publication projection, ADR 0054 and
-/// ADR 0056), and every detail the format cannot carry is listed.
+/// description its notes show (the one publication projection, ADR 0048 and
+/// ADR 0050), and every detail the format cannot carry is listed.
 pub fn bibliography_export(post: &Post, format: Format) -> Result<Export, String> {
     let references = post
         .citations()

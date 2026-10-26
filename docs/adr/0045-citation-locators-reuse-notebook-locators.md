@@ -1,4 +1,4 @@
-# ADR 0051: Citation locators are the notebook's locators, with the same ambiguity rules
+# ADR 0045: Citation locators are the notebook's locators, with the same ambiguity rules
 
 - Status: Accepted
 - Date: 2026-10-25

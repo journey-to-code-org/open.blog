@@ -1,10 +1,10 @@
 # Citation format
 
-The contract defined by [ADR 0048](../adr/0048-citation-keys-are-source-identifiers.md) to
-[ADR 0053](../adr/0053-citation-picker-in-the-visual-editor.md), implemented by
+The contract defined by [ADR 0042](../adr/0042-citation-keys-are-source-identifiers.md) to
+[ADR 0047](../adr/0047-citation-picker-in-the-visual-editor.md), implemented by
 `openblog_core::citations`, and published by `openblog_core::bibliography`
-([ADR 0054](../adr/0054-citations-publish-through-the-one-publication-projection.md),
-[ADR 0055](../adr/0055-built-in-citation-styles-locales-and-accessible-notes.md)). A citation
+([ADR 0048](../adr/0048-citations-publish-through-the-one-publication-projection.md),
+[ADR 0049](../adr/0049-built-in-citation-styles-locales-and-accessible-notes.md)). A citation
 points at a record in the [source library](research-source-library.md) and reuses the
 [notebook's locators](research-notebook.md). The resolver never reads the notebook.
 
@@ -47,14 +47,14 @@ relationships, unknown fields (also on locators), identifiers in any other schem
 
 ## CSL interoperability
 
-See [ADR 0052](../adr/0052-csl-interoperability-policy.md) for the table of stored, preserved,
+See [ADR 0046](../adr/0046-csl-interoperability-policy.md) for the table of stored, preserved,
 private-dropped and unsupported CSL variables and the citation-item mapping. In short: the first
 locator becomes CSL `label` and `locator`; the full ordered list travels in `openblog-locators`;
 every loss is reported; failures are scoped to one citation or item and change no file.
 
 ## Admin citation picker
 
-The Write view's **Cite** action ([ADR 0053](../adr/0053-citation-picker-in-the-visual-editor.md))
+The Write view's **Cite** action ([ADR 0047](../adr/0047-citation-picker-in-the-visual-editor.md))
 inserts or edits one citation in either writing mode. Both routes are signed-in, `no-store`, and
 write nothing.
 
@@ -91,7 +91,7 @@ post's citations from resolving is refused with `still-used`, naming the post's 
 
 ## Checks
 
-`openblog_core::citation_review` ([ADR 0056](../adr/0056-offline-citation-checks-and-portable-bibliography-exports.md))
+`openblog_core::citation_review` ([ADR 0050](../adr/0050-offline-citation-checks-and-portable-bibliography-exports.md))
 reviews every post that opts in, offline, and reports evidence findings that `openblog check`,
 builds and Evidence Studio show with the post's path and line:
 

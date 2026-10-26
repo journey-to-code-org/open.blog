@@ -1,4 +1,4 @@
-# ADR 0054: Citations publish as generated Markdown notes through the one publication projection
+# ADR 0048: Citations publish as generated Markdown notes through the one publication projection
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -6,8 +6,8 @@
 - Parent story: [#19](https://github.com/journey-to-code-org/open.blog/issues/19)
 - Parent epic: [#15](https://github.com/journey-to-code-org/open.blog/issues/15)
 - Builds on: [ADR 0004](0004-portable-projections-from-canonical-work.md),
-  [ADR 0049](0049-opt-in-citation-markdown-syntax.md),
-  [ADR 0050](0050-what-a-citation-makes-public.md)
+  [ADR 0043](0043-opt-in-citation-markdown-syntax.md),
+  [ADR 0044](0044-what-a-citation-makes-public.md)
 - Amends: [ADR 0010](0010-private-source-library-storage.md) and
   [ADR 0012](0012-source-library-interchange.md) (builds now read the library, only when an
   opted-in post cites something)
@@ -48,7 +48,7 @@ publish byte for byte as before, and the source library is private author resear
   end of a post would swallow the notes; such a post is refused, not published with citations
   missing.
 - **Deterministic and offline.** Notes are numbered in order of first citation; text is escaped
-  Markdown built from the `PublicReference` allowlist (ADR 0050); nothing depends on time, the
+  Markdown built from the `PublicReference` allowlist (ADR 0044); nothing depends on time, the
   machine's locale or hash order. A DOI links to `https://doi.org/`, a web address links to
   itself only when it is a plain HTTP(S) address without credentials, and other public schemes
   are text.

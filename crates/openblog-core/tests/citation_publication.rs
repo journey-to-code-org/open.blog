@@ -1,5 +1,5 @@
-//! Opt-in publication of citations as notes or a bibliography (ADR 0054 and
-//! ADR 0055): golden output, determinism, legacy byte equality, every public
+//! Opt-in publication of citations as notes or a bibliography (ADR 0048 and
+//! ADR 0049): golden output, determinism, legacy byte equality, every public
 //! representation, accessible anchors, privacy and source-scoped failures.
 
 use std::collections::BTreeMap;

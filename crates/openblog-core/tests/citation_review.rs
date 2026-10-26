@@ -1,4 +1,4 @@
-//! Offline citation checks and portable bibliography exports (ADR 0056):
+//! Offline citation checks and portable bibliography exports (ADR 0050):
 //! each diagnostic class, offline determinism, malformed identifiers,
 //! escaping, hostile input, privacy and unchanged legacy posts.
 

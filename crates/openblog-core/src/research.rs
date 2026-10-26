@@ -37,7 +37,7 @@ pub enum EvidenceCode {
     FootnoteUnresolved,
     ReferenceLinkReview,
     DoiLinkNonPreferred,
-    /// A citation the scanner cannot read (ADR 0056).
+    /// A citation the scanner cannot read (ADR 0050).
     CitationSyntax,
     /// A citation key with no source, or a locator that does not fit it.
     CitationUnresolved,
