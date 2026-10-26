@@ -479,17 +479,31 @@ pub fn load_site_from_sources(
     sources: Sources,
     options: LoadOptions,
 ) -> Result<(Site, ThemeSet), String> {
+    load_site_from_sources_listing(root, config, sources, options)
+        .map_err(|errors| content_problems(&errors))
+}
+
+/// The problems of a failed site load as one message.
+pub fn content_problems(errors: &[String]) -> String {
+    format!(
+        "{} problem(s) in your content:\n  - {}",
+        errors.len(),
+        errors.join("\n  - ")
+    )
+}
+
+/// [`load_site_from_sources`], keeping each content problem apart so a caller
+/// such as the Admin preview can report only those of one document.
+pub fn load_site_from_sources_listing(
+    root: &Path,
+    config: SiteConfig,
+    sources: Sources,
+    options: LoadOptions,
+) -> Result<(Site, ThemeSet), Vec<String>> {
     let config = with_asset_version(root, config);
     let counts = view_counts(root, &config);
-    let themes = load_themes(root, &config)?;
-    let site = Site::load(config, sources, options).map_err(|errors| {
-        format!(
-            "{} problem(s) in your content:\n  - {}",
-            errors.len(),
-            errors.join("\n  - ")
-        )
-    })?;
-    let mut site = site;
+    let themes = load_themes(root, &config).map_err(|error| vec![error])?;
+    let mut site = Site::load(config, sources, options)?;
     site.view_counts = counts;
     Ok((site, themes))
 }

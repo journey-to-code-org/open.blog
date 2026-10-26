@@ -508,6 +508,129 @@ fn a_metadata_read_leaves_citations_as_text_and_load_post_cited_publishes_them()
         .any(|capability| capability.id == "citations" && capability.has_portable_fallback()));
 }
 
+const OK_POST: &str = "---\ntitle: Ok\ndate: 2026-10-01\n---\nFine.\n";
+const NOT_YET: &str =
+    "---\ntitle: Not yet\ndate: 2026-10-02\ndraft: true\ncitations: notes\n---\nSoon [@not-yet].\n";
+
+#[test]
+fn a_drafts_citation_problem_is_a_warning_and_blocks_nothing() {
+    for include_drafts in [false, true] {
+        let site = Site::load(
+            config("en"),
+            sources(
+                vec![
+                    post("posts/not-yet.md", NOT_YET),
+                    post("posts/ok.md", OK_POST),
+                ],
+                Some(LIBRARY),
+            ),
+            LoadOptions {
+                include_drafts,
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|errors| panic!("{errors:?}"));
+        let warning = site
+            .warnings
+            .iter()
+            .find(|warning| {
+                warning.starts_with(
+                    "posts/not-yet.md: citations are not published while the post is a draft",
+                )
+            })
+            .unwrap_or_else(|| panic!("{:?}", site.warnings));
+        assert!(warning.contains("line 7: citation `not-yet`"), "{warning}");
+        if include_drafts {
+            // An included draft renders with its citations as authored text.
+            let draft = site.posts.iter().find(|p| p.slug == "not-yet").unwrap();
+            assert_eq!(draft.publication_markdown(), draft.authored_markdown());
+            assert!(draft.html.contains("[@not-yet]"), "{}", draft.html);
+        } else {
+            assert_eq!(site.posts.len(), 1);
+        }
+    }
+
+    // A post held back until its date warns too; it must resolve before then.
+    let scheduled = NOT_YET
+        .replace("draft: true\n", "")
+        .replace("2026-10-02", "2099-01-01");
+    let site = Site::load(
+        config("en"),
+        sources(
+            vec![
+                post("posts/not-yet.md", &scheduled),
+                post("posts/ok.md", OK_POST),
+            ],
+            Some(LIBRARY),
+        ),
+        LoadOptions {
+            now: openblog_core::DateTime::parse("2026-10-25"),
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|errors| panic!("{errors:?}"));
+    assert_eq!(site.scheduled.len(), 1);
+    assert!(
+        site.warnings.iter().any(|warning| warning
+            .starts_with("posts/not-yet.md: citations are not published until the post is due")),
+        "{:?}",
+        site.warnings
+    );
+
+    // Published, the same citation still refuses the post.
+    let published = NOT_YET.replace("draft: true\n", "");
+    let errors = load(
+        "en",
+        vec![
+            post("posts/not-yet.md", &published),
+            post("posts/ok.md", OK_POST),
+        ],
+        Some(LIBRARY),
+    )
+    .unwrap_err();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0].starts_with("posts/not-yet.md: line 6: citation `not-yet`"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_preview_fails_only_for_the_previewed_documents_own_citations() {
+    let broken = NOT_YET.replace("draft: true\n", "");
+    let preview = |target: &str, draft: &str| {
+        Site::load(
+            config("en"),
+            sources(
+                vec![post("posts/broken.md", &broken), post("posts/ok.md", draft)],
+                Some(LIBRARY),
+            ),
+            LoadOptions {
+                preview_source: Some(target.into()),
+                ..LoadOptions::default()
+            },
+        )
+    };
+    // Another post's bad citation does not break this preview.
+    let site = preview("posts/ok.md", OK_POST).unwrap_or_else(|errors| panic!("{errors:?}"));
+    assert!(site.posts.iter().any(|p| p.source == "posts/ok.md"));
+    assert!(
+        site.warnings.iter().any(|warning| warning
+            .starts_with("posts/broken.md: citations are not published in this preview")),
+        "{:?}",
+        site.warnings
+    );
+    // A previewed draft with an unresolved citation previews with it as text.
+    let site = preview("posts/ok.md", NOT_YET).unwrap_or_else(|errors| panic!("{errors:?}"));
+    assert!(site.posts.iter().any(|p| p.source == "posts/ok.md"));
+    // The previewed published document's own problem still refuses.
+    let errors = preview("posts/broken.md", OK_POST).unwrap_err();
+    assert!(
+        errors[0].starts_with("posts/broken.md: line 6: citation `not-yet`"),
+        "{errors:?}"
+    );
+}
+
 #[test]
 fn an_authors_literal_cite_label_moves_the_generated_prefix() {
     for literal in ["[^cite-1]", "[^CITE-1]"] {
@@ -522,6 +645,10 @@ fn an_authors_literal_cite_label_moves_the_generated_prefix() {
         );
         assert!(published.contains("\n[^cite2-1]: Plato."), "{published}");
         // The author's literal stays text instead of turning into a marker.
-        assert!(site.posts[0].html.contains(literal), "{}", site.posts[0].html);
+        assert!(
+            site.posts[0].html.contains(literal),
+            "{}",
+            site.posts[0].html
+        );
     }
 }

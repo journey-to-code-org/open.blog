@@ -8922,7 +8922,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
     config.analytics.show_views = false;
     config.analytics.endpoint.clear();
     config.engagement.enabled = false;
-    let (preview_site, themes) = match site::load_site_from_sources(
+    let (preview_site, themes) = match site::load_site_from_sources_listing(
         &state.root,
         config,
         sources,
@@ -8933,7 +8933,21 @@ fn preview(state: &AppState, req: &Request) -> Response {
         },
     ) {
         Ok(loaded) => loaded,
-        Err(error) => return Response::error(422, &error),
+        Err(errors) => {
+            // Name the previewed document's own problems, as saving does;
+            // other documents are listed only when nothing else explains it.
+            let sidecar = openblog_core::contributor::sidecar_path(&rel);
+            let mine: Vec<String> = errors
+                .iter()
+                .filter(|error| {
+                    error.contains(&rel)
+                        || sidecar.as_deref().is_some_and(|path| error.contains(path))
+                })
+                .cloned()
+                .collect();
+            let shown = if mine.is_empty() { errors } else { mine };
+            return Response::error(422, &site::content_problems(&shown));
+        }
     };
     let target = match kind {
         "posts" => preview_site
@@ -14399,6 +14413,62 @@ mod tests {
         assert!(!findings
             .iter()
             .any(|finding| finding["source"]["path"] == "posts/unrelated.md"));
+    }
+
+    #[test]
+    fn a_citation_problem_elsewhere_or_in_a_draft_never_blocks_a_preview_or_a_draft_save() {
+        let f = fixture("citation-scope");
+        fs::write(
+            f.dir.join("content/posts/broken.md"),
+            "---\ntitle: Broken\ndate: 2026-10-01\ncitations: notes\n---\nA claim [@nobody].\n",
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let send = |method: &str, route: &str, body: Json| {
+            handle(
+                &f.state,
+                &authed(json_req(method, route, body), &session, true),
+            )
+        };
+        let draft = json!({
+            "kind": "posts",
+            "path": "posts/not-yet.md",
+            "fields": { "title": "Not yet", "date": "2026-10-23", "draft": "true", "citations": "notes" },
+            "body": "Soon [@not-yet]."
+        });
+        let preview = send("POST", "/admin/api/preview", draft.clone());
+        assert_eq!(
+            preview.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&preview.body)
+        );
+        let saved = send("POST", "/admin/api/document", draft);
+        assert_eq!(
+            saved.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+
+        // The broken post's own preview names its problem and nothing else.
+        let own = send(
+            "POST",
+            "/admin/api/preview",
+            json!({
+                "kind": "posts",
+                "path": "posts/broken.md",
+                "fields": { "title": "Broken", "date": "2026-10-01", "citations": "notes" },
+                "body": "A claim [@nobody]."
+            }),
+        );
+        assert_eq!(own.status, 422);
+        let message = String::from_utf8_lossy(&own.body);
+        assert!(
+            message.contains("posts/broken.md: line 7: this post cites sources")
+                && !message.contains("not-yet"),
+            "{message}"
+        );
     }
 
     #[test]

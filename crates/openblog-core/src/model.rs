@@ -199,6 +199,10 @@ pub struct Post {
     /// in and cites; every public representation reads it instead of the
     /// authored body (ADR 0054).
     pub(crate) published_markdown: Option<String>,
+    /// Why an opted-in post's citations could not be published, for the site
+    /// load to decide: it refuses a post this load publishes and warns about a
+    /// draft or a held-back post, whose citations stay text (ADR 0055).
+    pub(crate) citation_error: Option<String>,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -441,13 +445,36 @@ impl Site {
                     }
                     let is_preview_target =
                         options.preview_source.as_deref() == Some(post.source.as_str());
-                    if post.draft && !options.include_drafts && !is_preview_target {
+                    let held_back = !options.include_drafts && !is_preview_target;
+                    let scheduled_out = held_back && options.now.is_some_and(|now| post.date > now);
+                    if let Some(error) = post.citation_error.take() {
+                        // Only a post this load publishes is refused (ADR 0055).
+                        // A draft, a post waiting for its date and, in a preview,
+                        // every other document keep their citations as text.
+                        let reason = if post.draft {
+                            Some("while the post is a draft")
+                        } else if scheduled_out {
+                            Some("until the post is due, and must resolve before then")
+                        } else if options.preview_source.is_some() && !is_preview_target {
+                            Some("in this preview")
+                        } else {
+                            None
+                        };
+                        match reason {
+                            Some(reason) => warnings.push(format!(
+                                "{}: citations are not published {reason}: {error}",
+                                file.path
+                            )),
+                            None => {
+                                errors.push(format!("{}: {error}", file.path));
+                                continue;
+                            }
+                        }
+                    }
+                    if post.draft && held_back {
                         continue;
                     }
-                    if !options.include_drafts
-                        && !is_preview_target
-                        && options.now.is_some_and(|now| post.date > now)
-                    {
+                    if scheduled_out {
                         scheduled.push(Scheduled {
                             title: post.title.clone(),
                             slug: post.slug.clone(),
@@ -812,7 +839,8 @@ pub fn load_post(
 }
 
 /// Parse one post file and publish its citations against `library` exactly
-/// as a site load does.
+/// as a site load publishes a post it includes: any citation problem refuses
+/// the post.
 pub fn load_post_cited(
     file: &SourceFile,
     config: &SiteConfig,
@@ -820,7 +848,11 @@ pub fn load_post_cited(
     library: Option<&SourceLibrary>,
 ) -> Result<Post, String> {
     let library = || Ok(library);
-    load_post_in(file, config, options, Citations::Publish(&library))
+    let mut post = load_post_in(file, config, options, Citations::Publish(&library))?;
+    match post.citation_error.take() {
+        Some(error) => Err(error),
+        None => Ok(post),
+    }
 }
 
 fn load_post_in(
@@ -836,14 +868,23 @@ fn load_post_in(
     // Citations are opt-in (ADR 0049): a post without `citations` is read
     // exactly as before, and so is one that opts in but cites nothing.
     let citation_style = CitationStyle::from_front_matter(first(fm, &["citations"]))?;
+    let mut citation_error = None;
     let published = match (citation_style, citations) {
         (Some(style), Citations::Publish(library)) => {
             let locale = CitationLocale::for_post(
                 first(fm, &["citationLocale", "citation_locale"]),
                 &config.language,
             )?;
-            bibliography::publish_citations(&doc.body, doc.body_line, style, locale, library)?
-                .map(|published| (published, locale))
+            // A failure keeps the citations as text and is left to the site
+            // load, which knows whether this post is published now.
+            match bibliography::publish_citations(&doc.body, doc.body_line, style, locale, library)
+            {
+                Ok(published) => published.map(|published| (published, locale)),
+                Err(error) => {
+                    citation_error = Some(error);
+                    None
+                }
+            }
         }
         _ => None,
     };
@@ -1023,6 +1064,7 @@ fn load_post_in(
         aliases: aliases(fm)?,
         authored_markdown: doc.body,
         published_markdown: published.map(|(published, _)| published.markdown),
+        citation_error,
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
