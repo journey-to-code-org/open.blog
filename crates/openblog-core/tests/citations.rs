@@ -553,3 +553,21 @@ fn hostile_citation_parts_are_refused() {
         assert!(citation_from_parts(&parts).is_err(), "{parts}");
     }
 }
+
+#[test]
+fn the_visual_editors_writing_conventions_scan_as_the_editor_means() {
+    // The visual editor escapes a `(` after a chip so the citation stays one.
+    let scan = scan_citations(r"Claim [@plato-republic]\(see page 2) here.");
+    assert!(scan.diagnostics.is_empty(), "{:?}", scan.diagnostics);
+    assert_eq!(scan.mentions.len(), 1);
+    assert_eq!(scan.mentions[0].citation.key, "plato-republic");
+    // The lines it protects really are read differently from a naive pattern.
+    let scan = scan_citations(r"A \\[@plato-republic] b.");
+    assert_eq!(scan.mentions.len(), 1, "an escaped backslash leaves a citation");
+    let scan = scan_citations("A [@plato-republic](see also) b.");
+    assert_eq!(scan.mentions.len(), 1, "an invalid link destination leaves a citation");
+    let scan = scan_citations("foo_bar [@plato-republic, section 1_2] baz_");
+    assert_eq!(scan.mentions.len(), 1, "intraword underscores are not emphasis");
+    let scan = scan_citations("A [link with [@plato-republic] inside](https://example.com).");
+    assert!(scan.mentions.is_empty(), "link text is not a citation");
+}

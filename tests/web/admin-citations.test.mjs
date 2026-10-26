@@ -10,12 +10,14 @@ import {
   citationFailure,
   citationLocatorsFromPassage,
   citationSourceChoices,
+  citationInsertionProblem,
   citationSpans,
   createCitationForm,
   formatCitationText,
   insertCitationText,
   parseCitationText,
   validateCitationDraft,
+  visualCitationProblem,
 } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
@@ -89,11 +91,11 @@ class DomNode {
     this.childNodes = [];
     this.append(...nodes);
   }
-  replaceWith(node) {
+  replaceWith(...nodes) {
     const parent = this.parentNode;
     const index = parent.childNodes.indexOf(this);
-    parent.adopt(node);
-    parent.childNodes.splice(index, 1, node);
+    for (const node of nodes) parent.adopt(node);
+    parent.childNodes.splice(index, 1, ...nodes);
     this.parentNode = null;
   }
   remove() {
@@ -587,4 +589,228 @@ test("citation code builds DOM safely and its styles keep focus visible without 
   const css = styles.slice(styles.indexOf("/* Citations in the visual editor"));
   assert.match(css, /:focus-visible/);
   assert.doesNotMatch(css, /transition|animation/);
+});
+
+// ---------------------------------------------------------------- review fixes
+
+test("lines the visual editor cannot chip the way the core scanner reads them are preserved verbatim", withDom(() => {
+  const risky = [
+    "A \\\\[@a] b.",
+    "A [@a](see also) b.",
+    "foo_bar [@a, section 1_2] baz_",
+    "Malformed [@a, page 5",
+    "A [link with [@a] inside](https://example.com) here.",
+    "[[@a]](https://example.com)",
+  ];
+  for (const line of risky) assert.equal(visualCitationProblem(line), true, line);
+  for (const line of ["Claim [@a] and _quiet [@b, section 1_2]_ text.", "Escaped \\[@a] stays text.", "**see [@a]**", "Code `[@a](x)` only.", "No citation_here_ at all."]) {
+    assert.equal(visualCitationProblem(line), false, line);
+  }
+  const markdown = [
+    "Intro paragraph [@kept].",
+    "",
+    ...risky.flatMap((line) => [line, ""]),
+    "Two lines, the second",
+    "holds [@a](see also) text.",
+    "",
+    "- item one",
+    "- item [@a](see also)",
+    "",
+    "> quote",
+    "> foo_bar [@a] baz_",
+    "",
+  ].join("\n");
+  const editor = visualEditor(markdown);
+  const protectedBlocks = editor.ui.richBody.querySelectorAll(".oba-protected-block");
+  assert.equal(protectedBlocks.length, risky.length + 3);
+  for (const block of protectedBlocks) assert.equal(block.getAttribute("aria-label"), "Citation text block");
+  assert.deepEqual(editor.ui.richBody.querySelectorAll(".oba-citation").map((chip) => chip.dataset.citation), ["[@kept]"]);
+  // A visual edit rewrites the draft from the DOM: every risky line comes back byte for byte.
+  assert.equal(editor.richEditorMarkdown(), markdown.replace(/\n\n$/, "\n"));
+}));
+
+test("a chip never reads as a link: a following ( is escaped and read back", withDom(() => {
+  const editor = visualEditor("Claim.\n");
+  const paragraph = editor.ui.richBody.children[0];
+  paragraph.append(" ", citationChip("[@a]"), "(see page 2)");
+  const written = editor.richEditorMarkdown();
+  assert.equal(written, "Claim. [@a]\\(see page 2)\n");
+  const again = visualEditor(written);
+  assert.equal(again.ui.richBody.querySelectorAll(".oba-citation").length, 1);
+  assert.equal(again.ui.richBody.children[0].textContent, "Claim. [@a](see page 2)");
+  assert.equal(again.richEditorMarkdown(), written);
+  const inserted = insertCitationText("See [link](x).", 4, 4, "[@a]");
+  assert.equal(inserted.value, "See [@a] [link](x).", "a space keeps a following link from joining the citation");
+  assert.equal(inserted.start, "See [@a]".length);
+}));
+
+test("Markdown insertion is refused inside code and link text", () => {
+  const markdown = "See [the [@kept] link](https://example.com) and `code` here.\n\n```\nfenced\n```\n";
+  assert.equal(citationInsertionProblem(markdown, markdown.indexOf("the")), "link");
+  assert.equal(citationInsertionProblem(markdown, markdown.indexOf("example")), "link");
+  assert.equal(citationInsertionProblem(markdown, markdown.indexOf("ode")), "code");
+  assert.equal(citationInsertionProblem(markdown, markdown.indexOf("fenced")), "code");
+  assert.equal(citationInsertionProblem(markdown, markdown.indexOf(" and")), "");
+  assert.equal(citationInsertionProblem(markdown, 0), "");
+  assert.equal(citationInsertionProblem(markdown, markdown.indexOf(" here")), "");
+});
+
+function dialogEditor(dom, draft, caret) {
+  const editor = Object.create(Editor.prototype);
+  editor.editorMode = "markdown";
+  editor.ui = { body: textarea(draft, caret), citationStatus: { textContent: "" } };
+  editor.captureVisualSelection = () => {};
+  editor.app = {
+    api: fakeApi((method, path) => {
+      if (path === "citations/library") return { revision: "rev-1", sources: SOURCES(), passages: [], notebookAvailable: true };
+      return { revision: "rev-1", markdown: "[@plato-republic]" };
+    }),
+  };
+  return editor;
+}
+
+test("a refused target keeps the dialog open with the author's choices and fails inside it", withDom(async (dom) => {
+  const draft = "See [link text](https://example.com) here.";
+  const editor = dialogEditor(dom, draft, draft.indexOf("text"));
+  await editor.openCitationDialog();
+  const dialog = dom.document.body.querySelector(".oba-citation-dialog");
+  assert.match(dialog.querySelector("[data-citation-target]").textContent, /inside a link/);
+  const sources = dialog.querySelector("#oba-citation-source");
+  await choose(sources, "plato-republic");
+  await dialog.querySelector("form").dispatch("submit");
+  assert.equal(dialog.isConnected, true, "the dialog stays open");
+  assert.equal(dialog.open, true);
+  const error = byId(dialog, "oba-citation-error");
+  assert.equal(error.hidden, false);
+  assert.match(error.textContent, /inside a link/);
+  assert.equal(dom.document.activeElement, error, "focus stays in the dialog, on the explanation");
+  assert.equal(sources.value, "plato-republic", "the choice is kept");
+  assert.deepEqual(editor.app.api.calls.map((call) => call.path), ["citations/library"], "nothing is sent to check");
+  assert.equal(editor.ui.body.value, draft);
+  await dialog.querySelector("[data-citation-cancel]").dispatch("click");
+  assert.equal(dialog.isConnected, false);
+  assert.equal(editor.ui.body.focused, true, "Cancel returns focus to the writing surface");
+}));
+
+test("a server reply that is not a citation fails inside the open dialog", withDom(async (dom) => {
+  const editor = dialogEditor(dom, "Claim.", 5);
+  editor.app.api = fakeApi((method, path) => (path === "citations/library" ? { revision: "rev-1", sources: SOURCES(), passages: [] } : { markdown: "[@x](javascript:alert(1))" }));
+  await editor.openCitationDialog();
+  const dialog = dom.document.body.querySelector(".oba-citation-dialog");
+  assert.equal(dialog.querySelector("[data-citation-target]"), null);
+  await choose(dialog.querySelector("#oba-citation-source"), "plato-republic");
+  await dialog.querySelector("form").dispatch("submit");
+  assert.equal(dialog.isConnected, true);
+  assert.match(byId(dialog, "oba-citation-error").textContent, /no citation/);
+  assert.equal(editor.ui.body.value, "Claim.");
+}));
+
+test("Visual insertion inside a link or code is refused before anything changes", withDom(() => {
+  const editor = visualEditor("See [link](https://example.com) and `code`.\n");
+  const paragraph = editor.ui.richBody.children[0];
+  const link = paragraph.querySelector("a");
+  const code = paragraph.querySelector("code");
+  const rangeIn = (node) => ({ endContainer: node.childNodes[0], startContainer: node.childNodes[0], cloneRange() { return this; } });
+  assert.match(editor.citationTargetProblem({ mode: "visual", range: rangeIn(link) }), /inside a link/);
+  assert.match(editor.citationTargetProblem({ mode: "visual", range: rangeIn(code) }), /inside code/);
+  assert.match(editor.citationTargetProblem({ mode: "visual", range: null }), /Place the caret/);
+  assert.equal(editor.citationTargetProblem({ mode: "visual", range: rangeIn(paragraph) }), "");
+  editor.ui.citationStatus = { textContent: "" };
+  const before = editor.richEditorMarkdown();
+  assert.equal(editor.applyCitation({ mode: "visual", range: rangeIn(link), chip: null }, "[@a]"), false);
+  assert.equal(editor.richEditorMarkdown(), before);
+}));
+
+function installSelection(dom, node, offset) {
+  const selection = {
+    rangeCount: 1,
+    isCollapsed: true,
+    anchorNode: node,
+    anchorOffset: offset,
+    getRangeAt() {
+      return { endContainer: this.anchorNode };
+    },
+    removeAllRanges() {},
+    addRange(range) {
+      this.anchorNode = range.after.parentNode;
+      this.anchorOffset = range.after.parentNode.childNodes.indexOf(range.after) + 1;
+    },
+  };
+  dom.document.createRange = () => ({
+    setStartAfter(after) { this.after = after; },
+    collapse() {},
+    cloneRange() { return this; },
+  });
+  globalThis.getSelection = () => selection;
+  return selection;
+}
+
+test("a citation typed in Visual mode becomes a chip, but older escaped text stays text", withDom((dom) => {
+  const editor = visualEditor("Email \\[@handle] here.\n");
+  const paragraph = editor.ui.richBody.children[0];
+  const text = paragraph.childNodes[0];
+  assert.equal(text.nodeValue, "Email [@handle] here.");
+  // The author types at the end of the paragraph: `. See [@plato-republic]`.
+  text.nodeValue += " See [@plato-republic]";
+  const selection = installSelection(dom, text, text.nodeValue.length);
+  try {
+    const chip = editor.chipCitationBeforeCaret();
+    assert.equal(chip?.dataset.citation, "[@plato-republic]");
+    assert.equal(selection.anchorNode, paragraph, "the caret lands after the chip");
+    assert.equal(editor.richEditorMarkdown(), "Email \\[@handle\\] here. See [@plato-republic]\n");
+    // A caret not straight after `]` changes nothing.
+    const plain = paragraph.childNodes[0];
+    installSelection(dom, plain, 3);
+    assert.equal(editor.chipCitationBeforeCaret(), null);
+    // Inside a link it stays text.
+    const linked = visualEditor("[go [@x]](https://example.com) now\n");
+    assert.equal(linked.ui.richBody.querySelector(".oba-protected-block") !== null, true);
+    const inLink = visualEditor("[go here](https://example.com) now\n");
+    const anchorText = inLink.ui.richBody.querySelector("a").childNodes[0];
+    anchorText.nodeValue = "go [@x]";
+    installSelection(dom, anchorText, anchorText.nodeValue.length);
+    assert.equal(inLink.chipCitationBeforeCaret(), null);
+  } finally {
+    delete globalThis.getSelection;
+  }
+}));
+
+test("pasted text makes chips of its well-formed citations only", withDom((dom) => {
+  const editor = visualEditor("Start\n");
+  const paragraph = editor.ui.richBody.children[0];
+  const text = paragraph.childNodes[0];
+  const selection = installSelection(dom, text, text.nodeValue.length);
+  const inserted = [];
+  dom.document.execCommand = (command, _ui, value) => {
+    inserted.push(value);
+    const node = selection.anchorNode.nodeType === 3 ? selection.anchorNode : null;
+    if (node) {
+      node.nodeValue = node.nodeValue.slice(0, selection.anchorOffset) + value + node.nodeValue.slice(selection.anchorOffset);
+      selection.anchorOffset += value.length;
+    } else {
+      const fresh = dom.document.createTextNode(value);
+      selection.anchorNode.childNodes.splice(selection.anchorOffset, 0, fresh);
+      fresh.parentNode = selection.anchorNode;
+      selection.anchorNode = fresh;
+      selection.anchorOffset = value.length;
+    }
+    return true;
+  };
+  editor.ui.body.dispatchEvent = () => true;
+  try {
+    editor.pasteVisualText(" one [@a, page 2] two \\[@b] three [@c](x) four [@d]");
+    assert.deepEqual(editor.ui.richBody.querySelectorAll(".oba-citation").map((chip) => chip.dataset.citation), ["[@a, page 2]", "[@d]"]);
+    assert.equal(inserted.join(""), " one [@a, page 2] two \\[@b] three [@c](x) four [@d]");
+    assert.equal(editor.richEditorMarkdown(), "Start one [@a, page 2] two \\\\\\[@b\\] three \\[@c\\](x) four [@d]\n");
+  } finally {
+    delete globalThis.getSelection;
+  }
+}));
+
+test("the citation status stays rendered so screen readers announce it", () => {
+  const css = styles.slice(styles.indexOf("/* Citations in the visual editor"));
+  const rule = css.slice(css.indexOf(".oba-citation-bar"), css.indexOf("}", css.indexOf(".oba-citation-bar")));
+  assert.doesNotMatch(rule, /display:\s*none/);
+  assert.match(rule, /clip: rect\(0 0 0 0\)/);
+  assert.match(admin, /ui\.citationStatus = h\("span", \{ class: "oba-small", role: "status", "aria-live": "polite" \}\)/);
 });

@@ -63,5 +63,10 @@ write nothing.
 | `POST /admin/api/citations/check` | JSON body (at most 16 KiB, with the CSRF token) `{ revision, citation: { key, locators: [{ kind, value, to }] } }`. Only those locator fields are read. Returns `markdown`, `key`, `locators`, `reference`, `formatted` and `revision`. A different library `revision` is `409` with the latest `revision` and `sources`; a citation that fails to format, scan back or resolve is `422` with `diagnostics`; a missing revision is `400`. |
 
 In Visual mode every citation is an atomic chip that serializes back to its exact Markdown, so
-hand-written and generated citations round-trip byte for byte. Undo (Ctrl+Z or **Undo
+hand-written and generated citations round-trip byte for byte. A citation typed or pasted in
+Visual mode becomes a chip. A block whose `[@` text the visual editor cannot read exactly as the
+scanner does (an escaped backslash before it, a link or `(` after it, a malformed bracket, link
+text, or overlapping emphasis) is a protected **Citation text** block, kept verbatim. Neither
+mode inserts a citation inside code, a link or a protected block; the dialog explains why and
+stays open. Undo (Ctrl+Z or **Undo
 citation**) restores the exact prior draft and caret while nothing else has changed.

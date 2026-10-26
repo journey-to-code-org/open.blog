@@ -290,7 +290,8 @@ _Avoid_: Cite key table, alias, BibTeX key
 **Citation chip**:
 How the visual editor shows a citation: one atomic, keyboard-reachable unit that keeps the
 citation's exact Markdown and reopens it in the citation picker. It is an editing aid only; the
-Markdown file stays canonical.
+Markdown file stays canonical. Citation text the editor cannot show as chips exactly as the
+scanner reads it stays a protected **Citation text** block instead.
 _Avoid_: Footnote marker, link, tag
 
 **Formatted reference**:
