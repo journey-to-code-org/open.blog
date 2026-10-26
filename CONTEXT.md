@@ -1243,3 +1243,20 @@ while the author opened another panel; reopening it restores it exactly (ADR 013
 are discarded, after asking, when the author leaves the workspace or signs out, and survive an
 expired session only for the same user's next sign-in in that page.
 _Avoid_: Autosave, draft recovery; nothing is written anywhere
+
+**Draft-side research panel**:
+The narrow, non-modal panel beside a post's writing surface that searches the author's research
+and inserts from it: a quotation with its checked citation, a citation, a context link or a
+converted note (ADR 0134). It writes nothing but the unsaved draft.
+_Avoid_: Research sidebar, inspector
+
+**Context link**:
+A link inserted into a draft to a published atlas entry, its published dating, or a published
+comparison. It exists only for a page the next build publishes; anything private or unpublished
+has no address to link (ADR 0134).
+_Avoid_: Reference, related link; a citation names a source, a context link names a page
+
+**Note conversion**:
+The author's explicit step that puts a private research note into a draft as their own words,
+after confirming it becomes part of the post. It is the only way a note reaches a draft (ADR 0134).
+_Avoid_: Publishing a note, copying a note
