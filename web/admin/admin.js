@@ -2129,7 +2129,10 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
       if (selected) open(selected.type, selected.id, false);
       else renderResults();
     } catch (error) {
-      if (error?.status === 401) throw error;
+      if (error?.status === 401) {
+        onSessionEnded?.();
+        return;
+      }
       data = null;
       results.replaceChildren();
       detail.hidden = true;
@@ -17264,9 +17267,7 @@ export class Editor {
     if (ui.writeLayout) ui.writeLayout.dataset.research = open ? "open" : "closed";
     ui.draftResearchToggle?.setAttribute("aria-expanded", String(open));
     if (open) {
-      this.draftResearch.load().catch((error) => {
-        if (error?.status === 401) this.app.showSessionEnded?.("Your session ended. Sign in again to return to your unsaved draft.");
-      });
+      void this.draftResearch.load();
       this.draftResearch.focus();
     } else ui.draftResearchToggle?.focus();
   }
