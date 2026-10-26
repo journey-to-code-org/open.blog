@@ -290,7 +290,7 @@ pub fn save(
         file.write_all(&bytes)?;
         file.sync_all()?;
         drop(file);
-        fs::rename(&temporary, &path)?;
+        crate::fsutil::replace_file(&temporary, &path)?;
         Ok(())
     })();
     if let Err(error) = write_result {

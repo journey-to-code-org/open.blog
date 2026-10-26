@@ -465,6 +465,21 @@ Everything is reachable by keyboard: **Escape** cancels a confirmation, and resu
 to screen readers. The design is recorded in
 [ADR 0015](adr/0015-member-management-separates-access-from-credit.md).
 
+### Putting a shared reflection in a series
+
+Each shared reflection has a **Series** section. Everyone taking part sees which series it will
+join, its position, and the reading order it would have among the parts already published.
+Site owners and coordinators choose an existing series or type a new title, set a position (or
+leave it empty to follow the numbered parts, by date), use **Preview order**, and **Save
+placement**. Choose **Not in a series** and save to remove it. The series and position are shown in
+the combined preview and are part of what every author approves, so saving a change means each
+author approves again. If someone else changed the placement first, your choice stays in the form
+next to the current one and you can save again. Site owners can also **Add a new series** with a
+name and a one-line recurring premise; it is an ordinary series file, not shown to readers until a
+part is published, and other details stay in the Series editor. Once the reflection is published,
+its series is changed in the post like any other. The design is recorded in
+[ADR 0039](adr/0039-arranging-a-shared-reflections-series-in-admin.md).
+
 ## Scheduling
 
 A post's status is one of:

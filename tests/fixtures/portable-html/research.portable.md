@@ -24,7 +24,7 @@ We compared both sources against the [map section](https://example.test/blog/res
 ## Contributions
 
 - [Mira Øster](https://example.test/blog/people/mira/) — Author, Investigation; ORCID https://orcid.org/0000-0002-1825-0097 (unauthenticated)
-- [Lantern <Team\> & "Friends"](https://lantern.example/) — Author
+- [Lantern \<Team\> \& "Friends"](https://lantern.example/) — Author
 - José Ramírez — Translator
 
 ## Work details

@@ -190,24 +190,48 @@ pub fn replace(
     }
     let directory = directory(root).map_err(ReplaceError::Storage)?;
     let target = directory.join(format!("{}.json", previous.publication_id));
-    let current = fs::symlink_metadata(&target)
-        .ok()
-        .filter(|metadata| {
-            metadata.is_file() && metadata.len() <= MAX_SHARED_PUBLICATION_BYTES as u64
-        })
-        .and_then(|_| fs::read_to_string(&target).ok())
-        .and_then(|text| SharedPublication::from_json(&text).ok());
-    if current.as_ref() != Some(previous) {
+    let unchanged = || {
+        let current = crate::fsutil::retry_transient(|| fs::symlink_metadata(&target))
+            .ok()
+            .filter(|metadata| {
+                metadata.is_file() && metadata.len() <= MAX_SHARED_PUBLICATION_BYTES as u64
+            })
+            .and_then(|_| crate::fsutil::read_to_string(&target).ok())
+            .and_then(|text| SharedPublication::from_json(&text).ok());
+        current.as_ref() == Some(previous)
+    };
+    if !unchanged() {
         return Err(ReplaceError::Conflict);
     }
     let text = record_text(next).map_err(ReplaceError::Storage)?;
     let temporary =
         temporary_path(&directory, &next.publication_id).map_err(ReplaceError::Storage)?;
     write_private_file(&temporary, text.as_bytes()).map_err(ReplaceError::Storage)?;
-    fs::rename(&temporary, &target).map_err(|error| {
-        let _ = fs::remove_file(&temporary);
-        ReplaceError::Storage(format!("cannot update the shared publication: {error}"))
-    })
+    commit_if_unchanged(&temporary, &target, unchanged, "the shared publication")
+}
+
+/// Rename a complete `temporary` over `target` while `unchanged` still holds, so neither a
+/// conflict nor waiting out a transient Windows hold can overwrite a newer file. On any refusal
+/// the temporary file is removed and `target` is untouched.
+fn commit_if_unchanged(
+    temporary: &Path,
+    target: &Path,
+    unchanged: impl FnMut() -> bool,
+    what: &str,
+) -> Result<(), ReplaceError> {
+    match crate::fsutil::replace_file_if_unchanged(temporary, target, unchanged) {
+        Ok(true) => Ok(()),
+        Ok(false) => {
+            let _ = fs::remove_file(temporary);
+            Err(ReplaceError::Conflict)
+        }
+        Err(error) => {
+            let _ = fs::remove_file(temporary);
+            Err(ReplaceError::Storage(format!(
+                "cannot update {what}: {error}"
+            )))
+        }
+    }
 }
 
 /// The record with this ID, if it is readable.
@@ -230,7 +254,7 @@ pub fn revoke_admin_user(root: &Path, admin_user: &str) -> Result<usize, String>
         let directory = path.parent().ok_or("invalid shared publication path")?;
         let temporary = temporary_path(directory, &revoked.publication_id)?;
         write_private_file(&temporary, text.as_bytes())?;
-        fs::rename(&temporary, &path).map_err(|error| {
+        crate::fsutil::replace_file(&temporary, &path).map_err(|error| {
             let _ = fs::remove_file(&temporary);
             format!("cannot update a shared publication: {error}")
         })?;
@@ -252,7 +276,7 @@ fn drafts_directory(root: &Path) -> Result<PathBuf, String> {
 }
 
 fn read_drafts_file(target: &Path) -> Result<Option<String>, String> {
-    let metadata = match fs::symlink_metadata(target) {
+    let metadata = match crate::fsutil::retry_transient(|| fs::symlink_metadata(target)) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("cannot read the draft file".into()),
@@ -262,7 +286,7 @@ fn read_drafts_file(target: &Path) -> Result<Option<String>, String> {
     if !metadata.is_file() || metadata.len() > MAX_DRAFT_SET_BYTES as u64 {
         return Err("the draft file is not usable".into());
     }
-    fs::read_to_string(target)
+    crate::fsutil::read_to_string(target)
         .map(Some)
         .map_err(|_| "cannot read the draft file".to_string())
 }
@@ -332,12 +356,12 @@ fn replace_text(
     max_bytes: usize,
 ) -> Result<(), ReplaceError> {
     let target = directory.join(format!("{publication_id}.json"));
-    let current = read_drafts_file(&target).map_err(|_| ReplaceError::Conflict)?;
-    if &current != previous {
+    let unchanged = || read_drafts_file(&target).is_ok_and(|current| &current == previous);
+    if !unchanged() {
         return Err(ReplaceError::Conflict);
     }
     let Some(text) = next else {
-        return match fs::remove_file(&target) {
+        return match crate::fsutil::retry_transient(|| fs::remove_file(&target)) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(ReplaceError::Storage(format!(
@@ -351,10 +375,7 @@ fn replace_text(
     create_private_directory(directory).map_err(ReplaceError::Storage)?;
     let temporary = temporary_path(directory, publication_id).map_err(ReplaceError::Storage)?;
     write_private_file(&temporary, text.as_bytes()).map_err(ReplaceError::Storage)?;
-    fs::rename(&temporary, &target).map_err(|error| {
-        let _ = fs::remove_file(&temporary);
-        ReplaceError::Storage(format!("cannot update the file: {error}"))
-    })
+    commit_if_unchanged(&temporary, &target, unchanged, "the file")
 }
 
 /// An approval set as read from disk, with the exact text it came from, so a write built on a

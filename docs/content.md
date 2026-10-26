@@ -539,6 +539,14 @@ Posts join with `series: getting-started`. Each post then shows "Part 2 of 3" wi
 previous and next links and a list of all parts. If you reference a series that has no
 file, one is created from the slug and the build prints a warning.
 
+A series that holds a collaborative work, a published post whose credits name two or more
+authors (such as a shared reflection), also says who wrote what: its page lists the series'
+contributors, and every part, ordinary posts included, shows "By ..." on the series page, in the
+previous and next links and in the list of all parts. Names come from each post's credits and are
+shown as plain text. Every other series looks exactly as before. Feeds, exports and syndicated
+copies of such a series' parts say the same: the series and a link to it, the part's place in it,
+and who wrote it.
+
 ## Pages
 
 Pages live in `content/pages/` and have no date, tags, or series:

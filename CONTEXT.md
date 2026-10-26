@@ -259,6 +259,42 @@ same placeholder for any turn the requester cannot read (ADR 0021); the unscoped
 publish gate only. The portable equivalent can share it once #173 wires it.
 _Avoid_: Visual order
 
+**Series placement**:
+The optional series reference and position a shared publication carries, written as an ordinary
+Post's `series` and `seriesOrder`. It does not create a separate series entity: the site's
+existing series supplies name, description, theme, ordering and navigation. It is public, so it is
+part of what every author approves (ADR 0038). Site owners and coordinators set it (`PlaceInSeries`) against
+its revision, every participant sees it with the reading order it would join, and only site owners
+add a new series definition (`CreateSeries`); the list and order come from published posts only
+(ADR 0039).
+_Avoid_: Series template
+
+**Series definition**:
+The site-owned `content/series/<slug>.md` that names a series and describes its recurring premise.
+A shared publication never writes one; a site owner may add a new one from its Series panel, and
+it is not public until a part is published (ADR 0039).
+_Avoid_: Series template
+
+**Collaborative work**:
+A published Post whose approved work credits (an explicit credit sidecar) name two or more
+authors. A legacy post's default site-author credit, a single author or a secondary role never
+make one. It is derived from the credits alone, never from collaboration state (ADR 0040).
+_Avoid_: Shared post, joint post
+
+**Collaborative series**:
+An ordinary series with at least one collaborative work among its published parts. Only such a
+series names its contributors on its page and each part's authors in its navigation; every other
+series renders exactly as before, and drafts or scheduled posts never make one (ADR 0040).
+_Avoid_: Collaborative-series entity, series template
+
+**Series context**:
+What a feed item or portable copy of a published part of a collaborative series states about it:
+the series name and canonical link, its place in the published reading order ("Part 2 in the
+series", without the number of parts, so a growing series leaves earlier copies unchanged), the
+part's authors and the series' contributors. Derived from the public series and approved credits
+only; any other post has none and its feeds and copies are unchanged (ADR 0041).
+_Avoid_: Series metadata, series membership
+
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in
 one approved collaboration revision, that a publication operation incorporates into canonical

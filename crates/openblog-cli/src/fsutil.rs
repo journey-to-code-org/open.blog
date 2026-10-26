@@ -2,9 +2,9 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 /// All files under `dir`, recursively, sorted for deterministic builds.
 /// A missing directory yields an empty list.
@@ -53,6 +53,68 @@ pub fn write_file(path: &Path, contents: &[u8]) -> Result<(), String> {
     fs::write(path, contents).map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
+/// How long a file operation keeps waiting out another process that briefly holds the file.
+pub const TRANSIENT_HOLD_LIMIT: Duration = Duration::from_secs(5);
+
+/// Whether `error` is Windows refusing a file that another process briefly holds open, or that
+/// is still being deleted: "access denied" (5), a sharing violation (32) or a lock violation
+/// (33). Antivirus and indexing scanners and backup or sync clients open freshly written files
+/// for a moment, so these clear on their own. Never true elsewhere, where they are real errors.
+pub fn is_transient_hold(error: &io::Error) -> bool {
+    cfg!(windows) && matches!(error.raw_os_error(), Some(5 | 32 | 33))
+}
+
+/// Run `operation` again, with backoff, while it fails with a transient hold, for at most
+/// [`TRANSIENT_HOLD_LIMIT`]. Any other result, or the last error after the limit, is returned.
+pub fn retry_transient<T>(mut operation: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    let started = Instant::now();
+    let mut pause = Duration::from_millis(1);
+    loop {
+        match operation() {
+            Err(error) if is_transient_hold(&error) && started.elapsed() < TRANSIENT_HOLD_LIMIT => {
+                std::thread::sleep(pause);
+                pause = (pause * 2).min(Duration::from_millis(50));
+            }
+            result => return result,
+        }
+    }
+}
+
+/// Read a whole file that writers replace atomically. On Windows, opening it while a
+/// replacement lands, or while another process briefly holds it, can fail with "access denied"
+/// for a moment; that is waited out instead of being reported as unreadable.
+pub fn read_to_string(path: &Path) -> io::Result<String> {
+    retry_transient(|| fs::read_to_string(path))
+}
+
+/// Atomically replace `target` with the complete file at `temporary` beside it. On Windows a
+/// rename fails with "access denied" while another process briefly holds either file, so that
+/// is waited out instead of failing the write.
+pub fn replace_file(temporary: &Path, target: &Path) -> io::Result<()> {
+    retry_transient(|| fs::rename(temporary, target))
+}
+
+/// [`replace_file`] for a compare-and-swap writer. Before every retry `unchanged` must confirm
+/// that `target` still holds what the caller compared, so waiting out a hold never replaces a
+/// file somebody changed meanwhile. Returns `Ok(false)`, leaving `target` alone, once it does
+/// not.
+pub fn replace_file_if_unchanged(
+    temporary: &Path,
+    target: &Path,
+    mut unchanged: impl FnMut() -> bool,
+) -> io::Result<bool> {
+    let mut first = true;
+    let mut changed = false;
+    retry_transient(|| {
+        if !std::mem::take(&mut first) && !unchanged() {
+            changed = true;
+            return Ok(());
+        }
+        fs::rename(temporary, target)
+    })?;
+    Ok(!changed)
+}
+
 /// Publish a complete new file without replacing an existing destination.
 pub fn write_new_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
     let parent = path
@@ -80,14 +142,14 @@ pub fn write_new_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
         drop(file);
         // A same-directory hard link is an atomic, no-replace publication on
         // supported filesystems. Rename would overwrite on Unix.
-        fs::hard_link(&temporary, &target).map_err(|error| {
+        retry_transient(|| fs::hard_link(&temporary, &target)).map_err(|error| {
             format!(
                 "cannot publish export {} without overwriting: {error}",
                 path.display()
             )
         })
     })();
-    let cleanup = fs::remove_file(&temporary).map_err(|error| {
+    let cleanup = retry_transient(|| fs::remove_file(&temporary)).map_err(|error| {
         format!(
             "cannot remove export staging file {}: {error}",
             temporary.display()
@@ -202,4 +264,171 @@ pub fn guard_output_dir(root: &Path, out: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "ob-fsutil-{name}-{}-{}",
+                std::process::id(),
+                crate::auth::random_token().unwrap()
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn record(writer: usize, revision: usize) -> String {
+        format!("{writer}:{revision}:{}", "x".repeat(8 * 1024))
+    }
+
+    fn stage(directory: &Path, contents: &str) -> PathBuf {
+        let temporary = directory.join(format!(
+            ".record.{}.tmp",
+            crate::auth::random_token().unwrap()
+        ));
+        fs::write(&temporary, contents).unwrap();
+        temporary
+    }
+
+    #[test]
+    fn concurrent_readers_never_fail_a_replace_or_see_a_partial_file() {
+        let scratch = Scratch::new("readers");
+        let target = scratch.0.join("record.json");
+        fs::write(&target, record(0, 0)).unwrap();
+        let writing = std::sync::atomic::AtomicBool::new(true);
+        std::thread::scope(|scope| {
+            let readers: Vec<_> = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut reads = 0;
+                        while writing.load(std::sync::atomic::Ordering::Relaxed) {
+                            let text = read_to_string(&target).unwrap();
+                            let mut parts = text.splitn(3, ':');
+                            let (writer, revision) = (parts.next(), parts.next());
+                            assert_eq!(
+                                Some(text.as_str()),
+                                writer
+                                    .zip(revision)
+                                    .and_then(|(w, r)| Some((w.parse().ok()?, r.parse().ok()?)))
+                                    .map(|(w, r)| record(w, r))
+                                    .as_deref(),
+                                "a reader saw a partial record"
+                            );
+                            reads += 1;
+                        }
+                        reads
+                    })
+                })
+                .collect();
+            let writers: Vec<_> = (1..=2)
+                .map(|writer| {
+                    let (directory, target) = (&scratch.0, &target);
+                    scope.spawn(move || {
+                        for revision in 1..=150 {
+                            let temporary = stage(directory, &record(writer, revision));
+                            replace_file(&temporary, target).unwrap();
+                        }
+                    })
+                })
+                .collect();
+            for writer in writers {
+                writer.join().unwrap();
+            }
+            writing.store(false, std::sync::atomic::Ordering::Relaxed);
+            for reader in readers {
+                assert!(reader.join().unwrap() > 0);
+            }
+        });
+        let last = fs::read_to_string(&target).unwrap();
+        assert!(last == record(1, 150) || last == record(2, 150));
+    }
+
+    /// Opens `path` the way a scanner or sync client can: without letting anyone delete or
+    /// replace it until the handle closes.
+    #[cfg(windows)]
+    fn hold(path: &Path) -> fs::File {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 1;
+        const FILE_SHARE_WRITE: u32 = 2;
+        fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(path)
+            .unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_briefly_held_target_is_waited_out_instead_of_failing_the_write() {
+        let scratch = Scratch::new("held");
+        let target = scratch.0.join("record.json");
+        fs::write(&target, "before").unwrap();
+        let temporary = stage(&scratch.0, "after");
+        let held = hold(&target);
+        // The failure this guards against: a plain rename is refused while the hold lasts.
+        let refused = fs::rename(&temporary, &target).unwrap_err();
+        assert!(is_transient_hold(&refused), "{refused:?}");
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                std::thread::sleep(Duration::from_millis(200));
+                drop(held);
+            });
+            replace_file(&temporary, &target).unwrap();
+        });
+        assert_eq!(fs::read_to_string(&target).unwrap(), "after");
+        assert!(!temporary.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn waiting_out_a_hold_never_replaces_a_file_changed_meanwhile() {
+        let scratch = Scratch::new("held-changed");
+        let target = scratch.0.join("record.json");
+        fs::write(&target, "compared").unwrap();
+        let temporary = stage(&scratch.0, "stale decision");
+        let mut held = hold(&target);
+        std::thread::scope(|scope| {
+            scope.spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                held.set_len(0).unwrap();
+                held.write_all(b"newer").unwrap();
+                std::thread::sleep(Duration::from_millis(150));
+                drop(held);
+            });
+            let replaced = replace_file_if_unchanged(&temporary, &target, || {
+                fs::read_to_string(&target).is_ok_and(|text| text == "compared")
+            })
+            .unwrap();
+            assert!(!replaced);
+        });
+        assert_eq!(fs::read_to_string(&target).unwrap(), "newer");
+        assert_eq!(fs::read_to_string(&temporary).unwrap(), "stale decision");
+    }
+
+    #[test]
+    fn a_real_failure_is_reported_without_waiting() {
+        let scratch = Scratch::new("missing");
+        let started = Instant::now();
+        let error = replace_file(
+            &scratch.0.join("absent.tmp"),
+            &scratch.0.join("record.json"),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(started.elapsed() < TRANSIENT_HOLD_LIMIT);
+    }
 }

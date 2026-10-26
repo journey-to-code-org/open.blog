@@ -13,7 +13,7 @@ A lesson about the café gate, with a [relative link](https://example.test/blog/
 > **Note:**
 > Nested inside a callout:
 >
-> **src/<main\> & 'lib'.rs**
+> **src/\<main\> \& 'lib'.rs**
 > 
 > ```rust
 > fn main() { println!("</code></pre><script>alert(1)</script>"); }
@@ -85,7 +85,7 @@ print("runs on the canonical page")
 ## Video details
 
 - Episode: Season 1, episode 3
-- Production credits: Writing by Mira & <Lantern\> Team
+- Production credits: Writing by Mira \& \<Lantern\> Team
 - Video: [Gate of Embers — a lesson](https://youtu.be/dQw4w9WgXcQ)
 
 > **Portable fallback:** The source code and canonical run/edit link are preserved; eligible Rust examples also link to the external Playground. Review: Review the preserved source and keep the canonical link for editing or execution.

@@ -310,6 +310,15 @@ impl Post {
             .filter(|credit| credit.roles.iter().any(|role| role.is_author()))
     }
 
+    /// Whether this is a collaborative work: its approved work credits (an explicit credit
+    /// sidecar, which is what the shared-publication gate writes) name two or more authors
+    /// (ADR 0040). A legacy post's default site-author credit never makes it one, and neither
+    /// does a single credited author.
+    pub fn is_collaborative(&self) -> bool {
+        self.credit_provenance == CreditProvenance::ExplicitSidecar
+            && self.authors().nth(1).is_some()
+    }
+
     /// The escaped "Originally published at" notice for a post first published
     /// elsewhere, shared by the native page and the portable projection.
     pub(crate) fn source_notice_html(&self) -> Option<String> {
@@ -341,6 +350,25 @@ pub struct Series {
     pub(crate) accessibility: Vec<AccessibilityFinding>,
     /// Semantic capabilities detected in the authored description.
     pub capabilities: Vec<CapabilityDescriptor>,
+}
+
+/// One published part's place in a collaborative series, as feeds and portable copies state it
+/// (ADR 0041). Built by `Site::series_context`; every value is already public on the series page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SeriesContext {
+    /// The series name, from its series definition or its slug.
+    pub name: String,
+    /// The series page, relative to the site root (`/series/<slug>/`).
+    pub url: String,
+    /// One-based position in the series' published reading order.
+    pub part: usize,
+    /// How many published parts the series has. Only the regenerated feeds state it (JSON Feed,
+    /// llms-full.txt); portable copies leave it out so a growing series does not change them.
+    pub parts: usize,
+    /// This part's named authors, in credit order.
+    pub part_authors: Vec<String>,
+    /// The series' named authors, once each, in order of first appearance.
+    pub contributors: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -389,6 +417,9 @@ pub struct Site {
     /// Known view totals per page path, supplied by the caller (for example from
     /// the analytics backup) so static builds can show counts.
     pub view_counts: BTreeMap<String, u64>,
+    /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
+    /// even when a preview or the admin editor loaded it, so it is never a series part.
+    now: Option<DateTime>,
 }
 
 impl Site {
@@ -661,6 +692,7 @@ impl Site {
             accessibility,
             evidence,
             view_counts: BTreeMap::new(),
+            now: options.now,
         })
     }
 
@@ -731,6 +763,97 @@ impl Site {
         (prev, next)
     }
 
+    /// Everyone credited as an author on any published part of the series, once each, in the
+    /// order they first appear reading the series from its first part (ADR 0038). Derived from
+    /// the posts' resolved work credits at read time and never stored, so a changed credit
+    /// changes the answer and a removed one cannot linger. Secondary contributors are not
+    /// included. One person is listed once even when credited under two ids: a legacy post's
+    /// default site-author credit and the owner's registry credit on a shared reflection are the
+    /// same person when their names match (and their profile URLs, when both have one). Two
+    /// distinct registry ids are always two people, whatever their names (ADR 0040).
+    pub fn series_contributors(&self, series: &Series) -> Vec<&crate::contributor::ResolvedCredit> {
+        self.contributors_among(series.posts.iter().copied())
+    }
+
+    fn contributors_among(
+        &self,
+        parts: impl Iterator<Item = usize>,
+    ) -> Vec<&crate::contributor::ResolvedCredit> {
+        let mut out: Vec<&crate::contributor::ResolvedCredit> = Vec::new();
+        for index in parts {
+            for credit in self.posts[index].authors() {
+                if !out.iter().any(|known| same_person(known, credit)) {
+                    out.push(credit);
+                }
+            }
+        }
+        out
+    }
+
+    /// The public series context feeds and portable copies carry for `post` (ADR 0041): only
+    /// when the post is a published part of a collaborative series, and `None` otherwise, so
+    /// every other post's feed items and portable copies stay exactly as they were. Drafts and
+    /// scheduled posts (dated after the time the site was loaded for) are not parts here, even
+    /// on a site that holds them because it was loaded with drafts or to preview one, so they
+    /// neither get a context nor count towards another part's position, total or contributors.
+    /// Any site loaded at the same time therefore gives a post the same context. Everything in it
+    /// is already public on the series page: the series name and URL, the part's place in the
+    /// reading order, and author names from approved work credits. It reads no collaboration
+    /// state.
+    pub fn series_context(&self, post: &Post) -> Option<SeriesContext> {
+        if !self.is_public_part(post) {
+            return None;
+        }
+        let series = self.series_by_slug(post.series.as_deref()?)?;
+        let parts: Vec<usize> = series
+            .posts
+            .iter()
+            .copied()
+            .filter(|&index| self.is_public_part(&self.posts[index]))
+            .collect();
+        let position = parts
+            .iter()
+            .position(|&index| self.posts[index].source == post.source)?;
+        if !parts
+            .iter()
+            .any(|&index| self.posts[index].is_collaborative())
+        {
+            return None;
+        }
+        let names = |credits: Vec<&crate::contributor::ResolvedCredit>| {
+            credits
+                .into_iter()
+                .map(|credit| credit.contributor.name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .collect::<Vec<_>>()
+        };
+        Some(SeriesContext {
+            name: series.name.clone(),
+            url: series.url.clone(),
+            part: position + 1,
+            parts: parts.len(),
+            part_authors: names(self.posts[parts[position]].authors().collect()),
+            contributors: names(self.contributors_among(parts.iter().copied())),
+        })
+    }
+
+    /// Whether `post` is public on this site's production pages: neither a draft nor dated after
+    /// the time the site was loaded for.
+    fn is_public_part(&self, post: &Post) -> bool {
+        !post.draft && self.now.is_none_or(|now| post.date <= now)
+    }
+
+    /// Whether the series names its parts' authors on its page and in its navigation: only when
+    /// one of its published parts is a collaborative work (ADR 0040). Drafts and scheduled posts
+    /// are not parts, so they never switch it on, and a series without a collaborative part
+    /// renders exactly as before.
+    pub fn series_is_collaborative(&self, series: &Series) -> bool {
+        series
+            .posts
+            .iter()
+            .any(|&index| self.posts[index].is_collaborative())
+    }
+
     /// When the next scheduled post becomes public, if any.
     pub fn next_scheduled(&self) -> Option<DateTime> {
         self.scheduled.first().map(|s| s.date)
@@ -768,6 +891,27 @@ impl Site {
     pub fn latest_update(&self) -> Option<DateTime> {
         self.posts.iter().map(|p| p.updated.unwrap_or(p.date)).max()
     }
+}
+
+/// Whether two author credits name the same person for a series' contributor list. The same id
+/// always does. A legacy site-author credit matches a registry credit with the same name when
+/// their profile URLs agree or either has none. Two distinct registry ids never match: the
+/// registry is where people are told apart, so two entries are two people even when they share a
+/// name, or a name and a URL.
+fn same_person(
+    a: &crate::contributor::ResolvedCredit,
+    b: &crate::contributor::ResolvedCredit,
+) -> bool {
+    use crate::contributor::SITE_AUTHOR_ID;
+    if a.contributor_id == b.contributor_id {
+        return true;
+    }
+    if a.contributor_id != SITE_AUTHOR_ID && b.contributor_id != SITE_AUTHOR_ID {
+        return false;
+    }
+    let (a_url, b_url) = (a.contributor.url.trim(), b.contributor.url.trim());
+    a.contributor.name.trim() == b.contributor.name.trim()
+        && (a_url == b_url || a_url.is_empty() || b_url.is_empty())
 }
 
 fn seo_warnings(post: &Post) -> Vec<String> {

@@ -962,7 +962,8 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
         file.write_all(bytes)
             .and_then(|_| file.sync_all())
             .map_err(|_| "cannot write workspace restore")?;
-        fs::rename(&staging, path).map_err(|_| "cannot install workspace restore".to_string())
+        crate::fsutil::replace_file(&staging, path)
+            .map_err(|_| "cannot install workspace restore".to_string())
     })();
     if result.is_err() {
         let _ = fs::remove_file(staging);

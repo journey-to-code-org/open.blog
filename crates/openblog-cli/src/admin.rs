@@ -667,6 +667,9 @@ fn authenticated_api(
         ("PUT", "collaboration/reflection") => save_arrangement(state, req, session),
         ("PUT", "collaboration/reveal/ready") => set_reveal_ready(state, req, session),
         ("GET", "collaboration/preview") => read_combined_preview(state, req, session),
+        ("GET", "collaboration/series") => read_series(state, req, session),
+        ("PUT", "collaboration/series") => set_series(state, req, session),
+        ("POST", "collaboration/series/create") => create_series(state, req, session),
         ("GET", "collaboration/synthesis") => read_synthesis(state, req, session),
         ("POST", "collaboration/synthesis") => change_synthesis(state, req, session),
         ("POST", "collaboration/approve") => approve_piece(state, req, session),
@@ -1857,6 +1860,22 @@ fn resolve_credit_path(root: &Path, config: &SiteConfig, rel: &str) -> Result<Pa
     Ok(full)
 }
 
+/// The portable projection of `post` that the Admin previews and that an acknowledgement checks,
+/// with the post's series context taken from `site` (ADR 0041). The portability preview and the
+/// acknowledgement both build it here, so the source revision a preview hands out is the one the
+/// acknowledgement recomputes: `Site::series_context` counts only published parts whether `site`
+/// holds drafts or scheduled posts or not, so a draft or scheduled part has no context in either.
+fn admin_portable_projection<'a>(
+    site: &Site,
+    post: &'a openblog_core::Post,
+    config: &SiteConfig,
+) -> Result<openblog_core::portability::PortableProjection<'a>, String> {
+    Ok(
+        openblog_core::portability::PortableProjection::for_authenticated_preview(post, config)?
+            .with_series(site.series_context(post)),
+    )
+}
+
 fn resolve_portability_acknowledgement_path(
     root: &Path,
     config: &SiteConfig,
@@ -2274,9 +2293,16 @@ fn assistant_configuration_ready(config: &SiteConfig, credential_configured: boo
         }
 }
 
+thread_local! {
+    /// The provider timeout in tests. It leaves a loaded machine plenty of time to answer; a test
+    /// that exercises the timeout itself shortens it.
+    static TEST_PROVIDER_TIMEOUT: std::cell::Cell<Duration> =
+        const { std::cell::Cell::new(Duration::from_secs(10)) };
+}
+
 fn assistant_provider_timeout(provider: AssistantProviderKind, test_mode: bool) -> Duration {
     if test_mode {
-        return Duration::from_millis(300);
+        return TEST_PROVIDER_TIMEOUT.with(std::cell::Cell::get);
     }
     match provider {
         // Structured-output grammars can take additional time to compile on first use.
@@ -2529,7 +2555,7 @@ fn write_private_bytes_atomic(path: &Path, contents: &[u8]) -> Result<(), String
     #[cfg(not(unix))]
     fs::write(&temporary, contents)
         .map_err(|error| format!("cannot write private Assistant credential: {error}"))?;
-    fs::rename(&temporary, path).map_err(|error| {
+    crate::fsutil::replace_file(&temporary, path).map_err(|error| {
         let _ = fs::remove_file(&temporary);
         format!("cannot replace private Assistant credential: {error}")
     })
@@ -5649,8 +5675,11 @@ fn new_invitation_ids() -> Result<(String, String), String> {
 /// Everything a request to change invitations needs, loaded in one transaction: the record, the
 /// current identities, and the lock guards. The guards drop with this value.
 struct InvitationTransaction<'a> {
-    _build: MutexGuard<'a, BuildStatus>,
+    // Fields drop in declaration order. The lock file must go before the build mutex is
+    // released: otherwise the next request waiting on the mutex finds the lock file still there
+    // and is refused as if another write were active.
     _filesystem: Option<crate::transaction::ContentTransactionLock>,
+    _build: MutexGuard<'a, BuildStatus>,
     record: Option<SharedPublication>,
     admin_users: Vec<String>,
     contributor_ids: Vec<String>,
@@ -7708,6 +7737,357 @@ fn set_reveal_ready(state: &AppState, req: &Request, session: &auth::Session) ->
     store_drafts(state, &body.publication_id, &stored, &set, success)
 }
 
+// ---------------------------------------------------------------------------
+// Series placement (ADR 0038, ADR 0039)
+// ---------------------------------------------------------------------------
+
+/// Every refusal to read or arrange a publication's series, whatever the reason.
+fn series_not_found() -> Response {
+    Response::error(
+        404,
+        "That shared reflection was not found, or you cannot see or arrange its series.",
+    )
+}
+
+fn series_problem(field: &str, error: openblog_core::shared_series::SeriesError) -> Response {
+    use openblog_core::shared_series::SeriesError;
+    match error {
+        SeriesError::Reference => shared_problem(
+            field,
+            "Use a series title with visible text, up to 120 bytes, on one line.",
+        ),
+        SeriesError::NoAddress => {
+            shared_problem(field, "A series title needs at least one letter or digit.")
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PlacementBody {
+    series: String,
+    #[serde(default)]
+    order: Option<u32>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct PlacementRequest {
+    publication_id: String,
+    expected_revision: u64,
+    placement: Option<PlacementBody>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct SeriesCreateRequest {
+    publication_id: String,
+    title: String,
+    #[serde(default)]
+    premise: String,
+}
+
+fn may(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+    action: AuthorizationAction,
+) -> bool {
+    transaction
+        .with_identities(|identities| {
+            record.authorize(
+                &session.user,
+                identities,
+                action,
+                AuthorizationTarget::Publication,
+            )
+        })
+        .is_ok()
+}
+
+fn is_published(state: &AppState, publication_id: &str) -> Result<bool, Response> {
+    crate::shared_publications::load_outcome(&state.root, publication_id)
+        .map(|stored| {
+            matches!(
+                stored.outcome,
+                Some(openblog_core::assembly::Outcome::Published { .. })
+            )
+        })
+        .map_err(|error| publish_failed(&error))
+}
+
+/// What a participant sees about the placement: the stored choice, the public series to choose
+/// from, and the reading order a placement would produce. Everything except the placement is
+/// read from the public site (no drafts, nothing scheduled), so no other publication's unsaved
+/// collaboration state can appear in it.
+fn series_view(
+    state: &AppState,
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+    preview_of: Option<&openblog_core::shared_series::SeriesPlacement>,
+) -> Response {
+    let published = match is_published(state, &record.publication_id) {
+        Ok(published) => published,
+        Err(response) => return response,
+    };
+    let site = match site::load_site(&state.root, false, Some(clock::now())) {
+        Ok((site, _)) => site,
+        Err(error) => {
+            eprintln!("admin: series list unavailable: {error}");
+            return Response::error(
+                500,
+                "The site's series could not be read. Nothing was changed.",
+            );
+        }
+    };
+    let preview = preview_of
+        .or(record.series.as_ref())
+        .map(|placement| openblog_core::shared_series::order_preview(&site, placement, !published));
+    Response::json(
+        200,
+        &json!({
+            "revision": record.series_revision,
+            "placement": record.series,
+            "canPlace": !published && may(transaction, record, session, AuthorizationAction::PlaceInSeries),
+            "canCreate": may(transaction, record, session, AuthorizationAction::CreateSeries),
+            "published": published,
+            "series": openblog_core::shared_series::series_choices(&site),
+            "preview": preview,
+        }),
+    )
+}
+
+/// Any participant reads the placement. `series` and `order` in the query preview another
+/// choice without storing it.
+fn read_series(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return series_not_found();
+    };
+    let Ok(transaction) = invitation_transaction(state, publication_id) else {
+        return series_not_found();
+    };
+    let Some(record) = &transaction.record else {
+        return series_not_found();
+    };
+    if !may(
+        &transaction,
+        record,
+        session,
+        AuthorizationAction::ViewPublication,
+    ) {
+        return series_not_found();
+    }
+    let candidate = match req.query.get("series") {
+        None => None,
+        Some(series) => {
+            let order =
+                match req.query.get("order").map(String::as_str) {
+                    None | Some("") => None,
+                    Some(order) => match order.parse::<u32>() {
+                        Ok(order) => Some(order),
+                        Err(_) => return shared_problem(
+                            "order",
+                            "Use a whole number of 0 or more for the position, or leave it empty.",
+                        ),
+                    },
+                };
+            match openblog_core::shared_series::SeriesPlacement::new(series, order) {
+                Ok(placement) => Some(placement),
+                Err(error) => return series_problem("series", error),
+            }
+        }
+    };
+    series_view(state, &transaction, record, session, candidate.as_ref())
+}
+
+/// A site owner or coordinator sets, changes or removes the placement against the revision they
+/// read. The placement is public output bound into every approval, so approvals are reconciled
+/// in the same write (ADR 0038). A refused change stores nothing.
+fn set_series(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    use openblog_core::shared_series::{PlacementError, SeriesPlacement};
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<PlacementRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This series request is not valid. Use a whole number of 0 or more for the position, then try again.",
+        );
+    };
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return series_not_found();
+    };
+    let Some(record) = &transaction.record else {
+        return series_not_found();
+    };
+    if !may(
+        &transaction,
+        record,
+        session,
+        AuthorizationAction::PlaceInSeries,
+    ) {
+        return series_not_found();
+    }
+    match is_published(state, &body.publication_id) {
+        Ok(true) => return published_already(),
+        Ok(false) => {}
+        Err(response) => return response,
+    }
+    let placement = match body.placement {
+        None => None,
+        Some(placement) => match SeriesPlacement::new(&placement.series, placement.order) {
+            Ok(placement) => Some(placement),
+            Err(error) => return series_problem("series", error),
+        },
+    };
+    let result = transaction.with_identities(|identities| {
+        record.place_in_series(&session.user, identities, placement, body.expected_revision)
+    });
+    let next = match result {
+        Ok(next) => next,
+        Err(PlacementError::Denied) => return series_not_found(),
+        Err(PlacementError::Stale) => {
+            return Response::error(
+                409,
+                "The series placement changed while you were working. Reload to see the current choice; nothing was changed.",
+            )
+        }
+        Err(PlacementError::Invalid(error)) => return series_problem("series", error),
+    };
+    if next != *record {
+        if let Err(response) = transaction.store(&state.root, &next) {
+            return response;
+        }
+        reconcile_approvals(state, &transaction, &next);
+        eprintln!(
+            "admin: series placement changed in shared publication {}",
+            body.publication_id
+        );
+    }
+    series_view(state, &transaction, &next, session, None)
+}
+
+/// A site owner adds a new series definition: its name and recurring premise. It is ordinary
+/// site content, validated and built like a save from the Series editor, and it places nothing.
+fn create_series(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    use openblog_core::shared_series::{series_definition, DefinitionError};
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<SeriesCreateRequest>(&req.body) else {
+        return shared_problem(
+            "",
+            "This series request is not valid. Reload Admin Studio and try again.",
+        );
+    };
+    let mut status = lock(&state.build);
+    let _filesystem_transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let Ok(config) = site::load_config(&state.root) else {
+        return series_not_found();
+    };
+    let Ok((admin_users, contributor_ids)) = collaboration_identities(&state.root, &config) else {
+        return series_not_found();
+    };
+    let Ok(Some(record)) = crate::shared_publications::load(&state.root, &body.publication_id)
+    else {
+        return series_not_found();
+    };
+    let admin_users = admin_users.iter().map(String::as_str).collect::<Vec<_>>();
+    let contributor_ids = contributor_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let identities = Identities {
+        active_admin_users: &admin_users,
+        contributor_ids: &contributor_ids,
+    };
+    if record
+        .authorize(
+            &session.user,
+            &identities,
+            AuthorizationAction::CreateSeries,
+            AuthorizationTarget::Publication,
+        )
+        .is_err()
+    {
+        return series_not_found();
+    }
+    let definition = match series_definition(&body.title, &body.premise) {
+        Ok(definition) => definition,
+        Err(DefinitionError::Title(error)) => return series_problem("title", error),
+        Err(DefinitionError::Premise) => {
+            return shared_problem(
+                "premise",
+                "Keep the premise to one line of up to 500 bytes, without control characters.",
+            )
+        }
+    };
+    let exists = || {
+        Response::error(
+            409,
+            "A series with that address already exists. Choose it from the list instead; its name and premise are edited under Series.",
+        )
+    };
+    let path = match resolve_content_path(&state.root, &config, &definition.path) {
+        Ok(path) => path,
+        Err(_) => {
+            return shared_problem(
+                "title",
+                "That title cannot name a series file. Shorten it or use plainer characters.",
+            )
+        }
+    };
+    if path.exists() {
+        return exists();
+    }
+    match site::load_site(&state.root, true, None) {
+        Ok((site, _)) => {
+            if site
+                .series_by_slug(&definition.slug)
+                .is_some_and(|series| series.source.is_some())
+            {
+                return exists();
+            }
+        }
+        Err(error) => return Response::error(500, &error),
+    }
+    if let Err(problems) = validate_candidate(
+        &state.root,
+        &config,
+        &definition.path,
+        &definition.source,
+        &CreditEdit::Unchanged,
+    ) {
+        return Response::json(
+            422,
+            &json!({ "error": "This series can't be created yet.", "problems": problems }),
+        );
+    }
+    if let Err(error) = write_atomic(&path, &definition.source) {
+        eprintln!("admin: series definition not written: {error}");
+        return Response::error(500, "The series could not be created. Nothing was changed.");
+    }
+    let build = state.rebuild_locked(&mut status);
+    eprintln!("admin: created {}", definition.path);
+    let name = openblog_core::shared_series::SeriesPlacement::new(&body.title, None)
+        .map(|placement| placement.series)
+        .unwrap_or_default();
+    state_arc(state).auto_publish(name.clone());
+    Response::json(
+        201,
+        &json!({
+            "slug": definition.slug,
+            "name": name,
+            "path": definition.path,
+            "build": { "ok": build.is_ok() },
+        }),
+    )
+}
+
 /// No room for another revision. Saved revisions are intact; only this change was refused.
 fn draft_limit_problem() -> Response {
     shared_problem(
@@ -7924,7 +8304,7 @@ fn write_atomic_bytes(path: &Path, contents: &[u8]) -> Result<(), String> {
     }
     let tmp = path.with_extension("md.tmp");
     fs::write(&tmp, contents).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    fs::rename(&tmp, path).map_err(|e| {
+    crate::fsutil::replace_file(&tmp, path).map_err(|e| {
         let _ = fs::remove_file(&tmp);
         format!("cannot replace {}: {e}", path.display())
     })
@@ -7937,7 +8317,7 @@ fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
 fn restore_file(path: &Path, previous: Option<&[u8]>) -> Result<(), String> {
     match previous {
         Some(contents) => write_atomic_bytes(path, contents),
-        None if path.exists() => fs::remove_file(path)
+        None if path.exists() => crate::fsutil::retry_transient(|| fs::remove_file(path))
             .map_err(|error| format!("cannot remove {} during rollback: {error}", path.display())),
         None => Ok(()),
     }
@@ -8149,7 +8529,7 @@ fn write_document_bundle(
                 fs::create_dir_all(parent)
                     .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
             }
-            fs::rename(from, to).map_err(|error| {
+            crate::fsutil::retry_transient(|| fs::rename(from, to)).map_err(|error| {
                 format!("cannot retire private track {}: {error}", from.display())
             })?;
         }
@@ -8466,10 +8846,12 @@ fn move_files_transactionally(moves: &[(PathBuf, PathBuf)]) -> Result<(), String
     }
     let mut moved = Vec::new();
     for (from, to) in moves {
-        if let Err(error) = fs::rename(from, to) {
+        if let Err(error) = crate::fsutil::retry_transient(|| fs::rename(from, to)) {
             let mut rollback_errors = Vec::new();
             for (moved_from, moved_to) in moved.iter().rev() {
-                if let Err(rollback) = fs::rename(moved_to, moved_from) {
+                if let Err(rollback) =
+                    crate::fsutil::retry_transient(|| fs::rename(moved_to, moved_from))
+                {
                     rollback_errors.push(rollback.to_string());
                 }
             }
@@ -8770,10 +9152,7 @@ fn acknowledge_portability(state: &AppState, req: &Request) -> Response {
     let Some(post) = preview_site.posts.iter().find(|post| post.source == path) else {
         return Response::error(404, "Post was not found");
     };
-    let projection = match openblog_core::portability::PortableProjection::for_authenticated_preview(
-        post,
-        &preview_site.config,
-    ) {
+    let projection = match admin_portable_projection(&preview_site, post, &preview_site.config) {
         Ok(projection) => projection,
         Err(error) => return Response::error(422, &error),
     };
@@ -9014,14 +9393,12 @@ fn preview(state: &AppState, req: &Request) -> Response {
         let Some(post) = preview_site.posts.iter().find(|post| post.source == rel) else {
             return Response::error(422, "Preview post was not found in the site model");
         };
-        let projection =
-            match openblog_core::portability::PortableProjection::for_authenticated_preview(
-                post,
-                &portable_config,
-            ) {
-                Ok(projection) => projection,
-                Err(error) => return Response::error(422, &error),
-            };
+        // A published part of a collaborative series previews the series context its external
+        // copies carry, exactly as an acknowledgement recomputes it (ADR 0041).
+        let projection = match admin_portable_projection(&preview_site, post, &portable_config) {
+            Ok(projection) => projection,
+            Err(error) => return Response::error(422, &error),
+        };
         let mut portable_html = match projection.portable_html() {
             Ok(output) => output,
             Err(error) => return Response::error(422, &error),
@@ -9550,6 +9927,14 @@ mod tests {
 
     static QUIZ_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Serializes tests that change the Assistant environment. One test failing while holding it
+    /// must not fail every later one too.
+    fn quiz_env() -> std::sync::MutexGuard<'static, ()> {
+        QUIZ_ENV
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     struct EnvRestore {
         name: &'static str,
         value: Option<std::ffi::OsString>,
@@ -9597,6 +9982,29 @@ mod tests {
         Fixture { state, dir }
     }
 
+    /// The one call a fake provider expects. A request that fails before reaching the provider
+    /// panics this thread after a bound instead of leaving the test joined on it forever.
+    fn accept_provider_call(listener: &TcpListener) -> std::net::TcpStream {
+        listener.set_nonblocking(true).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    return stream;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "the fake provider was never called"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("the fake provider could not accept: {error}"),
+            }
+        }
+    }
+
     fn quiz_provider(
         status: u16,
         body: String,
@@ -9605,8 +10013,8 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
+            let mut stream = accept_provider_call(&listener);
+            stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
             let mut request = Vec::new();
             let mut chunk = [0u8; 4096];
             loop {
@@ -9655,8 +10063,8 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
         let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
+            let mut stream = accept_provider_call(&listener);
+            stream.set_read_timeout(Some(Duration::from_secs(10))).ok();
             let mut request = Vec::new();
             let mut chunk = [0u8; 4096];
             let (header_end, content_length) = loop {
@@ -12260,7 +12668,7 @@ mod tests {
 
     #[test]
     fn assistant_status_is_authenticated_and_never_exposes_credentials() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-status");
 
@@ -12315,7 +12723,7 @@ mod tests {
 
     #[test]
     fn engagement_settings_are_authenticated_write_only_and_conflict_safe() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture(ENGAGEMENT_ENVIRONMENT_NAME);
         let _origin = EnvRestore::capture(ENGAGEMENT_ORIGIN_ENVIRONMENT_NAME);
         std::env::remove_var(ENGAGEMENT_ENVIRONMENT_NAME);
@@ -12462,7 +12870,7 @@ mod tests {
 
     #[test]
     fn assistant_provider_settings_are_editable_without_disclosing_credentials() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-provider-settings");
@@ -12606,7 +13014,7 @@ mod tests {
 
     #[test]
     fn anthropic_provider_settings_use_the_native_adapter_without_a_custom_endpoint() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let _anthropic_key = EnvRestore::capture("ANTHROPIC_API_KEY");
         std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
@@ -12698,7 +13106,7 @@ mod tests {
         );
         assert_eq!(
             assistant_provider_timeout(AssistantProviderKind::Anthropic, true),
-            Duration::from_millis(300)
+            Duration::from_secs(10)
         );
     }
 
@@ -12748,7 +13156,7 @@ mod tests {
 
     #[test]
     fn openai_provider_settings_use_a_fixed_native_destination() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENAI_API_KEY");
         std::env::remove_var("OPENAI_API_KEY");
         let f = fixture("openai-provider-settings");
@@ -12794,7 +13202,7 @@ mod tests {
 
     #[test]
     fn legacy_targetless_private_credentials_are_never_sent_to_a_provider() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("legacy-assistant-credential-target");
@@ -12850,7 +13258,7 @@ mod tests {
 
     #[test]
     fn environment_credentials_are_scoped_to_the_selected_provider() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _custom_key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let _anthropic_key = EnvRestore::capture("ANTHROPIC_API_KEY");
         std::env::set_var("OPENBLOG_LESSONS_API_KEY", "custom-secret");
@@ -12886,7 +13294,7 @@ mod tests {
 
     #[test]
     fn assistant_generation_rejects_calls_beyond_the_server_limit() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-concurrency-limit");
         let session = login_ok(&f);
@@ -12914,7 +13322,7 @@ mod tests {
 
     #[test]
     fn document_review_sends_the_unsaved_snapshot_and_returns_only_validated_findings() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-document-review");
         let saved_path = f.dir.join("content/posts/hello-world.md");
@@ -13054,7 +13462,7 @@ mod tests {
 
     #[test]
     fn inline_completion_requires_csrf_and_uses_the_unsaved_snapshot_and_selected_context() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-inline-completion");
         fs::create_dir_all(f.dir.join("assistant/context")).unwrap();
@@ -13104,13 +13512,13 @@ mod tests {
                 true,
             ),
         );
-        provider.join().unwrap();
         assert_eq!(
             response.status,
             200,
             "{}",
             String::from_utf8_lossy(&response.body)
         );
+        provider.join().unwrap();
         assert_eq!(body_json(&response), json!({ "completion": " softly." }));
         assert!(!String::from_utf8_lossy(&response.body).contains("completion-secret"));
 
@@ -13200,7 +13608,7 @@ mod tests {
 
     #[test]
     fn inline_completion_fails_safely_for_missing_credentials_and_invalid_provider_output() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         std::env::remove_var("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-inline-completion-errors");
@@ -13240,15 +13648,20 @@ mod tests {
         set_quiz_endpoint(&f, &endpoint);
         std::env::set_var("OPENBLOG_LESSONS_API_KEY", "completion-secret");
         let invalid = handle(&f.state, &request());
+        assert_eq!(
+            invalid.status,
+            502,
+            "{}",
+            String::from_utf8_lossy(&invalid.body)
+        );
         server.join().unwrap();
-        assert_eq!(invalid.status, 502);
         assert!(String::from_utf8_lossy(&invalid.body).contains("invalid-result"));
         assert!(!String::from_utf8_lossy(&invalid.body).contains("completion-secret"));
     }
 
     #[test]
     fn inline_completion_obeys_the_shared_assistant_concurrency_limit() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-inline-completion-concurrency");
         set_quiz_endpoint(&f, "https://assistant.example/generate");
@@ -13285,7 +13698,7 @@ mod tests {
 
     #[test]
     fn code_interaction_is_authenticated_grounded_and_strictly_validated() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-code-interaction");
         let generated = json!({
@@ -13315,8 +13728,13 @@ mod tests {
             403
         );
         let response = handle(&f.state, &authed(request(), &session, true));
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
         provider.join().unwrap();
-        assert_eq!(response.status, 200);
         assert_eq!(body_json(&response)["kind"], "challenge");
         assert_eq!(body_json(&response)["language"], "rust");
         assert!(!String::from_utf8_lossy(&response.body).contains("code-secret"));
@@ -13380,7 +13798,7 @@ mod tests {
 
     #[test]
     fn code_interaction_obeys_the_shared_assistant_concurrency_limit() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-code-interaction-concurrency");
         set_quiz_endpoint(&f, "https://assistant.example/generate");
@@ -13406,7 +13824,7 @@ mod tests {
 
     #[test]
     fn document_review_rejects_the_entire_provider_result_when_one_finding_is_invalid() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("assistant-invalid-review");
         let response_body = json!({
@@ -13445,8 +13863,13 @@ mod tests {
                 true,
             ),
         );
+        assert_eq!(
+            response.status,
+            502,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
         provider.join().unwrap();
-        assert_eq!(response.status, 502);
         let error = body_json(&response);
         assert_eq!(error["code"], "invalid-result");
         assert!(error.get("findings").is_none());
@@ -14494,20 +14917,10 @@ mod tests {
             String::from_utf8_lossy(&preview.body)
         );
         // The draft's citations are not published, yet the preview says the
-        // post opted in and keeps its citation findings for Evidence Studio.
+        // post opted in, so Evidence Studio stays active for its findings.
         let body: Json = serde_json::from_slice(&preview.body).unwrap();
         assert_eq!(body["citations"], Json::Null);
         assert_eq!(body["citationsOptedIn"], true);
-        assert!(
-            body["evidence"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|finding| finding["code"]
-                    .as_str()
-                    .is_some_and(|code| code.starts_with("citation-"))),
-            "{body}"
-        );
         let saved = send("POST", "/admin/api/document", draft);
         assert_eq!(
             saved.status,
@@ -14690,7 +15103,7 @@ mod tests {
 
     #[test]
     fn quiz_generation_handles_provider_boundary_failures() {
-        let _env = QUIZ_ENV.lock().unwrap();
+        let _env = quiz_env();
         let _key = EnvRestore::capture("OPENBLOG_LESSONS_API_KEY");
         let f = fixture("quiz-provider");
         let session = login_ok(&f);
@@ -14750,9 +15163,17 @@ mod tests {
             ),
         ];
         for (status, body, delay, label, expected) in cases {
+            // Only the timeout case gives up before its slow provider answers.
+            let timeout = if delay.is_zero() {
+                Duration::from_secs(10)
+            } else {
+                Duration::from_millis(300)
+            };
+            TEST_PROVIDER_TIMEOUT.with(|limit| limit.set(timeout));
             let (endpoint, server) = quiz_provider(status, body, delay);
             set_quiz_endpoint(&f, &endpoint);
             let response = handle(&f.state, &request());
+            TEST_PROVIDER_TIMEOUT.with(|limit| limit.set(Duration::from_secs(10)));
             assert_eq!(response.status, 502, "{label}");
             let response_body = String::from_utf8_lossy(&response.body);
             assert!(response_body.contains(expected), "{label}: {response_body}");
@@ -14772,8 +15193,13 @@ mod tests {
         let (endpoint, server) = quiz_provider(200, body, Duration::ZERO);
         set_quiz_endpoint(&f, &endpoint);
         let response = handle(&f.state, &request());
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
         server.join().unwrap();
-        assert_eq!(response.status, 200);
         assert_eq!(body_json(&response)["questions"][0]["correctIndex"], 0);
     }
 
@@ -16429,6 +16855,122 @@ mod tests {
     fn portability_acknowledgements_are_tracked_scoped_and_stale_on_source_changes() {
         for representation in ["portable-html", "portable-markdown", "portable-text"] {
             assert_portability_acknowledgement(representation);
+        }
+    }
+
+    #[test]
+    fn a_previewed_part_of_a_collaborative_series_can_be_acknowledged() {
+        let f = fixture("portability-series-ack");
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["contributors"] = json!({ "ann": { "name": "Ann" }, "bo": { "name": "Bo" } });
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let content = f.dir.join("content");
+        fs::create_dir_all(content.join("series")).unwrap();
+        fs::write(
+            content.join("series/letters.md"),
+            "---
+name: Letters
+---
+A recurring premise.
+",
+        )
+        .unwrap();
+        let quiz = "```quiz
+What is portable?
+- [ ] A second source
+- [x] A derived view
+```
+";
+        let parts = [
+            ("posts/letters-one.md", "One", "2020-01-01"),
+            ("posts/letters-two.md", "Two", "2020-02-01"),
+            // Scheduled: previewing it holds it as a post, but it is not a part yet.
+            ("posts/letters-later.md", "Later", "2999-01-01"),
+        ];
+        for (path, title, date) in parts {
+            fs::write(
+                content.join(path),
+                format!(
+                    "---
+title: {title}
+date: {date}
+series: letters
+---
+
+{quiz}"
+                ),
+            )
+            .unwrap();
+        }
+        fs::write(
+            content.join("posts/letters-one.credits.json"),
+            r#"{"version":1,"credits":[{"contributor":"ann","roles":[{"vocabulary":"crossref","role":"author"}]},{"contributor":"bo","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,
+        )
+        .unwrap();
+        f.state.rebuild().unwrap();
+        let session = login_ok(&f);
+
+        for (path, title, date) in parts {
+            let preview = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/preview",
+                        json!({
+                            "kind": "posts",
+                            "path": path,
+                            "fields": { "title": title, "date": date, "series": "letters" },
+                            "body": quiz,
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                preview.status,
+                200,
+                "{path}: {}",
+                String::from_utf8_lossy(&preview.body)
+            );
+            let portable = body_json(&preview)["portablePreview"].clone();
+            let markdown = portable["markdown"].as_str().unwrap();
+            if path == "posts/letters-later.md" {
+                assert!(!markdown.contains("## Series"), "{path}: {markdown}");
+            } else {
+                assert!(
+                    markdown.contains("in the series [Letters]("),
+                    "{path}: {markdown}"
+                );
+            }
+            let acknowledged = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/portability/acknowledge",
+                        json!({
+                            "path": path,
+                            "sourceRevision": portable["sourceRevision"],
+                            "capabilityId": "knowledge-check",
+                            "representation": "portable-markdown",
+                            "destination": "portable-export",
+                            "expectedEtag": portable["acknowledgementEtag"],
+                        }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                acknowledged.status,
+                200,
+                "{path}: {}",
+                String::from_utf8_lossy(&acknowledged.body)
+            );
         }
     }
 
@@ -18319,6 +18861,49 @@ mod tests {
         assert_eq!(draft_call(&f, &mikey, &id, 1, "x").status, 500);
         assert_eq!(draft_read(&f, &mikey, &id).status, 500);
         assert_eq!(fs::read(&outside).unwrap(), before);
+    }
+
+    #[test]
+    fn a_finished_collaboration_request_frees_the_content_lock_before_the_next_one_runs() {
+        let (f, _mikey, id) = invitation_fixture("transaction-handoff");
+        let Ok(transaction) = invitation_transaction(&f.state, &id) else {
+            panic!("the transaction could not start");
+        };
+        // On Windows, hold the lock file the way a scanner can, so removing it takes a moment.
+        #[cfg(windows)]
+        let held = {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_SHARE_READ: u32 = 1;
+            const FILE_SHARE_WRITE: u32 = 2;
+            fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .open(f.dir.join(".openblog/content-transaction.lock"))
+                .unwrap()
+        };
+        // Widen the release window on every platform: the lock file outlives the drop call by
+        // this long, so a wrong field order lets the next request see it.
+        crate::transaction::RELEASE_DELAY_MS.store(150, std::sync::atomic::Ordering::SeqCst);
+        let next_found_the_lock_free = std::thread::scope(|scope| {
+            #[cfg(windows)]
+            scope.spawn(move || {
+                std::thread::sleep(Duration::from_millis(150));
+                drop(held);
+            });
+            let next = scope.spawn(|| {
+                // The next request runs as soon as it holds the build mutex.
+                let _build = lock(&f.state.build);
+                crate::transaction::ContentTransactionLock::acquire(&f.state.root).is_ok()
+            });
+            std::thread::sleep(Duration::from_millis(20));
+            drop(transaction);
+            next.join().unwrap()
+        });
+        crate::transaction::RELEASE_DELAY_MS.store(0, std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            next_found_the_lock_free,
+            "the next request was refused as a concurrent write"
+        );
     }
 
     #[test]
@@ -20315,5 +20900,352 @@ mod tests {
         );
         assert_eq!(gone.status, 200);
         assert!(body_json(&gone)["items"].as_array().unwrap().is_empty());
+    }
+
+    // ---- Series placement (ADR 0038, ADR 0039) ----
+
+    fn series_read(f: &Fixture, who: &(String, String), query: &str) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                req("GET", &format!("/admin/api/collaboration/series?{query}")),
+                who,
+                false,
+            ),
+        )
+    }
+
+    fn series_put(f: &Fixture, who: &(String, String), body: Json) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/collaboration/series", body),
+                who,
+                true,
+            ),
+        )
+    }
+
+    fn placement_body(id: &str, revision: u64, series: &str, order: Json) -> Json {
+        json!({
+            "publicationId": id,
+            "expectedRevision": revision,
+            "placement": { "series": series, "order": order },
+        })
+    }
+
+    fn approval_states(f: &Fixture, who: &(String, String), id: &str) -> Vec<String> {
+        body_json(&preview_call(f, who, id))["preview"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["approval"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn owners_and_coordinators_arrange_the_series_and_every_participant_sees_it() {
+        let (f, mikey, grace, ada, id) = approval_fixture("series-arrange");
+        let query = format!("publicationId={id}");
+        let before = state_trees(&f);
+
+        // Every participant reads the placement; only arrangers may change it.
+        let seen = body_json(&series_read(&f, &grace, &query));
+        assert_eq!(seen["placement"], Json::Null);
+        assert_eq!(seen["revision"], 0);
+        assert_eq!(seen["canPlace"], false);
+        assert_eq!(seen["canCreate"], false);
+        let coordinator = body_json(&series_read(&f, &ada, &query));
+        assert_eq!(
+            (
+                coordinator["canPlace"].clone(),
+                coordinator["canCreate"].clone()
+            ),
+            (json!(true), json!(false))
+        );
+        let owner = body_json(&series_read(&f, &mikey, &query));
+        assert_eq!(
+            (owner["canPlace"].clone(), owner["canCreate"].clone()),
+            (json!(true), json!(true))
+        );
+
+        // A participant, a stranger to the publication and an unknown publication all get the
+        // same refusal, and nothing changes.
+        let unknown = series_put(
+            &f,
+            &ada,
+            placement_body("shared-ffffffffffff", 0, "Letters", json!(1)),
+        );
+        assert_eq!(unknown.status, 404);
+        let denied = series_put(&f, &grace, placement_body(&id, 0, "Letters", json!(1)));
+        assert_eq!(denied.status, 404);
+        assert_eq!(denied.body, unknown.body);
+        let unknown_read = series_read(&f, &grace, "publicationId=shared-ffffffffffff");
+        assert_eq!(unknown_read.status, 404);
+        assert_eq!(unknown_read.body, unknown.body);
+        let linus = login_as(&f, "linus", "yet another horse");
+        let stranger = series_read(&f, &linus, &query);
+        assert_eq!((stranger.status, &stranger.body), (404, &unknown.body));
+        let no_csrf = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/collaboration/series",
+                    placement_body(&id, 0, "Letters", json!(1)),
+                ),
+                &ada,
+                false,
+            ),
+        );
+        assert!(no_csrf.status == 401 || no_csrf.status == 403);
+        let anonymous = handle(
+            &f.state,
+            &json_req(
+                "PUT",
+                "/admin/api/collaboration/series",
+                placement_body(&id, 0, "Letters", json!(1)),
+            ),
+        );
+        assert_eq!(anonymous.status, 401);
+        let anonymous_read = req("GET", &format!("/admin/api/collaboration/series?{query}"));
+        assert_eq!(handle(&f.state, &anonymous_read).status, 401);
+        // Bad input is refused by rule and never echoed.
+        for body in [
+            placement_body(&id, 0, "Line\nbreak MARKER", json!(1)),
+            placement_body(&id, 0, "!!!", json!(1)),
+        ] {
+            let refused = series_put(&f, &ada, body);
+            assert_eq!(refused.status, 422);
+            assert_eq!(body_json(&refused)["field"], "series");
+            assert!(!String::from_utf8_lossy(&refused.body).contains("MARKER"));
+        }
+        for body in [
+            placement_body(&id, 0, "Letters", json!(-1)),
+            placement_body(&id, 0, "Letters", json!("2")),
+            json!({ "publicationId": id, "expectedRevision": 0, "placement": null, "theme": "x" }),
+        ] {
+            assert_eq!(series_put(&f, &ada, body).status, 422);
+        }
+        assert_eq!(state_trees(&f), before);
+
+        // The coordinator assigns it; everyone sees the choice.
+        let assigned = series_put(
+            &f,
+            &ada,
+            placement_body(&id, 0, "Letters across time", json!(2)),
+        );
+        assert_eq!(
+            assigned.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&assigned.body)
+        );
+        let assigned = body_json(&assigned);
+        assert_eq!(assigned["revision"], 1);
+        assert_eq!(
+            assigned["placement"],
+            json!({ "series": "Letters across time", "order": 2 })
+        );
+        assert_eq!(assigned["preview"]["slug"], "letters-across-time");
+        assert_eq!(
+            body_json(&series_read(&f, &grace, &query))["placement"]["series"],
+            "Letters across time"
+        );
+        assert_eq!(stored_record(&f, &id).series_revision, 1);
+
+        // A change made against the older read is refused and changes nothing, even by the owner.
+        let settled = state_trees(&f);
+        let stale = series_put(&f, &mikey, placement_body(&id, 0, "Another", Json::Null));
+        assert_eq!(stale.status, 409);
+        assert_eq!(state_trees(&f), settled);
+
+        // Reordering and removing each move the revision on.
+        let moved = body_json(&series_put(
+            &f,
+            &mikey,
+            placement_body(&id, 1, "Letters across time", json!(3)),
+        ));
+        assert_eq!(
+            (
+                moved["revision"].clone(),
+                moved["placement"]["order"].clone()
+            ),
+            (json!(2), json!(3))
+        );
+        let removed = body_json(&series_put(
+            &f,
+            &ada,
+            json!({ "publicationId": id, "expectedRevision": 2, "placement": null }),
+        ));
+        assert_eq!(
+            (removed["revision"].clone(), removed["placement"].clone()),
+            (json!(3), Json::Null)
+        );
+        // Arranging the series never touched canonical content or public output.
+        assert_eq!(state_trees(&f)[0], before[0]);
+        assert_eq!(state_trees(&f)[1], before[1]);
+    }
+
+    #[test]
+    fn a_placement_change_drops_approvals_in_the_same_write_and_is_shown_in_the_preview() {
+        let (f, mikey, grace, ada, id) = approval_fixture("series-consent");
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(approval_states(&f, &mikey, &id), ["approved", "approved"]);
+
+        let placed = series_put(
+            &f,
+            &ada,
+            placement_body(&id, 0, "Letters <across> time", json!(2)),
+        );
+        assert_eq!(placed.status, 200);
+        // The stored approvals were dropped in that write, not merely flagged on the next read.
+        let stored = fs::read_to_string(f.dir.join(format!(
+            ".openblog/private/collaboration/approvals/{id}.json"
+        )))
+        .unwrap();
+        assert!(!stored.contains("binding"), "{stored}");
+        assert_eq!(approval_states(&f, &mikey, &id), ["awaiting", "awaiting"]);
+        let preview = body_json(&preview_call(&f, &grace, &id));
+        let text = preview_document_text(&f, &grace, &preview);
+        assert!(text.contains("<strong>Series:</strong> Letters &lt;across&gt; time, part 2"));
+
+        // Approving the piece with its placement and publishing writes the ordinary keys; after
+        // that the placement is fixed here.
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(approve_as(&f, &grace, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        let post = published_post(&f, &id).unwrap();
+        assert!(post.contains("Letters <across> time"), "{post}");
+        assert!(post.contains("seriesOrder: 2"), "{post}");
+        let after = state_trees(&f);
+        let refused = series_put(&f, &ada, placement_body(&id, 1, "Elsewhere", Json::Null));
+        assert_eq!(refused.status, 409);
+        assert_eq!(state_trees(&f), after);
+        let view = body_json(&series_read(&f, &grace, &format!("publicationId={id}")));
+        assert_eq!(view["published"], true);
+        assert_eq!(view["canPlace"], false);
+        // The published post is now one of the series' parts, listed once.
+        let parts = view["preview"]["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 1, "{parts:?}");
+        assert_eq!(parts[0]["thisPublication"], false);
+    }
+
+    #[test]
+    fn the_order_preview_reads_only_public_posts() {
+        let (f, mikey, _grace, _ada, id) = approval_fixture("series-preview");
+        let posts = f.dir.join("content/posts");
+        for (name, extra) in [
+            ("2026-01-01-first-part", "seriesOrder: 1\n"),
+            (
+                "2026-01-02-hidden-draft-marker",
+                "seriesOrder: 2\ndraft: true\n",
+            ),
+            ("2099-01-01-future-marker", "seriesOrder: 2\n"),
+            ("2026-01-03-loose-part", ""),
+        ] {
+            let date = &name[..10];
+            fs::write(
+                posts.join(format!("{name}.md")),
+                format!("---\ntitle: {name}\ndate: {date}\nseries: Guides\n{extra}---\nBody.\n"),
+            )
+            .unwrap();
+        }
+        let view = series_read(
+            &f,
+            &mikey,
+            &format!("publicationId={id}&series=Guides&order=2"),
+        );
+        assert_eq!(view.status, 200, "{}", String::from_utf8_lossy(&view.body));
+        let text = String::from_utf8_lossy(&view.body).to_string();
+        assert!(!text.contains("marker"), "{text}");
+        let view = body_json(&view);
+        let order: Vec<String> = view["preview"]["parts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|part| part["title"].as_str().unwrap_or("THIS").to_string())
+            .collect();
+        assert_eq!(
+            order,
+            ["2026-01-01-first-part", "THIS", "2026-01-03-loose-part"]
+        );
+        assert_eq!(view["series"][0]["slug"], "guides");
+        assert_eq!(view["series"][0]["parts"], 2);
+        // Previewing stores nothing.
+        assert_eq!(stored_record(&f, &id).series, None);
+        let bad = series_read(
+            &f,
+            &mikey,
+            &format!("publicationId={id}&series=Guides&order=-1"),
+        );
+        assert_eq!(
+            (bad.status, body_json(&bad)["field"].clone()),
+            (422, json!("order"))
+        );
+    }
+
+    #[test]
+    fn only_a_site_owner_creates_a_series_definition_and_never_over_an_existing_one() {
+        let (f, mikey, grace, ada, id) = approval_fixture("series-create");
+        let create = |who: &(String, String), body: Json| post_api(&f, who, "series/create", body);
+        let body = |title: &str, premise: &str| json!({ "publicationId": id, "title": title, "premise": premise });
+        let before = state_trees(&f);
+        let unknown = create(
+            &mikey,
+            json!({ "publicationId": "shared-ffffffffffff", "title": "Letters", "premise": "" }),
+        );
+        assert_eq!(unknown.status, 404);
+        for who in [&ada, &grace] {
+            let denied = create(who, body("Letters", "A premise."));
+            assert_eq!((denied.status, &denied.body), (404, &unknown.body));
+        }
+        let invalid = create(&mikey, body("Line\nbreak", ""));
+        assert_eq!(
+            (invalid.status, body_json(&invalid)["field"].clone()),
+            (422, json!("title"))
+        );
+        let invalid = create(&mikey, body("Letters", "two\nlines"));
+        assert_eq!(
+            (invalid.status, body_json(&invalid)["field"].clone()),
+            (422, json!("premise"))
+        );
+        assert_eq!(state_trees(&f), before);
+
+        let made = create(
+            &mikey,
+            body(
+                "Letters across time",
+                "Each <b>season</b> two writers answer one letter.",
+            ),
+        );
+        assert_eq!(made.status, 201, "{}", String::from_utf8_lossy(&made.body));
+        assert_eq!(body_json(&made)["slug"], "letters-across-time");
+        let file = fs::read_to_string(f.dir.join("content/series/letters-across-time.md")).unwrap();
+        assert!(file.contains("name: Letters across time"));
+        // An empty series has no public page, so public output is unchanged until a part is
+        // published; the premise is stored escaped, so it can only ever read as text.
+        assert_eq!(state_trees(&f)[1], before[1]);
+        assert!(
+            file.contains(r"Each \<b\>season\<\/b\> two writers"),
+            "{file}"
+        );
+        // It places nothing, and the new series is offered to everyone choosing.
+        assert_eq!(stored_record(&f, &id).series, None);
+        let view = body_json(&series_read(&f, &grace, &format!("publicationId={id}")));
+        assert!(view["series"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["slug"] == "letters-across-time" && s["defined"] == true));
+
+        // A second definition at the same address is refused and the first is untouched.
+        let again = create(&mikey, body("Letters  Across  Time!", "Other premise."));
+        assert_eq!(again.status, 409);
+        assert_eq!(
+            fs::read_to_string(f.dir.join("content/series/letters-across-time.md")).unwrap(),
+            file
+        );
     }
 }

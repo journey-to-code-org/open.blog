@@ -15,6 +15,7 @@ use html5ever::{local_name, ns, QualName};
 use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 use openblog_core::config::{SyndicationProvider, SyndicationTargetConfig};
 use openblog_core::frontmatter;
+use openblog_core::model::SeriesContext;
 use openblog_core::portability::{
     destination_content_plan, destination_payload_plan, destination_policies, destination_policy,
     destination_tag_plan, DestinationContentPlan, DestinationPayloadPlan,
@@ -290,7 +291,8 @@ fn run_with_transport(
         .iter()
         .find(|source| source.path == post.source)
         .ok_or_else(|| format!("cannot find source `{}`", post.source))?;
-    let syndication_post = syndication_post(post, &source.contents, &config)?;
+    let syndication_post =
+        syndication_post(post, &source.contents, &config, loaded.series_context(post))?;
 
     let selected = select_targets(&config, &options.target_names)?;
     let state_path = private_state_path(root, &config.syndication.state_file)?;
@@ -611,6 +613,7 @@ fn syndication_post(
     post: &Post,
     source: &str,
     config: &SiteConfig,
+    series: Option<SeriesContext>,
 ) -> Result<SyndicationPost, String> {
     let document = frontmatter::parse(source)?;
     let source_id = document
@@ -621,7 +624,8 @@ fn syndication_post(
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| format!("source:{}", post.source.replace('\\', "/")));
-    let projection = PortableProjection::from_post(post, config)?;
+    // A part of a collaborative series links its canonical series page in the copy (ADR 0041).
+    let projection = PortableProjection::from_post(post, config)?.with_series(series);
     let canonical_url = projection.canonical_url().to_string();
     let canonical = url_context::validate_public_url(&canonical_url)
         .map_err(|error| format!("canonical URL is not public: {error}"))?;
@@ -1851,7 +1855,7 @@ mod tests {
                 LoadOptions::default(),
             )
             .unwrap_or_else(|errors| panic!("{}: {errors:?}", fixture["name"]));
-            let post = syndication_post(&site.posts[0], source, &config)
+            let post = syndication_post(&site.posts[0], source, &config, None)
                 .unwrap_or_else(|error| panic!("{}: {error}", fixture["name"]));
 
             let dev = dev_request(&post, None, false, "test").unwrap();
@@ -1893,6 +1897,96 @@ mod tests {
     }
 
     #[test]
+    fn a_part_of_a_collaborative_series_links_its_series_in_every_payload() {
+        use openblog_core::contributor::Contributor;
+        use openblog_core::{LoadOptions, Site, SourceFile, Sources};
+
+        let mut config = SiteConfig::from_json(
+            r#"{"title":"T","url":"https://blog.example.org","postPath":"/{slug}/","author":{"name":"Site Owner"}}"#,
+        )
+        .unwrap();
+        for (id, name) in [("ann", "Ann"), ("bo", "Bo")] {
+            config.contributors.insert(
+                id.into(),
+                Contributor {
+                    name: name.into(),
+                    ..Contributor::default()
+                },
+            );
+        }
+        let file = |path: &str, contents: &str| SourceFile {
+            path: path.into(),
+            contents: contents.into(),
+        };
+        let source = "---
+title: Two
+date: 2026-02-01
+series: letters
+---
+Body of two.
+";
+        let loaded = Site::load(
+            config.clone(),
+            Sources {
+                posts: vec![
+                    file(
+                        "posts/one.md",
+                        "---
+title: One
+date: 2026-01-01
+series: letters
+---
+Body of one.
+",
+                    ),
+                    file("posts/two.md", source),
+                ],
+                credits: vec![file(
+                    "posts/two.credits.json",
+                    r#"{"version":1,"credits":[{"contributor":"ann","roles":[{"vocabulary":"crossref","role":"author"}]},{"contributor":"bo","roles":[{"vocabulary":"crossref","role":"author"}]}]}"#,
+                )],
+                series: vec![file(
+                    "series/letters.md",
+                    "---
+name: Letters
+---
+A recurring premise.
+",
+                )],
+                ..Default::default()
+            },
+            LoadOptions::default(),
+        )
+        .unwrap();
+        let part = loaded.posts.iter().find(|post| post.slug == "two").unwrap();
+        let context = loaded.series_context(part);
+        assert!(context.is_some());
+        let post = syndication_post(part, source, &config, context).unwrap();
+        let series_url = "https://blog.example.org/series/letters/";
+        assert!(
+            post.markdown.contains(&format!(
+                "## Series
+
+Part 2 in the series [Letters]({series_url}). This part is by Ann and Bo. Series contributors: Site Owner, Ann, and Bo."
+            )),
+            "{}",
+            post.markdown
+        );
+        assert!(
+            post.html.contains(&format!(
+                "<p class=\"ob-series-context\">Part 2 in the series <a href=\"{series_url}\">Letters</a>. This part is by Ann and Bo."
+            )),
+            "{}",
+            post.html
+        );
+        // The copy with its series is a different revision from one without, so a syndicated
+        // part is updated when its context first appears.
+        let plain = syndication_post(part, source, &config, None).unwrap();
+        assert!(!plain.markdown.contains(series_url) && !plain.html.contains(series_url));
+        assert_ne!(post.revision, plain.revision);
+    }
+
+    #[test]
     fn universal_publishing_example_uses_exact_portable_artifacts_for_every_destination() {
         use openblog_core::{LoadOptions, Site, SourceFile, Sources};
 
@@ -1921,7 +2015,7 @@ mod tests {
             },
             LoadOptions::default(),
         ).unwrap();
-        let post = syndication_post(&loaded.posts[0], source, &config).unwrap();
+        let post = syndication_post(&loaded.posts[0], source, &config, None).unwrap();
         let selected = select_targets(&config, &[]).unwrap();
         let plan = dry_run_json_plan(&post, &selected, &State::default(), false);
         assert_eq!(plan["targets"].as_array().unwrap().len(), 5);
@@ -2151,7 +2245,7 @@ mod tests {
                 LoadOptions::default(),
             )
             .unwrap();
-            syndication_post(&site.posts[0], &source, &config)
+            syndication_post(&site.posts[0], &source, &config, None)
                 .unwrap()
                 .revision
         };

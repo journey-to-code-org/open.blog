@@ -43,7 +43,7 @@ pub fn rss(site: &Site) -> Result<String, String> {
         .filter(|post| !post.draft)
         .take(c.feeds.limit.max(1))
     {
-        let projection = PortableProjection::from_post(post, c)?;
+        let projection = PortableProjection::for_site(site, post)?;
         let link = projection.canonical_url().to_string();
         out.push_str("<item>\n");
         out.push_str(&format!("<title>{}</title>\n", escape::xml(&post.title)));
@@ -76,6 +76,17 @@ pub fn rss(site: &Site) -> Result<String, String> {
                 escape::xml(&tag.name)
             ));
         }
+        // A part of a collaborative series names its series as a category in the site's series
+        // taxonomy, whose domain is the series index (ADR 0041). RSS 2.0's `domain` identifies the
+        // taxonomy and is not a link, so the series page itself, the part's place and its authors
+        // are only in the full content.
+        if let Some(series) = projection.series() {
+            out.push_str(&format!(
+                "<category domain=\"{}\">{}</category>\n",
+                escape::xml(&projection.resolve_link("/series/")?),
+                escape::xml(&series.name)
+            ));
+        }
         out.push_str(&format!(
             "<description>{}</description>\n",
             escape::xml(&post.description)
@@ -100,6 +111,10 @@ pub fn rss(site: &Site) -> Result<String, String> {
     Ok(out)
 }
 
+/// Where the `_openblog` JSON Feed extension is documented.
+pub const JSON_FEED_EXTENSION_ABOUT: &str =
+    "https://github.com/journey-to-code-org/open.blog/blob/main/docs/integrations.md#series-in-feeds";
+
 /// JSON Feed 1.1: <https://jsonfeed.org/version/1.1>
 pub fn json_feed(site: &Site) -> Result<String, String> {
     let c = &site.config;
@@ -109,7 +124,7 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
         .filter(|post| !post.draft)
         .take(c.feeds.limit.max(1))
         .map(|post| {
-            let projection = PortableProjection::from_post(post, c)?;
+            let projection = PortableProjection::for_site(site, post)?;
             let url = projection.canonical_url();
             let mut item = serde_json::json!({
                 "id": url,
@@ -158,6 +173,22 @@ pub fn json_feed(site: &Site) -> Result<String, String> {
                 if !authors.is_empty() {
                     item["authors"] = serde_json::Value::Array(authors);
                 }
+            }
+            // A part of a collaborative series carries its series as a JSON Feed extension
+            // object, which readers that do not know it ignore (ADR 0041). `about` points to its
+            // documentation, as JSON Feed recommends for extensions.
+            if let Some(series) = projection.series() {
+                item["_openblog"] = serde_json::json!({
+                    "about": JSON_FEED_EXTENSION_ABOUT,
+                    "series": {
+                        "title": series.name,
+                        "url": projection.resolve_link(&series.url)?,
+                        "part": series.part,
+                        "parts": series.parts,
+                        "authors": series.part_authors,
+                        "contributors": series.contributors,
+                    }
+                });
             }
             Ok(item)
         })
@@ -325,7 +356,7 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
         markdown_text(&c.description)
     );
     for post in site.posts.iter().filter(|post| !post.draft) {
-        let projection = PortableProjection::from_post(post, c)?;
+        let projection = PortableProjection::for_site(site, post)?;
         out.push_str(&format!(
             "\n---\n\n## {}\n\n- URL: {}\n- Published: {}\n",
             markdown_text(&post.title),
@@ -344,6 +375,35 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
+        }
+        if let Some(series) = projection.series() {
+            let names = |names: &[String]| {
+                crate::render::human_list(
+                    &names
+                        .iter()
+                        .map(|name| inert_markdown_text(name))
+                        .collect::<Vec<_>>(),
+                )
+            };
+            out.push_str(&format!(
+                "- Series: Part {} of {} in [{}](<{}>)\n",
+                series.part,
+                series.parts,
+                inert_markdown_text(&series.name),
+                projection.resolve_link(&series.url)?
+            ));
+            if !series.part_authors.is_empty() {
+                out.push_str(&format!(
+                    "- Part authors: {}\n",
+                    names(&series.part_authors)
+                ));
+            }
+            if !series.contributors.is_empty() {
+                out.push_str(&format!(
+                    "- Series contributors: {}\n",
+                    names(&series.contributors)
+                ));
+            }
         }
         if let Some(shared) = &post.shared_attribution {
             if let Some(question) = &shared.question {
@@ -383,6 +443,12 @@ fn markdown_text(value: &str) -> String {
         .replace('\\', "\\\\")
         .replace('[', "\\[")
         .replace(']', "\\]")
+}
+
+/// `markdown_text` that also keeps `<` and `&` literal, so a name cannot become an autolink, raw
+/// HTML or an entity.
+fn inert_markdown_text(value: &str) -> String {
+    markdown_text(value).replace('<', "\\<").replace('&', "\\&")
 }
 
 /// The client-side search index. Body text is lower-cased and truncated to keep

@@ -1607,6 +1607,15 @@ ob-comments {
   font-size: 0.95rem;
 }
 
+/* Who wrote each part, shown only in a series that holds a collaborative work (ADR 0040). */
+.ob-series-contributors {
+  margin: 0.5rem 0 1rem;
+}
+
+.ob-part-credit {
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Pager, archive ---------- */
 
 .ob-pager {
