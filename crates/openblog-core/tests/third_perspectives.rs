@@ -1507,12 +1507,21 @@ fn ids_and_json_match_the_participation_and_passage_seams() {
         ],
         "the provenance object is B5's feedback provenance record"
     );
-    let text = submitted(ReaderAttribution::anonymous()).to_json();
-    assert!(
-        text.contains(&format!(
-            r#""provenance":{{"version":1,"work":"/posts/tides/","revision":"{REV_A}","target":{{"version":1,"kind":"work"}},"receivedAt":"2026-10-26T10:00:00Z","channel":"hosted","attribution":{{"publishName":false}}}}"#
-        )),
-        "provenance is written in B5's field order: {text}"
+    // B5 embeds the target as a serde_json value with alphabetical keys, so
+    // only the parsed value is the same, not the key order.
+    let anonymous: Value =
+        serde_json::from_str(&submitted(ReaderAttribution::anonymous()).to_json()).unwrap();
+    assert_eq!(
+        anonymous["provenance"],
+        json!({
+            "version": 1,
+            "work": "/posts/tides/",
+            "revision": REV_A,
+            "target": {"version": 1, "kind": "work"},
+            "receivedAt": "2026-10-26T10:00:00Z",
+            "channel": "hosted",
+            "attribution": {"publishName": false}
+        })
     );
     assert_eq!(
         record["provenance"]["attribution"],

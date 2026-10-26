@@ -444,7 +444,7 @@ impl PerspectiveTarget {
         serde_json::to_value(self.wire()).expect("a target always serializes")
     }
 
-    /// Canonical JSON text, in B5's fixed field order.
+    /// Canonical JSON text.
     pub fn to_json(&self) -> String {
         serde_json::to_string(&self.wire()).expect("a target always serializes")
     }
@@ -558,7 +558,7 @@ pub enum Channel {
 
 /// Which text the reader saw, when, and how it arrived: B5's feedback
 /// provenance (ADR 0086), with the target restricted to the work or a
-/// section. Its JSON is B5's record, byte for byte.
+/// section. Its JSON is B5's record, key order aside.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Provenance {
     /// The published work's site-relative path, such as `/posts/tides/`.

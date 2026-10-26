@@ -20,16 +20,17 @@ on main now and become a mechanical change, with no format change, once both mer
 ## Decision
 
 `openblog_core::third_perspective` carries minimal shapes with the same ids and JSON. At merge,
-each is replaced as follows; stored records and submissions keep their exact bytes.
+each is replaced as follows; stored records and submissions keep their JSON, parsed value for parsed value (object key
+order aside, which JSON does not define).
 
 | Here (main) | After B5 / RD12 merge | Mapping |
 | --- | --- | --- |
 | `KIND_ID`, `KIND_LABEL` | `participation::ParticipationKind::ThirdPerspective` | `KIND_ID == ThirdPerspective.id()`, `KIND_LABEL == label()`; keep the constants as those calls. A test asserts both. |
-| `PerspectiveTarget` | `passage_target::PassageTarget` | `Work` = `PassageSelector::Work` with no section; `Section { section, digest }` = `PassageSelector::Section { digest }` with `section`. Make it a checked wrapper: `TryFrom<PassageTarget>` refusing `PassageSelector::Quote` with `targetNotAllowed`; `from_value` becomes `PassageTarget::from_value` plus that check. `TARGET_VERSION` = `PASSAGE_TARGET_VERSION`. The JSON is already B5's, field for field and in order. |
+| `PerspectiveTarget` | `passage_target::PassageTarget` | `Work` = `PassageSelector::Work` with no section; `Section { section, digest }` = `PassageSelector::Section { digest }` with `section`. Make it a checked wrapper: `TryFrom<PassageTarget>` refusing `PassageSelector::Quote` with `targetNotAllowed`; `from_value` becomes `PassageTarget::from_value` plus that check. `TARGET_VERSION` = `PASSAGE_TARGET_VERSION`. The JSON is already B5's, field for field; key order may differ, because B5 embeds the target as a `serde_json` value with alphabetical keys. |
 | `TargetStatus` | `passage_target::Resolution` | `PassageDocument::of_post(..).resolve(&target, Some(&copy.provenance.revision))`: `Current(location)` and `Reanchored(location)` → `TargetStatus::Current { section: location.section }`; `Stale(stale)` → `TargetStatus::Stale { section_present: stale.section_present }`. Add `impl From<&Resolution> for TargetStatus`. |
 | `ReaderAttribution` | `feedback_provenance::ReaderAttribution` | Same fields and JSON; replace with a re-export. Name rules are the same (B5's `MAX_READER_NAME_CHARS`, whitespace collapsed, no control or bidirectional characters). |
 | `Channel` | `feedback_provenance::FeedbackChannel` | Same ids (`hosted`, `manual`); re-export. |
-| `Provenance`, `is_work_path`, `is_passage_revision` | `feedback_provenance::FeedbackProvenance`, B5's `is_work_path`, `passage_target::is_passage_revision` | The `provenance` object is B5's record byte for byte (a test pins its keys and order). Store `FeedbackProvenance` with the target checked as above; `FeedbackProvenance::public` is not used, because `ApprovedResponse` is this kind's projection. |
+| `Provenance`, `is_work_path`, `is_passage_revision` | `feedback_provenance::FeedbackProvenance`, B5's `is_work_path`, `passage_target::is_passage_revision` | The `provenance` object is B5's record, the same JSON key order aside (a test pins its keys and compares parsed values). Store `FeedbackProvenance` with the target checked as above; `FeedbackProvenance::public` is not used, because `ApprovedResponse` is this kind's projection. |
 | `ModerationState` | `moderation::ModerationState` | Same six variants and ids; re-export. |
 | `ModerationFacts` | `moderation::ItemFacts` plus the stored `approved_consent` | `state`, `revision`, `approved_revision` and `content_retained` are `ItemFacts` fields of the same names; `approved_consent` is stored with the approval (below). Add a constructor from `&ItemFacts` and the consent number. |
 | `shown: bool` | `participation::effective_mode(config, post, ParticipationKind::ThirdPerspective)` | `shown = mode.shows_approved()`. `approved_response` then implies RD12's `moderation::is_public(item, mode)`, and adds the consent, work and name rules. |

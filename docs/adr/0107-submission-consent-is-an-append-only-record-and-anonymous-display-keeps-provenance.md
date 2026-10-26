@@ -73,7 +73,8 @@ change consent, answer a clarification), and every decision has to say who made 
     changes. Revocation never depends on anything else a change says.
 - **Anonymous display, never anonymous provenance.** Whatever the reader shows publicly, the
   submitted copy always keeps:
-  - B5's provenance record, byte for byte: work, the passage revision the reader saw, target,
+  - B5's provenance record, the same JSON key order aside (B5 embeds the target as a
+    `serde_json` value with alphabetical keys): work, the passage revision the reader saw, target,
     the reader's optional clock, `receivedAt` stamped by the receiver, channel and the attribution
     as received;
   - its **intake**: for a hosted copy the digest (64 lowercase hexadecimal digits) of the private
