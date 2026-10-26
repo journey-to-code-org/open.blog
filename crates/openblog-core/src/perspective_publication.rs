@@ -542,8 +542,9 @@ impl ThirdPerspectivesFile {
     }
 
     /// Publish an approved answer under the reflection it answers, which must
-    /// already be published and be about its own author's section. An earlier
-    /// answer to it is replaced (a reflection shows one).
+    /// already be published and be about its own author's section. The same
+    /// answer is replaced in place; a different answer already on it is
+    /// refused (a reflection shows one, and the author takes the first off).
     pub fn set_answer(&mut self, parent: &str, answer: PublishedAnswer) -> Result<(), String> {
         if self.items.iter().any(|item| {
             item.id != parent && item.answer.as_ref().is_some_and(|a| a.id == answer.id)
@@ -556,6 +557,15 @@ impl ThirdPerspectivesFile {
             .iter_mut()
             .find(|item| item.id == parent)
             .ok_or_else(|| "The reflection this answers is not published".to_string())?;
+        if item
+            .answer
+            .as_ref()
+            .is_some_and(|held| held.id != answer.id)
+        {
+            return Err(
+                "this reflection already shows a different answer; take that one off first".into(),
+            );
+        }
         item.check_answer(&answer)?;
         item.answer = Some(answer);
         Ok(())

@@ -622,3 +622,39 @@ After the quiz, the author's last words.";
     let next = html.find("id=\"ob-by-joe-0\"").unwrap();
     assert!(conversation < next);
 }
+
+#[test]
+fn a_different_answer_is_refused_while_the_reflection_shows_one() {
+    let mut file = ThirdPerspectivesFile::from_json(
+        &json!({"version": 2, "items": [item(
+            1, 0, "I read the harbour differently.",
+            Some(answer(2, "mina", "MINA", "I meant the harbour.")),
+        )]})
+        .to_string(),
+    )
+    .unwrap();
+    let other = |n: u32, body: &str| PublishedAnswer {
+        id: id(n),
+        contributor: "mina".into(),
+        author: "MINA".into(),
+        body: body.into(),
+        received: "2026-10-26".into(),
+        approved: "2026-10-27".into(),
+    };
+    let refused = file
+        .set_answer(&id(1), other(3, "A second answer."))
+        .unwrap_err();
+    assert!(refused.contains("different answer"), "{refused}");
+    assert_eq!(file.get(&id(1)).unwrap().answer.as_ref().unwrap().id, id(2));
+    // The same answer, edited and approved again, is replaced in place.
+    file.set_answer(&id(1), other(2, "I meant the harbour, truly."))
+        .unwrap();
+    assert_eq!(
+        file.get(&id(1)).unwrap().answer.as_ref().unwrap().body,
+        "I meant the harbour, truly."
+    );
+    // After take-off, another answer may be published.
+    assert!(file.unpublish_answer(&id(2)));
+    file.set_answer(&id(1), other(3, "A second answer."))
+        .unwrap();
+}

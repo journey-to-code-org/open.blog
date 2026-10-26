@@ -61,9 +61,12 @@ that Admin writes and the build reads (ADR 0115); an answer follows the same pat
   `OPENBLOG_AUTHOR_RESPONSES_ENABLED` and set `author-response` to `hidden`: pages show no answers,
   and `third-perspectives.json` can be left alone (or its `answer` fields removed and its version set
   to 1).
-- **At most one answer is shown per reflection.** The function refuses to approve an answer while
-  another answer to the same reflection is approved (`409 alreadyAnswered`), which closes the
-  double-answer race of ADR 0166 at the one place it could become public.
+- **At most one answer is shown per reflection, and the static file is what guarantees it.** The
+  function refuses to approve an answer while another answer to the same reflection is approved
+  (`409 alreadyAnswered`), but that check is check-then-act and not transactional: two approvals
+  racing can both pass it. The public file is the backstop. It holds one `answer` per reflection,
+  and Admin refuses to publish a different answer onto a reflection that already shows one (the
+  author's earlier answer is taken off first), so a page never shows two.
 
 ## Considered options
 

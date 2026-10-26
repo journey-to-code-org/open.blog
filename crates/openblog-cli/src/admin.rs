@@ -5470,7 +5470,11 @@ fn remove_unlisted_publication(
     let build = feedback_build_json(&state.rebuild_locked(&mut status));
     eprintln!(
         "admin: {} {id} unpublished (no hosted row)",
-        if answer { "author response" } else { "third perspective" }
+        if answer {
+            "author response"
+        } else {
+            "third perspective"
+        }
     );
     Response::json(200, &json!({ "published": false, "build": build }))
 }
