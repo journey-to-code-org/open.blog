@@ -67,7 +67,8 @@ library. The one exception is an interpreter's `contributor` key below.
 An optional top-level `interpretations` array holds attributed renderings and readings of
 places in the library's versions ([ADR 0115](../adr/0115-attributed-interpretations-live-in-the-source-library.md)).
 They are private research: never sources, never cited, never exported as bibliography, and
-never read by a build. An empty array is written as an absent field.
+never read by a build: a build parses the library without validating them, so a problem in an
+interpretation never fails a build. An empty array is written as an absent field.
 
 ```json
 "interpretations": [

@@ -399,6 +399,13 @@ impl SourceRecord {
     }
 }
 
+/// Whether a read validates the library's interpretations or keeps them raw.
+#[derive(Clone, Copy)]
+enum Interpretations {
+    Validate,
+    KeepRaw,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SourceLibrary {
     pub version: u64,
@@ -553,13 +560,34 @@ impl SourceLibrary {
         text: &str,
         contributors: &BTreeMap<String, Contributor>,
     ) -> Result<Self, Vec<SourceDiagnostic>> {
+        Self::parse_with(text, contributors, Interpretations::Validate)
+    }
+
+    /// Parse a library for a build, which reads only its sources. Builds never
+    /// output interpretations (ADR 0115), so a problem in one, such as an
+    /// interpreter whose contributor was removed, must not fail every build
+    /// that cites a source: they are not validated and are kept raw in
+    /// [`Self::extra`], leaving [`Self::interpretations`] empty. Admin, the
+    /// store, and `openblog check` use [`Self::parse`], which validates them.
+    pub fn parse_for_build(
+        text: &str,
+        contributors: &BTreeMap<String, Contributor>,
+    ) -> Result<Self, Vec<SourceDiagnostic>> {
+        Self::parse_with(text, contributors, Interpretations::KeepRaw)
+    }
+
+    fn parse_with(
+        text: &str,
+        contributors: &BTreeMap<String, Contributor>,
+        mode: Interpretations,
+    ) -> Result<Self, Vec<SourceDiagnostic>> {
         if text.len() > MAX_LIBRARY_BYTES {
             return Err(vec![too_large()]);
         }
         // Editors on Windows may save a byte-order mark, which is not JSON.
         let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         match serde_json::from_str(text) {
-            Ok(value) => Self::from_value(value, contributors),
+            Ok(value) => Self::from_value(value, contributors, mode),
             Err(error) => Err(vec![library_diagnostic(
                 SourceDiagnosticCode::InvalidJson,
                 None,
@@ -574,6 +602,7 @@ impl SourceLibrary {
     fn from_value(
         value: Value,
         contributors: &BTreeMap<String, Contributor>,
+        mode: Interpretations,
     ) -> Result<Self, Vec<SourceDiagnostic>> {
         let mut diagnostics = Vec::new();
         let Value::Object(mut root) = value else {
@@ -677,12 +706,20 @@ impl SourceLibrary {
             }
         }
         validate_relationships(&identities, &parsed, contributors, &mut diagnostics);
-        let interpretations = interpretation::parse_all(
-            raw_interpretations,
-            &identities,
-            contributors,
-            &mut diagnostics,
-        );
+        let interpretations = match mode {
+            Interpretations::Validate => interpretation::parse_all(
+                raw_interpretations,
+                &identities,
+                contributors,
+                &mut diagnostics,
+            ),
+            Interpretations::KeepRaw => {
+                if let Some(raw) = raw_interpretations {
+                    root.insert("interpretations".into(), raw);
+                }
+                Vec::new()
+            }
+        };
         if !diagnostics.is_empty() {
             diagnostics.sort_by_key(|diagnostic| diagnostic.index);
             return Err(diagnostics);
@@ -759,7 +796,7 @@ impl SourceLibrary {
             return Err(shadowed);
         }
         match serde_json::to_value(candidate) {
-            Ok(value) => Self::from_value(value, contributors),
+            Ok(value) => Self::from_value(value, contributors, Interpretations::Validate),
             Err(error) => Err(vec![library_diagnostic(
                 SourceDiagnosticCode::InvalidJson,
                 None,

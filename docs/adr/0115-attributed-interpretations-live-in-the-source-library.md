@@ -57,7 +57,11 @@ evidence, audience levels, and AI provenance to scholarly interpretations.
   written, and an unreadable library blocks such removals but not other registry edits. Refusals
   name ids, never interpretation text.
 - **Private by default.** Interpretations are never sources, never cited, never part of a
-  bibliography export, and no build reads them. `openblog check` validates and counts them.
+  bibliography export, and no build reads them: a build parses the library with its
+  interpretations kept raw and unvalidated, so a problem in one (such as an interpreter whose
+  contributor was later removed by hand) never fails a build that cites a source or publishes
+  claim evidence. Admin, every store change, and `openblog check` validate them in full.
+  `openblog check` validates and counts them.
   Store functions create, update, and remove one interpretation under the library revision;
   Admin endpoints and controls arrive with the comparison workspace (#54), and publication only
   through the projection #55 will define.

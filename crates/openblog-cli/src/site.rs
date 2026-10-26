@@ -1203,6 +1203,49 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn an_interpretation_naming_a_removed_contributor_never_breaks_a_build() {
+        let root = project_with_private_library(
+            "interpretation-build",
+            r#"{"claimEvidence":{"publish":true}}"#,
+        );
+        // No contributor registry: `ada` was removed after she was named.
+        let library = r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia"},{"id":"slings","kind":"edition","of":"plato","title":"Slings"}],"interpretations":[{"id":"cave-mine","kind":"reading","source":"slings","text":"ob-interpretation-secret","interpreters":[{"contributor":"ada"}]}]}"#;
+        fs::write(root.join(crate::source_store::LIBRARY_FILE), library).unwrap();
+        fs::remove_file(root.join(crate::notebook_store::NOTEBOOK_FILE)).unwrap();
+        fs::remove_file(root.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        fs::write(
+            root.join("content/posts/2026-01-07-cave.md"),
+            "---\ntitle: Cave\ndate: 2026-01-07\ncitations: bibliography\n---\n\nThe cave educates [@slings, page 514].\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(crate::claims_store::CLAIMS_FILE),
+            r#"{"version":1,"claims":[{"id":"c0","post":"cave","statement":"S"}]}"#,
+        )
+        .unwrap();
+        assert!(
+            crate::source_store::load(&root, &Default::default()).is_err(),
+            "Admin and check still report the unresolved interpreter"
+        );
+        let report = production_build(&root);
+        assert_eq!(report.posts, 2);
+        assert!(report
+            .evidence
+            .iter()
+            .any(|f| f.code.to_string() == "claim-evidence-missing"));
+        let page = dist_bytes(&root)
+            .into_iter()
+            .find(|(path, _)| path.ends_with("cave/index.html"))
+            .map(|(_, bytes)| String::from_utf8_lossy(&bytes).into_owned())
+            .unwrap();
+        assert!(page.contains("Slings"), "{page}");
+        for (_, bytes) in dist_bytes(&root) {
+            assert!(!String::from_utf8_lossy(&bytes).contains("ob-interpretation-secret"));
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
     // ---- Knowledge Atlas publication (A5.4, ADR 0058) ---------------------------
 
     #[test]

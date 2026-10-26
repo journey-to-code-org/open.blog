@@ -83,6 +83,21 @@ pub fn load(
     read(&library_path(root)?, contributors)
 }
 
+/// The stored library as a build reads it: its interpretations are kept raw
+/// and never validated, because no build outputs them (ADR 0115) and a
+/// problem in one, such as a removed interpreter, must not stop a build.
+/// Every change and Admin read uses [`load`], which validates them.
+pub fn load_for_build(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, StoreError> {
+    read_parsed(
+        &library_path(root)?,
+        contributors,
+        SourceLibrary::parse_for_build,
+    )
+}
+
 // Changes below are used by Admin source management (#34) and import (#35).
 
 /// Add a record whose identifier is not yet in the library.
@@ -593,6 +608,17 @@ fn checked(current: Snapshot, expected_revision: &str) -> Result<SourceLibrary, 
 }
 
 fn read(path: &Path, contributors: &BTreeMap<String, Contributor>) -> Result<Snapshot, StoreError> {
+    read_parsed(path, contributors, SourceLibrary::parse)
+}
+
+type Parse =
+    fn(&str, &BTreeMap<String, Contributor>) -> Result<SourceLibrary, Vec<SourceDiagnostic>>;
+
+fn read_parsed(
+    path: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+    parse: Parse,
+) -> Result<Snapshot, StoreError> {
     let Some(bytes) = read_bytes(path)? else {
         let library = SourceLibrary::default();
         return Ok(Snapshot {
@@ -603,7 +629,7 @@ fn read(path: &Path, contributors: &BTreeMap<String, Contributor>) -> Result<Sna
     };
     let revision = revision(&bytes);
     let text = String::from_utf8(bytes).map_err(|_| not_utf8())?;
-    let library = SourceLibrary::parse(&text, contributors).map_err(StoreError::Invalid)?;
+    let library = parse(&text, contributors).map_err(StoreError::Invalid)?;
     Ok(Snapshot {
         library,
         revision,

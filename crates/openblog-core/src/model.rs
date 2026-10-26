@@ -1117,7 +1117,8 @@ fn read_library(
             }
         }
     };
-    SourceLibrary::parse(&file.contents, &config.contributors)
+    // Builds never output interpretations, so their problems cannot fail one.
+    SourceLibrary::parse_for_build(&file.contents, &config.contributors)
         .map(Some)
         .map_err(|problems| {
             format!(
