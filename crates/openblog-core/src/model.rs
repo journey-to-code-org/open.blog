@@ -1287,6 +1287,7 @@ fn load_post_in(
                     prefix: &published.prefix,
                     locale: *locale,
                 }),
+            claim_evidence_section: with_evidence.is_some(),
             ..options
         },
     );

@@ -120,8 +120,9 @@ evidence. Existing posts must publish byte for byte as before.
   claim, and link to the claim's `url`; nothing about a submitter has a place in a note.
 - B7.1 (#88) can link interpretations to published links by `id` and must keep disagreement side
   by side as this section does.
-- A post that publishes claim evidence includes the section in its search text, word count and
-  table of contents, as generated citation notes are.
+- A post that publishes claim evidence includes the section in its search text and table of
+  contents, as generated citation notes are. Its description, word count and reading time come
+  from the post's own prose, which ends where the section begins, as it ends at the notes.
 - The section's chrome is English, like the atlas pages; references and locators use the English
   citation strings.
 

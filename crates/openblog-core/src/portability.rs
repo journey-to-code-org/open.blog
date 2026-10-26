@@ -690,6 +690,8 @@ impl<'a> PortableProjection<'a> {
                 web_libraries: None,
                 // Generated notes are ordinary footnotes here, linked to the canonical article.
                 citation_notes: None,
+                // The section is ordinary content in a portable copy.
+                claim_evidence_section: false,
             },
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),

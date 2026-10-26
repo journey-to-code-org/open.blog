@@ -336,6 +336,26 @@ fn without_a_claims_file_the_build_warns_and_still_publishes_revision_notes() {
 }
 
 #[test]
+fn the_section_is_not_the_posts_prose_but_is_its_search_text() {
+    let on = site(true, &claims());
+    let off = site(false, &claims());
+    let (with, without) = (cave(&on), cave(&off));
+    assert!(with.publication_markdown().contains("Claims and evidence"));
+    // The description, word count and reading time come from the author's
+    // words only, as they would without the section.
+    assert_eq!(
+        with.description,
+        "The cave educates. Later the sun appears."
+    );
+    assert_eq!(with.description, without.description);
+    assert_eq!(with.word_count, 7);
+    assert_eq!(with.word_count, without.word_count);
+    assert_eq!(with.reading_minutes, without.reading_minutes);
+    // Search still finds the section's words.
+    assert!(with.text.contains("PUBLIC support rationale"));
+}
+
+#[test]
 fn the_section_heading_words_later_in_the_section_do_not_refuse_a_portable_copy() {
     // A revision note and a cited source title that mention the heading's
     // words sit after the heading itself; every copy is still whole.
