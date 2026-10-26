@@ -641,7 +641,7 @@ fn authenticated_api(
         ("POST", "research/atlas/relationships") => save_atlas_relationship(state, req, true),
         ("PUT", "research/atlas/relationships") => save_atlas_relationship(state, req, false),
         ("DELETE", "research/atlas/relationships") => remove_atlas_item(state, req, false),
-        ("GET", "research/claims") => list_claims(state),
+        ("GET", "research/claims") => list_claims(state, req),
         ("POST", "research/claims/anchor") => claim_anchor(state, req),
         ("POST", "research/claims/claims") => save_claim(state, req, true),
         ("PUT", "research/claims/claims") => save_claim(state, req, false),
@@ -2051,13 +2051,40 @@ fn claims_view(snapshot: &claims_store::Snapshot, drafts: &claims::Drafts) -> Js
     })
 }
 
-fn list_claims(state: &AppState) -> Response {
+/// The claims view. With `?path=posts/...md` it also names the slug that
+/// post's claims carry, decided from its saved front matter as a build does.
+fn list_claims(state: &AppState, req: &Request) -> Response {
     let drafts = match claim_drafts(state) {
         Ok(drafts) => drafts,
         Err(response) => return response,
     };
+    let post = match req.query.get("path") {
+        Some(rel) => {
+            if check_rel_path(rel) != Ok("posts") {
+                return Response::error(400, "Claims are made in posts");
+            }
+            let config = match site::load_config(&state.root) {
+                Ok(config) => config,
+                Err(error) => return Response::error(500, &error),
+            };
+            let path = match resolve_content_path(&state.root, &config, rel) {
+                Ok(path) => path,
+                Err(error) => return Response::error(400, &error),
+            };
+            fs::read_to_string(&path)
+                .ok()
+                .and_then(|source| claims::post_slug(rel, &source))
+        }
+        None => None,
+    };
     match claims_store::load(&state.root, &source_contributors(state)) {
-        Ok(snapshot) => Response::json(200, &claims_view(&snapshot, &drafts)),
+        Ok(snapshot) => {
+            let mut view = claims_view(&snapshot, &drafts);
+            if let Some(post) = post {
+                view["post"] = json!(post);
+            }
+            Response::json(200, &view)
+        }
         Err(error) => claims_store_error(state, error, None),
     }
 }
@@ -13119,6 +13146,27 @@ mod tests {
         let revision = claim_post(&f, CLAIM_DRAFT);
         let post_bytes = fs::read(f.dir.join("content").join(CLAIM_POST)).unwrap();
         let empty = claims_list(&f, &session);
+        let named = handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/research/claims?path={CLAIM_POST}"),
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(body_json(&named)["post"], "cave");
+        let outside = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/research/claims?path=../secret.md"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(outside.status, 400);
         assert_eq!(empty["file"], crate::claims_store::CLAIMS_FILE);
         assert_eq!(empty["stored"], false);
         assert_eq!(
