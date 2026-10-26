@@ -8998,6 +8998,12 @@ fn preview(state: &AppState, req: &Request) -> Response {
                 "referenceCount": research.references.len(),
             })
         });
+    // A post that opts in keeps its citation checks visible even when its
+    // citations could not be published (a draft with a broken citation).
+    let citations_opted_in = kind == "posts"
+        && body["fields"]["citations"]
+            .as_str()
+            .is_some_and(|style| !style.trim().is_empty());
     let citations = preview_site
         .posts
         .iter()
@@ -9170,6 +9176,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             "social": social,
             "research": research,
             "citations": citations,
+            "citationsOptedIn": citations_opted_in,
             "portablePreview": portable_preview,
             "warnings": preview_site.warnings,
             "accessibility": accessibility,
@@ -14485,6 +14492,21 @@ mod tests {
             200,
             "{}",
             String::from_utf8_lossy(&preview.body)
+        );
+        // The draft's citations are not published, yet the preview says the
+        // post opted in and keeps its citation findings for Evidence Studio.
+        let body: Json = serde_json::from_slice(&preview.body).unwrap();
+        assert_eq!(body["citations"], Json::Null);
+        assert_eq!(body["citationsOptedIn"], true);
+        assert!(
+            body["evidence"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|finding| finding["code"]
+                    .as_str()
+                    .is_some_and(|code| code.starts_with("citation-"))),
+            "{body}"
         );
         let saved = send("POST", "/admin/api/document", draft);
         assert_eq!(

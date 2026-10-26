@@ -2361,8 +2361,12 @@ export function evidenceReview(findings) {
   return accessibilityReview(findings);
 }
 
-export function evidenceStudioState(findings, research, citations = null) {
-  if (!research && !citations) {
+export function evidenceStudioState(findings, research, citations = null, citationsOptedIn = false) {
+  // A post that opts in to citations (or has any citation finding) keeps the
+  // studio even when its citations could not be published, so a draft's broken
+  // citation is never discarded.
+  const citationFinding = Array.isArray(findings) && findings.some((finding) => String(finding?.code || "").startsWith("citation-"));
+  if (!research && !citations && !citationsOptedIn && !citationFinding) {
     return {
       active: false,
       status: "Evidence checks are not active for this content profile.",
@@ -9432,7 +9436,7 @@ export class Editor {
       this.updatePreviewWarnings(preview);
       this.updateSocialPreview(preview.social);
       this.updateAccessibility(preview.accessibility);
-      this.updateEvidence(preview.evidence, preview.research, preview.citations);
+      this.updateEvidence(preview.evidence, preview.research, preview.citations, preview.citationsOptedIn === true);
     } catch (error) {
       if (request !== this.previewRequest) return;
       this.previewResult = null;
@@ -9654,8 +9658,8 @@ export class Editor {
     this.ui.accessibilityStatus.textContent = `${review.total} source finding${review.total === 1 ? "" : "s"}`;
   }
 
-  updateEvidence(findings, research, citations = null) {
-    const state = evidenceStudioState(findings, research, citations);
+  updateEvidence(findings, research, citations = null, citationsOptedIn = false) {
+    const state = evidenceStudioState(findings, research, citations, citationsOptedIn);
     this.citationExports = citations?.references ? citations.exports : null;
     this.ui.evidenceExports.hidden = !this.citationExports;
     this.ui.evidenceExportStatus.textContent = "";

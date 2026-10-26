@@ -864,6 +864,15 @@ test("Evidence Studio is active for posts that publish citations and offers thei
     ["Citation checks", "Offline, from your source library; nothing is looked up online"],
   ]);
   assert.deepEqual(citationEvidenceRows(null), []);
+  // A draft whose citations could not be published keeps its findings.
+  const unresolved = [{ code: "citation-unresolved", outcome: "detected", source: { path: "posts/a.md", line: 6 }, message: "m", repair: "r" }];
+  const broken = evidenceStudioState(unresolved, null, null);
+  assert.equal(broken.active, true);
+  assert.equal(broken.review.total, 1);
+  const optedIn = evidenceStudioState([], null, null, true);
+  assert.equal(optedIn.active, true);
+  assert.equal(optedIn.status, "0 evidence findings");
+  assert.equal(evidenceStudioState([], null, null, false).active, false);
   assert.equal(
     citationExportStatus({ filename: "a-references.bib", count: 2, content: "@misc{a,}", losses: [{ sourceId: "e", field: "kind", reason: "x" }, { sourceId: "e", field: "creators[1]", reason: "y" }] }),
     "Exported 2 cited references as a-references.bib; nothing was looked up online. This format cannot carry: e: kind, creators[1].",
