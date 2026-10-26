@@ -87,7 +87,11 @@ datings side by side
 only temporal relationship is an asserted relative dating
 ([ADR 0119](adr/0119-temporal-relationships-are-relative-datings-never-inferred.md)) and which
 replace version 1's `bounds` privately
-([ADR 0120](adr/0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md)), and the
+([ADR 0120](adr/0120-atlas-version-2-supersedes-bounds-and-keeps-datings-private.md)), indexed
+in one deterministic display order
+([ADR 0121](adr/0121-the-chronology-index-orders-every-dating-for-display-only.md)) with
+structural prompts that never judge which dating is right
+([ADR 0122](adr/0122-chronology-prompts-are-structural-and-never-verdicts.md)), and the
 [claims and evidence links format](specs/claims-evidence.md), which records the author's own
 reading of which sources support, contradict or contextualize a claim in a draft, with no score
 or verdict ([ADR 0068](adr/0068-claims-and-evidence-links-record-the-authors-reading.md)), never

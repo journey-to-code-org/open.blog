@@ -161,6 +161,42 @@ accepted change; reading never writes. Each entry's `bounds` with a year becomes
 inside `bounds` move to `boundsExtra` on that dating (or the entry, if no year was stated). A
 version 1 item that already uses `dates` is refused until renamed.
 
+### Chronology index and prompts
+
+Owned by `openblog_core::chronology_index` ([ADR 0121](../adr/0121-the-chronology-index-orders-every-dating-for-display-only.md),
+[ADR 0122](../adr/0122-chronology-prompts-are-structural-and-never-verdicts.md)).
+`ChronologyIndex::of(&atlas)` reads a valid atlas, never fails and never writes. It indexes every
+dating, private or approved, by id; `by_owner` (each entry's or relationship's datings by aspect,
+competing datings side by side, `competing(owner, aspect)`), `by_aspect`, `by_time` (one
+timeline) and `relative_to` (relative datings pointing at each entry). Every list is in
+`chronological` order, so the index does not depend on file order. Nothing is dropped, chosen or
+merged, and there is no table of neighbours or contemporaries. The index is for the author's
+tools and is never published.
+
+Its `prompts` are structural, non-blocking notices about datings that cannot all hold as
+recorded: the latest day one allows ends before the earliest day the other allows can begin (an
+open end never ends, a decade or century covers all its years, circa does not move a point, and
+months and days count only in the same calendar).
+
+| Code | Datings compared |
+| --- | --- |
+| `death-before-birth` | A person's death and birth datings. |
+| `outside-lifetime` | A person's `active` dating, or the `span` of an `authored`, `member-of`, `participated-in` or `developed` relationship, against the person's birth, death and `span` datings. |
+| `publication-before-composition` | A work's publication and composition datings. |
+| `composition-after-death`, `composition-before-birth` | A work's composition against the life of a person an `authored` relationship records as its author. |
+| `opposed-relative` | Two relative datings ordering the same two aspects both ways round, or one inside the other while also before or after it. |
+| `relative-cycle` | Three or more aspects ordered in a loop by relative datings. |
+| `relative-against-dates` | A relative dating against the absolute datings of the two aspects it orders. |
+
+A `ChronologyPrompt` names the code, the owning item's collection, position and id, the field of
+the dating it starts from (`dates[1]`), every dating it is about, and a message with ids, aspects
+and stated values only ("not after c. 410 BCE"). It asks the author to check the values against
+the cited evidence and, for datings from different parties, says a recorded disagreement can stay
+side by side; it never says which dating is right and repeats no authored text. Prompts are
+sorted by owner id, datings and code; at most 1,000 are listed and `unlisted` counts the rest.
+`openblog check` prints them as `notice:` lines and summarizes the index when the atlas has
+datings; builds never run them.
+
 ## Storage
 
 The atlas is one file, `.openblog/private/research/atlas.json`, in canonical form

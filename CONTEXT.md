@@ -807,6 +807,21 @@ if relative, whose other entry is approved. Anything else stays private and is r
 notice, never refused.
 _Avoid_: Public date; approved dating when its owner may be private
 
+**Chronology index**:
+Every dating of the atlas, private or approved, placed by the entry or relationship it dates, by
+aspect and on one timeline, in one deterministic display order that does not depend on file
+order. Competing, circa, relative and unknown datings are all kept; nothing is chosen, merged or
+linked by closeness in time. It is for the author's tools and is never published.
+_Avoid_: Canonical timeline, resolved dates, contemporaries
+
+**Chronology prompt**:
+A structural, non-blocking notice that some recorded datings cannot all hold as stated, such as a
+death dated before a birth or relative datings ordering two works both ways round. It names
+dating ids and their stated values, asks the author to check them against the cited evidence, and
+never says which dating is right; only relationships and relative datings someone asserted are
+followed across entries.
+_Avoid_: Chronology error, conflict resolution, verdict, inferred influence
+
 **Atlas projection**:
 The one public form of the Knowledge Atlas: approved entries and projected relationships, each
 reduced to an explicit allowlist of fields, with the public description of the sources they use.
