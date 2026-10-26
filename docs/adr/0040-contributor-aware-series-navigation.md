@@ -52,7 +52,7 @@ and next links, who wrote a collaborative part and who wrote the ordinary parts 
 
 ## Consequences
 
-- Contributor profile pages remain out of scope. Feeds and portable output keep the series context
-  separately (#185).
+- Contributor profile pages remain out of scope. Feeds and portable output state the series context
+  separately ([ADR 0041](0041-collaborative-series-context-in-feeds-and-portable-output.md)).
 - A site that already had a multi-author post in a series sees that series start naming authors.
   That is the intended reading of "collaborative work"; nothing else on the site changes.

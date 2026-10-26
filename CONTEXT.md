@@ -287,6 +287,13 @@ series names its contributors on its page and each part's authors in its navigat
 series renders exactly as before, and drafts or scheduled posts never make one (ADR 0040).
 _Avoid_: Collaborative-series entity, series template
 
+**Series context**:
+What a feed item or portable copy of a published part of a collaborative series states about it:
+the series name and canonical link, its place in the published reading order ("Part 2 of 4"), the
+part's authors and the series' contributors. Derived from the public series and approved credits
+only; any other post has none and its feeds and copies are unchanged (ADR 0041).
+_Avoid_: Series metadata, series membership
+
 **Published assembly**:
 The explicit, ordered selection of source references and contribution drafts, as they appear in
 one approved collaboration revision, that a publication operation incorporates into canonical
