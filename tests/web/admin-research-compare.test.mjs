@@ -525,6 +525,16 @@ test("a rebase never moves one place's unknown fields onto another", () => {
   assert.equal(gone.members[1].from, null);
 });
 
+test("notes are sent exactly as typed, so a round trip is lossless", () => {
+  const record = { ...OPENING(), members: OPENING().members.map((member, index) => (index === 3 ? { ...member, note: "  spaced  ", normalized: { text: "x", note: " keep " } } : member)) };
+  const sent = alignmentPayload(alignmentDraft(record));
+  assert.equal(sent.members[3].note, "  spaced  ");
+  assert.equal(sent.members[3].normalized.note, " keep ");
+  const blank = alignmentDraft(record);
+  blank.members[3].note = "   ";
+  assert.equal(alignmentPayload(blank).members[3].note, undefined, "a blank note is dropped");
+});
+
 test("advisory checks name the first problem and the control for it", () => {
   const ctx = { sources: SOURCES(), passages: PASSAGES(), interpretations: INTERPRETATIONS(), used: ["opening"] };
   const draft = alignmentDraft(null);

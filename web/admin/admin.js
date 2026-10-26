@@ -2922,10 +2922,10 @@ export function alignmentMemberPayload(draft) {
   if (wording && String(draft.normalized ?? "").length && String(draft.normalized).trim()) {
     const normalized = { ...(original.normalized || {}), text: String(draft.normalized) };
     delete normalized.note;
-    if (String(draft.normalizedNote ?? "").trim()) normalized.note = String(draft.normalizedNote).trim();
+    if (String(draft.normalizedNote ?? "").trim()) normalized.note = String(draft.normalizedNote);
     record.normalized = normalized;
   }
-  if (String(draft.note ?? "").trim()) record.note = String(draft.note).trim();
+  if (String(draft.note ?? "").trim()) record.note = String(draft.note);
   return record;
 }
 
