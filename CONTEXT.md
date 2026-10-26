@@ -197,6 +197,39 @@ reserved and item headings start at level five (ADR 0027). Portable output carri
 attribution and stable anchors; summaries stop before it and summary-only feeds omit it (ADR 0028).
 _Avoid_: Summary, consensus, comments
 
+**Media moment**:
+A participant's located note on one of a shared publication's own sources. It points at the source
+reference by id and at a place in it through one to eight notebook Locators: a timestamp or range for
+video and audio, and pages, chapters or other textual locators for text. It holds a moment quotation,
+a moment observation, or both. The participant who made it always comes from the session. A moment is
+private to its owner unless it is proposed for the publication. Even then, another author sees it only
+while it is sealed to the owner's draft revision that author may read. Approval binds the exact
+moments proposed for the piece, and each owner must approve it (ADR 0072, 0073).
+_Avoid_: Annotation, clip, transcript, comment
+
+**Moment quotation**:
+Words from the source, stored exactly as quoted and kept short: at most 1,000 characters, never a
+transcript. It carries an optional speaker, an optional language, and an explicit quotation rights
+status and provenance. It is never the participant's prose (ADR 0072).
+_Avoid_: Excerpt when the notebook's passage is meant, observation
+
+**Speaker**:
+Who said a moment quotation in the source, as a plain name. It is neither the source attribution nor
+the participant who quoted it (ADR 0072).
+_Avoid_: Author, creator, participant
+
+**Moment observation**:
+The participant's own words about a media moment, written as untrusted Markdown with no raw HTML,
+images, headings, footnotes or non-HTTP(S) links (ADR 0072).
+_Avoid_: Quotation, note when the notebook's research note is meant
+
+**Quotation rights**:
+The participant's own statement of whether a moment quotation may be republished: unknown, brief
+quotation, permission, open licence, public domain, or their own words. It is always paired with
+provenance: transcribed, copied, or supplied. It is never a legal determination, and a quotation
+whose rights are unknown cannot be proposed for the piece (ADR 0072).
+_Avoid_: Licence check, clearance, fair use ruling
+
 **Combined preview**:
 The side-effect-free review of the whole piece an author sees before approving: every author's
 section in order at its exact latest revision (an author who wrote nothing has no section and
