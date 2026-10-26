@@ -2,8 +2,8 @@
 //!
 //! The notebook itself is never read by a build. What can still go wrong is
 //! that its bytes arrive in public input some other way: an exported research
-//! bundle saved into `static/` or `content/`, a copy of the notebook file, or a
-//! symlink. These guards recognise such files by structure (see
+//! bundle saved into `static/` or `content/`, a copy of the notebook or
+//! Knowledge Atlas file, or a symlink. These guards recognise such files by structure (see
 //! [`openblog_core::research_bundle::looks_like_private_research`]), not by any
 //! particular words, so a post that quotes the same passage is never flagged,
 //! and they report only the file's path, never its contents.
@@ -98,7 +98,7 @@ pub fn refuse_private_research_in_public_inputs(
         return Ok(());
     }
     Err(format!(
-        "refusing to build: {} look{} like private research (a research export or a copy of the notebook) inside a public folder, so it would be published. Move {} outside content, static and themes; builds never publish private research.",
+        "refusing to build: {} look{} like private research (a research export, or a copy of the notebook or Knowledge Atlas) inside a public folder, so it would be published. Move {} outside content, static and themes; builds never publish private research.",
         found
             .iter()
             .map(|path| format!("`{path}`"))
@@ -173,6 +173,36 @@ mod tests {
         );
         let error = refuse_private_research_in_public_inputs(&root, &config).unwrap_err();
         assert!(error.contains("content/posts/backup.txt") && !error.contains("observation"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_knowledge_atlas_copy_in_a_public_folder_is_refused_by_path_alone() {
+        let root = temp_root("atlas");
+        let config = SiteConfig::default();
+        fs::create_dir_all(root.join("static/data")).unwrap();
+        fs::create_dir_all(root.join("content/posts")).unwrap();
+        let atlas = r#"{"version":1,"entries":[{"id":"ob-atlas-secret","kind":"person","label":"ob-atlas-secret"}],"relationships":[]}"#;
+        fs::write(root.join("static/data/graph.json"), atlas).unwrap();
+        fs::write(
+            root.join("content/posts/map.txt"),
+            format!("\u{feff}  {atlas}"),
+        )
+        .unwrap();
+        // Similar but not atlas-shaped public data stays publishable.
+        fs::write(
+            root.join("static/data/entries.json"),
+            r#"{"version":1,"entries":[{"id":"x","kind":"post","label":"X"}]}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(root.join(".openblog/private/research")).unwrap();
+        fs::write(root.join(".openblog/private/research/atlas.json"), atlas).unwrap();
+        assert_eq!(
+            public_inputs_with_private_research(&root, &config),
+            ["content/posts/map.txt", "static/data/graph.json"]
+        );
+        let error = refuse_private_research_in_public_inputs(&root, &config).unwrap_err();
+        assert!(error.contains("Knowledge Atlas") && !error.contains("ob-atlas-secret"));
         fs::remove_dir_all(root).unwrap();
     }
 
