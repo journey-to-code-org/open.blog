@@ -705,7 +705,6 @@ const SUBJECT_CODES: [(DiagnosticSubject, &[AtlasDiagnosticCode]); 3] = [
             A::WrongSourceKind,
             A::InvalidVisibility,
             A::ContributorCredit,
-            A::StillLinked,
             A::ShadowedField,
             A::UnknownInterpretation,
             A::DuplicateMember,
@@ -1435,5 +1434,30 @@ mod tests {
                 seen.push(*code);
             }
         }
+    }
+
+    /// The alignments file's row lists only codes its validator can emit:
+    /// each is named in `alignment.rs`, or is raised by the atlas helpers it
+    /// shares, which `Ctx` and the evidence parsers carry.
+    #[test]
+    fn the_alignments_row_lists_no_code_its_file_cannot_emit() {
+        let own = include_str!("alignment.rs");
+        let shared = include_str!("knowledge_atlas.rs");
+        let (_, codes) = SUBJECT_CODES
+            .iter()
+            .find(|(subject, _)| *subject == DiagnosticSubject::Alignments)
+            .expect("alignments row");
+        for code in *codes {
+            let name = format!("{code:?}");
+            assert!(
+                own.contains(&format!("Code::{name}")) || shared.contains(&format!("Code::{name}")),
+                "{code} is named by no emitter the alignments file uses"
+            );
+        }
+        assert!(
+            !codes.contains(&A::StillLinked),
+            "the file never emits still-linked"
+        );
+        assert!(own.contains("Code::StaleLocator"));
     }
 }
