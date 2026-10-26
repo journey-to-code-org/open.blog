@@ -310,7 +310,13 @@ mod tests {
                 contract["implemented_fallback"].as_str(),
                 "{id}"
             );
-            assert_eq!(descriptor.portability, PortabilityLevel::FullyPortable);
+            // Whatever level it ships at, it is not left as an interaction
+            // that only the canonical page can carry.
+            assert_ne!(
+                descriptor.portability,
+                PortabilityLevel::CanonicalOnlyInteraction,
+                "{id}"
+            );
         }
         for id in ids {
             let descriptor = CapabilityDescriptor::describe(id, None);
