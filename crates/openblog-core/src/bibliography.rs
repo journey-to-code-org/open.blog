@@ -725,6 +725,14 @@ mod tests {
     fn generated_labels_avoid_the_authors_footnotes() {
         assert_eq!(label_prefix("Text[^1].\n\n[^1]: n\n"), "cite-");
         assert_eq!(label_prefix("Text[^cite-1].\n\n[^cite-1]: n\n"), "cite2-");
+        // An undefined label is plain text to the parser, but still taken.
+        assert_eq!(label_prefix("Literal [^cite-1] text.\n"), "cite2-");
+        assert_eq!(label_prefix("Literal [^CITE-1] text.\n"), "cite2-");
+        assert_eq!(label_prefix("[^cite-1] and [^Cite2-3] text.\n"), "cite3-");
+        assert_eq!(
+            label_prefix("Not numbered [^cite-x] or [^cite-].\n"),
+            "cite-"
+        );
         let labels = CitationNoteLabels {
             prefix: "cite-",
             locale: CitationLocale::En,
