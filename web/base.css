@@ -1628,7 +1628,8 @@ ob-comments {
 
 /* A passage revision is one long word; let it wrap at 320px. */
 .ob-feedback code,
-.ob-reader-note code {
+.ob-reader-note code,
+.ob-third-perspective code {
   overflow-wrap: anywhere;
   word-break: break-all;
 }
