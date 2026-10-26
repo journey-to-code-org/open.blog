@@ -855,8 +855,6 @@ fn parse_note(
     }
 }
 
-/// The kind of source record a locator is checked against: a reference stands
-/// for the edition, translation, witness, or work it points at.
 /// Why a locator cannot address the source it is attached to, if it cannot.
 /// Shared by notebook passages and citations so both refuse the same
 /// ambiguous page and folio locators.
@@ -876,6 +874,8 @@ pub(crate) fn locator_ambiguity(
     }
 }
 
+/// The kind of source record a locator is checked against: a reference stands
+/// for the edition, translation, witness, or work it points at.
 pub(crate) fn resolved_kind(library: &SourceLibrary, id: &str) -> Option<ResearchSourceKind> {
     let mut record = library.get(id)?;
     for _ in 0..4 {

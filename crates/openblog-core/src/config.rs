@@ -71,6 +71,27 @@ pub struct SiteConfig {
     /// Optional server-side cross-posting destinations. Credentials are read from
     /// environment variables and are never serialized here.
     pub syndication: SyndicationConfig,
+    /// Opt-in publication of the approved part of the private Knowledge Atlas.
+    /// Omitted from the written file while it is off, so existing projects
+    /// keep their configuration unchanged.
+    #[serde(skip_serializing_if = "KnowledgeAtlasConfig::is_off")]
+    pub knowledge_atlas: KnowledgeAtlasConfig,
+}
+
+/// Whether builds publish the Knowledge Atlas projection (ADR 0058). Off by
+/// default: the build then never reads the private atlas. On, it publishes
+/// `/atlas/` pages and `/atlas.json` holding only approved entries and the
+/// relationships whose entries are all approved.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct KnowledgeAtlasConfig {
+    pub publish: bool,
+}
+
+impl KnowledgeAtlasConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -335,6 +356,7 @@ impl Default for SiteConfig {
             admin: AdminConfig::default(),
             publish: PublishConfig::default(),
             syndication: SyndicationConfig::default(),
+            knowledge_atlas: KnowledgeAtlasConfig::default(),
         }
     }
 }

@@ -534,15 +534,69 @@ pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> 
         .map(|(_, c)| c.to_vec())
 }
 
-pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
-    let (site, themes) = load_site(root, options.include_drafts, options.now)?;
-    let config = &site.config;
+/// The public Knowledge Atlas projection, when the site opts in to publishing
+/// it (ADR 0058). A site that does not never reads the private atlas. The atlas
+/// is read and validated against the library and notebook exactly as Admin
+/// reads it, and a problem refuses the build before anything is written,
+/// naming the file and ids only.
+///
+/// The atlas is private and Git-ignored, so a build from a clone (CI, a static
+/// host) finds none and would publish an empty atlas: that build is warned in
+/// `warnings`, which `build` and `check` both report.
+pub fn published_atlas(
+    root: &Path,
+    config: &SiteConfig,
+    warnings: &mut Vec<String>,
+) -> Result<Option<openblog_core::atlas_publication::PublicAtlas>, String> {
+    if !config.knowledge_atlas.publish {
+        return Ok(None);
+    }
+    let unpublishable = |error: String| {
+        format!(
+            "the Knowledge Atlas cannot be published ({error}); run `openblog check` and repair it, or set `knowledgeAtlas.publish` to false. Nothing was written."
+        )
+    };
+    let snapshot = crate::atlas_store::load(root, &config.contributors)
+        .map_err(|error| unpublishable(error.to_string()))?;
+    if !snapshot.stored {
+        warnings.push(unstored_atlas_warning());
+    }
+    openblog_core::atlas_publication::PublicAtlas::project(&snapshot.atlas, &snapshot.library)
+        .map(Some)
+        .map_err(unpublishable)
+}
+
+/// What `build` and `check` say when the site publishes its atlas but this
+/// build cannot read one.
+fn unstored_atlas_warning() -> String {
+    format!(
+        "`knowledgeAtlas.publish` is on, but no Knowledge Atlas is stored at {}, so /atlas/ and atlas.json are published empty. The atlas is private and Git-ignored: only a build that can read it publishes it (`openblog serve` and Admin, or a local `openblog build` you then upload). A CI or static-host build from the repository cannot.",
+        crate::atlas_store::ATLAS_FILE
+    )
+}
+
+/// Everything a full build or `check` generates, after the guards that keep
+/// private research out of public inputs and generated output.
+pub fn generate_site(
+    root: &Path,
+    site: &mut Site,
+    themes: &ThemeSet,
+) -> Result<Vec<openblog_core::OutputFile>, String> {
     // Private research must never ride into a public folder (an export saved
     // into static/, a copied notebook): refuse before anything is generated.
-    crate::private_guard::refuse_private_research_in_public_inputs(root, config)?;
+    crate::private_guard::refuse_private_research_in_public_inputs(root, &site.config)?;
+    site.atlas = published_atlas(root, &site.config, &mut site.warnings)?;
     // Required destinations (including full-content feeds) must succeed before
     // generated output or stale files are changed.
-    let files = generate(&site, &themes)?;
+    let files = generate(site, themes)?;
+    crate::private_guard::refuse_private_research_in_output(&files)?;
+    Ok(files)
+}
+
+pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
+    let (mut site, themes) = load_site(root, options.include_drafts, options.now)?;
+    let files = generate_site(root, &mut site, &themes)?;
+    let config = &site.config;
     let mut warnings = site.warnings.clone();
     warnings.extend(
         crate::portable_export::build_diagnostics(&site)?
@@ -808,6 +862,7 @@ mod tests {
 
     const PRIVATE_MARKER: &str = "ob-private-source-7f3a";
     const NOTEBOOK_MARKER: &str = "ob-private-notebook-9d21";
+    const ATLAS_MARKER: &str = "ob-private-atlas-3c58";
 
     /// A project with one public post and a private source library whose
     /// every field carries a marker that must never be published.
@@ -830,6 +885,14 @@ mod tests {
             r#"{{"version":1,"passages":[{{"id":"p-leak","source":"{PRIVATE_MARKER}","excerpt":{{"text":"{NOTEBOOK_MARKER} quoted"}},"locators":[{{"kind":"page","value":"{NOTEBOOK_MARKER}"}}]}}],"notes":[{{"id":"n-leak","kind":"question","text":"{NOTEBOOK_MARKER} noted","passages":["p-leak"],"concepts":["{NOTEBOOK_MARKER}"]}}]}}"#
         );
         fs::write(root.join(crate::notebook_store::NOTEBOOK_FILE), notebook).unwrap();
+        let atlas = format!(
+            r#"{{"version":1,"entries":[{{"id":"{ATLAS_MARKER}","kind":"concept","label":"{ATLAS_MARKER} label","summary":"{ATLAS_MARKER} summary","visibility":"approved"}},{{"id":"w","kind":"work","label":"W","source":"{PRIVATE_MARKER}","visibility":"approved"}}],"relationships":[{{"id":"r","kind":"discusses","from":"w","to":"{ATLAS_MARKER}","assertedBy":{{"kind":"author"}},"evidence":[{{"source":"{PRIVATE_MARKER}","locators":[{{"kind":"section","value":"{ATLAS_MARKER}"}}],"margin":"{ATLAS_MARKER} evidence extra"}}],"uncertainty":"{ATLAS_MARKER} doubt","contestedBy":[{{"by":{{"kind":"named","name":"{ATLAS_MARKER} dissenter"}},"note":"{ATLAS_MARKER} dissent note"}}],"shelf":"{ATLAS_MARKER} relationship extra"}}],"workspace":"{ATLAS_MARKER} top-level extra"}}"#
+        );
+        // Positive control: the seeded file really is an atlas.
+        assert!(openblog_core::research_bundle::looks_like_private_research(
+            atlas.as_bytes()
+        ));
+        fs::write(root.join(crate::atlas_store::ATLAS_FILE), atlas).unwrap();
         root
     }
 
@@ -843,8 +906,10 @@ mod tests {
             assert!(
                 !String::from_utf8_lossy(&bytes).contains(PRIVATE_MARKER)
                     && !String::from_utf8_lossy(&bytes).contains(NOTEBOOK_MARKER)
+                    && !String::from_utf8_lossy(&bytes).contains(ATLAS_MARKER)
                     && !rel.contains("sources.json")
                     && !rel.contains("notebook.json")
+                    && !rel.contains("atlas.json")
                     && !rel.contains(".openblog/private"),
                 "{rel} exposes private source-library data"
             );
@@ -870,7 +935,7 @@ mod tests {
         assert_eq!(report.posts, 1);
         assert_no_private_output(&root);
         let search = fs::read_to_string(root.join("dist/search.json")).unwrap();
-        assert!(!search.contains(NOTEBOOK_MARKER));
+        assert!(!search.contains(NOTEBOOK_MARKER) && !search.contains(ATLAS_MARKER));
         assert!(
             search.contains("Hello"),
             "the public search index is still built"
@@ -919,6 +984,16 @@ mod tests {
             version(&root),
             before,
             "private notebook edits changed the asset version"
+        );
+        fs::write(
+            root.join(crate::atlas_store::ATLAS_FILE),
+            r#"{"version":1,"entries":[{"id":"c","kind":"concept","label":"changed"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            version(&root),
+            before,
+            "private atlas edits changed the asset version"
         );
         fs::remove_dir_all(root).unwrap();
 
@@ -986,6 +1061,219 @@ mod tests {
             fs::read_to_string(root.join("dist/search.json")).unwrap(),
             before
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    // ---- Knowledge Atlas publication (A5.4, ADR 0058) ---------------------------
+
+    fn dist_bytes(root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        let output = root.join("dist");
+        fsutil::walk(&output)
+            .into_iter()
+            .map(|file| (fsutil::relative(&output, &file), fs::read(&file).unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn a_site_that_does_not_publish_its_atlas_builds_byte_for_byte_as_without_one() {
+        let root = project_with_private_library("atlas-legacy", "{}");
+        let atlas = fs::read(root.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        fs::remove_file(root.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        production_build(&root);
+        let without = dist_bytes(&root);
+
+        fs::write(root.join(crate::atlas_store::ATLAS_FILE), &atlas).unwrap();
+        production_build(&root);
+        assert_eq!(
+            dist_bytes(&root),
+            without,
+            "an unpublished atlas changes nothing"
+        );
+
+        // Off means never read: even a damaged atlas cannot affect the build.
+        fs::write(root.join(crate::atlas_store::ATLAS_FILE), "{ not json").unwrap();
+        production_build(&root);
+        assert_eq!(dist_bytes(&root), without);
+        assert!(without.keys().all(|path| !path.contains("atlas")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_build_that_publishes_the_atlas_but_cannot_read_one_warns() {
+        let root = project_with_private_library(
+            "atlas-unstored",
+            r#"{"knowledgeAtlas":{"publish":true}}"#,
+        );
+        fs::remove_file(root.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        fs::remove_file(root.join(crate::notebook_store::NOTEBOOK_FILE)).unwrap();
+        let report = production_build(&root);
+        let warning = report
+            .warnings
+            .iter()
+            .find(|warning| warning.contains("knowledgeAtlas.publish"))
+            .expect("the build warns that it publishes an empty atlas");
+        assert!(
+            warning.contains(crate::atlas_store::ATLAS_FILE),
+            "{warning}"
+        );
+        assert!(warning.contains("published empty"), "{warning}");
+        assert!(warning.contains("openblog serve"), "{warning}");
+
+        // `check` reads the same warnings from the generated site.
+        let (mut site, themes) = load_site(&root, true, None).unwrap();
+        generate_site(&root, &mut site, &themes).unwrap();
+        assert!(site
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("knowledgeAtlas.publish")));
+
+        // A stored atlas, even an empty one, is no surprise.
+        fs::write(
+            root.join(crate::atlas_store::ATLAS_FILE),
+            r#"{"version":1,"entries":[],"relationships":[]}"#,
+        )
+        .unwrap();
+        let report = production_build(&root);
+        assert!(report
+            .warnings
+            .iter()
+            .all(|warning| !warning.contains("knowledgeAtlas.publish")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A project that publishes its atlas. Every value that may be published
+    /// says PUBLIC; every value that may not carries a private marker.
+    fn project_publishing_atlas(tag: &str) -> PathBuf {
+        let root = project_with_private_library(tag, r#"{"knowledgeAtlas":{"publish":true}}"#);
+        let library = format!(
+            r#"{{"version":1,"sources":[{{"id":"republic","kind":"work","title":"PUBLIC Republic","notes":"{PRIVATE_MARKER} note"}},{{"id":"slings","kind":"edition","of":"republic","title":"PUBLIC Slings","identifiers":[{{"scheme":"shelf","value":"{PRIVATE_MARKER}"}}]}},{{"id":"unused","kind":"work","title":"{PRIVATE_MARKER} unused"}}]}}"#
+        );
+        fs::write(root.join(crate::source_store::LIBRARY_FILE), library).unwrap();
+        let notebook = format!(
+            r#"{{"version":1,"passages":[{{"id":"p-{NOTEBOOK_MARKER}","source":"slings","excerpt":{{"text":"{NOTEBOOK_MARKER} quoted"}}}}],"notes":[{{"id":"n-leak","kind":"question","text":"{NOTEBOOK_MARKER} noted","concepts":["the-good"]}}]}}"#
+        );
+        fs::write(root.join(crate::notebook_store::NOTEBOOK_FILE), notebook).unwrap();
+        let atlas = format!(
+            r#"{{"version":1,"entries":[
+              {{"id":"plato","kind":"person","label":"PUBLIC Plato","aliases":["PUBLIC Aristocles"],"summary":"PUBLIC summary","visibility":"approved","shelf":"{ATLAS_MARKER} entry extra"}},
+              {{"id":"politeia","kind":"work","label":"PUBLIC Politeia","source":"republic","visibility":"approved"}},
+              {{"id":"the-good","kind":"concept","label":"PUBLIC The Good","visibility":"approved"}},
+              {{"id":"hidden","kind":"concept","label":"{ATLAS_MARKER} private label","summary":"{ATLAS_MARKER} private summary","visibility":"private"}}],
+             "relationships":[
+              {{"id":"r-authored","kind":"authored","from":"plato","to":"politeia","assertedBy":{{"kind":"named","name":"PUBLIC Diogenes"}},"confidence":"plausible","evidence":[{{"source":"slings","locators":[{{"kind":"page","value":"514","hint":"{ATLAS_MARKER} locator extra"}}],"margin":"{ATLAS_MARKER} evidence extra"}}],"uncertainty":"PUBLIC doubt","contestedBy":[{{"by":{{"kind":"named","name":"PUBLIC Dissenter"}},"note":"PUBLIC dissent note","tag":"{ATLAS_MARKER} dissent extra"}}],"visibility":"approved","shelf":"{ATLAS_MARKER} relationship extra"}},
+              {{"id":"r-discusses","kind":"discusses","from":"politeia","to":"the-good","assertedBy":{{"kind":"author"}},"evidence":[{{"source":"republic"}}],"visibility":"approved"}},
+              {{"id":"r-hidden","kind":"discusses","from":"politeia","to":"hidden","assertedBy":{{"kind":"author"}},"evidence":[{{"source":"republic"}}],"uncertainty":"{ATLAS_MARKER} private endpoint","visibility":"approved"}},
+              {{"id":"r-private","kind":"related-to","from":"plato","to":"the-good","assertedBy":{{"kind":"named","name":"{ATLAS_MARKER} party"}},"evidence":[{{"source":"slings","passage":"p-{NOTEBOOK_MARKER}"}}],"uncertainty":"{ATLAS_MARKER} private relationship","visibility":"private"}}],
+             "workspace":"{ATLAS_MARKER} top-level extra"}}"#
+        );
+        fs::write(root.join(crate::atlas_store::ATLAS_FILE), atlas).unwrap();
+        root
+    }
+
+    #[test]
+    fn a_published_atlas_carries_only_approved_items_and_withdrawal_needs_no_other_edit() {
+        let root = project_publishing_atlas("atlas-published");
+        production_build(&root);
+        let built = dist_bytes(&root);
+        for path in [
+            "atlas/index.html",
+            "atlas/plato/index.html",
+            "atlas/politeia/index.html",
+            "atlas/the-good/index.html",
+            "atlas.json",
+        ] {
+            assert!(built.contains_key(path), "{path}");
+        }
+        assert!(!built.contains_key("atlas/hidden/index.html"));
+        for (path, bytes) in &built {
+            let text = String::from_utf8_lossy(bytes);
+            for marker in [PRIVATE_MARKER, NOTEBOOK_MARKER, ATLAS_MARKER] {
+                assert!(!text.contains(marker), "dist/{path} exposes {marker}");
+            }
+            assert!(
+                !openblog_core::research_bundle::looks_like_private_research(bytes),
+                "dist/{path} carries a copy of private research"
+            );
+        }
+        let json = String::from_utf8_lossy(&built["atlas.json"]).to_string();
+        for public in [
+            "PUBLIC Plato",
+            "PUBLIC Aristocles",
+            "PUBLIC summary",
+            "PUBLIC Diogenes",
+            "PUBLIC doubt",
+            "PUBLIC Dissenter",
+            "PUBLIC dissent note",
+            "PUBLIC Republic",
+            "PUBLIC Slings",
+            r#""standing":"contested""#,
+        ] {
+            assert!(json.contains(public), "the artifact publishes {public}");
+        }
+        let plato = String::from_utf8_lossy(&built["atlas/plato/index.html"]).to_string();
+        assert!(plato.contains("PUBLIC Dissenter: PUBLIC dissent note"));
+        assert!(plato.contains("<strong>Contested:</strong>"));
+
+        // Withdrawing approval is one value in the private file; the next build
+        // drops the entry, every relationship touching it, and its page.
+        let path = root.join(crate::atlas_store::ATLAS_FILE);
+        let stored = fs::read_to_string(&path).unwrap();
+        let withdrawn = stored.replacen(
+            r#""label":"PUBLIC Plato","aliases":["PUBLIC Aristocles"],"summary":"PUBLIC summary","visibility":"approved""#,
+            r#""label":"PUBLIC Plato","aliases":["PUBLIC Aristocles"],"summary":"PUBLIC summary","visibility":"private""#,
+            1,
+        );
+        assert_ne!(withdrawn, stored);
+        fs::write(&path, &withdrawn).unwrap();
+        production_build(&root);
+        let after = dist_bytes(&root);
+        assert!(
+            !after.contains_key("atlas/plato/index.html"),
+            "the page is removed"
+        );
+        let json = String::from_utf8_lossy(&after["atlas.json"]).to_string();
+        for gone in [
+            "PUBLIC Plato",
+            "PUBLIC Diogenes",
+            "PUBLIC Dissenter",
+            "PUBLIC Slings",
+        ] {
+            assert!(!json.contains(gone), "{gone} is withdrawn");
+        }
+        assert!(json.contains("PUBLIC Politeia") && json.contains("r-discusses"));
+        assert!(after
+            .values()
+            .all(|bytes| !String::from_utf8_lossy(bytes).contains("PUBLIC Plato")));
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            withdrawn,
+            "the build never edits the private atlas"
+        );
+
+        // A damaged atlas refuses the build, names the file only, and leaves
+        // the published site as it was.
+        fs::write(
+            &path,
+            format!(r#"{{"version":1,"entries":[{{"id":"{ATLAS_MARKER}"#),
+        )
+        .unwrap();
+        let error = build(
+            &root,
+            &BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .expect("a damaged published atlas refuses the build");
+        assert!(
+            error.contains(".openblog/private/research/atlas.json"),
+            "{error}"
+        );
+        assert!(error.contains("knowledgeAtlas.publish"), "{error}");
+        assert!(!error.contains(ATLAS_MARKER), "{error}");
+        assert_eq!(dist_bytes(&root), after, "nothing was written");
         fs::remove_dir_all(root).unwrap();
     }
 }

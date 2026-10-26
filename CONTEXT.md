@@ -643,6 +643,66 @@ A scheme-qualified position, such as a page, folio, line, or timestamp, inside t
 work, edition, translation, or witness a reference points at.
 _Avoid_: Citation, URL fragment
 
+**Knowledge Atlas**:
+An author's private, versioned map of contextual entries and the attributed relationships between
+them. It reaches public output only through an explicit publication projection of approved items.
+_Avoid_: Knowledge graph or database; ontology; a source of factual truth
+
+**Contextual entry**:
+One person, work, concept, movement, or event in the atlas. Its kind is fixed and decides which
+relationships it may join. A concept entry is what a notebook note's concept link resolves to.
+_Avoid_: Node, record, tag; treating an edition or translation as a work entry
+
+**Attributed relationship**:
+A directed link between two entries that one named party asserts, resting on cited source evidence
+and carrying a confidence and an uncertainty note. Its reverse reading is a label, never a second
+assertion, and it is never inferred from dates or order.
+_Avoid_: Edge or fact; influence inferred from chronology
+
+**Contested relationship**:
+A relationship with at least one recorded, attributed disagreement. There is no state that says
+scholars agree.
+_Avoid_: Consensus, established
+
+**Unsourced draft**:
+The explicit state of a relationship that cites no evidence yet. It can be neither strong nor
+approved.
+_Avoid_: Unverified, low confidence
+
+**Projected relationship**:
+An approved relationship whose two entries are both approved, and so the only kind the
+publication projection may copy. An approved relationship touching a private entry stays
+private and is reported as a notice, never refused.
+_Avoid_: Public relationship, approved relationship when a private endpoint is possible
+
+**Atlas projection**:
+The one public form of the Knowledge Atlas: approved entries and projected relationships, each
+reduced to an explicit allowlist of fields, with the public description of the sources they use.
+Both the atlas pages and `atlas.json` are rendered from it, and nothing public reads the private
+atlas. Withdrawing approval removes an item from the next build.
+_Avoid_: Public atlas export, public graph; filtering the private atlas per surface
+
+**Atlas publication switch**:
+The site setting `knowledgeAtlas.publish`. Off by default, when no build reads the atlas at all;
+on, the build publishes the atlas projection. Item approval is still required for each item.
+_Avoid_: Treating approval alone as publication
+
+**Atlas revision**:
+The fingerprint of the Knowledge Atlas as stored, which every change must name so that a change
+based on an older read is refused instead of overwriting newer work.
+_Avoid_: Version, which names the file format
+
+**Relationship explorer**:
+The Admin list of one entry's relationships, outgoing and incoming, each read from that entry's
+side with who asserts it, its confidence, standing, evidence and uncertainty. It is the complete
+interface to the atlas's structure; any drawing could only repeat it.
+_Avoid_: Graph view, network map; a picture as the only way to read relationships
+
+**Incident reading**:
+How a relationship reads from one of its entries: its kind going out (`authored`), its inverse
+label coming in (`authored by`). A label for display, never a second stored assertion.
+_Avoid_: Reverse edge, inferred relationship
+
 ## Admin workspace
 
 **Workspace preferences**:

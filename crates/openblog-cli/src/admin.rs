@@ -33,6 +33,10 @@ use openblog_core::frontmatter::{self, Value};
 use openblog_core::invitation::{
     Identities, Invitation, InvitationError, InvitationField, NewInvitation,
 };
+use openblog_core::knowledge_atlas::{
+    self, AtlasDiagnostic, Direction, Entry as AtlasEntry, EntryKind,
+    Relationship as AtlasRelationship, RelationshipKind, Standing,
+};
 use openblog_core::markdown::RenderOptions;
 use openblog_core::media_moment::{location_text, Moment, MomentSet};
 use openblog_core::members::MemberError;
@@ -61,6 +65,7 @@ use crate::assistant::{
     ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION,
     BUILTIN_SKILL_SOURCES,
 };
+use crate::atlas_store;
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
 use crate::fsutil;
@@ -627,6 +632,14 @@ fn authenticated_api(
         ("POST", "research/notes") => save_note(state, req, true),
         ("PUT", "research/notes") => save_note(state, req, false),
         ("DELETE", "research/notes") => remove_entry(state, req, false),
+        ("GET", "research/atlas") => list_atlas(state),
+        ("POST", "research/atlas/explore") => explore_atlas(state, req),
+        ("POST", "research/atlas/entries") => save_atlas_entry(state, req, true),
+        ("PUT", "research/atlas/entries") => save_atlas_entry(state, req, false),
+        ("DELETE", "research/atlas/entries") => remove_atlas_item(state, req, true),
+        ("POST", "research/atlas/relationships") => save_atlas_relationship(state, req, true),
+        ("PUT", "research/atlas/relationships") => save_atlas_relationship(state, req, false),
+        ("DELETE", "research/atlas/relationships") => remove_atlas_item(state, req, false),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
@@ -1625,6 +1638,341 @@ fn notebook_store_error(
         }
         notebook_store::StoreError::Invalid(diagnostics) => notebook_diagnostics(diagnostics),
         notebook_store::StoreError::Storage(message) => Response::error(500, &message),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge Atlas: private entries and attributed relationships (ADR 0057)
+// ---------------------------------------------------------------------------
+
+/// A short, character-safe preview of private text for a picker label.
+fn atlas_preview(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= 80 {
+        flat
+    } else {
+        let mut cut: String = flat.chars().take(79).collect();
+        cut.push('…');
+        cut
+    }
+}
+
+/// What every relationship kind may join, read from the core so the Admin
+/// pickers can never offer an endpoint the store would refuse.
+fn atlas_kinds() -> Json {
+    let names = |kinds: &[EntryKind]| kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+    json!({
+        "entries": names(&EntryKind::ALL),
+        "relationships": RelationshipKind::ALL
+            .iter()
+            .map(|kind| json!({
+                "kind": kind.as_str(),
+                "inverse": kind.inverse_label(),
+                "from": names(kind.from_kinds()),
+                "to": names(kind.to_kinds()),
+                "symmetric": kind.is_symmetric(),
+                "sameKind": kind.requires_same_kind(),
+                "acyclic": kind.is_acyclic(),
+            }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// The atlas as stored, with what the editor picks from: the library's
+/// sources and the notebook's passages (id, source, locators and a short
+/// preview, never a copy into the atlas). `no-store` like the rest of Admin.
+fn atlas_view(snapshot: &atlas_store::Snapshot) -> Json {
+    let atlas = &snapshot.atlas;
+    let passages: Vec<Json> = snapshot
+        .notebook
+        .passages
+        .iter()
+        .map(|passage| {
+            json!({
+                "id": passage.id,
+                "source": passage.source,
+                "locators": passage.locators,
+                "archived": passage.archived,
+                "preview": atlas_preview(&passage.excerpt.text),
+            })
+        })
+        .collect();
+    json!({
+        "file": atlas_store::ATLAS_FILE,
+        "revision": snapshot.revision,
+        "stored": snapshot.stored,
+        "entries": atlas.entries,
+        "relationships": atlas.relationships,
+        "notices": atlas.notices(),
+        "missingConcepts": atlas.missing_concepts(&snapshot.notebook),
+        "kinds": atlas_kinds(),
+        "sources": snapshot.library.sources,
+        "passages": passages,
+    })
+}
+
+fn list_atlas(state: &AppState) -> Response {
+    match atlas_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => Response::json(200, &atlas_view(&snapshot)),
+        Err(error) => atlas_store_error(state, error, None),
+    }
+}
+
+/// Every relationship that touches one entry, read from that entry's side
+/// (`authored` going out, `authored by` coming in), with its derived standing.
+/// Only asserted relationships appear; nothing is mirrored or inferred. The
+/// id travels in the body like a notebook backlink, and nothing is written.
+fn explore_atlas(state: &AppState, req: &Request) -> Response {
+    let body = match research_read_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let Some(id) = body["id"]
+        .as_str()
+        .filter(|id| knowledge_atlas::valid_id(id))
+    else {
+        return Response::error(400, "Name the id of the entry to explore");
+    };
+    let snapshot = match atlas_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return atlas_store_error(state, error, None),
+    };
+    let atlas = &snapshot.atlas;
+    let Some(entry) = atlas.entry(id) else {
+        return Response::json(
+            404,
+            &json!({ "error": "No atlas entry has this id", "missing": true, "revision": snapshot.revision }),
+        );
+    };
+    let (mut outgoing, mut incoming) = (Vec::new(), Vec::new());
+    for incident in atlas.relationships_of(id) {
+        let other = atlas.entry(incident.other);
+        let view = json!({
+            "label": incident.label,
+            "other": {
+                "id": incident.other,
+                "kind": other.map(|e| e.kind),
+                "label": other.map(|e| e.label.as_str()),
+            },
+            "standing": match incident.relationship.standing() {
+                Standing::Asserted => "asserted",
+                Standing::Contested => "contested",
+            },
+            "projected": atlas.is_projected(incident.relationship),
+            "relationship": incident.relationship,
+        });
+        match incident.direction {
+            Direction::Outgoing => outgoing.push(view),
+            Direction::Incoming => incoming.push(view),
+        }
+    }
+    let notes: Vec<Json> = if entry.kind == EntryKind::Concept {
+        snapshot
+            .notebook
+            .notes
+            .iter()
+            .filter(|note| note.concepts.iter().any(|concept| concept == id))
+            .map(|note| json!({ "id": note.id, "kind": note.kind, "preview": atlas_preview(&note.text) }))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Response::json(
+        200,
+        &json!({
+            "revision": snapshot.revision,
+            "entry": entry,
+            "outgoing": outgoing,
+            "incoming": incoming,
+            "notes": notes,
+        }),
+    )
+}
+
+/// Read an atlas change request: JSON, bounded, and naming the revision.
+fn atlas_request(req: &Request) -> Result<(Json, String), Response> {
+    require_json(req)?;
+    if req.body.len() > MAX_NOTEBOOK_REQUEST_BYTES {
+        return Err(Response::error(
+            413,
+            "An atlas change is limited to 256 KiB",
+        ));
+    }
+    let body: Json =
+        serde_json::from_slice(&req.body).map_err(|_| Response::error(400, "Invalid JSON"))?;
+    let Some(revision) = body["revision"].as_str().map(str::to_string) else {
+        return Err(Response::error(400, "Missing atlas revision"));
+    };
+    Ok((body, revision))
+}
+
+fn atlas_saved(
+    state: &AppState,
+    snapshot: &atlas_store::Snapshot,
+    key: &str,
+    item: Json,
+    create: bool,
+) -> Response {
+    let mut view = atlas_view(snapshot);
+    view[key] = item;
+    attach_atlas_build(state, &mut view);
+    Response::json(if create { 201 } else { 200 }, &view)
+}
+
+/// While the site publishes its atlas (ADR 0058), a saved atlas change is
+/// published at once, so granting or withdrawing approval reaches the public
+/// site without waiting for another save. The outcome travels as `build`; a
+/// site that does not publish its atlas is not rebuilt.
+fn attach_atlas_build(state: &AppState, view: &mut Json) {
+    let publishes = site::load_config(&state.root)
+        .map(|config| config.knowledge_atlas.publish)
+        .unwrap_or(false);
+    if !publishes {
+        return;
+    }
+    view["build"] = match state.rebuild() {
+        Ok(report) => json!({ "ok": true, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
+}
+
+/// Create (`POST`) or update (`PUT`) one entry from its full JSON form.
+fn save_atlas_entry(state: &AppState, req: &Request, create: bool) -> Response {
+    let (body, revision) = match atlas_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let entry = match AtlasEntry::from_json(body["entry"].clone()) {
+        Ok(entry) => entry,
+        Err(diagnostics) => return atlas_diagnostics(diagnostics),
+    };
+    let id = entry.id.clone();
+    let contributors = source_contributors(state);
+    let saved = if create {
+        atlas_store::create_entry(&state.root, &revision, entry, &contributors)
+    } else {
+        atlas_store::update_entry(&state.root, &revision, entry, &contributors)
+    };
+    match saved {
+        Ok(snapshot) => {
+            let item = json!(snapshot.atlas.entry(&id));
+            atlas_saved(state, &snapshot, "entry", item, create)
+        }
+        Err(error) => atlas_store_error(state, error, Some((true, &id))),
+    }
+}
+
+/// Create (`POST`) or update (`PUT`) one relationship from its full JSON form.
+fn save_atlas_relationship(state: &AppState, req: &Request, create: bool) -> Response {
+    let (body, revision) = match atlas_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let relationship = match AtlasRelationship::from_json(body["relationship"].clone()) {
+        Ok(relationship) => relationship,
+        Err(diagnostics) => return atlas_diagnostics(diagnostics),
+    };
+    let id = relationship.id.clone();
+    let contributors = source_contributors(state);
+    let saved = if create {
+        atlas_store::create_relationship(&state.root, &revision, relationship, &contributors)
+    } else {
+        atlas_store::update_relationship(&state.root, &revision, relationship, &contributors)
+    };
+    match saved {
+        Ok(snapshot) => {
+            let item = json!(snapshot.atlas.relationship(&id));
+            atlas_saved(state, &snapshot, "relationship", item, create)
+        }
+        Err(error) => atlas_store_error(state, error, Some((false, &id))),
+    }
+}
+
+/// Remove one entry (refused while a relationship joins it; notes whose
+/// concept link becomes unresolved are reported) or one relationship.
+fn remove_atlas_item(state: &AppState, req: &Request, entry: bool) -> Response {
+    let (body, revision) = match atlas_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    // Checked before it is named in any message, so a hostile id is never echoed.
+    let Some(id) = body["id"]
+        .as_str()
+        .filter(|id| knowledge_atlas::valid_id(id))
+    else {
+        return Response::error(400, "Name the id of the entry or relationship to remove");
+    };
+    let contributors = source_contributors(state);
+    if entry {
+        match atlas_store::remove_entry(&state.root, &revision, id, &contributors) {
+            Ok((snapshot, removal)) => {
+                let mut view = atlas_view(&snapshot);
+                view["unresolvedNotes"] = json!(removal.unresolved_notes);
+                attach_atlas_build(state, &mut view);
+                Response::json(200, &view)
+            }
+            Err(error) => atlas_store_error(state, error, Some((true, id))),
+        }
+    } else {
+        match atlas_store::remove_relationship(&state.root, &revision, id, &contributors) {
+            Ok(snapshot) => {
+                let mut view = atlas_view(&snapshot);
+                attach_atlas_build(state, &mut view);
+                Response::json(200, &view)
+            }
+            Err(error) => atlas_store_error(state, error, Some((false, id))),
+        }
+    }
+}
+
+fn atlas_diagnostics(diagnostics: Vec<AtlasDiagnostic>) -> Response {
+    let error = diagnostics.first().map_or_else(
+        || "The atlas change is invalid".to_string(),
+        |first| first.to_string(),
+    );
+    Response::json(
+        422,
+        &json!({
+            "error": error,
+            "file": atlas_store::ATLAS_FILE,
+            "diagnostics": diagnostics,
+        }),
+    )
+}
+
+/// A conflict carries the latest revision and the newer copy of the entry or
+/// relationship being changed, so the editor can keep the draft and compare.
+/// Nothing is written either way.
+fn atlas_store_error(
+    state: &AppState,
+    error: atlas_store::StoreError,
+    item: Option<(bool, &str)>,
+) -> Response {
+    match error {
+        atlas_store::StoreError::Conflict => {
+            let latest = atlas_store::load(&state.root, &source_contributors(state)).ok();
+            let current = latest
+                .as_ref()
+                .zip(item)
+                .and_then(|(snapshot, (entry, id))| {
+                    if entry {
+                        snapshot.atlas.entry(id).map(|e| json!(e))
+                    } else {
+                        snapshot.atlas.relationship(id).map(|r| json!(r))
+                    }
+                });
+            Response::json(
+                409,
+                &json!({
+                    "error": error.to_string(),
+                    "conflict": true,
+                    "revision": latest.as_ref().map(|snapshot| snapshot.revision.as_str()),
+                    "current": current,
+                }),
+            )
+        }
+        atlas_store::StoreError::Invalid(diagnostics) => atlas_diagnostics(diagnostics),
+        atlas_store::StoreError::Storage(message) => Response::error(500, &message),
     }
 }
 
@@ -12574,6 +12922,974 @@ mod tests {
         }
     }
 
+    // ---- Knowledge Atlas leak regressions (A5.2, ADR 0055) ----------------------
+    //
+    // Every atlas field holds its own sentinel, including approved items: the site
+    // does not publish its atlas, so approval alone must not open any surface.
+
+    const ATLAS_SENTINELS: [(&str, &str); 14] = [
+        ("entry id", "ob-atlas-entry-id-5309"),
+        ("label", "ob-atlas-label-5309"),
+        ("alias", "ob-atlas-alias-5309"),
+        ("summary", "ob-atlas-summary-5309"),
+        ("relationship id", "ob-atlas-relationship-id-5309"),
+        ("named party", "ob-atlas-party-5309"),
+        ("uncertainty", "ob-atlas-uncertainty-5309"),
+        ("locator", "ob-atlas-locator-5309"),
+        ("unknown field", "ob-atlas-extra-5309"),
+        ("dissent note", "ob-atlas-dissent-note-5309"),
+        ("dissenting party", "ob-atlas-dissenter-5309"),
+        (
+            "relationship unknown field",
+            "ob-atlas-relationship-extra-5309",
+        ),
+        ("evidence unknown field", "ob-atlas-evidence-extra-5309"),
+        ("top-level unknown field", "ob-atlas-top-extra-5309"),
+    ];
+
+    fn atlas_leaked(bytes: &[u8]) -> Vec<&'static str> {
+        let text = String::from_utf8_lossy(bytes);
+        ATLAS_SENTINELS
+            .iter()
+            .filter(|(_, sentinel)| text.contains(sentinel))
+            .map(|(name, _)| *name)
+            .collect()
+    }
+
+    fn assert_atlas_clean(surface: &str, bytes: &[u8]) {
+        let found = atlas_leaked(bytes);
+        assert!(
+            found.is_empty(),
+            "{surface} exposes the Knowledge Atlas ({})",
+            found.join(", ")
+        );
+        assert!(
+            !openblog_core::research_bundle::looks_like_private_research(bytes),
+            "{surface} carries a copy of private research"
+        );
+    }
+
+    fn seeded_atlas(f: &Fixture) -> Vec<u8> {
+        use openblog_core::knowledge_atlas::{Entry, Relationship};
+        let none = BTreeMap::new();
+        let empty = crate::atlas_store::load(&f.dir, &none).unwrap();
+        let person = Entry::from_json(json!({
+            "id": ATLAS_SENTINELS[0].1, "kind": "person", "label": ATLAS_SENTINELS[1].1,
+            "aliases": [ATLAS_SENTINELS[2].1], "summary": ATLAS_SENTINELS[3].1,
+            "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1}))
+        .unwrap();
+        let work = Entry::from_json(json!({"id": "politeia", "kind": "work",
+            "label": "Politeia", "source": "plato", "visibility": "approved"}))
+        .unwrap();
+        let one = crate::atlas_store::create_entry(&f.dir, &empty.revision, person, &none).unwrap();
+        let two = crate::atlas_store::create_entry(&f.dir, &one.revision, work, &none).unwrap();
+        let relationship = Relationship::from_json(json!({
+            "id": ATLAS_SENTINELS[4].1, "kind": "authored",
+            "from": ATLAS_SENTINELS[0].1, "to": "politeia",
+            "assertedBy": {"kind": "named", "name": ATLAS_SENTINELS[5].1},
+            "uncertainty": ATLAS_SENTINELS[6].1, "visibility": "approved",
+            "contestedBy": [{"by": {"kind": "named", "name": ATLAS_SENTINELS[10].1},
+                "note": ATLAS_SENTINELS[9].1}],
+            "shelf": ATLAS_SENTINELS[11].1,
+            "evidence": [{"source": "slings", "margin": ATLAS_SENTINELS[12].1,
+                "locators": [{"kind": "page", "value": ATLAS_SENTINELS[7].1}]}]}))
+        .unwrap();
+        crate::atlas_store::create_relationship(&f.dir, &two.revision, relationship, &none)
+            .unwrap();
+        // The store edits entries and relationships only; a top-level unknown
+        // field arrives by hand edit, and the stored atlas stays valid with it.
+        let path = f.dir.join(crate::atlas_store::ATLAS_FILE);
+        let mut document: Json = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        document["workspace"] = json!(ATLAS_SENTINELS[13].1);
+        fs::write(&path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+        crate::atlas_store::load(&f.dir, &none).expect("the hand-edited atlas is valid");
+        let stored = fs::read(&path).unwrap();
+        assert_eq!(
+            atlas_leaked(&stored).len(),
+            ATLAS_SENTINELS.len(),
+            "every sentinel is stored, so a clean result below means something"
+        );
+        stored
+    }
+
+    #[test]
+    fn knowledge_atlas_sentinels_never_cross_a_publication_boundary() {
+        let f = fixture_with_sources("atlas-leak-corpus");
+        let session = login_ok(&f);
+        let stored = seeded_atlas(&f);
+
+        // The built site: pages, feeds, search index, llms files, assets.
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        let files = crate::fsutil::walk(&dist);
+        let names: Vec<String> = files
+            .iter()
+            .map(|file| crate::fsutil::relative(&dist, file))
+            .collect();
+        for expected in ["index.html", "search.json", "llms.txt", "llms-full.txt"] {
+            assert!(names.iter().any(|name| name == expected), "{expected}");
+        }
+        assert!(names.iter().any(|name| name.ends_with(".xml")), "a feed");
+        for file in &files {
+            let name = crate::fsutil::relative(&dist, file);
+            assert!(
+                !name.contains("atlas")
+                    && (name == crate::fsutil::MARKER || !name.contains(".openblog")),
+                "{name}"
+            );
+            assert_atlas_clean(&format!("dist/{name}"), &fs::read(file).unwrap());
+        }
+
+        // Portable exports of every published article.
+        let (site, _) = crate::site::load_site(&f.dir, false, None).unwrap();
+        assert!(!site.posts.is_empty());
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::from_post(post, &site.config)
+                    .unwrap();
+            assert_atlas_clean(
+                &format!("portable markdown of {}", post.slug),
+                projection.portable_markdown().unwrap().as_bytes(),
+            );
+            let html = projection.portable_html().unwrap();
+            assert_atlas_clean(
+                &format!("portable html of {}", post.slug),
+                format!("{html:?}").as_bytes(),
+            );
+        }
+
+        // Source exports, the research export, and other Admin views.
+        for format in ["csl-json", "bibtex"] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/sources/export?format={format}")),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(response.status, 200);
+            assert_atlas_clean(&format!("{format} export"), &response.body);
+        }
+        let (status, exported) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/export",
+            json!({"includePrivate": true}),
+        );
+        assert_eq!(status, 200);
+        assert!(atlas_leaked(exported.to_string().as_bytes()).is_empty());
+        for path in [
+            "meta",
+            "sources",
+            "preferences",
+            "contributors",
+            "session",
+            "research/notebook",
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", &format!("/admin/api/{path}")), &session, false),
+            );
+            assert!(atlas_leaked(&response.body).is_empty(), "admin {path}");
+        }
+        assert_atlas_clean(
+            "the source library file",
+            &fs::read(f.dir.join(crate::source_store::LIBRARY_FILE)).unwrap(),
+        );
+
+        // The public server does not serve the atlas under any spelling.
+        for path in [
+            "/.openblog/private/research/atlas.json",
+            "/.openblog/private/research/atlas.json/",
+            "/%2eopenblog/private/research/atlas.json",
+            "/../.openblog/private/research/atlas.json",
+            "/search.json?q=ob-atlas-label-5309",
+        ] {
+            let response = crate::serve::route(&f.state, &req("GET", path), &dist);
+            assert_atlas_clean(&format!("public route {path}"), &response.body);
+        }
+
+        // Publishing never commits it, even with the private folder listed.
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        git.run(&["config", "user.email", "t@example.com"]).unwrap();
+        git.run(&["config", "user.name", "T"]).unwrap();
+        git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+        let mut config = site::load_config(&f.dir).unwrap();
+        config.publish.paths = vec!["content".into(), "static".into(), ".openblog".into()];
+        let outcome = crate::publish::publish(&f.dir, &config, Some("Atlas")).unwrap();
+        assert!(outcome
+            .committed
+            .iter()
+            .all(|path| !path.contains(".openblog/private") && !path.contains("atlas")));
+        for (name, sentinel) in ATLAS_SENTINELS {
+            let history = git
+                .run(&["log", "--all", "-p", "--format=%H", "-S", sentinel])
+                .unwrap();
+            assert!(
+                history.trim().is_empty(),
+                "{name} reached the commit history"
+            );
+        }
+
+        // A copy of the atlas in a public folder stops the build, Admin's
+        // rebuild and publishing, naming only its path.
+        fs::create_dir_all(f.dir.join("static")).unwrap();
+        fs::write(f.dir.join("static/graph.json"), &stored).unwrap();
+        let error = crate::publish::publish(&f.dir, &config, Some("Leak")).unwrap_err();
+        assert!(error.contains("static/graph.json"), "{error}");
+        assert!(atlas_leaked(error.as_bytes()).is_empty());
+        let Err(error) = f.state.rebuild() else {
+            panic!("Admin's rebuild refuses an atlas copy in static/")
+        };
+        assert!(error.contains("static/graph.json") && atlas_leaked(error.as_bytes()).is_empty());
+        let error = crate::site::build(
+            &f.dir,
+            &crate::site::BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains("static/graph.json") && atlas_leaked(error.as_bytes()).is_empty());
+    }
+
+    // ---- Knowledge Atlas Admin routes (A5.3, ADR 0057) -------------------------
+
+    fn atlas(f: &Fixture, session: &(String, String)) -> Json {
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/atlas"), session, false),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        assert!(response
+            .headers
+            .iter()
+            .any(|(name, value)| name == "Cache-Control" && value == "no-store"));
+        body_json(&response)
+    }
+
+    fn stored_atlas(f: &Fixture) -> Option<Vec<u8>> {
+        fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).ok()
+    }
+
+    fn explore(f: &Fixture, session: &(String, String), id: &str) -> (u16, Json) {
+        source_call(
+            f,
+            session,
+            "POST",
+            "/admin/api/research/atlas/explore",
+            json!({ "id": id }),
+        )
+    }
+
+    const HOSTILE_LABEL: &str = "<img src=x onerror=alert(1)> Πλάτων 🙂";
+
+    #[test]
+    fn knowledge_atlas_api_is_authenticated_csrf_protected_and_revision_checked() {
+        let f = fixture_with_sources("atlas-api");
+        for (method, path) in [
+            ("GET", "/admin/api/research/atlas"),
+            ("POST", "/admin/api/research/atlas/explore"),
+            ("POST", "/admin/api/research/atlas/entries"),
+            ("PUT", "/admin/api/research/atlas/entries"),
+            ("DELETE", "/admin/api/research/atlas/entries"),
+            ("POST", "/admin/api/research/atlas/relationships"),
+            ("PUT", "/admin/api/research/atlas/relationships"),
+            ("DELETE", "/admin/api/research/atlas/relationships"),
+        ] {
+            assert_eq!(handle(&f.state, &req(method, path)).status, 401, "{path}");
+        }
+        let session = login_ok(&f);
+        let empty = atlas(&f, &session);
+        assert_eq!(empty["file"], crate::atlas_store::ATLAS_FILE);
+        assert_eq!(empty["stored"], false);
+        assert_eq!(empty["sources"].as_array().unwrap().len(), 2);
+        let kinds = empty["kinds"]["relationships"].as_array().unwrap();
+        assert_eq!(kinds.len(), 12);
+        let part_of = kinds.iter().find(|k| k["kind"] == "part-of").unwrap();
+        assert_eq!(part_of["sameKind"], true);
+        assert_eq!(part_of["acyclic"], true);
+        let authored = kinds.iter().find(|k| k["kind"] == "authored").unwrap();
+        assert_eq!(authored["from"], json!(["person"]));
+        assert_eq!(authored["inverse"], "authored by");
+        assert!(stored_atlas(&f).is_none());
+
+        let person = json!({"id": "plato", "kind": "person", "label": HOSTILE_LABEL,
+            "aliases": ["Aristocles"], "shelf": {"kept": true}});
+        // No CSRF token: refused, nothing written.
+        let without = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/atlas/entries",
+                    json!({"revision": empty["revision"], "entry": person}),
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without.status, 403);
+        assert!(stored_atlas(&f).is_none());
+        // No revision: refused.
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({ "entry": person }),
+        );
+        assert_eq!(status, 400);
+        assert!(stored_atlas(&f).is_none());
+
+        let (status, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": empty["revision"], "entry": person}),
+        );
+        assert_eq!(status, 201, "{created}");
+        assert_eq!(created["stored"], true);
+        assert_eq!(created["entry"]["label"], HOSTILE_LABEL);
+        assert_eq!(created["entry"]["visibility"], "private");
+        assert_eq!(created["entry"]["shelf"], json!({"kept": true}));
+        let (status, with_work) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": created["revision"], "entry":
+                {"id": "politeia", "kind": "work", "label": "Politeia", "source": "plato"}}),
+        );
+        assert_eq!(status, 201, "{with_work}");
+        let relationship = json!({"id": "plato-authored-politeia", "kind": "authored",
+            "from": "plato", "to": "politeia", "assertedBy": {"kind": "author"},
+            "confidence": "plausible", "uncertainty": "Dating is uncertain.",
+            "evidence": [{"source": "slings", "locators": [{"kind": "page", "value": "514"}]}]});
+        let (status, related) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/relationships",
+            json!({"revision": with_work["revision"], "relationship": relationship}),
+        );
+        assert_eq!(status, 201, "{related}");
+        assert_eq!(related["relationship"]["confidence"], "plausible");
+        let after_relationship = stored_atlas(&f).unwrap();
+
+        // Reusing an old revision conflicts, returns the stored copy, writes nothing.
+        let (status, stale) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/relationships",
+            json!({"revision": with_work["revision"], "relationship": relationship}),
+        );
+        assert_eq!(status, 409);
+        assert_eq!(stale["conflict"], true);
+        assert_eq!(stale["revision"], related["revision"]);
+        assert_eq!(stale["current"]["id"], "plato-authored-politeia");
+        assert_eq!(stored_atlas(&f).unwrap(), after_relationship);
+        let (status, stale_entry) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": empty["revision"], "entry": person}),
+        );
+        assert_eq!(status, 409);
+        assert_eq!(stale_entry["current"]["label"], HOSTILE_LABEL);
+
+        // The explorer reads each relationship from the entry's side.
+        let (status, from_person) = explore(&f, &session, "plato");
+        assert_eq!(status, 200, "{from_person}");
+        assert_eq!(from_person["outgoing"][0]["label"], "authored");
+        assert_eq!(from_person["outgoing"][0]["other"]["id"], "politeia");
+        assert_eq!(from_person["outgoing"][0]["standing"], "asserted");
+        assert_eq!(from_person["incoming"], json!([]));
+        let (_, from_work) = explore(&f, &session, "politeia");
+        assert_eq!(from_work["incoming"][0]["label"], "authored by");
+        assert_eq!(from_work["incoming"][0]["other"]["label"], HOSTILE_LABEL);
+        assert_eq!(from_work["outgoing"], json!([]));
+
+        // A recorded dissent makes it contested, never agreed.
+        let mut disputed = relationship.clone();
+        disputed["contestedBy"] =
+            json!([{"by": {"kind": "named", "name": "A later editor"}, "note": "Doubts it."}]);
+        let (status, contested) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/relationships",
+            json!({"revision": related["revision"], "relationship": disputed}),
+        );
+        assert_eq!(status, 200, "{contested}");
+        let (_, explored) = explore(&f, &session, "plato");
+        assert_eq!(explored["outgoing"][0]["standing"], "contested");
+        assert!(!explored.to_string().contains("consensus"));
+
+        // An entry keeps its kind.
+        let mut retyped = person.clone();
+        retyped["kind"] = json!("concept");
+        let (status, refused) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": contested["revision"], "entry": retyped}),
+        );
+        assert_eq!(status, 422, "{refused}");
+        assert_eq!(refused["diagnostics"][0]["code"], "endpoint-kind");
+        assert_eq!(refused["diagnostics"][0]["field"], "kind");
+        assert_eq!(refused["file"], crate::atlas_store::ATLAS_FILE);
+
+        // A linked entry cannot be removed; the relationship can, then the entry.
+        let (status, linked) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": contested["revision"], "id": "plato"}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(linked["diagnostics"][0]["code"], "still-linked");
+        let (status, unlinked) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/atlas/relationships",
+            json!({"revision": contested["revision"], "id": "plato-authored-politeia"}),
+        );
+        assert_eq!(status, 200, "{unlinked}");
+        assert_eq!(unlinked["relationships"], json!([]));
+        let (status, gone) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": unlinked["revision"], "id": "plato"}),
+        );
+        assert_eq!(status, 200, "{gone}");
+        assert_eq!(gone["unresolvedNotes"], json!([]));
+        assert_eq!(atlas(&f, &session)["entries"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn notebook_concept_links_resolve_to_atlas_concepts_and_removal_reports_them() {
+        let f = fixture_with_sources("atlas-concepts");
+        let session = login_ok(&f);
+        let empty_notebook = notebook(&f, &session);
+        let (status, _) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": empty_notebook["revision"], "note":
+                {"id": "n1", "kind": "question", "text": "Why a cave?", "concepts": ["allegory"]}}),
+        );
+        assert_eq!(status, 201);
+        let empty = atlas(&f, &session);
+        assert_eq!(empty["missingConcepts"], json!(["allegory"]));
+        let (status, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": empty["revision"], "entry":
+                {"id": "allegory", "kind": "concept", "label": "Allegory"}}),
+        );
+        assert_eq!(status, 201, "{created}");
+        assert_eq!(created["missingConcepts"], json!([]));
+        let (_, explored) = explore(&f, &session, "allegory");
+        assert_eq!(explored["notes"][0]["id"], "n1");
+        assert_eq!(explored["notes"][0]["kind"], "question");
+        let (status, removed) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": created["revision"], "id": "allegory"}),
+        );
+        assert_eq!(status, 200, "{removed}");
+        assert_eq!(removed["unresolvedNotes"], json!(["n1"]));
+        assert_eq!(removed["missingConcepts"], json!(["allegory"]));
+        // The notebook is untouched by atlas changes.
+        assert_eq!(
+            notebook(&f, &session)["notes"][0]["concepts"],
+            json!(["allegory"])
+        );
+    }
+
+    #[test]
+    fn knowledge_atlas_failures_are_scoped_and_leave_the_file_unchanged() {
+        let f = fixture_with_sources("atlas-api-failures");
+        let session = login_ok(&f);
+        let empty = atlas(&f, &session);
+        let mut revision = empty["revision"].clone();
+        for entry in [
+            json!({"id": "plato", "kind": "person", "label": "Plato"}),
+            json!({"id": "the-good", "kind": "concept", "label": "The Good"}),
+            json!({"id": "form", "kind": "concept", "label": "Form"}),
+            json!({"id": "politeia", "kind": "work", "label": "Politeia", "source": "plato"}),
+        ] {
+            let (status, saved) = source_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/atlas/entries",
+                json!({"revision": revision, "entry": entry}),
+            );
+            assert_eq!(status, 201, "{saved}");
+            revision = saved["revision"].clone();
+        }
+        let (status, saved) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/relationships",
+            json!({"revision": revision, "relationship": {"id": "good-specializes-form",
+                "kind": "specializes", "from": "the-good", "to": "form",
+                "assertedBy": {"kind": "author"}, "unsourced": true}}),
+        );
+        assert_eq!(status, 201, "{saved}");
+        let revision = saved["revision"].clone();
+        let before = stored_atlas(&f).unwrap();
+
+        let secret = "ob-atlas-secret-7731";
+        let edge = |over: Json| {
+            let mut base = json!({"id": "r-new", "kind": "influenced", "from": "plato",
+                "to": "the-good", "assertedBy": {"kind": "author"},
+                "uncertainty": secret, "unsourced": true});
+            for (key, value) in over.as_object().unwrap() {
+                if value.is_null() {
+                    base.as_object_mut().unwrap().remove(key);
+                } else {
+                    base[key] = value.clone();
+                }
+            }
+            base
+        };
+        let cases = [
+            (edge(json!({"kind": "invents"})), "unknown-kind", "kind"),
+            (edge(json!({"kind": "member-of"})), "endpoint-kind", "to"),
+            (
+                edge(json!({"unsourced": null})),
+                "missing-evidence",
+                "evidence",
+            ),
+            (
+                edge(json!({"confidence": "strong"})),
+                "evidence-conflict",
+                "confidence",
+            ),
+            (
+                edge(json!({"visibility": "approved"})),
+                "missing-evidence",
+                "visibility",
+            ),
+            (edge(json!({"to": "plato"})), "self-relationship", "to"),
+            (
+                edge(json!({"kind": "specializes", "from": "form", "to": "the-good"})),
+                "cycle",
+                "to",
+            ),
+            (
+                edge(json!({"unsourced": null, "evidence": [{"source": "absent"}]})),
+                "unknown-source",
+                "evidence[0].source",
+            ),
+            (
+                edge(json!({"assertedBy": {"kind": "named"}})),
+                "missing-field",
+                "assertedBy.name",
+            ),
+        ];
+        for (relationship, code, field) in cases {
+            let (status, response) = source_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/atlas/relationships",
+                json!({"revision": revision, "relationship": relationship}),
+            );
+            assert_eq!(status, 422, "{code}: {response}");
+            let diagnostics = response["diagnostics"].as_array().unwrap();
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|d| d["code"] == code && d["field"] == field),
+                "{code} at {field}: {response}"
+            );
+            assert_eq!(response["file"], crate::atlas_store::ATLAS_FILE);
+            assert!(!response.to_string().contains(secret), "{code} echoed text");
+            assert_eq!(
+                stored_atlas(&f).unwrap(),
+                before,
+                "{code} changed the atlas"
+            );
+            assert!(
+                !f.dir
+                    .join(".openblog/private/research/atlas.json.lock")
+                    .exists(),
+                "{code} left a lock"
+            );
+        }
+        // An entry with a hostile id or label problem is scoped, never echoed.
+        let (status, bad_entry) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": revision, "entry":
+                {"id": "<script>alert(1)</script>", "kind": "person", "label": secret}}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(bad_entry["diagnostics"][0]["field"], "id");
+        assert!(
+            !bad_entry.to_string().contains("<script>") && !bad_entry.to_string().contains(secret)
+        );
+        let (status, bad_source) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": revision, "entry":
+                {"id": "p2", "kind": "person", "label": "P", "source": "plato"}}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(bad_source["diagnostics"][0]["field"], "source");
+        // Unknown ids and hostile removal ids.
+        let (status, unknown) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": revision, "entry": {"id": "ghost", "kind": "person", "label": "G"}}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(unknown["diagnostics"][0]["code"], "unknown-entry");
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "DELETE",
+                    "/admin/api/research/atlas/relationships",
+                    json!({"revision": revision, "id": "<img src=x onerror=alert(1)>"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(response.status, 400);
+        assert!(!String::from_utf8_lossy(&response.body).contains("<img"));
+        let (status, _) = explore(&f, &session, "<b>x</b>");
+        assert_eq!(status, 400);
+        let (status, missing) = explore(&f, &session, "ghost");
+        assert_eq!(status, 404);
+        assert_eq!(missing["missing"], true);
+
+        // Oversize and malformed requests.
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": revision, "entry": {"id": "x", "kind": "person", "label": "x".repeat(MAX_NOTEBOOK_REQUEST_BYTES)}}),
+        );
+        assert_eq!(status, 413);
+        let mut plain = authed(
+            req("POST", "/admin/api/research/atlas/entries"),
+            &session,
+            true,
+        );
+        plain.body = b"{}".to_vec();
+        assert_eq!(handle(&f.state, &plain).status, 415);
+        assert_eq!(stored_atlas(&f).unwrap(), before);
+
+        // A damaged atlas is reported with its path and never replaced.
+        let path = f.dir.join(crate::atlas_store::ATLAS_FILE);
+        fs::write(&path, "{\"version\":1,\"entries\":[").unwrap();
+        let damaged = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/atlas"), &session, false),
+        );
+        assert_eq!(damaged.status, 422);
+        assert_eq!(body_json(&damaged)["file"], crate::atlas_store::ATLAS_FILE);
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": revision, "entry": {"id": "n", "kind": "person", "label": "N"}}),
+        );
+        assert_ne!(status, 201);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "{\"version\":1,\"entries\":["
+        );
+    }
+
+    // ---- Knowledge Atlas publication (A5.4, ADR 0058) ---------------------------
+    //
+    // With publication turned on, the approved sentinels above may appear, but only
+    // in the atlas pages, `atlas.json` and the sitemap. Unknown fields at every
+    // level, private entries, private relationships and relationships to a private
+    // entry never appear anywhere, and withdrawing approval removes them all.
+
+    const PUBLISHABLE: [usize; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10];
+    const NEVER_PUBLIC: [(&str, &str); 3] = [
+        ("private entry", "ob-atlas-private-entry-5309"),
+        ("private relationship", "ob-atlas-private-relationship-5309"),
+        ("private endpoint", "ob-atlas-private-endpoint-5309"),
+    ];
+
+    fn atlas_surface(name: &str) -> bool {
+        name == "atlas.json" || name == "sitemap.xml" || name.starts_with("atlas/")
+    }
+
+    #[test]
+    fn knowledge_atlas_publication_projects_only_approved_fields_and_withdrawal_removes_them() {
+        use openblog_core::knowledge_atlas::{Entry, Relationship};
+        let f = fixture_with_sources("atlas-publication-corpus");
+        seeded_atlas(&f);
+        let none = BTreeMap::new();
+        let seeded = crate::atlas_store::load(&f.dir, &none).unwrap();
+        let hidden = Entry::from_json(json!({"id": "hidden", "kind": "concept",
+            "label": NEVER_PUBLIC[0].1, "summary": NEVER_PUBLIC[0].1, "visibility": "private"}))
+        .unwrap();
+        let one =
+            crate::atlas_store::create_entry(&f.dir, &seeded.revision, hidden, &none).unwrap();
+        let private = Relationship::from_json(json!({"id": "r-private", "kind": "influenced",
+            "from": ATLAS_SENTINELS[0].1, "to": "politeia", "assertedBy": {"kind": "author"},
+            "evidence": [{"source": "plato"}], "uncertainty": NEVER_PUBLIC[1].1,
+            "visibility": "private"}))
+        .unwrap();
+        let two =
+            crate::atlas_store::create_relationship(&f.dir, &one.revision, private, &none).unwrap();
+        let endpoint = Relationship::from_json(json!({"id": "r-endpoint", "kind": "discusses",
+            "from": "politeia", "to": "hidden", "assertedBy": {"kind": "author"},
+            "evidence": [{"source": "plato"}], "uncertainty": NEVER_PUBLIC[2].1,
+            "visibility": "approved"}))
+        .unwrap();
+        let three = crate::atlas_store::create_relationship(&f.dir, &two.revision, endpoint, &none)
+            .unwrap();
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        let never = |text: &str| -> Vec<&'static str> {
+            let mut found: Vec<&'static str> = [8, 11, 12, 13]
+                .iter()
+                .filter(|&&index| text.contains(ATLAS_SENTINELS[index].1))
+                .map(|&index| ATLAS_SENTINELS[index].0)
+                .collect();
+            found.extend(
+                NEVER_PUBLIC
+                    .iter()
+                    .filter(|(_, sentinel)| text.contains(sentinel))
+                    .map(|(name, _)| *name),
+            );
+            found
+        };
+        for file in crate::fsutil::walk(&dist) {
+            let name = crate::fsutil::relative(&dist, &file);
+            let bytes = fs::read(&file).unwrap();
+            let text = String::from_utf8_lossy(&bytes);
+            let found = never(&text);
+            assert!(found.is_empty(), "dist/{name} exposes {}", found.join(", "));
+            assert!(
+                !openblog_core::research_bundle::looks_like_private_research(&bytes),
+                "dist/{name} carries a copy of private research"
+            );
+            if !atlas_surface(&name) {
+                assert!(
+                    atlas_leaked(&bytes).is_empty(),
+                    "dist/{name} carries atlas data outside the atlas pages"
+                );
+            }
+        }
+        assert!(!dist.join("atlas/hidden/index.html").exists());
+        let published = fs::read_to_string(dist.join("atlas.json")).unwrap();
+        for index in PUBLISHABLE {
+            let (name, sentinel) = ATLAS_SENTINELS[index];
+            assert!(
+                published.contains(sentinel),
+                "the projection publishes the {name}"
+            );
+        }
+        let page =
+            fs::read_to_string(dist.join(format!("atlas/{}/index.html", ATLAS_SENTINELS[0].1)))
+                .unwrap();
+        assert!(page.contains("<strong>Contested:</strong>"));
+        assert!(page.contains(ATLAS_SENTINELS[10].1) && page.contains(ATLAS_SENTINELS[9].1));
+
+        // The public server serves the projection, and still never the private file.
+        let response = crate::serve::route(&f.state, &req("GET", "/atlas.json"), &dist);
+        assert_eq!(response.status, 200);
+        assert!(never(&String::from_utf8_lossy(&response.body)).is_empty());
+        let response = crate::serve::route(
+            &f.state,
+            &req("GET", "/.openblog/private/research/atlas.json"),
+            &dist,
+        );
+        assert_atlas_clean("the private atlas path", &response.body);
+
+        // Portable exports and feeds do not carry the atlas.
+        let (site, _) = crate::site::load_site(&f.dir, false, None).unwrap();
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::from_post(post, &site.config)
+                    .unwrap();
+            assert_atlas_clean(
+                &format!("portable markdown of {}", post.slug),
+                projection.portable_markdown().unwrap().as_bytes(),
+            );
+        }
+
+        // Withdrawing the person's approval is one ordinary edit; the next build
+        // drops the person, the relationship and every sentinel with them.
+        let mut person = three.atlas.entry(ATLAS_SENTINELS[0].1).unwrap().clone();
+        person.visibility = openblog_core::knowledge_atlas::Visibility::Private;
+        let withdrawn =
+            crate::atlas_store::update_entry(&f.dir, &three.revision, person, &none).unwrap();
+        let before = fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        f.state.rebuild().unwrap();
+        for file in crate::fsutil::walk(&dist) {
+            let name = crate::fsutil::relative(&dist, &file);
+            let bytes = fs::read(&file).unwrap();
+            assert!(
+                atlas_leaked(&bytes).is_empty(),
+                "dist/{name} after withdrawal"
+            );
+            assert!(never(&String::from_utf8_lossy(&bytes)).is_empty());
+        }
+        assert!(dist.join("atlas/politeia/index.html").exists());
+        assert_eq!(
+            fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).unwrap(),
+            before,
+            "building never touches the private atlas"
+        );
+        assert_eq!(
+            crate::atlas_store::load(&f.dir, &none).unwrap().revision,
+            withdrawn.revision
+        );
+    }
+
+    #[test]
+    fn an_atlas_change_rebuilds_the_site_only_while_it_publishes_its_atlas() {
+        let f = fixture_with_sources("atlas-publication-rebuild");
+        let session = login_ok(&f);
+        seeded_atlas(&f);
+        let none = BTreeMap::new();
+        let dist = f.dir.join("dist");
+        let page = dist.join(format!("atlas/{}/index.html", ATLAS_SENTINELS[0].1));
+        let withdraw = |revision: &str, visibility: &str| {
+            let snapshot = crate::atlas_store::load(&f.dir, &none).unwrap();
+            let mut person = json!(snapshot.atlas.entry(ATLAS_SENTINELS[0].1).unwrap());
+            person["visibility"] = json!(visibility);
+            notebook_call(
+                &f,
+                &session,
+                "PUT",
+                "/admin/api/research/atlas/entries",
+                json!({ "revision": revision, "entry": person }),
+            )
+        };
+
+        // Off: the change is saved and nothing is built.
+        let revision = crate::atlas_store::load(&f.dir, &none).unwrap().revision;
+        let (status, body) = withdraw(&revision, "private");
+        assert_eq!(status, 200, "{body}");
+        assert!(body.get("build").is_none());
+        assert!(!dist.join("atlas.json").exists());
+
+        // On: approving publishes at once, and withdrawing removes the page at once.
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let (status, body) = withdraw(body["revision"].as_str().unwrap(), "approved");
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["build"]["ok"], true, "{body}");
+        assert!(page.exists(), "approval is published by the save");
+        let (status, body) = withdraw(body["revision"].as_str().unwrap(), "private");
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["build"]["ok"], true, "{body}");
+        assert!(!page.exists(), "withdrawal is published by the save");
+        let published = fs::read(dist.join("atlas.json")).unwrap();
+        assert!(atlas_leaked(&published).is_empty());
+    }
+
+    #[test]
+    fn a_save_at_the_atlas_path_is_refused_while_the_site_publishes_its_atlas() {
+        let f = fixture("atlas-reserved-save");
+        let session = login_ok(&f);
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["postPath"] = json!("/{slug}/");
+        config["knowledgeAtlas"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let save = |kind: &str, fields: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/document",
+                        json!({ "kind": kind, "fields": fields, "body": "Maps." }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let pages = f.dir.join("content/pages");
+        let count = |dir: &Path| fs::read_dir(dir).map(|d| d.count()).unwrap_or(0);
+        let (pages_before, posts_before) = (count(&pages), count(&f.dir.join("content/posts")));
+
+        let page = save("pages", json!({ "title": "My atlas", "slug": "atlas" }));
+        assert_eq!(page.status, 422, "{}", String::from_utf8_lossy(&page.body));
+        let problem = body_json(&page)["problems"][0]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            problem.contains("`atlas`") && problem.contains("reserved"),
+            "{problem}"
+        );
+        let post = save(
+            "posts",
+            json!({ "title": "Atlas", "slug": "atlas", "date": "2020-02-02" }),
+        );
+        assert_eq!(post.status, 422, "{}", String::from_utf8_lossy(&post.body));
+        assert!(body_json(&post)["problems"][0]
+            .as_str()
+            .unwrap()
+            .contains("reserved"));
+        assert_eq!(count(&pages), pages_before, "nothing was written");
+        assert_eq!(count(&f.dir.join("content/posts")), posts_before);
+
+        // While the atlas is not published, `/atlas/` is an ordinary path.
+        config["knowledgeAtlas"] = json!({"publish": false});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let page = save("pages", json!({ "title": "My atlas", "slug": "atlas" }));
+        assert_eq!(page.status, 201, "{}", String::from_utf8_lossy(&page.body));
+    }
+
     #[test]
     fn notebook_code_has_no_logging_path_for_private_text() {
         // Nothing that handles research text prints, logs or debug-dumps it, so
@@ -12603,6 +13919,15 @@ mod tests {
                 include_str!("../../openblog-core/src/research_notes.rs"),
             ),
             ("private_guard.rs", include_str!("private_guard.rs")),
+            ("atlas_store.rs", include_str!("atlas_store.rs")),
+            (
+                "knowledge_atlas.rs",
+                include_str!("../../openblog-core/src/knowledge_atlas.rs"),
+            ),
+            (
+                "atlas_publication.rs",
+                include_str!("../../openblog-core/src/atlas_publication.rs"),
+            ),
         ];
         let banned = [
             "println!",

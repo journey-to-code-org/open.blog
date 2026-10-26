@@ -8,10 +8,14 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use crate::atlas_publication::{
+    self, PublicAtlas, PublicEntry, PublicEvidence, PublicRelationship,
+};
 use crate::config::SiteConfig;
 use crate::contributor::{CreditProvenance, ResolvedCredit};
 use crate::escape::{attr, cdata, text};
 use crate::feeds;
+use crate::knowledge_atlas::{EntryKind, Standing};
 use crate::markdown::{self, RenderOptions};
 use crate::model::{CommentsPolicy, Post, Series, Site};
 use crate::theme::{Theme, ThemeSet};
@@ -40,6 +44,8 @@ pub struct SocialMetadata {
 const RESERVED: &[&str] = &[
     "series", "tags", "archive", "search", "page", "themes", "assets", "api",
 ];
+/// Reserved, too, while the site publishes its Knowledge Atlas.
+const ATLAS_SEGMENT: &str = "atlas";
 
 struct Meta<'a> {
     title: String,
@@ -264,6 +270,24 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
             out.add(url_to_file(alias), r.alias_page(&page.url, &page.title))?;
         }
     }
+    // The Knowledge Atlas, only when the site publishes it (ADR 0058): its
+    // pages and its JSON artifact are both rendered from the one projection.
+    if let Some(atlas) = &site.atlas {
+        out.add(
+            url_to_file(atlas_publication::ATLAS_URL),
+            r.atlas_index(default_theme, atlas),
+        )?;
+        for entry in &atlas.entries {
+            out.add(
+                url_to_file(&entry.url),
+                r.atlas_entry(default_theme, atlas, entry),
+            )?;
+        }
+        out.add(
+            atlas_publication::ATLAS_JSON_FILE.into(),
+            c.apply_base_path(&atlas.to_json()),
+        )?;
+    }
     // GitHub Pages skips Jekyll processing when this file exists.
     out.add(".nojekyll".into(), String::new())?;
     out.add("404.html".into(), r.not_found(default_theme))?;
@@ -290,10 +314,12 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         out.add("feed.json".into(), feeds::json_feed(site)?)?;
     }
     if c.feeds.sitemap {
-        out.add(
-            "sitemap.xml".into(),
-            feeds::sitemap(site, &["/search/".to_string(), "/archive/".to_string()]),
-        )?;
+        let mut extra = vec!["/search/".to_string(), "/archive/".to_string()];
+        if let Some(atlas) = &site.atlas {
+            extra.push(atlas_publication::ATLAS_URL.to_string());
+            extra.extend(atlas.entries.iter().map(|entry| entry.url.clone()));
+        }
+        out.add("sitemap.xml".into(), feeds::sitemap(site, &extra))?;
         out.add("robots.txt".into(), feeds::robots(site))?;
     }
     if c.feeds.llms {
@@ -384,8 +410,16 @@ pub fn generate_document(
 }
 
 fn validate_output_paths(site: &Site) -> Result<(), String> {
+    // `atlas` is reserved only while the site publishes its atlas, so an
+    // existing page or post at `/atlas/` keeps working until then. The switch,
+    // not a loaded projection, decides: Admin validates a save against a site
+    // that never reads the atlas, and must refuse what the next build would.
+    let publishes_atlas = site.config.knowledge_atlas.publish;
+    let reserved = |segment: &str| {
+        RESERVED.contains(&segment) || (publishes_atlas && segment == ATLAS_SEGMENT)
+    };
     for page in &site.pages {
-        if RESERVED.contains(&page.slug.as_str()) {
+        if reserved(page.slug.as_str()) {
             return Err(format!(
                 "{}: the page slug `{}` is reserved by open.blog; choose another",
                 page.source, page.slug
@@ -399,7 +433,7 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
             .split('/')
             .next()
             .unwrap_or("");
-        if RESERVED.contains(&first) {
+        if reserved(first) {
             return Err(format!(
                 "{}: the post URL `{}` collides with a reserved path; adjust `postPath` or the slug",
                 post.source, post.url
@@ -1907,6 +1941,240 @@ impl<'a> Renderer<'a> {
         self.document(&meta, &body)
     }
 
+    fn atlas_index(&self, theme: &Theme, atlas: &PublicAtlas) -> String {
+        let mut body =
+            String::from("<div class=\"ob-container\">\n<section class=\"ob-section ob-atlas\">\n");
+        body.push_str(&self.heading(theme, 1, "Knowledge Atlas", "ob-section-heading"));
+        body.push_str(&format!(
+            "\n<p class=\"ob-lede\">{}</p>\n",
+            text(ATLAS_LEDE)
+        ));
+        if atlas.entries.is_empty() {
+            body.push_str("<p class=\"ob-empty\">No entries have been published yet.</p>\n");
+        }
+        for kind in EntryKind::ALL {
+            let entries: Vec<&PublicEntry> =
+                atlas.entries.iter().filter(|e| e.kind == kind).collect();
+            if entries.is_empty() {
+                continue;
+            }
+            let id = format!("atlas-{}", kind.as_str());
+            body.push_str(&format!(
+                "<section aria-labelledby=\"{id}\">\n<h2 id=\"{id}\">{}</h2>\n<ul class=\"ob-archive\">\n",
+                atlas_publication::kind_heading(kind)
+            ));
+            for entry in entries {
+                let (outgoing, incoming) = atlas.relationships_of(&entry.id);
+                let count = outgoing.len() + incoming.len();
+                body.push_str(&format!(
+                    "<li><a href=\"{}\">{}</a> <span class=\"ob-meta\">{count} relationship{}</span></li>\n",
+                    attr(&entry.url),
+                    text(&entry.label),
+                    if count == 1 { "" } else { "s" }
+                ));
+            }
+            body.push_str("</ul>\n</section>\n");
+        }
+        body.push_str(&format!(
+            "<p class=\"ob-meta\">The same atlas as data: <a href=\"/{file}\" type=\"application/json\">{file}</a>.</p>\n</section>\n</div>",
+            file = atlas_publication::ATLAS_JSON_FILE
+        ));
+        self.simple(
+            theme,
+            "Knowledge Atlas",
+            "People, works, concepts, movements and events, with attributed, sourced relationships.",
+            atlas_publication::ATLAS_URL,
+            &body,
+        )
+    }
+
+    fn atlas_entry(&self, theme: &Theme, atlas: &PublicAtlas, entry: &PublicEntry) -> String {
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page ob-atlas-entry\">\n",
+        );
+        body.push_str(&format!(
+            "<p class=\"ob-eyebrow\"><a href=\"{}\">Knowledge Atlas</a> · {}</p>\n",
+            atlas_publication::ATLAS_URL,
+            atlas_publication::kind_label(entry.kind)
+        ));
+        body.push_str(&self.heading(theme, 1, &entry.label, "ob-post-title"));
+        body.push('\n');
+        if !entry.aliases.is_empty() {
+            let aliases: Vec<String> = entry.aliases.iter().map(|alias| text(alias)).collect();
+            body.push_str(&format!(
+                "<p class=\"ob-meta\">Also known as {}</p>\n",
+                aliases.join(", ")
+            ));
+        }
+        if let Some(years) = entry
+            .bounds
+            .as_ref()
+            .and_then(atlas_publication::bounds_text)
+        {
+            body.push_str(&format!("<p class=\"ob-meta\">{}</p>\n", text(&years)));
+        }
+        body.push_str("<div class=\"ob-prose\">\n");
+        if let Some(summary) = &entry.summary {
+            for paragraph in summary
+                .split("\n\n")
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+            {
+                body.push_str(&format!(
+                    "<p>{}</p>\n",
+                    text(paragraph).replace('\n', "<br>")
+                ));
+            }
+        }
+        if let Some(source) = entry.source.as_deref().and_then(|id| atlas.source(id)) {
+            body.push_str(&format!(
+                "<p>As recorded in the author's sources: <cite>{}</cite></p>\n",
+                text(&source.text)
+            ));
+        }
+        let (outgoing, incoming) = atlas.relationships_of(&entry.id);
+        for (id, title, list) in [
+            // Section ids and relationship ids (`atlas-r-<id>`) live in
+            // separate namespaces, so a relationship named `from` or `to`
+            // cannot collide with a section.
+            (
+                "atlas-section-from",
+                "Relationships from this entry",
+                outgoing,
+            ),
+            ("atlas-section-to", "Relationships to this entry", incoming),
+        ] {
+            body.push_str(&format!(
+                "<section aria-labelledby=\"{id}\">\n<h2 id=\"{id}\">{title}</h2>\n"
+            ));
+            if list.is_empty() {
+                body.push_str("<p class=\"ob-empty\">None published.</p>\n");
+            } else {
+                body.push_str("<ul class=\"ob-atlas-relationships\">\n");
+                for relationship in list {
+                    body.push_str(&self.atlas_relationship(atlas, entry, relationship));
+                }
+                body.push_str("</ul>\n");
+            }
+            body.push_str("</section>\n");
+        }
+        body.push_str(&format!(
+            "<p class=\"ob-meta\">{}</p>\n</div>\n</article>\n</div>",
+            text(ATLAS_NOTE)
+        ));
+        self.simple(
+            theme,
+            &entry.label,
+            &format!(
+                "{} in the Knowledge Atlas, with its attributed, sourced relationships.",
+                atlas_publication::kind_label(entry.kind)
+            ),
+            &entry.url,
+            &body,
+        )
+    }
+
+    /// One relationship, always read in its stored direction, with who
+    /// asserts it, its standing, confidence, evidence, doubt and dissent.
+    fn atlas_relationship(
+        &self,
+        atlas: &PublicAtlas,
+        here: &PublicEntry,
+        r: &PublicRelationship,
+    ) -> String {
+        let author = &self.site.config.author.name;
+        let end = |id: &str| match atlas.entry(id) {
+            Some(entry) if entry.id == here.id => {
+                format!("<strong>{}</strong>", text(&entry.label))
+            }
+            Some(entry) => format!(
+                "<a href=\"{}\">{}</a>",
+                attr(&entry.url),
+                text(&entry.label)
+            ),
+            None => text(id),
+        };
+        let evidence_list = |items: &[PublicEvidence]| {
+            let mut list = String::from("<ul>");
+            for item in items {
+                list.push_str(&format!(
+                    "<li><cite>{}</cite></li>",
+                    text(&atlas.evidence_text(item))
+                ));
+            }
+            list.push_str("</ul>");
+            list
+        };
+        let (standing, standing_text) = match r.standing {
+            Standing::Asserted => (
+                "asserted",
+                "Asserted. No disagreement is recorded here; that is not a claim that it is agreed."
+                    .to_string(),
+            ),
+            Standing::Contested => (
+                "contested",
+                format!(
+                    "Contested: {} recorded dissent{}.",
+                    r.contested_by.len(),
+                    if r.contested_by.len() == 1 { "" } else { "s" }
+                ),
+            ),
+        };
+        let mut out = format!(
+            "<li id=\"atlas-r-{}\" class=\"ob-atlas-relationship\" data-standing=\"{standing}\">\n<p>{}{} {} {}.</p>\n<dl>\n",
+            attr(&r.id),
+            if r.contested_by.is_empty() {
+                ""
+            } else {
+                "<strong>Contested:</strong> "
+            },
+            end(&r.from),
+            text(r.label),
+            end(&r.to)
+        );
+        out.push_str(&format!(
+            "<dt>Standing</dt><dd>{}</dd>\n",
+            text(&standing_text)
+        ));
+        out.push_str(&format!(
+            "<dt>Asserted by</dt><dd>{}</dd>\n",
+            text(&atlas.party_text(&r.asserted_by, author))
+        ));
+        out.push_str(&format!(
+            "<dt>Confidence</dt><dd>{}: how firmly the asserting party holds it, not how widely it is accepted.</dd>\n",
+            atlas_publication::confidence_text(r.confidence)
+        ));
+        out.push_str(&format!(
+            "<dt>Evidence</dt><dd>{}</dd>\n",
+            evidence_list(&r.evidence)
+        ));
+        if let Some(uncertainty) = &r.uncertainty {
+            out.push_str(&format!(
+                "<dt>Uncertain</dt><dd>{}</dd>\n",
+                text(uncertainty)
+            ));
+        }
+        if !r.contested_by.is_empty() {
+            out.push_str("<dt>Disputed by</dt><dd><ul>");
+            for dissent in &r.contested_by {
+                out.push_str(&format!(
+                    "<li>{}",
+                    text(&atlas.party_text(&dissent.by, author))
+                ));
+                if let Some(note) = &dissent.note {
+                    out.push_str(&format!(": {}", text(note)));
+                }
+                if !dissent.evidence.is_empty() {
+                    out.push_str(&evidence_list(&dissent.evidence));
+                }
+                out.push_str("</li>");
+            }
+            out.push_str("</ul></dd>\n");
+        }
+        out.push_str("</dl>\n</li>\n");
+        out
+    }
+
     fn meta_simple<'t>(
         &self,
         theme: &'t Theme,
@@ -1948,6 +2216,11 @@ impl<'a> Renderer<'a> {
         self.document(&meta, body)
     }
 }
+
+/// What the atlas index says before any entry.
+const ATLAS_LEDE: &str = "People, works, concepts, movements and events, and the relationships between them that the author has chosen to publish. Each relationship is one party's assertion on cited evidence; contested ones name who disagrees.";
+/// What every atlas entry page says under its relationships.
+const ATLAS_NOTE: &str = "Every relationship here is one party's assertion on cited evidence, published with the author's approval. A contested relationship lists who disagrees. Nothing here claims that scholars agree.";
 
 /// ` · N views` for a page with a known count, else empty.
 fn site_views_text(site: &Site, path: &str) -> String {

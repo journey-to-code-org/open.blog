@@ -14,6 +14,43 @@ All notable changes to open.blog are recorded here. Releases follow
   was typed, and every moment keeps a link to the original source, starting at the moment where
   the provider allows it. Nothing about moments is published yet.
 
+## [0.29.0] - 2026-10-26
+
+- Defined the format for a private Knowledge Atlas of people, works, concepts, movements and events,
+  with relationships that always name who asserts them, the source evidence and the uncertainty,
+  and that never present a contested relationship as consensus. Research-note concept links now
+  have a defined home in concept entries; existing notebooks are unchanged. Nothing reads or writes
+  an atlas yet, so no site output changes.
+- The Knowledge Atlas is now stored privately in `.openblog/private/research/atlas.json` and
+  checked by `openblog check`, which also notes approved relationships that stay private
+  because an entry they join is private. Withdrawing an entry's approval is never refused,
+  events can answer, influence and be influenced, and removing a concept your notes link to is
+  allowed and lists those notes. A source or notebook passage the atlas uses cannot be removed
+  until the atlas stops using it, and a copy of the atlas inside `content/`, `static/` or a
+  theme stops the build and publishing. Nothing from the atlas reaches your site, feeds,
+  search, `llms.txt` or exports.
+- Admin Studio has a new **Atlas** view under Research tools. You can list, search and filter
+  entries by kind, add and edit people, works, concepts, movements and events, and relate them
+  with pickers that offer only the entries a relationship kind may join. Each relationship
+  names who asserts it, rests on sources from your library (optionally a notebook passage) or
+  is marked as an unsourced draft, and records confidence, what is uncertain and who disputes
+  it. Each entry lists its incoming and outgoing relationships as text you can move through
+  from the keyboard, and a disputed relationship is always shown as contested, never as
+  agreed. A note's concepts in the notebook link to their atlas entries. Everything stays
+  private.
+- You can now publish the approved part of your Knowledge Atlas by setting
+  `"knowledgeAtlas": {"publish": true}` in `openblog.json`. The build writes `/atlas/`, a page
+  for each approved entry with its relationships from and to it, and the same data as
+  `/atlas.json`, built from one projection with a fixed list of public fields. A relationship
+  appears only when it and both its entries are approved, always in its stored direction with
+  who asserts it, its sources, confidence and doubt, and a disputed one is shown as contested
+  with everyone who disagrees. Private entries, notebook passages, unknown fields and anything
+  unapproved never appear, clearing an approval removes the item from the next build, and
+  sites that leave publication off build exactly as before without reading the atlas.
+  Because the atlas is private and Git-ignored, only `openblog serve`, Admin or a local build
+  you upload can publish it; `openblog build` and `openblog check` warn when publishing is on
+  but no atlas is stored, as in a CI or static-host build.
+
 ## [0.28.0] - 2026-10-26
 
 - Shared reflections now work for groups of any size up to the participant cap, through the same

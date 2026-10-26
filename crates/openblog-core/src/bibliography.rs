@@ -131,6 +131,11 @@ impl CitationLocale {
     pub fn back_words(self) -> &'static str {
         self.strings().back
     }
+
+    /// Public locators as readers see them in this locale: `p. 514–520, 514a`.
+    pub fn locators_text(self, locators: &[PublicLocator]) -> String {
+        locators_text(locators, self.strings())
+    }
 }
 
 /// A locator label in its singular and range (plural) forms.
