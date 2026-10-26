@@ -1852,9 +1852,10 @@ function atlasAttributionPayload(draft) {
   return record;
 }
 
-export function atlasEvidenceDraft(record = {}) {
+/** `from` is the item's index in the stored list it was read from, or null for a new item. */
+export function atlasEvidenceDraft(record = {}, from = null) {
   const value = record && typeof record === "object" ? record : {};
-  return { original: structuredClone(value), source: typeof value.source === "string" ? value.source : "", passage: typeof value.passage === "string" ? value.passage : "", locators: formatLocatorLines(value.locators) };
+  return { original: structuredClone(value), from: Number.isInteger(from) ? from : null, source: typeof value.source === "string" ? value.source : "", passage: typeof value.passage === "string" ? value.passage : "", locators: formatLocatorLines(value.locators) };
 }
 
 function atlasEvidencePayload(draft) {
@@ -1946,17 +1947,50 @@ export function atlasRelationshipDraft(record = null, prefill = {}) {
     to: typeof value.to === "string" ? value.to : String(prefill.to || ""),
     assertedBy: atlasAttributionDraft(value.assertedBy),
     confidence: ATLAS_CONFIDENCE.some((item) => item.value === value.confidence) ? value.confidence : "tentative",
-    evidence: (Array.isArray(value.evidence) ? value.evidence : []).map(atlasEvidenceDraft),
+    evidence: (Array.isArray(value.evidence) ? value.evidence : []).map((item, index) => atlasEvidenceDraft(item, index)),
     unsourced: Boolean(value.unsourced),
     uncertainty: typeof value.uncertainty === "string" ? value.uncertainty : "",
-    contestedBy: (Array.isArray(value.contestedBy) ? value.contestedBy : []).map(atlasDissentDraft),
+    contestedBy: (Array.isArray(value.contestedBy) ? value.contestedBy : []).map((item, index) => atlasDissentDraft(item, index)),
     approved: value.visibility === "approved",
   };
 }
 
-export function atlasDissentDraft(record = {}) {
+/** `from` is the dissent's index in the stored `contestedBy`, or null for a new dissent. */
+export function atlasDissentDraft(record = {}, from = null) {
   const value = record && typeof record === "object" ? record : {};
-  return { original: structuredClone(value), by: atlasAttributionDraft(value.by), note: typeof value.note === "string" ? value.note : "", evidence: (Array.isArray(value.evidence) ? value.evidence : []).map(atlasEvidenceDraft) };
+  return {
+    original: structuredClone(value),
+    from: Number.isInteger(from) ? from : null,
+    by: atlasAttributionDraft(value.by),
+    note: typeof value.note === "string" ? value.note : "",
+    evidence: (Array.isArray(value.evidence) ? value.evidence : []).map((item, index) => atlasEvidenceDraft(item, index)),
+  };
+}
+
+/**
+ * Rests a relationship draft on a newer stored copy. Every nested item read
+ * from the store takes the newer copy of the item it came from, wherever that
+ * item still exists, so fields added elsewhere at any level survive the save.
+ */
+export function rebaseAtlasRelationshipDraft(draft, current) {
+  const stored = (list, from) => (Array.isArray(list) && Number.isInteger(from) && list[from] && typeof list[from] === "object" ? list[from] : null);
+  const rebaseEvidence = (drafts, list) => {
+    for (const item of drafts) {
+      const newer = stored(list, item.from);
+      if (newer) item.original = structuredClone(newer);
+    }
+  };
+  draft.original = structuredClone(current);
+  draft.assertedBy.original = structuredClone(current.assertedBy || { kind: "author" });
+  rebaseEvidence(draft.evidence, current.evidence);
+  for (const dissent of draft.contestedBy) {
+    const newer = stored(current.contestedBy, dissent.from);
+    if (!newer) continue;
+    dissent.original = structuredClone(newer);
+    dissent.by.original = structuredClone(newer.by || { kind: "author" });
+    rebaseEvidence(dissent.evidence, newer.evidence);
+  }
+  return draft;
 }
 
 /** The full relationship to send, carrying unknown fields at every level the form edits. */
@@ -2360,8 +2394,8 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
       say("Showing the stored copy.");
     } else {
       // The author has seen the newer copy: the draft now rests on it, and its unknown fields carry over.
-      draft.original = structuredClone(current);
-      if (!isEntry) draft.assertedBy.original = structuredClone(current.assertedBy || { kind: "author" });
+      if (isEntry) draft.original = structuredClone(current);
+      else rebaseAtlasRelationshipDraft(draft, current);
       say("Your draft now rests on the latest copy. Review it, then save.");
     }
     rerender(isEntry ? "label" : "kind");

@@ -19,6 +19,7 @@ import {
   atlasRelationshipSentence,
   atlasStandingText,
   normalizeAdminPreferences,
+  rebaseAtlasRelationshipDraft,
   safeDecodeURIComponent,
   suggestAtlasId,
   validAtlasId,
@@ -677,6 +678,68 @@ test("a conflict blocks saving until the author uses the stored copy or keeps th
   assert.equal(byId(second.root, "oba-atlas-entry-label").value, "Plato (stored)");
   assert.ok(!buttonLabelled(second.root, "Save changes").disabled);
 }));
+
+test("keeping a relationship draft after a conflict keeps fields added elsewhere to its evidence, dissents and parties", withDom(async () => {
+  const base = () => {
+    const relationship = RELATIONSHIP();
+    relationship.contestedBy[0].evidence = [{ source: "plato-republic", locators: [{ kind: "page", value: "1" }] }];
+    return relationship;
+  };
+  const newer = base();
+  newer.uncertainty = "Stored doubt.";
+  newer.evidence[0].added = "elsewhere";
+  newer.evidence[0].locators[0].added = "elsewhere";
+  newer.contestedBy[0].added = "elsewhere";
+  newer.contestedBy[0].by.added = "elsewhere";
+  newer.contestedBy[0].evidence[0].added = "elsewhere";
+  let reads = 0;
+  const api = atlasApi({
+    "GET research/atlas": () => (reads++ ? atlas({ revision: "r9", relationships: [newer] }) : atlas({ relationships: [base()] })),
+    "POST research/atlas/explore": (body) => ({ ...EXPLORE[body.id](), outgoing: [{ label: "authored", other: { id: "politeia", kind: "work", label: "Politeia" }, standing: "contested", projected: false, relationship: base() }] }),
+    "PUT research/atlas/relationships": (body) => {
+      if (body.revision !== "r9") throw new ApiError("changed", 409, { conflict: true, revision: "r9", current: newer });
+      return { ...atlas({ revision: "r10", relationships: [body.relationship] }), relationship: body.relationship };
+    },
+  });
+  const { app, root } = mountAtlas(api);
+  await app.showAtlas("plato");
+  await tick();
+  await root.querySelector("[data-atlas-open-relationship]").click();
+  await type(byId(root, "oba-atlas-relationship-uncertainty"), "My doubt.");
+  await submit(root);
+  await buttonLabelled(root, "Keep my draft").click();
+  await submit(root);
+  assert.equal(api.calls.length, 2);
+  const sent = api.calls[1].body.relationship;
+  assert.equal(api.calls[1].body.revision, "r9");
+  assert.equal(sent.uncertainty, "My doubt.", "the draft's own edit wins");
+  assert.equal(sent.evidence[0].added, "elsewhere", "an evidence item keeps a field added elsewhere");
+  assert.equal(sent.evidence[0].margin, "kept");
+  assert.deepEqual(sent.evidence[0].locators, [{ kind: "page", value: "514", hint: true, added: "elsewhere" }], "an unchanged locator is compared with the newer copy");
+  assert.equal(sent.contestedBy[0].added, "elsewhere", "a dissent keeps a field added elsewhere");
+  assert.equal(sent.contestedBy[0].tag, "kept");
+  assert.deepEqual(sent.contestedBy[0].by, { kind: "named", name: "A later editor", added: "elsewhere" }, "a dissenting party keeps a field added elsewhere");
+  assert.equal(sent.contestedBy[0].evidence[0].added, "elsewhere", "a dissent's evidence keeps a field added elsewhere");
+  assert.equal(sent.assertedBy.why, "kept");
+}));
+
+test("a rebased draft takes each nested item from the stored index it was read from, and leaves new items alone", () => {
+  const draft = atlasRelationshipDraft(RELATIONSHIP());
+  draft.evidence.unshift(atlasEvidenceDraft({ source: "plato-republic" }));
+  draft.contestedBy.push(atlasDissentDraft({ by: { kind: "named", name: "New" }, note: "Mine." }));
+  const newer = RELATIONSHIP();
+  newer.evidence[0].added = "elsewhere";
+  newer.contestedBy[0].by.added = "elsewhere";
+  rebaseAtlasRelationshipDraft(draft, newer);
+  const sent = atlasRelationshipPayload(draft);
+  assert.deepEqual(sent.evidence[0], { source: "plato-republic" }, "a new item has nothing to rebase onto");
+  assert.equal(sent.evidence[1].added, "elsewhere", "a moved item still rests on the item it came from");
+  assert.equal(sent.contestedBy[0].by.added, "elsewhere");
+  assert.deepEqual(sent.contestedBy[1], { by: { kind: "named", name: "New" }, note: "Mine." });
+  const gone = atlasRelationshipDraft(RELATIONSHIP());
+  rebaseAtlasRelationshipDraft(gone, { ...RELATIONSHIP(), evidence: [], contestedBy: [] });
+  assert.equal(atlasRelationshipPayload(gone).evidence[0].margin, "kept", "an item removed elsewhere keeps the copy the draft holds");
+});
 
 test("removing asks first, a linked entry is refused with the reason, and unresolved notes are reported", withDom(async () => {
   let refuse = true;
