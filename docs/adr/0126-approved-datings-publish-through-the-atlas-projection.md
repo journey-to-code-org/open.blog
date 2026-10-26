@@ -66,9 +66,10 @@ same birth must both be shown. B3.1 (#72) will build public queries and componen
   and optional.
 - **The warning narrows by itself.** `entries_with_unpublished_datings` already names only
   approved entries none of whose datings is projected. Its wording, in `build`, `check` and the
-  Admin `unpublished-datings` notice, now says that only cited, approved datings are published
-  and that years from version 1 `bounds` became private, unsourced datings, without pointing at a
-  later release.
+  Admin `unpublished-datings` notice, now says that "only cited, approved datings of published
+  items, relative only to approved entries, are published", that years from version 1 `bounds`
+  became private, unsourced datings, and that "`openblog check` gives each dating's reason",
+  without pointing at a later release.
 - **Leak corpus.** Sentinels in every dating field prove that approved fields reach only the
   atlas pages and `atlas.json`, that unknown fields, private datings, datings of unpublished
   items, datings relative to private entries and passage-cited datings reach nothing, and that
