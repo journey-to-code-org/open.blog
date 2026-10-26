@@ -6,7 +6,10 @@
 - Parent story: [#203](https://github.com/journey-to-code-org/open.blog/issues/203)
 - Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
 - Builds on: [Hosted engagement](../specs/hosted-engagement.md)
-- Coordinates with: B5 passage feedback (ADRs 0087 to 0089 on `story/b5-passage-feedback`, #81),
+- Coordinates with: B5 passage feedback
+  ([ADR 0079](0079-typed-scholarly-feedback-kinds-and-one-submission-format.md) to
+  [ADR 0083](0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md),
+  #81),
   [#210](https://github.com/journey-to-code-org/open.blog/issues/210) and
   [#221](https://github.com/journey-to-code-org/open.blog/issues/221) (RD10 Third Perspectives),
   [#83](https://github.com/journey-to-code-org/open.blog/issues/83) (author responses),
@@ -20,7 +23,7 @@ The site already has one kind of reader participation: hosted comments, switched
 `engagement.enabled`, `engagement.comments` and an endpoint, with each post's `comments:` front
 matter choosing `open`, `locked` or `hidden`. B5 adds four typed feedback kinds and, until this
 decision, lets them follow each post's `comments:` setting behind one more switch
-(`engagement.feedback`, ADR 0089). RD10 adds Third Perspectives, #83 author responses and #226
+(`engagement.feedback`, [ADR 0081](0081-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md)). RD10 adds Third Perspectives, #83 author responses and #226
 abuse reports. The roadmap (#92) says all of them go through one policy seam with no second
 comment system, and the backlog asks that everything new start switched off. Existing sites must
 build exactly as before.
@@ -28,8 +31,9 @@ build exactly as before.
 ## Decision
 
 - **One closed registry.** `openblog_core::participation::ParticipationKind` lists every kind, with
-  a stored id (lowercase letters, digits and hyphens, at most 40 characters, the shape ADR 0088's
-  `kind` column accepts) and fixed rules:
+  a stored id (lowercase letters, digits and hyphens, at most 40 characters, the shape the `kind`
+  column of [ADR 0080](0080-hosted-feedback-is-one-additive-private-table.md) accepts) and fixed
+  rules:
 
   | Id | From | Target | Public when approved | May ask to clarify | Per post |
   | --- | --- | --- | --- | --- | --- |
@@ -97,7 +101,7 @@ setting, whatever `engagement.comments` says, when `engagement.feedback` is on",
   are derived, not the owner's: writing the configuration back keeps `engagement.feedback` as the
   owner set it and does not add them to `participation.kinds`.
 - **B5's form gate and offered kinds come from the resolver.** Whether a post shows B5's passage
-  feedback form (ADR 0094 on the B5 branch), and which kinds it offers, are read from
+  feedback form ([ADR 0082](0082-passage-feedback-forms-are-one-progressive-region-over-the-build-passage-text.md)), and which kinds it offers, are read from
   `effective_mode(config, post, kind)` for each of the four kinds, never from
   `engagement.feedback` or `comments:` directly: the form is shown when at least one kind is
   `open`, it offers exactly the kinds that are `open`, a `locked` kind shows its approved items but
@@ -110,8 +114,9 @@ setting, whatever `engagement.comments` says, when `engagement.feedback` is on",
 - B5's `openblog-feedback.json` (path to mode) is the per-kind column of this manifest; the hosted
   function reads the kind's mode from `openblog-participation.json` instead, with a missing entry
   meaning hidden, as B5 already treats a missing manifest.
-- B5's `FeedbackKind` stays the registry of its submission format (ADR 0087); every `FeedbackKind`
-  id must be a `ParticipationKind` id, and the merge adds a test that asserts it.
+- B5's `FeedbackKind` stays the registry of its submission format
+  ([ADR 0079](0079-typed-scholarly-feedback-kinds-and-one-submission-format.md)); every
+  `FeedbackKind` id must be a `ParticipationKind` id, and the merge adds a test that asserts it.
 
 ## Considered options
 

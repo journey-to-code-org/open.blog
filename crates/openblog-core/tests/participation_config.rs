@@ -80,7 +80,7 @@ fn the_registry_is_closed_and_ids_round_trip() {
     );
     for kind in ParticipationKind::ALL {
         assert_eq!(ParticipationKind::from_id(kind.id()), Some(kind));
-        // ADR 0088's stored kind shape.
+        // The stored kind shape of ADR 0080 (hosted feedback table).
         let id = kind.id();
         assert!(id.len() <= 40 && id.starts_with(|c: char| c.is_ascii_lowercase()));
         assert!(id
@@ -440,7 +440,7 @@ fn generated_comment_output_is_byte_for_byte_what_it_was() {
     assert_eq!(pages_by_case[4], pages_by_case[3]);
 }
 
-/// B5's interim rule (ADR 0089): feedback follows each post's `comments:`
+/// B5's interim rule (ADR 0081, hosted feedback transport): feedback follows each post's `comments:`
 /// setting, whatever `engagement.comments` says. `follow-comments` is that
 /// rule; a post's own setting for the kind wins over it.
 #[test]

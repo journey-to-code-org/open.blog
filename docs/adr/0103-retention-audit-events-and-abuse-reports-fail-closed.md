@@ -14,7 +14,7 @@
 Reader text that is never published should not be kept indefinitely, but a removal or an upheld
 report must stay explainable after the text is gone. The issue asks that removal and abuse reports
 fail closed while preserving the audit metadata they require, and that retention expiry be tested.
-Hosted storage is a one-way door (ADR 0088), so this decision defines the rules and leaves jobs,
+Hosted storage is a one-way door ([ADR 0080](0080-hosted-feedback-is-one-additive-private-table.md)), so this decision defines the rules and leaves jobs,
 tables and the function's adoption to #226.
 
 ## Decision
@@ -85,6 +85,6 @@ tables and the function's adoption to #226.
 
 ## Consequences
 
-- #226 adds the retention job, the private audit table (additive, like ADR 0088) and reader
+- #226 adds the retention job, the private audit table (additive, like [ADR 0080](0080-hosted-feedback-is-one-additive-private-table.md)) and reader
   receipts, applying these rules; #225 shows reasons and audit history to moderators.
 - Shorter periods are a configuration change, not a code change, and are validated at load.

@@ -28,7 +28,7 @@ use crate::moderation::RetentionPolicy;
 pub enum ParticipationKind {
     /// A reader's comment on the whole post: the existing hosted comments.
     Comment,
-    /// A question about a passage (B5, ADR 0087's `question`).
+    /// A question about a passage (B5, the `question` of ADR 0079, typed scholarly feedback kinds).
     Question,
     /// A source a reader thinks bears on a passage (`source-suggestion`).
     SourceSuggestion,
@@ -62,7 +62,7 @@ pub enum Origin {
 pub enum TargetShape {
     /// The whole published work.
     Work,
-    /// A passage target (B5, ADR 0084): the work, a section or a quotation.
+    /// A passage target (B5, ADR 0076, passage targets): the work, a section or a quotation.
     Passage,
     /// The whole work or one of its sections.
     WorkOrSection,
@@ -98,7 +98,7 @@ impl ParticipationKind {
     ];
 
     /// The stored id: lowercase letters, digits and hyphens, at most 40
-    /// characters, the shape ADR 0088's `kind` column accepts.
+    /// characters, the shape the `kind` column of ADR 0080 (hosted feedback table) accepts.
     pub fn id(self) -> &'static str {
         match self {
             ParticipationKind::Comment => "comment",
@@ -262,7 +262,7 @@ pub enum SiteSetting {
     #[default]
     Off,
     /// Each post's mode is its `comments:` setting unless the post names the
-    /// kind. This is B5's interim rule (ADR 0089), kept as an explicit choice.
+    /// kind. This is B5's interim rule (ADR 0081, hosted feedback transport), kept as an explicit choice.
     FollowComments,
     /// Enabled; posts that do not name the kind are hidden for it.
     Hidden,

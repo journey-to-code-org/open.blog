@@ -61,7 +61,7 @@ impl ModerationState {
         ModerationState::Withdrawn,
     ];
 
-    /// The stored id, the shape ADR 0088's `status` column accepts.
+    /// The stored id, the shape ADR 0080's `status` column (hosted feedback table) accepts.
     pub fn id(self) -> &'static str {
         match self {
             ModerationState::Pending => "pending",
