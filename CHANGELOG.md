@@ -5,6 +5,17 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Readers can offer a Third Perspective on a post where `third-perspective` is open in
+  `participation.kinds`: their own reflection on the whole work or one section, with an optional
+  prompt (never a score or a vote). The form asks them to choose whether it may be published,
+  whether their name may be shown and whether they may be asked to clarify it, and sends it for
+  review through the hosted function, always pending, with a private receipt to check on it or
+  take it back. Without JavaScript, without the hosted service, when sending fails, or when the
+  reader does not agree to publish, they get their reflection to copy and send to the author,
+  and nothing they wrote is lost. Moderators approve exactly the text and consent they saw in the
+  Moderation inbox. Nothing is e-mailed. Hosting it takes `supabase/feedback.sql` run again (one
+  new nullable column and one function) and `OPENBLOG_THIRD_PERSPECTIVES_ENABLED=true` with
+  receipts; approved reflections are not shown on pages yet.
 - Defined Third Perspectives, a reader's own reflection on a shared reflection or post, about the
   whole work or one section. Each one has an optional prompt category (never a score or a side),
   plain text of up to 4000 characters, and a numbered history of what the reader agreed to publish.

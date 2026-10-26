@@ -344,6 +344,16 @@ other way to take part is a participation kind, off until you switch it on in `p
   yourself, even as `"retention": {}` for the defaults, applies it to comments too.
 - Once a kind beyond comments is switched on, builds also write `openblog-participation.json`,
   the public map of each post's open and locked kinds that the hosted function checks.
+- `third-perspective` adds an "Offer a Third Perspective" region to each post where it is `open`:
+  a reader writes their own reflection on the whole work or one section, may choose a prompt
+  (never a score or a vote), and decides whether it may be published, whether their name may be
+  shown and whether they may be asked to clarify it. The form sends through the hosted function
+  only when `engagement.receipts` is on and the function takes Third Perspectives
+  (`OPENBLOG_THIRD_PERSPECTIVES_ENABLED`, see [the function's guide](../netlify/functions/README.md));
+  otherwise, and whenever the service cannot take it, the reader gets their reflection to copy and
+  send to `engagement.feedbackContact`. Moderators approve exactly the text and the consent they
+  saw in the **Moderation inbox** (ADRs [0113](adr/0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md)
+  and [0114](adr/0114-the-third-perspective-form-is-one-progressive-region-with-explicit-consent.md)).
 
 The rules are recorded in ADRs [0101](adr/0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
 to [0104](adr/0104-retention-audit-events-and-abuse-reports-fail-closed.md).

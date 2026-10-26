@@ -101,7 +101,7 @@ change consent, answer a clarification), and every decision has to say who made 
 
 - A manual copy whose reader wants to answer a clarification can only be removed and entered
   again; the conservative choice, since no one else may speak for the reader.
-- RD10.3 (#222) issues the receipt whose digest is the intake, and uses it to prove the
+- RD10.2 (#221, [ADR 0113](0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md)) issues the receipt whose digest is the intake, and uses it to prove the
   submitter for consent changes, clarification answers and withdrawal.
 - RD14 (#214) builds feature placement on `featureRevision` and the editorial
   `FeatureSelection`.

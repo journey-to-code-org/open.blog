@@ -1362,7 +1362,7 @@ _Avoid_: Default tool, pinned tool
 
 ## Third Perspectives
 
-Readers' own reflections on published works (ADRs 0109 to 0112). They extend the one reader
+Readers' own reflections on published works (ADRs 0109 to 0114). They extend the one reader
 participation seam as the kind `third-perspective`; they never join the authors' work.
 
 **Reader reflection**:
@@ -1438,3 +1438,17 @@ _Avoid_: Vote, verdict, ruling on who is right
 A typed link from an approved response to a later published work that took it up (RD15). It never
 edits the reflection and never implies that the reflection caused, or is endorsed by, the new work.
 _Avoid_: Reply chain, thread, follow-up comment
+
+**Third Perspective region**:
+The "Offer a Third Perspective" section of a post where the kind is open: static text that says
+how to write to the author without JavaScript, replaced by the form that asks for the reader's
+consent explicitly and sends through the hosted service only where it issues receipts. When the
+service cannot take it, or the reader does not agree to publish, the reflection is offered as
+text to copy and send instead (ADR 0114).
+_Avoid_: Comment box, rating widget, reply form
+
+**Perspective consent record**:
+A Submission consent as a hosted row keeps it: one numbered entry of `details.consents`, the last
+one in effect. A reader changes it only through their receipt, which appends a record and raises
+the row's version; an approval stores the number of the record it covered (ADR 0113).
+_Avoid_: Consent flag, clarification column

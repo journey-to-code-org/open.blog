@@ -168,3 +168,36 @@ To undo it, remove `OPENBLOG_PROTECTION_ENABLED` and redeploy, optionally export
 and run [`supabase/protection-rollback.sql`](../../supabase/protection-rollback.sql) (before
 `moderation-rollback.sql` if you undo that too). It drops exactly what the steps above added and
 leaves every comment and note in its state; text already purged cannot be restored.
+
+## Third Perspectives (optional)
+
+A Third Perspective (ADRs 0109 to 0114) is a reader's own reflection on a work, stored as one
+`openblog_feedback` row of kind `third-perspective`. Every hosted copy gets a receipt, so the reader
+can always take it back; Third Perspectives therefore need passage feedback's table and the
+engagement protection above, then:
+
+1. Run [`supabase/feedback.sql`](../../supabase/feedback.sql) again. It adds one nullable column,
+   `approved_consent` (the reader's consent record an approval covers), and the function
+   `openblog_moderate_third_perspective`, which takes every inbox decision on a Third Perspective
+   and refuses an approval whose consent record is no longer the one in effect or no longer agrees
+   to publish. Nothing already stored changes.
+2. Set `OPENBLOG_THIRD_PERSPECTIVES_ENABLED` to `true` (with `OPENBLOG_FEEDBACK_ENABLED`,
+   `OPENBLOG_MODERATION_ENABLED` and `OPENBLOG_PROTECTION_ENABLED`) and redeploy, and set
+   `"third-perspective": "open"` in `participation.kinds` and `"receipts": true` in `engagement`.
+
+`POST /feedback` then takes a Third Perspective (`kind: "third-perspective"`) by its own contract
+(`web/components/third-perspective.js`): always pending, with its prompt category, the receipt's
+digest and the reader's numbered consent records in `details`, and the same quotas and replay bound
+as passage feedback. Through `POST /receipt` the reader reads it (the category, never their consent
+records), agrees or declines to be asked (a new consent record, and a new version, so an approval
+made on the earlier consent is refused), answers a clarification (the text is replaced; the
+details stay) or withdraws it, which deletes its text and name at once. The inbox lists it with
+`approvedConsent`, and an approval names the text revision and consent record the moderator saw
+(`seenRevision`, `seenConsent`). B5's own `/admin/feedback` view lists only passage feedback.
+Nothing is e-mailed to anyone.
+
+To undo it, remove `OPENBLOG_THIRD_PERSPECTIVES_ENABLED` and redeploy, optionally export the rows
+(`where kind = 'third-perspective'`), and run
+[`supabase/third-perspective-rollback.sql`](../../supabase/third-perspective-rollback.sql) before
+any other rollback. It drops exactly the column and function above and leaves every row in its
+state.

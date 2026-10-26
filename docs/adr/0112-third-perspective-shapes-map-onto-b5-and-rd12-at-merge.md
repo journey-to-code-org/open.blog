@@ -53,6 +53,9 @@ four-byte-character names and a 4000-character body is a tested round trip; the 
 alone does not guarantee it, because names repeat); `status` from RD12. The approval's
 revision and consent number, and RD12's version and revision counters, need the additive columns
 RD12 and #226 introduce. Until then nothing is stored, and the static site is unchanged.
+([ADR 0113](0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md)
+opens this door for #221 with exactly this mapping, adding `revisedAt` to `details` and one
+nullable `approved_consent` column.)
 
 ## As applied
 
