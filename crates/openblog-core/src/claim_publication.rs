@@ -688,16 +688,22 @@ pub fn required_labels(post: &PostEvidence) -> Vec<String> {
 }
 
 /// Whether a portable copy (HTML, Markdown or text) carries the post's claim
-/// evidence whole: every [`required_labels`] word in order, after the last
-/// "Claims and evidence" heading. A copy that lost or reordered part of it is
+/// evidence whole: every [`required_labels`] word in order, from an occurrence
+/// of the "Claims and evidence" heading. Any occurrence may start the match,
+/// because the same words can appear later as plain text inside the section
+/// (a revision note, a source title, a rationale); only the heading is
+/// followed by every label. A copy that lost or reordered part of it is
 /// refused by the portable projection rather than published.
 pub fn carried_whole(artifact: &str, post: &PostEvidence) -> bool {
-    let Some(start) = artifact.rfind(SECTION_HEADING) else {
-        return false;
-    };
-    let mut rest = &artifact[start..];
-    for label in required_labels(post) {
-        match rest.find(&label) {
+    let labels = required_labels(post);
+    artifact
+        .match_indices(SECTION_HEADING)
+        .any(|(start, _)| labels_in_order(&artifact[start..], &labels))
+}
+
+fn labels_in_order(mut rest: &str, labels: &[String]) -> bool {
+    for label in labels {
+        match rest.find(label.as_str()) {
             Some(at) => rest = &rest[at + label.len()..],
             None => return false,
         }
@@ -1006,6 +1012,17 @@ mod tests {
         let truncated = &section[..section.find("### Claim 2").unwrap()];
         assert!(!carried_whole(truncated, &post));
         assert!(!carried_whole("No section at all.", &post));
+        // The heading's words later in the section, as plain text, are not
+        // mistaken for the heading.
+        let mentioned = format!(
+            "{section}
+- 2026-10-22: Reworded the Claims and evidence intro.
+"
+        );
+        assert!(carried_whole(&mentioned, &post));
+        let mentioned =
+            without_contradiction.replace("**Contested:**", "**Contested:** Claims and evidence");
+        assert!(!carried_whole(&mentioned, &post));
     }
 
     #[test]

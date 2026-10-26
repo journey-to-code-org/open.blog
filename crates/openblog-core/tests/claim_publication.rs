@@ -38,13 +38,17 @@ Nothing claimed here.
 ";
 
 fn library() -> SourceLibrary {
+    library_with_critic("PUBLIC Critic <b>bold</b>")
+}
+
+fn library_with_critic(critic_title: &str) -> SourceLibrary {
     let text = json!({"version": 1, "sources": [
         {"id": "plato", "kind": "work", "title": "PUBLIC Politeia",
          "creators": [{"name": "Plato", "role": "author"}],
          "notes": format!("{PRIVATE} source note"),
          "identifiers": [{"scheme": "shelf", "value": format!("{PRIVATE} shelf")}]},
         {"id": "slings", "kind": "edition", "of": "plato", "title": "PUBLIC Slings", "issued": "2003"},
-        {"id": "critic", "kind": "work", "title": "PUBLIC Critic <b>bold</b>"},
+        {"id": "critic", "kind": "work", "title": critic_title},
         {"id": "unused", "kind": "work", "title": format!("{PRIVATE} unused source")}]})
     .to_string();
     SourceLibrary::parse(&text, &BTreeMap::new()).unwrap()
@@ -88,7 +92,10 @@ fn claims() -> Value {
 }
 
 fn projection(value: &Value) -> ClaimEvidence {
-    let library = library();
+    projection_in(value, library())
+}
+
+fn projection_in(value: &Value, library: SourceLibrary) -> ClaimEvidence {
     let notebook = notebook(&library);
     let set = ClaimSet::parse(
         &value.to_string(),
@@ -326,6 +333,52 @@ fn without_a_claims_file_the_build_warns_and_still_publishes_revision_notes() {
     assert!(page.contains("No claims are published for this post at present."));
     assert!(page.contains("2026-10-20: First published with evidence."));
     assert!(page.contains("2026-10-21: Added the critic"));
+}
+
+#[test]
+fn the_section_heading_words_later_in_the_section_do_not_refuse_a_portable_copy() {
+    // A revision note and a cited source title that mention the heading's
+    // words sit after the heading itself; every copy is still whole.
+    let noted = CAVE.replace(
+        "  - \"2026-10-20: First published with evidence.\"
+",
+        "  - \"2026-10-20: First published with evidence.\"
+  - \"2026-10-22: Reworded the Claims and evidence introduction.\"
+",
+    );
+    assert!(noted.contains("Reworded the Claims and evidence"));
+    let titled = projection_in(
+        &claims(),
+        library_with_critic("PUBLIC Claims and evidence in the Republic"),
+    );
+    for (what, contents, source) in [
+        ("a revision note", noted.as_str(), projection(&claims())),
+        ("a source title", CAVE, titled),
+    ] {
+        let site = load(
+            true,
+            vec![post("posts/cave.md", contents)],
+            Some(ClaimEvidenceSource::Stored(source)),
+            LoadOptions::default(),
+        )
+        .unwrap_or_else(|errors| panic!("{what}: {errors:?}"));
+        let published = cave(&site).publication_markdown();
+        assert!(
+            published.matches("Claims and evidence").count() > 1,
+            "{what}: {published}"
+        );
+        let projection = PortableProjection::from_post(cave(&site), &config(true)).unwrap();
+        projection
+            .portable_html()
+            .unwrap_or_else(|error| panic!("{what}: {error}"));
+        projection
+            .portable_markdown()
+            .unwrap_or_else(|error| panic!("{what}: {error}"));
+        projection
+            .portable_text()
+            .unwrap_or_else(|error| panic!("{what}: {error}"));
+        build(&site);
+    }
 }
 
 #[test]
