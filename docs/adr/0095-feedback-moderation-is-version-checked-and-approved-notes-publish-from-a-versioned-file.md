@@ -46,8 +46,9 @@ a second inbox. RD6 (#208) forbids calling a submission a correction before the 
 - **Every change is version-checked and audited in one statement.** The feedback table gains
   `version` (default 1) and `moderation_reason` (a reason code, never free text), and
   `feedback.sql` adds the insert-only table `openblog_feedback_events` (item, action, from, to,
-  reason, actor, time, resulting version: the fields of RD12's audit event, never anything anyone
-  wrote) and the function `openblog_moderate_feedback`, which updates the row only while it still
+  reason, actor, time, resulting version: a subset of RD12's audit event, never anything anyone
+  wrote; the item's revision, its kind and the actor's role come in #225's additive migration)
+  and the function `openblog_moderate_feedback`, which updates the row only while it still
   has the state and version the moderator saw, raises the version and inserts the event, in one
   SQL statement. `PATCH /admin/feedback` now takes `{id, action, from, expectedVersion, reason?,
   actor?}`; the function checks the change against the rules first, so a refused change costs no
@@ -79,7 +80,11 @@ a second inbox. RD6 (#208) forbids calling a submission a correction before the 
   a CI or static build publishes the same notes without the hosted service. A file that cannot be
   read refuses a full build (as broken claim evidence does) and Admin never writes over it; a
   note about a post that no longer exists is a warning. If the write fails after approval, the
-  item stays approved and Admin offers "Publish on the post".
+  item stays approved and Admin offers "Publish on the post"; if it fails after a removal, the
+  item stays removed, Admin says "Removed, but still on the post" and offers to take it off
+  (`POST engagement/feedback/unpublish`, only for an item the hosted service holds as removed or
+  rejected). Admin lists every state; clarification and withdrawn are read-only views, so an item
+  another tool moved there is seen, and one waiting for clarification can still be rejected.
 - **Responses are the author's own data.** `PUT engagement/feedback/response` sets or clears the
   public response to a published note. It names the file revision it loaded; any other revision
   is a conflict and nothing is written. A response sends nothing to the reader; no e-mail is
