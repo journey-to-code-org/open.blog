@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { MOMENT_LOCATOR_KINDS, QUOTATION_PROVENANCE, QUOTATION_RIGHTS, momentLinkText, momentLocationError, momentPayload, momentText, momentsFailure, parseMomentTimestamp, sortMoments } from "../../web/admin/admin.js";
 import { APPROVAL_REQUIREMENTS, APPROVAL_ROLE_CHOICES, ARRANGEMENT_LAYOUTS, ObAdmin, approvalPeopleRows, approvalPolicyChoice, approvalPolicyPayload, approvalRuleFailure, approvalRuleText, REFLECTION_PROMPTS, SYNTHESIS_KINDS, TURN_LABEL_MAX_BYTES, arrangementDraft, arrangementFailure, arrangementPayload, draftFailure, draftStateText, insertAtSelection, moveItem, moveSynthesisItem, nextRoundId, partBreakInsertion, previewItemText, previewSectionText, previewStateText, promptInsertion, revealSlotText, synthesisFailure, synthesisItemText, validateArrangement } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
@@ -216,9 +217,43 @@ function applySynthesis(state, body) {
   return state.synthesis;
 }
 
+const SOURCES = [
+  { id: "source-1", kind: "video", kindLabel: "Video", title: "A talk on video", url: "https://www.youtube.com/watch?v=abcdefghijk" },
+  { id: "source-2", kind: "book", kindLabel: "Book", title: "A book", url: null },
+  { id: "source-3", kind: "podcast", kindLabel: "Podcast", title: "A podcast", url: "https://podcasts.example/12" },
+];
+
+/** The link the server derives from the source's own address: a start time only for YouTube. */
+function serverLink(moment) {
+  const source = SOURCES.find((entry) => entry.id === moment.source);
+  if (!source?.url) return null;
+  const time = moment.locators.find((locator) => locator.kind === "timestamp");
+  return source.id === "source-1" && time ? { href: `https://www.youtube.com/watch?v=abcdefghijk&t=${parseMomentTimestamp(time.value).seconds}s`, atTime: true } : { href: source.url, atTime: false };
+}
+
+/** Applies one moments change the way the server does: a revision check, then the change. */
+function applyMoments(state, body) {
+  const current = state.moments;
+  if (body.expectedRevision !== current.revision) throw new FakeApiError("The moments changed since you read them.", 409, { error: "The moments changed since you read them. Reload to see the current moments; what you typed is still here and nothing was changed." });
+  const change = body.change;
+  let moments = current.moments.map((moment) => ({ ...moment }));
+  const shaped = (id, moment) => {
+    if (moment.locators.some((locator) => locator.kind === "timestamp" && !parseMomentTimestamp(locator.value))) throw new FakeApiError("bad", 422, { error: "Give a location: a timestamp as seconds or h:mm:ss.", field: "locators" });
+    if (/<|javascript:/.test(moment.observation || "")) throw new FakeApiError("bad", 422, { error: "That moment has raw HTML, an image, a heading, a footnote, or a link that is not an absolute http(s) address. Nothing was changed.", field: "observation" });
+    const time = moment.locators[0];
+    const location = time.kind === "timestamp" ? (time.to ? `from ${time.value} to ${time.to}` : `at ${time.value}`) : time.to ? `${time.kind}s ${time.value} to ${time.to}` : `${time.kind} ${time.value}`;
+    return { id, ...moment, quotation: moment.quotation || null, observation: moment.observation || null, location, link: serverLink(moment) };
+  };
+  if (change.action === "add") moments.push(shaped(`moment-${current.next + 1}`, change.moment));
+  else if (change.action === "edit") moments = moments.map((moment) => (moment.id === change.id ? shaped(change.id, change.moment) : moment));
+  else if (change.action === "remove") moments = moments.filter((moment) => moment.id !== change.id);
+  state.moments = { ...current, revision: current.revision + 1, next: current.next + (change.action === "add" ? 1 : 0), moments };
+  return state.moments;
+}
+
 /** A stand-in for the Admin API: it checks the expected revision like the server does. */
 function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {}) {
-  const state = { number, markdown, calls: [], synthesis: { revision: 0, items: [], authors: [ME, OTHER], you: "p-me" }, reveal: { policy: "voluntary", ready: false, canSetPolicy: false, slots: [], ...reveal } };
+  const state = { number, markdown, calls: [], moments: { revision: 0, next: 0, moments: [], shared: [], sources: SOURCES, you: "p-me" }, synthesis: { revision: 0, items: [], authors: [ME, OTHER], you: "p-me" }, reveal: { policy: "voluntary", ready: false, canSetPolicy: false, slots: [], ...reveal } };
   return {
     state,
     async call(method, path, options = {}) {
@@ -251,12 +286,16 @@ function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {})
           return state.synthesis;
         case "POST collaboration/synthesis":
           return applySynthesis(state, options.json);
+        case "GET collaboration/moments":
+          return state.moments;
+        case "POST collaboration/moments":
+          return applyMoments(state, options.json);
         case "GET collaboration/preview":
           if (state.previewFails) throw new FakeApiError("not found", 404, null);
           return { preview: state.preview };
         case "PUT collaboration/reveal/ready":
           state.reveal = { ...state.reveal, ready: options.json.revision !== null };
-          return { ready: state.reveal.ready, revealed: false };
+          return { ready: state.reveal.ready, revealed: false, ...(state.momentsShared === undefined ? {} : { momentsShared: state.momentsShared }) };
         case "PUT collaboration/reveal/policy":
           if (options.json.expectedPolicy !== state.reveal.policy) throw new FakeApiError("changed", 409, { error: "The sharing rule changed since you loaded it. Reload to see the current rule; nothing was changed." });
           if (options.json.policy === state.reveal.policy) return { policy: options.json.policy, changed: false };
@@ -355,7 +394,7 @@ test("the draft panel is for writers and coordinators and loads only when opened
   await panel.dispatch("toggle");
   await settle();
   assert.equal(textarea(panel).value, "mine");
-  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/reveal", "GET collaboration/reflection", "GET collaboration/synthesis"]);
+  assert.deepEqual(api.state.calls.map((call) => call.key), ["GET collaboration/draft", "GET collaboration/reveal", "GET collaboration/reflection", "GET collaboration/synthesis", "GET collaboration/moments"]);
 }));
 
 test("prompts can be added, edited, deleted, hidden, and are never required to save", withDom(async () => {
@@ -1273,4 +1312,231 @@ test("a roundtable of a hundred writers stays a labelled list in sharing, previe
   const controls = panel.querySelectorAll("select").filter((node) => /-turn-\d+-who$/.test(node.attributes.id || ""));
   assert.equal(controls.length, 100);
   for (const control of controls) assert.ok(panel.querySelectorAll("label").some((label) => label.attributes.for === control.attributes.id), control.attributes.id);
+}));
+
+// ---------------------------------------------------------------- media moments
+
+const momentsRoot = (panel) => panel.querySelector(".oba-moments");
+const momentField = (panel, name) => panel.querySelector(`#oba-moments-0-${name}`);
+const momentSubmit = (panel) => panel.querySelector(".oba-moments-form").dispatch("submit");
+const typeMoment = async (panel, values) => {
+  for (const [name, value] of Object.entries(values)) {
+    const control = momentField(panel, name);
+    if (name === "publish") control.checked = value;
+    else control.value = value;
+    await control.dispatch(control.tagName === "SELECT" || name === "publish" ? "change" : "input");
+  }
+};
+const addMoment = async (panel, values) => {
+  await typeMoment(panel, values);
+  await momentSubmit(panel);
+  await settle();
+};
+const momentItems = (panel) => momentsRoot(panel).querySelectorAll("li").filter((node) => node.classList.contains("oba-moment"));
+const storedMoment = (overrides = {}) => ({ id: "moment-1", source: "source-1", locators: [{ kind: "timestamp", value: "1:02" }], location: "at 1:02", observation: "First", quotation: null, intent: "private", link: null, ...overrides });
+
+test("typed times are read deterministically, exactly as the server reads them", () => {
+  assert.deepEqual(parseMomentTimestamp("75"), { seconds: 75, fraction: "" });
+  assert.deepEqual(parseMomentTimestamp("1:02"), { seconds: 62, fraction: "" });
+  assert.deepEqual(parseMomentTimestamp("1:02:03.50"), { seconds: 3723, fraction: "5" });
+  assert.deepEqual(parseMomentTimestamp("100:00"), { seconds: 6000, fraction: "" });
+  for (const bad of ["", " 1", "1 ", "1:2", "1:60", "1:02:03:04", "-5", "+5", "1h2m", "1:02.", ".5", "1,5", "١٢", "99999999999999999999"]) {
+    assert.equal(parseMomentTimestamp(bad), null, bad);
+  }
+  assert.deepEqual(parseMomentTimestamp("0:45"), parseMomentTimestamp("0:45"), "the same text always gives the same answer");
+  assert.match(momentLocationError("timestamp", "1:60", ""), /seconds or h:mm:ss/);
+  assert.match(momentLocationError("timestamp", "1:10", "1:02"), /after the start/);
+  assert.match(momentLocationError("timestamp", "1:10", "1:10.0"), /after the start/);
+  assert.equal(momentLocationError("timestamp", "1:10", "1:10.5"), "");
+  assert.match(momentLocationError("page", "", ""), /Give the page/);
+  assert.match(momentLocationError("page", "3]", ""), /brackets/);
+  assert.equal(momentLocationError("chapter", "Two", ""), "");
+  assert.ok(MOMENT_LOCATOR_KINDS.every((kind) => kind.value !== "folio"), "a shared source is never a manuscript");
+});
+
+test("a moment's request has explicit rights and provenance, keeps what the form does not edit, and needs some content", () => {
+  const base = { source: "source-1", kind: "timestamp", value: "1:02", to: "", quote: "", speaker: "", rights: "", provenance: "", observation: "", publish: false };
+  assert.equal(momentPayload({ ...base, source: "" }).field, "source");
+  assert.equal(momentPayload({ ...base, value: "1:2" }).field, "value");
+  assert.equal(momentPayload({ ...base, to: "1:00" }).field, "to");
+  assert.equal(momentPayload(base).field, "quote", "a moment says something");
+  assert.equal(momentPayload({ ...base, quote: "Words" }).field, "rights", "rights have no default");
+  assert.equal(momentPayload({ ...base, quote: "Words", rights: "briefQuotation" }).field, "provenance");
+  assert.equal(momentPayload({ ...base, quote: "Words", rights: "unknown", provenance: "copied", publish: true }).field, "rights");
+  const kept = momentPayload({ ...base, quote: "Words", speaker: "  The host ", rights: "unknown", provenance: "copied", observation: "  " }, { locators: [{ kind: "chapter", value: "2" }], language: "en" });
+  assert.deepEqual(kept.moment, {
+    source: "source-1",
+    locators: [{ kind: "timestamp", value: "1:02" }, { kind: "chapter", value: "2" }],
+    intent: "private",
+    quotation: { text: "Words", rights: "unknown", provenance: "copied", speaker: "The host", language: "en" },
+  });
+  assert.deepEqual(momentPayload({ ...base, observation: "Mine", publish: true, to: "1:10" }).moment, {
+    source: "source-1",
+    locators: [{ kind: "timestamp", value: "1:02", to: "1:10" }],
+    intent: "publication",
+    observation: "Mine",
+  });
+  assert.ok(QUOTATION_RIGHTS.some((entry) => entry.value === "unknown") && QUOTATION_PROVENANCE.length === 3);
+});
+
+test("moments across several media are listed by source, then by time, then as made", () => {
+  const moments = [
+    { id: "moment-1", source: "source-3", locators: [{ kind: "timestamp", value: "10" }] },
+    { id: "moment-2", source: "source-1", locators: [{ kind: "timestamp", value: "1:00:00" }] },
+    { id: "moment-3", source: "source-1", locators: [{ kind: "timestamp", value: "59:59.5" }] },
+    { id: "moment-4", source: "source-2", locators: [{ kind: "page", value: "9" }] },
+    { id: "moment-5", source: "source-gone", locators: [{ kind: "timestamp", value: "1" }] },
+    { id: "moment-6", source: "source-2", locators: [{ kind: "page", value: "2" }] },
+  ];
+  assert.deepEqual(sortMoments(moments, SOURCES).map((moment) => moment.id), ["moment-3", "moment-2", "moment-4", "moment-6", "moment-1", "moment-5"]);
+  assert.match(momentText({ source: "source-gone", location: "at 1", intent: "private" }, SOURCES), /no longer listed.*Private: only you/);
+  assert.match(momentText({ source: "source-1", location: "at 1:02", intent: "publication" }, SOURCES), /A talk on video \(Video\), at 1:02\. Proposed for the piece/);
+});
+
+test("links are the server's: at the moment where the provider allows it, the original otherwise, words when there is none", () => {
+  assert.equal(momentLinkText({ link: { href: "https://www.youtube.com/watch?v=abcdefghijk&t=62s", atTime: true }, locators: [{ kind: "timestamp", value: "1:02" }] }), "Open the source at 1:02");
+  assert.equal(momentLinkText({ link: { href: "https://podcasts.example/12", atTime: false }, locators: [{ kind: "timestamp", value: "5" }] }), "Open the source (find the location yourself)");
+  assert.equal(momentLinkText({ link: null }), "");
+  assert.equal(momentsFailure({ status: 409 }).kind, "conflict");
+  assert.equal(momentsFailure({ status: 404 }).kind, "denied");
+  assert.equal(momentsFailure({ status: 422, data: { error: "x", field: "locators" } }).field, "locators");
+  assert.equal(momentsFailure({}).kind, "offline");
+});
+
+test("the moments panel is for contributors, loads with the draft, and adds a labelled, linked moment", withDom(async (dom) => {
+  const coordinator = fakeApi();
+  await openDraft(coordinator, ["coordinator"]);
+  assert.equal(coordinator.state.calls.some((call) => call.key.includes("moments")), false);
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  assert.equal(momentsRoot(panel).hidden, false);
+  const controls = [...momentsRoot(panel).querySelectorAll("input"), ...momentsRoot(panel).querySelectorAll("select"), ...momentsRoot(panel).querySelectorAll("textarea")];
+  assert.ok(controls.length >= 10);
+  for (const control of controls) assert.ok(panel.querySelectorAll("label").some((label) => label.attributes.for === control.id), control.id);
+  await addMoment(panel, { source: "source-1", value: "1:02", observation: "Noticed the pause." });
+  assert.deepEqual(lastCall(api).body, { publicationId: PUBLICATION, expectedRevision: 0, change: { action: "add", moment: { source: "source-1", locators: [{ kind: "timestamp", value: "1:02" }], intent: "private", observation: "Noticed the pause." } } });
+  assert.equal(momentItems(panel).length, 1);
+  assert.match(textOf(momentItems(panel)[0]), /Moment 1 of 1\. A talk on video \(Video\), at 1:02\. Private: only you can see it\./);
+  const link = momentItems(panel)[0].querySelector("a");
+  assert.equal(link.attributes.href, "https://www.youtube.com/watch?v=abcdefghijk&t=62s");
+  assert.match(link.attributes.rel, /noopener/);
+  assert.match(textOf(link), /Open the source at 1:02/);
+  assert.match(textOf(panel), /Moment added\. Only you can see it\./);
+  assert.equal(activeLabel(dom), "Edit moment 1 of 1", "focus goes to the new moment");
+  assert.equal(momentField(panel, "observation").value, "", "the form is cleared once stored");
+}));
+
+test("unavailable embeds and sources without a link still leave a working link or the location as text", withDom(async () => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  await addMoment(panel, { source: "source-3", value: "5:00", observation: "On the podcast." });
+  await addMoment(panel, { source: "source-2", kind: "page", value: "12", quote: "Listen first.", speaker: "Ada", rights: "publicDomain", provenance: "copied" });
+  const [book, podcast] = momentItems(panel);
+  assert.match(textOf(book), /A book \(Book\), page 12/, "listed in source order");
+  assert.match(textOf(book), /This source has no link\. The location is kept with the moment\./);
+  assert.match(textOf(book), /Said by Ada/);
+  assert.equal(book.querySelector("a"), null);
+  assert.equal(podcast.querySelector("a").attributes.href, "https://podcasts.example/12");
+  assert.match(textOf(podcast), /find the location yourself/);
+}));
+
+test("a malformed time is refused before sending, the field is marked, focus goes to the alert and the text stays", withDom(async (dom) => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  const before = api.state.calls.length;
+  await addMoment(panel, { source: "source-1", value: "1:60", observation: "Kept words" });
+  assert.equal(api.state.calls.length, before, "nothing was sent");
+  assert.match(visibleAlert(panel).textContent, /seconds or h:mm:ss/);
+  assert.equal(dom.document.activeElement, visibleAlert(panel));
+  assert.equal(momentField(panel, "value").attributes["aria-invalid"], "true");
+  assert.equal(momentField(panel, "observation").value, "Kept words");
+  // The server's refusal names its field and never repeats the text.
+  await addMoment(panel, { value: "1:02", observation: "<img src=x onerror=alert(1)>" });
+  assert.match(visibleAlert(panel).textContent, /raw HTML/);
+  assert.doesNotMatch(visibleAlert(panel).textContent, /onerror/);
+  assert.equal(momentField(panel, "observation").attributes["aria-invalid"], "true");
+  assert.equal(momentField(panel, "observation").value, "<img src=x onerror=alert(1)>");
+}));
+
+test("a stale save keeps everything typed, reloads the current moments and focuses the alert", withDom(async (dom) => {
+  const api = fakeApi();
+  const { panel } = await openDraft(api);
+  api.state.moments = { ...api.state.moments, revision: 4, next: 1, moments: [storedMoment({ source: "source-2", locators: [{ kind: "page", value: "3" }], location: "page 3", observation: "Made elsewhere" })] };
+  await addMoment(panel, { source: "source-1", value: "2:00", quote: "Typed words", rights: "briefQuotation", provenance: "transcribed", observation: "Typed note", publish: true });
+  assert.match(visibleAlert(panel).textContent, /changed since you read them/);
+  assert.equal(dom.document.activeElement, visibleAlert(panel));
+  assert.equal(momentItems(panel).length, 1, "the current moments are shown");
+  for (const [name, value] of [["source", "source-1"], ["value", "2:00"], ["quote", "Typed words"], ["rights", "briefQuotation"], ["observation", "Typed note"]]) assert.equal(momentField(panel, name).value, value, name);
+  assert.equal(momentField(panel, "publish").checked, true);
+  await momentSubmit(panel);
+  await settle();
+  assert.equal(momentItems(panel).length, 2, "the retry stores the kept moment");
+  assert.match(textOf(panel), /proposed for the piece/i);
+}));
+
+test("editing keeps the source and extra locations, and cancel and remove are keyboard-operable with focus kept", withDom(async (dom) => {
+  const api = fakeApi();
+  api.state.moments = { ...api.state.moments, revision: 1, next: 1, moments: [storedMoment({ locators: [{ kind: "timestamp", value: "1:02" }, { kind: "chapter", value: "2" }], location: "at 1:02, chapter 2", quotation: { text: "Q", rights: "ownWords", provenance: "supplied", language: "en" } })] };
+  const { panel } = await openDraft(api);
+  const root = momentsRoot(panel);
+  await button(root, "Edit moment 1 of 1").click();
+  assert.equal(dom.document.activeElement, momentField(panel, "value"));
+  assert.equal(momentField(panel, "source").disabled, true, "a moment keeps its source");
+  assert.equal(momentField(panel, "quote").value, "Q");
+  await button(root, "Cancel editing").click();
+  assert.equal(activeLabel(dom), "Edit moment 1 of 1", "cancel returns to the Edit button");
+  assert.equal(momentField(panel, "quote").value, "", "cancel clears the form");
+  await button(root, "Edit moment 1 of 1").click();
+  await typeMoment(panel, { value: "1:05" });
+  await momentSubmit(panel);
+  await settle();
+  const edit = lastCall(api).body.change;
+  assert.equal(edit.action, "edit");
+  assert.equal(edit.id, "moment-1");
+  assert.deepEqual(edit.moment.locators, [{ kind: "timestamp", value: "1:05" }, { kind: "chapter", value: "2" }]);
+  assert.equal(edit.moment.quotation.language, "en");
+  assert.equal(activeLabel(dom), "Edit moment 1 of 1", "saving returns to the Edit button");
+  // Remove asks first; Escape backs out to the Remove button.
+  await button(root, "Remove moment 1 of 1").click();
+  const box = root.querySelector(".oba-confirm");
+  assert.equal(dom.document.activeElement, box);
+  await box.dispatch("keydown", { key: "Escape" });
+  assert.equal(activeLabel(dom), "Remove moment 1 of 1");
+  await button(root, "Remove moment 1 of 1").click();
+  await button(root, "Remove this moment").click();
+  await settle();
+  assert.equal(lastCall(api).body.change.action, "remove");
+  assert.equal(dom.document.activeElement.id, "oba-moments-0-list-heading");
+  assert.match(textOf(root), /Moment removed\./);
+  assert.equal(momentItems(panel).length, 0);
+}));
+
+test("moments others shared are shown as text only, and a denied load hides the panel", withDom(async () => {
+  const api = fakeApi();
+  api.state.moments = { ...api.state.moments, shared: [{ participant: { id: "p-grace", displayName: "Grace" }, moments: [storedMoment({ id: "moment-7", observation: "<script>alert(1)</script>", intent: "publication" })] }] };
+  const { panel } = await openDraft(api);
+  assert.match(textOf(momentsRoot(panel)), /Moments others shared with you/);
+  assert.match(textOf(momentsRoot(panel)), /Grace/);
+  assert.match(textOf(momentsRoot(panel)), /<script>alert\(1\)<\/script>/, "untrusted Markdown stays text");
+  assert.equal(momentsRoot(panel).querySelector("script"), null);
+  assert.equal(button(momentsRoot(panel), "Edit moment 1 of 1"), undefined, "nobody edits another author's moment");
+  const start = admin.indexOf("momentsPanel(publication, index) {");
+  const end = admin.indexOf("The page an invitation link opens");
+  assert.ok(start > 0 && end > start);
+  assert.doesNotMatch(admin.slice(start, end), /innerHTML|insertAdjacentHTML/);
+  const denied = fakeApi({ failures: { "GET collaboration/moments": new FakeApiError("not found", 404, null) } });
+  const { panel: hidden } = await openDraft(denied);
+  assert.equal(momentsRoot(hidden).hidden, true);
+  assert.match(styles, /\.oba-moment \{/);
+  assert.match(styles, /@media \(max-width: 44rem\)\s*\{\s*\.oba-moments/);
+}));
+
+test("offering a revision says when later moment edits stay private", withDom(async () => {
+  const api = fakeApi({ number: 2, markdown: "mine", reveal: { slots: SLOTS.slice(0, 2).map((slot) => ({ ...slot, ready: false })) } });
+  api.state.momentsShared = false;
+  const { panel } = await openDraft(api);
+  await button(panel, "Offer revision 2 to the group").click();
+  await button(panel.querySelector(".oba-confirm"), "Share revision 2").click();
+  await settle();
+  assert.match(textOf(panel), /Your moments changed after you first offered this revision/);
 }));
