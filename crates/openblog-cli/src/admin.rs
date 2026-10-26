@@ -22090,19 +22090,14 @@ series: letters
 
     // ---- Roundtables at scale, end to end (#188) ----
 
+    /// A fixture, Mikey's session, the publication, the other writers' sessions and every
+    /// invitation token handed out.
+    type Group = (Fixture, Session, String, Vec<Session>, Vec<String>);
+
     /// Mikey (owner, writer) and `others` more writers who joined through copy-link invitations,
     /// each with their own account and contributor key. Returns their sessions in join order and
     /// every invitation token handed out, so a test can prove none reaches public output.
-    fn group_fixture(
-        tag: &str,
-        others: usize,
-    ) -> (
-        Fixture,
-        (String, String),
-        String,
-        Vec<(String, String)>,
-        Vec<String>,
-    ) {
+    fn group_fixture(tag: &str, others: usize) -> Group {
         let f = fixture(tag);
         let mut contributors = serde_json::Map::new();
         contributors.insert("mikey-writer".into(), json!({ "name": "Mikey" }));
@@ -22666,7 +22661,7 @@ series: letters
         }
         assert_eq!(
             reveal_call(
-                &f,
+                f,
                 &mikey,
                 "policy",
                 policy_body(id, "independent", "allReady")
