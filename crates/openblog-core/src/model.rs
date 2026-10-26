@@ -222,6 +222,10 @@ pub struct Post {
     pub description: String,
     pub draft: bool,
     pub comments: CommentsPolicy,
+    /// This post's own modes for participation kinds beyond comments, from
+    /// its `participation:` front matter (ADR 0100). A kind the site has
+    /// switched off stays off whatever this says.
+    pub participation: crate::participation::PostParticipation,
     /// `<link rel="canonical">` override, for cross-posted articles.
     pub canonical: Option<String>,
     /// Where the article was first published (shown in the footer).
@@ -1188,6 +1192,8 @@ fn load_post_in(
     }
     let draft = is_draft(fm);
     let comments = CommentsPolicy::parse(first(fm, &["comments"]))?;
+    let participation =
+        crate::participation::PostParticipation::parse(&fm.get_list("participation"))?;
     let date = match first(fm, &["date", "published", "publishedAt", "pubDate"]) {
         Some(raw) => DateTime::parse(raw)
             .ok_or_else(|| format!("unrecognised date `{raw}` (use YYYY-MM-DD or RFC 3339)"))?,
@@ -1318,6 +1324,7 @@ fn load_post_in(
         description,
         draft,
         comments,
+        participation,
         canonical: optional_string(first(fm, &["canonical", "canonicalUrl", "canonical_url"])),
         source_url: optional_string(first(
             fm,

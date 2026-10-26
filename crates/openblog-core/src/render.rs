@@ -17,7 +17,8 @@ use crate::escape::{attr, cdata, text};
 use crate::feeds;
 use crate::knowledge_atlas::{EntryKind, Standing};
 use crate::markdown::{self, RenderOptions};
-use crate::model::{CommentsPolicy, Post, Series, Site};
+use crate::model::{Post, Series, Site};
+use crate::participation::{self, ParticipationKind, ParticipationMode};
 use crate::reader_references::ReaderReferences;
 use crate::theme::{Theme, ThemeSet};
 
@@ -353,28 +354,25 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         "search.json".into(),
         c.apply_base_path(&feeds::search_index(site)),
     )?;
-    let hosted_comments =
-        c.engagement.enabled && c.engagement.comments && !c.engagement.endpoint.trim().is_empty();
+    // Comments keep their own manifest, unchanged; it is the comment row of
+    // the one participation policy (ADR 0100).
     let comment_policies: BTreeMap<&str, &str> = site
         .posts
         .iter()
         .map(|post| {
-            let policy = if !hosted_comments {
-                "hidden"
-            } else {
-                match post.comments {
-                    CommentsPolicy::Open => "open",
-                    CommentsPolicy::Locked => "locked",
-                    CommentsPolicy::Hidden => "hidden",
-                }
-            };
-            (post.url.as_str(), policy)
+            let mode = participation::effective_mode(c, post, ParticipationKind::Comment);
+            (post.url.as_str(), mode.id())
         })
         .collect();
     out.add(
         "openblog-comments.json".into(),
         serde_json::to_string(&comment_policies).expect("comment policy map is serializable"),
     )?;
+    // Published only once a kind beyond comments is switched on, so every
+    // other site's output is unchanged.
+    if let Some(manifest) = participation::manifest(site) {
+        out.add("openblog-participation.json".into(), manifest)?;
+    }
 
     Ok(out.files)
 }
@@ -1228,12 +1226,9 @@ impl<'a> Renderer<'a> {
             body.push_str("\n</section>\n");
         }
         body.push_str(&self.chronological_nav(index));
-        if c.engagement.enabled
-            && c.engagement.comments
-            && post.comments != crate::model::CommentsPolicy::Hidden
-            && !c.engagement.endpoint.trim().is_empty()
-        {
-            let mode = if post.comments == crate::model::CommentsPolicy::Locked {
+        let comment_mode = participation::effective_mode(c, post, ParticipationKind::Comment);
+        if comment_mode != ParticipationMode::Hidden {
+            let mode = if comment_mode == ParticipationMode::Locked {
                 " mode=\"locked\""
             } else {
                 ""

@@ -692,11 +692,12 @@ impl<'a> PortableProjection<'a> {
                 .then(|| config.code_runner.languages.clone()),
             video: post.video.as_ref(),
             recipe: post.recipe.as_ref(),
-            participation: (config.engagement.enabled
-                && config.engagement.comments
-                && post.comments != CommentsPolicy::Hidden
-                && !config.engagement.endpoint.trim().is_empty())
-            .then_some(post.comments),
+            participation: (crate::participation::effective_mode(
+                config,
+                post,
+                crate::participation::ParticipationKind::Comment,
+            ) != crate::participation::ParticipationMode::Hidden)
+                .then_some(post.comments),
             series: None,
         })
     }

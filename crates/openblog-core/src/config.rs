@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::contributor::{self, Contributor};
+use crate::participation::ParticipationConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -76,6 +77,12 @@ pub struct SiteConfig {
     /// keep their configuration unchanged.
     #[serde(skip_serializing_if = "KnowledgeAtlasConfig::is_off")]
     pub knowledge_atlas: KnowledgeAtlasConfig,
+    /// Which participation kinds beyond comments the site accepts, and how
+    /// long moderation keeps what it does not publish (ADRs 0100 and 0103).
+    /// Every kind is off by default, and the object is omitted from the
+    /// written file while it has its defaults.
+    #[serde(skip_serializing_if = "ParticipationConfig::is_default")]
+    pub participation: ParticipationConfig,
 }
 
 /// Whether builds publish the Knowledge Atlas projection (ADR 0058). Off by
@@ -357,6 +364,7 @@ impl Default for SiteConfig {
             publish: PublishConfig::default(),
             syndication: SyndicationConfig::default(),
             knowledge_atlas: KnowledgeAtlasConfig::default(),
+            participation: ParticipationConfig::default(),
         }
     }
 }
@@ -825,6 +833,7 @@ impl SiteConfig {
                 );
             }
         }
+        self.participation.validate()?;
         while self.code_runner.endpoint.ends_with('/') {
             self.code_runner.endpoint.pop();
         }

@@ -21,6 +21,8 @@
 //! - [`citation_review`]: offline syntax, resolution, completeness and location checks of citations
 //! - [`knowledge_atlas`]: the private Knowledge Atlas of entries and attributed relationships
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
+//! - [`participation`]: the closed registry of participation kinds and their site and post modes
+//! - [`moderation`]: the one moderation state machine, roles, audit events and retention for them
 
 pub mod accessibility;
 pub mod approval;
@@ -48,6 +50,8 @@ pub mod markdown;
 pub mod media_moment;
 pub mod members;
 pub mod model;
+pub mod moderation;
+pub mod participation;
 pub mod portability;
 pub mod preview;
 pub mod profile;

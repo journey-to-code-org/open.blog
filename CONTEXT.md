@@ -776,6 +776,92 @@ How a relationship reads from one of its entries: its kind going out (`authored`
 label coming in (`authored by`). A label for display, never a second stored assertion.
 _Avoid_: Reverse edge, inferred relationship
 
+## Reader participation
+
+One policy governs everything readers and authors add to a published post (ADRs 0100 to 0103).
+
+**Participation kind**:
+One entry in the closed registry of ways to participate: comment, question, suggested source,
+suggested correction, another interpretation, Third Perspective, author response or abuse report.
+Each has fixed rules: who creates it, what it targets, whether an approved item may be shown, and
+whether a moderator may ask its submitter to clarify. Every kind but comments starts `off`.
+_Avoid_: Comment type, feedback type, category (a Third Perspective prompt), channel
+
+**Participation mode**:
+How one kind behaves on one post: `hidden` (nothing shown or accepted), `locked` (approved items
+shown, nothing accepted) or `open` (approved items shown, new items accepted pending moderation).
+The comment modes, applied to every kind; resolved from the site setting and the post's front
+matter by one resolver.
+_Avoid_: Comment policy when a kind other than comments is meant, visibility, status
+
+**Site participation setting**:
+A kind's value in `participation.kinds`: `off`, `follow-comments`, or the default mode for posts
+that do not name the kind. `off` cannot be overridden by a post.
+_Avoid_: Feature flag, opt-in when the per-post mode is meant
+
+**Participation item**:
+One stored submission of any kind, with its moderation state, version, revision and the text it
+carries. Reader data, never research and never an author's contribution.
+_Avoid_: Comment (unless the kind is comment), post, contribution, message
+
+**Moderation state**:
+Where an item is: pending, clarification requested, approved, rejected, removed or withdrawn.
+Every item starts pending; only approved, at its current revision, can be public.
+_Avoid_: Status when the comment column's three values are meant, published, visible
+
+**Clarification request**:
+A moderator's request, with a reason and only with the submitter's clarification consent, that a
+submitter revise an item. The item is never published while it is open; the answer replaces the
+text as a new revision that returns to pending. Never sent by e-mail.
+_Avoid_: Reply, comment thread, rejection with feedback
+
+**Clarification consent**:
+A submitter's agreement, given when submitting, to be asked to clarify. Without it a moderator can
+only approve or reject.
+_Avoid_: Contact consent, publication consent, feature consent
+
+**Removal**:
+Taking an approved item out of public view, with a reason, by a moderator or by an upheld abuse
+report. Distinct from rejection (never approved) and withdrawal (by the submitter).
+_Avoid_: Deletion, purge, unpublish when retention is meant
+
+**Withdrawal**:
+A submitter taking back their own item, pending, in clarification or approved. Final: a withdrawn
+item is never reopened, and its text is purged at once.
+_Avoid_: Removal, retraction by the author, consent change for display only
+
+**Abuse report**:
+A reader's report that a public item is abusive. Never public, never counted, and never changes
+its target by itself; upholding it removes the target in the same decision or changes nothing.
+_Avoid_: Flag, vote, downvote, complaint
+
+**Author response**:
+An author's public reply to one approved item, written by the site Admin, a coordinator or a
+contributing author of the work. It starts pending like everything else.
+_Avoid_: Revision note, correction, comment by the author
+
+**Moderator**:
+The site Admin, or a coordinator for the works of their publications. Contributing authors read
+and respond but do not moderate; readers act only on their own items as submitters.
+_Avoid_: Admin user when a publication coordinator is meant, editor, owner
+
+**Reason code**:
+The ground for a moderation decision, such as spam, abusive, personal data, off topic, duplicate,
+rights, unclear or needs source. Never a verdict on whether a reader was right.
+_Avoid_: Verdict, label, rating, "incorrect"
+
+**Moderation audit event**:
+The private record of one submission, transition or purge: item, kind, action, states, actor role,
+the Admin account where there is one, reason, time, revision and version. It never holds text or
+anything identifying a reader, and it outlives purged text.
+_Avoid_: Feedback provenance, log line, history of the text
+
+**Participation retention**:
+How long moderation keeps what it does not publish: pending and clarification items expire,
+rejected and removed text is purged after a period, withdrawn text at once, and audit events last
+longer than any text.
+_Avoid_: Archive, backup, analytics retention
+
 ## Admin workspace
 
 **Workspace preferences**:

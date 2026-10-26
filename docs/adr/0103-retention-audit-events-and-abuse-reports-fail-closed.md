@@ -1,0 +1,75 @@
+# ADR 0103: Retention purges what is not published, audit events outlive it, and removal and abuse reports fail closed
+
+- Status: Accepted
+- Date: 2026-10-26
+- Decision issue: [#211](https://github.com/journey-to-code-org/open.blog/issues/211)
+- Parent story: [#203](https://github.com/journey-to-code-org/open.blog/issues/203)
+- Parent epic: [#16](https://github.com/journey-to-code-org/open.blog/issues/16)
+- Builds on: [ADR 0101](0101-one-moderation-state-machine-where-everything-starts-pending.md),
+  [ADR 0102](0102-who-may-moderate-reader-participation.md)
+- Coordinates with: [#226](https://github.com/journey-to-code-org/open.blog/issues/226)
+
+## Context
+
+Reader text that is never published should not be kept indefinitely, but a removal or an upheld
+report must stay explainable after the text is gone. The issue asks that removal and abuse reports
+fail closed while preserving the audit metadata they require, and that retention expiry be tested.
+Hosted storage is a one-way door (ADR 0088), so this decision defines the rules and leaves jobs,
+tables and the function's adoption to #226.
+
+## Decision
+
+- **Retention** is `participation.retention` in `openblog.json`, in whole days, each between 1 and
+  3,650:
+
+  | Setting | Default | Effect |
+  | --- | --- | --- |
+  | `pendingDays` | 90 | an unmoderated pending item expires: rejected with reason `expired` |
+  | `clarificationDays` | 30 | an unanswered clarification request expires the same way |
+  | `closedDays` | 30 | the text, details and reader name of a rejected or removed item are purged |
+  | `auditDays` | 365 | audit events are deleted; must be at least `closedDays` |
+
+  A withdrawn item's text is due for purging at once. Approved items are kept while published.
+  `ModerationPolicy::retention_due` says which step an item owes (`expire` or `purge-content`),
+  `expire` is a transition only the System actor may take and only once due, and
+  `purge_event` records the purge without changing the state. Purged items cannot be reopened or
+  viewed; only their state and audit remain.
+- **Audit events** (`AuditEvent`) record, for each submission, transition and purge: the item, its
+  kind, the action, the states before and after, the actor's role, the Admin account for site
+  Admins, coordinators and contributing authors, the reason, the time, the revision and version,
+  and the related item (a report and its target, a response and its parent). They never hold the
+  text, details, a reader's name, contact, address or device data, so they can outlive the text.
+  The caller writes a transition and its event in one write; if either fails, nothing changed.
+- **Removal fails closed.** A removal needs a grant, the current version and a reason; its event
+  names who, when, why and which revision. Removed items are never public again unless reopened
+  and approved afresh. Anything the public test does not recognise as approved at its current
+  revision is private.
+- **Abuse reports fail closed.**
+  - A report is accepted only for an item that is public now (ADR 0101), and answers
+    `unavailable` otherwise, exactly as for an item that does not exist.
+  - A report is never public, not counted publicly, and never changes its target by itself, so
+    reporting cannot be used to take content down.
+  - Upholding (`uphold-report`) needs a reason, the report's current version and the stored item
+    the report names; the wrong item or none is `reportMismatch`. It also needs the grant to
+    remove that item; without it nothing changes. If the item is still approved, the same decision
+    removes it with reason `upheld-report`, both events naming each other; if it is already out of
+    view, only the report changes. An upheld report therefore always leaves its target out of
+    public view, or changes nothing at all.
+  - Dismissing a report is a rejection with `no-action`, `duplicate`, `spam` or `other`.
+- **No reader is contacted.** Nothing in retention, removal or reporting sends e-mail or any other
+  message to readers.
+
+## Considered options
+
+- **Delete everything on rejection.** Rejected: an owner could not explain or undo a decision,
+  and repeated abuse would be invisible.
+- **Keep audit events with the text.** Rejected: the audit trail would carry the private text
+  past its retention period.
+- **Remove a reported item first and check the report later.** Rejected: an unauthorized or
+  mistaken report would act as a takedown.
+
+## Consequences
+
+- #226 adds the retention job, the private audit table (additive, like ADR 0088) and reader
+  receipts, applying these rules; #225 shows reasons and audit history to moderators.
+- Shorter periods are a configuration change, not a code change, and are validated at load.
