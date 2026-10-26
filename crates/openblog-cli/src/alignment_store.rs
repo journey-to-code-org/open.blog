@@ -132,7 +132,25 @@ pub fn load_for_build(
     let library = source_store::load_for_build(root, contributors)
         .map_err(|error| library_blocked(error).to_string())?
         .library;
-    let mut snapshot = against_library(root, library).map_err(|error| error.to_string())?;
+    let snapshot = against_library(root, library).map_err(|error| error.to_string())?;
+    interpretations_for_build(snapshot, contributors)
+}
+
+/// [`load_for_build`] against a library and notebook already read for a build.
+pub fn load_for_build_with(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+    library: SourceLibrary,
+    notebook: Notebook,
+) -> Result<Snapshot, String> {
+    let snapshot = read(root, library, notebook).map_err(|error| error.to_string())?;
+    interpretations_for_build(snapshot, contributors)
+}
+
+fn interpretations_for_build(
+    mut snapshot: Snapshot,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, String> {
     let named: std::collections::BTreeSet<String> = snapshot
         .alignments
         .alignments
@@ -312,23 +330,26 @@ pub fn create_alignment(
                 facts: Vec::new(),
             }]);
         }
-        set.upsert_alignment(alignment.clone(), links)
+        set.upsert_alignment(alignment.clone(), links, false)
     })
     .map(|(snapshot, ())| snapshot)
 }
 
-/// Replace the alignment with the same identifier.
+/// Replace the alignment with the same identifier. The approval's recorded
+/// places are kept unless `reapprove` says the author checked them again
+/// (see [`AlignmentSet::upsert_alignment`]).
 pub fn update_alignment(
     root: &Path,
     expected_revision: &str,
     alignment: Alignment,
+    reapprove: bool,
     contributors: &BTreeMap<String, Contributor>,
 ) -> Result<Snapshot, StoreError> {
     change(root, expected_revision, contributors, &|set, links| {
         if set.alignment(&alignment.id).is_none() {
             return Err(vec![alignment::unknown(&alignment.id)]);
         }
-        set.upsert_alignment(alignment.clone(), links)
+        set.upsert_alignment(alignment.clone(), links, reapprove)
     })
     .map(|(snapshot, ())| snapshot)
 }
@@ -673,7 +694,7 @@ mod tests {
             codes(duplicate.unwrap_err()),
             [AtlasDiagnosticCode::DuplicateId]
         );
-        let ghost = update_alignment(&root, &seeded.revision, pair("ghost"), &none());
+        let ghost = update_alignment(&root, &seeded.revision, pair("ghost"), false, &none());
         assert_eq!(
             codes(ghost.unwrap_err()),
             [AtlasDiagnosticCode::UnknownAlignment]

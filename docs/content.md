@@ -45,6 +45,7 @@ a `#` heading, which is then used. Everything else is optional:
 | `coverAlt` | Alternative text for the cover. |
 | `draft` | `true` keeps the post out of every build and feed. |
 | `comments` | `open` (default), `locked` (read-only), or `hidden` when hosted comments are enabled. |
+| `participation` | This post's mode for reader participation beyond comments, as `kind: mode` entries: `participation: [question: open, third-perspective: locked]`, or one `- kind: mode` per line. Modes are `open`, `locked` and `hidden`, as for `comments`. A kind only takes effect once the site switches it on; see [Reader participation](configuration.md#reader-participation). |
 | `theme` | A theme name, to render this post differently from the rest. |
 | `canonical` | If the post was first published elsewhere, that address. Search engines then credit the original. |
 | `sourceUrl` | Shown as "Originally published at" under the post. The Hashnode importer fills this in. |

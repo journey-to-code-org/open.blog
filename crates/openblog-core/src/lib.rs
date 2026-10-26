@@ -31,6 +31,13 @@
 //! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
 //! - [`feedback_provenance`]: which revision a reader's feedback was about and when, with consent-gated attribution
 //! - [`scholarly_feedback`]: typed reader questions, suggested sources and corrections and other interpretations, as submitted and as received
+//! - [`evidence_submission`]: suggested sources and corrections with the published claim, citation and source a reader names, never verified
+//! - [`correction_decision`]: the author's correction decision on an evidence submission, the only thing that labels a correction
+//! - [`participation`]: the closed registry of participation kinds and their site and post modes
+//! - [`moderation`]: the one moderation state machine, roles, audit events and retention for them
+//! - [`moderation_inbox`]: the one moderation inbox over every hosted participation store
+//! - [`third_perspective`]: a reader's consented, moderated reflection on a published work, and its one public form
+//! - [`perspective_publication`]: approved Third Perspectives as the site publishes and its canonical pages show them
 
 pub mod accessibility;
 pub mod alignment;
@@ -51,11 +58,14 @@ pub mod claims;
 pub mod collaboration;
 pub mod comparison_publication;
 pub mod config;
+pub mod context_links;
 pub mod contributor;
+pub mod correction_decision;
 pub mod date;
 pub mod draft;
 pub mod embed;
 pub mod escape;
+pub mod evidence_submission;
 pub mod feedback_moderation;
 pub mod feedback_provenance;
 pub mod feedback_publication;
@@ -69,10 +79,16 @@ pub mod markdown;
 pub mod media_moment;
 pub mod members;
 pub mod model;
+pub mod moderation;
+pub mod moderation_inbox;
+pub mod participation;
 pub mod passage_target;
+pub mod perspective_publication;
 pub mod portability;
 pub mod preview;
 pub mod profile;
+pub mod publication_boundary;
+pub mod publication_review;
 pub mod published_moment;
 mod raw_html;
 pub mod reader_references;
@@ -88,12 +104,14 @@ pub mod scholarly_feedback;
 pub mod search;
 pub mod shared_series;
 pub mod shared_source;
+pub mod shingles;
 pub mod slug;
 pub mod source_interchange;
 pub mod source_library;
 pub mod source_review;
 pub mod synthesis;
 pub mod theme;
+pub mod third_perspective;
 pub mod video;
 
 pub use config::SiteConfig;

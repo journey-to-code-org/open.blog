@@ -15,6 +15,7 @@ export const ADMIN_OPTIONAL_MODULES = Object.freeze([
   "optimize",
   "accessibility",
   "evidence",
+  "research",
   "assistant",
   "analytics",
   "contributors",
@@ -43,6 +44,9 @@ export function normalizeAdminPreferences(value) {
   const hiddenModules = Array.isArray(input.hiddenModules)
     ? input.hiddenModules.filter((module, index) => ADMIN_OPTIONAL_MODULES.includes(module) && input.hiddenModules.indexOf(module) === index)
     : [];
+  // Layouts saved before the research workspace showed research only with Evidence Studio, so a
+  // layout that hid Evidence Studio keeps the workspace hidden too (ADR 0120).
+  if (!suppliedOrder.includes("research") && hiddenModules.includes("evidence") && !hiddenModules.includes("research")) hiddenModules.push("research");
   return { schemaVersion: 1, preset, density, editorMode, moduleOrder, hiddenModules };
 }
 
@@ -50,7 +54,7 @@ export function visibleAdminModules(preferences, available = ADMIN_OPTIONAL_MODU
   const normalized = normalizeAdminPreferences(preferences);
   const candidates = normalized.moduleOrder.filter((module) => available.includes(module));
   if (normalized.preset === "simple") return [];
-  if (normalized.preset === "guided") return candidates.filter((module) => ["accessibility", "evidence", "assistant"].includes(module));
+  if (normalized.preset === "guided") return candidates.filter((module) => ["accessibility", "evidence", "research", "assistant"].includes(module));
   if (normalized.preset === "custom") return candidates.filter((module) => !normalized.hiddenModules.includes(module));
   return candidates;
 }
@@ -65,6 +69,7 @@ export const ADMIN_MODULE_LABELS = Object.freeze({
   optimize: "Optimize",
   accessibility: "Accessibility",
   evidence: "Evidence Studio",
+  research: "Research workspace",
   assistant: "Assistant",
   analytics: "Analytics",
   contributors: "Contributors",
@@ -78,6 +83,7 @@ export const ADMIN_MODULE_DETAILS = Object.freeze({
   optimize: "Search and sharing readiness checks",
   accessibility: "Findings and repairs for readers using assistive technology",
   evidence: "Research structure, identifiers, and references",
+  research: "Sources, notebook, atlas, and comparisons beside your draft",
   assistant: "Optional AI review, knowledge checks, and runnable-code proposals",
   analytics: "Reader trends without individual tracking",
   contributors: "Bylines, identities, and contribution credits",
@@ -86,7 +92,7 @@ export const ADMIN_MODULE_DETAILS = Object.freeze({
 
 const ADMIN_TOOL_GOALS = Object.freeze([
   { goal: "assist", label: "Get writing help", modules: ["assistant"] },
-  { goal: "review", label: "Check quality and research", modules: ["accessibility", "evidence", "optimize", "field"] },
+  { goal: "review", label: "Check quality and research", modules: ["accessibility", "evidence", "research", "optimize", "field"] },
   { goal: "distribute", label: "Share and distribute", modules: ["social", "release", "public-site"] },
   { goal: "collaborate", label: "Collaborate and understand readers", modules: ["contributors", "analytics"] },
 ]);
@@ -110,6 +116,130 @@ export function editorPaneLayout(preferences, panes) {
     primary: [...ADMIN_ESSENTIAL_PANES.filter((pane) => panes.includes(pane)), ...visible],
     more: normalized.moduleOrder.filter((pane) => optional.includes(pane) && !visible.includes(pane)),
   };
+}
+
+// ---------------------------------------------------------------- research workspace
+
+/**
+ * The research workspace's panels (ADR 0120), in the order research travels: from a source to
+ * a draft. Each research panel is private author research. The draft is the only publishable
+ * panel, and research reaches readers only through what a post cites or what the author
+ * approves for it. `legacy` is the earlier top-level route that now redirects here.
+ */
+export const RESEARCH_PANELS = Object.freeze([
+  Object.freeze({ id: "overview", label: "Workflow", title: "Research workspace", detail: "Go from a source to a cited draft, and see where each part of your research stands." }),
+  Object.freeze({ id: "sources", label: "Sources", title: "Sources", legacy: "sources", takesId: true, detail: "Keep private research sources, editions, translations, and references in one library." }),
+  Object.freeze({ id: "notebook", label: "Notebook", title: "Research notebook", legacy: "research", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }),
+  Object.freeze({ id: "atlas", label: "Atlas", title: "Knowledge Atlas", legacy: "atlas", takesId: true, detail: "Relate people, works, concepts, movements and events privately, with who asserts each link and on what evidence." }),
+  Object.freeze({ id: "compare", label: "Compare", title: "Compare versions", legacy: "compare", takesId: true, detail: "Read aligned passages across editions, translations, witnesses and interpretations, side by side or in one column." }),
+  Object.freeze({ id: "public", label: "What will be public", title: "What will be public", detail: "See exactly which research each projection publishes, with the fields it copies, and why everything else stays private." }),
+]);
+
+/** What a workspace panel's label says about who can see it, in words as well as in data. */
+export const WORKSPACE_VISIBILITY = Object.freeze({
+  private: Object.freeze({ label: "Private research", detail: "Private research: nothing here is public unless you approve it for a post." }),
+  publishable: Object.freeze({ label: "Publishable", detail: "Publishable: readers see this document once you publish it." }),
+});
+
+/** Editor views an address may open with `?pane=`; anything else is ignored. */
+const EDITOR_PANES = Object.freeze(["write", "preview", "social", "release", "field", "optimize", "settings", "accessibility", "evidence", "assistant"]);
+
+const researchPanel = (id) => RESEARCH_PANELS.find((panel) => panel.id === id) || null;
+
+/** The address of a research panel, and of one item in it when the panel opens items by id. */
+export function researchHref(panel, id = "") {
+  const known = researchPanel(panel) || RESEARCH_PANELS[0];
+  return `#/research/${known.id}${id && known.takesId ? `/${encodeURIComponent(id)}` : ""}`;
+}
+
+/** The address of one atlas relationship, opened in the Knowledge Atlas with it focused. */
+export function atlasRelationshipHref(id) {
+  return `${researchHref("atlas")}/relationships/${encodeURIComponent(String(id || ""))}`;
+}
+
+/** Shell routes that are research panels, by the name each view gives the shell. */
+const RESEARCH_SHELL_ROUTES = Object.freeze({ "research-overview": "overview", sources: "sources", research: "notebook", atlas: "atlas", compare: "compare", "research-public": "public" });
+
+/** The research panel a shell route shows, or null. */
+export function researchPanelForRoute(route) {
+  return RESEARCH_SHELL_ROUTES[route] || null;
+}
+
+/**
+ * The canonical address for a requested one. Research routes from before the workspace
+ * (`#/sources`, `#/research`, `#/atlas/<id>`, `#/compare/<id>`) redirect into it with their
+ * item and query kept, and an unknown research panel opens the workflow. Every other address
+ * is returned unchanged.
+ */
+export function canonicalAdminHash(hash) {
+  const value = String(hash || "");
+  const [route, ...queryParts] = value.replace(/^#\/?/, "").split("?");
+  const query = queryParts.length ? `?${queryParts.join("?")}` : "";
+  const [head, ...rest] = route.split("/");
+  const tail = rest.join("/");
+  if (head === "research") {
+    // The bare route was the notebook's, so it keeps meaning the notebook.
+    if (!tail) return `#/research/notebook${query}`;
+    const [panelId, ...item] = tail.split("/");
+    const panel = researchPanel(panelId);
+    if (!panel) return "#/research/overview";
+    return `#/research/${panel.id}${panel.takesId && item.join("/") ? `/${item.join("/")}` : ""}${query}`;
+  }
+  const legacy = RESEARCH_PANELS.find((panel) => panel.legacy && panel.legacy === head);
+  if (legacy) return `#/research/${legacy.id}${legacy.takesId && tail ? `/${tail}` : ""}${query}`;
+  return value;
+}
+
+/** An editor address without its query, which names a view of the draft rather than another draft. */
+export function draftRoute(hash) {
+  return String(hash || "").split("?")[0];
+}
+
+/**
+ * The workspace panel an address opens: a research panel's id, `draft` for a document in the
+ * editor, or null outside the research workspace.
+ */
+export function workspacePanelKey(hash) {
+  const { head, tail } = parseAdminHash(canonicalAdminHash(hash));
+  if (head === "research") return tail.split("/")[0] || null;
+  if ((head === "edit" && tail) || (head === "new" && ["posts", "pages", "series"].includes(tail))) return "draft";
+  return null;
+}
+
+/**
+ * What moving from one address to another does to unsaved work (ADR 0121). Switching to
+ * another workspace panel keeps a panel with unsaved changes, instead of discarding it, and a
+ * kept panel is reopened exactly as it was left. Asking first is kept for the moves that would
+ * replace unsaved work: reloading the same panel, leaving the workspace, or opening another
+ * document while a draft is kept. `kept` lists the kept panels as `{ key, hash, dirty }`.
+ */
+export function planWorkspaceNavigation({ fromHash = "", toHash = "", currentDirty = false, saving = false, kept = [] } = {}) {
+  const from = fromHash ? workspacePanelKey(fromHash) : null;
+  const to = workspacePanelKey(toHash);
+  const plan = { keep: null, restore: null, discard: [], confirm: [] };
+  if (currentDirty && fromHash !== toHash) {
+    // A save in flight still owns its panel: its result must land on the open view and its
+    // address, so no panel (the draft or a research form) is kept mid-save.
+    const keepable = from && from !== "overview" && to && to !== from && !saving;
+    if (keepable) plan.keep = from;
+    else plan.confirm.push(from || "current");
+  }
+  for (const item of kept) {
+    if (to === null || (item.key === "draft" && to === "draft" && draftRoute(item.hash) !== draftRoute(toHash))) {
+      if (item.dirty) plan.confirm.push(item.key);
+      plan.discard.push(item.key);
+    } else if (item.key === to) plan.restore = item.key;
+  }
+  return plan;
+}
+
+/** The question asked before unsaved work is discarded, naming every place it is in. */
+export function unsavedWorkQuestion(labels) {
+  if (!labels.some(Boolean)) return "You have unsaved changes. Leave without saving?";
+  // An unnamed place is the open view, which is not a workspace panel.
+  const named = [...new Set(labels.map((label) => label || "this view"))];
+  const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
+  return `You have unsaved changes in ${list}. Leave without saving?`;
 }
 
 // Earlier releases remembered the writing mode only in this browser. This
@@ -286,53 +416,202 @@ export function normalizeStatusFilter(value) {
   return ["published", "scheduled", "draft", "error"].includes(value) ? value : "all";
 }
 
-// Reader feedback moderation (ADR 0083). The states are the participation policy's (RD12). B5
-// writes four of them; clarification and withdrawn are listed read-only, so an item another tool
-// moved there is still seen, and one waiting for clarification can still be rejected.
-export const FEEDBACK_QUEUE_STATES = ["pending", "approved", "rejected", "removed", "clarification", "withdrawn"];
-const FEEDBACK_STATE_LABELS = { pending: "Pending", approved: "Approved", rejected: "Rejected", removed: "Removed", clarification: "Waiting for clarification", withdrawn: "Withdrawn" };
-const FEEDBACK_READ_ONLY_NOTES = {
-  clarification: "Admin does not ask readers to clarify; items here were moved by another tool. You can still reject one.",
-  withdrawn: "Readers took these notes back. They are never published and cannot be changed here.",
+// The moderation inbox (ADR 0105): comments and reader feedback in one list, in the participation
+// policy's states (ADR 0102). The server decides who the signed-in account is on each item's work
+// and sends only what that account may see, with the decisions it may take; these helpers only
+// word and shape what it sent.
+export const MODERATION_STATES = ["pending", "clarification", "approved", "rejected", "removed", "withdrawn"];
+export const MODERATION_STATE_LABELS = { pending: "Pending", clarification: "Waiting for clarification", approved: "Approved", rejected: "Rejected", removed: "Removed", withdrawn: "Withdrawn" };
+export const MODERATION_KINDS = [
+  ["", "All kinds"],
+  ["comment", "Comments"],
+  ["question", "Questions"],
+  ["source-suggestion", "Suggested sources"],
+  ["correction-suggestion", "Suggested corrections"],
+  ["alternative-interpretation", "Other interpretations"],
+  ["third-perspective", "Third Perspectives"],
+  ["abuse-report", "Abuse reports"],
+];
+const MODERATION_STATE_NOTES = {
+  clarification: "These wait for the reader’s answer through their private receipt. The text asked about can never be approved; you can still reject it.",
+  withdrawn: "Readers took these back through their private receipts, and the hosted copy of their text was deleted at once. They cannot be changed. A withdrawn reflection that was already published stays on its post until you take it off: the notice above counts them, and each has its own button.",
 };
 
-/** The queue's status line for one state. */
-export function feedbackQueueSummary(status, count) {
-  const items = `item${count === 1 ? "" : "s"}`;
-  if (status === "clarification") return count ? `${count} ${items} waiting for clarification.` : "No feedback is waiting for clarification.";
-  return count ? `${count} ${status} ${items}.` : `No ${status} feedback.`;
+/** The inbox's address for one state and kind filter. */
+export function moderationHash(state, kind = "") {
+  const known = MODERATION_STATES.includes(state) ? state : "pending";
+  return `#/moderation/${known}${kind && MODERATION_KINDS.some(([id]) => id === kind) ? `?kind=${encodeURIComponent(kind)}` : ""}`;
 }
-const FEEDBACK_CHECK_LABELS = { current: "Current", reanchored: "Re-anchored", stale: "Stale", "unknown-work": "Post not found" };
+
+/** The state and kind an inbox address asks for, anything unknown read as the defaults. */
+export function parseModerationRoute(tail, params) {
+  const state = MODERATION_STATES.includes(tail) ? tail : "pending";
+  const kind = params?.get?.("kind") || "";
+  return { state, kind: MODERATION_KINDS.some(([id]) => id === kind) ? kind : "" };
+}
+
+/** The inbox's status line: how many items are shown, never how many exist unseen. */
+export function inboxSummary(state, count, more) {
+  const items = `item${count === 1 ? "" : "s"}`;
+  const tail = more ? " More are listed after these." : "";
+  if (!count) return state === "clarification" ? "Nothing is waiting for clarification." : `No ${MODERATION_STATE_LABELS[state].toLowerCase()} items.`;
+  if (state === "clarification") return `${count} ${items} waiting for clarification.${tail}`;
+  return `${count} ${MODERATION_STATE_LABELS[state].toLowerCase()} ${items}.${tail}`;
+}
 
 /**
- * The body of one moderation request: the state and version the moderator saw, a reason when the
- * action takes one, and, to approve a passage that is not current, the passage check they read.
+ * The body of one decision: the item's source, id, state and version as loaded, a reason when the
+ * action takes one, and, to approve feedback whose passage is not current, the passage check the
+ * moderator confirmed. Nothing says who is acting: the server knows.
  */
-export function feedbackModerationRequest(item, action, reason, acknowledged) {
-  const request = { id: item.id, action, from: item.status, version: item.version };
+export function moderationRequest(item, action, reason, acknowledged) {
+  const request = { source: item.source, id: item.id, action, from: item.status, version: item.version };
   if (reason) request.reason = reason;
   if (action === "approve" && item.passage?.acknowledge && acknowledged) request.acknowledge = item.passage.check;
+  // A Third Perspective's approval binds the text revision and consent record shown (ADR 0111).
+  if (action === "approve" && item.perspective) {
+    request.seenRevision = item.revision;
+    request.seenConsent = item.perspective.consent.number;
+  }
   return request;
 }
 
 /**
- * What a card says when an item's state and the published file disagree, and the fix it offers: an
- * approved note that is not on its post yet, or a removed or rejected one that still is (a removal
- * whose file write failed, or a decision made outside Admin). `published` is null when unknown.
+ * What a moderator reads about a Third Perspective beside its text: what it is about, the prompt
+ * the reader chose, the consent in effect (the record an approval binds), and a warning when the
+ * reader's name is one the work credits, which is never shown with it.
+ */
+export function perspectiveLines(item) {
+  const perspective = item?.perspective;
+  if (!perspective) return [];
+  const lines = [];
+  const about = perspective.about === "work" ? "the whole work" : perspective.section ? `the section #${perspective.section}` : "the opening, before the first heading";
+  const check = perspective.check === "stale" ? " That section has changed since the reader read it." : perspective.check === "unknown-work" ? " No post has this address now." : "";
+  lines.push(`About ${about}.${check}`);
+  if (item.details?.categoryLabel) lines.push(`Prompt: ${item.details.categoryLabel} (“${item.details.prompt}”).`);
+  else lines.push("No prompt chosen.");
+  const consent = perspective.consent;
+  const name = consent.showName ? "with their name, if you approve it" : "without their name";
+  const clarify = consent.clarification ? "may be asked to clarify it" : "did not agree to be asked to clarify it";
+  lines.push(consent.publish
+    ? `Consent record ${consent.number}: the reader agrees to publish it ${name}, and ${clarify}. Approving binds this record; if the reader changes it first, you are asked to review again.`
+    : `Consent record ${consent.number}: the reader no longer agrees to publish it.`);
+  if (perspective.nameMatchesCredit) lines.push("The reader’s name matches a name this work credits. It is never shown with the reflection, which always appears as a reader’s.");
+  return lines;
+}
+
+/** What the signed-in account can do with an item, from the role the server resolved. */
+export function moderationRoleLine(role) {
+  if (role === "coordinator") return "You moderate this as a coordinator of its shared publication. Only the site Admin sees a reader’s private name or reopens a decision.";
+  if (role === "contributing-author") return "You can read this as a contributing author of the work. A coordinator or the site Admin decides.";
+  return "You moderate this as the site Admin.";
+}
+
+/**
+ * Who sent an item, for moderators only. A comment's name is always shown with it; a reader of
+ * feedback chose whether to show theirs, and a private name reaches only the site Admin.
+ */
+export function moderationReaderLine(reader, source = "feedback", kind = "") {
+  if (source === "report") return "Reports are anonymous: nothing about the reader who sent it is kept.";
+  if (source === "comment") return reader?.name ? `From ${reader.name}, shown with the comment.` : "From an unnamed commenter.";
+  if (reader?.private) return "The reader gave a name that only the site Admin can see.";
+  if (!reader?.name) return "From an anonymous reader.";
+  const what = kind === "third-perspective" ? "reflection" : "note";
+  return reader.publishName
+    ? `From ${reader.name}, who agreed to show this name if you publish the ${what}.`
+    : `From ${reader.name}. The name stays private: the reader did not agree to show it.`;
+}
+
+/** What a decision did, for the status line after the list reloads. */
+export function moderationOutcome(item, action, result) {
+  const where = item.post ? `“${item.post.title}”` : item.work;
+  if (action === "approve") {
+    if (item.source === "comment") return `Approved. The comment is shown on ${where}.`;
+    if (item.perspective) {
+      const approved = `Approved this text under the reader’s consent record ${item.perspective.consent.number}, as a reader’s reflection on ${where}. Nothing was e-mailed.`;
+      return result.published ? `${approved} It is published on the post; rebuild or publish to update the live site.` : `${approved} ${result.publishError || ""}`.trim();
+    }
+    return result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`.trim();
+  }
+  if (action === "reject") return "Rejected. Nothing was published.";
+  if (action === "request-clarification") return "Asked the reader to clarify. Nothing was published or e-mailed.";
+  if (action === "reopen") return `Reopened. It is ${result.item?.status === "clarification" ? "waiting for clarification" : "pending"} again.`;
+  if (action === "uphold-report") {
+    if (!result.removedTarget) return "Report upheld. The reported item was already out of public view, so nothing else changed.";
+    if (result.published) return `Report upheld and the item removed, but the note is still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`.trim();
+    return `Report upheld. The reported item was removed from ${where}.`;
+  }
+  if (action === "erase") {
+    if (result.published) return `Its text and name were deleted, but the note is still on the post. ${result.publishError || ""}`.trim();
+    return "Its text and name were deleted. Only the private record of decisions remains.";
+  }
+  if (item.source === "comment") return `Removed from ${where}.`;
+  if (result.published) return `Removed, but still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`;
+  return result.publishError ? `Removed. ${result.publishError}` : `Removed from ${where}.`;
+}
+
+/**
+ * What a card says when a feedback item's state and the published file disagree, and the fix it
+ * offers: an approved note that is not on its post yet, or a removed or rejected one that still is
+ * (a removal whose file write failed, or a decision made outside Admin). `published` is null when
+ * unknown.
  */
 export function feedbackPublicationMismatch(item) {
+  if (item.kind === "third-perspective") return perspectivePublicationMismatch(item);
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.status === "approved" && item.published === true && item.decisionPublished === false) return { notice: "The decision on the post is not the one you recorded.", action: "publish-decision", label: "Update the published decision" };
   if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
+  if (item.status === "withdrawn" && item.published === true) return { notice: "The reader withdrew this note and asked for it to be deleted, but it is still on the post. Take it off now.", action: "unpublish", label: "Take it off the post" };
   return null;
 }
 
-/** Who sent a note, for the moderator only, with the reader's choice about their name. */
-export function feedbackReaderLine(reader) {
-  if (!reader?.name) return "From an anonymous reader.";
-  return reader.publishName
-    ? `From ${reader.name}, who agreed to show this name if you publish the note.`
-    : `From ${reader.name}. The name stays private: the reader did not agree to show it.`;
+/**
+ * The same for a Third Perspective (ADR 0115): an approved reflection the projection shows that
+ * is not on its post yet, or a published one it no longer shows, most often because the reader
+ * withdrew it through their receipt. `mayBeShown` is whether the hosted copy may be public now.
+ */
+export function perspectivePublicationMismatch(item) {
+  if (item.published === false && item.mayBeShown === true) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.published === true && item.mayBeShown === null) return { notice: "It is on the post, but this page cannot tell whether it may stay: the hosted copy cannot say (Third Perspectives are switched off or rolled back). Check it, and take it off if it should not be shown.", action: "unpublish", label: "Take it off the post" };
+  if (item.published !== true || item.mayBeShown !== false) return null;
+  const notice = {
+    withdrawn: "The reader withdrew this reflection through their receipt, and its text and name were deleted, but it is still on the post. Take it off now.",
+    removed: "Removed, but still on the post.",
+    rejected: "Rejected, but still on the post.",
+  }[item.status] || "The reader’s consent or this reflection’s state no longer allows it on the post, but it is still there. Take it off now.";
+  return { notice, action: "unpublish", label: "Take it off the post" };
+}
+
+/**
+ * What the audit of the published Third Perspectives (`engagement/third-perspectives/published`)
+ * says, in words, for the banner shown on every tab (ADR 0115): how many must come off their posts
+ * now, and how many cannot be told because the hosted function does not read their consent.
+ */
+export function perspectiveAuditNotices(audit) {
+  const count = (list) => (Array.isArray(list) ? list.length : 0);
+  const many = (n) => `${n} published reflection${n === 1 ? "" : "s"}`;
+  const notices = [];
+  const off = count(audit?.mustComeOff);
+  const unknown = count(audit?.unknown);
+  if (off) notices.push({ kind: "mustComeOff", text: `${many(off)} must come off ${off === 1 ? "its post" : "their posts"}: the reader withdrew ${off === 1 ? "it" : "them"}, or ${off === 1 ? "its" : "their"} approval or consent no longer allows ${off === 1 ? "it" : "them"}.` });
+  if (unknown) notices.push({ kind: "unknown", text: `${many(unknown)} cannot be checked against the hosted copy, because Third Perspectives are switched off or rolled back there. Look at ${unknown === 1 ? "it" : "each"}, and take off any that should not be shown.` });
+  if (audit?.truncated) notices.push({ kind: "truncated", text: "More reflections are published than one check reads; the first ones were checked." });
+  return notices;
+}
+
+/** The retention dry run's summary, in words: what would expire or be purged, by kind. */
+export function retentionSummaryLines(report) {
+  const lines = (report?.summary || []).map((entry) => {
+    const what = entry.step === "expire" ? "expire without a decision" : "have their text, details and names deleted";
+    return `${entry.count} ${entry.kindLabel.toLowerCase()} ${entry.count === 1 ? "item" : "items"} would ${what}.`;
+  });
+  const audit = Object.values(report?.audit || {}).reduce((total, count) => total + (Number(count) || 0), 0);
+  if (audit) lines.push(`${audit} private record${audit === 1 ? "" : "s"} of decisions older than ${report.periods.auditDays} days would be deleted.`);
+  if (!lines.length) lines.push("Nothing is due: retention would change nothing now.");
+  if (!report?.periods?.comments) lines.push("Comments are kept until you act, because participation.retention is not set in openblog.json.");
+  if (report?.truncated) lines.push("More items are due than one run takes; run it again afterwards.");
+  return lines;
 }
 
 /** How the published note would read its passage, in words. */
@@ -341,6 +620,100 @@ export function feedbackPreviewText(preview) {
   const passage = preview.quote ? `quoting “${preview.quote}”` : preview.stale ? "without a quotation, because the passage has changed" : "without a quotation";
   return `On the post it is shown ${passage}, as from ${preview.name || "a reader"}, received ${preview.received}.`;
 }
+
+// Correction decisions (ADR 0117) and evidence (ADR 0116) in the inbox. The server says how each
+// item stands, what the reader named and whether the post publishes it, the decisions recorded so
+// far, and, where this account may decide, the outcomes and the choices only it can list (the
+// post's revision notes as written, the evidence links in the claims file). These helpers only word
+// and shape what it sent; a suggestion is never called a correction before the author decides.
+
+/** The author's local day, `YYYY-MM-DD`, as a decision is dated. */
+export function localDay(date = new Date()) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * The body of a decision: the item, the text revision and how many decisions on it the author saw, the outcome and only
+ * the fields that outcome takes, the passage check confirmed when the passage moved, and the day.
+ * Nothing says who is deciding: the server knows.
+ */
+export function decisionRequest(item, values) {
+  const offer = item.recordDecision || {};
+  const outcome = offer.outcomes?.find((each) => each.id === values.outcome);
+  const request = { id: item.id, expectedDecisions: offer.expectedDecisions ?? 0, itemRevision: offer.itemRevision ?? 1, outcome: values.outcome, decided: values.decided || localDay() };
+  if (outcome?.accepted && values.extent) request.extent = values.extent;
+  if (values.outcome === "declined" && values.declineReason) request.declineReason = values.declineReason;
+  if (values.rationale && values.rationale.trim()) request.rationale = values.rationale;
+  if (values.outcome !== "declined" && values.revisionNote && offer.post) request.revisionNote = { post: offer.post, note: values.revisionNote };
+  if (values.outcome !== "declined" && values.claimEvidence) {
+    const [claim, link] = values.claimEvidence.split(" ");
+    if (claim && link) request.claimEvidence = { claim, link };
+  }
+  if (values.outcome === "already-addressed" && values.addressedBy && values.addressedBy.trim()) request.addressedBy = values.addressedBy.trim();
+  if (offer.confirmCheck && values.confirmed) request.confirmCheck = offer.confirmCheck;
+  return request;
+}
+
+/** What is missing before a decision can be sent, as { field, message }, or null. */
+export function decisionProblem(item, values) {
+  const offer = item.recordDecision || {};
+  const outcome = offer.outcomes?.find((each) => each.id === values.outcome);
+  if (!outcome) return { field: "outcome", message: "Choose what you decided." };
+  if (outcome.accepted && !values.extent) return { field: "extent", message: "Say whether you applied all of it or part of it." };
+  if (values.outcome === "declined" && !values.declineReason) return { field: "declineReason", message: "Choose your reason for declining." };
+  const needsRationale = values.outcome === "declined" || values.extent === "partial";
+  if (needsRationale && !(values.rationale || "").trim()) return { field: "rationale", message: values.outcome === "declined" ? "Say why, in your own words." : "Say which part you applied, and why not the rest." };
+  if (outcome.accepted && !values.revisionNote) return { field: "revisionNote", message: "Choose the post’s revision note that says what changed. Add it to the post first if it is not listed." };
+  if (values.outcome === "accepted-as-evidence" && !values.claimEvidence) return { field: "claimEvidence", message: "Choose the evidence link you recorded in Evidence Studio." };
+  if (values.outcome === "already-addressed" && !values.revisionNote && !(values.addressedBy || "").trim()) {
+    return { field: "revisionNote", message: "Choose the revision note that addressed it, or give the item that did." };
+  }
+  if (offer.confirmCheck && !values.confirmed) return { field: "confirmed", message: "Confirm that you read the passage as it is published now." };
+  return null;
+}
+
+/** One recorded decision in words, for the item's history. Who decided is shown to moderators only. */
+export function decisionLine(decision) {
+  const extent = decision.extent === "partial" ? " (in part)" : decision.extent === "full" ? " (in full)" : "";
+  const reason = decision.declineReasonLabel ? `: ${decision.declineReasonLabel}` : "";
+  const who = decision.decidedBy?.account && decision.decidedBy.account !== "@moderation-token" ? ` by ${decision.decidedBy.account}` : "";
+  const role = decision.decidedBy?.role === "coordinator" ? " as coordinator" : "";
+  return `${decision.label}${extent}${reason}, ${decision.decided}${who}${role}${decision.inForce ? "" : " (superseded or about earlier text)"}`;
+}
+
+/** What a recorded decision did, for the status line after the list reloads. */
+export function decisionOutcome(result) {
+  const label = result?.decision?.label || "Decision";
+  const base = `Decision recorded: ${label}. The post, its citations and the Source Library were not changed, the reader’s note was neither published nor hidden, and nothing was e-mailed.`;
+  // A note that is already on its post shows the new outcome there (ADR 0119); one that is not
+  // stays off the post until the author approves it.
+  if (result?.outcomePublished) return `${base} The outcome now shows on the published note. Rebuild or publish to update the live site.`;
+  if (result?.publishError) return `${base} The published note could not be updated: ${result.publishError}`;
+  return base;
+}
+
+const LOCATOR_TEXT = (locator) => `${locator.kind} ${locator.value}${locator.to ? `–${locator.to}` : ""}`;
+
+/** The reader's evidence block as lines for the card: each reference, published or not. */
+export function evidenceReviewLines(evidence) {
+  if (!evidence) return [];
+  const named = (what, entry, label) => {
+    if (!entry) return null;
+    if (!entry.published) return `${what}: “${entry.id}”, which this post does not publish now.`;
+    return `${what}: ${label ?? entry.label ?? entry.id}.`;
+  };
+  return [
+    named("Claim", evidence.claim, evidence.claim?.label && evidence.claim?.statement ? `${evidence.claim.label}, “${evidence.claim.statement}”` : undefined),
+    named("Evidence for it the reader questions", evidence.evidenceLink),
+    named("Cited source the reader questions", evidence.citation),
+    evidence.source
+      ? `${evidence.source.published ? `Source the reader offers: ${evidence.source.label ?? evidence.source.id}` : `Source the reader offers: “${evidence.source.id}”, which this site does not publish now`}${evidence.locators?.length ? `, at ${evidence.locators.map(LOCATOR_TEXT).join(", ")}` : ""}.`
+      : null,
+    evidence.stanceLabel ? `${evidence.stanceLabel}.` : null,
+  ].filter(Boolean);
+}
+
+const FEEDBACK_CHECK_LABELS = { current: "Current", reanchored: "Re-anchored", stale: "Stale", "unknown-work": "Post not found" };
 
 function feedbackPassage(passage) {
   if (!passage) return null;
@@ -355,14 +728,20 @@ function feedbackPassage(passage) {
   );
 }
 
-function feedbackPreview(preview) {
-  return preview ? h("p", { class: "oba-small oba-feedback-preview" }, feedbackPreviewText(preview)) : null;
+/** The item an abuse report names, for moderators: its kind and state, its author if a comment, and its text unless deleted. */
+function reportedItem(target) {
+  if (!target) return h("p", { class: "oba-notice" }, "The reported item no longer exists, so upholding the report changes only the report.");
+  return h(
+    "div",
+    { class: "oba-feedback-passage" },
+    h("h4", {}, "Reported item"),
+    h("p", {}, `${target.kindLabel}${target.authorName ? ` by ${target.authorName}` : ""} · ${target.statusLabel}`),
+    target.body ? h("blockquote", { class: "oba-feedback-body" }, target.body) : h("p", { class: "oba-small" }, "Its text was deleted."),
+  );
 }
 
-export const COMMENT_MODERATION_STATUSES = ["pending", "approved", "rejected"];
-
-export function commentModerationActions(status) {
-  return ["approved", "rejected"].filter((decision) => decision !== status);
+function feedbackPreview(preview) {
+  return preview ? h("p", { class: "oba-small oba-feedback-preview" }, feedbackPreviewText(preview)) : null;
 }
 
 export function saveStateForVersions(saveVersion, editVersion) {
@@ -1437,6 +1816,605 @@ export function createCitationForm({ api, state, initial = null, idPrefix = "oba
   };
 }
 
+// ---------------------------------------------------------------- draft-side research panel (A8.2, ADR 0122)
+
+/** Characters a line may not start with, or Markdown reads a block marker, written as references. */
+const LINE_START_REFERENCES = Object.freeze({ "#": "&#35;", ">": "&gt;", "-": "&#45;", "+": "&#43;", "=": "&#61;" });
+const whitespaceReferences = (space) => [...space].map((character) => (character === "\t" ? "&#9;" : "&#32;")).join("");
+
+/**
+ * One line of someone else's words (or of a note the author converts) as Markdown that renders
+ * exactly that text and that the visual editor shows and writes back byte for byte. The
+ * characters the visual editor escapes with a backslash (`\ * _ ` [ ]`) are escaped that way;
+ * the others Markdown would read as markup are written as character references: `&`, `<`, `|`
+ * and `~` anywhere, a block marker or an ordered-list number at the start, and whitespace at
+ * either end. Nothing is trimmed, normalized or dropped.
+ */
+export function literalMarkdownLine(line) {
+  let text = String(line ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/\|/g, "&#124;")
+    .replace(/~/g, "&#126;")
+    .replace(/[\\*_`[\]]/g, "\\$&");
+  text = text.replace(/^[ \t]+/, whitespaceReferences).replace(/[ \t]+$/, whitespaceReferences);
+  if (LINE_START_REFERENCES[text[0]]) text = LINE_START_REFERENCES[text[0]] + text.slice(1);
+  return text.replace(/^(\d{1,9})([.)])/, (_, digits, mark) => `${digits}${mark === "." ? "&#46;" : "&#41;"}`);
+}
+
+/** Lines of text without the blank lines at either end, which a reader never sees. */
+function contentLines(text) {
+  const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  while (lines.length && !lines[0].trim()) lines.shift();
+  while (lines.length && !lines.at(-1).trim()) lines.pop();
+  return lines;
+}
+
+/**
+ * A passage's wording as a Markdown block quote ending with its checked citation, or "" when
+ * there is no wording or the citation is not one. The wording is written with
+ * `literalMarkdownLine`, so the quotation renders as stored; a blank line inside it is a
+ * paragraph break within the quote.
+ */
+export function quotationMarkdown(text, citation) {
+  if (!CITATION_WHOLE.test(String(citation ?? ""))) return "";
+  const lines = contentLines(text);
+  if (!lines.length) return "";
+  const body = lines.map((line) => (line.trim() ? literalMarkdownLine(line) : ""));
+  body[body.length - 1] += ` ${citation}`;
+  return body.map((line) => (line ? `> ${line}` : "> ")).join("\n");
+}
+
+/**
+ * A private note the author chose to convert, as ordinary draft paragraphs of their own words:
+ * no quotation marks, no citation, every character as written.
+ */
+export function convertedNoteMarkdown(text) {
+  const paragraphs = [];
+  let current = [];
+  for (const line of contentLines(text)) {
+    if (line.trim()) current.push(literalMarkdownLine(line));
+    else if (current.length) {
+      paragraphs.push(current.join("\n"));
+      current = [];
+    }
+  }
+  if (current.length) paragraphs.push(current.join("\n"));
+  return paragraphs.join("\n\n");
+}
+
+/** Root-relative addresses of published atlas entries and comparisons; nothing else is linked. */
+const CONTEXT_URL = /^\/(?:atlas|comparisons)\/[a-z0-9]+(?:-[a-z0-9]+)*\/$/;
+
+/** A Markdown link to a published context page, or "" for any other address. */
+export function contextLinkMarkdown(label, url) {
+  const text = literalMarkdownLine(String(label ?? "").replace(/\s+/g, " ").trim());
+  if (!text || !CONTEXT_URL.test(String(url ?? ""))) return "";
+  return `[${text}](${url})`;
+}
+
+/**
+ * Insert a block (a quotation or converted paragraphs) into Markdown after the paragraph the
+ * selection ends in, with a blank line either side, so no paragraph is split and the selected
+ * text stays. On a blank line it goes there. Inside fenced or indented code or an HTML block it
+ * is refused, as `{ problem: "code" | "html" }`. The caret lands after the block.
+ */
+export function insertMarkdownBlock(value, start, end, block) {
+  const text = String(value ?? "");
+  const at = Math.max(0, Math.min(text.length, Math.max(start, end)));
+  const lines = text.split("\n");
+  const kinds = markdownLineKinds(lines);
+  let index = 0;
+  let offset = 0;
+  while (index < lines.length - 1 && at > offset + lines[index].length) {
+    offset += lines[index].length + 1;
+    index += 1;
+  }
+  const kind = kinds[index];
+  if (kind === "code" || kind === "html") return { problem: kind };
+  let position = offset;
+  if (kind === "text") {
+    let last = index;
+    while (last + 1 < lines.length && kinds[last + 1] === "text") {
+      offset += lines[last].length + 1;
+      last += 1;
+    }
+    position = offset + lines[last].length;
+  }
+  const before = text.slice(0, position);
+  const after = text.slice(position);
+  const lead = !before ? "" : before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+  const trail = !after ? "\n" : after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n";
+  const caret = before.length + lead.length + block.length;
+  return { value: before + lead + block + trail + after, start: caret, end: caret };
+}
+
+/** Insert inline Markdown (a context link) at the selection's end, spaced like a citation. */
+export function insertMarkdownInline(value, start, end, markdown) {
+  return insertCitationText(value, start, end, markdown);
+}
+
+const fold = (value) => String(value ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const DRAFT_RESEARCH_LIMIT = 50;
+const NOTE_KIND_TEXT = (note) => (note.kind === "question" ? (note.status === "resolved" ? "Resolved question" : "Open question") : "Observation");
+
+/**
+ * What the panel lists for a search: passages, sources, context (atlas entries and
+ * comparisons), interpretations and, only when asked for, private notes. Every item says what
+ * it is and whether it is private or published. Archived sources are left out, as in the
+ * citation picker. `filter` is `all`, `passages`, `sources`, `context`, `interpretations` or
+ * `notes`; notes never appear under `all`, so private prose is shown only on request.
+ */
+export function draftResearchItems(data, query = "", filter = "all") {
+  const list = (value) => (Array.isArray(value) ? value : []);
+  const sources = list(data?.library?.sources);
+  const sourceName = (id) => {
+    const source = sources.find((item) => item.id === id);
+    return source ? sourceLabel(source) : id;
+  };
+  const items = [];
+  const want = (kind) => filter === kind || (filter === "all" && kind !== "notes");
+  if (want("passages")) {
+    for (const passage of list(data?.notebook?.passages)) {
+      const where = locatorText(passage.locators);
+      items.push({ type: "passage", id: passage.id, title: `${sourceName(passage.source)}${where ? `, ${where}` : ""}`, preview: entryPreview(passage, 80), visibility: "Private research", search: [passage.id, passage.source, sourceName(passage.source), where, passage.excerpt?.text], record: passage });
+    }
+  }
+  if (want("sources")) {
+    for (const source of sources.filter((item) => !item.archived)) {
+      items.push({ type: "source", id: source.id, title: sourceLabel(source), preview: `${VERSION_KIND_LABELS[source.kind] || "Source"} · ${source.id}`, visibility: "Private research", search: [source.id, source.title, source.language, ...list(source.creators).map((creator) => creator?.name), ...list(source.identifiers).map((identifier) => identifier?.value)], record: source });
+    }
+  }
+  if (want("context")) {
+    for (const entry of list(data?.atlas?.entries)) {
+      items.push({ type: "atlas", id: entry.id, title: entry.label, preview: `Atlas ${String(entry.kind || "entry")} · ${entry.id}`, visibility: entry.url ? "Published" : "Not published", search: [entry.id, entry.label, entry.kind, ...list(entry.aliases)], record: entry });
+    }
+    for (const comparison of list(data?.comparisons?.items)) {
+      items.push({ type: "comparison", id: comparison.id, title: comparison.label || comparison.id, preview: `Comparison · ${comparison.id}`, visibility: comparison.url ? "Published" : "Not published", search: [comparison.id, comparison.label], record: comparison });
+    }
+  }
+  if (want("interpretations")) {
+    for (const interpretation of list(data?.library?.interpretations)) {
+      items.push({ type: "interpretation", id: interpretation.id, title: `${interpretation.kind === "rendering" ? "Rendering" : "Reading"} of ${sourceName(interpretation.source)}`, preview: entryPreview(interpretation, 80), visibility: "Private research", search: [interpretation.id, interpretation.source, sourceName(interpretation.source), interpretation.text], record: interpretation });
+    }
+  }
+  if (want("notes")) {
+    for (const note of list(data?.notebook?.notes)) {
+      items.push({ type: "note", id: note.id, title: `${NOTE_KIND_TEXT(note)} ${note.id}`, preview: entryPreview(note, 80), visibility: "Private note", search: [note.id, note.text], record: note });
+    }
+  }
+  const terms = fold(query).split(/\s+/).filter(Boolean);
+  return items.filter((item) => {
+    if (!terms.length) return true;
+    const haystack = fold(item.search.filter((part) => typeof part === "string").join("\n"));
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+/**
+ * Why an atlas entry or comparison cannot be linked yet, or "" when the next build publishes it.
+ * `area` is `atlas` or `comparisons`; `publish` is whether the site publishes that area.
+ */
+export function contextLinkWarning(item, { area = "atlas", publish = false } = {}) {
+  if (item?.url) return "";
+  const page = area === "atlas" ? "this entry" : "this comparison";
+  if (!item?.approved) return `Not published: ${page} is private research. Approve it in the research workspace before you link to it. Nothing private is linked.`;
+  if (!publish) return `Approved, but this site does not publish its ${area === "atlas" ? "Knowledge Atlas" : "comparisons"} yet, so a link would lead nowhere. Turn on ${area === "atlas" ? "knowledgeAtlas.publish" : "comparisons.publish"} in openblog.json first.`;
+  return `Approved, but the next build cannot publish ${page}. Open it in the research workspace to see why.`;
+}
+
+const DRAFT_RESEARCH_FILTERS = Object.freeze([
+  ["all", "All research"],
+  ["passages", "Passages"],
+  ["sources", "Sources"],
+  ["context", "Atlas entries and comparisons"],
+  ["interpretations", "Interpretations"],
+  ["notes", "My private notes"],
+]);
+const DRAFT_RESEARCH_TYPE = Object.freeze({ passage: "Passage", source: "Source", atlas: "Atlas entry", comparison: "Comparison", interpretation: "Interpretation", note: "Private note" });
+
+/**
+ * The draft-side research panel (A8.2, ADR 0122): one narrow, non-modal region beside the
+ * writing surface that searches the author's research and inserts from it. A quotation from a
+ * passage goes in with its citation, checked by the server like the Cite dialog; a source gives
+ * a citation with optional locators and nothing else; an atlas entry, a dating or a comparison
+ * gives a link only once the next build publishes it, and says why not otherwise; a private
+ * note goes in only through an explicit conversion. Nothing here writes a file or stores
+ * anything in the browser. `insert({ kind, markdown, label })` applies a checked insertion to
+ * the draft and returns "" or why it could not.
+ */
+export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClaims, onSessionEnded, idPrefix = "oba-draft-research" }) {
+  let data = null;
+  let filter = "all";
+  let query = "";
+  let selected = null; // { type, id }
+  let busy = false;
+  const root = h("aside", { class: "oba-draft-research", id: idPrefix, "aria-labelledby": `${idPrefix}-title`, "data-draft-research": "true" });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-draft-research-status": "true" });
+  const problems = h("div", { "data-draft-research-problems": "true" });
+  const search = h("input", { id: `${idPrefix}-search`, type: "search", autocomplete: "off", spellcheck: "false", "aria-controls": `${idPrefix}-results`, onInput: (event) => { query = event.target.value; renderResults(); } });
+  const show = h(
+    "select",
+    { id: `${idPrefix}-filter`, "aria-controls": `${idPrefix}-results`, onChange: (event) => { filter = event.target.value; renderResults(); } },
+    DRAFT_RESEARCH_FILTERS.map(([value, label]) => h("option", { value }, label)),
+  );
+  const results = h("ul", { class: "oba-draft-research-results", id: `${idPrefix}-results`, "aria-label": "Research results" });
+  const detail = h("section", { class: "oba-draft-research-detail", "aria-labelledby": `${idPrefix}-detail-title`, hidden: true, "data-draft-research-detail": "true" });
+  const refresh = h("button", { class: "oba-btn", type: "button", "data-draft-research-refresh": "true", onClick: () => void load() }, "Refresh");
+  const close = h("button", { class: "oba-btn", type: "button", "aria-label": "Close the research panel", "data-draft-research-close": "true", onClick: () => onClose?.() }, "Close");
+
+  const sources = () => (Array.isArray(data?.library?.sources) ? data.library.sources : []);
+  const sourceById = (id) => sources().find((source) => source.id === id) || null;
+  const sourceName = (id) => (sourceById(id) ? sourceLabel(sourceById(id)) : id);
+  const found = () => draftResearchItems(data, query, filter);
+  const say = (text) => {
+    status.textContent = text;
+  };
+
+  root.append(
+    h(
+      "header",
+      { class: "oba-draft-research-head" },
+      h("h3", { id: `${idPrefix}-title` }, "Research"),
+      h("span", { class: "oba-visibility", "data-visibility": "private" }, WORKSPACE_VISIBILITY.private.label),
+      close,
+    ),
+    h("p", { class: "oba-small", id: `${idPrefix}-boundary`, "data-draft-research-boundary": "true" }, "Your research stays private. Only what you insert goes into this draft, which readers see once you publish it. Quotations go in with their citation; private notes go in only if you convert one."),
+    h("div", { class: "oba-field" }, h("label", { for: search.id }, "Search research"), search),
+    h("div", { class: "oba-field" }, h("label", { for: show.id }, "Show"), show),
+    h("div", { class: "oba-toolbar" }, refresh),
+    status,
+    problems,
+    results,
+    detail,
+    h(
+      "div",
+      { class: "oba-draft-research-claims", "data-draft-research-claims": "true" },
+      h("h4", {}, "Claims"),
+      h("p", { class: "oba-small" }, "Record what the draft claims and link evidence to it in Evidence Studio. Claims stay private until you approve their evidence."),
+      h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn", type: "button", "data-draft-research-claim": "true", onClick: () => onClaim?.() }, "Make a claim from the selected words"), h("button", { class: "oba-btn", type: "button", onClick: () => onClaims?.() }, "Open Evidence Studio")),
+    ),
+  );
+
+  const renderProblems = () => {
+    const parts = [["library", "Sources"], ["notebook", "Passages and notes"], ["atlas", "Atlas entries"], ["comparisons", "Comparisons"]];
+    const failed = (key) => typeof data?.[key]?.error === "string";
+    // Each part is read against the parts before it: the notebook against the sources, the atlas
+    // and comparisons against both. When an earlier part failed, its own notice names the file to
+    // repair, and the later parts blame nothing else.
+    const readAgainst = { notebook: ["library"], atlas: ["library", "notebook"], comparisons: ["library", "notebook"] };
+    const blockedBy = (key) => data?.[key]?.unavailableBecause || (readAgainst[key] || []).find((part) => failed(part) && !data[part].unavailableBecause);
+    const partName = { library: "your sources", notebook: "your passages and notes" };
+    const text = (key, label) => {
+      const cause = blockedBy(key);
+      if (cause) return `${label}: Not offered while ${partName[cause] || "another part of your research"} cannot be read. Nothing was changed.`;
+      return `${label}: ${data[key].error}${data[key].file ? ` Repair ${data[key].file} by hand.` : ""}`;
+    };
+    problems.replaceChildren(
+      ...parts.filter(([key]) => failed(key)).map(([key, label]) => h("p", { class: "oba-notice", "data-draft-research-problem": key }, text(key, label))),
+    );
+  };
+
+  const renderResults = () => {
+    if (!data) return;
+    const items = found();
+    const shown = items.slice(0, DRAFT_RESEARCH_LIMIT);
+    results.replaceChildren(
+      ...shown.map((item) =>
+        h(
+          "li",
+          {},
+          h(
+            "button",
+            {
+              class: "oba-draft-research-item",
+              type: "button",
+              "data-draft-item": `${item.type}:${item.id}`,
+              "aria-current": selected?.type === item.type && selected?.id === item.id ? "true" : null,
+              onClick: () => open(item.type, item.id),
+            },
+            h("span", { class: "oba-draft-research-type" }, DRAFT_RESEARCH_TYPE[item.type]),
+            " ",
+            h("strong", {}, h("bdi", {}, item.title)),
+            h("span", { class: "oba-small" }, h("bdi", {}, item.preview)),
+            h("span", { class: "oba-visibility", "data-visibility": item.visibility === "Published" ? "publishable" : "private" }, item.visibility),
+          ),
+        ),
+      ),
+    );
+    if (!items.length) results.replaceChildren(h("li", { class: "oba-notice" }, filter === "notes" ? "No private notes match." : "Nothing in your research matches."));
+    say(`${items.length} result${items.length === 1 ? "" : "s"}${items.length > shown.length ? `, showing the first ${shown.length}` : ""}.`);
+  };
+
+  /** The error line inside an item's detail, so a failure stays with the item that failed. */
+  const itemProblem = () => detail.querySelector("[data-draft-research-error]");
+  const fail = (message) => {
+    const box = itemProblem();
+    if (!box) return say(message);
+    box.textContent = message;
+    box.hidden = false;
+    box.focus();
+  };
+  const clearProblem = () => {
+    const box = itemProblem();
+    if (box) box.hidden = true;
+  };
+
+  /** Ask the server to check a citation exactly as the Cite dialog does; nothing is written. */
+  const checkCitation = async (citation) => {
+    const revision = data?.library?.revision;
+    if (typeof revision !== "string") throw Object.assign(new Error("The source library could not be read, so no citation can be checked. Your draft is unchanged."), { status: 0 });
+    try {
+      return await api.call("POST", "citations/check", { json: { revision, citation } });
+    } catch (error) {
+      if (error?.status === 409 && typeof error.data?.revision === "string") {
+        data.library.revision = error.data.revision;
+        if (Array.isArray(error.data.sources)) data.library.sources = error.data.sources;
+      }
+      throw error;
+    }
+  };
+
+  /** Run one insertion: check what needs checking, then hand the Markdown to the editor. */
+  const run = async (button, build) => {
+    if (busy) return;
+    busy = true;
+    clearProblem();
+    button.disabled = true;
+    try {
+      const request = await build();
+      if (!request) return;
+      const refused = insert?.(request) || "";
+      if (refused) fail(refused);
+    } catch (error) {
+      if (error?.status === 401) {
+        onSessionEnded?.();
+        return;
+      }
+      const message = error?.status === 0 ? error.message : citationFailure(error).message;
+      fail(/unchanged/.test(message) ? message : `${message} Your draft is unchanged.`);
+    } finally {
+      busy = false;
+      button.disabled = false;
+    }
+  };
+
+  const errorBox = () => h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true, "data-draft-research-error": "true" });
+  const heading = (text) => h("h4", { id: `${idPrefix}-detail-title`, tabindex: "-1" }, text);
+  const workspaceLink = (href, text) => h("a", { href, class: "oba-small", "data-draft-research-open": "true" }, text);
+  const rightsLine = (source) => h("p", { class: "oba-small", "data-draft-research-rights": rightsOf(source?.rightsStatus).status }, h("bdi", {}, `Rights: ${rightsText(source?.rightsStatus)}`));
+
+  const passageDetail = (passage) => {
+    const source = sourceById(passage.source);
+    const rights = rightsOf(source?.rightsStatus);
+    const confirmNeeded = RIGHTS_NEEDING_CONFIRMATION.includes(rights.status);
+    const confirm = h("input", { id: `${idPrefix}-confirm-rights`, type: "checkbox" });
+    const locators = citationLocatorsFromPassage(passage);
+    const citation = { key: passage.source, locators };
+    const preview = quotationMarkdown(passage.excerpt?.text, formatCitationText(citation));
+    const quote = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-draft-insert": "quotation" }, "Insert quotation with citation");
+    const cite = h("button", { class: "oba-btn", type: "button", "data-draft-insert": "citation" }, "Insert citation only");
+    quote.addEventListener("click", () =>
+      run(quote, async () => {
+        if (confirmNeeded && !confirm.checked) {
+          fail("Confirm that you have read the rights statement first. Your draft is unchanged.");
+          confirm.focus();
+          return null;
+        }
+        const checked = await checkCitation(citation);
+        const markdown = quotationMarkdown(passage.excerpt?.text, checked?.markdown);
+        if (!markdown) throw Object.assign(new Error("The server returned no citation, so your draft is unchanged."), { status: 0 });
+        return { kind: "block", markdown, label: "quotation" };
+      }),
+    );
+    cite.addEventListener("click", () =>
+      run(cite, async () => {
+        const checked = await checkCitation(citation);
+        return { kind: "citation", markdown: String(checked?.markdown || "") };
+      }),
+    );
+    const language = languageTag(passage.excerpt?.language);
+    return [
+      heading(`Passage from ${sourceName(passage.source)}`),
+      h("p", { class: "oba-small" }, h("span", { class: "oba-visibility", "data-visibility": "private" }, "Private research"), " ", locatorText(passage.locators) || "No locator recorded."),
+      h("blockquote", { class: "oba-draft-research-quote", lang: language || null, dir: textDirection(language) }, passage.excerpt?.text || ""),
+      passage.notes ? h("p", { class: "oba-small", "data-draft-research-notes": String(passage.notes) }, `${passage.notes} private note${passage.notes === 1 ? " is" : "s are"} linked to this passage. ${passage.notes === 1 ? "It is" : "They are"} never inserted with it.`) : null,
+      rightsLine(source),
+      h("p", { class: "oba-small" }, "Inserting adds the wording exactly as stored, as a block quote after the paragraph you are in, followed by its citation. The rights statement is yours; it is not permission."),
+      h("details", { class: "oba-draft-research-markdown" }, h("summary", {}, "Markdown to insert"), h("pre", {}, h("code", {}, preview))),
+      confirmNeeded
+        ? h("div", { class: "oba-capture-check", "data-draft-research-confirm": "true" }, confirm, h("label", { for: confirm.id }, `I have read the rights statement: ${rights.status === "unknown" ? "nobody has checked the rights to this text" : "the text is under copyright"}, and quoting it is my decision.`))
+        : null,
+      errorBox(),
+      h("div", { class: "oba-toolbar" }, quote, cite),
+      workspaceLink(researchHref("notebook"), "Open the notebook"),
+    ];
+  };
+
+  const sourceDetail = (source) => {
+    const lines = h("textarea", { id: `${idPrefix}-locators`, rows: 2, spellcheck: "false", "aria-describedby": `${idPrefix}-locators-hint` });
+    const preview = h("output", { class: "oba-citation-preview", "aria-live": "polite", "data-draft-research-citation": "true" }, formatCitationText({ key: source.id }));
+    lines.addEventListener("input", () => {
+      preview.textContent = formatCitationText(citationDraftPayload({ source: source.id, locators: lines.value }));
+    });
+    const cite = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-draft-insert": "citation" }, "Insert citation");
+    cite.addEventListener("click", () =>
+      run(cite, async () => {
+        const problem = validateCitationDraft({ source: source.id, locators: lines.value }, sources());
+        if (problem) {
+          fail(problem.message);
+          return null;
+        }
+        const checked = await checkCitation(citationDraftPayload({ source: source.id, locators: lines.value }));
+        return { kind: "citation", markdown: String(checked?.markdown || "") };
+      }),
+    );
+    return [
+      heading(sourceLabel(source)),
+      h("p", { class: "oba-small" }, h("span", { class: "oba-visibility", "data-visibility": "private" }, "Private research"), " ", `${VERSION_KIND_LABELS[source.kind] || "Source"}, key ${source.id}`),
+      source.kind in VERSION_MAKERS ? rightsLine(source) : null,
+      h("p", { class: "oba-small" }, "Only the key and the locators you enter are written into the post; the build describes the source from your library."),
+      h("div", { class: "oba-field" }, h("label", { for: lines.id }, "Locators (optional)"), lines, h("p", { class: "oba-small", id: `${idPrefix}-locators-hint` }, "One per line as kind: value, such as page: 514 or canonical: 514a to 520a.")),
+      h("p", { class: "oba-small" }, "Citation: ", preview),
+      errorBox(),
+      h("div", { class: "oba-toolbar" }, cite),
+      workspaceLink(researchHref("sources"), "Open Sources"),
+    ];
+  };
+
+  const linkButton = (text, label, url, what) => {
+    const button = h("button", { class: "oba-btn", type: "button", "data-draft-insert": "link" }, text);
+    button.addEventListener("click", () =>
+      run(button, async () => {
+        const markdown = contextLinkMarkdown(label, url);
+        if (!markdown) throw Object.assign(new Error("Only a published page can be linked. Your draft is unchanged."), { status: 0 });
+        return { kind: "inline", markdown, label: what };
+      }),
+    );
+    return button;
+  };
+
+  const contextDetail = (item, area) => {
+    const publish = Boolean(area === "atlas" ? data?.atlas?.publish : data?.comparisons?.publish);
+    const warning = contextLinkWarning(item, { area, publish });
+    const title = area === "atlas" ? item.label : item.label || item.id;
+    const datings = area === "atlas" && item.url && Array.isArray(item.datings) ? item.datings : [];
+    return [
+      heading(title),
+      h("p", { class: "oba-small" }, h("span", { class: "oba-visibility", "data-visibility": item.url ? "publishable" : "private" }, item.url ? "Published" : "Not published"), " ", area === "atlas" ? `Atlas ${item.kind}, ${item.id}` : `Comparison, ${item.id}`),
+      warning
+        ? h("p", { class: "oba-notice", "data-draft-research-warning": "true" }, warning)
+        : h("p", { class: "oba-small" }, `Published at ${item.url}. A link adds only this address and the name to your draft.`),
+      errorBox(),
+      item.url ? h("div", { class: "oba-toolbar" }, linkButton(area === "atlas" ? "Insert link to this entry" : "Insert link to this comparison", title, item.url, "link")) : null,
+      datings.length
+        ? h(
+            "div",
+            { "data-draft-research-datings": "true" },
+            h("h5", {}, "Published datings"),
+            h("ul", {}, datings.map((dating) => h("li", {}, h("span", {}, `${dating.aspect}: `, h("bdi", {}, dating.text)), " ", linkButton(`Insert “${dating.text}” linked to the entry`, dating.text, item.url, "dating")))),
+          )
+        : null,
+      workspaceLink(researchHref(area === "atlas" ? "atlas" : "compare", item.id), area === "atlas" ? "Open in the Atlas" : "Open in Compare"),
+    ];
+  };
+
+  const interpretationDetail = (interpretation) => {
+    const comparisons = (Array.isArray(data?.comparisons?.items) ? data.comparisons.items : []).filter((item) => Array.isArray(item.interpretations) && item.interpretations.includes(interpretation.id));
+    const published = comparisons.filter((item) => item.url);
+    const cite = h("button", { class: "oba-btn", type: "button", "data-draft-insert": "citation" }, "Cite the interpreted source");
+    const citation = { key: interpretation.source, locators: citationLocatorsFromPassage(interpretation) };
+    cite.addEventListener("click", () =>
+      run(cite, async () => {
+        const checked = await checkCitation(citation);
+        return { kind: "citation", markdown: String(checked?.markdown || "") };
+      }),
+    );
+    const language = languageTag(interpretation.language);
+    return [
+      heading(`${interpretation.kind === "rendering" ? "Rendering" : "Reading"} of ${sourceName(interpretation.source)}`),
+      h("p", { class: "oba-small" }, h("span", { class: "oba-visibility", "data-visibility": "private" }, "Private research"), " ", locatorText(interpretation.locators) || "No locator recorded."),
+      h("blockquote", { class: "oba-draft-research-quote", lang: language || null, dir: textDirection(language) }, interpretation.text || ""),
+      h("p", { class: "oba-notice", "data-draft-research-warning": "true" }, "An interpretation is never cited and never inserted. It reaches readers only inside an approved comparison this site publishes; you can link to that comparison, or cite the source it interprets."),
+      errorBox(),
+      h("div", { class: "oba-toolbar" }, cite, published.map((item) => linkButton(`Insert link to the comparison “${item.label || item.id}”`, item.label || item.id, item.url, "link"))),
+      comparisons.length && !published.length ? h("p", { class: "oba-small" }, `In ${comparisons.length} comparison${comparisons.length === 1 ? "" : "s"}, none published yet.`) : null,
+    ];
+  };
+
+  const noteDetail = (note) => {
+    const confirm = h("input", { id: `${idPrefix}-confirm-note`, type: "checkbox" });
+    const convert = h("button", { class: "oba-btn", type: "button", "data-draft-insert": "note" }, "Insert as my own words");
+    const conversion = h(
+      "div",
+      { class: "oba-draft-research-convert", hidden: true, "data-draft-research-convert": "true" },
+      h("div", { class: "oba-capture-check" }, confirm, h("label", { for: confirm.id }, "Put this private note into my draft as my own words. It stops being private research there: readers see it once I publish.")),
+      h("div", { class: "oba-toolbar" }, convert),
+    );
+    const start = h("button", { class: "oba-btn", type: "button", "aria-expanded": "false", "data-draft-research-convert-start": "true" }, "Convert to draft text…");
+    start.addEventListener("click", () => {
+      conversion.hidden = false;
+      start.setAttribute("aria-expanded", "true");
+      confirm.focus();
+    });
+    convert.addEventListener("click", () =>
+      run(convert, async () => {
+        if (!confirm.checked) {
+          fail("Confirm the conversion first: a private note goes into the draft only when you say so. Your draft is unchanged.");
+          confirm.focus();
+          return null;
+        }
+        const markdown = convertedNoteMarkdown(note.text);
+        if (!markdown) throw Object.assign(new Error("The note has no text to insert. Your draft is unchanged."), { status: 0 });
+        return { kind: "block", markdown, label: "note text" };
+      }),
+    );
+    return [
+      heading(`${NOTE_KIND_TEXT(note)} ${note.id}`),
+      h("p", { class: "oba-small" }, h("span", { class: "oba-visibility", "data-visibility": "private" }, "Private note"), " Your own unpublished thinking. It is never inserted unless you convert it."),
+      h("p", { class: "oba-draft-research-note" }, note.text || ""),
+      errorBox(),
+      h("div", { class: "oba-toolbar" }, start),
+      conversion,
+      workspaceLink(researchHref("notebook"), "Open the notebook"),
+    ];
+  };
+
+  const open = (type, id, moveFocus = true) => {
+    const item = found().find((candidate) => candidate.type === type && candidate.id === id) || draftResearchItems(data, "", type === "note" ? "notes" : "all").find((candidate) => candidate.type === type && candidate.id === id);
+    if (!item) {
+      selected = null;
+      detail.hidden = true;
+      detail.replaceChildren();
+      renderResults();
+      return;
+    }
+    selected = { type, id };
+    const record = item.record;
+    const parts =
+      type === "passage" ? passageDetail(record)
+      : type === "source" ? sourceDetail(record)
+      : type === "atlas" ? contextDetail(record, "atlas")
+      : type === "comparison" ? contextDetail(record, "comparisons")
+      : type === "interpretation" ? interpretationDetail(record)
+      : noteDetail(record);
+    detail.replaceChildren(...parts);
+    detail.hidden = false;
+    renderResults();
+    if (moveFocus) detail.querySelector(`#${idPrefix}-detail-title`)?.focus();
+  };
+
+  /** Read the research for the panel. A part that cannot be read is reported and the rest still works. */
+  const load = async () => {
+    say("Loading your research…");
+    refresh.disabled = true;
+    try {
+      data = await api.call("GET", "research/draft");
+      renderProblems();
+      if (selected) open(selected.type, selected.id, false);
+      else renderResults();
+    } catch (error) {
+      if (error?.status === 401) {
+        onSessionEnded?.();
+        return;
+      }
+      data = null;
+      results.replaceChildren();
+      detail.hidden = true;
+      say(`Your research could not be read. Your draft is unchanged. ${error?.message || ""}`.trim());
+    } finally {
+      refresh.disabled = false;
+    }
+  };
+
+  return {
+    element: root,
+    load,
+    focus: () => search.focus(),
+    open,
+  };
+}
+
 /** Child indexes from `root` down to `node`, so a caret can be found again in a restored copy of the editor. */
 function nodePath(root, node) {
   const path = [];
@@ -1677,7 +2655,7 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
     const cancel = h("button", { class: "oba-btn", type: "button", "data-capture-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
     root.replaceChildren(
       ...fields,
-      noSources ? h("p", { class: "oba-notice" }, "Add a source to the library first, then capture passages from it. ", h("a", { href: "#/sources" }, "Open sources")) : null,
+      noSources ? h("p", { class: "oba-notice" }, "Add a source to the library first, then capture passages from it. ", h("a", { href: researchHref("sources") }, "Open sources")) : null,
       errorBox,
       conflict ? conflictNotice() : null,
       h("div", { class: "oba-toolbar" }, save, cancel),
@@ -3637,12 +4615,13 @@ export function comparisonExportText(alignment, columns, selected, { normalized 
 
 /** Copy the parts of an alignments response that describe the stored file into the view state. */
 export function applyAlignmentState(state, result) {
-  for (const key of ["revision", "file", "stored", "alignments", "sources", "passages", "interpretations", "notices", "notice", "correspondences", "publication"]) {
+  for (const key of ["revision", "file", "stored", "alignments", "sources", "passages", "interpretations", "notices", "notice", "correspondences", "publication", "staleApprovals"]) {
     if (result && result[key] !== undefined) state[key] = result[key];
   }
   for (const key of ["alignments", "sources", "passages", "interpretations", "notices"]) if (!Array.isArray(state[key])) state[key] = [];
   if (!Array.isArray(state.correspondences) || !state.correspondences.length) state.correspondences = ALIGNMENT_CORRESPONDENCES.map((item) => ({ ...item }));
   if (typeof state.notice !== "string" || !state.notice) state.notice = ALIGNMENT_NOTICE_TEXT;
+  if (!state.staleApprovals || typeof state.staleApprovals !== "object" || Array.isArray(state.staleApprovals)) state.staleApprovals = {};
   if (!state.publication || typeof state.publication !== "object") state.publication = {};
   if (!state.publication.places || typeof state.publication.places !== "object") state.publication.places = {};
   state.publication.publish = state.publication.publish === true;
@@ -4124,7 +5103,18 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
   const render = () => {
     const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-alignment-save": "true", disabled: busy || Boolean(conflict && editing) }, editing ? "Save changes" : "Add alignment");
     const cancel = h("button", { class: "oba-btn", type: "button", "data-alignment-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
-    root.replaceChildren(...fields(), errorBox, conflict ? conflictNotice() : null, h("div", { class: "oba-toolbar" }, save, cancel), status);
+    // An approval whose places changed since it was approved: the comparison stays out of the next
+    // build until the author has checked those places and approves it again.
+    const stale = editing ? state.staleApprovals?.[item.id] : null;
+    const reapprove = stale
+      ? h(
+          "div",
+          { class: "oba-notice", "data-alignment-stale": "true" },
+          h("p", {}, h("bdi", {}, stale), " This comparison stays out of the next build until you have checked the places it names and approve it again."),
+          h("button", { class: "oba-btn", type: "button", "data-alignment-reapprove": "true", disabled: busy || Boolean(conflict), onClick: () => saveDraft(true) }, "Checked — approve again"),
+        )
+      : null;
+    root.replaceChildren(...fields(), errorBox, conflict ? conflictNotice() : null, reapprove, h("div", { class: "oba-toolbar" }, save, cancel), status);
   };
 
   const refresh = async () => {
@@ -4136,8 +5126,9 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
   root.addEventListener("click", (event) => {
     if (event.target?.tagName === "BUTTON" && event.target.type === "button" && !event.target.dataset?.alignmentCancel && !event.target.dataset?.alignmentConflictUse) touched = true;
   });
-  root.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  // `reapprove` is sent only by "Checked — approve again": saving otherwise keeps the places an
+  // approval recorded, so an edit never makes a changed place look checked.
+  const saveDraft = async (reapprove) => {
     if (busy) return;
     if (conflict && editing) {
       fail("Choose the stored copy or keep your draft before saving.");
@@ -4152,7 +5143,7 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
     root.querySelector("[data-alignment-save]")?.setAttribute("disabled", "");
     say("Saving…");
     try {
-      const result = await api.call(editing ? "PUT" : "POST", "research/alignments", { json: { revision: state.revision, alignment: alignmentPayload(draft) } });
+      const result = await api.call(editing ? "PUT" : "POST", "research/alignments", { json: { revision: state.revision, alignment: alignmentPayload(draft), ...(editing && reapprove ? { reapprove: true } : {}) } });
       applyAlignmentState(state, result);
       busy = false;
       touched = false;
@@ -4178,6 +5169,10 @@ export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-a
       const first = error.data?.diagnostics?.[0];
       fail(alignmentErrorMessage(error), first ? alignmentDiagnosticControl(first.field) : "");
     }
+  };
+  root.addEventListener("submit", (event) => {
+    event.preventDefault();
+    return saveDraft(false);
   });
 
   render();
@@ -6034,6 +7029,502 @@ export function evidenceReview(findings) {
   return accessibilityReview(findings);
 }
 
+// ---------------------------------------------------------------- research review before publication
+
+/**
+ * Whether publishing or scheduling a post is preceded by the research review (#62, ADR 0123):
+ * a post on the Research profile or one that publishes citations, as Evidence Studio decides.
+ * Every other post publishes exactly as before.
+ */
+export function researchReviewApplies(fields, profile = "") {
+  const chosen = String(profile || fields?.profile || "").trim().toLowerCase();
+  return chosen === "research" || String(fields?.citations ?? "").trim() !== "";
+}
+
+/** The review's groups, in the order the server sends them, in words. */
+export const PUBLICATION_REVIEW_GROUPS = Object.freeze({
+  blocking: Object.freeze({ label: "Must be fixed before publishing", detail: "The build that publishes this post would refuse these. They cannot be acknowledged; fix them, then review again." }),
+  detected: Object.freeze({ label: "Detected", detail: "Found by a check. Fix them, or acknowledge them if nothing needs to change. Publishing does not wait for them." }),
+  potential: Object.freeze({ label: "Potential", detail: "Might need attention. Publishing does not wait for them." }),
+  "needs-review": Object.freeze({ label: "Needs review", detail: "Only you can check these against your sources. Publishing does not wait for them." }),
+});
+
+const REVIEW_OUTCOME_LABELS = Object.freeze({ detected: "Detected", potential: "Potential", "needs-review": "Needs review" });
+
+/** Whether a post finding sits in the front matter field it names rather than in the body. */
+const reviewFieldFinding = (scope, firstBodyLine) => Boolean(scope.field) && !(Number(scope.line) >= firstBodyLine);
+
+/** Where a finding is, in words: a line of the draft, or the research object it names. */
+export function publicationReviewPlace(finding, { post = "", firstBodyLine = 1 } = {}) {
+  const scope = finding?.scope || {};
+  const id = scope.id ? ` ${scope.id}` : "";
+  switch (scope.object) {
+    case "post": {
+      if (scope.path && post && scope.path !== post) return `the post ${scope.path}`;
+      if (reviewFieldFinding(scope, firstBodyLine)) return `the draft's ${scope.field} field`;
+      if (Number.isInteger(scope.line)) return `line ${Math.max(1, scope.line - firstBodyLine + 1)} of the draft`;
+      return "the draft";
+    }
+    case "claim": return `claim${id}`;
+    case "evidence-link": return `evidence link${id}`;
+    case "source": return `source${id}`;
+    case "interpretation": return `interpretation${id}`;
+    case "passage": return `notebook passage${id}`;
+    case "note": return `notebook note${id}`;
+    case "entry": return `atlas entry${id}`;
+    case "relationship": return `atlas relationship${id}`;
+    case "dating": return `dating${id}`;
+    case "alignment": return `comparison${id}${scope.field ? `, ${scope.field}` : ""}`;
+    case "source-library": return "the source library";
+    case "notebook": return "the research notebook";
+    case "atlas": return "the Knowledge Atlas";
+    case "claims-file": return "the claims file";
+    case "alignments-file": return "the alignments file";
+    default: return "your research";
+  }
+}
+
+/**
+ * Where a finding is repaired: a line or field of this draft, a claim in Evidence Studio, or the
+ * research panel holding the object, by its own address. `null` when there is nowhere to go.
+ */
+export function publicationReviewTarget(finding, { post = "", firstBodyLine = 1 } = {}) {
+  const scope = finding?.scope || {};
+  const id = String(scope.id || "");
+  const related = Array.isArray(finding?.related) ? finding.related : [];
+  const relatedId = (kind) => related.find((item) => item?.kind === kind)?.id || "";
+  switch (scope.object) {
+    case "post": {
+      if (scope.path && post && scope.path !== post) return null;
+      if (reviewFieldFinding(scope, firstBodyLine)) return { kind: "field", field: scope.field, label: `Go to the ${scope.field} field` };
+      if (Number.isInteger(scope.line)) {
+        const line = Math.max(1, scope.line - firstBodyLine + 1);
+        return { kind: "line", line, label: `Go to line ${line} of the draft` };
+      }
+      return { kind: "draft", label: "Go to the draft" };
+    }
+    case "claim": return { kind: "claim", claim: id, link: "", label: `Open the claim ${id} in Evidence Studio` };
+    case "evidence-link": return { kind: "claim", claim: relatedId("claim"), link: id, label: `Open the evidence link ${id} in Evidence Studio` };
+    case "claims-file": return { kind: "claim", claim: "", link: "", label: "Open Evidence Studio" };
+    case "source": return { kind: "panel", href: researchHref("sources", id), label: `Open the source ${id} in Sources` };
+    case "source-library": case "interpretation": return { kind: "panel", href: researchHref("sources"), label: "Open Sources" };
+    case "passage": case "note": case "notebook": return { kind: "panel", href: researchHref("notebook"), label: "Open the research notebook" };
+    case "entry": return { kind: "panel", href: researchHref("atlas", id), label: `Open the atlas entry ${id} in the Knowledge Atlas` };
+    case "relationship": return id ? { kind: "panel", href: atlasRelationshipHref(id), label: `Open the atlas relationship ${id} in the Knowledge Atlas` } : { kind: "panel", href: researchHref("atlas"), label: "Open the Knowledge Atlas" };
+    case "dating": case "atlas": return { kind: "panel", href: researchHref("atlas"), label: "Open the Knowledge Atlas" };
+    case "alignment": return { kind: "panel", href: researchHref("compare", id), label: `Open the comparison ${id} in Compare` };
+    case "alignments-file": return { kind: "panel", href: researchHref("compare"), label: "Open Compare" };
+    default: return null;
+  }
+}
+
+/** The page a context-link finding names, when its object has one to open. */
+export function publicationReviewRelatedTarget(finding) {
+  if (finding?.check !== "context-link") return null;
+  const page = (Array.isArray(finding.related) ? finding.related : [])[0];
+  if (page?.kind === "entry") return { kind: "panel", href: researchHref("atlas", page.id), label: `Open the atlas entry ${page.id}` };
+  if (page?.kind === "alignment") return { kind: "panel", href: researchHref("compare", page.id), label: `Open the comparison ${page.id}` };
+  return null;
+}
+
+/** Each outcome counted apart, with how many are acknowledged. Never a total or a score. */
+export function publicationReviewCountsText(review) {
+  const counts = review?.counts || {};
+  const part = (label, count) => `${label}: ${Number(count?.found) || 0}${Number(count?.acknowledged) ? ` (${Number(count.acknowledged)} acknowledged)` : ""}`;
+  const blocking = (review?.groups || []).find((group) => group.name === "blocking")?.findings?.length || 0;
+  return `${blocking ? `${blocking} must be fixed before publishing. ` : ""}${[part("Detected", counts.detected), part("Potential", counts.potential), part("Needs review", counts.needsReview)].join(". ")}.`;
+}
+
+/** What an acknowledgement says about its finding, in words that never call it resolved. */
+export function publicationReviewAcknowledgementText(state) {
+  if (state === "current") return "You acknowledged this. It stays listed and counted until the record itself changes.";
+  if (state === "stale") return "You acknowledged an earlier form of this; it has changed since. Acknowledge it again if it still needs no change.";
+  return "";
+}
+
+// ---------------------------------------------------------------- what will be public (#63, ADR 0125)
+
+/** How each research projection is named in the preview. */
+export const BOUNDARY_PROJECTIONS = Object.freeze({
+  citations: "Citations",
+  "claim-evidence": "Claims and evidence",
+  atlas: "Knowledge Atlas",
+  datings: "Datings",
+  comparisons: "Comparisons",
+  "context-links": "Links to research pages",
+});
+
+/** How each kind of research item is named. */
+export const BOUNDARY_KINDS = Object.freeze({
+  source: "Source",
+  claim: "Claim",
+  "evidence-link": "Evidence link",
+  entry: "Atlas entry",
+  relationship: "Relationship",
+  dating: "Dating",
+  comparison: "Comparison",
+  "atlas-page": "Atlas page",
+  "comparison-page": "Comparison page",
+});
+
+/** Why an item or a field is withheld, in a few words. The server's message says exactly which. */
+export const BOUNDARY_REASONS = Object.freeze({
+  "projection-off": "The site does not publish this",
+  "not-approved": "Not approved: private research",
+  unsourced: "An unsourced draft",
+  "notebook-passage": "Rests on a notebook passage",
+  "private-dependency": "Depends on research that is not published",
+  "contradiction-withheld": "Contradicting evidence is still private",
+  "post-not-published": "Its post is not published",
+  "stale-approval": "Approved before what it rests on changed",
+  "unsafe-url": "A web address readers should not be given",
+  "private-identifier": "An identifier that is never published",
+  rights: "Wording withheld under its rights statement",
+  length: "Wording longer than a brief excerpt",
+  "stale-anchor": "The anchored words have changed",
+  "page-not-published": "The linked page is not published",
+});
+
+const BOUNDARY_STORES = Object.freeze({
+  "source-library": "Source library",
+  notebook: "Research notebook",
+  atlas: "Knowledge Atlas",
+  claims: "Claims",
+  alignments: "Alignments",
+  acknowledgements: "Review acknowledgements",
+});
+
+/**
+ * Where an item of the preview is changed, by its own address in the research workspace, or
+ * null. A dating opens the atlas entry or relationship it dates (the server names it as
+ * `owner`); a claim or an evidence link opens its post's Evidence Studio, when `postPaths`
+ * (a Map from post slug to saved path) says where the post is, and has no link otherwise.
+ */
+export function boundaryItemHref(item, { postPaths = null } = {}) {
+  const id = String(item?.id || "");
+  switch (item?.kind) {
+    case "source": return researchHref("sources", id);
+    case "entry": case "atlas-page": return researchHref("atlas", id);
+    case "relationship": return atlasRelationshipHref(id);
+    case "dating": {
+      const owner = String(item?.owner?.id || "");
+      if (!owner) return researchHref("atlas");
+      return item.owner.kind === "relationship" ? atlasRelationshipHref(owner) : researchHref("atlas", owner);
+    }
+    case "comparison": case "comparison-page": return researchHref("compare", id);
+    case "claim": case "evidence-link": {
+      const path = postPaths?.get?.(String(item?.posts?.[0] || ""));
+      return path ? `#/edit/${encodeURIComponent(path)}?pane=evidence` : null;
+    }
+    default: return null;
+  }
+}
+
+/** One line counting what the preview publishes and withholds. Never a score. */
+export function boundaryCountsText(manifest) {
+  const reports = Array.isArray(manifest?.projections) ? manifest.projections : [];
+  const published = reports.reduce((sum, report) => sum + (report.published?.length || 0), 0);
+  const withheld = reports.reduce((sum, report) => sum + (report.withheld?.length || 0), 0);
+  return `${published} published, ${withheld} withheld.`;
+}
+
+/**
+ * The preview of what the research projections publish (#63, ADR 0125): one section per
+ * projection with its switch, what it publishes and the fields it copies, and what it withholds
+ * and why, then what is never published. `level` is the heading level of each projection.
+ * Read-only: nothing here saves or publishes anything.
+ */
+export function createBoundaryPreview({ manifest, idPrefix = "oba-boundary", level = 2, scope = "site", postPaths = null }) {
+  const heading = (offset, attrs, text) => h(`h${Math.min(6, level + offset)}`, attrs, text);
+  const reports = Array.isArray(manifest?.projections) ? manifest.projections : [];
+  const root = h("div", { class: "oba-boundary", "data-boundary-preview": scope });
+  root.append(
+    h(
+      "p",
+      { class: "oba-small", "data-boundary-intro": "true" },
+      scope === "post"
+        ? "What this post publishes of your research when it is published, and what stays private and why. Only what you approved reaches readers, and only the fields listed."
+        : "Nothing in your research is public because it exists. Each projection publishes only what you approved, and only the fields listed; everything else stays private, with the reason. This is what the next build publishes.",
+    ),
+  );
+  if (manifest?.refused) root.append(h("p", { class: "oba-error", "data-boundary-refused": "true" }, `The next build is refused: ${manifest.refused}`));
+  for (const missing of Array.isArray(manifest?.unavailable) ? manifest.unavailable : []) {
+    root.append(h("p", { class: "oba-notice", "data-boundary-unavailable": missing.store }, `${BOUNDARY_STORES[missing.store] || missing.store} could not be read: ${missing.message} Repair ${missing.file} by hand. Nothing was changed.`));
+  }
+  // Text a public file shares with a private research file: a warning, never a refusal.
+  for (const match of Array.isArray(manifest?.textMatches) ? manifest.textMatches : []) {
+    root.append(h("p", { class: "oba-notice", "data-boundary-text-match": "true" }, match));
+  }
+  const itemTitle = (item) => h("strong", {}, h("bdi", {}, item.label || item.id));
+  const itemKind = (item) => h("span", { class: "oba-small" }, ` ${BOUNDARY_KINDS[item.kind] || item.kind} `, h("code", {}, item.id));
+  const repair = (item, text) => {
+    const href = boundaryItemHref(item, { postPaths });
+    return href ? h("a", { class: "oba-btn", href, "data-boundary-open": `${item.kind}:${item.id}` }, text) : null;
+  };
+  reports.forEach((report, position) => {
+    const key = report.projection;
+    const titleId = `${idPrefix}-${position}-title`;
+    const published = Array.isArray(report.published) ? report.published : [];
+    const withheld = Array.isArray(report.withheld) ? report.withheld : [];
+    const section = h("section", { class: "oba-boundary-projection", "data-boundary-projection": key, "aria-labelledby": titleId });
+    section.append(
+      heading(0, { id: titleId }, BOUNDARY_PROJECTIONS[key] || key),
+      h(
+        "p",
+        { class: "oba-small", "data-boundary-switch": report.enabled ? "on" : "off" },
+        key === "citations"
+          ? "A post publishes citations when its front matter sets citations; each cited source publishes only its public description."
+          : report.enabled
+            ? `On (${report.switch} in openblog.json): approved items below are published.`
+            : `Off: ${report.switch} is off in openblog.json, so nothing from here is published.`,
+      ),
+    );
+    if (report.blocked) section.append(h("p", { class: "oba-error", "data-boundary-blocked": key }, `Not previewed: ${report.blocked}`));
+    const publishedId = `${idPrefix}-${position}-published`;
+    section.append(heading(1, { id: publishedId }, `Published (${published.length})`));
+    section.append(
+      published.length
+        ? h(
+            "ul",
+            { class: "oba-boundary-list", "aria-labelledby": publishedId },
+            published.map((item) =>
+              h(
+                "li",
+                { class: "oba-boundary-item", "data-boundary-item": `${item.kind}:${item.id}`, "data-boundary-state": "published" },
+                h("p", {}, h("span", { class: "oba-visibility", "data-visibility": "publishable" }, "Published"), " ", itemTitle(item), itemKind(item)),
+                h("p", { class: "oba-small" }, `Publishes: ${(item.fields || []).join(", ") || "nothing but its identity"}.`),
+                item.posts?.length ? h("p", { class: "oba-small" }, `With ${item.posts.length === 1 ? "the post" : "the posts"} `, item.posts.flatMap((slug, index) => [index ? ", " : "", h("code", {}, slug)])) : null,
+                item.url ? h("p", { class: "oba-small" }, "Public address: ", h("code", {}, item.url)) : null,
+                item.withheldFields?.length
+                  ? h(
+                      "ul",
+                      { class: "oba-boundary-fields", "aria-label": `Fields of ${item.label || item.id} that stay private` },
+                      item.withheldFields.map((field) =>
+                        h("li", { "data-boundary-field": field.field, "data-boundary-reason": field.reason }, h("span", { class: "oba-visibility", "data-visibility": "private" }, "Withheld"), ` ${field.field}: ${BOUNDARY_REASONS[field.reason] || field.reason}. ${field.message}`),
+                      ),
+                    )
+                  : null,
+              ),
+            ),
+          )
+        : h("p", { class: "oba-small" }, report.enabled ? "Nothing yet." : "Nothing: this projection is off."),
+    );
+    const withheldId = `${idPrefix}-${position}-withheld`;
+    section.append(heading(1, { id: withheldId }, `Withheld (${withheld.length})`));
+    section.append(
+      withheld.length
+        ? h(
+            "ul",
+            { class: "oba-boundary-list", "aria-labelledby": withheldId },
+            withheld.map((item) =>
+              h(
+                "li",
+                { class: "oba-boundary-item", "data-boundary-item": `${item.kind}:${item.id}`, "data-boundary-state": "withheld", "data-boundary-reason": item.reason },
+                h("p", {}, h("span", { class: "oba-visibility", "data-visibility": "private" }, "Withheld"), " ", itemTitle(item), itemKind(item)),
+                h("p", { class: "oba-small" }, h("strong", {}, `${BOUNDARY_REASONS[item.reason] || item.reason}. `), item.message),
+                repair(item, `Open ${BOUNDARY_KINDS[item.kind]?.toLowerCase() || "item"} ${item.id}`),
+              ),
+            ),
+          )
+        : h("p", { class: "oba-small" }, "Nothing withheld."),
+    );
+    root.append(section);
+  });
+  const never = Array.isArray(manifest?.never) ? manifest.never : [];
+  if (never.length) {
+    const neverId = `${idPrefix}-never`;
+    root.append(
+      h(
+        "section",
+        { class: "oba-boundary-projection", "data-boundary-never": "true", "aria-labelledby": neverId },
+        heading(0, { id: neverId }, "Never published"),
+        h(
+          "ul",
+          { class: "oba-boundary-list" },
+          never.map((item) => h("li", { "data-boundary-never-store": item.store }, h("span", { class: "oba-visibility", "data-visibility": "private" }, "Private research"), " ", h("strong", {}, `${BOUNDARY_STORES[item.store] || item.store} (${item.count})`), `: ${item.what}`)),
+        ),
+      ),
+    );
+  }
+  return root;
+}
+
+/**
+ * The research review's content (#62, ADR 0123): findings grouped by what blocks the build and
+ * by outcome, each with its place, its validator's message and repair, a link to where it is
+ * repaired, and an acknowledgement toggle for advisory findings only. `mode` is "publish",
+ * "schedule" or "check" (review only). `onDone` receives "confirm", "cancel" or a target to go to.
+ * Acknowledging writes only the private acknowledgements file; nothing else is changed here.
+ */
+export function createPublicationReview({ review, mode = "check", api, onDone, idPrefix = "oba-review" }) {
+  const findings = Array.isArray(review?.findings) ? review.findings : [];
+  const groups = Array.isArray(review?.groups) ? review.groups : [];
+  const context = { post: String(review?.post || ""), firstBodyLine: Number(review?.firstBodyLine) || 1 };
+  const acks = review?.acknowledgements || {};
+  let revision = typeof acks.revision === "string" ? acks.revision : null;
+  const blocking = groups.find((group) => group.name === "blocking")?.findings?.length || 0;
+  const verb = mode === "schedule" ? "scheduling" : "publishing";
+  const heading = h("h2", { id: `${idPrefix}-title`, tabindex: "-1" }, mode === "check" ? "Research review" : `Research review before ${verb}`);
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-review-status": "true" }, publicationReviewCountsText(review));
+  const say = (text) => {
+    status.textContent = text;
+  };
+  const counts = review?.counts || {};
+  const countOf = (outcome) => {
+    const key = outcome === "needs-review" ? "needsReview" : outcome;
+    counts[key] ||= { found: 0, acknowledged: 0 };
+    return counts[key];
+  };
+
+  const actionFor = (target) => {
+    if (!target) return null;
+    if (target.kind === "panel") {
+      return h("a", { class: "oba-btn", href: target.href, "data-review-target": "panel", onClick: () => onDone?.({ ...target, navigate: true }) }, target.label);
+    }
+    return h("button", { class: "oba-btn", type: "button", "data-review-target": target.kind, onClick: () => onDone?.(target) }, target.label);
+  };
+
+  const findingView = (entry, position) => {
+    const place = publicationReviewPlace(entry, context);
+    const messageId = `${idPrefix}-message-${position}`;
+    const ackState = h("p", { class: "oba-small", "data-review-acknowledgement": entry.acknowledgement || "none", hidden: !entry.acknowledgement }, publicationReviewAcknowledgementText(entry.acknowledgement));
+    const error = h("p", { class: "oba-error", role: "alert", hidden: true, "data-review-error": "true" });
+    const advisory = entry.gate === "advisory";
+    let toggle = null;
+    if (advisory) {
+      toggle = h(
+        "button",
+        {
+          class: "oba-btn",
+          type: "button",
+          "aria-pressed": String(entry.acknowledgement === "current"),
+          "aria-label": `Acknowledge ${entry.code}, ${place}`,
+          "aria-describedby": messageId,
+          "data-review-acknowledge": entry.code,
+          disabled: !revision,
+        },
+        "Acknowledge",
+      );
+      toggle.addEventListener("click", async () => {
+        const add = entry.acknowledgement !== "current";
+        error.hidden = true;
+        toggle.disabled = true;
+        try {
+          const result = await api.call(add ? "PUT" : "DELETE", "research/review/acknowledgements", {
+            json: {
+              revision,
+              acknowledgement: {
+                validator: entry.validator,
+                code: entry.code,
+                object: entry.scope?.object,
+                ...(entry.scope?.path ? { path: entry.scope.path } : {}),
+                ...(entry.scope?.id ? { id: entry.scope.id } : {}),
+                ...(entry.scope?.field ? { field: entry.scope.field } : {}),
+                fingerprint: entry.fingerprint,
+              },
+            },
+          });
+          revision = result.revision;
+          const count = countOf(entry.outcome);
+          const was = entry.acknowledgement === "current";
+          entry.acknowledgement = add ? "current" : null;
+          if (add && !was) count.acknowledged = (Number(count.acknowledged) || 0) + 1;
+          if (!add && was) count.acknowledged = Math.max(0, (Number(count.acknowledged) || 0) - 1);
+          toggle.setAttribute("aria-pressed", String(add));
+          ackState.dataset.reviewAcknowledgement = entry.acknowledgement || "none";
+          ackState.setAttribute("data-review-acknowledgement", entry.acknowledgement || "none");
+          ackState.textContent = publicationReviewAcknowledgementText(entry.acknowledgement);
+          ackState.hidden = !entry.acknowledgement;
+          say(`${add ? `Acknowledged. It stays listed and counted under ${REVIEW_OUTCOME_LABELS[entry.outcome] || "its outcome"}; it is not resolved.` : "Acknowledgement withdrawn."} ${publicationReviewCountsText(review)}`);
+        } catch (failure) {
+          if (failure?.status === 401) {
+            onDone?.({ kind: "session-ended" });
+            return;
+          }
+          if (typeof failure?.data?.revision === "string") revision = failure.data.revision;
+          error.textContent = `Not saved: ${failure?.data?.error || failure?.message || "the acknowledgement could not be saved."} Nothing was changed.`;
+          error.hidden = false;
+        } finally {
+          toggle.disabled = !revision;
+        }
+      });
+    }
+    return h(
+      "li",
+      {},
+      h(
+        "article",
+        { class: `oba-review-finding is-${entry.outcome}`, "data-review-finding": entry.code, "data-review-gate": entry.gate },
+        h("p", { class: "oba-review-meta oba-small" }, h("code", {}, entry.code), " · ", h("span", { "data-review-place": "true" }, place), " · ", REVIEW_OUTCOME_LABELS[entry.outcome] || entry.outcome),
+        h("p", { id: messageId }, h("bdi", {}, entry.message)),
+        h("p", { class: "oba-accessibility-repair" }, h("strong", {}, "Next: "), h("bdi", {}, entry.repair)),
+        advisory
+          ? null
+          : h(
+              "p",
+              { class: "oba-small", "data-review-gate-note": entry.gate },
+              entry.gate === "withholds"
+                ? "This cannot be acknowledged: acknowledging would not publish it. The comparison stays out of the next build until you check the place and approve it again."
+                : "This cannot be acknowledged: it is an integrity or privacy failure the build refuses, so it is fixed instead.",
+            ),
+        h("div", { class: "oba-toolbar" }, actionFor(publicationReviewTarget(entry, context)), actionFor(publicationReviewRelatedTarget(entry)), toggle),
+        ackState,
+        error,
+      ),
+    );
+  };
+
+  const sections = groups
+    .filter((group) => PUBLICATION_REVIEW_GROUPS[group.name] && Array.isArray(group.findings) && group.findings.length)
+    .map((group) => {
+      const info = PUBLICATION_REVIEW_GROUPS[group.name];
+      const headingId = `${idPrefix}-group-${group.name}`;
+      return h(
+        "section",
+        { class: `oba-review-group is-${group.name}`, "aria-labelledby": headingId, "data-review-group": group.name },
+        h("h3", { id: headingId }, `${info.label} (${group.findings.length})`),
+        h("p", { class: "oba-small" }, info.detail),
+        h("ul", { class: "oba-review-list" }, group.findings.map((position) => (findings[position] ? findingView(findings[position], position) : null))),
+      );
+    });
+
+  const notReviewed = (Array.isArray(review?.notReviewed) ? review.notReviewed : []).map((item) =>
+    h("p", { class: "oba-notice", "data-review-not-reviewed": item.part }, `Not reviewed: ${item.message}`),
+  );
+  const ackProblem = acks.error
+    ? h("p", { class: "oba-notice", "data-review-acknowledgements-error": "true" }, `Acknowledgements are unavailable, so none are shown or saved: ${acks.error} Repair ${acks.file || "the acknowledgements file"} by hand.`)
+    : null;
+  const blockedNote = h(
+    "p",
+    { class: "oba-small", id: `${idPrefix}-blocked`, "data-review-blocked": "true", hidden: !blocking || mode === "check" },
+    `${mode === "schedule" ? "Scheduling" : "Publishing"} waits until the findings under “${PUBLICATION_REVIEW_GROUPS.blocking.label}” are fixed. Your draft is unchanged.`,
+  );
+  const cancel = h("button", { class: "oba-btn", type: "button", "data-review-cancel": "true", onClick: () => onDone?.("cancel") }, mode === "check" ? "Close" : "Keep editing");
+  const confirm = mode === "check"
+    ? null
+    : h(
+        "button",
+        { class: "oba-btn oba-btn-primary", type: "button", "data-review-confirm": "true", disabled: Boolean(blocking), "aria-describedby": blocking ? blockedNote.id : null, onClick: () => onDone?.("confirm") },
+        mode === "schedule" ? "Schedule" : "Publish",
+      );
+  const element = h(
+    "section",
+    { class: "oba-review", "aria-labelledby": heading.id, "data-publication-review": mode },
+    heading,
+    h("p", { class: "oba-small", id: `${idPrefix}-intro` }, "These are prompts from your research checks, never verdicts: nothing here says the post is true, complete or ready. Only an integrity or privacy failure the build would refuse stops publishing; everything else is yours to decide. Acknowledging a finding keeps it listed and counted."),
+    status,
+    ackProblem,
+    ...notReviewed,
+    ...(review?.applies === false
+      ? [h("p", { class: "oba-notice", "data-review-not-applicable": "true" }, "The research review covers posts on the Research profile and posts that publish citations. This post is neither, so publishing it works as before.")]
+      : sections.length
+        ? sections
+        : [h("p", { class: "oba-notice", "data-review-empty": "true" }, "The checks that ran raised nothing for this post. That is not a judgement of the post; checks cannot see everything.")]),
+    h("div", { class: "oba-dialog-actions" }, blockedNote, h("span", { class: "oba-spacer" }), cancel, confirm),
+  );
+  return { element, heading, confirm, cancel, status };
+}
+
 export function evidenceStudioState(findings, research, citations = null, citationsOptedIn = false) {
   // A post that opts in to citations (or has any citation finding) keeps the
   // studio even when its citations could not be published, so a draft's broken
@@ -6769,10 +8260,15 @@ function visualCitationRanges(line) {
 /**
  * Formatting on a line, read with its chips masked out, so a `_` or `*`
  * inside a citation is never taken for emphasis and a chip is never split.
+ * A backslash-escaped character outside code spans is masked too, since
+ * CommonMark reads it as text: `\*b\*` is never emphasis and `\[x\](y)` never
+ * a link, so the editor shows and writes back the characters themselves.
  */
 function visualFormattingTokens(line, chips) {
   let masked = line;
   for (const [start, end] of chips) masked = masked.slice(0, start) + "\u0001".repeat(end - start) + masked.slice(end);
+  const code = codeSpanRanges(line);
+  masked = masked.replace(/\\[\\*_`[\]]/g, (pair, at) => (code.some(([from, to]) => at >= from && at < to) ? pair : "\u0001\u0001"));
   return [...masked.matchAll(VISUAL_FORMATTING)].map((match) => [match.index, match.index + match[0].length]);
 }
 
@@ -7039,6 +8535,22 @@ export class ObAdmin extends AdminElement {
   dirty = false;
   editVersion = 0;
   viewVersion = 0;
+  // Every mount takes the next serial; a kept view returns with the version it had (ADR 0121).
+  viewSerial = 0;
+  // The open view's own unsaved-changes test, for views whose forms keep their own state.
+  viewDirty = null;
+  // Whether the open view's own save is in flight, for views that save outside the editor.
+  viewBusy = null;
+  // The user whose session kept the workspace's panels, so only they ever get them back.
+  keptOwner = "";
+  // Set while the sign-in form is showing, from the moment a session ends or the writer signs out
+  // until the next sign-in succeeds. Nothing is routed and no kept panel is shown meanwhile.
+  signedOut = false;
+  // Research workspace panels kept with unsaved changes while another panel is open, by key.
+  kept = new Map();
+  // The document the research workspace returns to: { hash, kind, title }.
+  workspaceDraft = null;
+  workspaceMain = null;
   skipRoute = false;
   currentHash = "";
   preferences = normalizeAdminPreferences();
@@ -7060,7 +8572,7 @@ export class ObAdmin extends AdminElement {
     });
     addEventListener("hashchange", () => this.onHash());
     addEventListener("beforeunload", (e) => {
-      if (this.dirty) {
+      if (this.hasUnsavedWork()) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -7192,8 +8704,8 @@ export class ObAdmin extends AdminElement {
   shownShellModules() {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
-    if (["sources", "research", "atlas", "compare"].includes(this.activeRoute)) visible.add("evidence");
-    if (this.activeRoute === "feedback") visible.add("analytics");
+    if (researchPanelForRoute(this.activeRoute)) visible.add("research");
+    if (this.activeRoute === "moderation") visible.add("analytics");
     return visible;
   }
 
@@ -7242,15 +8754,171 @@ export class ObAdmin extends AdminElement {
   mount(...nodes) {
     this.editor?.dispose();
     this.editor = null;
-    this.viewVersion += 1;
+    this.viewDirty = null;
+    this.viewBusy = null;
+    this.viewVersion = ++this.viewSerial;
     this.replaceChildren(...nodes);
+  }
+
+  /** The version the next mounted view will have, for views that prepare before mounting. */
+  nextViewVersion() {
+    return this.viewSerial + 1;
+  }
+
+  /** Whether the open view has unsaved changes, in the editor or in a view's own form. */
+  hasUnsavedView() {
+    return Boolean(this.dirty || this.viewDirty?.());
+  }
+
+  /** Whether the open view's save is in flight, in the editor or in a view's own form. */
+  isSavingView() {
+    return Boolean(this.editor?.saving || this.viewBusy?.());
+  }
+
+  /** Whether any unsaved work exists, in the open view or in a kept workspace panel. */
+  hasUnsavedWork() {
+    return this.hasUnsavedView() || [...this.kept.values()].some((record) => record.isDirty());
+  }
+
+  /** How the unsaved-changes question names a workspace panel. */
+  workspaceLabel(key) {
+    if (key === "draft") {
+      const title = this.editor?.currentTitle?.() || this.kept.get("draft")?.editor?.currentTitle?.() || this.workspaceDraft?.title;
+      return title ? `the draft “${title}”` : "the draft";
+    }
+    return researchPanel(key)?.label || "";
+  }
+
+  /** Keep the open workspace panel, unsaved changes and all, while another panel opens. */
+  keepCurrentView(key) {
+    if (!this.kept.size) this.keptOwner = this.user;
+    const editor = key === "draft" ? this.editor : null;
+    if (editor) {
+      if (this.workspaceDraft) this.workspaceDraft.title = editor.currentTitle();
+      editor.suspend();
+      // Taken out of the shell so the next mount does not dispose it.
+      this.editor = null;
+    }
+    const viewDirty = this.viewDirty;
+    this.kept.set(key, {
+      key,
+      hash: this.currentHash,
+      active: this.activeRoute,
+      nodes: this.workspaceMain ? [...this.workspaceMain.childNodes] : [],
+      viewVersion: this.viewVersion,
+      viewDirty,
+      viewBusy: this.viewBusy,
+      editor,
+      isDirty: () => Boolean(editor || viewDirty?.()),
+    });
+    this.viewDirty = null;
+    this.viewBusy = null;
+  }
+
+  discardKept(key) {
+    this.kept.get(key)?.editor?.dispose();
+    this.kept.delete(key);
+  }
+
+  /**
+   * Put a kept panel back exactly as it was left; its pending work applies to it again. Kept
+   * panels live only in this page's memory, so the server first confirms that the session is
+   * still the one that kept them: another tab can sign out and sign in as someone else on the
+   * same cookie, and that user never sees them.
+   */
+  async restoreKept(key, requestedHash) {
+    let session;
+    try {
+      session = await this.api.call("GET", "session");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) this.showSessionEnded();
+      else this.showFatal(err);
+      return;
+    }
+    // The page moved on, or signed out, while the session was checked.
+    if (this.signedOut || !this.kept.has(key)) return;
+    if (!session?.user || session.user !== this.user || session.user !== this.keptOwner) {
+      this.forgetWorkspace();
+      this.user = "";
+      this.api.csrf = "";
+      this.showLogin("Another account signed in on this browser. Sign in again to continue.");
+      return;
+    }
+    const record = this.kept.get(key);
+    this.kept.delete(key);
+    this.editor?.dispose();
+    this.editor = null;
+    this.viewVersion = record.viewVersion;
+    this.viewDirty = record.viewDirty;
+    this.viewBusy = record.viewBusy;
+    // A kept research panel reopens where it was left; the draft can open on another of its views.
+    const hash = key === "draft" ? requestedHash : record.hash;
+    if (location.hash !== hash) history.replaceState(null, "", hash);
+    this.currentHash = hash;
+    this.replaceChildren(this.shell(record.active, ...record.nodes));
+    const label = key === "draft" ? "Your draft" : researchPanel(key)?.label || "This panel";
+    if (record.editor) {
+      this.editor = record.editor;
+      this.dirty = true;
+      record.editor.resume();
+      if (!this.openRequestedPane(hash) && record.editor.root?.dataset.editorView === "write") record.editor.writingSurface().focus();
+      else this.focusPageHeading();
+    } else this.focusPageHeading();
+    this.announceWorkspace(`${label} is as you left it, with your unsaved changes.${hash !== requestedHash ? " Save or discard them before opening another item here." : ""}`);
+  }
+
+  /** Clear everything kept for this sign-in, so another sign-in never sees it. */
+  forgetWorkspace() {
+    for (const key of [...this.kept.keys()]) this.discardKept(key);
+    this.workspaceDraft = null;
+    this.keptOwner = "";
+  }
+
+  /**
+   * A session that ended without signing out (ADR 0121): the open workspace panel is kept if it
+   * has unsaved changes, and every kept panel stays in this page's memory for the user who was
+   * signed in. Signing in again as that user returns to them; anyone else discards them.
+   */
+  showSessionEnded(message = "Your session ended. Sign in again.") {
+    const key = workspacePanelKey(this.currentHash);
+    if (key && key !== "overview" && this.hasUnsavedView() && !this.isSavingView()) this.keepCurrentView(key);
+    this.keptOwner = this.kept.size ? this.user : "";
+    this.showLogin(message, { keepWorkspace: true });
+  }
+
+  focusPageHeading() {
+    this.querySelector?.("#oba-page-heading")?.focus();
+  }
+
+  /** Say what a workspace move did, after the new region exists so it is announced. */
+  announceWorkspace(text) {
+    const region = this.workspaceStatus;
+    if (!region) return;
+    setTimeout(() => {
+      region.textContent = text;
+    }, 0);
+  }
+
+  /** Open the editor view a `?pane=` address names, such as Evidence Studio's claims. */
+  openRequestedPane(hash) {
+    const pane = parseAdminHash(hash).params.get("pane");
+    if (!pane || !this.editor || !EDITOR_PANES.includes(pane)) return false;
+    if (!this.editor.root?.querySelector(`[data-pane="${pane}"]`)) return false;
+    this.editor.activatePane(pane, true);
+    return true;
   }
 
   showFatal(err) {
     this.mount(h("div", { class: "oba-card" }, h("h1", {}, "Something went wrong"), h("p", { class: "oba-error", role: "alert" }, err.message)));
   }
 
-  showLogin(message = "") {
+  showLogin(message = "", { keepWorkspace = false } = {}) {
+    // Signing out forgets every kept panel; an ended session keeps them for the same user only.
+    if (!keepWorkspace) this.forgetWorkspace();
+    this.signedOut = true;
+    const keptNote = this.kept.size
+      ? h("p", { class: "oba-small", "data-login-kept": "true" }, "Your unsaved changes are kept on this page. Sign in again as the same user to return to them; signing in as anyone else discards them.")
+      : null;
     const user = h("input", { id: "oba-user", type: "text", autocomplete: "username", required: true, autocapitalize: "none", spellcheck: "false" });
     const pass = h("input", { id: "oba-pass", type: "password", autocomplete: "current-password", required: true });
     const status = h("p", { class: "oba-error", role: "alert", hidden: !message }, message);
@@ -7267,6 +8935,9 @@ export class ObAdmin extends AdminElement {
             const res = await this.api.call("POST", "login", { json: { username: user.value.trim(), password: pass.value } });
             this.api.csrf = res.csrf;
             this.user = res.user;
+            // Kept panels belong to the user whose session ended; nobody else ever sees them.
+            if (this.keptOwner !== res.user) this.forgetWorkspace();
+            this.signedOut = false;
             pass.value = "";
             await this.enter();
           } catch (err) {
@@ -7281,12 +8952,15 @@ export class ObAdmin extends AdminElement {
       },
       h("div", { class: "oba-login-head" }, h("div", {}, h("p", { class: "oba-eyebrow" }, "open.blog"), h("h1", {}, "Welcome back")), themeButton()),
       h("p", { class: "oba-login-copy" }, "Sign in to write, preview, and publish your blog."),
+      keptNote,
       h("div", { class: "oba-field" }, h("label", { for: "oba-user" }, "Username"), user),
       h("div", { class: "oba-field" }, h("label", { for: "oba-pass" }, "Password"), pass),
       status,
       submit,
     );
     this.mount(form);
+    // The open editor, unless it was kept above, went with the view.
+    this.dirty = false;
     user.focus();
   }
 
@@ -7324,6 +8998,11 @@ export class ObAdmin extends AdminElement {
     const toolGroup = (label, ...tools) =>
       h("div", { class: "oba-tool-group" }, h("span", { class: "oba-tool-label" }, label), h("div", { class: "oba-tool-actions" }, tools));
     const visibleModules = this.shownShellModules();
+    const panel = researchPanelForRoute(active);
+    const inDraft = Boolean(KINDS[active]) && workspacePanelKey(globalThis.location?.hash) === "draft";
+    // The research workspace's own navigation: always on its panels, and beside a draft when the
+    // workspace is part of the chosen layout or holds kept work to return to.
+    const showResearchNav = Boolean(panel) || (inDraft && (visibleModules.has("research") || this.kept.size > 0));
     const contentTabs = [
       h("a", { class: "oba-tab", "aria-current": active === "overview" ? "page" : null, href: "#/overview" }, "Overview"),
       ...Object.entries(KINDS).map(([kind, info]) =>
@@ -7333,16 +9012,10 @@ export class ObAdmin extends AdminElement {
     ];
     const activeInfo = active === "analytics"
       ? { title: "Analytics", detail: "Understand readership without tracking individual readers." }
-      : active === "feedback"
-        ? { title: "Reader feedback", detail: "Review what readers sent about passages, respond, and record what changed." }
-      : active === "sources"
-        ? { title: "Sources", detail: "Keep private research sources, editions, translations, and references in one library." }
-      : active === "research"
-        ? { title: "Research notebook", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }
-      : active === "atlas"
-        ? { title: "Knowledge Atlas", detail: "Relate people, works, concepts, movements and events privately, with who asserts each link and on what evidence." }
-      : active === "compare"
-        ? { title: "Compare versions", detail: "Read aligned passages across editions, translations, witnesses and interpretations, side by side or in one column." }
+      : active === "moderation"
+        ? { title: "Moderation inbox", detail: "Decide on comments and reader feedback in one list, respond, and record what changed." }
+      : panel
+        ? { title: researchPanel(panel).title, detail: researchPanel(panel).detail }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "shared"
@@ -7350,9 +9023,15 @@ export class ObAdmin extends AdminElement {
       : active === "overview"
         ? { title: "Overview", detail: "See what is live, what needs attention, and what to work on next." }
         : { title: KINDS[active]?.label || "Workspace", detail: "Create, review, and publish content from the files you own." };
+    const main = h("main", { class: "oba-workspace-content", id: "oba-main", tabindex: "-1" }, ...content);
+    this.workspaceMain = main;
+    const visibility = panel ? "private" : showResearchNav ? "publishable" : null;
+    this.workspaceStatus = h("p", { class: "oba-workspace-status", role: "status", "aria-live": "polite", "data-workspace-status": "true" });
     return h(
       "div",
       { class: "oba-shell" },
+      // The hash names Admin routes, so the skip link moves focus itself instead of navigating.
+      h("a", { class: "oba-skip-link", href: "#oba-main", onClick: (event) => { event.preventDefault(); main.focus(); } }, "Skip to main content"),
       h(
         "header",
         { class: "oba-app-header" },
@@ -7374,8 +9053,9 @@ export class ObAdmin extends AdminElement {
         "nav",
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "feedback" ? "page" : null, href: "#/feedback" }, "Reader feedback"))),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"), h("a", { class: "oba-tab", "aria-current": active === "atlas" ? "page" : null, href: "#/atlas" }, "Atlas"), h("a", { class: "oba-tab", "aria-current": active === "compare" ? "page" : null, href: "#/compare" }, "Compare"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "moderation" ? "page" : null, href: "#/moderation" }, "Moderation inbox"))),
+        // One entry for the whole research workspace; its panels are listed in the workspace's own navigation.
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "research", hidden: !visibleModules.has("research") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": panel ? "true" : null, href: researchHref("overview") }, "Research workspace"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
@@ -7385,12 +9065,55 @@ export class ObAdmin extends AdminElement {
       h(
         "section",
         { class: "oba-context-bar", "aria-label": "Workspace status" },
-        h("div", { class: "oba-context-copy" }, h("span", { class: "oba-eyebrow" }, "Workspace"), h("h1", {}, activeInfo.title), h("p", {}, activeInfo.detail)),
+        h("div", { class: "oba-context-copy" }, h("span", { class: "oba-eyebrow" }, panel || showResearchNav ? "Research workspace" : "Workspace"), h("h1", { id: "oba-page-heading", tabindex: "-1" }, activeInfo.title), h("p", {}, activeInfo.detail)),
+        visibility ? h("p", { class: "oba-visibility-note", "data-visibility": visibility, "data-workspace-visibility": "true" }, WORKSPACE_VISIBILITY[visibility].detail) : null,
         h("span", { class: "oba-spacer" }),
         publishBox,
       ),
+      showResearchNav ? this.researchNav(panel || "draft", !panel && this.kept.size === 0) : null,
+      this.workspaceStatus,
       (this.preferencesWarning = h("p", { class: "oba-preferences-warning", role: "status", hidden: !this.preferencesError }, this.preferencesError)),
-      h("main", { class: "oba-workspace-content" }, ...content),
+      main,
+    );
+  }
+
+  /**
+   * The research workspace's navigation (ADR 0120): private research panels in one labelled
+   * group, the publishable draft in another, and a note on every panel that holds kept unsaved
+   * changes. `followsPreset` lets the layout preference hide it beside a draft.
+   */
+  researchNav(current, followsPreset = false) {
+    const draft = this.workspaceDraft;
+    const keptNote = (key) => (this.kept.get(key)?.isDirty() ? h("span", { class: "oba-research-kept", id: `oba-research-${key}-kept` }, "Unsaved changes kept") : null);
+    const item = (key, label, href, visibility, extra = null, extraId = "") => {
+      const kept = keptNote(key);
+      const describedBy = [`oba-research-${visibility}-label`, extraId, kept ? kept.id : ""].filter(Boolean).join(" ");
+      return h(
+        "li",
+        { class: "oba-research-item", "data-research-panel": key, "data-visibility": visibility },
+        h("a", { class: "oba-tab", href, "aria-current": current === key ? "page" : null, "aria-describedby": describedBy }, label),
+        extra,
+        kept,
+      );
+    };
+    const draftTitle = draft ? h("span", { class: "oba-research-draft-title", id: "oba-research-draft-title" }, h("bdi", {}, draft.title || "Untitled draft")) : h("span", { class: "oba-small", id: "oba-research-draft-title" }, "No draft open: start a post");
+    const privateItems = [
+      ...RESEARCH_PANELS.map((panel) => item(panel.id, panel.label, researchHref(panel.id), "private")),
+      // Claims are private research recorded in the draft's Evidence Studio.
+      draft ? item("claims", "Claims", `${draftRoute(draft.hash)}?pane=evidence`, "private", h("span", { class: "oba-small", id: "oba-research-claims-where" }, "in the draft"), "oba-research-claims-where") : null,
+    ];
+    const group = (visibility, items) =>
+      h(
+        "div",
+        { class: "oba-research-group", "data-visibility": visibility },
+        h("span", { class: "oba-visibility", id: `oba-research-${visibility}-label`, "data-visibility": visibility }, WORKSPACE_VISIBILITY[visibility].label),
+        h("ul", { "aria-labelledby": `oba-research-${visibility}-label` }, items),
+      );
+    return h(
+      "nav",
+      { class: "oba-research-nav", "aria-label": "Research workspace", "data-admin-module": followsPreset ? "research" : null },
+      group("private", privateItems),
+      group("publishable", [item("draft", "Draft", draft ? draftRoute(draft.hash) : "#/new/posts", "publishable", draftTitle, "oba-research-draft-title")]),
     );
   }
 
@@ -7421,6 +9144,7 @@ export class ObAdmin extends AdminElement {
     const tools = {
       analytics: ["Analytics", () => (location.hash = "#/analytics")],
       contributors: ["Contributors", () => (location.hash = "#/contributors")],
+      research: ["Research workspace", () => (location.hash = researchHref("overview"))],
       "public-site": ["View site", () => open("/", "_blank", "noopener")],
     };
     for (const pane of panes) tools[pane] = [this.editor.paneLabels[pane], () => this.editor.activatePane(pane, true)];
@@ -7556,11 +9280,16 @@ export class ObAdmin extends AdminElement {
       { label: "Pages", category: "Content", run: () => go("#/pages") },
       { label: "Series", category: "Content", run: () => go("#/series") },
       { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
-      { label: "Reader feedback", category: "Observe", keywords: "moderation questions corrections responses revision notes", run: () => go("#/feedback") },
-      { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go("#/sources") },
-      { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go("#/research") },
-      { label: "Knowledge Atlas", category: "Research", keywords: "atlas people works concepts movements events relationships influence explore", run: () => go("#/atlas") },
-      { label: "Compare versions", category: "Research", keywords: "compare alignments editions translations witnesses interpretations passages side by side", run: () => go("#/compare") },
+      { label: "Moderation inbox", category: "Observe", keywords: "moderation comments reader feedback questions corrections clarification remove responses revision notes", run: () => go("#/moderation") },
+      { label: "Research workspace", category: "Research", keywords: "workflow start source draft research overview", run: () => go(researchHref("overview")) },
+      { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go(researchHref("sources")) },
+      { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go(researchHref("notebook")) },
+      { label: "Knowledge Atlas", category: "Research", keywords: "atlas people works concepts movements events relationships influence explore", run: () => go(researchHref("atlas")) },
+      { label: "Compare versions", category: "Research", keywords: "compare alignments editions translations witnesses interpretations passages side by side", run: () => go(researchHref("compare")) },
+      { label: "What will be public", category: "Research", keywords: "public preview publish boundary private withheld approved projection manifest", run: () => go(researchHref("public")) },
+      ...(this.workspaceDraft && !this.editor
+        ? [{ label: "Back to draft", category: "Research", keywords: `return draft editor writing ${this.workspaceDraft.title}`, run: () => go(draftRoute(this.workspaceDraft.hash)) }]
+        : []),
       { label: "Contributors", category: "Site", keywords: "authors credits orcid identity", run: () => go("#/contributors") },
       { label: "View site", category: "Site", keywords: "public blog", run: () => open("/", "_blank", "noopener") },
       { label: "Advanced tools", category: "Workspace", keywords: "more optional hidden ai assistant research distribution", run: () => this.openAdvancedTools() },
@@ -7695,44 +9424,114 @@ export class ObAdmin extends AdminElement {
     box.replaceChildren(h("span", { class: "oba-small" }, summary + (st.auto ? " · auto" : "")), " ", button);
   }
 
-  async confirmLeave() {
-    if (!this.dirty) return true;
-    return confirm("You have unsaved changes. Leave without saving?");
+  /**
+   * Ask before unsaved work is discarded. `keys` names where it is (workspace panel keys, or
+   * "current" for the open view); without them, all unsaved work is asked about, as signing out does.
+   */
+  async confirmLeave(keys = null) {
+    if (!keys) {
+      if (!this.hasUnsavedWork()) return true;
+      keys = [...(this.hasUnsavedView() ? [workspacePanelKey(this.currentHash) || "current"] : []), ...[...this.kept.values()].filter((record) => record.isDirty()).map((record) => record.key)];
+    }
+    return confirm(unsavedWorkQuestion(keys.map((key) => (key === "current" ? "" : this.workspaceLabel(key)))));
   }
 
   async onHash() {
+    if (this.signedOut) {
+      // Signed out: no view opens and no kept panel comes back. With kept panels the address
+      // goes back to where they were left, which the next sign-in reopens.
+      this.skipRoute = false;
+      if (this.kept.size && this.currentHash && location.hash !== this.currentHash) history.replaceState(null, "", this.currentHash);
+      return;
+    }
     if (this.skipRoute) {
       this.skipRoute = false;
       this.currentHash = location.hash;
+      // A saved new document now has its own address; the workspace returns to that one.
+      if (this.editor && this.workspaceDraft) this.workspaceDraft.hash = location.hash;
       return;
     }
-    const nextHash = location.hash || "#/overview";
-    if (shouldGuardNavigation(this.dirty, this.currentHash, nextHash) && !(await this.confirmLeave())) {
+    const requested = location.hash || "#/overview";
+    const nextHash = canonicalAdminHash(requested);
+    // Earlier research routes redirect without adding a history entry.
+    if (location.hash && nextHash !== requested) {
+      history.replaceState(null, "", nextHash);
+      // An earlier address of the panel already open only corrects the address; reloading the
+      // panel would discard what is in it.
+      if (nextHash === this.currentHash) return;
+    }
+    const previousHash = this.currentHash;
+    if (this.editor && this.workspaceDraft) this.workspaceDraft.title = this.editor.currentTitle();
+    // Another view of the open draft, such as its claims: switch views, never reload the draft.
+    if (this.editor && workspacePanelKey(nextHash) === "draft" && draftRoute(nextHash) === draftRoute(previousHash)) {
+      this.currentHash = nextHash;
+      this.openRequestedPane(nextHash);
+      return;
+    }
+    const plan = planWorkspaceNavigation({
+      fromHash: previousHash,
+      toHash: nextHash,
+      currentDirty: this.hasUnsavedView(),
+      saving: this.isSavingView(),
+      kept: [...this.kept.values()].map((record) => ({ key: record.key, hash: record.hash, dirty: record.isDirty() })),
+    });
+    if (plan.confirm.length && !(await this.confirmLeave(plan.confirm))) {
       history.replaceState(null, "", this.currentHash);
       return;
     }
-    const { head, tail, params } = parseAdminHash(location.hash);
+    for (const key of plan.discard) this.discardKept(key);
+    if (plan.keep) this.keepCurrentView(plan.keep);
     this.dirty = false;
+    if (plan.restore) {
+      await this.restoreKept(plan.restore, nextHash);
+      return;
+    }
+    const { head, tail, params } = parseAdminHash(nextHash);
     try {
       if (head === "edit" && tail) await this.showEditor(decodeURIComponent(tail));
       else if (head === "new" && KINDS[tail]) await this.showEditor(null, tail);
       else if (head === "analytics") await this.showAnalytics(Number(tail) || 30);
-      else if (head === "feedback") await this.showFeedback(tail);
+      else if (head === "moderation" || head === "feedback") await this.showModeration(tail, params);
       else if (head === "contributors") await this.showContributors();
-      else if (head === "sources") await this.showSources();
-      else if (head === "research") await this.showResearch();
-      else if (head === "atlas") await this.showAtlas(safeDecodeURIComponent(tail));
-      else if (head === "compare") await this.showCompare(safeDecodeURIComponent(tail));
+      else if (head === "research") await this.showResearchPanel(tail);
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
       else if (head === "shared") await this.showSharedReflections();
       else if (head === "overview" || !head) await this.showOverview(params.get("focus"));
       else await this.showList(KINDS[head] ? head : "posts", params.get("status"));
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) this.showLogin("Your session ended. Sign in again.");
-      else this.showFatal(err);
+      if (err instanceof ApiError && err.status === 401) {
+        // The view being left was kept or given up by the plan above; it is not kept again here.
+        this.viewDirty = null;
+        this.viewBusy = null;
+        this.dirty = false;
+        this.showSessionEnded();
+      } else this.showFatal(err);
     }
     this.currentHash = location.hash || "#/overview";
+    // A link that started this move left with the old view; give focus to the new page's heading
+    // unless the view placed it itself.
+    if (previousHash && !this.ownsFocus()) this.focusPageHeading();
+  }
+
+  /** Whether keyboard focus is somewhere in the mounted Admin view (or an open dialog). */
+  ownsFocus() {
+    const active = document.activeElement;
+    if (!active || active === document.body || active.isConnected === false) return false;
+    if (document.querySelector?.("dialog[open]")) return true;
+    return Boolean(this.contains?.(active));
+  }
+
+  /** Open one research panel from its canonical address: `<panel>[/<item id>]`. */
+  async showResearchPanel(tail) {
+    const [panel, ...item] = tail.split("/");
+    const id = safeDecodeURIComponent(item.join("/"));
+    if (panel === "sources") await this.showSources(id);
+    else if (panel === "notebook") await this.showResearch();
+    else if (panel === "atlas") await this.showAtlas(id);
+    else if (panel === "compare") await this.showCompare(id);
+    else if (panel === "public") await this.showPublicPreview();
+    else await this.showResearchOverview();
   }
 
   // ---- list
@@ -8105,7 +9904,7 @@ export class ObAdmin extends AdminElement {
 
   // ---- research source library
 
-  async showSources() {
+  async showSources(focus = "") {
     let library;
     try {
       library = await this.api.call("GET", "sources");
@@ -8129,7 +9928,7 @@ export class ObAdmin extends AdminElement {
     let dirty = false;
     let busy = false;
     const filters = { query: "", kind: "all", archived: "active" };
-    const mountedView = this.viewVersion + 1;
+    const mountedView = this.nextViewVersion();
 
     const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     const say = (text, kind = "oba-small") => {
@@ -8572,6 +10371,12 @@ export class ObAdmin extends AdminElement {
     );
 
 
+    // An address that names a source opens it, as a review finding's link does (ADR 0123).
+    const focused = focus ? sources.find((source) => source.id === focus) : null;
+    if (focused) {
+      selected = focused.id;
+      draft = sourceDraft(focused);
+    }
     renderList();
     renderPanel();
     this.mount(
@@ -8592,6 +10397,153 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-source-layout" }, h("nav", { "aria-label": "Sources" }, list), panel),
       ),
     );
+    if (focused) panel.querySelector("#oba-source-heading")?.focus();
+    // The research workspace keeps this panel, instead of losing it, while another one is open,
+    // but never while a save is running: its result has to land on this view (ADR 0121).
+    this.viewDirty = () => dirty;
+    this.viewBusy = () => busy;
+  }
+
+  // ---- research workspace
+
+  /**
+   * The research workspace's first panel (ADR 0120): the source-to-draft workflow and where
+   * each step stands. The library and the notebook are read separately, so one that cannot be
+   * read is reported in its own step while the others still show. Nothing here writes.
+   */
+  async showResearchOverview() {
+    const [library, notebook] = await Promise.allSettled([this.api.call("GET", "sources"), this.api.call("GET", "research/notebook")]);
+    for (const result of [library, notebook]) {
+      if (result.status === "rejected" && result.reason?.status === 401) throw result.reason;
+    }
+    const active = (items) => (Array.isArray(items) ? items.filter((item) => !item.archived) : []);
+    const sources = library.status === "fulfilled" ? active(library.value.sources) : null;
+    const passages = notebook.status === "fulfilled" ? active(notebook.value.passages) : null;
+    const notes = notebook.status === "fulfilled" ? active(notebook.value.notes) : null;
+    const draft = this.workspaceDraft;
+    const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+    const link = (href, text, primary = false) => h("a", { class: `oba-btn${primary ? " oba-btn-primary" : ""}`, href }, text);
+    const step = (key, title, visibility, body, state, done, actions) =>
+      h(
+        "li",
+        { class: "oba-research-step", "data-research-step": key, "data-done": done, "data-visibility": visibility, "aria-labelledby": `oba-research-step-${key}` },
+        h("h3", { id: `oba-research-step-${key}` }, title),
+        h("p", { class: "oba-visibility", "data-visibility": visibility }, WORKSPACE_VISIBILITY[visibility].label),
+        h("p", {}, body),
+        h("p", { class: done === "unreadable" ? "oba-error" : "oba-small", "data-research-step-state": "true" }, state),
+        h("div", { class: "oba-toolbar" }, actions),
+      );
+    const unreadable = (what, message, file) => `${what} could not be read. ${message}${file ? ` Repair ${file} by hand, then reload this view.` : ""} Nothing was changed.`;
+    const empty = sources?.length === 0 && passages?.length === 0;
+    const steps = h(
+      "ol",
+      { class: "oba-research-steps" },
+      step(
+        "source",
+        "Add a source",
+        "private",
+        "Record the work you are reading, then the edition, translation, or witness you quote from. Each record keeps a stable ID that citations and notes point to.",
+        sources === null ? unreadable("The source library", sourceErrorMessage(library.reason), library.reason?.data?.file) : sources.length ? `Done: ${plural(sources.length, "source")} in the library.` : "Not started: the library is empty.",
+        sources === null ? "unreadable" : String(sources.length > 0),
+        [link(researchHref("sources"), sources?.length ? "Open Sources" : "Add your first source", sources?.length === 0)],
+      ),
+      step(
+        "passage",
+        "Capture a passage",
+        "private",
+        "Quote the exact words with where they sit in the source, and keep your own notes and open questions beside them.",
+        passages === null ? unreadable("The research notebook", notebookErrorMessage(notebook.reason), notebook.reason?.data?.file) : passages.length ? `Done: ${plural(passages.length, "passage")} and ${plural(notes.length, "note")}.` : "Not started: no passages captured yet.",
+        passages === null ? "unreadable" : String(passages.length > 0),
+        [link(researchHref("notebook"), passages?.length ? "Open the Notebook" : "Capture a passage", Boolean(sources?.length) && passages?.length === 0)],
+      ),
+      step(
+        "relate",
+        "Relate and compare",
+        "private",
+        "Optional. Map who asserts what about the people, works, and ideas you research, and read versions of a passage side by side.",
+        "Optional: use these whenever they help.",
+        "optional",
+        [link(researchHref("atlas"), "Open the Atlas"), link(researchHref("compare"), "Compare versions")],
+      ),
+      step(
+        "draft",
+        "Cite it in a draft",
+        "publishable",
+        "In the draft's Write view, choose Insert citation and pick the source and its locator. Readers see only what the citation makes public; your passages and notes stay private.",
+        draft ? h("span", {}, "Your draft: ", h("bdi", {}, draft.title || "Untitled draft")) : "No draft open yet.",
+        draft ? "true" : "false",
+        [draft ? link(draftRoute(draft.hash), "Back to the draft", true) : link("#/new/posts", "Start a post", Boolean(passages?.length))],
+      ),
+    );
+    this.mount(
+      this.shell(
+        "research-overview",
+        h(
+          "section",
+          { class: "oba-research-overview", "aria-labelledby": "oba-research-overview-heading" },
+          h("h2", { id: "oba-research-overview-heading" }, empty ? "Start your research" : "From source to draft"),
+          h("p", {}, empty ? "Your research workspace is empty. These steps take you from a source to a cited draft. Everything before the draft stays private." : "Pick up where you left off. Switching between these panels keeps any unsaved changes."),
+          steps,
+          h("p", { class: "oba-small" }, "Sources, notebook, atlas, comparisons, and claims are private research stored under .openblog/private/research. Nothing there is public because it exists: a post shows a source's reference only when it cites it, and atlas relationships, claim evidence, and comparisons only when you approve them."),
+        ),
+      ),
+    );
+  }
+
+  // ---- what will be public (#63, ADR 0125)
+
+  /** The saved path of each post by slug, so a claim can link to its post. Empty when the list cannot be read. */
+  async savedPostPaths() {
+    try {
+      const list = await this.api.call("GET", "documents?kind=posts");
+      const items = Array.isArray(list) ? list : Array.isArray(list?.items) ? list.items : [];
+      return new Map(items.filter((item) => item?.slug && item?.path).map((item) => [String(item.slug), String(item.path)]));
+    } catch {
+      return new Map();
+    }
+  }
+
+  async showPublicPreview() {
+    const mountedView = this.nextViewVersion();
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-boundary-status": "true" });
+    const content = h("div", { class: "oba-boundary-content" });
+    const refresh = h("button", { class: "oba-btn", type: "button", "data-boundary-refresh": "true" }, "Refresh");
+    const load = async (announce) => {
+      refresh.disabled = true;
+      status.className = "oba-small";
+      status.textContent = "Reading what the next build publishes…";
+      try {
+        const [manifest, postPaths] = await Promise.all([this.api.call("GET", "research/boundary"), this.savedPostPaths()]);
+        if (this.viewVersion !== mountedView) return;
+        content.replaceChildren(createBoundaryPreview({ manifest, idPrefix: "oba-boundary-site", level: 3, scope: "site", postPaths }));
+        status.textContent = `${announce ? "Refreshed. " : ""}${boundaryCountsText(manifest)}`;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          this.showSessionEnded("Your session ended. Sign in again to see what will be public.");
+          return;
+        }
+        if (this.viewVersion !== mountedView) return;
+        content.replaceChildren(h("p", { class: "oba-error", role: "alert" }, `What will be public could not be read. ${error?.data?.error || error?.message || ""} Nothing was changed.`));
+        status.textContent = "";
+      } finally {
+        refresh.disabled = false;
+      }
+    };
+    refresh.addEventListener("click", () => void load(true));
+    this.mount(
+      this.shell(
+        "research-public",
+        h(
+          "section",
+          { class: "oba-boundary-panel", "aria-labelledby": "oba-boundary-heading" },
+          h("h2", { id: "oba-boundary-heading" }, "What the next build publishes"),
+          h("div", { class: "oba-toolbar" }, refresh),
+          status,
+          content,
+        ),
+      ),
+    );
+    await load(false);
   }
 
   // ---- research notebook
@@ -8613,7 +10565,7 @@ export class ObAdmin extends AdminElement {
       return;
     }
     const state = { revision: loaded.revision, sources: loaded.sources, passages: loaded.passages, notes: loaded.notes };
-    const mountedView = this.viewVersion + 1;
+    const mountedView = this.nextViewVersion();
     let selected = null; // null, "new", or { type, id }
     let form = null;
     let busy = false;
@@ -8777,7 +10729,7 @@ export class ObAdmin extends AdminElement {
               "nav",
               { class: "oba-atlas-concept-links", "aria-label": "Concepts in the Knowledge Atlas", "data-atlas-concepts": "true" },
               h("p", { class: "oba-small" }, "Concepts in the Knowledge Atlas:"),
-              h("ul", {}, entry.concepts.map((concept) => h("li", {}, h("a", { href: `#/atlas/${encodeURIComponent(concept)}`, "data-atlas-concept": concept }, concept)))),
+              h("ul", {}, entry.concepts.map((concept) => h("li", {}, h("a", { href: researchHref("atlas", concept), "data-atlas-concept": concept }, concept)))),
             )
           : null,
         backlinks,
@@ -9084,6 +11036,7 @@ export class ObAdmin extends AdminElement {
         ),
       ),
     );
+    this.viewDirty = () => Boolean(form?.isDirty());
   }
 
   // ---- knowledge atlas
@@ -9113,7 +11066,7 @@ export class ObAdmin extends AdminElement {
       return;
     }
     const state = applyAtlasState({}, loaded);
-    const mountedView = this.viewVersion + 1;
+    const mountedView = this.nextViewVersion();
     const filters = { query: "", kind: "" };
     let selected = null; // null, or { type: "entry" | "relationship", id: string | null, prefill }
     let form = null;
@@ -9270,7 +11223,7 @@ export class ObAdmin extends AdminElement {
               { "aria-labelledby": "oba-atlas-explorer-notes", "data-atlas-notes": "true" },
               h("h4", { class: "oba-small-heading", id: "oba-atlas-explorer-notes" }, `Notebook notes linking this concept (${notes.length})`),
               notes.length ? h("ul", {}, notes.map((note) => h("li", {}, `${note.preview} (${note.kind === "question" ? "question" : "observation"}, ${note.id})`))) : h("p", { class: "oba-small" }, "No notebook note links this concept yet."),
-              notes.length ? h("p", { class: "oba-small" }, h("a", { href: "#/research" }, "Open the research notebook")) : null,
+              notes.length ? h("p", { class: "oba-small" }, h("a", { href: researchHref("notebook") }, "Open the research notebook")) : null,
             )
           : null,
       );
@@ -9604,7 +11557,11 @@ export class ObAdmin extends AdminElement {
       renderLists();
     });
 
-    if (focus) {
+    const relationshipFocus = String(focus || "").match(/^relationships\/(.+)$/)?.[1];
+    if (relationshipFocus) {
+      if (relationshipById(relationshipFocus)) selected = { type: "relationship", id: relationshipFocus };
+      else say(`No relationship has the identifier ${relationshipFocus}. It may have been removed.`);
+    } else if (focus) {
       if (entryById(focus)) selected = { type: "entry", id: focus };
       else if (validAtlasId(focus)) {
         selected = { type: "entry", id: null, prefill: { id: focus, kind: "concept" } };
@@ -9632,6 +11589,7 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-source-layout", id: "oba-atlas-lists" }, listNav, panel),
       ),
     );
+    this.viewDirty = () => Boolean(form?.isDirty());
     if (selected) panel.querySelector("#oba-atlas-heading")?.focus();
   }
 
@@ -9654,7 +11612,7 @@ export class ObAdmin extends AdminElement {
       return;
     }
     const state = applyAlignmentState({}, loaded);
-    const mountedView = this.viewVersion + 1;
+    const mountedView = this.nextViewVersion();
     // How the comparison reads; kept for this visit only, so nothing is written to the browser.
     const options = { layout: "columns", normalized: false, notes: false, version: "" };
     let selected = null; // null, or { id: string | null, editing: boolean }
@@ -10097,6 +12055,7 @@ export class ObAdmin extends AdminElement {
         h("div", { class: "oba-source-layout", id: "oba-compare-lists" }, listNav, panel),
       ),
     );
+    this.viewDirty = () => Boolean(form?.isDirty());
     if (selected) panel.querySelector("#oba-compare-heading")?.focus();
   }
 
@@ -10327,7 +12286,7 @@ export class ObAdmin extends AdminElement {
                 await this.showSharedReflections("Shared reflection created. It is private to you until you invite others.");
               },
               failed: (error, problem) =>
-                error instanceof ApiError && error.status === 401 ? this.showLogin("Your session ended. Sign in again.") : showProblem(problem),
+                error instanceof ApiError && error.status === 401 ? this.showSessionEnded() : showProblem(problem),
             });
           } finally {
             submit.disabled = !contributors.length;
@@ -12434,52 +14393,8 @@ export class ObAdmin extends AdminElement {
         status,
         h("div", { class: "oba-toolbar" }, save, clear),
       );
-      if (engagement.enabled && engagement.comments && engagement.credential?.configured) {
-        const moderationStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" }, "Loading comments…");
-        const cards = h("div", { class: "oba-assistant-context-cards" });
-        const filters = h("div", { class: "oba-tabs", "aria-label": "Comment moderation status" });
-        moderation = h("section", { "aria-labelledby": "oba-comment-moderation-title" }, h("h2", { id: "oba-comment-moderation-title" }, "Comment moderation"), filters, moderationStatus, cards);
-        const loadComments = async (selectedStatus) => {
-          moderationStatus.textContent = `Loading ${selectedStatus} comments…`;
-          cards.replaceChildren();
-          filters.querySelectorAll("button").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.status === selectedStatus)));
-          const result = await this.api.call("GET", `engagement/comments?status=${selectedStatus}`);
-          const commentsForStatus = Array.isArray(result.comments) ? result.comments : [];
-          moderationStatus.textContent = commentsForStatus.length ? `${commentsForStatus.length} ${selectedStatus} comment${commentsForStatus.length === 1 ? "" : "s"}.` : `No ${selectedStatus} comments.`;
-          const decide = async (comment, decision, card) => {
-            card.querySelectorAll("button").forEach((button) => { button.disabled = true; });
-            try {
-              await this.api.call("PATCH", "engagement/comments", { json: { id: comment.id, status: decision } });
-              await loadComments(selectedStatus);
-            } catch (error) {
-              moderationStatus.textContent = error.message;
-            }
-          };
-          cards.append(...commentsForStatus.map((comment) => {
-            const card = h("article", { class: "oba-context-card" },
-              h("h3", {}, comment.authorName),
-              h("p", { class: "oba-small" }, `${comment.path} · ${formatWhen(comment.createdAt)}`),
-              h("p", {}, comment.body),
-            );
-            card.append(h("div", { class: "oba-toolbar" }, ...commentModerationActions(selectedStatus).map((decision) =>
-              h("button", {
-                class: decision === "approved" ? "oba-btn oba-btn-primary" : "oba-btn oba-btn-danger",
-                type: "button",
-                onClick: () => decide(comment, decision, card),
-              }, decision === "approved" ? "Approve" : "Reject"),
-            )));
-            return card;
-          }));
-        };
-        for (const commentStatus of COMMENT_MODERATION_STATUSES) {
-          filters.append(h("button", { class: "oba-tab", type: "button", "data-status": commentStatus, "aria-selected": String(commentStatus === "pending"), onClick: () => loadComments(commentStatus) }, `${commentStatus[0].toUpperCase()}${commentStatus.slice(1)}`));
-        }
-        try {
-          await loadComments("pending");
-        } catch (error) {
-          moderationStatus.className = "oba-error";
-          moderationStatus.textContent = `Comments could not be loaded. ${error.message}`;
-        }
+      if (engagement.enabled && engagement.credential?.configured) {
+        moderation = h("p", { class: "oba-small" }, "Moderate comments, with reader feedback, in the ", h("a", { href: moderationHash("pending") }, "Moderation inbox"), ".");
       }
     }
     this.mount(
@@ -12497,30 +14412,47 @@ export class ObAdmin extends AdminElement {
     );
   }
 
-  // ---- reader feedback (ADR 0083)
+  // ---- moderation inbox (ADR 0105)
 
   /**
-   * Moderate passage feedback through this server, which alone holds the hosted token, and
-   * look after what the site publishes: responses and revision notes. A passage that moved or
-   * changed is said so before anyone can approve it.
+   * One inbox for comments and reader feedback, moderated through this server, which alone holds
+   * the hosted token. The server sends only what the signed-in account may see on each item's work,
+   * with the decisions it may take; a passage that moved or changed is said so before anyone can
+   * approve it. Published notes keep their responses and revision notes below the list.
    */
-  async showFeedback(requested) {
-    const status = FEEDBACK_QUEUE_STATES.includes(requested) ? requested : "pending";
-    const queueStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, `Loading ${FEEDBACK_STATE_LABELS[status].toLowerCase()} feedback…`);
-    const readOnlyNote = FEEDBACK_READ_ONLY_NOTES[status] ? h("p", { class: "oba-small" }, FEEDBACK_READ_ONLY_NOTES[status]) : null;
-    const queue = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-queue-title" });
+  async showModeration(tail, params) {
+    const { state, kind } = parseModerationRoute(tail, params);
+    const queueStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, `Loading ${MODERATION_STATE_LABELS[state].toLowerCase()} items…`);
+    const stateNote = MODERATION_STATE_NOTES[state] ? h("p", { class: "oba-small" }, MODERATION_STATE_NOTES[state]) : null;
+    const queue = h("ol", { class: "oba-feedback-list oba-moderation-list", "aria-labelledby": "oba-moderation-queue-title" });
+    const more = h("button", { class: "oba-btn", type: "button", hidden: true }, "Show more");
+    // Published reflections that must come off, seen on every tab (ADR 0115).
+    const perspectiveBanner = h("div", { class: "oba-perspective-banner", "data-perspective-banner": "" });
     const publishedStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "Loading published feedback…");
     const published = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-published-title" });
-    const filters = h(
+    const stateTabs = h(
       "nav",
-      { class: "oba-tabs", "aria-label": "Feedback by moderation state" },
-      FEEDBACK_QUEUE_STATES.map((state) => h("a", { class: "oba-tab", href: `#/feedback/${state}`, "aria-current": state === status ? "page" : null }, FEEDBACK_STATE_LABELS[state])),
+      { class: "oba-tabs oba-moderation-states", "aria-label": "Items by moderation state" },
+      MODERATION_STATES.map((each) => h("a", { class: "oba-tab", href: moderationHash(each, kind), "aria-current": each === state ? "page" : null }, MODERATION_STATE_LABELS[each])),
     );
+    const kindSelect = h("select", { id: "oba-moderation-kind", name: "kind" }, MODERATION_KINDS.map(([id, label]) => h("option", { value: id, selected: id === kind ? "" : null }, label)));
+    kindSelect.value = kind;
+    const kindFilter = h(
+      "form",
+      { class: "oba-moderation-filter", role: "search", "aria-label": "Filter by kind", onSubmit: (event) => {
+        event.preventDefault();
+        location.hash = moderationHash(state, kindSelect.value);
+      } },
+      h("label", { for: "oba-moderation-kind" }, "Kind"), " ", kindSelect, " ",
+      h("button", { class: "oba-btn", type: "submit" }, "Show"),
+    );
+    let next = null;
+    let shown = 0;
     let publishedEtag = "absent";
     // A message for a published card that outlives the reload replacing it, such as a conflict.
     const publishedNotices = new Map();
-    const announce = (line, message, kind) => {
-      line.className = kind ? `oba-${kind}` : "oba-small";
+    const announce = (line, message, kind_) => {
+      line.className = kind_ ? `oba-${kind_}` : "oba-small";
       line.textContent = message;
     };
 
@@ -12537,59 +14469,270 @@ export class ObAdmin extends AdminElement {
       }
     };
 
-    const loadQueue = async () => {
+    const loadPerspectiveAudit = async () => {
+      let audit;
       try {
-        const result = await this.api.call("GET", `engagement/feedback?status=${status}`);
-        const items = Array.isArray(result.items) ? result.items : [];
-        queue.replaceChildren(...items.map((item) => h("li", {}, queueCard(item))));
-        const skipped = result.invalid ? ` ${result.invalid} item${result.invalid === 1 ? " was" : "s were"} not valid and ${result.invalid === 1 ? "is" : "are"} not shown.` : "";
-        announce(queueStatus, feedbackQueueSummary(status, items.length) + skipped);
+        audit = await this.api.call("GET", "engagement/third-perspectives/published");
       } catch (error) {
-        queue.replaceChildren();
-        announce(queueStatus, `Feedback could not be loaded. ${error.message}`, error.status === 404 || error.status === 503 ? "notice" : "error");
+        perspectiveBanner.replaceChildren(h("p", { class: "oba-notice", role: "status" }, `Published reflections could not be checked against the hosted copy. ${error.message}`));
+        return;
       }
+      const notices = perspectiveAuditNotices(audit);
+      const entry = (item, label) => h("li", {}, `${item.post}: `, h("button", { class: "oba-btn", type: "button", "data-perspective-id": item.id, onClick: async (event) => {
+        event.currentTarget.disabled = true;
+        try {
+          await this.api.call("POST", "engagement/third-perspectives/unpublish", { json: { id: item.id } });
+          await reloadAll("Taken off its post. Rebuild or publish to update the live site.", "ok");
+        } catch (error) {
+          event.currentTarget.disabled = false;
+          announce(queueStatus, error.message, "error");
+          queueStatus.focus();
+        }
+      } }, label));
+      perspectiveBanner.replaceChildren(...notices.map((notice) => h("div", { class: notice.kind === "mustComeOff" ? "oba-notice oba-perspective-must-come-off" : "oba-notice", role: notice.kind === "mustComeOff" ? "alert" : "status", "data-perspective-notice": notice.kind },
+        h("p", {}, h("strong", {}, notice.text)),
+        notice.kind === "mustComeOff" ? h("ul", {}, audit.mustComeOff.map((item) => entry(item, "Take it off the post"))) : null,
+        notice.kind === "unknown" ? h("ul", {}, audit.unknown.map((item) => entry(item, "Take it off the post"))) : null,
+      )));
     };
 
-    const reloadAll = async (message, kind) => {
-      await Promise.all([loadQueue(), loadPublished()]);
+    // One page of the inbox; `append` keeps what is shown and moves focus to the first new item.
+    const loadQueue = async (append = false) => {
+      const query = new URLSearchParams({ state });
+      if (kind) query.set("kind", kind);
+      if (append && next) query.set("after", next);
+      more.disabled = true;
+      try {
+        const result = await this.api.call("GET", `engagement/moderation?${query}`);
+        const items = Array.isArray(result.items) ? result.items : [];
+        const cards = items.map((item) => h("li", {}, queueCard(item)));
+        if (append) queue.append(...cards);
+        else queue.replaceChildren(...cards);
+        shown = append ? shown + items.length : items.length;
+        next = result.next || null;
+        more.hidden = !next;
+        const skipped = result.invalid ? ` ${result.invalid} item${result.invalid === 1 ? " was" : "s were"} not valid and ${result.invalid === 1 ? "is" : "are"} not shown.` : "";
+        const legacy = result.protocol === "legacy" ? " Some decisions need the hosted moderation schema; see the setup guide." : "";
+        announce(queueStatus, inboxSummary(state, shown, Boolean(next)) + skipped + legacy);
+        if (append) cards[0]?.querySelector("h3")?.focus();
+      } catch (error) {
+        if (!append) queue.replaceChildren();
+        more.hidden = true;
+        announce(queueStatus, `The inbox could not be loaded. ${error.message}`, error.status === 404 || error.status === 503 ? "notice" : "error");
+      } finally {
+        more.disabled = false;
+      }
+    };
+    more.addEventListener("click", () => loadQueue(true));
+
+    const reloadAll = async (message, kind_) => {
+      await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
       if (message) {
-        announce(queueStatus, message, kind);
+        announce(queueStatus, message, kind_);
         queueStatus.focus();
       }
     };
 
+    // What the reader named, and what the author decided (ADRs 0116 and 0117).
+    const evidenceSection = (item) => {
+      if (!item.evidence) return null;
+      const claim = item.evidence.claim;
+      return h(
+        "div",
+        { class: "oba-feedback-passage oba-feedback-evidence" },
+        h("h4", {}, "What the reader names"),
+        h("p", { class: "oba-small" }, "The reader’s own statement, from what the site publishes. Nothing checked it, and nothing counts it."),
+        item.evidence.stale ? h("p", { class: "oba-notice" }, "Something the reader named is no longer published on this post.") : null,
+        h("ul", {}, evidenceReviewLines(item.evidence).map((text) => h("li", {}, text))),
+        claim?.published && claim.links?.length
+          ? h("details", {}, h("summary", {}, `Compare with the evidence published for ${claim.label}`),
+            h("ul", {}, claim.links.map((link) => h("li", {}, link.label))))
+          : null,
+      );
+    };
+    const similarSection = (item) => {
+      if (!item.similar?.length) return null;
+      return h(
+        "div",
+        { class: "oba-feedback-similar" },
+        h("p", { class: "oba-small" }, "Possibly about the same thing, on this page (each is decided on its own):"),
+        h("ul", {}, item.similar.map((other) => h("li", {}, h("a", { href: `#oba-moderation-${other.source}-${other.id}-title`, onClick: (event) => {
+          event.preventDefault();
+          document.getElementById(`oba-moderation-${other.source}-${other.id}-title`)?.focus();
+        } }, `${other.kindLabel} received ${formatWhen(other.receivedAt)}`), ` (${other.reason})`))),
+      );
+    };
+    const decisionsSection = (item) => {
+      if (!Array.isArray(item.decisions) || !item.decisions.length) return null;
+      return h(
+        "details",
+        { class: "oba-feedback-decisions" },
+        h("summary", {}, `Your decisions (${item.decisions.length})`),
+        h("ol", {}, item.decisions.map((decision) => h("li", {},
+          h("p", {}, decisionLine(decision)),
+          decision.rationale ? h("p", { class: "oba-feedback-body" }, decision.rationale) : null,
+          decision.revisionNote ? h("p", { class: "oba-small" }, `Revision note: ${decision.revisionNote.note}`) : null,
+          decision.claimEvidence ? h("p", { class: "oba-small" }, `Evidence link: ${decision.claimEvidence.claim} → ${decision.claimEvidence.link}`) : null,
+          decision.addressedBy ? h("p", { class: "oba-small" }, `Addressed by item ${decision.addressedBy}`) : null,
+        ))),
+      );
+    };
+
+    /**
+     * "Record decision": the author's conclusion about the work, beside moderation and never instead
+     * of it. The revision note and the evidence link are recorded first with their own tools; the
+     * form only points at them.
+     */
+    const decisionForm = (item, key, line, busy) => {
+      const offer = item.recordDecision;
+      if (!offer) return null;
+      const id = (name) => `oba-decision-${key}-${name}`;
+      const error = h("p", { class: "oba-error", id: id("error"), role: "alert" });
+      const radios = (name, options, legend, hint) => {
+        const hintId = hint ? id(`${name}-hint`) : null;
+        const inputs = options.map((option) => h("input", { type: "radio", name: id(name), id: id(`${name}-${option.id}`), value: option.id, "aria-describedby": option.guidance ? id(`${name}-${option.id}-guidance`) : null }));
+        const fieldset = h("fieldset", { class: "oba-decision-choices", "aria-describedby": hintId },
+          h("legend", {}, legend),
+          hint ? h("p", { class: "oba-small", id: hintId }, hint) : null,
+          options.map((option, index) => h("div", { class: "oba-decision-choice" },
+            inputs[index], " ", h("label", { for: id(`${name}-${option.id}`) }, option.label),
+            option.guidance ? h("p", { class: "oba-small", id: id(`${name}-${option.id}-guidance`) }, option.guidance) : null)));
+        return { fieldset, inputs, value: () => inputs.find((input) => input.checked)?.value || "" };
+      };
+      const outcome = radios("outcome", offer.outcomes, "What did you decide?", "This records your conclusion about the post. It never edits the post, a citation or the Source Library, and it does not publish or hide the reader’s note.");
+      const extent = radios("extent", offer.extents, "How much of it?");
+      const reason = h("select", { id: id("reason") }, h("option", { value: "" }, "Choose a reason"), offer.declineReasons.map((each) => h("option", { value: each.id }, each.label)));
+      const reasonField = h("div", { class: "oba-field" }, h("label", { for: id("reason") }, "Your reason for declining"), reason);
+      const rationale = h("textarea", { id: id("rationale"), rows: "3", maxlength: "2000", "aria-describedby": id("rationale-hint") });
+      const rationaleField = h("div", { class: "oba-field" }, h("label", { for: id("rationale") }, "Your rationale"),
+        h("p", { class: "oba-small", id: id("rationale-hint") }, "Public with the outcome once the reader’s note is published. Needed to decline or to accept in part; don’t name or quote the reader."), rationale);
+      const note = h("select", { id: id("note"), "aria-describedby": id("note-hint") }, h("option", { value: "" }, "No revision note"), (offer.revisionNotes || []).map((text) => h("option", { value: text }, text)));
+      const noteHint = h("p", { class: "oba-small", id: id("note-hint") }, offer.revisionNotes?.length
+        ? "The post’s note that says what changed. If it is not listed, add it to the post below first."
+        : "This post has no revision notes yet. Add one below first, after you change the post.");
+      const newNoteDate = h("input", { type: "date", id: id("new-note-date"), value: localDay() });
+      const newNoteClaim = h("input", { type: "text", id: id("new-note-claim"), pattern: "[a-z0-9-]*" });
+      const newNoteText = h("input", { type: "text", id: id("new-note-text"), maxlength: "200" });
+      const addNote = offer.post ? h("details", { class: "oba-feedback-revision" },
+        h("summary", {}, "Add a revision note to the post"),
+        h("p", { class: "oba-small" }, "A separate step: it adds a public note to the post’s revision notes and does not change the post’s text. Edit the post itself first."),
+        h("div", { class: "oba-field" }, h("label", { for: id("new-note-date") }, "Date of the change"), newNoteDate),
+        h("div", { class: "oba-field" }, h("label", { for: id("new-note-claim") }, "Claim id (optional)"), newNoteClaim),
+        h("div", { class: "oba-field" }, h("label", { for: id("new-note-text") }, "What changed"), newNoteText),
+        h("button", { class: "oba-btn", type: "button", onClick: async () => {
+          if (!newNoteText.value.trim()) {
+            announce(line, "Say what changed first.", "error");
+            newNoteText.focus();
+            return;
+          }
+          announce(line, "Adding the revision note…");
+          try {
+            await this.api.call("POST", "engagement/feedback/revision-note", { json: { post: offer.post, date: newNoteDate.value, claim: newNoteClaim.value, note: newNoteText.value } });
+            await reloadAll("Revision note added to the post’s front matter. Choose it in Record decision. Rebuild or publish to update the live site.", "ok");
+          } catch (failure) {
+            announce(line, failure.data?.problems ? `${failure.message} ${failure.data.problems.join(" ")}` : failure.message, "error");
+          }
+        } }, "Add revision note")) : null;
+      const noteField = h("div", { class: "oba-field" }, h("label", { for: id("note") }, "The post’s revision note"), noteHint, note, addNote);
+      const evidence = h("select", { id: id("evidence"), "aria-describedby": id("evidence-hint") }, h("option", { value: "" }, "No evidence link"),
+        (offer.claimEvidence || []).map((each) => h("option", { value: `${each.claim} ${each.link}` }, each.label)));
+      const evidenceField = h("div", { class: "oba-field" }, h("label", { for: id("evidence") }, "The evidence link you recorded"),
+        h("p", { class: "oba-small", id: id("evidence-hint") }, offer.claimEvidence?.length ? "Recorded in Evidence Studio on one of this post’s claims." : "None is recorded on this post’s claims yet: record it in Evidence Studio first."), evidence);
+      const addressed = h("input", { type: "text", id: id("addressed"), spellcheck: "false", "aria-describedby": id("addressed-hint") });
+      const addressedField = h("div", { class: "oba-field" }, h("label", { for: id("addressed") }, "Or the item that already addressed it"),
+        h("p", { class: "oba-small", id: id("addressed-hint") }, "The id of another reader’s item on this post that you accepted, shown on its card."), addressed);
+      const confirm = offer.confirmCheck ? h("input", { type: "checkbox", id: id("confirm") }) : null;
+      const confirmField = confirm ? h("p", { class: "oba-feedback-acknowledge" }, confirm, " ", h("label", { for: id("confirm") }, "I have read the passage as it is published now, and decide knowing it changed.")) : null;
+      const decided = h("input", { type: "date", id: id("decided"), value: localDay() });
+      const decidedField = h("div", { class: "oba-field" }, h("label", { for: id("decided") }, "Date of the decision"), decided);
+      const sync = () => {
+        const chosen = offer.outcomes.find((each) => each.id === outcome.value());
+        extent.fieldset.hidden = !chosen?.accepted;
+        reasonField.hidden = outcome.value() !== "declined";
+        noteField.hidden = !chosen || outcome.value() === "declined";
+        evidenceField.hidden = !chosen || outcome.value() === "declined";
+        addressedField.hidden = outcome.value() !== "already-addressed";
+      };
+      for (const input of outcome.inputs) input.addEventListener("change", sync);
+      sync();
+      const values = () => ({
+        outcome: outcome.value(), extent: extent.value(), declineReason: reason.value, rationale: rationale.value, revisionNote: note.value,
+        claimEvidence: evidence.value, addressedBy: addressed.value, confirmed: confirm?.checked, decided: decided.value,
+      });
+      const focusOf = { outcome: outcome.inputs[0], extent: extent.inputs[0], declineReason: reason, rationale, revisionNote: note, claimEvidence: evidence, confirmed: confirm };
+      const submit = h("button", { class: "oba-btn oba-btn-primary", type: "button", "aria-describedby": id("error") }, "Record decision");
+      submit.addEventListener("click", async () => {
+        const problem = decisionProblem(item, values());
+        error.textContent = "";
+        if (problem) {
+          error.textContent = problem.message;
+          announce(line, problem.message, "error");
+          focusOf[problem.field]?.focus();
+          return;
+        }
+        busy(true);
+        announce(line, "Recording your decision…");
+        try {
+          const result = await this.api.call("POST", "engagement/moderation/decision", { json: decisionRequest(item, values()) });
+          await reloadAll(decisionOutcome(result), "ok");
+        } catch (failure) {
+          busy(false);
+          error.textContent = failure.message;
+          announce(line, failure.message, "error");
+          if (failure.status === 409) await reloadAll(`${failure.message} The list was reloaded.`, "error");
+          else submit.focus();
+        }
+      });
+      return h(
+        "details",
+        { class: "oba-decision", id: id("details") },
+        h("summary", {}, offer.label),
+        h("p", { class: "oba-small" }, offer.guidance),
+        outcome.fieldset, extent.fieldset, reasonField, rationaleField, noteField, evidenceField, addressedField, confirmField, decidedField,
+        error, submit,
+      );
+    };
+
     const queueCard = (item) => {
-      const key = item.id;
-      const titleId = `oba-feedback-${key}-title`;
+      const key = `${item.source}-${item.id}`;
+      const titleId = `oba-moderation-${key}-title`;
       const line = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
       const where = item.post ? `“${item.post.title}”` : item.work;
       const card = h(
         "article",
-        { class: "oba-context-card oba-feedback-item", "aria-labelledby": titleId, "data-feedback-id": key },
-        h("h3", { id: titleId }, `${item.kindLabel} on ${where}`),
-        h("p", { class: "oba-small" }, `Received ${formatWhen(item.receivedAt)} · ${item.statusLabel}${item.reasonLabel ? ` (${item.reasonLabel})` : ""}`),
+        { class: "oba-context-card oba-feedback-item oba-moderation-item", "aria-labelledby": titleId, "data-moderation-id": item.id, "data-source": item.source },
+        h("h3", { id: titleId, tabindex: "-1" }, `${item.kindLabel} on ${where}`),
+        h("p", { class: "oba-small" }, `Received ${formatWhen(item.receivedAt)} · ${item.statusLabel}${item.reasonLabel ? ` (${item.reasonLabel})` : ""}${item.public ? " · shown on the post now" : ""}`),
+        item.post ? null : h("p", { class: "oba-notice" }, "No post has this address now: it may have moved, been renamed or been unpublished."),
+        h("p", { class: "oba-small" }, moderationRoleLine(item.role)),
+        item.standing ? h("p", { class: "oba-small oba-feedback-standing" }, "Stands as: ", h("strong", {}, item.standing.label), item.standing.decided ? " (your decision)" : " (the reader’s suggestion; you have not decided)") : null,
+        item.source === "feedback" && item.recordDecision ? h("p", { class: "oba-small" }, `Item id: ${item.id}`) : null,
+        item.clarification?.askedAboutThisText ? h("p", { class: "oba-notice" }, "A clarification was asked about this text. It can never be approved; only the reader’s answer can.") : null,
         feedbackPassage(item.passage),
-        h("h4", {}, "The reader’s note"),
-        h("p", { class: "oba-feedback-body" }, item.body),
+        item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
+        item.report ? h("p", {}, h("strong", {}, "Ground: "), item.report.groundLabel) : null,
+        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : item.perspective ? "The reader’s reflection" : "The reader’s note"),
+        item.purged || (item.source === "report" && !item.body) ? null : h("p", { class: "oba-feedback-body" }, item.body),
+        item.source === "report" ? reportedItem(item.target) : null,
         item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
         item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
-        h("p", { class: "oba-small" }, feedbackReaderLine(item.reader)),
+        item.perspective && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this reflection"), perspectiveLines(item).map((line) => h("p", {}, line))) : null,
+        h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source, item.kind)),
         feedbackPreview(item.publicPreview),
+        evidenceSection(item),
+        similarSection(item),
+        decisionsSection(item),
+        item.perspectivePreview ? h("p", { class: "oba-small oba-feedback-preview" }, `If approved, it is shown as “${item.perspectivePreview.heading}”, received ${item.perspectivePreview.received}.`) : null,
       );
-      const actions = h("div", { class: "oba-toolbar" });
+      const actions = h("div", { class: "oba-moderation-actions" });
       let acknowledge = null;
       const busy = (on) => card.querySelectorAll("button, select, input").forEach((control) => { control.disabled = on; });
       const act = async (action, reason) => {
         busy(true);
-        announce(line, `${action === "approve" ? "Approving" : action === "reject" ? "Rejecting" : "Removing"}…`);
+        announce(line, `${(item.actions.find((option) => option.action === action)?.label) || action}…`);
         try {
-          const result = await this.api.call("PATCH", "engagement/feedback", { json: feedbackModerationRequest(item, action, reason, acknowledge?.checked) });
-          const done = action === "approve"
-            ? result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`
-            : action === "reject" ? "Rejected. Nothing was published."
-            : result.published ? `Removed, but still on the post. ${result.publishError || ""} Take it off the post from the Removed list.`
-            : result.publishError ? `Removed. ${result.publishError}` : `Removed from ${where}.`;
-          await reloadAll(done, result.publishError ? "notice" : "ok");
+          const result = await this.api.call("PATCH", "engagement/moderation", { json: moderationRequest(item, action, reason, acknowledge?.checked) });
+          await reloadAll(moderationOutcome(item, action, result), result.publishError ? "notice" : "ok");
         } catch (error) {
           busy(false);
           announce(line, error.message, "error");
@@ -12597,55 +14740,83 @@ export class ObAdmin extends AdminElement {
         }
       };
       for (const option of item.actions || []) {
-        if (option.action === "approve") {
-          if (item.passage?.acknowledge) {
-            const checkId = `oba-feedback-${key}-acknowledge`;
+        const guidanceId = `oba-moderation-${key}-${option.action}-guidance`;
+        const guidance = h("p", { class: "oba-small oba-moderation-guidance", id: guidanceId }, option.guidance || "");
+        if (option.confirm) {
+          // A decision that cannot be undone needs its own confirmation first.
+          const confirmId = `oba-moderation-${key}-${option.action}-confirm`;
+          const confirmBox = h("input", { type: "checkbox", id: confirmId, "aria-describedby": guidanceId });
+          actions.append(h("div", { class: "oba-moderation-action" },
+            h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: confirmId }, option.confirm)),
+            h("button", { class: "oba-btn oba-btn-danger", type: "button", "aria-describedby": guidanceId, onClick: () => {
+              if (!confirmBox.checked) {
+                announce(line, "Confirm that you understand this cannot be undone first.", "error");
+                confirmBox.focus();
+                return;
+              }
+              act(option.action);
+            } }, option.label),
+            guidance));
+          continue;
+        }
+        if (!option.reasons?.length) {
+          if (option.action === "approve" && item.passage?.acknowledge) {
+            const checkId = `oba-moderation-${key}-acknowledge`;
             acknowledge = h("input", { type: "checkbox", id: checkId });
-            card.append(h("p", { class: "oba-feedback-acknowledge" }, acknowledge, " ", h("label", { for: checkId }, "I have read the passage as it is published now, and still want to approve this note.")));
+            actions.append(h("p", { class: "oba-feedback-acknowledge" }, acknowledge, " ", h("label", { for: checkId }, "I have read the passage as it is published now, and still want to approve this note.")));
           }
-          actions.append(h("button", { class: "oba-btn oba-btn-primary", type: "button", onClick: () => {
-            if (acknowledge && !acknowledge.checked) {
-              announce(line, "Confirm that you read the passage as it is now before approving.", "error");
-              acknowledge.focus();
-              return;
-            }
-            act("approve");
-          } }, "Approve"));
+          actions.append(h("div", { class: "oba-moderation-action" },
+            h("button", { class: option.action === "approve" ? "oba-btn oba-btn-primary" : "oba-btn", type: "button", "aria-describedby": guidanceId, onClick: () => {
+              if (option.action === "approve" && acknowledge && !acknowledge.checked) {
+                announce(line, "Confirm that you read the passage as it is now before approving.", "error");
+                acknowledge.focus();
+                return;
+              }
+              act(option.action);
+            } }, option.label),
+            guidance));
         } else {
-          const selectId = `oba-feedback-${key}-${option.action}-reason`;
-          const select = h("select", { id: selectId }, h("option", { value: "" }, "Choose a reason"), option.reasons.map((reason) => h("option", { value: reason.id }, reason.label)));
-          actions.append(h("span", { class: "oba-feedback-reason" },
-            h("label", { for: selectId }, option.action === "reject" ? "Reason to reject" : "Reason to remove"), " ", select, " ",
-            h("button", { class: "oba-btn oba-btn-danger", type: "button", onClick: () => {
+          const selectId = `oba-moderation-${key}-${option.action}-reason`;
+          const select = h("select", { id: selectId, "aria-describedby": guidanceId }, h("option", { value: "" }, "Choose a reason"), option.reasons.map((reason) => h("option", { value: reason.id }, reason.label)));
+          actions.append(h("div", { class: "oba-moderation-action oba-feedback-reason" },
+            h("label", { for: selectId }, `Reason to ${option.label.toLowerCase()}`), " ", select, " ",
+            h("button", { class: option.action === "request-clarification" ? "oba-btn" : "oba-btn oba-btn-danger", type: "button", "aria-describedby": guidanceId, onClick: () => {
               if (!select.value) {
                 announce(line, "Choose a reason first.", "error");
                 select.focus();
                 return;
               }
               act(option.action, select.value);
-            } }, option.label)));
+            } }, option.label),
+            guidance));
         }
       }
-      const mismatch = feedbackPublicationMismatch(item);
-      if (mismatch) {
+      if (!item.actions?.length && item.role !== "contributing-author" && !["withdrawn"].includes(item.status)) {
+        actions.append(h("p", { class: "oba-small" }, "No decision is open to you on this item."));
+      }
+      const mismatch = item.source === "feedback" ? feedbackPublicationMismatch(item) : null;
+      if (mismatch && item.role === "site-admin") {
         actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
           busy(true);
           try {
-            await this.api.call("POST", `engagement/feedback/${mismatch.action}`, { json: { id: item.id } });
-            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
+            await this.api.call("POST", `engagement/${item.kind === "third-perspective" ? "third-perspectives" : "feedback"}/${mismatch.action}`, { json: { id: item.id } });
+            await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : mismatch.action === "publish-decision" ? `Decision updated on ${where}. Rebuild or publish to update the live site.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
           } catch (error) {
             busy(false);
             announce(line, error.message, "error");
           }
         } }, mismatch.label));
         card.append(h("p", { class: "oba-notice" }, mismatch.notice));
-      } else if (item.status === "approved" && item.published === true) {
-        card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${key}`, onClick: (event) => {
+      } else if (item.kind === "third-perspective" && item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post as a reader’s reflection."));
+      } else if (item.source === "feedback" && item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${item.id}`, onClick: (event) => {
           event.preventDefault();
-          document.getElementById(`oba-published-${key}-response`)?.focus();
+          document.getElementById(`oba-published-${item.id}-response`)?.focus();
         } }, "Respond or record a revision note")));
       }
-      card.append(actions, line);
+      const decision = decisionForm(item, key, line, busy);
+      card.append(actions, ...(decision ? [decision] : []), line);
       return card;
     };
 
@@ -12734,15 +14905,75 @@ export class ObAdmin extends AdminElement {
       );
     };
 
+    // Retention (ADRs 0104 and 0108): a dry run first, then a run of exactly what it listed.
+    const retentionStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "");
+    const retentionReport = h("div", { class: "oba-retention-report" });
+    const checkRetention = h("button", { class: "oba-btn", type: "button" }, "Check what retention would do");
+    const showRetention = async () => {
+      checkRetention.disabled = true;
+      announce(retentionStatus, "Checking what is due…");
+      try {
+        const report = await this.api.call("GET", "engagement/retention");
+        const confirmBox = h("input", { type: "checkbox", id: "oba-retention-confirm" });
+        const auditBox = h("input", { type: "checkbox", id: "oba-retention-audit", checked: "" });
+        const due = (report.items?.length || 0) > 0 || Object.values(report.audit || {}).some((count) => Number(count) > 0);
+        const run = h("button", { class: "oba-btn oba-btn-danger", type: "button", disabled: due ? null : "" }, "Run retention now");
+        run.addEventListener("click", async () => {
+          if (!confirmBox.checked) {
+            announce(retentionStatus, "Confirm that you understand purged text cannot be recovered first.", "error");
+            confirmBox.focus();
+            return;
+          }
+          run.disabled = true;
+          announce(retentionStatus, "Running retention…");
+          try {
+            const result = await this.api.call("POST", "engagement/retention", { json: { asOf: report.asOf, audit: auditBox.checked } });
+            const parts = [`${result.expired} expired`, `${result.purged} purged`];
+            if (result.auditDeleted) parts.push(`${result.auditDeleted} old records deleted`);
+            if (result.skipped) parts.push(`${result.skipped} skipped because they changed or were not due`);
+            retentionReport.replaceChildren();
+            announce(retentionStatus, `Retention ran: ${parts.join(", ")}.${result.more ? " More are due; check again to continue." : ""}`, "ok");
+            retentionStatus.focus();
+            await loadQueue();
+          } catch (error) {
+            run.disabled = false;
+            announce(retentionStatus, error.message, "error");
+            retentionStatus.focus();
+          }
+        });
+        retentionReport.replaceChildren(
+          h("ul", {}, retentionSummaryLines(report).map((text) => h("li", {}, text))),
+          report.items?.length ? h("details", {}, h("summary", {}, `The ${report.items.length} item${report.items.length === 1 ? "" : "s"} due`),
+            h("ul", {}, report.items.map((entry) => h("li", {}, `${entry.kindLabel}, ${entry.statusLabel.toLowerCase()} since ${formatWhen(entry.since)}, on ${entry.work}: ${entry.step === "expire" ? "expires" : "text deleted"}`)))) : null,
+          due ? h("p", { class: "oba-feedback-acknowledge" }, confirmBox, " ", h("label", { for: "oba-retention-confirm" }, "I understand that purged text, details and names cannot be recovered.")) : null,
+          due ? h("p", { class: "oba-feedback-acknowledge" }, auditBox, " ", h("label", { for: "oba-retention-audit" }, `Also delete private records of decisions older than ${report.periods.auditDays} days`)) : null,
+          due ? run : null,
+        );
+        announce(retentionStatus, `Checked as of ${formatWhen(report.asOf)}. Nothing has changed yet.`);
+      } catch (error) {
+        retentionReport.replaceChildren();
+        announce(retentionStatus, error.message, error.status === 404 || error.status === 403 ? "notice" : "error");
+      } finally {
+        checkRetention.disabled = false;
+        retentionStatus.focus();
+      }
+    };
+    checkRetention.addEventListener("click", showRetention);
+
     this.mount(
       this.shell(
-        "feedback",
-        h("p", {}, "Questions, suggested sources, suggested corrections and other interpretations readers sent about passages of your posts. Nothing is published until you approve it, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post."),
-        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-queue-title" }, h("h2", { id: "oba-feedback-queue-title" }, "Moderation queue"), filters, readOnlyNote, queueStatus, queue),
+        "moderation",
+        h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested source or correction stays a suggestion until you record your decision on it. Nothing here e-mails anyone."),
+        perspectiveBanner,
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-moderation-queue-title" }, h("h2", { id: "oba-moderation-queue-title" }, "Moderation queue"), stateTabs, kindFilter, stateNote, queueStatus, queue, more),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-retention-title" },
+          h("h2", { id: "oba-retention-title" }, "Retention"),
+          h("p", {}, "Unpublished reader text is not kept for ever: pending notes expire, and the text of rejected, removed and withdrawn items and of upheld reports is deleted after the periods set in openblog.json. Retention never runs on its own. Check what it would do first; nothing changes until you run it, and the private record of each decision is kept longer than any text."),
+          checkRetention, retentionStatus, retentionReport),
       ),
     );
-    await Promise.all([loadQueue(), loadPublished()]);
+    await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
   }
 
   // ---- editor
@@ -12764,9 +14995,12 @@ export class ObAdmin extends AdminElement {
       doc = { path: null, kind: newKind, etag: null, fields: {}, body: "" };
     }
     const editor = new Editor(this, doc);
+    // The research workspace returns to this document until another one is opened.
+    this.workspaceDraft = { hash: draftRoute(location.hash), kind: doc.kind, title: String(doc.fields?.title || doc.fields?.name || "") };
     this.mount(this.shell(doc.kind, editor.render()));
     this.editor = editor;
     editor.afterMount();
+    this.openRequestedPane(location.hash);
   }
 }
 
@@ -13119,6 +15353,17 @@ export class Editor {
       h("div", { class: "oba-toolbar" }, ui.evidenceExportCsl, ui.evidenceExportBibtex),
       ui.evidenceExportStatus,
     );
+    ui.boundaryStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-boundary-post-status": "true" });
+    ui.boundaryContent = h("div", { class: "oba-boundary-content" });
+    ui.boundaryStale = h("p", { class: "oba-notice", role: "status", hidden: true, "data-boundary-post-stale": "true" }, "The draft has changed since this was read. Read it again to see what it publishes as it stands now.");
+    ui.boundaryRegion = h(
+      "section",
+      { id: "oba-boundary-post", class: "oba-boundary-post", "data-boundary-post": "true", "aria-labelledby": "oba-boundary-post-heading", hidden: true },
+      h("h3", { id: "oba-boundary-post-heading", tabindex: "-1" }, "What this post makes public"),
+      ui.boundaryStale,
+      ui.boundaryStatus,
+      ui.boundaryContent,
+    );
     ui.claimsRegion = h("div", { class: "oba-claims-region", "data-claims-region": "true" });
     ui.status = h("div", { role: "status", "aria-live": "polite" });
     ui.documentStats = h("span", { class: "oba-small" });
@@ -13356,6 +15601,7 @@ export class Editor {
             h("button", { type: "button", class: "oba-format-button", title: "Insert References section", onClick: () => this.addResearchSection("references") }, "References"),
             h("button", { type: "button", class: "oba-format-button", title: "Insert or edit a citation", "aria-label": "Cite a source", "data-citation-open": "true", onClick: () => this.openCitationDialog() }, "Cite"),
             h("button", { type: "button", class: "oba-format-button", title: "Make a claim from the selected words, in Evidence Studio", "aria-label": "Make a claim from the selected words", "data-claim-from-selection": "true", onClick: () => void this.claimFromSelection() }, "Claim"),
+            (ui.draftResearchToggle = h("button", { type: "button", class: "oba-format-button", title: "Search your research and insert quotations, citations and links beside the draft", "aria-expanded": "false", "aria-controls": "oba-draft-research-slot", "data-draft-research-toggle": "true", onClick: () => this.toggleDraftResearch() }, "Research")),
           ]
         : null,
     );
@@ -13364,6 +15610,9 @@ export class Editor {
     ui.citationStatus = h("span", { class: "oba-small", role: "status", "aria-live": "polite" });
     ui.citationUndo = h("button", { class: "oba-btn", type: "button", hidden: true, "data-citation-undo": "true", onClick: () => this.undoCitation() }, "Undo citation");
     ui.citationBar = kind === "posts" ? h("div", { class: "oba-toolbar oba-citation-bar" }, ui.citationStatus, ui.citationUndo) : null;
+    // The draft-side research panel (ADR 0122) sits beside the writing surface once opened.
+    ui.draftResearchSlot = kind === "posts" ? h("div", { class: "oba-draft-research-slot", id: "oba-draft-research-slot", hidden: true }) : null;
+    ui.writeLayout = h("div", { class: "oba-write-layout", "data-research": "closed" }, h("div", { class: "oba-write-surface" }, ui.richBody, ui.body, ui.assistantAutocomplete), ui.draftResearchSlot);
     ui.assistantStatus = h("p", { class: "oba-assistant-status-copy", role: "status", "aria-live": "polite" }, "Loading assistant configuration…");
     ui.assistantStatusBadge = h("span", { class: "oba-assistant-status-badge", "data-tone": "loading" }, "Checking…");
     ui.assistantProviderType = h("dd", {}, "Loading…");
@@ -13594,9 +15843,7 @@ export class Editor {
             paneHeader("Write", "Editor", h("div", { class: "oba-editor-mode" }, ui.editorModeSwitch)),
             ui.formatToolbar,
             ui.citationBar,
-            ui.richBody,
-            ui.body,
-            ui.assistantAutocomplete,
+            ui.writeLayout,
           ),
           h(
             "section",
@@ -13759,6 +16006,15 @@ export class Editor {
                   "Evidence Studio checks portable research structure and metadata. It does not score truth, authority, peer review, or claim support.",
                 ),
                 ui.evidenceCounts,
+                kind === "posts"
+                  ? h(
+                      "div",
+                      { class: "oba-toolbar" },
+                      h("button", { class: "oba-btn", type: "button", "data-review-open": "true", onClick: () => this.reviewResearch("check") }, "Review research before publishing"),
+                      (ui.boundaryButton = h("button", { class: "oba-btn", type: "button", "data-boundary-post-open": "true", "aria-controls": "oba-boundary-post", "aria-expanded": "false", onClick: () => this.previewBoundary() }, "What this post makes public")),
+                    )
+                  : null,
+                kind === "posts" ? ui.boundaryRegion : null,
                 ui.evidenceMetadata,
                 ui.evidenceExports,
                 h("h3", {}, "Author-controlled signals"),
@@ -13838,62 +16094,66 @@ export class Editor {
     editor.replaceChildren();
     this.visualDirty = false;
     for (const block of parseVisualMarkdown(this.ui.body.value)) {
-      if (block.type === "space") continue;
-      if (block.type === "protected") {
-        const card = h(
-          "section",
-          {
-            class: "oba-protected-block",
-            contenteditable: "false",
-            "data-markdown": block.source,
-            "aria-label": `${block.label} block`,
-          },
-          h("div", {}, h("strong", {}, block.label), h("span", {}, "Preserved exactly in Markdown")),
-          h(
-            "div",
-            { class: "oba-protected-actions" },
-            h("button", { type: "button", onClick: () => this.editProtectedBlock(card) }, "Edit in Markdown"),
-            h("button", { type: "button", "aria-label": `Move ${block.label} up`, onClick: () => this.moveProtectedBlock(card, -1) }, "↑"),
-            h("button", { type: "button", "aria-label": `Move ${block.label} down`, onClick: () => this.moveProtectedBlock(card, 1) }, "↓"),
-            h("button", { type: "button", "aria-label": `Remove ${block.label}`, onClick: () => this.removeProtectedBlock(card) }, "Remove"),
-          ),
-        );
-        editor.append(card);
-        continue;
-      }
-      const source = block.source.replace(/\n+$/, "");
-      if (block.type === "heading") {
-        const heading = h(`h${block.level}`, { "data-visual-block": "heading" });
-        appendVisualInline(heading, block.text);
-        editor.append(heading);
-      } else if (block.type === "code") {
-        const lines = source.split("\n");
-        const pre = h("pre", { "data-visual-block": "code", "data-language": block.language || "" }, h("code", {}, lines.slice(1, -1).join("\n")));
-        editor.append(pre);
-      } else if (block.type === "unordered-list" || block.type === "ordered-list") {
-        const firstNumber = block.type === "ordered-list" ? /^\s*(\d+)[.)]\s+/.exec(source)?.[1] : null;
-        const listAttrs = { "data-visual-block": block.type };
-        if (firstNumber && firstNumber !== "1") listAttrs.start = firstNumber;
-        const list = h(block.type === "ordered-list" ? "ol" : "ul", listAttrs);
-        for (const line of source.split("\n")) {
-          const match = /^\s*(?:[-*+]\s+|\d+[.)]\s+)(.*)$/.exec(line);
-          if (!match) continue;
-          const item = h("li");
-          appendVisualInline(item, match[1]);
-          list.append(item);
-        }
-        editor.append(list);
-      } else if (block.type === "quote") {
-        const quote = h("blockquote", { "data-visual-block": "quote" });
-        appendVisualLines(quote, source.split("\n").map((line) => line.replace(/^ {0,3}>\s?/, "")).join("\n"));
-        editor.append(quote);
-      } else {
-        const paragraph = h("p", { "data-visual-block": "paragraph" });
-        appendVisualLines(paragraph, source);
-        editor.append(paragraph);
-      }
+      if (block.type !== "space") editor.append(this.visualBlockElement(block));
     }
     if (!editor.children.length) editor.append(h("p", { "data-visual-block": "paragraph" }, h("br")));
+  }
+
+  /** The visual-editor element for one parsed Markdown block (not a space). */
+  visualBlockElement(block) {
+    if (block.type === "protected") {
+      const card = h(
+        "section",
+        {
+          class: "oba-protected-block",
+          contenteditable: "false",
+          "data-markdown": block.source,
+          "aria-label": `${block.label} block`,
+        },
+        h("div", {}, h("strong", {}, block.label), h("span", {}, "Preserved exactly in Markdown")),
+        h(
+          "div",
+          { class: "oba-protected-actions" },
+          h("button", { type: "button", onClick: () => this.editProtectedBlock(card) }, "Edit in Markdown"),
+          h("button", { type: "button", "aria-label": `Move ${block.label} up`, onClick: () => this.moveProtectedBlock(card, -1) }, "↑"),
+          h("button", { type: "button", "aria-label": `Move ${block.label} down`, onClick: () => this.moveProtectedBlock(card, 1) }, "↓"),
+          h("button", { type: "button", "aria-label": `Remove ${block.label}`, onClick: () => this.removeProtectedBlock(card) }, "Remove"),
+        ),
+      );
+      return card;
+    }
+    const source = block.source.replace(/\n+$/, "");
+    if (block.type === "heading") {
+      const heading = h(`h${block.level}`, { "data-visual-block": "heading" });
+      appendVisualInline(heading, block.text);
+      return heading;
+    }
+    if (block.type === "code") {
+      const lines = source.split("\n");
+      return h("pre", { "data-visual-block": "code", "data-language": block.language || "" }, h("code", {}, lines.slice(1, -1).join("\n")));
+    }
+    if (block.type === "unordered-list" || block.type === "ordered-list") {
+      const firstNumber = block.type === "ordered-list" ? /^\s*(\d+)[.)]\s+/.exec(source)?.[1] : null;
+      const listAttrs = { "data-visual-block": block.type };
+      if (firstNumber && firstNumber !== "1") listAttrs.start = firstNumber;
+      const list = h(block.type === "ordered-list" ? "ol" : "ul", listAttrs);
+      for (const line of source.split("\n")) {
+        const match = /^\s*(?:[-*+]\s+|\d+[.)]\s+)(.*)$/.exec(line);
+        if (!match) continue;
+        const item = h("li");
+        appendVisualInline(item, match[1]);
+        list.append(item);
+      }
+      return list;
+    }
+    if (block.type === "quote") {
+      const quote = h("blockquote", { "data-visual-block": "quote" });
+      appendVisualLines(quote, source.split("\n").map((line) => line.replace(/^ {0,3}>\s?/, "")).join("\n"));
+      return quote;
+    }
+    const paragraph = h("p", { "data-visual-block": "paragraph" });
+    appendVisualLines(paragraph, source);
+    return paragraph;
   }
 
   richEditorMarkdown() {
@@ -13960,7 +16220,7 @@ export class Editor {
     try {
       await this.claimsStudio.load();
     } catch (error) {
-      if (error.status === 401) this.app.showLogin("Your session ended. Sign in again to see this post's claims.");
+      if (error.status === 401) this.app.showSessionEnded("Your session ended. Sign in again to see this post's claims.");
     }
   }
 
@@ -14208,6 +16468,30 @@ export class Editor {
     if (message && this.ui?.assistantAutocompleteStatus) this.ui.assistantAutocompleteStatus.textContent = message;
   }
 
+  /** The title as typed so far, for the research workspace's way back to this draft. */
+  currentTitle() {
+    return String(this.ui?.title?.value ?? this.f.title ?? this.f.name ?? "").trim();
+  }
+
+  /**
+   * Pause background work while the research workspace keeps this draft out of view, as
+   * navigating away always has: a pending preview or autocomplete request is dropped.
+   */
+  suspend() {
+    clearTimeout(this.previewTimer);
+    this.previewRequest += 1;
+    this.assistantAutocompleteGeneration = (this.assistantAutocompleteGeneration || 0) + 1;
+    this.assistantAutocompleteQueued = false;
+    clearTimeout(this.assistantAutocompleteTimer);
+    this.assistantAutocompleteAbort?.abort();
+    this.dismissAssistantCompletion("", false);
+  }
+
+  /** Back in view: refresh the open view from the draft as it stands. */
+  resume() {
+    this.activatePane?.(this.root?.dataset.editorView || "write");
+  }
+
   dispose() {
     this.disposed = true;
     this.assistantAutocompleteEnabled = false;
@@ -14334,8 +16618,16 @@ export class Editor {
     return this.ui.statusRadios.map((l) => l.querySelector("input")).find((i) => i.checked)?.value || "draft";
   }
 
+  /** The read of what the post publishes no longer matches the draft: say so, beside the read. */
+  markBoundaryStale() {
+    if (!this.boundaryRead || this.boundaryStale || !this.ui?.boundaryStale) return;
+    this.boundaryStale = true;
+    this.ui.boundaryStale.hidden = false;
+  }
+
   markDirty() {
     if (!this.ui?.saveState) return;
+    this.markBoundaryStale();
     this.app.editVersion += 1;
     if (this.ui.saveState.textContent === "Unsaved changes") return;
     this.ui.saveState.textContent = "Unsaved changes";
@@ -15999,7 +18291,10 @@ export class Editor {
       this.visualChanged();
       this.citationUndo = { mode: "visual", before, after: this.ui.body.value, snapshot, path, chipPath, visualDirty };
     }
-    if (this.ui.citationUndo) this.ui.citationUndo.hidden = false;
+    if (this.ui.citationUndo) {
+      this.ui.citationUndo.hidden = false;
+      this.ui.citationUndo.textContent = "Undo citation";
+    }
     this.sayCitation(`${target.span || target.chip ? "Citation updated" : "Citation inserted"} into your unsaved draft. Press Ctrl+Z or choose Undo citation to restore the draft as it was.`);
     return true;
   }
@@ -16080,8 +18375,10 @@ export class Editor {
     const undo = this.citationUndo;
     this.citationUndo = null;
     if (this.ui.citationUndo) this.ui.citationUndo.hidden = true;
+    // A citation, or an insertion from the research panel, which names itself (`quotation`).
+    const label = undo?.label || "citation";
     if (!undo || undo.mode !== this.editorMode || this.ui.body.value !== undo.after) {
-      this.sayCitation("Undo is unavailable because the draft changed after the citation was applied.");
+      this.sayCitation(`Undo is unavailable because the draft changed after the ${label} was applied.`);
       return false;
     }
     this.ui.body.value = undo.before;
@@ -16110,12 +18407,182 @@ export class Editor {
       }
     }
     this.ui.body.dispatchEvent(new Event("input", { bubbles: true }));
-    this.sayCitation("Citation undone. The draft is as it was before.");
+    this.sayCitation(`${label[0].toUpperCase()}${label.slice(1)} undone. The draft is as it was before.`);
     return true;
   }
 
   sayCitation(message) {
     if (this.ui?.citationStatus) this.ui.citationStatus.textContent = message;
+  }
+
+  /**
+   * Open or close the draft-side research panel (ADR 0122). It is not modal: the draft stays
+   * editable beside it. Opening reads the research fresh and moves focus to its search; closing
+   * returns focus to the Research button.
+   */
+  toggleDraftResearch(force) {
+    const ui = this.ui;
+    if (!ui?.draftResearchSlot) return;
+    const open = typeof force === "boolean" ? force : !this.draftResearchOpen;
+    this.captureVisualSelection();
+    if (open && !this.draftResearch) {
+      this.draftResearch = createDraftResearchPanel({
+        api: this.app.api,
+        insert: (request) => this.insertFromResearch(request),
+        onClose: () => this.toggleDraftResearch(false),
+        onClaim: () => void this.claimFromSelection(),
+        onClaims: () => this.activatePane?.("evidence", true),
+        onSessionEnded: () => this.app.showSessionEnded?.("Your session ended. Sign in again to return to your unsaved draft."),
+      });
+      this.draftResearch.element.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || event.defaultPrevented) return;
+        event.preventDefault();
+        this.toggleDraftResearch(false);
+      });
+      // A click or Tab into the panel leaves the visual caret where it was, for the insertion.
+      this.draftResearch.element.addEventListener("mousedown", () => this.captureVisualSelection());
+      ui.draftResearchSlot.replaceChildren(this.draftResearch.element);
+    }
+    this.draftResearchOpen = open;
+    ui.draftResearchSlot.hidden = !open;
+    if (ui.writeLayout) ui.writeLayout.dataset.research = open ? "open" : "closed";
+    ui.draftResearchToggle?.setAttribute("aria-expanded", String(open));
+    if (open) {
+      void this.draftResearch.load();
+      this.draftResearch.focus();
+    } else ui.draftResearchToggle?.focus();
+  }
+
+  /**
+   * Apply one insertion from the research panel at the draft's caret. A citation goes through
+   * `applyCitation`, exactly as from the Cite dialog, but never edits a citation the caret is in:
+   * it goes after it. Returns "" or why nothing changed.
+   */
+  insertFromResearch({ kind, markdown, label = "insertion" } = {}) {
+    let target = this.citationTarget();
+    if (target.mode === "markdown" && target.span) target = { ...target, start: target.span.end, end: target.span.end, span: null };
+    if (target.mode === "visual" && target.chip) {
+      const range = document.createRange?.();
+      if (range) {
+        range.setStartAfter(target.chip);
+        range.collapse(true);
+      }
+      target = { mode: "visual", range: range || { startContainer: target.chip.parentNode, endContainer: target.chip.parentNode, startOffset: [...target.chip.parentNode.childNodes].indexOf(target.chip) + 1, endOffset: [...target.chip.parentNode.childNodes].indexOf(target.chip) + 1 }, chip: null };
+    }
+    if (kind === "citation") {
+      if (!CITATION_WHOLE.test(String(markdown || ""))) return "The server returned no citation, so your draft is unchanged.";
+      const problem = this.citationTargetProblem(target);
+      if (problem) return problem;
+      return this.applyCitation(target, markdown) ? "" : "The citation could not be inserted. Your draft is unchanged.";
+    }
+    if (!["block", "inline"].includes(kind) || !String(markdown || "")) return "Nothing to insert. Your draft is unchanged.";
+    return this.applyResearchInsertion(target, kind, String(markdown), label);
+  }
+
+  /**
+   * Insert a block (after the paragraph the caret is in) or inline Markdown (at the caret) from
+   * the research panel, in either writing mode, and remember exactly what to restore on undo.
+   * Like a citation, nothing goes inside code, HTML or a protected block, and a link never goes
+   * inside a link. Returns "" or why nothing changed.
+   */
+  applyResearchInsertion(target, kind, markdown, label) {
+    const name = label[0].toUpperCase() + label.slice(1);
+    const inCode = `${name} cannot go inside code or a protected block. Move the caret into ordinary text and insert again; your draft is unchanged.`;
+    const inHtml = `${name} cannot go inside HTML or a comment. Move the caret into ordinary text and insert again; your draft is unchanged.`;
+    const inLink = `${name} cannot go inside a link. Move the caret after the link and insert again; your draft is unchanged.`;
+    if (target.mode === "markdown") {
+      if (this.editorMode !== "markdown") this.setEditorMode("markdown", false);
+      const body = this.ui.body;
+      const before = body.value;
+      let next;
+      if (kind === "block") {
+        next = insertMarkdownBlock(before, target.start, target.end, markdown);
+        if (next.problem) return next.problem === "html" ? inHtml : inCode;
+      } else {
+        const problem = citationInsertionProblem(before, Math.max(target.start, target.end));
+        if (problem) return problem === "link" ? inLink : problem === "html" ? inHtml : inCode;
+        next = insertMarkdownInline(before, target.start, target.end, markdown);
+      }
+      body.value = next.value;
+      body.focus();
+      body.setSelectionRange(next.start, next.end);
+      body.dispatchEvent(new Event("input", { bubbles: true }));
+      this.citationUndo = { mode: "markdown", before, after: body.value, selection: [target.start, target.end], label };
+    } else {
+      if (this.editorMode !== "visual") this.setEditorMode("visual", false);
+      this.syncRichToMarkdown();
+      const editor = this.ui.richBody;
+      const range = target.range || null;
+      const endNode = range?.endContainer;
+      const container = endNode ? (endNode.nodeType === 1 ? endNode : endNode.parentElement) : null;
+      const placed = container && editor.contains(container) ? container : null;
+      if (kind === "inline" && (!placed || placed === editor)) return "Place the caret in the text where the link belongs: click in your draft, then insert again. Your draft is unchanged.";
+      const problem = placed && placed !== editor ? visualCitationContainerProblem(placed) : "";
+      if (problem === "code") return inCode;
+      if (problem === "link" && kind === "inline") return inLink;
+      const before = this.ui.body.value;
+      const visualDirty = Boolean(this.visualDirty);
+      const snapshot = [...editor.childNodes].map((node) => node.cloneNode(true));
+      const path = placed && range ? { start: nodePath(editor, range.startContainer), startOffset: range.startOffset, end: nodePath(editor, range.endContainer), endOffset: range.endOffset } : null;
+      const inserted = kind === "block" ? this.insertVisualBlocks(placed ? range : null, markdown) : this.insertVisualInline(range, markdown);
+      if (!inserted) return `${name} could not be inserted. Your draft is unchanged.`;
+      this.visualChanged();
+      this.citationUndo = { mode: "visual", before, after: this.ui.body.value, snapshot, path, chipPath: null, visualDirty, label };
+    }
+    if (this.ui.citationUndo) {
+      this.ui.citationUndo.hidden = false;
+      this.ui.citationUndo.textContent = `Undo ${label}`;
+    }
+    this.sayCitation(`${name} inserted into your unsaved draft. Press Ctrl+Z or choose Undo ${label} to restore the draft as it was.`);
+    return "";
+  }
+
+  /**
+   * Visual blocks for Markdown, after the block the caret is in (or at the end without a
+   * caret), replacing an empty paragraph. Each element is built exactly as the editor renders
+   * that Markdown, so it writes the same Markdown back. The caret lands at the end.
+   */
+  insertVisualBlocks(range, markdown) {
+    const editor = this.ui.richBody;
+    const elements = parseVisualMarkdown(`${markdown}\n`).filter((block) => block.type !== "space").map((block) => this.visualBlockElement(block));
+    if (!elements.length) return null;
+    const endNode = range?.endContainer || null;
+    let anchor = endNode === editor ? editor.childNodes[Math.max(0, range.endOffset - 1)] || null : endNode;
+    while (anchor && anchor.parentNode !== editor) anchor = anchor.parentNode;
+    if (!range) anchor = null;
+    const empty = (node) => node?.tagName === "P" && !String(node.textContent || "").trim() && !node.querySelector?.(".oba-citation, img");
+    if (anchor && empty(anchor)) anchor.replaceWith(...elements);
+    else if (anchor) anchor.after(...elements);
+    else if (editor.children.length === 1 && empty(editor.children[0])) editor.children[0].replaceWith(...elements);
+    else editor.append(...elements);
+    editor.focus();
+    const last = elements[elements.length - 1];
+    const end = last.lastChild;
+    if (end) placeCaretAfter(end, this);
+    return last;
+  }
+
+  /** Inline Markdown (a link) at a visual caret, spaced from a word before it like a chip. */
+  insertVisualInline(range, markdown) {
+    const holder = h("span");
+    appendVisualInline(holder, markdown);
+    const nodes = [...holder.childNodes];
+    const node = range?.endContainer;
+    if (!nodes.length || !node) return null;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.nodeValue;
+      const before = text.slice(0, range.endOffset);
+      const after = text.slice(range.endOffset);
+      const lead = before && !/[\s([]$/.test(before) ? " " : "";
+      const parts = [before + lead, ...nodes, after].filter((part) => part !== "").map((part) => (typeof part === "string" ? document.createTextNode(part) : part));
+      node.replaceWith(...parts);
+    } else {
+      const reference = node.childNodes[range.endOffset] || null;
+      for (const item of nodes) node.insertBefore(item, reference);
+    }
+    this.ui.richBody.focus();
+    placeCaretAfter(nodes[nodes.length - 1], this);
+    return nodes[nodes.length - 1];
   }
 
   /**
@@ -16382,14 +18849,210 @@ export class Editor {
     return "";
   }
 
-  async save() {
-    if (this.saving) return;
+  /**
+   * Whether this save publishes or schedules a post that the research review covers (#62,
+   * ADR 0123): the status moves to Published or Scheduled, and the post is on the Research
+   * profile or publishes citations. Saving an already published post again, and every other
+   * post, works exactly as before.
+   */
+  needsPublicationReview(fields) {
+    if (this.kind !== "posts") return false;
+    const status = this.currentStatus();
+    if (!["published", "scheduled"].includes(status) || status === this.initialStatus()) return false;
+    return researchReviewApplies(fields, this.ui.profile?.value);
+  }
+
+  /**
+   * Show what this post publishes of the research, read from the draft as it stands through the
+   * build's own projection (#63, ADR 0125). Read-only: nothing is saved, published or changed.
+   */
+  async previewBoundary() {
+    const ui = this.ui;
+    if (this.previewingBoundary) return;
+    this.previewingBoundary = true;
+    ui.boundaryRegion.hidden = false;
+    ui.boundaryButton?.setAttribute("aria-expanded", "true");
+    ui.boundaryStatus.textContent = "Reading what this post publishes…";
+    const readAt = this.app.editVersion;
+    try {
+      const manifest = await this.app.api.call("POST", "research/boundary", {
+        json: { kind: this.kind, path: this.doc.path, fields: this.collect(), body: ui.body.value, ...this.creditRequestFields() },
+      });
+      // A post's claims are its own, so they link to its Evidence Studio.
+      const postPaths = this.doc.path ? new Map((manifest.projections || []).flatMap((report) => [...(report.published || []), ...(report.withheld || [])]).flatMap((item) => item.posts || []).map((slug) => [slug, this.doc.path])) : null;
+      ui.boundaryContent.replaceChildren(createBoundaryPreview({ manifest, idPrefix: "oba-boundary-post", level: 4, scope: "post", postPaths }));
+      this.boundaryRead = true;
+      // An edit made while it was being read is not in it.
+      this.boundaryStale = this.app.editVersion !== readAt;
+      ui.boundaryStale.hidden = !this.boundaryStale;
+      ui.boundaryStatus.textContent = `Read from the draft as it stands, unsaved changes included: ${boundaryCountsText(manifest)}`;
+    } catch (error) {
+      if (error?.status === 401) {
+        this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
+        return;
+      }
+      ui.boundaryContent.replaceChildren(h("p", { class: "oba-error", role: "alert" }, `What this post makes public could not be read. ${error?.data?.error || error?.message || ""} Your draft is unchanged.`));
+      ui.boundaryStatus.textContent = "";
+    } finally {
+      this.previewingBoundary = false;
+    }
+    ui.boundaryRegion.querySelector("#oba-boundary-post-heading")?.focus();
+  }
+
+  /**
+   * Run the research review of the draft as it stands and show it in a modal dialog. Resolves
+   * true only when the author chooses to publish or schedule (`mode` "publish" or "schedule")
+   * and nothing blocks it. Going to a finding's repair closes the review without saving, and
+   * the draft keeps every unsaved change. Nothing here saves, publishes or changes research.
+   */
+  async reviewResearch(mode, fields = this.collect()) {
+    // One review at a time, until its dialog closes: Save and Ctrl+S wait for it.
+    if (this.reviewing) return false;
+    this.reviewing = true;
+    try {
+      return await this.showResearchReview(mode, fields);
+    } finally {
+      this.reviewing = false;
+    }
+  }
+
+  async showResearchReview(mode, fields) {
+    const ui = this.ui;
+    const before = ui.saveState.textContent;
+    ui.saveState.textContent = "Reviewing research…";
+    let review = null;
+    let failure = null;
+    try {
+      review = await this.app.api.call("POST", "research/review", {
+        json: { kind: this.kind, path: this.doc.path, fields, body: ui.body.value, ...this.creditRequestFields() },
+      });
+    } catch (error) {
+      failure = error;
+    } finally {
+      ui.saveState.textContent = before;
+    }
+    if (failure?.status === 401) {
+      this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
+      return false;
+    }
+    if (!failure && review && review.applies === false && mode !== "check") return true;
+    const opener = document.activeElement;
+    return new Promise((resolve) => {
+      const dialog = h("dialog", { class: "oba-dialog oba-review-dialog", "aria-labelledby": "oba-review-title", "aria-describedby": "oba-review-intro", "data-review-dialog": "true" });
+      let finished = false;
+      const finish = (result, target = null) => {
+        if (finished) return;
+        finished = true;
+        dialog.close();
+        dialog.remove();
+        if (target) this.goToReviewTarget(target);
+        else if (opener?.isConnected) opener.focus();
+        resolve(result);
+      };
+      dialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        finish(false);
+      });
+      if (failure || !review) {
+        const retry = h("button", { class: "oba-btn", type: "button", onClick: () => {
+          finish(false);
+          // After this review has closed, so the next one can open.
+          setTimeout(() => void this.reviewResearch(mode).then((go) => go && mode !== "check" && this.save({ reviewed: true })), 0);
+        } }, "Review again");
+        const close = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-review-cancel": "true", onClick: () => finish(false) }, "Keep editing");
+        const heading = h("h2", { id: "oba-review-title", tabindex: "-1" }, "The research review could not run");
+        dialog.append(
+          heading,
+          h("p", { class: "oba-error", role: "alert", id: "oba-review-intro" }, `${failure?.data?.error || failure?.message || "The review could not be read."} Nothing was published or changed.`),
+          h("div", { class: "oba-dialog-actions" }, h("span", { class: "oba-spacer" }), retry, close),
+        );
+        document.body.append(dialog);
+        dialog.showModal();
+        heading.focus();
+        return;
+      }
+      const view = createPublicationReview({
+        review,
+        mode,
+        api: this.app.api,
+        onDone: (outcome) => {
+          if (outcome === "confirm") finish(true);
+          else if (outcome === "cancel") finish(false);
+          else if (outcome?.kind === "session-ended") {
+            finish(false);
+            this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
+          } else if (outcome?.navigate) {
+            // The link navigates by itself; the workspace keeps this unsaved draft (ADR 0121).
+            finished = true;
+            dialog.close();
+            dialog.remove();
+            resolve(false);
+          } else finish(false, outcome);
+        },
+      });
+      dialog.append(view.element);
+      document.body.append(dialog);
+      dialog.showModal();
+      view.heading.focus();
+    });
+  }
+
+  /** Go to where a review finding is repaired: a line or field of this draft, or a claim. */
+  goToReviewTarget(target) {
+    if (target.kind === "line") {
+      this.activatePane?.("write");
+      if (this.editorMode !== "markdown") {
+        // A line of the source is shown where lines exist; the writing mode preference is unchanged.
+        this.setEditorMode("markdown", false);
+      }
+      const area = this.ui.body;
+      const lines = area.value.split("\n");
+      const index = Math.min(Math.max(1, target.line), lines.length) - 1;
+      const start = lines.slice(0, index).reduce((total, line) => total + line.length + 1, 0);
+      area.focus();
+      area.setSelectionRange?.(start, start + (lines[index] || "").length);
+      this.flash("ok", `Line ${index + 1} of the draft is selected in the Markdown source.`);
+      return;
+    }
+    if (target.kind === "field") {
+      this.activatePane?.("settings");
+      const control = this.ui.profileFieldControls?.get(target.field) || this.root?.querySelector?.(`#oba-${target.field}`);
+      if (control) control.focus();
+      else this.flash("ok", `Find the ${target.field} field in Settings.`);
+      return;
+    }
+    if (target.kind === "claim") {
+      this.activatePane?.("evidence");
+      void this.loadClaims().then(() => {
+        const region = this.ui.claimsRegion;
+        const all = (selector) => [...(region?.querySelectorAll?.(selector) || [])];
+        const item = target.link
+          ? all("[data-claims-link]").find((node) => node.dataset.claimsLink === target.link)
+          : all("[data-claims-claim]").find((node) => node.dataset.claimsClaim === target.claim);
+        const focusable = item || region?.querySelector?.("h2, h3");
+        if (focusable) {
+          focusable.setAttribute("tabindex", "-1");
+          focusable.focus();
+        }
+      });
+      return;
+    }
+    this.activatePane?.("write");
+    this.writingSurface().focus();
+  }
+
+  async save({ reviewed = false } = {}) {
+    if (this.saving || this.reviewing) return;
     this.syncRichToMarkdown();
     const fields = this.collect();
     const problem = this.validateClient(fields);
     if (problem) {
       this.flash("error", problem);
       return;
+    }
+    if (!reviewed && this.needsPublicationReview(fields)) {
+      const go = await this.reviewResearch(this.currentStatus() === "scheduled" ? "schedule" : "publish", fields);
+      if (!go) return;
     }
     const ui = this.ui;
     this.saving = true;
@@ -16448,7 +19111,9 @@ export class Editor {
       this.reportSaved(res, savedState.messageIsCurrent);
     } catch (err) {
       if (err.status === 401) {
-        this.app.showLogin("Your session ended. Sign in again; your edits are still in the form only until you reload.");
+        // The save is over, so the draft is kept for the same user's next sign-in (ADR 0121).
+        this.saving = false;
+        this.app.showSessionEnded("Your session ended. Sign in again to return to your unsaved draft.");
       } else if (err.status === 409) {
         this.flash("error", err.message, [], h("button", { class: "oba-btn", type: "button", onClick: () => location.reload() }, "Reload"));
       } else {
@@ -16482,6 +19147,8 @@ export class Editor {
     try {
       await this.app.api.call("DELETE", `document?path=${encodeURIComponent(this.doc.path)}`);
       this.app.dirty = false;
+      // The research workspace no longer offers a way back to a document in the trash.
+      if (this.app.workspaceDraft?.hash === `#/edit/${encodeURIComponent(this.doc.path)}`) this.app.workspaceDraft = null;
       location.hash = `#/${this.kind}`;
     } catch (err) {
       this.flash("error", err.message);

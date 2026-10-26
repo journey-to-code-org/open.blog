@@ -221,7 +221,9 @@ test("on a 320px screen with reduced motion nothing scrolls sideways or moves, a
   const timeline = await mainOverflow(page);
   expect(timeline.overflow, timeline.offenders.join(", ")).toBeLessThanOrEqual(1);
   const competing = page.locator("li.ob-atlas-aspect[data-aspect='birth'] .ob-atlas-dating");
-  const [first, second] = [await competing.nth(0).boundingBox(), await competing.nth(1).boundingBox()];
+  await expect(competing.nth(1)).toBeVisible();
+  // Both boxes come from one layout pass, so a reflow elsewhere on the page cannot fall between them.
+  const [first, second] = await competing.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().toJSON()));
   expect(second.y).toBeGreaterThan(first.y);
   const motion = await page.evaluate(() =>
     [...document.querySelectorAll("ob-atlas-timeline *")].filter((element) => {
@@ -240,7 +242,9 @@ test("on a wide screen competing datings sit side by side, and reconnecting enha
   await page.setViewportSize({ width: 1280, height: 900 });
   await openTimeline(page);
   const competing = page.locator("li.ob-atlas-aspect[data-aspect='birth'] .ob-atlas-dating");
-  const [first, second] = [await competing.nth(0).boundingBox(), await competing.nth(1).boundingBox()];
+  await expect(competing.nth(1)).toBeVisible();
+  // Both boxes come from one layout pass, so a reflow elsewhere on the page cannot fall between them.
+  const [first, second] = await competing.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().toJSON()));
   expect(Math.abs(second.y - first.y)).toBeLessThan(2);
   expect(second.x).toBeGreaterThan(first.x);
   await page.getByLabel("Show", { exact: true }).selectOption("birth");

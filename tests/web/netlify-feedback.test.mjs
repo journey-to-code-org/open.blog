@@ -38,9 +38,11 @@ const event = (path, method = "GET", body, extra = {}) => ({
   body,
 });
 
+// The participation manifest (ADR 0101) with `policy` as every passage kind's mode on the post.
 const sitePolicy = (policy) => async (url) => {
-  assert.equal(url, "https://blog.example/openblog-feedback.json");
-  return { ok: true, status: 200, json: async () => ({ "/posts/tides/": policy }) };
+  assert.equal(url, "https://blog.example/openblog-participation.json");
+  const modes = Object.fromEntries(["question", "source-suggestion", "correction-suggestion", "alternative-interpretation"].map((kind) => [kind, policy]));
+  return { ok: true, status: 200, json: async () => ({ "/posts/tides/": modes }) };
 };
 
 /** A fake Supabase that records requests and answers like PostgREST. */
@@ -197,9 +199,36 @@ test("the published feedback policy is enforced on the server", async () => {
     assert.equal(response.statusCode, status, policy);
     assert.equal(JSON.parse(response.body).code, code, policy);
   }
-  // A site that does not publish the manifest (feedback off in openblog.json) accepts nothing.
+  // A site that publishes neither manifest (feedback off in openblog.json) accepts nothing.
   const missing = createHandler({ env: enabled, fetchImpl: noFetch, siteFetchImpl: async () => ({ ok: false, status: 404, json: async () => ({}) }) });
   assert.equal((await missing(event("feedback", "POST", submission()))).statusCode, 403);
+  // Each kind has its own mode: a post open for questions only refuses a suggested source.
+  const kind = JSON.parse(submission()).kind;
+  const perKind = createHandler({
+    env: enabled,
+    fetchImpl: noFetch,
+    siteFetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ "/posts/tides/": { [kind === "question" ? "source-suggestion" : "question"]: "open", [kind]: "locked" } }) }),
+  });
+  assert.equal(JSON.parse((await perKind(event("feedback", "POST", submission()))).body).code, "closed");
+  // A site built before the participation manifest still has B5's file, read only then.
+  const older = [];
+  const legacy = createHandler({
+    env: enabled,
+    fetchImpl: noFetch,
+    siteFetchImpl: async (url) => {
+      older.push(url);
+      if (url.endsWith("openblog-participation.json")) return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ "/posts/tides/": "locked" }) };
+    },
+  });
+  assert.equal(JSON.parse((await legacy(event("feedback", "POST", submission()))).body).code, "closed");
+  assert.deepEqual(older, ["https://blog.example/openblog-participation.json", "https://blog.example/openblog-feedback.json"]);
+  // A participation manifest that cannot be read is not a reason to read the older file.
+  const failing = createHandler({ env: enabled, fetchImpl: noFetch, siteFetchImpl: async (url) => {
+    assert.ok(url.endsWith("openblog-participation.json"));
+    return { ok: false, status: 500, json: async () => ({}) };
+  } });
+  assert.equal(JSON.parse((await failing(event("feedback", "POST", submission()))).body).code, "unavailable");
   // Another post is not open just because one is.
   const other = createHandler({ env: enabled, fetchImpl: noFetch, siteFetchImpl: sitePolicy("open") });
   const elsewhere = JSON.stringify({ ...JSON.parse(submission()), work: "/posts/other/" });
@@ -215,7 +244,7 @@ test("the published feedback policy is enforced on the server", async () => {
     },
   });
   await based(event("feedback", "POST", submission()));
-  assert.equal(requested, "https://blog.example/journal/openblog-feedback.json");
+  assert.equal(requested, "https://blog.example/journal/openblog-participation.json");
 });
 
 test("the existing quota stops a submission before it is stored, and a replay counts again", async () => {
@@ -339,6 +368,38 @@ test("a moderation change names the state and version seen and is applied with i
   assert.equal(database.requests.length, before);
 });
 
+test("with the inbox's schema switched on, B5's /admin/feedback answers exactly as v0.33.0 did", async () => {
+  // A v0.33.0 Admin refuses any field it does not know, so the inbox's facts never reach this route.
+  const facts = { item_revision: 2, approved_revision: 2, clarification_asked: 1, clarification_consent: true };
+  const stored = { ...fixture.storedRow, ...facts };
+  const database = fakeDatabase({ rows: [stored], moderated: [{ ...stored, status: "approved", version: 2, moderated_at: "2026-10-26T10:00:00+00:00" }] });
+  const handler = createHandler({ env: { ...enabled, OPENBLOG_MODERATION_ENABLED: "true" }, fetchImpl: database.fetchImpl, siteFetchImpl: noFetch, now: () => NOW });
+  const admin = { authorization: "Bearer admin-secret" };
+  const keys = Object.keys(fixture.hostedItem).sort();
+  const listed = await handler(event("admin/feedback", "GET", undefined, { headers: admin, query: { status: "pending" } }));
+  assert.deepEqual(JSON.parse(listed.body), { feedback: [fixture.hostedItem] });
+  assert.equal(new URL(database.requests.at(-1).url).searchParams.get("select").includes("item_revision"), false);
+  const one = JSON.parse((await handler(event("admin/feedback", "GET", undefined, { headers: admin, query: { id: fixture.storedRow.id } }))).body);
+  assert.deepEqual(Object.keys(one.feedback[0]).sort(), keys);
+  const changed = await handler(event("admin/feedback", "PATCH", JSON.stringify({ id: fixture.storedRow.id, action: "approve", from: "pending", expectedVersion: 1 }), { headers: admin }));
+  assert.equal(changed.statusCode, 200, changed.body);
+  assert.match(database.requests.at(-1).url, /openblog_moderate_feedback_item$/);
+  const { item } = JSON.parse(changed.body);
+  assert.deepEqual(Object.keys(item).sort(), keys);
+  assert.deepEqual(Object.keys(item.feedback).sort(), Object.keys(fixture.hostedItem.feedback).sort());
+  // A conflict carries the item in the same shape.
+  const moved = createHandler({ env: { ...enabled, OPENBLOG_MODERATION_ENABLED: "true" }, fetchImpl: fakeDatabase({ rows: [stored], moderated: [] }).fetchImpl, siteFetchImpl: noFetch, now: () => NOW });
+  const conflict = JSON.parse((await moved(event("admin/feedback", "PATCH", JSON.stringify({ id: fixture.storedRow.id, action: "approve", from: "pending", expectedVersion: 1 }), { headers: admin }))).body);
+  assert.equal(conflict.code, "conflict");
+  assert.deepEqual(Object.keys(conflict.item).sort(), keys);
+  // The inbox reads the same row with its facts.
+  const inbox = JSON.parse((await handler({ ...event("admin/moderation", "GET", undefined, { headers: admin, query: { id: fixture.storedRow.id, source: "feedback" } }) })).body);
+  assert.deepEqual(
+    [inbox.items[0].itemRevision, inbox.items[0].approvedRevision, inbox.items[0].clarificationAsked, inbox.items[0].clarificationConsent],
+    [2, 2, 1, true],
+  );
+});
+
 test("a change to an item that moved meanwhile is a conflict carrying the item as it is now", async () => {
   const current = { ...fixture.storedRow, status: "rejected", version: 2, moderation_reason: "spam", moderated_at: "2026-10-26T09:59:00+00:00" };
   const database = fakeDatabase({ moderated: [], rows: [current] });
@@ -408,11 +469,14 @@ test("the migration is additive, private, and matches what the function writes a
   for (const column of Object.keys(fixture.storedRow)) assert.ok(columns.has(column), `missing column ${column}`);
 
   const statements = migration.replace(/--[^\n]*/g, "").toLowerCase();
-  for (const forbidden of [/\balter\s+table\s+(?!public\.openblog_feedback(?:_events)?\b)/, /\bdrop\b/, /\brename\b/, /\bdelete\s+from\b/, /\btruncate\b/, /openblog_comments/, /create\s+or\s+replace\s+function\s+(?!public\.openblog_moderate_feedback\()/]) {
+  for (const forbidden of [/\balter\s+table\s+(?!public\.openblog_feedback(?:_events)?\b)/, /\bdrop\b/, /\brename\b/, /\bdelete\s+from\b/, /\btruncate\b/, /openblog_comments/, /create\s+or\s+replace\s+function\s+(?!public\.openblog_(?:moderate_feedback(?:_item)?|erase_feedback|record_feedback_decision|feedback_purge_evidence|moderate_third_perspective)\()/]) {
     assert.doesNotMatch(statements, forbidden);
   }
-  // The only update is the moderation function's, of the feedback table.
-  assert.deepEqual(statements.match(/\bupdate\s+public\.[a-z_]+/g), ["update public.openblog_feedback"]);
+  // The only updates are the moderation functions', of the feedback table
+  // (ADR 0083, and the inbox's, ADR 0106), the deletion function's (ADR 0108)
+  // the correction decision function's (ADR 0117) and
+  // Third Perspectives' (ADR 0113).
+  assert.deepEqual(statements.match(/\bupdate\s+public\.[a-z_]+/g), Array(5).fill("update public.openblog_feedback"));
   assert.match(statements, /create table if not exists public\.openblog_feedback/);
   assert.match(statements, /alter table public\.openblog_feedback enable row level security/);
   // service_role is revoked too, so Supabase's default DELETE and TRUNCATE
@@ -440,6 +504,12 @@ test("the migration is additive, private, and matches what the function writes a
 
   const undo = rollback.replace(/--[^\n]*/g, "").toLowerCase();
   assert.deepEqual(undo.match(/\bdrop\b[^;]*;/g), [
+    "drop function if exists public.openblog_record_feedback_decision(text, uuid, integer, integer, jsonb, text, text, timestamptz);",
+    "drop trigger if exists openblog_feedback_purge_evidence on public.openblog_feedback;",
+    "drop function if exists public.openblog_feedback_purge_evidence();",
+    "drop function if exists public.openblog_moderate_third_perspective(text, uuid, integer, text, text, text, text, text, text, timestamptz, integer);",
+    "drop function if exists public.openblog_erase_feedback(text, uuid, integer, boolean, text, text, timestamptz);",
+    "drop function if exists public.openblog_moderate_feedback_item(text, uuid, integer, text, text, text, text, text, text, timestamptz, text, jsonb);",
     "drop function if exists public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz);",
     "drop table if exists public.openblog_feedback_events;",
     "drop table if exists public.openblog_feedback;",

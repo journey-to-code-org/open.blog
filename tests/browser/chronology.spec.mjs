@@ -202,7 +202,8 @@ test("the chronology explorer lists competing datings side by side, filters from
   await expect(competing.nth(0)).toContainText("Dated by the source The People of Plato");
   await expect(competing.nth(1)).toContainText("427 BCE");
   // Side by side on a wide screen: both datings start on the same line.
-  const [first, second] = [await competing.nth(0).boundingBox(), await competing.nth(1).boundingBox()];
+  // Both boxes come from one layout pass, so a reflow elsewhere on the page cannot fall between them.
+  const [first, second] = await competing.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().toJSON()));
   expect(Math.abs(first.y - second.y)).toBeLessThan(2);
   expect(second.x).toBeGreaterThan(first.x);
   await expect(page.locator('img[src="x"]')).toHaveCount(0);
@@ -266,7 +267,9 @@ test("the chronology works at high zoom and on a phone without sideways scrollin
   expect(await pageFits(page)).toBe(true);
   // Competing datings stack into one column rather than squeezing.
   const competing = page.locator('[data-chronology-row="entries:plato:birth"] [data-chronology-dating]');
-  const [first, second] = [await competing.nth(0).boundingBox(), await competing.nth(1).boundingBox()];
+  await expect(competing.nth(1)).toBeVisible();
+  // Both boxes come from one layout pass, so a reflow elsewhere on the page cannot fall between them.
+  const [first, second] = await competing.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().toJSON()));
   expect(second.y).toBeGreaterThan(first.y);
   const motion = await page.evaluate(() =>
     [...document.querySelectorAll("#oba-atlas-lists *")].filter((element) => {

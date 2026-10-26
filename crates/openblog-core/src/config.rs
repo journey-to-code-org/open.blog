@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::contributor::{self, Contributor};
+use crate::participation::ParticipationConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
@@ -76,6 +77,12 @@ pub struct SiteConfig {
     /// keep their configuration unchanged.
     #[serde(skip_serializing_if = "KnowledgeAtlasConfig::is_off")]
     pub knowledge_atlas: KnowledgeAtlasConfig,
+    /// Which participation kinds beyond comments the site accepts, and how
+    /// long moderation keeps what it does not publish (ADRs 0101 and 0104).
+    /// Every kind is off by default, and the object is omitted from the
+    /// written file while it has its defaults.
+    #[serde(skip_serializing_if = "ParticipationConfig::is_default")]
+    pub participation: ParticipationConfig,
     /// Opt-in publication of approved claims and evidence links with the
     /// posts they are about. Omitted from the written file while it is off.
     #[serde(skip_serializing_if = "ClaimEvidenceConfig::is_off")]
@@ -399,6 +406,7 @@ impl Default for SiteConfig {
             publish: PublishConfig::default(),
             syndication: SyndicationConfig::default(),
             knowledge_atlas: KnowledgeAtlasConfig::default(),
+            participation: ParticipationConfig::default(),
             claim_evidence: ClaimEvidenceConfig::default(),
             comparisons: ComparisonsConfig::default(),
         }
@@ -583,6 +591,21 @@ pub struct EngagementConfig {
     /// take it (ADR 0082): a `mailto:` address or an `https:` contact page,
     /// shown on pages that offer passage feedback. Empty shows none.
     pub feedback_contact: String,
+    /// Offer readers of passage feedback a way to use their private receipt
+    /// on the page: check on a note, answer a clarification request, or
+    /// withdraw it and have it deleted (ADR 0107). Off by default, and left
+    /// out of the written file while off; the deployer must also run
+    /// `supabase/protection.sql` and set `OPENBLOG_PROTECTION_ENABLED`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub receipts: bool,
+    /// Offer readers an optional evidence block on suggested sources and
+    /// corrections: the published claim, evidence link, citation or source
+    /// they mean, chosen from what the site publishes (ADR 0116). Off by
+    /// default, and left out of the written file while off; the deployer
+    /// must also run `supabase/feedback.sql` again and set
+    /// `OPENBLOG_CORRECTIONS_ENABLED`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub evidence: bool,
 }
 
 impl Default for EngagementConfig {
@@ -594,6 +617,8 @@ impl Default for EngagementConfig {
             endpoint: String::new(),
             feedback: false,
             feedback_contact: String::new(),
+            receipts: false,
+            evidence: false,
         }
     }
 }
@@ -887,6 +912,10 @@ impl SiteConfig {
         {
             return Err("engagement.feedbackContact must be a mailto: address without a query, or an HTTPS URL without credentials".into());
         }
+        self.participation.validate()?;
+        // B5's opt-in becomes the policy's settings before anything reads
+        // them (ADR 0101).
+        self.participation.fold_feedback(self.engagement.feedback);
         while self.code_runner.endpoint.ends_with('/') {
             self.code_runner.endpoint.pop();
         }

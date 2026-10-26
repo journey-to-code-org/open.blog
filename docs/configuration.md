@@ -30,7 +30,7 @@ default, so you can edit values in place and delete the ones you do not need.
   "home": { "heading": "Latest posts", "intro": "", "showSeries": true },
   "share": { "enabled": true, "networks": ["x", "bluesky", "linkedin", "reddit", "hackernews", "email"] },
   "analytics": { "builtin": true, "showViews": true, "retentionDays": 400, "endpoint": "", "branch": "analytics", "bakeCounts": true },
-  "engagement": { "enabled": false, "comments": true, "analytics": true, "endpoint": "", "feedback": false, "feedbackContact": "" },
+  "engagement": { "enabled": false, "comments": true, "analytics": true, "endpoint": "", "feedback": false, "feedbackContact": "", "receipts": false },
   "snippets": { "head": "", "postFooter": "", "bodyEnd": "" },
   "relatedPosts": 3,
   "cdn": { "url": "", "paths": ["/assets/", "/themes/", "/images/"], "version": "", "maxAge": 86400 },
@@ -92,15 +92,28 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   (off by default) lets the hosted function accept typed passage feedback: questions, suggested
   sources and corrections, and other interpretations. It needs its own database table and server
   switch; see the [function setup guide](../netlify/functions/README.md#passage-feedback-optional).
-  With it on, each open post gets a "Questions and corrections" form after its navigation (locked
-  and hidden posts get none). A reader picks the whole post, a section or words they selected,
+  It is the same as setting those four kinds to `follow-comments` in
+  [`participation.kinds`](#reader-participation), where a kind you name takes precedence. With it
+  on, each open post gets a "Questions and corrections" form after its navigation (locked and
+  hidden posts get none); a post where only some kinds are open offers only those. A reader picks the whole post, a section or words they selected,
   the kind and their note; their name is optional and shown only if they agree. Without
   JavaScript, or when the service cannot take the note, the reader gets instructions or a copy of
   the note to send to the author. `engagement.feedbackContact` (optional) is where that copy can
   go: a plain `mailto:` address or an `https:` contact page, linked from the form. Moderate what
-  readers send in Admin under **Reader feedback**; approved notes, with your responses, are kept in
+  readers send, with comments, in Admin's **Moderation inbox**; approved notes, with your responses, are kept in
   `content/reader-feedback.json` and shown on the post's page only, and a site with feedback on
-  publishes the post's `evidenceRevisions` notes (ADR 0083).
+  publishes the post's `evidenceRevisions` notes (ADR 0083). `engagement.receipts` (off by
+  default, and left out of the file while off) adds "Check, clarify or withdraw a note you sent"
+  to the form, where a reader uses the private receipt they were given; switch it on only once the
+  hosted function issues receipts (`supabase/protection.sql` and `OPENBLOG_PROTECTION_ENABLED`, see
+  [Privacy, retention and deletion](#privacy-retention-and-deletion)). `engagement.evidence` (off by
+  default, and left out of the file while off) adds an optional "Evidence" part to suggested sources
+  and corrections: the reader picks a published claim, the evidence for it they question, a source
+  the post cites or one the site publishes and where in it, and how they say it bears on the
+  passage, from lists of what the site publishes, never a private id. Switch it on only once the
+  hosted function stores evidence (`supabase/feedback.sql` run again and
+  `OPENBLOG_CORRECTIONS_ENABLED`); it also lets you record a correction decision on such a note in
+  the **Moderation inbox** (ADR 0118).
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.
@@ -307,6 +320,90 @@ The claims file is private and Git-ignored, so only a build that can read it pub
 evidence: `openblog serve` and Admin, or a local `openblog build` whose `dist/` you then upload. A
 CI or static-host build publishes no claims (revision notes still appear), and `openblog build`
 and `openblog check` warn. See [Deploying](deploy.md).
+
+## Reader participation
+
+Hosted comments keep their switches: `engagement.comments` and each post's `comments:`. Every
+other way to take part is a participation kind, off until you switch it on in `participation`
+(omitted while it has its defaults):
+
+```jsonc
+"participation": {
+  "kinds": { "question": "hidden", "third-perspective": "open", "abuse-report": "open" },
+  // Optional. Leave it out to keep comments as they are; see below.
+  "retention": { "pendingDays": 90, "clarificationDays": 30, "closedDays": 30, "auditDays": 365 }
+}
+```
+
+- `kinds` takes `question`, `source-suggestion`, `correction-suggestion`,
+  `alternative-interpretation`, `third-perspective`, `author-response` and `abuse-report`. Each is
+  `off` (the default: front matter cannot turn it on), `hidden`, `locked` or `open` (switched on,
+  and the mode of posts that do not name it), or `follow-comments` (each post's mode is its
+  `comments:` setting). `abuse-report` is `off` or `open` for the whole site. A post chooses its
+  own mode with [`participation:`](content.md) front matter.
+- Everything submitted starts pending, and only what a moderator approves is shown. Nothing is
+  ever e-mailed to readers. Nothing is accepted without hosted engagement and an endpoint.
+- `retention` (days, 1 to 3650): unmoderated items expire after `pendingDays`, unanswered
+  clarification requests after `clarificationDays`, the text of rejected and removed items and of
+  upheld abuse reports is purged after `closedDays`, and the private moderation record after `auditDays`, which must be
+  at least `closedDays`. Without `retention` these defaults apply to every kind except comments:
+  hosted comments are kept as they always were, never expired or purged. Writing `retention`
+  yourself, even as `"retention": {}` for the defaults, applies it to comments too.
+- Once a kind beyond comments is switched on, builds also write `openblog-participation.json`,
+  the public map of each post's open and locked kinds that the hosted function checks.
+- `third-perspective` adds an "Offer a Third Perspective" region to each post where it is `open`:
+  a reader writes their own reflection on the whole work or one section, may choose a prompt
+  (never a score or a vote), and decides whether it may be published, whether their name may be
+  shown and whether they may be asked to clarify it. The form sends through the hosted function
+  only when `engagement.receipts` is on and the function takes Third Perspectives
+  (`OPENBLOG_THIRD_PERSPECTIVES_ENABLED`, see [the function's guide](../netlify/functions/README.md));
+  otherwise, and whenever the service cannot take it, the reader gets their reflection to copy and
+  send to `engagement.feedbackContact`. Moderators approve exactly the text and the consent they
+  saw in the **Moderation inbox** (ADRs [0113](adr/0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md)
+  and [0114](adr/0114-the-third-perspective-form-is-one-progressive-region-with-explicit-consent.md)).
+  Approving one writes its public part to `content/third-perspectives.json`, versioned with the
+  site; posts where the kind is `open` or `locked` show those reflections in a "Third
+  Perspectives" section, even without a hosted service, and portable copies, feeds and
+  `llms-full.txt` link there instead of carrying them
+  ([ADR 0115](adr/0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md)).
+  A file that cannot be read stops `build` and `check`, as `reader-feedback.json` does.
+  A reader who withdraws a reflection deletes the hosted copy of its text and name; the Moderation
+  inbox then shows, on every tab, that it must come off its post, and the site Admin takes it
+  off. Copies already published (the site's history, feeds and the repository's history) may
+  remain, which is what the form and the withdrawal say to readers, and a name a reader chose to
+  show becomes part of the site's public record. To roll the hosted opt-in back, empty
+  `content/third-perspectives.json` (or hide the kind) first.
+
+The rules are recorded in ADRs [0101](adr/0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
+to [0104](adr/0104-retention-audit-events-and-abuse-reports-fail-closed.md).
+
+### Privacy, retention and deletion
+
+What the hosted service keeps, and how it goes, once you run the optional
+[engagement protection](../netlify/functions/README.md#engagement-protection-optional) schema
+(ADRs [0107](adr/0107-reader-receipts-deletion-requests-and-anonymous-abuse-reports.md) and
+[0108](adr/0108-retention-runs-from-a-dry-run-and-quotas-keep-only-hourly-digests.md)):
+
+- **Never stored:** a reader's IP address, user agent, e-mail address or any identifier that
+  lasts beyond an hour. Rate limits keep a salted digest of the client for the hour only; page
+  analytics keep a daily digest that changes every day. Service credentials stay in Netlify and
+  never reach Admin's browser or a page.
+- **Receipts:** a reader who sends passage feedback gets a private receipt once; only its digest
+  is stored. With it they can check on the note, agree to be asked to clarify it, answer a
+  clarification request, or withdraw it. Nothing is ever e-mailed.
+- **Withdrawal and deletion:** withdrawing by receipt deletes the note's text, details and the
+  reader's name at once and keeps only its state and a record of decisions without text. If the
+  note was published, the inbox tells you to take it off the post. For a reader who asks you some
+  other way (a commenter, say), first reject or remove the item, then use **Delete its text and
+  name** on it in the inbox.
+- **Abuse reports:** anonymous, never published or counted, and taken only for an item that is
+  public now. Upholding one removes the item in the same decision, or changes only the report if
+  the item is already out of view.
+- **Retention:** nothing is deleted on a schedule. In **Moderation inbox → Retention**, check what
+  retention would do under the periods above, then run it. Pending items expire, the text of
+  closed items and upheld reports is purged after `closedDays`, withdrawn text at once, and
+  records of decisions after `auditDays`. Comments are included only if you set `retention`
+  yourself.
 
 ## Themes
 

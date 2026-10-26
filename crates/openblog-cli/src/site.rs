@@ -110,6 +110,22 @@ pub const EMBEDDED_WEB: &[(&str, &str)] = &[
         "components/passage-target.js",
         include_str!("../../../web/components/passage-target.js"),
     ),
+    (
+        "components/feedback-receipt.js",
+        include_str!("../../../web/components/feedback-receipt.js"),
+    ),
+    (
+        "components/ob-abuse-report.js",
+        include_str!("../../../web/components/ob-abuse-report.js"),
+    ),
+    (
+        "components/ob-third-perspective.js",
+        include_str!("../../../web/components/ob-third-perspective.js"),
+    ),
+    (
+        "components/third-perspective.js",
+        include_str!("../../../web/components/third-perspective.js"),
+    ),
 ];
 
 /// The admin editor. Served only by `serve --admin`, never copied into the
@@ -220,6 +236,8 @@ pub struct BuildReport {
     pub evidence: Vec<EvidenceFinding>,
     /// Source-review findings about the sources posts cite (ADR 0146).
     pub source_review: Vec<openblog_core::source_review::SourceReviewFinding>,
+    /// What the research projections published and withheld (ADR 0125).
+    pub boundary: openblog_core::publication_boundary::BoundaryManifest,
 }
 
 pub fn load_config(root: &Path) -> Result<SiteConfig, String> {
@@ -303,6 +321,12 @@ pub fn read_sources_excluding(
     // Approved reader feedback the site publishes (ADR 0083), a versioned
     // file beside the posts.
     sources.reader_feedback = read_reader_feedback(root, config)?;
+    // Approved Third Perspectives the site publishes (ADR 0115), the same way.
+    sources.third_perspectives = read_content_file(
+        root,
+        config,
+        openblog_core::perspective_publication::THIRD_PERSPECTIVES_FILE,
+    )?;
     // Claim evidence is read only while the site publishes it (ADR 0075).
     if config.claim_evidence.publish {
         sources.claim_evidence = Some(crate::claims_store::evidence_for_build(
@@ -319,13 +343,24 @@ pub fn read_reader_feedback(
     root: &Path,
     config: &SiteConfig,
 ) -> Result<Option<SourceFile>, String> {
-    let path = root
-        .join(&config.paths.content)
-        .join(openblog_core::feedback_publication::READER_FEEDBACK_FILE);
+    read_content_file(
+        root,
+        config,
+        openblog_core::feedback_publication::READER_FEEDBACK_FILE,
+    )
+}
+
+/// A versioned file the site publishes from, beside the posts in the content
+/// folder, when it exists. Its contents are checked by the site load.
+pub fn read_content_file(
+    root: &Path,
+    config: &SiteConfig,
+    name: &str,
+) -> Result<Option<SourceFile>, String> {
+    let path = root.join(&config.paths.content).join(name);
     let display = format!(
-        "{}/{}",
-        config.paths.content.trim_end_matches(['/', '\\']),
-        openblog_core::feedback_publication::READER_FEEDBACK_FILE
+        "{}/{name}",
+        config.paths.content.trim_end_matches(['/', '\\'])
     );
     match fs::symlink_metadata(&path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -589,6 +624,26 @@ pub fn admin_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>
         .map(|(_, c)| c.as_bytes().to_vec())
 }
 
+/// The front-end assets the site's own `paths.web` folder adds to (or
+/// overrides in) the embedded ones, as paths under `assets/`: stylesheets,
+/// scripts and the WebAssembly build, never the Admin's.
+pub(crate) fn web_dir_assets(root: &Path, config: &SiteConfig) -> Vec<String> {
+    let web_dir = root.join(&config.paths.web);
+    let mut found = Vec::new();
+    for file in fsutil::walk(&web_dir) {
+        let rel = fsutil::relative(&web_dir, &file);
+        if rel.starts_with("admin/") {
+            continue;
+        }
+        let is_asset = rel.ends_with(".css") || rel.ends_with(".js") || rel.ends_with(".mjs");
+        let is_wasm = rel.starts_with("wasm/") && (rel.ends_with(".js") || rel.ends_with(".wasm"));
+        if is_asset || is_wasm {
+            found.push(rel);
+        }
+    }
+    found
+}
+
 pub fn web_file(root: &Path, config: &SiteConfig, rel: &str) -> Option<Vec<u8>> {
     let on_disk = root.join(&config.paths.web).join(rel);
     if let Ok(bytes) = fs::read(&on_disk) {
@@ -620,13 +675,27 @@ pub fn published_atlas(
     if !config.knowledge_atlas.publish {
         return Ok(None);
     }
+    let loaded = crate::atlas_store::load_for_build(root, &config.contributors)
+        .map_err(|error| error.to_string());
+    published_atlas_from(config, loaded.as_ref(), warnings)
+}
+
+/// [`published_atlas`] over an atlas snapshot already read (or the reason it
+/// could not be), so one read serves the build, the preview and the guard.
+pub fn published_atlas_from(
+    config: &SiteConfig,
+    loaded: Result<&crate::atlas_store::Snapshot, &String>,
+    warnings: &mut Vec<String>,
+) -> Result<Option<openblog_core::atlas_publication::PublicAtlas>, String> {
+    if !config.knowledge_atlas.publish {
+        return Ok(None);
+    }
     let unpublishable = |error: String| {
         format!(
             "the Knowledge Atlas cannot be published ({error}); run `openblog check` and repair it, or set `knowledgeAtlas.publish` to false. Nothing was written."
         )
     };
-    let snapshot = crate::atlas_store::load_for_build(root, &config.contributors)
-        .map_err(|error| unpublishable(error.to_string()))?;
+    let snapshot = loaded.map_err(|error| unpublishable(error.clone()))?;
     if !snapshot.stored {
         warnings.push(unstored_atlas_warning());
     }
@@ -709,13 +778,26 @@ pub fn published_comparisons(
     if !config.comparisons.publish {
         return Ok(None);
     }
+    let loaded = crate::alignment_store::load_for_build(root, &config.contributors);
+    published_comparisons_from(config, loaded.as_ref(), warnings)
+}
+
+/// [`published_comparisons`] over an alignments snapshot already read (or
+/// the reason it could not be).
+pub fn published_comparisons_from(
+    config: &SiteConfig,
+    loaded: Result<&crate::alignment_store::Snapshot, &String>,
+    warnings: &mut Vec<String>,
+) -> Result<Option<openblog_core::comparison_publication::PublicComparisons>, String> {
+    if !config.comparisons.publish {
+        return Ok(None);
+    }
     let unpublishable = |error: String| {
         format!(
             "passage comparisons cannot be published ({error}); run `openblog check` and repair it, or set `comparisons.publish` to false. Nothing was written."
         )
     };
-    let snapshot = crate::alignment_store::load_for_build(root, &config.contributors)
-        .map_err(unpublishable)?;
+    let snapshot = loaded.map_err(|error| unpublishable(error.clone()))?;
     if !snapshot.stored {
         warnings.push(unstored_comparisons_warning());
     }
@@ -747,11 +829,33 @@ pub fn generate_site(
     site: &mut Site,
     themes: &ThemeSet,
 ) -> Result<Vec<openblog_core::OutputFile>, String> {
+    generate_site_with_boundary(root, site, themes).map(|(files, _)| files)
+}
+
+/// [`generate_site`], with the publication boundary manifest the output was
+/// checked against (ADR 0125).
+pub fn generate_site_with_boundary(
+    root: &Path,
+    site: &mut Site,
+    themes: &ThemeSet,
+) -> Result<
+    (
+        Vec<openblog_core::OutputFile>,
+        openblog_core::publication_boundary::BoundaryManifest,
+    ),
+    String,
+> {
     // Private research must never ride into a public folder (an export saved
     // into static/, a copied notebook): refuse before anything is generated.
     crate::private_guard::refuse_private_research_in_public_inputs(root, &site.config)?;
-    site.atlas = published_atlas(root, &site.config, &mut site.warnings)?;
-    site.comparisons = published_comparisons(root, &site.config, &mut site.warnings)?;
+    // The research projections, attached exactly as the Admin preview of the
+    // boundary attaches them (ADR 0125); here a projection that cannot be
+    // built refuses the output.
+    let shared = crate::boundary::Shared::read(root, &site.config);
+    let blocked = crate::boundary::project_with(root, site, &shared);
+    if let Some(error) = blocked.atlas.as_ref().or(blocked.comparisons.as_ref()) {
+        return Err(error.clone());
+    }
     // Published claim evidence that cannot be read refuses the whole output
     // rather than publishing posts without it, as a damaged atlas does
     // (ADR 0075). Only here: an Admin save's validation render is not stopped.
@@ -763,11 +867,25 @@ pub fn generate_site(
     if let Some(error) = &site.reader_feedback_error {
         return Err(error.clone());
     }
+    // And published Third Perspectives, rather than dropping reflections a
+    // moderator approved (ADR 0115).
+    if let Some(error) = &site.third_perspectives_error {
+        return Err(error.clone());
+    }
+    // What the projections publish and withhold; a stale approval or an
+    // unsafe web address withholds only what it affects, and is named.
+    let stores = crate::boundary::Stores::read(root, &shared);
+    let mut manifest = crate::boundary::manifest(site, &stores, &blocked, None);
+    site.warnings.extend(manifest.build_warnings());
     // Required destinations (including full-content feeds) must succeed before
     // generated output or stale files are changed.
     let files = generate(site, themes)?;
     crate::private_guard::refuse_private_research_in_output(&files)?;
-    Ok(files)
+    // Private text found outside a projection's machine data only warns.
+    let text_matches = crate::boundary::check_output(root, site, &manifest, &files)?;
+    manifest.text_matches.clone_from(&text_matches);
+    site.warnings.extend(text_matches);
+    Ok((files, manifest))
 }
 
 pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
@@ -787,7 +905,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
             preview_source: None,
         },
     )?;
-    let files = generate_site(root, &mut site, &themes)?;
+    let (files, boundary) = generate_site_with_boundary(root, &mut site, &themes)?;
     let config = &site.config;
     let mut warnings = site.warnings.clone();
     warnings.extend(
@@ -840,15 +958,8 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         .map(|(p, _)| p.to_string())
         .chain(EMBEDDED_WEB_BINARY.iter().map(|(p, _)| p.to_string()))
         .collect();
-    let web_dir = root.join(&config.paths.web);
-    for file in fsutil::walk(&web_dir) {
-        let rel = fsutil::relative(&web_dir, &file);
-        if rel.starts_with("admin/") {
-            continue;
-        }
-        let is_asset = rel.ends_with(".css") || rel.ends_with(".js") || rel.ends_with(".mjs");
-        let is_wasm = rel.starts_with("wasm/") && (rel.ends_with(".js") || rel.ends_with(".wasm"));
-        if (is_asset || is_wasm) && !asset_names.contains(&rel) {
+    for rel in web_dir_assets(root, config) {
+        if !asset_names.contains(&rel) {
             asset_names.push(rel);
         }
     }
@@ -890,6 +1001,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         accessibility: site.accessibility.clone(),
         evidence,
         source_review: site.source_review.clone(),
+        boundary,
     })
 }
 

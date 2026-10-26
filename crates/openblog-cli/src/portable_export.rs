@@ -63,11 +63,32 @@ pub fn run(
         .find(|post| post.slug == slug)
         .ok_or_else(|| format!("published post `{slug}` was not found"))?;
     if format != Format::Markdown {
+        let export = bibliography_export(post, format)?;
+        for warning in crate::boundary::check_export(
+            root,
+            &site,
+            &format!("the {} export of `{slug}`", format.key()),
+            &export.content,
+            true,
+        )? {
+            eprintln!("warning: {warning}");
+        }
         return run_bibliography(post, &site, format, destination.as_deref(), write, json);
     }
     let projection = PortableProjection::for_site(&site, post)?;
     let markdown = projection.portable_markdown()?;
     let portable = projection.portable_html()?;
+    // The publication boundary (ADR 0125): no private research text leaves
+    // in an export that nothing public holds.
+    for warning in crate::boundary::check_export(
+        root,
+        &site,
+        &format!("the portable Markdown of `{slug}`"),
+        &markdown,
+        false,
+    )? {
+        eprintln!("warning: {warning}");
+    }
     if json {
         println!(
             "{}",
@@ -496,6 +517,72 @@ mod tests {
             let exported = std::fs::read_to_string(&destination).unwrap();
             assert!(exported.contains(expected), "{exported}");
         }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// A site of two series parts with a private notebook holding `note`.
+    fn export_site_with_note(tag: &str, note: &str) -> std::path::PathBuf {
+        let directory = std::env::temp_dir().join(format!(
+            "openblog-export-{tag}-{}",
+            crate::auth::random_token().unwrap()
+        ));
+        let posts = directory.join("content/posts");
+        std::fs::create_dir_all(&posts).unwrap();
+        std::fs::write(
+            directory.join("openblog.json"),
+            r#"{"url":"https://portable.example.org","author":{"name":"Site Owner"},
+              "contributors":{"ann":{"name":"Ann"},"bo":{"name":"Bo"}}}"#,
+        )
+        .unwrap();
+        for (slug, number) in [("one", 1), ("two", 2)] {
+            std::fs::write(
+                posts.join(format!("{slug}.md")),
+                format!("---\ntitle: {slug}\nslug: {slug}\ndate: 2020-0{number}-01\nseries: notes\nseriesOrder: {number}\n---\nFirst.\n"),
+            )
+            .unwrap();
+        }
+        let research = directory.join(".openblog/private/research");
+        std::fs::create_dir_all(&research).unwrap();
+        std::fs::write(
+            research.join("sources.json"),
+            r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            research.join("notebook.json"),
+            serde_json::json!({"version": 1, "passages": [], "notes": [{"id": "n1", "kind": "observation", "text": note}]})
+                .to_string(),
+        )
+        .unwrap();
+        directory
+    }
+
+    #[test]
+    fn an_export_of_a_post_that_quotes_a_private_passage_is_not_refused() {
+        // The portable Markdown holds nothing but the post's own text, which
+        // the boundary's export check accepts; a refusal of text no post
+        // holds is tested where the check lives (`boundary::tests`).
+        let note =
+            "Plato's prisoners are not a metaphor for anything at all, really, said the reader.";
+        let directory = export_site_with_note("quote", note);
+        std::fs::write(
+            directory.join("content/posts/two.md"),
+            "---\ntitle: two\nslug: two\ndate: 2020-02-01\n---\n\n> Plato's prisoners are not a metaphor\n> for anything at *all*, really,\n> said the reader.\n",
+        )
+        .unwrap();
+        let destination = directory.join("exports/two.md");
+        run(
+            &directory,
+            "two",
+            Format::Markdown,
+            Some(destination.to_str().unwrap()),
+            true,
+            false,
+        )
+        .unwrap();
+        assert!(std::fs::read_to_string(&destination)
+            .unwrap()
+            .contains("prisoners are not a metaphor"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

@@ -205,13 +205,9 @@ test("versions sit side by side on a wide screen and follow one another on a pho
   await page.setViewportSize({ width: 1400, height: 900 });
   await openAdmin(page, "#/compare/opening");
   await expect(heading(page)).toBeFocused();
-  const boxes = async () => {
-    const sections = page.locator("[data-compare-version]");
-    const count = await sections.count();
-    const found = [];
-    for (let index = 0; index < count; index += 1) found.push(await sections.nth(index).boundingBox());
-    return found;
-  };
+  // Every box comes from one layout pass, so a reflow elsewhere on the page cannot fall between them.
+  const boxes = () => page.locator("[data-compare-version]").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().toJSON()));
+  await expect(page.locator("[data-compare-version]").nth(1)).toBeVisible();
   let [first, second] = await boxes();
   expect(Math.abs(first.y - second.y)).toBeLessThan(2);
   expect(second.x).toBeGreaterThan(first.x + first.width - 1);

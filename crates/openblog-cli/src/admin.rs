@@ -32,7 +32,7 @@ use openblog_core::config::{AssistantProviderKind, SyndicationProvider};
 use openblog_core::draft::{
     ComparisonSlot, DraftError, DraftSet, DraftView, ReadyOutcome, RevealPolicy,
 };
-use openblog_core::feedback_moderation::{self, ModerationAction, ModerationState};
+use openblog_core::feedback_moderation;
 use openblog_core::feedback_publication;
 use openblog_core::frontmatter::{self, Value};
 use openblog_core::invitation::{
@@ -45,7 +45,11 @@ use openblog_core::knowledge_atlas::{
 use openblog_core::markdown::RenderOptions;
 use openblog_core::media_moment::{location_text, Moment, MomentSet};
 use openblog_core::members::MemberError;
+use openblog_core::moderation::{self, ModerationState};
+use openblog_core::moderation_inbox;
+use openblog_core::participation::ParticipationKind;
 use openblog_core::passage_target::PassageDocument;
+use openblog_core::perspective_publication;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
 use openblog_core::research_bundle;
 use openblog_core::research_notes::{
@@ -56,6 +60,7 @@ use openblog_core::scholarly_feedback::HostedFeedback;
 use openblog_core::slug::slugify;
 use openblog_core::source_interchange::{self, plan_csl_import};
 use openblog_core::source_library::{SourceDiagnostic, SourceRecord};
+use openblog_core::third_perspective;
 use openblog_core::{
     generate, generate_document, social_metadata, DateTime, LoadOptions, Site, SiteConfig,
     SourceFile,
@@ -80,6 +85,7 @@ use crate::clock;
 use crate::fsutil;
 use crate::http::{Request, Response};
 use crate::notebook_store;
+use crate::research_review;
 use crate::site::{self, BuildOptions, BuildReport};
 use crate::source_store::{self, StoreError};
 
@@ -630,6 +636,7 @@ fn authenticated_api(
         ("GET", "research/notebook") => list_notebook(state),
         ("GET", "citations/library") => citation_library(state),
         ("POST", "citations/check") => check_citation_request(state, req),
+        ("GET", "research/draft") => draft_research(state),
         ("POST", "research/search") => search_notebook(state, req),
         ("POST", "research/backlinks") => notebook_backlinks(state, req),
         ("POST", "research/archive") => archive_entry(state, req),
@@ -667,12 +674,25 @@ fn authenticated_api(
         ("GET", "engagement/settings") => engagement_settings(state),
         ("PUT", "engagement/settings") => save_engagement_settings(state, req),
         ("GET", "engagement/analytics") => hosted_engagement_request(state, req, "admin/analytics"),
-        ("GET", "engagement/comments") => hosted_engagement_request(state, req, "admin/comments"),
-        ("PATCH", "engagement/comments") => hosted_engagement_request(state, req, "admin/comments"),
-        ("GET", "engagement/feedback") => feedback_queue(state, req),
-        ("PATCH", "engagement/feedback") => moderate_feedback(state, req, session),
+        ("GET", "engagement/moderation") => moderation_inbox_page(state, req, session),
+        ("PATCH", "engagement/moderation") => moderate_inbox_item(state, req, session),
+        ("POST", "engagement/moderation/decision") => {
+            record_correction_decision(state, req, session)
+        }
+        ("GET", "engagement/retention") => retention_dry_run(state, session),
+        ("POST", "engagement/retention") => run_retention(state, req, session),
         ("POST", "engagement/feedback/publish") => publish_feedback(state, req),
+        ("POST", "engagement/feedback/publish-decision") => update_published_decision(state, req),
         ("POST", "engagement/feedback/unpublish") => unpublish_moderated(state, req),
+        ("POST", "engagement/third-perspectives/publish") => {
+            sync_published_perspective(state, req, session, true)
+        }
+        ("POST", "engagement/third-perspectives/unpublish") => {
+            sync_published_perspective(state, req, session, false)
+        }
+        ("GET", "engagement/third-perspectives/published") => {
+            published_perspectives_audit(state, session)
+        }
         ("GET", "engagement/feedback/published") => published_feedback(state),
         ("PUT", "engagement/feedback/response") => respond_to_feedback(state, req),
         ("POST", "engagement/feedback/revision-note") => record_revision_note(state, req),
@@ -757,6 +777,11 @@ fn authenticated_api(
         ("POST", "track-upload") => upload_track(state, req),
         ("DELETE", "track-upload") => discard_track(state, req),
         ("POST", "preview") => preview(state, req),
+        ("POST", "research/review") => review_before_publication(state, req),
+        ("GET", "research/boundary") => boundary_site(state),
+        ("POST", "research/boundary") => boundary_post(state, req),
+        ("PUT", "research/review/acknowledgements") => change_acknowledgement(state, req, true),
+        ("DELETE", "research/review/acknowledgements") => change_acknowledgement(state, req, false),
         ("POST", "portability/acknowledge") => acknowledge_portability(state, req),
         ("POST", "quiz/generate") => generate_quiz(state, req),
         ("POST", "rebuild") => rebuild(state),
@@ -1280,6 +1305,302 @@ fn check_citation_request(state: &AppState, req: &Request) -> Response {
             }),
         ),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Draft-side research panel (#61, ADR 0122)
+// ---------------------------------------------------------------------------
+
+/// A panel part that could not be read: its own message, naming the file.
+/// Store messages name files and ids, never quoted or noted text.
+fn draft_research_problem(what: &str, file: &str, error: &impl std::fmt::Display) -> Json {
+    let detail = error.to_string();
+    json!({
+        "error": format!(
+            "{what} could not be read, so it is not offered here. Nothing was changed. {}",
+            detail.lines().next().unwrap_or_default()
+        ),
+        "file": file,
+    })
+}
+
+/// A part of the draft-side research that is not read because a part it is
+/// read against (`part`) already failed. It names no file of its own, so
+/// nothing sends the author to repair a file that is fine.
+fn draft_research_blocked(items: &str, part: &str, what: &str) -> Json {
+    json!({
+        "error": format!(
+            "The {items} are not offered while {what} cannot be read. Nothing was changed."
+        ),
+        "unavailableBecause": part,
+    })
+}
+
+/// A rights declaration as the author states it, labelled by the core and
+/// never read as permission (ADR 0085).
+fn draft_research_rights(
+    declared: Option<&openblog_core::source_library::RightsDeclaration>,
+    status: openblog_core::source_library::RightsStatus,
+) -> Json {
+    json!({
+        "status": status.tag(),
+        "label": status.label(),
+        "note": declared.and_then(|rights| rights.note.as_deref()),
+        "license": declared.and_then(|rights| rights.license.as_deref()),
+    })
+}
+
+/// What the draft-side research panel offers (#61, ADR 0122), read-only and
+/// for the author only, like the rest of Admin. Each part is read on its own,
+/// so a store that cannot be read is reported in its part while the others
+/// still work:
+///
+/// - `library`: the sources with the revision a citation check must name,
+///   each version's rights statement, and the interpretations (private and
+///   never cited).
+/// - `notebook`: live passages with their exact wording and language, public
+///   locators and how many notes link to each, and live notes, offered only
+///   for explicit conversion.
+/// - `atlas` and `comparisons`: whether the site publishes them and, per
+///   item, whether the author approved it. A canonical `url` is present only
+///   for an item the next build publishes, so nothing else can be linked, and
+///   an entry lists only the datings its page publishes.
+///
+/// Nothing is written and nothing here is public.
+fn draft_research(state: &AppState) -> Response {
+    use openblog_core::atlas_publication::{entry_url, ATLAS_URL};
+    use openblog_core::comparison_publication::{ComparisonInputs, COMPARISONS_URL};
+    let contributors = source_contributors(state);
+    let config = site::load_config(&state.root).ok();
+    let atlas_published = config
+        .as_ref()
+        .is_some_and(|config| config.knowledge_atlas.publish);
+    let comparisons_published = config
+        .as_ref()
+        .is_some_and(|config| config.comparisons.publish);
+
+    let library = match source_store::load(&state.root, &contributors) {
+        Ok(snapshot) => {
+            let sources: Vec<Json> = snapshot
+                .library
+                .sources
+                .iter()
+                .map(|record| {
+                    let mut value = json!(record);
+                    if let Some(status) = record.rights_status() {
+                        value["rightsStatus"] =
+                            draft_research_rights(record.rights.as_ref(), status);
+                    }
+                    value
+                })
+                .collect();
+            let interpretations: Vec<Json> = snapshot
+                .library
+                .interpretations
+                .iter()
+                .map(|interpretation| {
+                    json!({
+                        "id": interpretation.id,
+                        "kind": interpretation.kind,
+                        "source": interpretation.source,
+                        "locators": interpretation
+                            .locators
+                            .iter()
+                            .map(PublicLocator::from)
+                            .collect::<Vec<_>>(),
+                        "language": interpretation.language,
+                        "text": interpretation.text,
+                    })
+                })
+                .collect();
+            json!({
+                "revision": snapshot.revision,
+                "sources": sources,
+                "interpretations": interpretations,
+            })
+        }
+        Err(error) => {
+            draft_research_problem("The source library", source_store::LIBRARY_FILE, &error)
+        }
+    };
+
+    // Each part is read against the parts before it (the notebook against the library, the
+    // atlas and the comparisons against both). When an earlier part already failed, that
+    // failure is the reason: the later file is not blamed or sent for repair.
+    let library_failed = library.get("error").is_some();
+    let notebook = if library_failed {
+        draft_research_blocked("passages and notes", "library", "the source library")
+    } else {
+        match notebook_store::load(&state.root, &contributors) {
+            Ok(snapshot) => {
+                let notebook = &snapshot.notebook;
+                let passages: Vec<Json> = notebook
+                    .passages
+                    .iter()
+                    .filter(|passage| !passage.archived)
+                    .map(|passage| {
+                        let notes = notebook
+                            .notes
+                            .iter()
+                            .filter(|note| note.passages.contains(&passage.id))
+                            .count();
+                        json!({
+                            "id": passage.id,
+                            "source": passage.source,
+                            "locators": passage
+                                .locators
+                                .iter()
+                                .map(PublicLocator::from)
+                                .collect::<Vec<_>>(),
+                            "excerpt": {
+                                "text": passage.excerpt.text,
+                                "language": passage.excerpt.language,
+                            },
+                            "notes": notes,
+                        })
+                    })
+                    .collect();
+                let notes: Vec<Json> = notebook
+                    .notes
+                    .iter()
+                    .filter(|note| !note.archived)
+                    .map(|note| {
+                        json!({
+                            "id": note.id,
+                            "kind": note.kind,
+                            "status": note.question_state(),
+                            "text": note.text,
+                            "passages": note.passages,
+                        })
+                    })
+                    .collect();
+                json!({ "revision": snapshot.revision, "passages": passages, "notes": notes })
+            }
+            Err(error) => draft_research_problem(
+                "The research notebook",
+                notebook_store::NOTEBOOK_FILE,
+                &error,
+            ),
+        }
+    };
+
+    let blocked_by = if library_failed {
+        Some(("library", "the source library"))
+    } else if notebook.get("error").is_some() {
+        Some(("notebook", "the research notebook"))
+    } else {
+        None
+    };
+    let atlas = if let Some((part, what)) = blocked_by {
+        draft_research_blocked("atlas entries", part, what)
+    } else {
+        match atlas_store::load(&state.root, &contributors) {
+            Ok(snapshot) => {
+                let atlas = &snapshot.atlas;
+                let entries: Vec<Json> = atlas
+                    .entries
+                    .iter()
+                    .map(|entry| {
+                        let approved = entry.visibility == knowledge_atlas::Visibility::Approved;
+                        let published = atlas_published && approved;
+                        let datings: Vec<Json> = entry
+                            .dates
+                            .iter()
+                            .filter(|dating| {
+                                published && atlas.is_dating_projected(&entry.id, dating)
+                            })
+                            .map(|dating| {
+                                json!({
+                                    "id": dating.id,
+                                    "aspect": dating.aspect,
+                                    "text": date_text(&dating.date),
+                                })
+                            })
+                            .collect();
+                        json!({
+                            "id": entry.id,
+                            "kind": entry.kind,
+                            "label": entry.label,
+                            "aliases": entry.aliases,
+                            "approved": approved,
+                            "url": published.then(|| entry_url(&entry.id)),
+                            "datings": datings,
+                        })
+                    })
+                    .collect();
+                json!({ "publish": atlas_published, "url": ATLAS_URL, "entries": entries })
+            }
+            Err(error) => {
+                draft_research_problem("The Knowledge Atlas", atlas_store::ATLAS_FILE, &error)
+            }
+        }
+    };
+
+    let comparisons = if let Some((part, what)) = blocked_by {
+        draft_research_blocked("comparisons", part, what)
+    } else {
+        match alignment_store::load(&state.root, &contributors) {
+            Ok(snapshot) => {
+                let inputs = ComparisonInputs {
+                    library: &snapshot.library,
+                    notebook: &snapshot.notebook,
+                    contributors: &contributors,
+                };
+                // The projection a build would write, once: an item is
+                // published exactly when that projection holds it. A set the
+                // build would refuse publishes nothing.
+                let projection = comparisons_published
+                    .then(|| {
+                        openblog_core::comparison_publication::PublicComparisons::project(
+                            &snapshot.alignments,
+                            inputs,
+                        )
+                        .ok()
+                    })
+                    .flatten();
+                let items: Vec<Json> = snapshot
+                    .alignments
+                    .alignments
+                    .iter()
+                    .map(|alignment| {
+                        let approved = alignment.is_approved();
+                        let url = projection.as_ref().and_then(|public| {
+                            public
+                                .comparisons
+                                .iter()
+                                .find(|comparison| comparison.id == alignment.id)
+                                .map(|comparison| comparison.url.clone())
+                        });
+                        json!({
+                            "id": alignment.id,
+                            "label": alignment.label,
+                            "approved": approved,
+                            "url": url,
+                            "interpretations": alignment
+                                .members
+                                .iter()
+                                .filter_map(|member| member.interpretation.as_deref())
+                                .collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect();
+                json!({ "publish": comparisons_published, "url": COMPARISONS_URL, "items": items })
+            }
+            Err(error) => {
+                draft_research_problem("The comparisons", alignment_store::ALIGNMENTS_FILE, &error)
+            }
+        }
+    };
+
+    Response::json(
+        200,
+        &json!({
+            "library": library,
+            "notebook": notebook,
+            "atlas": atlas,
+            "comparisons": comparisons,
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -2564,6 +2885,16 @@ fn alignments_view(
         "notices": snapshot.alignments.notices(links),
         "notice": openblog_core::alignment::ALIGNMENT_NOTICE,
         "publication": publication_preview(snapshot, contributors),
+        // Approved alignments whose places moved since the approval: out of
+        // the next build until the author checks them and approves again.
+        "staleApprovals": openblog_core::comparison_publication::stale_approvals(
+            &snapshot.alignments,
+            openblog_core::comparison_publication::ComparisonInputs {
+                library: &snapshot.library,
+                notebook: &snapshot.notebook,
+                contributors,
+            },
+        ),
     });
     if let (Some(view), Json::Object(extra)) = (view.as_object_mut(), extra) {
         view.extend(extra);
@@ -2742,7 +3073,14 @@ fn save_alignment(state: &AppState, req: &Request, create: bool) -> Response {
     let saved = if create {
         alignment_store::create_alignment(&state.root, &revision, alignment, &contributors)
     } else {
-        alignment_store::update_alignment(&state.root, &revision, alignment, &contributors)
+        let reapprove = body["reapprove"].as_bool().unwrap_or(false);
+        alignment_store::update_alignment(
+            &state.root,
+            &revision,
+            alignment,
+            reapprove,
+            &contributors,
+        )
     };
     match saved {
         Ok(snapshot) => {
@@ -4347,30 +4685,6 @@ fn hosted_site_path(value: &str) -> bool {
         && !value.split('/').any(|part| matches!(part, "." | ".."))
 }
 
-fn validate_hosted_comments(value: &Json) -> Result<Json, String> {
-    let rows = value["comments"]
-        .as_array()
-        .filter(|rows| rows.len() <= 200)
-        .ok_or_else(|| "hosted engagement returned invalid comments".to_string())?;
-    let mut comments = Vec::with_capacity(rows.len());
-    for row in rows {
-        let id = hosted_text(row, "id", 64)?;
-        let path = hosted_text(row, "path", 500)?;
-        let author = hosted_text(row, "authorName", 80)?;
-        let body = hosted_text(row, "body", 4_000)?;
-        let status = hosted_text(row, "status", 16)?;
-        let created = hosted_text(row, "createdAt", 64)?;
-        if !hosted_site_path(path) || !matches!(status, "pending" | "approved" | "rejected") {
-            return Err("hosted engagement returned an invalid comment".into());
-        }
-        comments.push(json!({
-            "id": id, "path": path, "authorName": author, "body": body,
-            "status": status, "createdAt": created,
-        }));
-    }
-    Ok(json!({ "comments": comments }))
-}
-
 fn validate_hosted_analytics(value: &Json) -> Result<Json, String> {
     let days = hosted_count(value, "days")?;
     if !matches!(days, 7 | 30 | 90 | 365) {
@@ -4436,15 +4750,6 @@ fn validate_hosted_engagement_response(
     value: &Json,
 ) -> Result<Json, String> {
     match (method, operation) {
-        ("GET", "admin/comments") => validate_hosted_comments(value),
-        ("PATCH", "admin/comments") => {
-            let status = hosted_text(value, "status", 16)?;
-            if value["ok"].as_bool() == Some(true) && matches!(status, "approved" | "rejected") {
-                Ok(json!({ "ok": true, "status": status }))
-            } else {
-                Err("hosted engagement returned an invalid moderation response".into())
-            }
-        }
         ("GET", "admin/analytics") => validate_hosted_analytics(value),
         _ => Err("unsupported hosted engagement operation".into()),
     }
@@ -4575,12 +4880,12 @@ fn hosted_feedback_call(
 ) -> Result<(u16, Json), Response> {
     let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
     if !config.engagement.enabled
-        || !config.engagement.feedback
+        || !config.participation.passage_feedback_enabled()
         || !valid_engagement_endpoint(&config.engagement.endpoint)
     {
         return Err(Response::error(
             404,
-            "Passage feedback is not turned on: enable hosted engagement with an endpoint and set engagement.feedback in openblog.json.",
+            "Passage feedback is not turned on: enable hosted engagement with an endpoint and set engagement.feedback (or a passage feedback kind in participation.kinds) in openblog.json.",
         ));
     }
     let credential = match engagement_credential(&state.root, &config.engagement.endpoint) {
@@ -4767,64 +5072,13 @@ fn feedback_site(state: &AppState) -> Result<Site, Response> {
         .map_err(|error| Response::error(500, &error))
 }
 
-/// `GET engagement/feedback?status=`: one state's queue, each item with its
-/// passage check, its public preview and whether the site publishes it.
-fn feedback_queue(state: &AppState, req: &Request) -> Response {
-    let status = req.query.get("status").map_or("pending", String::as_str);
-    let Some(status) = ModerationState::from_id(status) else {
-        return Response::error(422, "Unknown moderation state");
-    };
-    let value = match hosted_feedback_call(state, &[("status", status.id())], None) {
-        Ok((_, value)) => value,
-        Err(response) => return response,
-    };
-    let (items, invalid) = match hosted_feedback_items(&value) {
-        Ok(items) => items,
-        Err(response) => return response,
-    };
-    let site = match feedback_site(state) {
-        Ok(site) => site,
-        Err(response) => return response,
-    };
-    let published = reader_feedback_path(state)
-        .and_then(|path| load_reader_feedback(&path))
-        .ok()
-        .map(|(file, _)| file);
-    Response::json(
-        200,
-        &feedback_queue_view(status, &items, invalid, &site, published.as_ref()),
-    )
-}
-
-/// The queue as Admin shows it. `published` is `None` when the published
-/// file cannot be read, so nothing claims an item is or is not on the site.
-fn feedback_queue_view(
-    status: ModerationState,
-    items: &[HostedFeedback],
-    invalid: usize,
-    site: &Site,
-    published: Option<&feedback_publication::ReaderFeedbackFile>,
-) -> Json {
-    let views: Vec<Json> = items
-        .iter()
-        .map(|item| {
-            let mut view = feedback_moderation::moderation_view(item, site);
-            view["published"] = match published {
-                Some(file) => json!(file.get(&item.id).is_some()),
-                None => Json::Null,
-            };
-            view
-        })
-        .collect();
-    json!({ "status": status.id(), "items": views, "invalid": invalid })
-}
-
 /// Put one approved item on its post, or say why not. The caller holds the
 /// content lock.
 fn publish_approved_feedback(
     path: &Path,
     site: &Site,
     item: &HostedFeedback,
+    claims: Option<&openblog_core::claims::ClaimSet>,
 ) -> Result<(), String> {
     if item.status != ModerationState::Approved {
         return Err("Only approved feedback is published".into());
@@ -4834,16 +5088,93 @@ fn publish_approved_feedback(
     let (mut file, _) = load_reader_feedback(path).map_err(|_| {
         "reader-feedback.json cannot be read; fix it in source mode, then publish the note from the Approved list".to_string()
     })?;
+    // The author's decision in force on this text goes with the note (ADR 0119); a decision
+    // about an earlier text, or none, publishes none.
+    let decision = decision_to_publish(item, &post.slug, claims);
     let record = feedback_publication::PublishedFeedback::from_record(
         &item.id,
         &post.source.replace('\\', "/"),
         &item.feedback,
         item.moderated_at.unwrap_or_else(clock::now),
-    )?;
+    )?
+    .with_decision(decision)?;
     file.publish(record)?;
     write_reader_feedback(path, &file)
         .map(|_| ())
         .map_err(|_| "reader-feedback.json could not be written".to_string())
+}
+
+/// The author's claims file, for deciding what a public decision may name; `None` when it cannot
+/// be read, in which case no evidence link is published (ADR 0119).
+fn claims_for_publication(state: &AppState) -> Option<openblog_core::claims::ClaimSet> {
+    claims_store::load(&state.root, &source_contributors(state))
+        .ok()
+        .map(|snapshot| snapshot.claims)
+}
+
+/// The decision in force on the item's text as the public file may hold it: an evidence link is
+/// kept only while `claims` approves and publishes it on the post `slug`, and a private claim or
+/// link id is never copied (ADR 0119).
+fn decision_to_publish(
+    item: &HostedFeedback,
+    slug: &str,
+    claims: Option<&openblog_core::claims::ClaimSet>,
+) -> Option<feedback_publication::PublishedDecision> {
+    item.decisions
+        .as_ref()
+        .and_then(|log| feedback_publication::PublishedDecision::in_force(log, item.revision))
+        .map(|decision| decision.with_published_evidence(claims, slug))
+}
+
+/// Put the author's decision in force on an item that is already on its post, or take a
+/// superseded one off (ADR 0119). Nothing else about the published note changes, and an item
+/// that is not published is left alone: recording a decision never publishes a note. Returns
+/// whether the file changed, with the rebuild's result.
+fn publish_decision_outcome(
+    state: &AppState,
+    item: &moderation_inbox::InboxItem,
+) -> Result<Option<Json>, String> {
+    let Some(hosted) = item.feedback() else {
+        return Ok(None);
+    };
+    // Only a note readers see now carries an outcome: approved at its current text.
+    if !moderation::is_public(
+        &item.facts(),
+        openblog_core::participation::ParticipationMode::Open,
+    ) {
+        return Ok(None);
+    }
+    if published_feedback_file(state).is_none_or(|file| file.get(&item.id).is_none()) {
+        return Ok(None);
+    }
+    let site = feedback_site(state).map_err(|_| "The site cannot be read now.".to_string())?;
+    let post = feedback_moderation::post_for_work(&site, &hosted.feedback.provenance.work)
+        .ok_or_else(|| {
+            "No post has this address now, so its outcome is not updated.".to_string()
+        })?;
+    let claims = claims_for_publication(state);
+    let mut status = lock(&state.build);
+    let _transaction = content_transaction(state)
+        .map_err(|_| "The site is being changed; try again in a moment.".to_string())?;
+    let path = reader_feedback_path(state)
+        .map_err(|_| "reader-feedback.json cannot be written".to_string())?;
+    let (mut file, _) = load_reader_feedback(&path)
+        .map_err(|_| "reader-feedback.json cannot be read; fix it in source mode".to_string())?;
+    let decision = decision_to_publish(hosted, &post.slug, claims.as_ref());
+    let Some(current) = file.get(&item.id).cloned() else {
+        return Ok(None);
+    };
+    // Check it as the file is read before writing it, so a decision that would make the file
+    // unreadable is never written.
+    current.with_decision(decision.clone())?;
+    if !file.set_decision(&item.id, decision) {
+        return Ok(None);
+    }
+    write_reader_feedback(&path, &file)
+        .map_err(|_| "reader-feedback.json could not be written".to_string())?;
+    Ok(Some(feedback_build_json(
+        &state.rebuild_locked(&mut status),
+    )))
 }
 
 /// Take one item off the site. The caller holds the content lock.
@@ -4863,30 +5194,148 @@ fn unpublish_feedback(path: &Path, id: &str) -> Result<(), String> {
 fn unpublish_moderated_feedback(path: &Path, item: &HostedFeedback) -> Result<(), String> {
     if !matches!(
         item.status,
-        ModerationState::Removed | ModerationState::Rejected
+        ModerationState::Removed | ModerationState::Rejected | ModerationState::Withdrawn
     ) {
-        return Err("Only removed or rejected feedback is taken off a post here".into());
+        return Err("Only removed, rejected or withdrawn feedback is taken off a post here".into());
     }
     unpublish_feedback(path, &item.id)
 }
 
-/// Whether an approval may go ahead given the passage as it is now: a
-/// passage that is not current needs the moderator to name the check they
-/// read, so a re-anchored or stale passage is never approved unseen.
-fn approval_acknowledged(item: &HostedFeedback, site: &Site, acknowledge: Option<&str>) -> bool {
-    let post = feedback_moderation::post_for_work(site, &item.feedback.provenance.work);
-    let document = post.map(|post| PassageDocument::of_post(post, &site.config));
-    let review = feedback_moderation::review_passage(&item.feedback, post.zip(document.as_ref()));
-    !review.check.needs_acknowledgement() || acknowledge == Some(review.check.id())
+// ---- Published Third Perspectives (ADR 0115)
+//
+// What a site publishes of approved Third Perspectives lives in
+// `third-perspectives.json` in the content folder, beside
+// `reader-feedback.json`, written only here, under the content lock. Each
+// record holds exactly the parts the one public projection reads, taken
+// from the hosted copy only while that projection shows it.
+
+fn third_perspectives_path(state: &AppState) -> Result<PathBuf, Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    let path = state
+        .root
+        .join(&config.paths.content)
+        .join(perspective_publication::THIRD_PERSPECTIVES_FILE);
+    if fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_file()) {
+        return Err(Response::error(
+            409,
+            "third-perspectives.json must be a regular file in the content folder",
+        ));
+    }
+    Ok(path)
 }
 
-/// `PATCH engagement/feedback`: approve, reject or remove one item. The
-/// request names the state and version the moderator saw, and, to approve a
-/// passage that is not current, the passage check they read. The item is
-/// read again and its passage checked again first, so nothing is approved on
-/// the strength of an old view; the hosted function then applies the change
-/// only if the item is still as seen, and records the audit event.
-fn moderate_feedback(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+/// The published Third Perspectives; an absent file is an empty one. A file
+/// that cannot be read is refused, naming the file, and nothing is written
+/// over it.
+fn load_third_perspectives(
+    path: &Path,
+) -> Result<perspective_publication::ThirdPerspectivesFile, Response> {
+    let bytes = read_optional_bytes(path).map_err(|error| Response::error(500, &error))?;
+    let Some(bytes) = bytes else {
+        return Ok(Default::default());
+    };
+    let text = String::from_utf8(bytes).map_err(|_| {
+        Response::error(
+            409,
+            "third-perspectives.json is not UTF-8; fix it in source mode before moderating",
+        )
+    })?;
+    perspective_publication::ThirdPerspectivesFile::from_json(&text).map_err(|error| {
+        Response::error(
+            409,
+            &format!("third-perspectives.json {error}; fix it in source mode before moderating"),
+        )
+    })
+}
+
+fn published_perspectives_file(
+    state: &AppState,
+) -> Option<perspective_publication::ThirdPerspectivesFile> {
+    third_perspectives_path(state)
+        .and_then(|path| load_third_perspectives(&path))
+        .ok()
+}
+
+/// Put one approved Third Perspective on its post, or say why not: only
+/// while the one projection shows it now. The caller holds the content lock.
+fn publish_approved_perspective(
+    path: &Path,
+    site: &Site,
+    item: &third_perspective::HostedPerspective,
+) -> Result<(), String> {
+    if item.state != ModerationState::Approved {
+        return Err("Only an approved Third Perspective is published".into());
+    }
+    let post = feedback_moderation::post_for_work(site, &item.copy.provenance.work)
+        .ok_or_else(|| "No post has this address now, so the reflection is not on the site yet. Publish it from the Approved list once the post is back.".to_string())?;
+    let mut file = load_third_perspectives(path).map_err(|_| {
+        "third-perspectives.json cannot be read; fix it in source mode, then publish the reflection from the Approved list".to_string()
+    })?;
+    let record = perspective_publication::PublishedPerspective::from_hosted(
+        &post.source.replace('\\', "/"),
+        item,
+        post,
+        &site.config,
+        item.moderated_at.unwrap_or_else(clock::now),
+    )?;
+    file.publish(record)?;
+    write_atomic_bytes(path, file.to_json().as_bytes())
+        .map_err(|_| "third-perspectives.json could not be written".to_string())
+}
+
+/// Take one Third Perspective off the site. The caller holds the content lock.
+fn unpublish_perspective(path: &Path, id: &str) -> Result<(), String> {
+    let mut file = load_third_perspectives(path).map_err(|_| {
+        "third-perspectives.json cannot be read; remove the reflection from it in source mode"
+            .to_string()
+    })?;
+    if file.unpublish(id) {
+        write_atomic_bytes(path, file.to_json().as_bytes())
+            .map_err(|_| "third-perspectives.json could not be written".to_string())?;
+    }
+    Ok(())
+}
+
+/// Whether a published Third Perspective must come off its post now: the
+/// hosted copy is no longer one the one projection shows (withdrawn,
+/// removed, rejected, purged, reopened, under a consent that no longer allows
+/// it, or about a work that is gone). `None` when it cannot be told: the
+/// hosted function does not read the consent an approval covers (Third
+/// Perspectives switched off or rolled back), so an approved copy may or may
+/// not be shown.
+fn perspective_must_come_off(
+    site: &Site,
+    third_perspectives: bool,
+    item: &moderation_inbox::InboxItem,
+) -> Option<bool> {
+    match item.perspective() {
+        Some(hosted) => {
+            if !third_perspectives && hosted.state == ModerationState::Approved {
+                return None;
+            }
+            let post = feedback_moderation::post_for_work(site, &hosted.copy.provenance.work);
+            Some(!perspective_publication::PublishedPerspective::shown_now(
+                hosted,
+                post,
+                &site.config,
+            ))
+        }
+        // A purged item keeps no text: nothing of it may stay public.
+        None => Some(item.kind == ParticipationKind::ThirdPerspective),
+    }
+}
+
+/// `POST engagement/third-perspectives/publish` or `/unpublish`: put an
+/// approved Third Perspective on its post again, after a failed write or an
+/// approval made outside Admin, or take one off that may no longer be shown
+/// (a reader withdrew it through their receipt). Only the site Admin of the
+/// item's work may, and only as the hosted copy says now.
+fn sync_published_perspective(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+    publish: bool,
+) -> Response {
     let body = match feedback_body(req) {
         Ok(body) => body,
         Err(response) => return response,
@@ -4895,132 +5344,1674 @@ fn moderate_feedback(state: &AppState, req: &Request, session: &auth::Session) -
         Ok(id) => id,
         Err(response) => return response,
     };
+    let (protocol, third_perspectives, item) =
+        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        inbox.actor(&item).role()
+    });
+    apply_perspective_sync(state, role, third_perspectives, &item, &id, publish)
+}
+
+/// What a publish or take-off does once the hosted copy is read and the
+/// account's role on it is known: only a Third Perspective, only the site
+/// Admin, a publish only of an approved copy the projection shows now, and a
+/// take-off only of one that may not be shown (or cannot be told).
+fn apply_perspective_sync(
+    state: &AppState,
+    role: moderation::ActorRole,
+    third_perspectives: bool,
+    item: &moderation_inbox::InboxItem,
+    id: &str,
+    publish: bool,
+) -> Response {
+    if item.kind != ParticipationKind::ThirdPerspective {
+        return Response::error(404, "No such Third Perspective");
+    }
+    if role != moderation::ActorRole::SiteAdmin {
+        return Response::json(
+            403,
+            &json!({ "error": "Only the site Admin can change what the site publishes.", "code": "denied" }),
+        );
+    }
+    let site = match feedback_site(state) {
+        Ok(site) => site,
+        Err(response) => return response,
+    };
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match third_perspectives_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let outcome = if publish {
+        match item.perspective() {
+            Some(hosted) => publish_approved_perspective(&path, &site, hosted),
+            None => Err("Its text was deleted, so it cannot be published".into()),
+        }
+    } else if perspective_must_come_off(&site, third_perspectives, item) != Some(false) {
+        unpublish_perspective(&path, id)
+    } else {
+        Err("This reflection is approved and the reader's consent allows it, so it stays on the post. Remove it in the inbox to take it off.".into())
+    };
+    if let Err(error) = outcome {
+        return Response::error(409, &error);
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!(
+        "admin: third perspective {id} {}",
+        if publish { "published" } else { "unpublished" }
+    );
+    Response::json(200, &json!({ "published": publish, "build": build }))
+}
+
+/// The most published reflections one audit reads from the hosted copy.
+const PERSPECTIVE_AUDIT_LIMIT: usize = 200;
+
+/// `GET engagement/third-perspectives/published`: every reflection the site
+/// publishes, checked against its hosted copy, so a withdrawal or a removal
+/// that left one on its post is seen on every tab of the inbox, not only on
+/// the card under one filter (ADR 0115). Answers only for the site Admin of
+/// each reflection's work, and lists only the reflections that must come off
+/// or whose hosted state cannot be told (Third Perspectives switched off or
+/// rolled back), never their text.
+fn published_perspectives_audit(state: &AppState, session: &auth::Session) -> Response {
+    let path = match third_perspectives_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let file = match load_third_perspectives(&path) {
+        Ok(file) => file,
+        Err(response) => return response,
+    };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let mut must_come_off = Vec::new();
+    let mut unknown = Vec::new();
+    for record in file.items.iter().take(PERSPECTIVE_AUDIT_LIMIT) {
+        let entry = json!({ "id": record.id, "post": record.post });
+        match hosted_inbox_lookup(state, moderation_inbox::Source::Feedback, &record.id) {
+            Ok(Some((protocol, third_perspectives, item))) => {
+                let (role, state_now) =
+                    sources.inbox(session, protocol, third_perspectives, |inbox| {
+                        (
+                            inbox.actor(&item).role(),
+                            perspective_must_come_off(inbox.site, third_perspectives, &item),
+                        )
+                    });
+                if role != moderation::ActorRole::SiteAdmin {
+                    continue;
+                }
+                match state_now {
+                    Some(true) => must_come_off.push(entry),
+                    None => unknown.push(entry),
+                    Some(false) => {}
+                }
+            }
+            // The hosted copy is gone altogether: nothing may stay public.
+            Ok(None) => {
+                if retention_admin(&sources, session) {
+                    must_come_off.push(entry);
+                }
+            }
+            Err(response) => return response,
+        }
+    }
+    Response::json(
+        200,
+        &json!({
+            "checked": file.items.len().min(PERSPECTIVE_AUDIT_LIMIT),
+            "truncated": file.items.len() > PERSPECTIVE_AUDIT_LIMIT,
+            "mustComeOff": must_come_off,
+            "unknown": unknown,
+        }),
+    )
+}
+
+// ---- The moderation inbox (ADR 0105)
+//
+// One list for hosted comments and passage feedback, driven by the one state
+// machine. The hosted function holds the items; Admin reaches it only
+// through this server, which keeps the token. Each item is read again with a
+// strict validator, given the actor the signed-in account is on that item's
+// work (`SharedWorks::actor`, ADR 0103), shown only as far as that actor may
+// see it, and offered only the decisions the policy accepts now. A decision
+// re-reads the item and decides again before the hosted function, which
+// decides a third time, writes it conditionally with its audit event.
+
+/// One request to the hosted inbox, with the server-held token. A `404` for
+/// a missing item, a `403` refusal and a `409` conflict are returned with
+/// their bodies; anything else becomes a short message naming no secret.
+fn hosted_moderation_call(
+    state: &AppState,
+    query: &[(&str, &str)],
+    body: Option<&Json>,
+) -> Result<(u16, Json), Response> {
+    hosted_inbox_request(
+        state,
+        "admin/moderation",
+        query,
+        body.map(|body| ("PATCH", body)),
+    )
+}
+
+/// One request to a hosted inbox route (`admin/moderation` or
+/// `admin/retention`) with the server-held token: a `GET` with `query`, or
+/// `body` sent with its method.
+fn hosted_inbox_request(
+    state: &AppState,
+    operation: &str,
+    query: &[(&str, &str)],
+    body: Option<(&str, &Json)>,
+) -> Result<(u16, Json), Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    if !config.engagement.enabled || !valid_engagement_endpoint(&config.engagement.endpoint) {
+        return Err(Response::error(
+            404,
+            "Hosted engagement is not turned on: enable it with an endpoint in Settings to moderate comments and reader feedback.",
+        ));
+    }
+    let credential = match engagement_credential(&state.root, &config.engagement.endpoint) {
+        Ok(Some(credential)) => credential,
+        Ok(None) => {
+            return Err(Response::error(
+                503,
+                "Hosted engagement admin credential is not configured",
+            ))
+        }
+        Err(error) => return Err(Response::error(500, &error)),
+    };
+    let mut url = format!(
+        "{}/{operation}",
+        config.engagement.endpoint.trim_end_matches('/')
+    );
+    if !query.is_empty() {
+        url.push('?');
+        url.push_str(
+            &url::form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(query)
+                .finish(),
+        );
+    }
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(20)))
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .user_agent(concat!("open.blog-admin/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into();
+    let authorization = format!("Bearer {credential}");
+    let response = match body {
+        Some(("POST", body)) => agent
+            .post(&url)
+            .header("Authorization", &authorization)
+            .header("Content-Type", "application/json")
+            .send(body.to_string().as_bytes()),
+        Some((_, body)) => agent
+            .patch(&url)
+            .header("Authorization", &authorization)
+            .header("Content-Type", "application/json")
+            .send(body.to_string().as_bytes()),
+        None => agent
+            .get(&url)
+            .header("Authorization", &authorization)
+            .call(),
+    };
+    let mut response = match response {
+        Ok(response) => response,
+        Err(ureq::Error::Timeout(_)) => {
+            return Err(Response::error(504, "Hosted engagement timed out"))
+        }
+        Err(_) => return Err(Response::error(502, "Hosted engagement request failed")),
+    };
+    let status = response.status().as_u16();
+    let bytes = response
+        .body_mut()
+        .with_config()
+        .limit(2 * 1024 * 1024)
+        .read_to_vec()
+        .map_err(|_| Response::error(502, "Cannot read hosted engagement response"))?;
+    let value = serde_json::from_slice::<Json>(&bytes).unwrap_or(Json::Null);
+    hosted_moderation_answer(status, value)
+}
+
+/// What Admin makes of a hosted inbox answer. A refusal's message is passed
+/// on only when short and plain; nothing names the token.
+fn hosted_moderation_answer(status: u16, value: Json) -> Result<(u16, Json), Response> {
+    match status {
+        200 | 409 => Ok((status, value)),
+        403 if value["code"] == "denied" => Ok((status, value)),
+        404 if value["code"] == "notFound" => Ok((status, value)),
+        404 => Err(Response::error(
+            404,
+            "The hosted function does not offer the moderation inbox yet: deploy netlify/functions from this version of open.blog.",
+        )),
+        401 => Err(Response::error(
+            502,
+            "The hosted function refused the saved moderation token",
+        )),
+        422 => Err(Response::json(
+            422,
+            &json!({
+                "error": value["error"]
+                    .as_str()
+                    .filter(|message| message.len() <= 300 && !message.chars().any(char::is_control))
+                    .unwrap_or("The hosted function refused the change"),
+                "code": value["code"].as_str().filter(|code| code.len() <= 40 && code.chars().all(|c| c.is_ascii_alphabetic())),
+            }),
+        )),
+        _ => Err(Response::error(
+            502,
+            &format!("Hosted engagement returned HTTP {status}"),
+        )),
+    }
+}
+
+/// What deciding who a viewer is needs: the site as readers see it now (for
+/// passage checks and modes), the site as Admin loads it, drafts included
+/// (for shared works, ADR 0103), the shared-publication records and the
+/// accounts and contributor keys their bindings must still resolve to.
+struct InboxSources {
+    config: SiteConfig,
+    published: Site,
+    loaded: Site,
+    records: Vec<SharedPublication>,
+    admin_users: Vec<String>,
+    contributor_ids: Vec<String>,
+}
+
+fn inbox_sources(state: &AppState) -> Result<InboxSources, Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    let now = clock::now();
+    let published = site::load_site(&state.root, false, Some(now))
+        .map(|(site, _)| site)
+        .map_err(|error| Response::error(500, &error))?;
+    let loaded = site::load_site(&state.root, true, Some(now))
+        .map(|(site, _)| site)
+        .map_err(|error| Response::error(500, &error))?;
+    let records = crate::shared_publications::load_all(&state.root)
+        .map_err(|error| Response::error(500, &error))?
+        .into_iter()
+        .map(|(_, record)| record)
+        .collect();
+    let (admin_users, contributor_ids) = collaboration_identities(&state.root, &config)?;
+    Ok(InboxSources {
+        config,
+        published,
+        loaded,
+        records,
+        admin_users,
+        contributor_ids,
+    })
+}
+
+impl InboxSources {
+    /// Run `with` on the signed-in account's inbox.
+    fn inbox<T>(
+        &self,
+        session: &auth::Session,
+        protocol: moderation_inbox::Protocol,
+        third_perspectives: bool,
+        with: impl FnOnce(&moderation_inbox::Inbox<'_>) -> T,
+    ) -> T {
+        let works = moderation::SharedWorks::new(&self.records, &self.loaded);
+        let admin_users: Vec<&str> = self.admin_users.iter().map(String::as_str).collect();
+        let contributor_ids: Vec<&str> = self.contributor_ids.iter().map(String::as_str).collect();
+        let identities = Identities {
+            active_admin_users: &admin_users,
+            contributor_ids: &contributor_ids,
+        };
+        with(&moderation_inbox::Inbox {
+            site: &self.published,
+            works: &works,
+            principal: moderation::Principal::AdminSession {
+                admin_user: &session.user,
+            },
+            identities: &identities,
+            policy: moderation::ModerationPolicy::from_config(&self.config),
+            protocol,
+            third_perspectives,
+            now: clock::now(),
+        })
+    }
+}
+
+/// An item as the viewer may see it, with, for passage feedback, whether the
+/// site publishes it now (`null` when the published file cannot be read, so
+/// nothing claims either way).
+fn inbox_view(
+    inbox: &moderation_inbox::Inbox<'_>,
+    item: &moderation_inbox::InboxItem,
+    published: Option<&feedback_publication::ReaderFeedbackFile>,
+    perspectives: Option<&perspective_publication::ThirdPerspectivesFile>,
+) -> Option<Json> {
+    let mut view = inbox.view(item)?;
+    if item.source == moderation_inbox::Source::Feedback {
+        // A Third Perspective is published in third-perspectives.json (ADR
+        // 0115), never in reader-feedback.json; the card also says whether
+        // it must come off its post now.
+        if item.kind == ParticipationKind::ThirdPerspective {
+            view["published"] = match perspectives {
+                Some(file) => json!(file.get(&item.id).is_some()),
+                None => Json::Null,
+            };
+            // `null` when the hosted copy cannot say (the flag is off or rolled back).
+            view["mayBeShown"] =
+                match perspective_must_come_off(inbox.site, inbox.third_perspectives, item) {
+                    Some(must) => json!(!must),
+                    None => Json::Null,
+                };
+        } else {
+            view["published"] = match published {
+                Some(file) => json!(file.get(&item.id).is_some()),
+                None => Json::Null,
+            };
+            // Whether the decision on the post is the one in force: a decision recorded when
+            // the file write failed leaves it behind, and the inbox offers to update it.
+            if let (Some(entry), Some(hosted)) = (
+                published.and_then(|file| file.get(&item.id)),
+                item.feedback().filter(|hosted| hosted.decisions.is_some()),
+            ) {
+                let in_force = hosted.decisions.as_ref().and_then(|log| {
+                    feedback_publication::PublishedDecision::in_force(log, hosted.revision)
+                });
+                view["decisionPublished"] = json!(feedback_publication::PublishedDecision::agrees(
+                    entry.decision.as_ref(),
+                    in_force.as_ref()
+                ));
+            }
+        }
+    }
+    Some(view)
+}
+
+fn published_feedback_file(state: &AppState) -> Option<feedback_publication::ReaderFeedbackFile> {
+    reader_feedback_path(state)
+        .and_then(|path| load_reader_feedback(&path))
+        .ok()
+        .map(|(file, _)| file)
+}
+
+/// `GET engagement/moderation?state=&kind=&after=`: one page of the inbox,
+/// oldest first, holding only what this account may see. Nothing counts what
+/// it may not see, so no count or preview reveals a pending item
+/// (`collect_inbox_page`).
+fn moderation_inbox_page(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let wanted_state = req.query.get("state").map_or("pending", String::as_str);
+    let Some(wanted_state) = moderation::ModerationState::from_id(wanted_state) else {
+        return Response::error(422, "Unknown moderation state");
+    };
+    let kind = req.query.get("kind").map_or("", String::as_str);
+    if !kind.is_empty() && ParticipationKind::from_id(kind).is_none() {
+        return Response::error(422, "Unknown participation kind");
+    }
+    let after = req.query.get("after").map_or("", String::as_str);
+    if !after.is_empty() && !moderation_inbox::is_cursor(after) {
+        return Response::error(422, "Invalid page cursor");
+    }
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let bound = sources.records.iter().any(|record| {
+        record
+            .authorization
+            .bindings
+            .iter()
+            .any(|binding| binding.admin_user == session.user)
+    });
+    let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
+    let page_size = moderation_inbox::PAGE_SIZE.to_string();
+    let collected = collect_inbox_page(
+        bound,
+        (!after.is_empty()).then(|| after.to_string()),
+        |cursor| {
+            let mut query = vec![("state", wanted_state.id()), ("limit", page_size.as_str())];
+            if !kind.is_empty() {
+                query.push(("kind", kind));
+            }
+            if let Some(cursor) = cursor {
+                query.push(("after", cursor));
+            }
+            match hosted_moderation_call(state, &query, None) {
+                Ok((200, value)) => moderation_inbox::read_page(&value)
+                    .map_err(|error| Response::error(502, &error)),
+                Ok(_) => Err(Response::error(
+                    502,
+                    "hosted engagement returned an invalid inbox",
+                )),
+                Err(response) => Err(response),
+            }
+        },
+        |page| {
+            sources.inbox(session, page.protocol, page.third_perspectives, |inbox| {
+                let shown: Vec<(&moderation_inbox::InboxItem, Json)> = page
+                    .items
+                    .iter()
+                    .filter_map(|item| {
+                        inbox_view(inbox, item, published.as_ref(), perspectives.as_ref())
+                            .map(|view| (item, view))
+                    })
+                    .collect();
+                // Possible duplicates, among the items this account may see.
+                let visible: Vec<&moderation_inbox::InboxItem> =
+                    shown.iter().map(|(item, _)| *item).collect();
+                let cues = moderation_inbox::similar_items(&visible);
+                shown
+                    .into_iter()
+                    .map(|(item, mut view)| {
+                        if let Some(similar) = cues.get(&item.id) {
+                            view["similar"] = json!(similar);
+                        }
+                        view
+                    })
+                    .collect()
+            })
+        },
+    );
+    let mut collected = match collected {
+        Ok(collected) => collected,
+        Err(response) => return response,
+    };
+    add_decision_choices(state, &sources.published, &mut collected.items);
+    Response::json(
+        200,
+        &json!({
+            "state": wanted_state.id(),
+            "kind": kind,
+            "protocol": collected.protocol.id(),
+            "items": collected.items,
+            "invalid": collected.invalid,
+            "next": collected.next,
+        }),
+    )
+}
+
+/// One page of the inbox as one account sees it.
+struct CollectedPage {
+    protocol: moderation_inbox::Protocol,
+    items: Vec<Json>,
+    invalid: usize,
+    next: Option<String>,
+}
+
+/// The most hosted pages one inbox page may read for an account that may not
+/// see every item.
+const MAX_INBOX_REQUESTS: usize = 20;
+
+/// Read hosted pages from `cursor`, keeping what `visible` lets the account
+/// see. An account that sees everything gets one hosted page. One `bound` in
+/// a shared publication, which may not, is given further pages until it has
+/// a page of items it may see, the list ends or `MAX_INBOX_REQUESTS` pages
+/// were read, so an empty page or a next link never betrays items hidden
+/// from it (at the cap with nothing it may see, the list ends for it); and
+/// it is never told how many items failed validation, which it
+/// might not have been allowed to see.
+fn collect_inbox_page(
+    bound: bool,
+    mut cursor: Option<String>,
+    mut fetch: impl FnMut(Option<&str>) -> Result<moderation_inbox::HostedPage, Response>,
+    mut visible: impl FnMut(&moderation_inbox::HostedPage) -> Vec<Json>,
+) -> Result<CollectedPage, Response> {
+    let mut items = Vec::new();
+    let mut invalid = 0;
+    let mut requests = 0;
+    loop {
+        let page = fetch(cursor.as_deref())?;
+        requests += 1;
+        invalid += page.invalid;
+        items.extend(visible(&page));
+        cursor = page.next.clone();
+        if !bound
+            || cursor.is_none()
+            || items.len() >= moderation_inbox::PAGE_SIZE
+            || requests >= MAX_INBOX_REQUESTS
+        {
+            // A bound account that reached the cap seeing nothing is told
+            // the list ended: a next link would say hidden items exist.
+            let next = if bound && items.is_empty() {
+                None
+            } else {
+                cursor
+            };
+            return Ok(CollectedPage {
+                protocol: page.protocol,
+                items,
+                invalid: if bound { 0 } else { invalid },
+                next,
+            });
+        }
+    }
+}
+
+/// One item read again from the hosted inbox, with what it can store.
+fn hosted_inbox_item(
+    state: &AppState,
+    source: moderation_inbox::Source,
+    id: &str,
+) -> Result<
+    (
+        moderation_inbox::Protocol,
+        bool,
+        moderation_inbox::InboxItem,
+    ),
+    Response,
+> {
+    hosted_inbox_lookup(state, source, id)?.ok_or_else(|| Response::error(404, "No such item"))
+}
+
+/// The same, with `None` for an item the hosted function answers it does not
+/// hold, which is not an error of reaching it.
+#[allow(clippy::type_complexity)]
+fn hosted_inbox_lookup(
+    state: &AppState,
+    source: moderation_inbox::Source,
+    id: &str,
+) -> Result<
+    Option<(
+        moderation_inbox::Protocol,
+        bool,
+        moderation_inbox::InboxItem,
+    )>,
+    Response,
+> {
+    let (_, value) = hosted_moderation_call(state, &[("id", id), ("source", source.id())], None)?;
+    let page = moderation_inbox::read_page(&value).map_err(|error| Response::error(502, &error))?;
+    if page.invalid > 0 {
+        return Err(Response::error(
+            502,
+            "The hosted item is not valid; it was not changed",
+        ));
+    }
+    let protocol = page.protocol;
+    let third_perspectives = page.third_perspectives;
+    Ok(page
+        .items
+        .into_iter()
+        .find(|item| item.id == id && item.source == source)
+        .map(|item| (protocol, third_perspectives, item)))
+}
+
+const INBOX_CHANGED: &str = "This item changed since you loaded it. Review it again before acting.";
+
+// ---- The retention job (ADRs 0104 and 0108)
+//
+// Retention never runs on its own. The site Admin asks for a dry run, which
+// lists what is due under the site's periods without changing anything,
+// then runs it; both Admin and the hosted function decide each item's step,
+// and only items both agree on, still as they were, are changed. Comments
+// are part of a run only when the site set `participation.retention`.
+
+/// Whether the signed-in account is the site Admin for every work: bound in
+/// no shared publication, so retention, which spans every work, is theirs.
+fn retention_admin(sources: &InboxSources, session: &auth::Session) -> bool {
+    !sources.records.iter().any(|record| {
+        record
+            .authorization
+            .bindings
+            .iter()
+            .any(|binding| binding.admin_user == session.user)
+    })
+}
+
+/// The run's due items, as both Admin and the hosted function decide them
+/// at `as_of`, with what the hosted dry run reported.
+struct RetentionPlan {
+    cutoffs: moderation::RetentionCutoffs,
+    items: Vec<(moderation_inbox::InboxItem, moderation::RetentionStep)>,
+    audit: Json,
+    truncated: bool,
+    disagreed: usize,
+}
+
+fn retention_step_id(step: moderation::RetentionStep) -> &'static str {
+    match step {
+        moderation::RetentionStep::Expire => "expire",
+        moderation::RetentionStep::PurgeContent => "purge-content",
+    }
+}
+
+fn retention_plan(
+    state: &AppState,
+    policy: &moderation::ModerationPolicy,
+    as_of: DateTime,
+) -> Result<RetentionPlan, Response> {
+    let cutoffs = policy.cutoffs(as_of);
+    let wire = cutoffs.to_json();
+    let comments = if cutoffs.comments { "true" } else { "false" };
+    let query: Vec<(&str, &str)> = [
+        "pendingUntil",
+        "clarificationUntil",
+        "closedUntil",
+        "auditUntil",
+    ]
+    .into_iter()
+    .map(|key| (key, wire[key].as_str().unwrap_or_default()))
+    .chain([("comments", comments)])
+    .collect();
+    let value = match hosted_inbox_request(state, "admin/retention", &query, None) {
+        Ok((200, value)) => value,
+        Ok(_) => return Err(Response::error(502, "hosted engagement returned an invalid retention report")),
+        Err(response) if response.status == 404 => {
+            return Err(Response::error(
+                404,
+                "Retention needs the hosted protection schema: run supabase/protection.sql, then set OPENBLOG_PROTECTION_ENABLED=true in Netlify.",
+            ))
+        }
+        Err(response) => return Err(response),
+    };
+    let rows = value["items"]
+        .as_array()
+        .filter(|rows| rows.len() <= 3 * 200)
+        .ok_or_else(|| {
+            Response::error(
+                502,
+                "hosted engagement returned an invalid retention report",
+            )
+        })?;
+    let mut items = Vec::new();
+    let mut disagreed = 0;
+    for row in rows {
+        let hosted_step = row["step"].as_str().unwrap_or_default().to_string();
+        let mut row = row.clone();
+        if let Some(object) = row.as_object_mut() {
+            object.remove("step");
+        }
+        let item = moderation_inbox::InboxItem::from_value(&row);
+        let step = item
+            .as_ref()
+            .ok()
+            .and_then(|item| policy.retention_due(&item.facts(), as_of));
+        match (item, step) {
+            (Ok(item), Some(step)) if retention_step_id(step) == hosted_step => {
+                if item.source != moderation_inbox::Source::Comment || cutoffs.comments {
+                    items.push((item, step));
+                } else {
+                    disagreed += 1;
+                }
+            }
+            _ => disagreed += 1,
+        }
+    }
+    let audit = value["audit"].clone();
+    let audit = if audit.as_object().is_some_and(|counts| {
+        counts.len() <= 3 && counts.values().all(|count| count.as_u64().is_some())
+    }) {
+        audit
+    } else {
+        json!({})
+    };
+    Ok(RetentionPlan {
+        cutoffs,
+        items,
+        audit,
+        truncated: value["truncated"] == true,
+        disagreed,
+    })
+}
+
+/// The dry run as Admin shows it: counts by step and kind, and each item's
+/// facts, never its text or a reader's name.
+fn retention_report(
+    policy: &moderation::ModerationPolicy,
+    as_of: DateTime,
+    plan: &RetentionPlan,
+) -> Json {
+    let mut summary: std::collections::BTreeMap<(&str, &str), (usize, &str)> =
+        std::collections::BTreeMap::new();
+    for (item, step) in &plan.items {
+        summary
+            .entry((retention_step_id(*step), item.kind.id()))
+            .or_insert((0, item.kind.label()))
+            .0 += 1;
+    }
+    json!({
+        "asOf": as_of.rfc3339(),
+        "periods": {
+            "pendingDays": policy.retention.pending_days,
+            "clarificationDays": policy.retention.clarification_days,
+            "closedDays": policy.retention.closed_days,
+            "auditDays": policy.retention.audit_days,
+            "comments": policy.comment_retention,
+        },
+        "cutoffs": plan.cutoffs.to_json(),
+        "summary": summary.into_iter().map(|((step, kind), (count, label))| json!({"step": step, "kind": kind, "kindLabel": label, "count": count})).collect::<Vec<_>>(),
+        "items": plan.items.iter().map(|(item, step)| json!({
+            "source": item.source.id(), "id": item.id, "kind": item.kind.id(), "kindLabel": item.kind.label(),
+            "status": item.state.id(), "statusLabel": item.state.label(), "since": item.facts().state_since.rfc3339(),
+            "step": retention_step_id(*step), "work": item.work,
+        })).collect::<Vec<_>>(),
+        "audit": plan.audit,
+        "truncated": plan.truncated,
+        "skipped": plan.disagreed,
+    })
+}
+
+/// `GET engagement/retention`: the dry run. Nothing changes.
+fn retention_dry_run(state: &AppState, session: &auth::Session) -> Response {
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    if !retention_admin(&sources, session) {
+        return Response::error(
+            403,
+            "Only the site Admin runs retention, because it covers every post.",
+        );
+    }
+    let policy = moderation::ModerationPolicy::from_config(&sources.config);
+    let as_of = clock::now();
+    match retention_plan(state, &policy, as_of) {
+        Ok(plan) => Response::json(200, &retention_report(&policy, as_of, &plan)),
+        Err(response) => response,
+    }
+}
+
+/// `POST engagement/retention` with the dry run's `asOf` (at most an hour
+/// old) and whether to delete old audit events: runs exactly what is due at
+/// that time and still as it was, and reports what it did.
+fn run_retention(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let now = clock::now();
+    let Some(as_of) = body["asOf"]
+        .as_str()
+        .and_then(DateTime::parse)
+        .filter(|as_of| as_of.unix() <= now.unix() && now.unix() - as_of.unix() <= 3_600)
+    else {
+        return Response::error(
+            422,
+            "Check what retention would do again, then run it within the hour.",
+        );
+    };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    if !retention_admin(&sources, session) {
+        return Response::error(
+            403,
+            "Only the site Admin runs retention, because it covers every post.",
+        );
+    }
+    let policy = moderation::ModerationPolicy::from_config(&sources.config);
+    let plan = match retention_plan(state, &policy, as_of) {
+        Ok(plan) => plan,
+        Err(response) => return response,
+    };
+    let mut request = plan.cutoffs.to_json();
+    request["audit"] = json!(body["audit"] == true);
+    request["items"] = Json::Array(
+        plan.items
+            .iter()
+            .take(200)
+            .map(|(item, step)| json!({"source": item.source.id(), "id": item.id, "version": item.version, "step": retention_step_id(*step)}))
+            .collect(),
+    );
+    let result = match hosted_inbox_request(state, "admin/retention", &[], Some(("POST", &request)))
+    {
+        Ok((200, value)) => value,
+        Ok(_) => {
+            return Response::error(
+                502,
+                "hosted engagement returned an invalid retention result",
+            )
+        }
+        Err(response) => return response,
+    };
+    let count = |key: &str| result[key].as_u64().unwrap_or(0);
+    eprintln!(
+        "admin: retention by {} expired {} purged {} skipped {}",
+        session.user,
+        count("expired"),
+        count("purged"),
+        count("skipped")
+    );
+    Response::json(
+        200,
+        &json!({
+            "expired": count("expired"),
+            "purged": count("purged"),
+            "skipped": count("skipped") as usize + plan.disagreed,
+            "auditDeleted": result["auditDeleted"].as_object().map(|counts| counts.values().filter_map(Json::as_u64).sum::<u64>()),
+            "more": plan.truncated || plan.items.len() > 200,
+        }),
+    )
+}
+
+/// `PATCH engagement/moderation`: one decision on one item. The request names
+/// the item's source, id, state and version as loaded, the action, a reason
+/// when it takes one and, to approve passage feedback whose passage is not
+/// current, the passage check the moderator read. Nothing about who is
+/// acting comes from the request.
+fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let Some(source) = body["source"]
+        .as_str()
+        .and_then(moderation_inbox::Source::from_id)
+    else {
+        return Response::error(422, "Name the item's source: comment, feedback or report");
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    // A deletion request is not a moderation transition: it purges the
+    // item's text and name and leaves its state as it is (ADR 0107).
+    let erase = body["action"].as_str() == Some(moderation_inbox::ERASE_ACTION);
+    let action = if erase {
+        None
+    } else {
+        match body["action"]
+            .as_str()
+            .and_then(moderation::ModerationAction::from_id)
+            .filter(|action| {
+                moderation_inbox::INBOX_ACTIONS.contains(action)
+                    || *action == moderation::ModerationAction::UpholdReport
+            }) {
+            Some(action) => Some(action),
+            None => return Response::error(422, "Choose one of the item's actions"),
+        }
+    };
     let Some(version) = body["version"]
         .as_u64()
         .filter(|version| (1..=i32::MAX as u64).contains(version))
     else {
         return Response::error(422, "Send the item's version as you loaded it");
     };
-    let Some(from) = body["from"].as_str().and_then(ModerationState::from_id) else {
+    let Some(from) = body["from"]
+        .as_str()
+        .and_then(moderation::ModerationState::from_id)
+    else {
         return Response::error(422, "Send the item's state as you loaded it");
     };
-    let change = match feedback_moderation::plan(
-        from,
-        body["action"].as_str().unwrap_or(""),
-        body["reason"].as_str(),
-    ) {
-        Ok(change) => change,
-        Err(error) => return Response::error(422, &error.message),
+    let reason = match &body["reason"] {
+        Json::Null => None,
+        Json::String(id) if id.is_empty() => None,
+        Json::String(id) => match moderation::ReasonCode::from_id(id) {
+            Some(reason) => Some(reason),
+            None => {
+                return Response::json(
+                    422,
+                    &json!({ "error": "Choose one of the listed reasons.", "code": "reasonNotAllowed" }),
+                )
+            }
+        },
+        _ => return Response::error(422, "A reason is a reason code"),
     };
-    let item = match hosted_feedback_item(state, &id) {
-        Ok(item) => item,
+    let (protocol, third_perspectives, item) = match hosted_inbox_item(state, source, &id) {
+        Ok(found) => found,
         Err(response) => return response,
     };
-    let site = match feedback_site(state) {
-        Ok(site) => site,
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
         Err(response) => return response,
     };
-    let conflict = |item: &HostedFeedback, message: &str| {
-        Response::json(
-            409,
-            &json!({ "error": message, "code": "conflict", "item": feedback_moderation::moderation_view(item, &site) }),
-        )
+    let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
+    // A Third Perspective's approval names the text revision and consent
+    // record the moderator saw (ADR 0111); both are checked again here and
+    // by the hosted function and the database.
+    let seen = |key: &str| {
+        body[key]
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value >= 1)
     };
-    const CHANGED: &str = "This item changed since you loaded it. Review it again before acting.";
-    if item.status != from || item.version != version {
-        return conflict(&item, CHANGED);
-    }
-    if change.action == ModerationAction::Approve
-        && !approval_acknowledged(&item, &site, body["acknowledge"].as_str())
-    {
-        return conflict(
-            &item,
-            "The passage is not where the reader saw it. Read the passage check as it is now and confirm it before approving.",
+    let approving_perspective =
+        action == Some(moderation::ModerationAction::Approve) && item.perspective().is_some();
+    let seen_perspective = (seen("seenRevision"), seen("seenConsent"));
+    if approving_perspective && (seen_perspective.0.is_none() || seen_perspective.1.is_none()) {
+        return Response::error(
+            422,
+            "Send the reflection's revision and consent record as you reviewed them",
         );
     }
-    let request = json!({
-        "id": id,
-        "action": change.action.id(),
-        "from": change.from.id(),
-        "expectedVersion": version,
-        "reason": change.reason.map(|reason| reason.id()),
-        "actor": session.user,
-    });
-    let value = match hosted_feedback_call(state, &[], Some(&request)) {
-        Ok((200, value)) => value,
-        Ok((409, value)) => {
-            return match HostedFeedback::from_value(&value["item"]) {
-                Ok(current) => conflict(&current, CHANGED),
-                Err(_) => Response::error(409, CHANGED),
+    // Decided here first, with this account's role on the item's work: the
+    // state the item ends in, and the item an upheld report takes down.
+    let decided = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        let view = inbox_view(inbox, &item, published.as_ref(), perspectives.as_ref());
+        let role = inbox.actor(&item).role();
+        let binding = match seen_perspective {
+            (Some(revision), Some(consent)) if approving_perspective => {
+                Some(inbox.check_perspective_approval(&item, &session.user, revision, consent))
             }
-        }
-        Ok(_) => return Response::error(404, "No such feedback item"),
-        Err(response) => return response,
+            _ => None,
+        };
+        let decision = match action {
+            Some(action) => inbox
+                .decide(&item, action, version, reason)
+                .map(|decision| {
+                    (
+                        decision.item.to,
+                        decision.reported_item.map(|change| change.item),
+                    )
+                }),
+            None if reason.is_some() => Err(moderation::PolicyError::ReasonNotAllowed),
+            None => inbox
+                .erase(&item, version)
+                .map(|erasure| (erasure.state, None)),
+        };
+        (view, role, decision, binding)
+    });
+    let (view, role, decision, binding) = decided;
+    let conflict = |view: Option<Json>, message: &str| {
+        Response::json(
+            409,
+            &json!({ "error": message, "code": "conflict", "item": view }),
+        )
     };
-    let changed = match HostedFeedback::from_value(&value["item"]) {
-        Ok(changed) if changed.id == id && changed.status == change.to => changed,
-        _ => {
-            return Response::error(
-                502,
-                "hosted engagement returned an invalid moderation response",
+    let decision = match decision {
+        Err(moderation::PolicyError::Denied) => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot take this decision on this item.", "code": "denied" }),
+            )
+        }
+        Err(moderation::PolicyError::Stale) => return conflict(view, INBOX_CHANGED),
+        Err(error) => {
+            return Response::json(
+                422,
+                &json!({ "error": format!("{}.", capitalize(&error.to_string())), "code": error.code() }),
+            )
+        }
+        Ok(_) if item.state != from => return conflict(view, INBOX_CHANGED),
+        Ok(decision) => decision,
+    };
+    let (decided_to, removed_target) = decision;
+    let binding = match binding {
+        None => None,
+        Some(Ok(binding)) => Some(binding),
+        Some(Err(
+            error @ (third_perspective::LifecycleError::StaleRevision
+            | third_perspective::LifecycleError::StaleConsent
+            | third_perspective::LifecycleError::OutOfStep),
+        )) => return conflict(view, &format!("{}.", capitalize(&error.to_string()))),
+        Some(Err(error)) => {
+            return Response::json(
+                422,
+                &json!({ "error": format!("{}.", capitalize(&error.to_string())), "code": error.code() }),
             )
         }
     };
-    eprintln!(
-        "admin: feedback {id} {} by {}",
-        change.action.id(),
-        session.user
+    // A passage that moved or changed is approved only once the moderator
+    // has confirmed the check they read (ADR 0083).
+    if action == Some(moderation::ModerationAction::Approve) {
+        if let Some(hosted) = item.feedback() {
+            if !feedback_moderation::approval_acknowledged(
+                &hosted.feedback,
+                &sources.published,
+                body["acknowledge"].as_str(),
+            ) {
+                return conflict(
+                    view,
+                    "The passage is not where the reader saw it. Read the passage check as it is now and confirm it before approving.",
+                );
+            }
+        }
+    }
+    let action_id = action.map_or(
+        moderation_inbox::ERASE_ACTION,
+        moderation::ModerationAction::id,
     );
-    // What the site publishes follows the decision.
-    let mut published = false;
+    let mut request = json!({
+        "source": source.id(),
+        "id": id,
+        "action": action_id,
+        "from": item.state.id(),
+        "expectedVersion": version,
+        "reason": reason.map(moderation::ReasonCode::id),
+        "actor": session.user,
+        "actorRole": role.id(),
+    });
+    if let Some(binding) = &binding {
+        request["seenRevision"] = json!(binding.revision);
+        request["seenConsent"] = json!(binding.consent);
+    }
+    if action == Some(moderation::ModerationAction::UpholdReport) {
+        // The hosted function upholds only while the reported item is
+        // exactly as this decision saw it (ADR 0104).
+        request["targetVersion"] = json!(item.target.as_ref().map(|target| target.version));
+    }
+    let reread = |value: &Json| moderation_inbox::InboxItem::from_value(&value["item"]).ok();
+    let changed = match hosted_moderation_call(state, &[], Some(&request)) {
+        Ok((200, value)) => match reread(&value) {
+            Some(changed)
+                if changed.id == id
+                    && stored_as(protocol, &changed, decided_to)
+                    && (!erase || changed.content == moderation_inbox::Content::Purged) =>
+            {
+                changed
+            }
+            _ => {
+                return Response::error(
+                    502,
+                    "hosted engagement returned an invalid moderation response",
+                )
+            }
+        },
+        Ok((409, value)) => {
+            let current = reread(&value).and_then(|current| {
+                sources.inbox(session, protocol, third_perspectives, |inbox| {
+                    inbox_view(inbox, &current, published.as_ref(), perspectives.as_ref())
+                })
+            });
+            return conflict(current, INBOX_CHANGED);
+        }
+        Ok((403, _)) => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot take this decision on this item.", "code": "denied" }),
+            )
+        }
+        Ok(_) => return Response::error(404, "No such item"),
+        Err(response) => return response,
+    };
+    eprintln!(
+        "admin: moderation {} {id} {action_id} by {} as {}",
+        source.id(),
+        session.user,
+        role.id()
+    );
+    // What the site publishes of passage feedback and Third Perspectives
+    // follows the decision: an approval publishes the note or reflection; a
+    // removal, an upheld report that took one down, or a deletion request
+    // takes it off its post. Each kind has its own file (ADRs 0083, 0115).
+    let approve = action == Some(moderation::ModerationAction::Approve);
+    let unpublish = match (&item.target, &removed_target) {
+        (Some(target), Some(_)) if target.source == moderation_inbox::Source::Feedback => Some((
+            target.id.clone(),
+            target.kind == ParticipationKind::ThirdPerspective,
+        )),
+        _ if source == moderation_inbox::Source::Feedback
+            && (erase || action == Some(moderation::ModerationAction::Remove)) =>
+        {
+            Some((id.clone(), item.kind == ParticipationKind::ThirdPerspective))
+        }
+        _ => None,
+    };
+    let unpublish = unpublish.filter(|(target, perspective)| {
+        // Only touch the file when the item is on it, or for a removal,
+        // which always says what the file holds.
+        action == Some(moderation::ModerationAction::Remove)
+            || if *perspective {
+                perspectives
+                    .as_ref()
+                    .is_none_or(|file| file.get(target).is_some())
+            } else {
+                published
+                    .as_ref()
+                    .is_none_or(|file| file.get(target).is_some())
+            }
+    });
+    let mut published_now = false;
     let mut publish_error = None;
     let mut build = None;
-    if matches!(
-        change.action,
-        ModerationAction::Approve | ModerationAction::Remove
-    ) {
+    let approved_note = changed.feedback().filter(|_| approve);
+    let approved_perspective = changed.perspective().filter(|_| approve);
+    if approved_note.is_some() || approved_perspective.is_some() || unpublish.is_some() {
         let mut status = lock(&state.build);
         let _transaction = match content_transaction(state) {
             Ok(lock) => lock,
             Err(response) => return response,
         };
-        let outcome = reader_feedback_path(state)
-            .map_err(|_| "reader-feedback.json cannot be written".to_string())
-            .and_then(|path| {
-                if change.action == ModerationAction::Approve {
-                    publish_approved_feedback(&path, &site, &changed)
-                } else {
-                    unpublish_feedback(&path, &id)
-                }
-            });
+        let feedback_path = || {
+            reader_feedback_path(state)
+                .map_err(|_| "reader-feedback.json cannot be written".to_string())
+        };
+        let perspectives_path = || {
+            third_perspectives_path(state)
+                .map_err(|_| "third-perspectives.json cannot be written".to_string())
+        };
+        let outcome = match (approved_note, approved_perspective, &unpublish) {
+            (Some(hosted), _, _) => feedback_path().and_then(|path| {
+                publish_approved_feedback(
+                    &path,
+                    &sources.published,
+                    hosted,
+                    claims_for_publication(state).as_ref(),
+                )
+            }),
+            (None, Some(hosted), _) => perspectives_path()
+                .and_then(|path| publish_approved_perspective(&path, &sources.published, hosted)),
+            (None, None, Some((target, true))) => {
+                perspectives_path().and_then(|path| unpublish_perspective(&path, target))
+            }
+            (None, None, Some((target, false))) => {
+                feedback_path().and_then(|path| unpublish_feedback(&path, target))
+            }
+            (None, None, None) => Ok(()),
+        };
         match outcome {
             Ok(()) => {
-                published = change.action == ModerationAction::Approve;
+                published_now = approve;
                 build = Some(feedback_build_json(&state.rebuild_locked(&mut status)));
             }
             Err(error) => {
-                // A removal that could not be written leaves the note on the
+                // A removal that could not be written leaves the item on the
                 // post; say so when the file says so.
-                if change.action == ModerationAction::Remove {
-                    published = reader_feedback_path(state)
-                        .and_then(|path| load_reader_feedback(&path))
-                        .is_ok_and(|(file, _)| file.get(&id).is_some());
+                match &unpublish {
+                    Some((target, true)) => {
+                        published_now = third_perspectives_path(state)
+                            .and_then(|path| load_third_perspectives(&path))
+                            .is_ok_and(|file| file.get(target).is_some());
+                    }
+                    Some((target, false)) => {
+                        published_now = reader_feedback_path(state)
+                            .and_then(|path| load_reader_feedback(&path))
+                            .is_ok_and(|(file, _)| file.get(target).is_some());
+                    }
+                    None => {}
                 }
                 publish_error = Some(error)
             }
         }
     }
-    let mut view = feedback_moderation::moderation_view(&changed, &site);
-    view["published"] = json!(published);
+    let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
+    let view = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        inbox_view(inbox, &changed, published.as_ref(), perspectives.as_ref())
+    });
     Response::json(
         200,
         &json!({
             "item": view,
-            "published": published,
+            "published": published_now,
             "publishError": publish_error,
+            "build": build,
+            "removedTarget": removed_target.is_some(),
+        }),
+    )
+}
+
+// ---- Correction decisions (ADR 0117)
+//
+// The author's decision about what a reader's suggested source or correction
+// meant for the work, recorded from the Moderation inbox beside moderation,
+// never instead of it. Admin decides it with the one policy and this
+// account's role on the item's work, checks it against the post's own
+// revision notes and the claims file, and the hosted function checks it
+// again from the stored row before appending it to the item's log with an
+// audit event. A decision never edits a post, a citation, a claim or the
+// Source Library: revision notes and evidence links are recorded first,
+// with their own tools, and the decision points at them. Nothing is
+// e-mailed to anyone.
+
+/// What a decision needs that only this server holds: the post's
+/// `evidenceRevisions` items exactly as written, and the claims file.
+fn post_revision_items(state: &AppState, post: &str) -> Result<Vec<String>, String> {
+    let config = site::load_config(&state.root)?;
+    let path = resolve_content_path(&state.root, &config, post)?;
+    let source = fs::read_to_string(&path).map_err(|_| "No such post".to_string())?;
+    let document = frontmatter::parse(&source)?;
+    Ok(
+        match document
+            .front_matter
+            .fields
+            .get(openblog_core::claim_publication::REVISIONS_FIELD)
+        {
+            Some(Value::List(items)) => items.clone(),
+            Some(Value::Scalar(item)) if !item.trim().is_empty() => vec![item.clone()],
+            _ => Vec::new(),
+        },
+    )
+}
+
+/// The decision form's choices that only this server can list, added to the
+/// items of an inbox page that offer "Record decision": the post's revision
+/// notes as written, and the evidence links in the claims file on the post's
+/// claims. Both are recorded with their own tools; the form only points at
+/// them.
+fn add_decision_choices(state: &AppState, published: &Site, items: &mut [Json]) {
+    let offered = |item: &Json| item["recordDecision"].is_object();
+    if !items.iter().any(offered) {
+        return;
+    }
+    let claims = claims_store::load(&state.root, &source_contributors(state))
+        .ok()
+        .map(|snapshot| snapshot.claims);
+    let mut notes: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for item in items.iter_mut().filter(|item| offered(item)) {
+        let Some(post) = item["recordDecision"]["post"].as_str().map(str::to_string) else {
+            item["recordDecision"]["revisionNotes"] = json!([]);
+            item["recordDecision"]["claimEvidence"] = json!([]);
+            continue;
+        };
+        let items_of = notes
+            .entry(post.clone())
+            .or_insert_with(|| post_revision_items(state, &post).unwrap_or_default());
+        item["recordDecision"]["revisionNotes"] = json!(items_of);
+        let slug = published
+            .posts
+            .iter()
+            .find(|candidate| candidate.source.replace('\\', "/") == post)
+            .map(|candidate| candidate.slug.as_str());
+        let links: Vec<Json> = match (&claims, slug) {
+            (Some(set), Some(slug)) => set
+                .claims
+                .iter()
+                .filter(|claim| claim.post == slug)
+                .flat_map(|claim| {
+                    set.links_of(&claim.id)
+                        .filter(|link| set.is_projected(link))
+                        .map(move |link| {
+                        json!({
+                            "claim": claim.id,
+                            "link": link.id,
+                            "label": format!("{} → {} ({}, {})", claim.id, link.id, link.relation.as_str(), link.evidence.source),
+                        })
+                    })
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        item["recordDecision"]["claimEvidence"] = Json::Array(links);
+    }
+}
+
+/// A decision request's content, read strictly: ids from their closed lists,
+/// links as `{post, note}` and `{claim, link}`, and text as given (the policy
+/// trims and bounds it).
+fn decision_content(
+    body: &Json,
+) -> Result<openblog_core::correction_decision::DecisionContent, String> {
+    use openblog_core::correction_decision::{
+        ClaimEvidenceRef, DecisionContent, DecisionOutcome, DeclineReason, Extent, RevisionLink,
+    };
+    let text = |key: &str| -> Result<Option<String>, String> {
+        match &body[key] {
+            Json::Null => Ok(None),
+            Json::String(value) if value.trim().is_empty() => Ok(None),
+            Json::String(value) => Ok(Some(value.clone())),
+            _ => Err(format!("`{key}` must be text")),
+        }
+    };
+    let outcome = body["outcome"]
+        .as_str()
+        .and_then(DecisionOutcome::from_id)
+        .ok_or("Choose what you decided")?;
+    let extent = text("extent")?
+        .map(|id| Extent::from_id(&id).ok_or("Choose all of it or part of it"))
+        .transpose()?;
+    let decline_reason = text("declineReason")?
+        .map(|id| DeclineReason::from_id(&id).ok_or("Choose one of the listed reasons"))
+        .transpose()?;
+    let revision_note = match &body["revisionNote"] {
+        Json::Null => None,
+        value => Some(
+            serde_json::from_value::<RevisionLink>(value.clone())
+                .map_err(|_| "A revision note is the post and one of its notes")?,
+        ),
+    };
+    let claim_evidence = match &body["claimEvidence"] {
+        Json::Null => None,
+        value => Some(
+            serde_json::from_value::<ClaimEvidenceRef>(value.clone())
+                .map_err(|_| "Claim evidence is a claim and one of its evidence links")?,
+        ),
+    };
+    Ok(DecisionContent {
+        outcome,
+        extent,
+        decline_reason,
+        rationale: text("rationale")?,
+        revision_note,
+        claim_evidence,
+        addressed_by: text("addressedBy")?,
+    })
+}
+
+/// Whether the text revision the author read is the item's now. A
+/// clarification the reader answered raises it, and a decision is only ever
+/// about the text its author saw.
+fn decision_revision_is_current(seen: u64, current: u32) -> bool {
+    seen == u64::from(current)
+}
+
+/// Whether the hosted function refused a decision because the item changed
+/// under the author (stale, closed, or awaiting the reader's answer), as
+/// opposed to refusing its content.
+fn hosted_decision_changed(response: &Response) -> bool {
+    serde_json::from_slice::<Json>(&response.body)
+        .ok()
+        .and_then(|body| body["code"].as_str().map(str::to_string))
+        .is_some_and(|code| {
+            matches!(
+                code.as_str(),
+                "stale" | "itemClosed" | "awaitingClarification"
+            )
+        })
+}
+
+/// `POST engagement/moderation/decision`: record the author's correction
+/// decision on one suggested source or correction. The request names the
+/// item, how many decisions on it the author saw, the outcome and what it
+/// rests on, the passage check the author read when the passage moved, and
+/// the author's local day. Who is deciding comes from the session.
+fn record_correction_decision(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+) -> Response {
+    use openblog_core::correction_decision::{passage_check_from_id, DecisionErrorCode};
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let Some(expected) = body["expectedDecisions"]
+        .as_u64()
+        .filter(|count| *count <= 1000)
+    else {
+        return Response::error(422, "Send how many decisions you saw on the item");
+    };
+    // The text revision the author read: a decision is about that text, so a
+    // clarification that changed it since makes the request stale.
+    let Some(seen_revision) = body["itemRevision"]
+        .as_u64()
+        .filter(|revision| (1..=u64::from(u32::MAX)).contains(revision))
+    else {
+        return Response::error(422, "Send the revision of the item’s text you read");
+    };
+    let content = match decision_content(&body) {
+        Ok(content) => content,
+        Err(error) => return Response::json(422, &json!({ "error": error, "code": "malformed" })),
+    };
+    let confirmed_check = match body["confirmCheck"].as_str() {
+        None => None,
+        Some(id) => match passage_check_from_id(id) {
+            Some(check) => Some(check),
+            None => return Response::error(422, "Send the passage check you read"),
+        },
+    };
+    let Some(decided) = body["decided"].as_str() else {
+        return Response::error(422, "Send the day of the decision");
+    };
+    // The author's local day: never more than a day ahead of this server's
+    // UTC day, since UTC offsets span at most one day.
+    let latest = DateTime::from_unix(clock::now().unix() + 86_400).ymd();
+    if decided > latest.as_str() {
+        return Response::json(
+            422,
+            &json!({ "error": "A decision cannot be dated in the future.", "code": "invalidDay" }),
+        );
+    }
+    let (protocol, third_perspectives, item) =
+        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    if item
+        .feedback()
+        .is_none_or(|hosted| hosted.decisions.is_none())
+    {
+        return Response::json(
+            422,
+            &json!({ "error": "The hosted service does not store correction decisions yet: run supabase/feedback.sql again and set OPENBLOG_CORRECTIONS_ENABLED=true.", "code": "unavailable" }),
+        );
+    }
+    // The item another decision addressed, read again, and only on the same
+    // post: an item elsewhere never confirms or denies anything.
+    let addressed = match &content.addressed_by {
+        Some(other) => {
+            match hosted_inbox_item(
+                state,
+                moderation_inbox::Source::Feedback,
+                &other.to_ascii_lowercase(),
+            ) {
+                Ok((_, _, other)) if other.work == item.work => other
+                    .feedback()
+                    .and_then(|hosted| hosted.decisions.clone())
+                    .map(|log| (log, other.revision)),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
+    let conflict_with = |current: &moderation_inbox::InboxItem| {
+        let view = sources.inbox(session, protocol, third_perspectives, |inbox| {
+            inbox_view(inbox, current, published.as_ref(), perspectives.as_ref())
+        });
+        let mut views: Vec<Json> = view.into_iter().collect();
+        add_decision_choices(state, &sources.published, &mut views);
+        Response::json(
+            409,
+            &json!({ "error": "Someone decided on this item, or it changed, since you loaded it. Review it again before deciding.", "code": "conflict", "item": views.pop() }),
+        )
+    };
+    if !decision_revision_is_current(seen_revision, item.revision) {
+        return conflict_with(&item);
+    }
+    let decided_now = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        let view = inbox_view(inbox, &item, published.as_ref(), perspectives.as_ref());
+        let role = inbox.actor(&item).role();
+        let decision = inbox.record_decision(
+            &item,
+            moderation_inbox::DecisionDraft {
+                expected_decisions: expected as u32,
+                content: content.clone(),
+                confirmed_check,
+                decided,
+            },
+            addressed.as_ref().map(|(log, revision)| (log, *revision)),
+        );
+        (view, role, decision)
+    });
+    let (_, role, decision) = decided_now;
+    let refused =
+        |code: &str, message: &str| Response::json(422, &json!({ "error": message, "code": code }));
+    let decision = match decision {
+        Ok(decision) => decision,
+        Err(error) if error.code == DecisionErrorCode::Denied => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot record a correction decision on this item.", "code": "denied" }),
+            )
+        }
+        Err(error) if error.code == DecisionErrorCode::Stale => return conflict_with(&item),
+        Err(error) => {
+            let code = serde_json::to_value(error.code)
+                .ok()
+                .and_then(|code| code.as_str().map(str::to_string))
+                .unwrap_or_default();
+            return refused(&code, &format!("{}.", capitalize(&error.message)));
+        }
+    };
+    // What only this server can check: the note is in the post's front
+    // matter, and the evidence link is in the claims file on a claim of
+    // this post. Both are recorded first, with their own tools.
+    let status = lock(&state.build);
+    let transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    if let Some(link) = &decision.content.revision_note {
+        match post_revision_items(state, &link.post) {
+            Ok(items) if link.found_in(&items) => {}
+            _ => {
+                return refused(
+                    "revisionNoteNotFound",
+                    "The post’s revision notes do not hold that note. Add it to the post first, then choose it.",
+                )
+            }
+        }
+    }
+    if let Some(evidence) = &decision.content.claim_evidence {
+        let snapshot = match claims_store::load(&state.root, &source_contributors(state)) {
+            Ok(snapshot) => snapshot,
+            Err(_) => {
+                return refused(
+                    "unknownClaimEvidence",
+                    "The claims file cannot be read, so the evidence link cannot be checked.",
+                )
+            }
+        };
+        if let Err(error) = evidence.check(&snapshot.claims) {
+            let code = serde_json::to_value(error.code)
+                .ok()
+                .and_then(|code| code.as_str().map(str::to_string))
+                .unwrap_or_default();
+            return refused(&code, &format!("{}.", capitalize(&error.message)));
+        }
+        let slug = moderation_inbox::InboxItem::facts(&item)
+            .work
+            .and_then(|work| feedback_moderation::post_for_work(&sources.published, work))
+            .map(|post| post.slug.clone());
+        let claim_post = snapshot
+            .claims
+            .claim(&evidence.claim)
+            .map(|claim| claim.post.clone());
+        // An item whose post is unknown can link no claim: nothing says the
+        // claim is about the same post.
+        if slug.is_none() || claim_post != slug {
+            return refused(
+                "claimElsewhere",
+                "That evidence link is on a claim of another post.",
+            );
+        }
+    }
+    // The hosted call is slow and can fail: the lock is for reading the post
+    // and the claims only.
+    drop(transaction);
+    drop(status);
+    let request = json!({
+        "id": id,
+        "expectedDecisions": expected,
+        "actor": session.user,
+        "actorRole": role.id(),
+        "decision": decision.to_value(),
+    });
+    let reread = |value: &Json| moderation_inbox::InboxItem::from_value(&value["item"]).ok();
+    let changed = match hosted_inbox_request(
+        state,
+        "admin/decisions",
+        &[],
+        Some(("POST", &request)),
+    ) {
+        Ok((200, value)) => match reread(&value) {
+            Some(changed)
+                if changed.id == id
+                    && changed.state == item.state
+                    && changed
+                        .feedback()
+                        .and_then(|hosted| hosted.decisions.as_ref())
+                        .and_then(|log| log.current())
+                        == Some(&decision) =>
+            {
+                changed
+            }
+            _ => {
+                return Response::error(
+                    502,
+                    "hosted engagement returned an invalid decision response",
+                )
+            }
+        },
+        Ok((409, value)) => {
+            return match reread(&value) {
+                Some(current) => conflict_with(&current),
+                None => conflict_with(&item),
+            };
+        }
+        Ok((403, _)) => {
+            return Response::json(
+                403,
+                &json!({ "error": "You cannot record a correction decision on this item.", "code": "denied" }),
+            )
+        }
+        Ok((404, _)) => return Response::error(404, "No such item"),
+        Ok(_) => return Response::error(502, "Hosted engagement returned an unexpected answer"),
+        Err(response) if response.status == 422 && hosted_decision_changed(&response) => {
+            // The item closed, or a clarification was asked, between Admin's
+            // read and the hosted one: read it again and say it changed.
+            return match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+                Ok((_, _, current)) => conflict_with(&current),
+                Err(response) => response,
+            };
+        }
+        Err(response) => return response,
+    };
+    eprintln!(
+        "admin: correction decision on feedback {id}: {} by {} as {}",
+        decision.content.outcome.id(),
+        session.user,
+        role.id()
+    );
+    // An item already on its post shows the author's outcome there now; one that is not stays
+    // unpublished, because a decision never publishes a note.
+    let (outcome_published, outcome_error, build) = match publish_decision_outcome(state, &changed)
+    {
+        Ok(Some(build)) => (true, None, Some(build)),
+        Ok(None) => (false, None, None),
+        Err(error) => (false, Some(error), None),
+    };
+    let published = published_feedback_file(state);
+    let view = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        inbox_view(inbox, &changed, published.as_ref(), perspectives.as_ref())
+    });
+    let mut views: Vec<Json> = view.into_iter().collect();
+    add_decision_choices(state, &sources.published, &mut views);
+    Response::json(
+        200,
+        &json!({
+            "item": views.pop(),
+            "decision": {
+                "outcome": decision.content.outcome.id(),
+                "label": decision.content.outcome.label(),
+                "sequence": decision.sequence,
+            },
+            "outcomePublished": outcome_published,
+            "publishError": outcome_error,
             "build": build,
         }),
     )
+}
+
+/// Whether the hosted function stored `to`: exactly, or, for a comment
+/// under the older schema, as the `status` value ADR 0102 maps it to (a
+/// removed comment is stored as rejected).
+fn stored_as(
+    protocol: moderation_inbox::Protocol,
+    changed: &moderation_inbox::InboxItem,
+    to: ModerationState,
+) -> bool {
+    changed.state == to
+        || (protocol == moderation_inbox::Protocol::Legacy
+            && changed.source == moderation_inbox::Source::Comment
+            && changed.state.id() == to.legacy_comment_status())
+}
+
+fn capitalize(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
 }
 
 /// `POST engagement/feedback/publish`: put an approved item on its post
@@ -5034,14 +7025,20 @@ fn publish_feedback(state: &AppState, req: &Request) -> Response {
         Ok(id) => id,
         Err(response) => return response,
     };
-    let item = match hosted_feedback_item(state, &id) {
-        Ok(item) => item,
+    // Read through the inbox, which carries the decisions: a note put on its post again after a
+    // failed write carries the author's decision with it.
+    let item = match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+        Ok((_, _, item)) => item,
         Err(response) => return response,
+    };
+    let Some(item) = item.feedback() else {
+        return Response::error(404, "No such feedback item");
     };
     let site = match feedback_site(state) {
         Ok(site) => site,
         Err(response) => return response,
     };
+    let claims = claims_for_publication(state);
     let mut status = lock(&state.build);
     let _transaction = match content_transaction(state) {
         Ok(lock) => lock,
@@ -5051,12 +7048,40 @@ fn publish_feedback(state: &AppState, req: &Request) -> Response {
         Ok(path) => path,
         Err(response) => return response,
     };
-    if let Err(error) = publish_approved_feedback(&path, &site, &item) {
+    if let Err(error) = publish_approved_feedback(&path, &site, item, claims.as_ref()) {
         return Response::error(409, &error);
     }
     let build = feedback_build_json(&state.rebuild_locked(&mut status));
     eprintln!("admin: feedback {id} published");
     Response::json(200, &json!({ "published": true, "build": build }))
+}
+
+/// `POST engagement/feedback/publish-decision`: make the decision published with an approved note
+/// the one in force, after a decision whose file write failed (ADR 0119).
+fn update_published_decision(state: &AppState, req: &Request) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let item = match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+        Ok((_, _, item)) => item,
+        Err(response) => return response,
+    };
+    match publish_decision_outcome(state, &item) {
+        Ok(Some(build)) => {
+            eprintln!("admin: published decision of feedback {id} updated");
+            Response::json(200, &json!({ "published": true, "build": build }))
+        }
+        Ok(None) => Response::error(
+            409,
+            "The note is not published, or its decision cannot be published now",
+        ),
+        Err(error) => Response::error(409, &error),
+    }
 }
 
 /// `POST engagement/feedback/unpublish`: take a removed or rejected item off
@@ -5107,7 +7132,8 @@ fn published_feedback_view(
             .find(|post| post.source.replace('\\', "/") == item.post);
         let public = post.and_then(|post| {
             let document = PassageDocument::of_post(post, &site.config);
-            feedback_publication::project(&[item], post, &document).pop()
+            feedback_publication::project(&[item], post, &document, site.config.engagement.evidence)
+                .pop()
         });
         items.push(json!({
             "id": item.id,
@@ -12193,50 +14219,77 @@ fn acknowledge_portability(state: &AppState, req: &Request) -> Response {
     )
 }
 
-fn preview(state: &AppState, req: &Request) -> Response {
-    if let Err(r) = require_json(req) {
-        return r;
+/// A document as the editor holds it, loaded into the site the way a preview
+/// loads it: unsaved fields and body, credits as edited, drafts left out
+/// except this one. The build lock is held while it lives.
+struct DraftSite<'s> {
+    /// Held until [`DraftSite::release`], so a caller can drop the lock as
+    /// soon as it has read the files it needs.
+    guard: Option<MutexGuard<'s, BuildStatus>>,
+    site: openblog_core::Site,
+    themes: openblog_core::theme::ThemeSet,
+    rel: String,
+    kind: String,
+    /// The composed source, front matter and body, as it would be saved.
+    source: String,
+    /// The line of the composed source where the editor's first body line is.
+    first_body_line: usize,
+    portable_config: openblog_core::config::SiteConfig,
+}
+
+impl DraftSite<'_> {
+    /// Let go of the build lock: the files are read, the rest is computation.
+    fn release(&mut self) {
+        self.guard = None;
     }
-    let body: Json = match serde_json::from_slice(&req.body) {
-        Ok(b) => b,
-        Err(_) => return Response::error(400, "Invalid JSON"),
-    };
+}
+
+fn load_draft_site<'s>(state: &'s AppState, body: &Json) -> Result<DraftSite<'s>, Response> {
     let text_body = body["body"].as_str().unwrap_or("");
     if text_body.len() > MAX_DOCUMENT_BYTES || text_body.contains('\0') {
-        return Response::error(413, "The post body is too large");
+        return Err(Response::error(413, "The post body is too large"));
     }
     let fields = match fields_from_json(&body["fields"]) {
         Ok(fields) => fields,
-        Err(e) => return Response::error(422, &e),
+        Err(e) => return Err(Response::error(422, &e)),
     };
-    let kind = body["kind"].as_str().unwrap_or("posts");
-    if !matches!(kind, "posts" | "pages" | "series") {
-        return Response::error(422, "kind must be posts, series, or pages");
+    let kind = body["kind"].as_str().unwrap_or("posts").to_string();
+    if !matches!(kind.as_str(), "posts" | "pages" | "series") {
+        return Err(Response::error(422, "kind must be posts, series, or pages"));
     }
     let rel = match body["path"].as_str().filter(|path| !path.is_empty()) {
         Some(path) => match check_rel_path(path) {
             Ok(path_kind) if path_kind == kind => path.to_string(),
-            Ok(_) => return Response::error(422, "path does not match the document kind"),
-            Err(e) => return Response::error(422, &e),
+            Ok(_) => {
+                return Err(Response::error(
+                    422,
+                    "path does not match the document kind",
+                ))
+            }
+            Err(e) => return Err(Response::error(422, &e)),
         },
-        None => match derive_new_path(kind, &fields) {
+        None => match derive_new_path(&kind, &fields) {
             Ok(path) => path,
-            Err(e) => return Response::error(422, &e),
+            Err(e) => return Err(Response::error(422, &e)),
         },
     };
     let source = frontmatter::compose(&fields, text_body);
-    let credit_edit = match requested_credit_edit(&body, kind) {
+    let header_lines = frontmatter::compose(&fields, "").matches('\n').count();
+    let leading = text_body.len() - text_body.trim_start_matches(['\r', '\n']).len();
+    let leading_lines = text_body[..leading].matches('\n').count();
+    let draft_source = source.clone();
+    let credit_edit = match requested_credit_edit(body, &kind) {
         Ok(edit) => edit,
-        Err(error) => return Response::error(422, &error),
+        Err(error) => return Err(Response::error(422, &error)),
     };
-    let _content_transaction = lock(&state.build);
+    let guard = lock(&state.build);
     let mut config = match site::load_config(&state.root) {
         Ok(config) => config,
-        Err(e) => return Response::error(500, &e),
+        Err(e) => return Err(Response::error(500, &e)),
     };
     if kind == "posts" {
         if let Err(error) = resolve_credit_path(&state.root, &config, &rel) {
-            return Response::error(400, &error);
+            return Err(Response::error(400, &error));
         }
     }
     let excluded_sidecar = (!matches!(credit_edit, CreditEdit::Unchanged))
@@ -12245,7 +14298,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
     let mut sources =
         match site::read_sources_excluding(&state.root, &config, excluded_sidecar.as_deref()) {
             Ok(sources) => sources,
-            Err(e) => return Response::error(500, &e),
+            Err(e) => return Err(Response::error(500, &e)),
         };
     for bucket in [&mut sources.posts, &mut sources.series, &mut sources.pages] {
         bucket.retain(|file| file.path != rel);
@@ -12287,9 +14340,282 @@ fn preview(state: &AppState, req: &Request) -> Response {
                 .cloned()
                 .collect();
             let shown = if mine.is_empty() { errors } else { mine };
-            return Response::error(422, &site::content_problems(&shown));
+            return Err(Response::error(422, &site::content_problems(&shown)));
         }
     };
+    Ok(DraftSite {
+        guard: Some(guard),
+        site: preview_site,
+        themes,
+        rel,
+        kind,
+        source: draft_source,
+        first_body_line: (header_lines + 1).saturating_sub(leading_lines),
+        portable_config,
+    })
+}
+
+/// The research review of a post before it is published or scheduled (#62,
+/// ADR 0123): what the existing research checks say about the draft as the
+/// editor holds it, grouped by what blocks the build and by outcome, with the
+/// author's acknowledgements matched (ADR 0124). It reads only; it never
+/// saves the post, changes research files or publishes anything. A post that
+/// uses neither the Research profile nor citations is not reviewed
+/// (`applies: false`), so publishing it works exactly as before.
+fn review_before_publication(state: &AppState, req: &Request) -> Response {
+    use openblog_core::publication_review::PublicationReview;
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let mut body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    if body["kind"].as_str().unwrap_or("posts") != "posts" || !body["fields"].is_object() {
+        return Response::error(
+            422,
+            "Only a post's fields and body are reviewed before publication",
+        );
+    }
+    // The post is read as a draft, so a citation the build would refuse once
+    // it is published is listed as a finding that blocks publishing, instead
+    // of stopping the review (ADR 0049, ADR 0123).
+    body["fields"]["draft"] = json!("true");
+    let draft = match load_draft_site(state, &body) {
+        Ok(draft) => draft,
+        Err(response) => return response,
+    };
+    let Some(post) = draft
+        .site
+        .posts
+        .iter()
+        .find(|post| post.source == draft.rel)
+    else {
+        return Response::error(422, "The post was not found in the site model");
+    };
+    let evidence: Vec<_> = draft
+        .site
+        .evidence
+        .iter()
+        .filter(|finding| finding.source.path == draft.rel)
+        .cloned()
+        .collect();
+    let citations_opted_in = body["fields"]["citations"]
+        .as_str()
+        .is_some_and(|style| !style.trim().is_empty());
+    // The same test as Evidence Studio's: the Research profile, citations, or a citation finding.
+    let applies = post.research.is_some()
+        || citations_opted_in
+        || post.citations().is_some()
+        || evidence
+            .iter()
+            .any(|finding| finding.code.to_string().starts_with("citation-"));
+    let (acknowledgements, revision, problem) = match research_review::load(&state.root) {
+        Ok(snapshot) => (snapshot.set.acknowledgements, Some(snapshot.revision), None),
+        Err(error) => (Vec::new(), None, Some(error.to_string())),
+    };
+    let (findings, not_reviewed) = if applies {
+        let document = match frontmatter::parse(&draft.source) {
+            Ok(document) => document,
+            Err(error) => return Response::error(422, &error),
+        };
+        let gathered = research_review::gather(
+            &state.root,
+            &draft.portable_config,
+            &research_review::DraftPost {
+                path: &draft.rel,
+                slug: &post.slug,
+                markdown: &document.body,
+                body_line: document.body_line,
+                evidence,
+            },
+        );
+        (gathered.findings, gathered.not_reviewed)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let review = PublicationReview::new(findings, &acknowledgements);
+    let mut view = serde_json::to_value(&review).unwrap_or_else(|_| json!({}));
+    view["applies"] = json!(applies);
+    view["post"] = json!(draft.rel);
+    view["firstBodyLine"] = json!(draft.first_body_line);
+    view["notReviewed"] = json!(not_reviewed);
+    view["acknowledgements"] = json!({
+        "file": research_review::ACKNOWLEDGEMENTS_FILE,
+        "revision": revision,
+        "error": problem,
+    });
+    Response::json(200, &view)
+}
+
+/// What the research projections will publish for the whole site, and why
+/// everything else is withheld (#63, ADR 0125): the same load, projections
+/// and manifest a build of the saved files uses. Read-only and Admin-only.
+fn boundary_site(state: &AppState) -> Response {
+    // The build lock covers the content snapshot only. The research stores
+    // have their own atomic-replace protocol, so reading them, projecting
+    // and building the manifest happen without holding it.
+    let guard = lock(&state.build);
+    let loaded = site::load_site(&state.root, state.include_drafts, Some(clock::now()));
+    // The public-input check reads the content and static folders, so it runs
+    // under the same lock as the load: a save cannot land between the two.
+    let refused = loaded.as_ref().ok().and_then(|(site, _)| {
+        crate::private_guard::refuse_private_research_in_public_inputs(&state.root, &site.config)
+            .err()
+    });
+    drop(guard);
+    let (mut site, themes) = match loaded {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            return Response::json(
+                422,
+                &json!({
+                    "error": format!(
+                        "The site could not be loaded, so nothing can be previewed: {} Nothing was changed.",
+                        error.lines().next().unwrap_or_default()
+                    ),
+                }),
+            )
+        }
+    };
+    let shared = crate::boundary::Shared::read(&state.root, &site.config);
+    let mut manifest = crate::boundary::site_preview(&state.root, &mut site, &shared);
+    // Text of private research found in the output the saved files generate.
+    let (matches, text_refusal) = crate::boundary::preview_text(&state.root, &site, &themes);
+    manifest.text_matches = matches;
+    let refused = refused.or(text_refusal);
+    let mut view = serde_json::to_value(&manifest).unwrap_or_else(|_| json!({}));
+    view["refused"] = json!(refused);
+    Response::json(200, &view)
+}
+
+/// What one post will publish of the research, from the editor's unsaved
+/// fields and body, read as the review reads them (#63, ADR 0125): its
+/// citations' public descriptions, its claim evidence, and the atlas and
+/// comparison pages it links to, with why the rest is withheld.
+fn boundary_post(state: &AppState, req: &Request) -> Response {
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let mut body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    if body["kind"].as_str().unwrap_or("posts") != "posts" || !body["fields"].is_object() {
+        return Response::error(422, "Only a post's fields and body are previewed");
+    }
+    // Read as a draft, as the review reads it, so a citation the build would
+    // refuse once published does not stop the preview (ADR 0123).
+    body["fields"]["draft"] = json!("true");
+    let mut draft = match load_draft_site(state, &body) {
+        Ok(draft) => draft,
+        Err(response) => return response,
+    };
+    draft.release();
+    let shared = crate::boundary::Shared::read(&state.root, &draft.site.config);
+    let blocked = crate::boundary::project_with(&state.root, &mut draft.site, &shared);
+    let stores = crate::boundary::Stores::read(&state.root, &shared);
+    let Some(post) = draft
+        .site
+        .posts
+        .iter()
+        .find(|post| post.source == draft.rel)
+    else {
+        return Response::error(422, "The post was not found in the site model");
+    };
+    let manifest = crate::boundary::manifest(&draft.site, &stores, &blocked, Some(post));
+    Response::json(
+        200,
+        &serde_json::to_value(&manifest).unwrap_or_else(|_| json!({})),
+    )
+}
+
+/// Acknowledge an advisory finding, or withdraw an acknowledgement (ADR 0124).
+/// Only a code the contract lets an author acknowledge is accepted; the
+/// change names the file's revision and is written atomically or not at all.
+fn change_acknowledgement(state: &AppState, req: &Request, add: bool) -> Response {
+    use openblog_core::publication_review::Acknowledgement;
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    if req.body.len() > 16 * 1024 {
+        return Response::error(413, "An acknowledgement is limited to 16 KiB");
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(body) => body,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let Some(revision) = body["revision"].as_str() else {
+        return Response::error(400, "Missing acknowledgements revision");
+    };
+    let acknowledgement: Acknowledgement =
+        match serde_json::from_value(body["acknowledgement"].clone()) {
+            Ok(acknowledgement) => acknowledgement,
+            Err(error) => {
+                return Response::error(422, &format!("Invalid acknowledgement: {error}"))
+            }
+        };
+    if let Some(problem) = acknowledgement.problem() {
+        return Response::error(
+            422,
+            &format!("Not acknowledged: {problem}. Nothing was changed."),
+        );
+    }
+    let result = research_review::change(&state.root, revision, |set| {
+        if add {
+            set.add(acknowledgement.clone())
+        } else {
+            set.withdraw(&acknowledgement);
+            Ok(())
+        }
+    });
+    match result {
+        Ok(snapshot) => Response::json(
+            200,
+            &json!({ "revision": snapshot.revision, "acknowledged": add }),
+        ),
+        Err(research_review::StoreError::Conflict) => Response::json(
+            409,
+            &json!({
+                "error": "The acknowledgements changed since this review was read. Nothing was changed; review again.",
+                "conflict": true,
+                "revision": research_review::load(&state.root).ok().map(|snapshot| snapshot.revision),
+            }),
+        ),
+        Err(error @ research_review::StoreError::Invalid(_)) => Response::json(
+            422,
+            &json!({
+                "error": format!("{error}. Nothing was changed."),
+                "file": research_review::ACKNOWLEDGEMENTS_FILE,
+            }),
+        ),
+        Err(research_review::StoreError::Storage(message)) => Response::error(500, &message),
+    }
+}
+
+fn preview(state: &AppState, req: &Request) -> Response {
+    if let Err(r) = require_json(req) {
+        return r;
+    }
+    let body: Json = match serde_json::from_slice(&req.body) {
+        Ok(b) => b,
+        Err(_) => return Response::error(400, "Invalid JSON"),
+    };
+    let draft = match load_draft_site(state, &body) {
+        Ok(draft) => draft,
+        Err(response) => return response,
+    };
+    let DraftSite {
+        site: preview_site,
+        themes,
+        rel,
+        kind,
+        portable_config,
+        ..
+    } = &draft;
+    let kind = kind.as_str();
+    let rel = rel.as_str();
+    let text_body = body["body"].as_str().unwrap_or("");
     let target = match kind {
         "posts" => preview_site
             .posts
@@ -12314,7 +14640,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         "series" => preview_site
             .series
             .iter()
-            .find(|series| series.source.as_deref() == Some(rel.as_str()))
+            .find(|series| series.source.as_deref() == Some(rel))
             .map(|series| {
                 (
                     series.url.clone(),
@@ -12357,7 +14683,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         };
         // A published part of a collaborative series previews the series context its external
         // copies carry, exactly as an acknowledgement recomputes it (ADR 0041).
-        let projection = match admin_portable_projection(&preview_site, post, &portable_config) {
+        let projection = match admin_portable_projection(preview_site, post, portable_config) {
             Ok(projection) => projection,
             Err(error) => return Response::error(422, &error),
         };
@@ -12393,12 +14719,14 @@ fn preview(state: &AppState, req: &Request) -> Response {
             Ok(revision) => revision,
             Err(error) => return Response::error(422, &error),
         };
-        let acknowledgement_path =
-            match resolve_portability_acknowledgement_path(&state.root, &preview_site.config, &rel)
-            {
-                Ok(path) => path,
-                Err(error) => return Response::error(422, &error),
-            };
+        let acknowledgement_path = match resolve_portability_acknowledgement_path(
+            &state.root,
+            &preview_site.config,
+            rel,
+        ) {
+            Ok(path) => path,
+            Err(error) => return Response::error(422, &error),
+        };
         let (acknowledgements, acknowledgement_etag) =
             match load_portability_acknowledgements(&acknowledgement_path) {
                 Ok(sidecar) => sidecar,
@@ -12411,7 +14739,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             .collect::<Vec<_>>();
         let destination_tag_plans =
             openblog_core::portability::destination_policies().map(|policy| {
-                openblog_core::portability::destination_tag_plan(policy.provider, &rel, &tags)
+                openblog_core::portability::destination_tag_plan(policy.provider, rel, &tags)
             });
         let diagnostics_by_representation = ["portable-html", "portable-markdown", "portable-text"]
             .into_iter()
@@ -12431,7 +14759,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
             .map(|policy| {
                 openblog_core::portability::destination_content_plan(
                     policy.provider,
-                    &rel,
+                    rel,
                     &portable_html,
                 )
             })
@@ -12453,7 +14781,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
     } else {
         Json::Null
     };
-    let social = match social_metadata(&preview_site, &rel) {
+    let social = match social_metadata(preview_site, rel) {
         Ok(meta) => json!({
             "siteName": meta.site_name,
             "title": meta.title,
@@ -12466,7 +14794,7 @@ fn preview(state: &AppState, req: &Request) -> Response {
         }),
         Err(e) => return Response::error(422, &e),
     };
-    let document = match generate_document(&preview_site, &themes, &rel) {
+    let document = match generate_document(preview_site, themes, rel) {
         Ok(document) => document,
         Err(e) => return Response::error(422, &e),
     };
@@ -12883,7 +15211,7 @@ fn xml_attribute<'a>(tag: &'a str, key: &str) -> Option<&'a str> {
 mod tests {
     use super::*;
     use crate::scaffold;
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
@@ -13807,6 +16135,1457 @@ mod tests {
         );
         assert_eq!(status, 201, "{done}");
         done
+    }
+
+    /// Research for the draft-side panel (#61): the four stores, read-only.
+    fn draft_research_fixture(tag: &str) -> Fixture {
+        let f = fixture(tag);
+        let write = |file: &str, value: Json| {
+            let path = f.dir.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, value.to_string()).unwrap();
+        };
+        write(
+            crate::source_store::LIBRARY_FILE,
+            json!({"version": 1, "sources": [
+                {"id": "plato", "kind": "work", "title": "Politeia"},
+                {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings",
+                    "rights": {"status": "publicDomain", "note": "ob-rights-note"}},
+                {"id": "bloom", "kind": "translation", "of": "plato", "language": "en", "title": "Bloom"}
+            ]}),
+        );
+        write(
+            crate::notebook_store::NOTEBOOK_FILE,
+            json!({"version": 1,
+            "passages": [
+                {"id": "cave", "source": "slings", "excerpt": {"text": "<b>Behold</b> *the* den", "language": "grc"},
+                    "locators": [{"kind": "page", "value": "514", "privateNote": "ob-hidden-locator"}]},
+                {"id": "old", "source": "bloom", "excerpt": {"text": "ob-archived-wording"}, "archived": true}
+            ],
+            "notes": [
+                {"id": "why", "kind": "question", "text": "Why a cave?", "passages": ["cave"]},
+                {"id": "gone", "kind": "observation", "text": "ob-archived-note", "archived": true}
+            ]}),
+        );
+        write(
+            crate::atlas_store::ATLAS_FILE,
+            json!({"version": 2, "entries": [
+                {"id": "plato-person", "kind": "person", "label": "Plato", "visibility": "approved",
+                    "dates": [
+                        {"id": "born", "aspect": "birth", "date": {"at": {"year": -428, "circa": true}},
+                            "assertedBy": {"kind": "author"}, "evidence": [{"source": "slings"}],
+                            "visibility": "approved"},
+                        {"id": "ob-private-dating", "aspect": "death", "date": {"at": {"year": -348}},
+                            "assertedBy": {"kind": "author"}, "unsourced": true}
+                    ]},
+                {"id": "the-good", "kind": "concept", "label": "The Good"}
+            ], "relationships": []}),
+        );
+        write(
+            crate::alignment_store::ALIGNMENTS_FILE,
+            json!({"version": 1, "alignments": [
+                {"id": "cave-places", "label": "The cave", "visibility": "approved",
+                    "members": [{"source": "slings", "passage": "cave"}, {"source": "bloom", "absent": true}]},
+                {"id": "private-places", "members": [{"source": "slings", "passage": "cave"}, {"source": "bloom", "absent": true}]}
+            ]}),
+        );
+        f
+    }
+
+    fn research_files(f: &Fixture) -> Vec<Vec<u8>> {
+        [
+            crate::source_store::LIBRARY_FILE,
+            crate::notebook_store::NOTEBOOK_FILE,
+            crate::atlas_store::ATLAS_FILE,
+            crate::alignment_store::ALIGNMENTS_FILE,
+        ]
+        .iter()
+        .map(|file| fs::read(f.dir.join(file)).unwrap())
+        .collect()
+    }
+
+    #[test]
+    fn the_draft_research_panel_reads_every_store_and_links_only_what_is_published() {
+        let f = draft_research_fixture("draft-research");
+        let response = handle(&f.state, &req("GET", "/admin/api/research/draft"));
+        assert_eq!(response.status, 401);
+        let session = login_ok(&f);
+        let before = research_files(&f);
+        let read = || {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/draft"), &session, false),
+            );
+            assert_eq!(response.status, 200);
+            let text = String::from_utf8_lossy(&response.body).to_string();
+            for hidden in [
+                "ob-hidden-locator",
+                "ob-archived-wording",
+                "ob-archived-note",
+            ] {
+                assert!(!text.contains(hidden), "{hidden} reached the panel");
+            }
+            body_json(&response)
+        };
+
+        let body = read();
+        let library = &body["library"];
+        assert!(library["revision"].as_str().is_some());
+        assert_eq!(
+            library["sources"][1]["rightsStatus"]["status"],
+            "publicDomain"
+        );
+        assert_eq!(
+            library["sources"][1]["rightsStatus"]["label"],
+            "The author states the text is in the public domain"
+        );
+        assert_eq!(
+            library["sources"][1]["rightsStatus"]["note"],
+            "ob-rights-note"
+        );
+        assert_eq!(library["sources"][2]["rightsStatus"]["status"], "unknown");
+        assert!(
+            library["sources"][0].get("rightsStatus").is_none(),
+            "a work has no rights"
+        );
+        let notebook = &body["notebook"];
+        assert_eq!(notebook["passages"].as_array().unwrap().len(), 1);
+        let passage = &notebook["passages"][0];
+        assert_eq!(
+            passage["excerpt"]["text"], "<b>Behold</b> *the* den",
+            "the wording exactly"
+        );
+        assert_eq!(passage["excerpt"]["language"], "grc");
+        assert_eq!(
+            passage["locators"],
+            json!([{"kind": "page", "value": "514"}])
+        );
+        assert_eq!(passage["notes"], 1);
+        assert_eq!(notebook["notes"].as_array().unwrap().len(), 1);
+        assert_eq!(notebook["notes"][0]["text"], "Why a cave?");
+        assert_eq!(notebook["notes"][0]["status"], "open");
+
+        // While the site publishes neither, nothing can be linked, approved or not.
+        assert_eq!(body["atlas"]["publish"], false, "{}", body["atlas"]);
+        assert_eq!(body["atlas"]["entries"][0]["approved"], true);
+        assert_eq!(body["atlas"]["entries"][0]["url"], Json::Null);
+        assert_eq!(body["atlas"]["entries"][0]["datings"], json!([]));
+        assert_eq!(body["comparisons"]["publish"], false);
+        assert_eq!(body["comparisons"]["items"][0]["url"], Json::Null);
+
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        config["comparisons"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let body = read();
+        let entries = &body["atlas"]["entries"];
+        assert_eq!(entries[0]["url"], "/atlas/plato-person/");
+        assert_eq!(
+            entries[0]["datings"].as_array().unwrap().len(),
+            1,
+            "only the published dating"
+        );
+        assert_eq!(entries[0]["datings"][0]["id"], "born");
+        assert!(entries[0]["datings"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("428"));
+        assert_eq!(entries[1]["approved"], false);
+        assert_eq!(
+            entries[1]["url"],
+            Json::Null,
+            "a private entry is never linked"
+        );
+        let items = &body["comparisons"]["items"];
+        assert_eq!(items[0]["url"], "/comparisons/cave-places/");
+        assert_eq!(items[0]["label"], "The cave");
+        assert_eq!(items[1]["url"], Json::Null);
+        assert!(!body.to_string().contains("ob-private-dating"));
+        assert_eq!(research_files(&f), before, "reading writes nothing");
+    }
+
+    #[test]
+    fn a_draft_research_store_that_cannot_be_read_is_reported_in_its_own_part() {
+        let f = draft_research_fixture("draft-research-scoped");
+        let session = login_ok(&f);
+        fs::write(f.dir.join(crate::atlas_store::ATLAS_FILE), b"{ not json").unwrap();
+        let before = research_files(&f);
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/draft"), &session, false),
+        );
+        assert_eq!(response.status, 200);
+        let body = body_json(&response);
+        let problem = body["atlas"]["error"].as_str().unwrap();
+        assert!(
+            problem.starts_with("The Knowledge Atlas could not be read"),
+            "{problem}"
+        );
+        assert_eq!(body["atlas"]["file"], crate::atlas_store::ATLAS_FILE);
+        assert!(body["atlas"].get("entries").is_none());
+        assert_eq!(body["notebook"]["passages"][0]["id"], "cave");
+        assert!(body["library"]["revision"].as_str().is_some());
+        assert_eq!(body["comparisons"]["items"][0]["id"], "cave-places");
+        assert_eq!(
+            research_files(&f),
+            before,
+            "nothing is repaired or replaced"
+        );
+    }
+
+    #[test]
+    fn draft_research_comparisons_blame_the_part_that_failed_not_the_alignments_file() {
+        for (broken, part, what) in [
+            (
+                crate::source_store::LIBRARY_FILE,
+                "library",
+                "the source library",
+            ),
+            (
+                crate::notebook_store::NOTEBOOK_FILE,
+                "notebook",
+                "the research notebook",
+            ),
+        ] {
+            let f = draft_research_fixture(&format!("draft-research-blocked-{part}"));
+            let session = login_ok(&f);
+            fs::write(f.dir.join(broken), b"{ not json").unwrap();
+            let before = research_files(&f);
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/draft"), &session, false),
+            );
+            assert_eq!(response.status, 200);
+            let body = body_json(&response);
+            assert_eq!(body[part]["file"], broken);
+            let comparisons = &body["comparisons"];
+            assert_eq!(
+                comparisons["error"],
+                format!("The comparisons are not offered while {what} cannot be read. Nothing was changed.")
+            );
+            assert_eq!(comparisons["unavailableBecause"], part);
+            assert!(comparisons.get("file").is_none(), "{comparisons}");
+            assert!(
+                !comparisons.to_string().contains("alignments"),
+                "{comparisons}"
+            );
+            assert_eq!(
+                research_files(&f),
+                before,
+                "nothing is repaired or replaced"
+            );
+        }
+
+        // The alignments file itself failing still names it for repair.
+        let f = draft_research_fixture("draft-research-blocked-alignments");
+        let session = login_ok(&f);
+        fs::write(
+            f.dir.join(crate::alignment_store::ALIGNMENTS_FILE),
+            b"{ not json",
+        )
+        .unwrap();
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/draft"), &session, false),
+        );
+        let body = body_json(&response);
+        assert_eq!(
+            body["comparisons"]["file"],
+            crate::alignment_store::ALIGNMENTS_FILE
+        );
+        assert!(body["comparisons"].get("unavailableBecause").is_none());
+        assert_eq!(body["notebook"]["passages"][0]["id"], "cave");
+    }
+
+    #[test]
+    fn draft_research_notebook_and_atlas_blame_the_part_that_failed_not_their_own_files() {
+        for (broken, part, what, blocked) in [
+            (
+                crate::source_store::LIBRARY_FILE,
+                "library",
+                "the source library",
+                &[
+                    ("notebook", "passages and notes"),
+                    ("atlas", "atlas entries"),
+                ][..],
+            ),
+            (
+                crate::notebook_store::NOTEBOOK_FILE,
+                "notebook",
+                "the research notebook",
+                &[("atlas", "atlas entries")][..],
+            ),
+        ] {
+            let f = draft_research_fixture(&format!("draft-research-own-{part}"));
+            let session = login_ok(&f);
+            fs::write(f.dir.join(broken), b"{ not json").unwrap();
+            let before = research_files(&f);
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/draft"), &session, false),
+            );
+            assert_eq!(response.status, 200);
+            let body = body_json(&response);
+            assert_eq!(body[part]["file"], broken, "the failed part names its file");
+            for (later, items) in blocked {
+                let value = &body[*later];
+                assert_eq!(
+                    value["error"],
+                    format!("The {items} are not offered while {what} cannot be read. Nothing was changed."),
+                    "{later}"
+                );
+                assert_eq!(value["unavailableBecause"], part, "{later}");
+                assert!(value.get("file").is_none(), "{later}: {value}");
+                assert!(!value.to_string().contains(".json"), "{later}: {value}");
+            }
+            assert_eq!(
+                research_files(&f),
+                before,
+                "nothing is repaired or replaced"
+            );
+        }
+    }
+
+    // ---- the private-to-public research boundary (#63, ADR 0125) ----------------
+
+    /// Text seeded in a private field: it must appear in no public artifact.
+    fn leak(label: &str) -> String {
+        format!("ZqxLeak {label} sentinel words kept private")
+    }
+
+    /// Text seeded in an approved, projected field: it must be published.
+    fn public_text(label: &str) -> String {
+        format!("ZqxPublic {label} approved projected words")
+    }
+
+    const LEAKS: &[&str] = &[
+        "libraryrightsnote",
+        "librarynote",
+        "libraryunknown",
+        "libraryidentifier",
+        "passagehidden",
+        "locatorextra",
+        "passagestale",
+        "notetext",
+        "alignmentlabel",
+        "alignmentrationale",
+        "stalerationale",
+        "entryunknown",
+        "datingnote",
+        "entrylabel",
+        "entrysummary",
+        "relationshipdoubt",
+        "claimunknown",
+        "claimstatement",
+        "linkrationale",
+        "ackpath",
+    ];
+    const PUBLICS: &[&str] = &[
+        "passagewording",
+        "comparisonrationale",
+        "entrysummary",
+        "datingnote",
+        "relationshipdoubt",
+        "claimstatement",
+        "linkrationale",
+    ];
+    /// The unsafe web address of a source, whose last segment is a sentinel.
+    const URL_SENTINEL: &str = "ZqxLeakUrlSegmentSentinelAbcdefghijkl";
+
+    /// Every private research file, as the boundary names them.
+    fn research_store_files(f: &Fixture) -> Vec<Vec<u8>> {
+        openblog_core::publication_boundary::Store::ALL
+            .iter()
+            .map(|store| fs::read(f.dir.join(store.file())).unwrap())
+            .collect()
+    }
+
+    /// A site that publishes every research projection, with a sentinel in
+    /// every private store and field and in every approved projected field.
+    fn boundary_fixture(tag: &str) -> Fixture {
+        let f = fixture(tag);
+        let write = |file: &str, value: Json| {
+            let path = f.dir.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, value.to_string()).unwrap();
+        };
+        write(
+            crate::source_store::LIBRARY_FILE,
+            json!({"version": 1, "sources": [
+                {"id": "plato", "kind": "work", "title": "Politeia"},
+                {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings edition",
+                    "rights": {"status": "publicDomain", "note": leak("libraryrightsnote")},
+                    "notes": leak("librarynote"),
+                    "shelfNote": leak("libraryunknown"),
+                    "identifiers": [
+                        {"scheme": "url", "value": format!("http://files.internal/{URL_SENTINEL}")},
+                        {"scheme": "shelfmark", "value": leak("libraryidentifier")}
+                    ]},
+                {"id": "bloom", "kind": "translation", "of": "plato", "language": "en", "title": "Bloom"}
+            ]}),
+        );
+        write(
+            crate::notebook_store::NOTEBOOK_FILE,
+            json!({"version": 1,
+            "passages": [
+                {"id": "cave", "source": "slings", "excerpt": {"text": public_text("passagewording")},
+                    "locators": [{"kind": "page", "value": "514"}]},
+                {"id": "hidden", "source": "slings", "excerpt": {"text": leak("passagehidden")},
+                    "locators": [{"kind": "page", "value": "515", "privateNote": leak("locatorextra")}]},
+                {"id": "moved", "source": "slings", "excerpt": {"text": leak("passagestale")},
+                    "locators": [{"kind": "page", "value": "600"}]}
+            ],
+            "notes": [{"id": "why", "kind": "question", "text": leak("notetext"), "passages": ["cave"]}]}),
+        );
+        write(
+            crate::alignment_store::ALIGNMENTS_FILE,
+            json!({"version": 1, "alignments": [
+                {"id": "cave-places", "label": "The cave", "visibility": "approved",
+                    "rationale": public_text("comparisonrationale"),
+                    "members": [{"source": "slings", "passage": "cave"}, {"source": "bloom", "absent": true}]},
+                {"id": "private-places", "label": leak("alignmentlabel"), "rationale": leak("alignmentrationale"),
+                    "members": [{"source": "slings", "passage": "hidden"}, {"source": "bloom", "absent": true}]},
+                {"id": "stale-places", "label": "Moved", "visibility": "approved", "rationale": leak("stalerationale"),
+                    "approvedPassages": {"moved": "0000000000000000"},
+                    "members": [{"source": "slings", "passage": "moved", "locators": [{"kind": "page", "value": "601"}]},
+                        {"source": "bloom", "absent": true}]}
+            ]}),
+        );
+        write(
+            crate::atlas_store::ATLAS_FILE,
+            json!({"version": 2, "entries": [
+                {"id": "plato-person", "kind": "person", "label": "Plato", "summary": public_text("entrysummary"),
+                    "visibility": "approved", "shelf": leak("entryunknown"),
+                    "dates": [
+                        {"id": "born", "aspect": "birth", "date": {"at": {"year": -428, "circa": true}},
+                            "assertedBy": {"kind": "author"}, "evidence": [{"source": "slings"}],
+                            "visibility": "approved", "note": public_text("datingnote")},
+                        {"id": "died", "aspect": "death", "date": {"at": {"year": -348}},
+                            "assertedBy": {"kind": "author"}, "evidence": [{"source": "slings"}],
+                            "note": leak("datingnote")}
+                    ]},
+                {"id": "politeia", "kind": "work", "label": "Politeia", "source": "plato", "visibility": "approved"},
+                {"id": "the-good", "kind": "concept", "label": leak("entrylabel"), "summary": leak("entrysummary")}
+            ], "relationships": [
+                {"id": "plato-authored-politeia", "kind": "authored", "from": "plato-person", "to": "politeia",
+                    "assertedBy": {"kind": "author"}, "evidence": [{"source": "slings"}],
+                    "uncertainty": public_text("relationshipdoubt"), "visibility": "approved"},
+                {"id": "politeia-discusses-good", "kind": "discusses", "from": "politeia", "to": "the-good",
+                    "assertedBy": {"kind": "author"}, "evidence": [{"source": "slings"}],
+                    "uncertainty": leak("relationshipdoubt"), "visibility": "approved"}
+            ]}),
+        );
+        write(
+            crate::claims_store::CLAIMS_FILE,
+            json!({"version": 1, "claims": [
+                {"id": "c1", "post": "cave", "statement": public_text("claimstatement"), "visibility": "approved",
+                    "shelf": leak("claimunknown")},
+                {"id": "c2", "post": "cave", "statement": leak("claimstatement")}
+            ], "links": [
+                {"id": "l1", "claim": "c1", "relation": "contextualizes", "evidence": {"source": "slings"},
+                    "visibility": "approved", "rationale": public_text("linkrationale")},
+                {"id": "l2", "claim": "c1", "relation": "supports", "evidence": {"source": "slings"},
+                    "rationale": leak("linkrationale")}
+            ]}),
+        );
+        write(
+            crate::research_review::ACKNOWLEDGEMENTS_FILE,
+            json!({"version": 1, "acknowledgements": [
+                {"validator": "research-profile", "code": "abstract-missing", "object": "post",
+                    "path": format!("posts/{}.md", leak("ackpath")),
+                    "fingerprint": "0123456789abcdef0123456789abcdef"}
+            ]}),
+        );
+        fs::write(
+            f.dir.join("content/posts/cave.md"),
+            "---\ntitle: Cave\ndate: 2026-10-01\nprofile: research\ncitations: notes\n---\n\n## Abstract\n\nThe cave educates [@slings, page 514].\n\nSee [Plato](/atlas/plato-person/), [the Good](/atlas/the-good/) and [the places](/comparisons/cave-places/).\n\n## References\n",
+        )
+        .unwrap();
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        config["comparisons"] = json!({"publish": true});
+        config["claimEvidence"] = json!({"publish": true});
+        fs::write(&config_path, config.to_string()).unwrap();
+        f
+    }
+
+    fn production(root: &std::path::Path) -> site::BuildReport {
+        site::build(
+            root,
+            &site::BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: Some(clock::now()),
+            },
+        )
+        .unwrap_or_else(|error| panic!("the build failed: {error}"))
+    }
+
+    /// Every public artifact: the built site (pages, feeds, search index,
+    /// `llms.txt`, JSON artifacts) and each published post's portable
+    /// Markdown and HTML and its bibliography exports.
+    fn public_artifacts(root: &std::path::Path) -> Vec<(String, String)> {
+        let out = root.join("dist");
+        let mut artifacts: Vec<(String, String)> = fsutil::walk(&out)
+            .into_iter()
+            .map(|file| {
+                (
+                    fsutil::relative(&out, &file),
+                    String::from_utf8_lossy(&fs::read(&file).unwrap()).to_string(),
+                )
+            })
+            .collect();
+        let (site, _) = site::load_site(root, false, Some(clock::now())).unwrap();
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::for_site(&site, post).unwrap();
+            artifacts.push((
+                format!("portable markdown of {}", post.slug),
+                projection.portable_markdown().unwrap(),
+            ));
+            artifacts.push((
+                format!("portable html of {}", post.slug),
+                projection.portable_html().unwrap().html,
+            ));
+            for format in [
+                crate::portable_export::Format::CslJson,
+                crate::portable_export::Format::Bibtex,
+            ] {
+                if let Ok(export) = crate::portable_export::bibliography_export(post, format) {
+                    artifacts.push((
+                        format!("{format:?} export of {}", post.slug),
+                        export.content,
+                    ));
+                }
+            }
+        }
+        artifacts
+    }
+
+    #[test]
+    fn a_sentinel_in_every_private_store_reaches_no_public_artifact_and_approved_fields_do() {
+        let f = boundary_fixture("boundary-corpus");
+        let before = research_store_files(&f);
+        let report = production(&f.dir);
+        let artifacts = public_artifacts(&f.dir);
+        assert!(artifacts.iter().any(|(path, _)| path == "llms.txt"));
+        assert!(artifacts.iter().any(|(path, _)| path.ends_with(".xml")));
+        assert!(artifacts.iter().any(|(path, _)| path.contains("search")));
+        for label in LEAKS {
+            let needle = leak(label).to_lowercase();
+            for (path, text) in &artifacts {
+                assert!(
+                    !text.to_lowercase().contains(&needle),
+                    "the private {label} reached {path}"
+                );
+            }
+        }
+        for (path, text) in &artifacts {
+            assert!(
+                !text.contains(URL_SENTINEL),
+                "the unsafe address reached {path}"
+            );
+            assert!(
+                !text.contains("files.internal"),
+                "the unsafe address reached {path}"
+            );
+        }
+        for label in PUBLICS {
+            let needle = public_text(label);
+            assert!(
+                artifacts.iter().any(|(_, text)| text.contains(&needle)),
+                "the approved {label} was not published"
+            );
+        }
+        // The stale approval and the unsafe address are withheld by name, not silently.
+        assert!(
+            report.warnings.iter().any(|w| w.starts_with("boundary:")
+                && w.contains("`stale-places`")
+                && w.contains("members[0].passage")),
+            "{:?}",
+            report.warnings
+        );
+        assert!(
+            report.warnings.iter().any(|w| w.starts_with("boundary:")
+                && w.contains("`slings`")
+                && w.contains("private or local network")),
+            "{:?}",
+            report.warnings
+        );
+        for warning in &report.warnings {
+            for label in LEAKS {
+                assert!(!warning.contains(&leak(label)), "{warning}");
+            }
+        }
+        assert_eq!(
+            before,
+            research_store_files(&f),
+            "nothing private is changed by a build"
+        );
+    }
+
+    fn withheld_reason(manifest: &Json, projection: &str, id: &str) -> String {
+        manifest["projections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|report| report["projection"] == projection)
+            .flat_map(|report| report["withheld"].as_array().unwrap())
+            .find(|item| item["id"] == id)
+            .unwrap_or_else(|| panic!("{id} is not withheld from {projection}: {manifest}"))
+            ["reason"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    fn published_ids(manifest: &Json, projection: &str, kind: &str) -> Vec<String> {
+        manifest["projections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|report| report["projection"] == projection)
+            .flat_map(|report| report["published"].as_array().unwrap())
+            .filter(|item| item["kind"] == kind)
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn the_site_preview_reads_drafts_exactly_when_the_server_builds_them() {
+        let draft = "---\ntitle: Drafty\ndate: 2026-10-02\ndraft: true\ncitations: notes\n---\n\nSee [@bloom, page 3].\n";
+        let cited = |f: &Fixture| {
+            let session = login_ok(f);
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/boundary"), &session, false),
+            );
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            published_ids(&body_json(&response), "citations", "source")
+        };
+        let mut f = boundary_fixture("boundary-drafts");
+        fs::write(f.dir.join("content/posts/drafty.md"), draft).unwrap();
+        assert_eq!(cited(&f), ["slings"], "a draft is not built or previewed");
+        f.state = Arc::new(AppState::new(f.dir.clone(), None, true, true));
+        assert_eq!(
+            cited(&f),
+            ["bloom", "slings"],
+            "serving drafts, the preview shows what that build publishes"
+        );
+    }
+
+    #[test]
+    fn the_draft_panel_lists_a_comparison_as_published_only_when_the_projection_holds_it() {
+        let f = boundary_fixture("boundary-draft-panel");
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/draft"), &session, false),
+        );
+        assert_eq!(response.status, 200);
+        let panel = body_json(&response);
+        let urls: std::collections::BTreeMap<String, Json> = panel["comparisons"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| {
+                (
+                    item["id"].as_str().unwrap().to_string(),
+                    item["url"].clone(),
+                )
+            })
+            .collect();
+        assert_eq!(urls["cave-places"], json!("/comparisons/cave-places/"));
+        assert!(urls["private-places"].is_null(), "not approved");
+        assert!(
+            urls["stale-places"].is_null(),
+            "its approval is stale, so the projection does not hold it"
+        );
+        let report = production(&f.dir);
+        let published = published_ids(
+            &serde_json::to_value(&report.boundary).unwrap(),
+            "comparisons",
+            "comparison",
+        );
+        assert_eq!(
+            published,
+            ["cave-places"],
+            "the build agrees with the panel"
+        );
+    }
+
+    #[test]
+    fn a_text_match_is_a_warning_in_the_preview_and_in_the_build_and_never_names_the_text() {
+        let f = boundary_fixture("boundary-text-match");
+        let session = login_ok(&f);
+        let read = || {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/boundary"), &session, false),
+            );
+            assert_eq!(response.status, 200);
+            body_json(&response)
+        };
+        assert!(read().get("textMatches").is_none(), "nothing matches yet");
+        fs::write(f.dir.join("static/notes.txt"), leak("notetext")).unwrap();
+        let preview = read();
+        assert!(preview["refused"].is_null(), "{preview}");
+        let matches = preview["textMatches"].as_array().expect("a text match");
+        assert_eq!(matches.len(), 1, "{preview}");
+        let said = matches[0].as_str().unwrap();
+        for expected in ["boundary: ", "`notes.txt`", "`why`", "field `text`"] {
+            assert!(said.contains(expected), "{expected}: {said}");
+        }
+        assert!(!said.contains("ZqxLeak"), "{said}");
+        let report = production(&f.dir);
+        assert!(report.warnings.iter().any(|warning| warning == said));
+        assert_eq!(report.boundary.text_matches, [said]);
+    }
+
+    #[test]
+    fn saving_a_comparison_keeps_a_stale_approval_stale_until_the_author_approves_again() {
+        let f = boundary_fixture("boundary-reapprove");
+        let session = login_ok(&f);
+        let read = || {
+            let response = handle(
+                &f.state,
+                &authed(
+                    req("GET", "/admin/api/research/alignments"),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(response.status, 200);
+            body_json(&response)
+        };
+        let save = |view: &Json, label: &str, reapprove: bool| {
+            let alignment = view["alignments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|a| a["id"] == "stale-places")
+                .unwrap()
+                .clone();
+            let mut alignment = alignment;
+            alignment["label"] = json!(label);
+            let mut body = json!({"revision": view["revision"], "alignment": alignment});
+            if reapprove {
+                body["reapprove"] = json!(true);
+            }
+            let response = handle(
+                &f.state,
+                &authed(
+                    json_req("PUT", "/admin/api/research/alignments", body),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            body_json(&response)
+        };
+        let view = read();
+        assert!(
+            view["staleApprovals"]["stale-places"].is_string(),
+            "{}",
+            view["staleApprovals"]
+        );
+        let edited = save(&view, "Reworded", false);
+        assert!(
+            edited["staleApprovals"]["stale-places"].is_string(),
+            "an edit does not make the moved place look checked"
+        );
+        let approved = save(&edited, "Reworded again", true);
+        assert!(
+            approved["staleApprovals"]["stale-places"].is_null(),
+            "{}",
+            approved["staleApprovals"]
+        );
+    }
+
+    #[test]
+    fn the_admin_preview_and_the_build_consume_the_same_projection() {
+        let f = boundary_fixture("boundary-preview");
+        let session = login_ok(&f);
+        let unauthenticated = handle(&f.state, &req("GET", "/admin/api/research/boundary"));
+        assert_eq!(unauthenticated.status, 401);
+        let read = || {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/boundary"), &session, false),
+            );
+            assert_eq!(
+                response.status,
+                200,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            let mut view = body_json(&response);
+            assert!(view["refused"].is_null(), "{view}");
+            view.as_object_mut().unwrap().remove("refused");
+            view
+        };
+        let preview = read();
+        let report = production(&f.dir);
+        assert_eq!(
+            preview,
+            serde_json::to_value(&report.boundary).unwrap(),
+            "the preview is the manifest the build checked its output against"
+        );
+        assert_eq!(read(), preview, "the preview is deterministic");
+
+        assert_eq!(
+            published_ids(&preview, "atlas", "entry"),
+            ["plato-person", "politeia"]
+        );
+        assert_eq!(
+            published_ids(&preview, "atlas", "relationship"),
+            ["plato-authored-politeia"]
+        );
+        assert_eq!(published_ids(&preview, "datings", "dating"), ["born"]);
+        assert_eq!(
+            published_ids(&preview, "comparisons", "comparison"),
+            ["cave-places"]
+        );
+        assert_eq!(published_ids(&preview, "claim-evidence", "claim"), ["c1"]);
+        assert_eq!(
+            published_ids(&preview, "claim-evidence", "evidence-link"),
+            ["l1"]
+        );
+        assert_eq!(published_ids(&preview, "citations", "source"), ["slings"]);
+        for (projection, id, reason) in [
+            ("atlas", "the-good", "not-approved"),
+            ("atlas", "politeia-discusses-good", "private-dependency"),
+            ("datings", "died", "not-approved"),
+            ("comparisons", "private-places", "not-approved"),
+            ("comparisons", "stale-places", "stale-approval"),
+            ("claim-evidence", "c2", "not-approved"),
+            ("claim-evidence", "l2", "not-approved"),
+        ] {
+            assert_eq!(withheld_reason(&preview, projection, id), reason, "{id}");
+        }
+        let citations = preview["projections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|report| report["projection"] == "citations")
+            .unwrap();
+        let slings = &citations["published"][0];
+        assert_eq!(slings["posts"], json!(["cave"]));
+        let withheld_fields: Vec<(&str, &str)> = slings["withheldFields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|field| {
+                (
+                    field["field"].as_str().unwrap(),
+                    field["reason"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert!(
+            withheld_fields.contains(&("identifiers.url", "unsafe-url")),
+            "{withheld_fields:?}"
+        );
+        assert!(
+            withheld_fields.contains(&("identifiers.shelfmark", "private-identifier")),
+            "{withheld_fields:?}"
+        );
+        let never: Vec<&str> = preview["never"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["store"].as_str().unwrap())
+            .collect();
+        for store in [
+            "source-library",
+            "notebook",
+            "atlas",
+            "claims",
+            "alignments",
+            "acknowledgements",
+        ] {
+            assert!(never.contains(&store), "{store}: {never:?}");
+        }
+    }
+
+    #[test]
+    fn one_posts_preview_names_its_citations_claims_and_linked_pages() {
+        let f = boundary_fixture("boundary-post");
+        let session = login_ok(&f);
+        let before = research_store_files(&f);
+        let saved = fs::read(f.dir.join("content/posts/cave.md")).unwrap();
+        let body = json!({
+            "kind": "posts",
+            "path": "posts/cave.md",
+            "fields": {"title": "Cave", "date": "2026-10-01", "profile": "research", "citations": "notes"},
+            "body": "The cave educates [@slings, page 514].\n\nSee [Plato](/atlas/plato-person/), [the Good](/atlas/the-good/), [the places](/comparisons/cave-places/) and [moved](/comparisons/stale-places/).\n",
+        });
+        let without_csrf = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/research/boundary", body.clone()),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without_csrf.status, 403);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/research/boundary", body),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        let manifest = body_json(&response);
+        assert_eq!(
+            manifest["scope"],
+            json!({"kind": "post", "path": "posts/cave.md", "slug": "cave"})
+        );
+        assert_eq!(published_ids(&manifest, "citations", "source"), ["slings"]);
+        assert_eq!(published_ids(&manifest, "claim-evidence", "claim"), ["c1"]);
+        assert_eq!(
+            withheld_reason(&manifest, "claim-evidence", "c2"),
+            "not-approved"
+        );
+        assert_eq!(
+            published_ids(&manifest, "context-links", "atlas-page"),
+            ["plato-person"]
+        );
+        assert_eq!(
+            published_ids(&manifest, "context-links", "comparison-page"),
+            ["cave-places"]
+        );
+        for id in ["the-good", "stale-places"] {
+            assert_eq!(
+                withheld_reason(&manifest, "context-links", id),
+                "page-not-published"
+            );
+        }
+        assert_eq!(
+            before,
+            research_store_files(&f),
+            "the preview changes no research file"
+        );
+        assert_eq!(
+            fs::read(f.dir.join("content/posts/cave.md")).unwrap(),
+            saved,
+            "or the post"
+        );
+    }
+
+    #[test]
+    fn a_build_with_private_research_but_no_projections_is_byte_for_byte_the_legacy_build() {
+        let snapshot = |root: &std::path::Path| -> Vec<(String, Vec<u8>)> {
+            let out = root.join("dist");
+            let mut files: Vec<(String, Vec<u8>)> = fsutil::walk(&out)
+                .into_iter()
+                .map(|file| (fsutil::relative(&out, &file), fs::read(&file).unwrap()))
+                .collect();
+            files.sort();
+            files
+        };
+        // The post the research leaves out of the projections, quoting a
+        // private notebook passage as a hard-wrapped blockquote: the author's
+        // own published text, which the text guard must not refuse.
+        let quoting = format!(
+            "---
+title: Cave
+date: 2026-10-01
+---
+
+What I read:
+
+> {}
+> {}
+",
+            "ZqxLeak passagehidden sentinel", "words kept private"
+        );
+        let f = fixture("boundary-legacy");
+        fs::write(f.dir.join("content/posts/cave.md"), &quoting).unwrap();
+        production(&f.dir);
+        let legacy = snapshot(&f.dir);
+        let seeded = boundary_fixture("boundary-legacy-seeded");
+        let config_path = seeded.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        for switch in ["knowledgeAtlas", "comparisons", "claimEvidence"] {
+            config.as_object_mut().unwrap().remove(switch);
+        }
+        fs::write(&config_path, config.to_string()).unwrap();
+        fs::write(seeded.dir.join("content/posts/cave.md"), &quoting).unwrap();
+        production(&seeded.dir);
+        let with_research = snapshot(&seeded.dir);
+        assert_eq!(
+            legacy.iter().map(|(path, _)| path).collect::<Vec<_>>(),
+            with_research
+                .iter()
+                .map(|(path, _)| path)
+                .collect::<Vec<_>>()
+        );
+        for ((path, a), (_, b)) in legacy.iter().zip(&with_research) {
+            assert!(a == b, "{path} differs once private research is stored");
+        }
+        // And twice in a row, the output is the same bytes.
+        production(&seeded.dir);
+        assert_eq!(snapshot(&seeded.dir), with_research);
+    }
+
+    /// A research post for the pre-publication review (#62): the draft-side
+    /// fixture's research, a saved post `cave` with one claim and no evidence,
+    /// and a site that publishes its atlas, comparisons and claim evidence.
+    fn review_fixture(tag: &str) -> Fixture {
+        let f = draft_research_fixture(tag);
+        fs::write(
+            f.dir.join("content/posts/cave.md"),
+            "---\ntitle: Cave\ndate: 2026-10-01\nprofile: research\ndraft: true\n---\n\nThe cave educates.\n",
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join(crate::claims_store::CLAIMS_FILE),
+            json!({"version": 1, "claims": [
+                {"id": "c1", "post": "cave", "statement": "ob-claim-statement", "uncertainty": "ob-claim-doubt"}
+            ], "links": []})
+            .to_string(),
+        )
+        .unwrap();
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        config["comparisons"] = json!({"publish": true});
+        config["claimEvidence"] = json!({"publish": true});
+        fs::write(&config_path, config.to_string()).unwrap();
+        f
+    }
+
+    fn review_request(body: &str) -> Json {
+        json!({
+            "kind": "posts",
+            "path": "posts/cave.md",
+            "fields": {"title": "Cave", "date": "2026-10-01", "profile": "research", "citations": "notes"},
+            "body": body,
+        })
+    }
+
+    const REVIEW_BODY: &str = "## Abstract\n\nThe cave educates [@slings, page 514].\n\nSee [Plato](/atlas/plato-person/), [the Good](/atlas/the-good/) and [the places](/comparisons/cave-places/).\n\nAlso [@nobody].\n\n## References\n";
+
+    fn review(f: &Fixture, session: &(String, String), body: &str) -> Json {
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req("POST", "/admin/api/research/review", review_request(body)),
+                session,
+                true,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        body_json(&response)
+    }
+
+    fn finding<'a>(review: &'a Json, code: &str) -> &'a Json {
+        review["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|finding| finding["code"] == code)
+            .unwrap_or_else(|| panic!("no {code} in {review}"))
+    }
+
+    #[test]
+    fn the_review_groups_findings_by_gate_and_outcome_and_blocks_only_on_refusals() {
+        let f = review_fixture("review-groups");
+        let session = login_ok(&f);
+        let before = research_files(&f);
+        let saved_post = fs::read(f.dir.join("content/posts/cave.md")).unwrap();
+        let without_csrf = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/review",
+                    review_request(REVIEW_BODY),
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without_csrf.status, 403);
+        let signed_out = handle(
+            &f.state,
+            &json_req(
+                "POST",
+                "/admin/api/research/review",
+                review_request(REVIEW_BODY),
+            ),
+        );
+        assert_eq!(signed_out.status, 401);
+
+        let review = review(&f, &session, REVIEW_BODY);
+        assert_eq!(review["version"], 1);
+        assert_eq!(review["applies"], true);
+        assert_eq!(review["post"], "posts/cave.md");
+        // The unresolved citation blocks publishing; it is the citation check's own finding.
+        let groups = review["groups"].as_array().unwrap();
+        assert_eq!(groups[0]["name"], "blocking");
+        let blocking: Vec<&str> = groups[0]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|index| {
+                review["findings"][index.as_u64().unwrap() as usize]["code"]
+                    .as_str()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(blocking, vec!["citation-unresolved"]);
+        let unresolved = finding(&review, "citation-unresolved");
+        assert_eq!(unresolved["validator"], "citation-review");
+        assert_eq!(unresolved["gate"], "refuses-when-published");
+        assert_eq!(unresolved["scope"]["object"], "post");
+        assert_eq!(unresolved["scope"]["path"], "posts/cave.md");
+        assert!(unresolved["scope"]["line"].as_u64().is_some());
+        // Every other group is advisory, in the fixed order.
+        let names: Vec<&str> = groups
+            .iter()
+            .map(|group| group["name"].as_str().unwrap())
+            .collect();
+        let order = ["blocking", "detected", "potential", "needs-review"];
+        let rank = |name: &str| order.iter().position(|known| *known == name);
+        assert!(
+            names.windows(2).all(|pair| rank(pair[0]) < rank(pair[1])),
+            "{names:?}"
+        );
+        // A link to an unapproved atlas entry: advisory, at its line, naming the entry.
+        let context = finding(&review, "context-link-unpublished");
+        assert_eq!(context["validator"], "publication-context");
+        assert_eq!(context["check"], "context-link");
+        assert_eq!(context["gate"], "advisory");
+        assert_eq!(
+            context["related"],
+            json!([{"kind": "entry", "id": "the-good"}])
+        );
+        assert_eq!(
+            context["scope"]["line"],
+            review["firstBodyLine"].as_u64().unwrap() + 4
+        );
+        // The claim on this post with no evidence, scoped to the claim.
+        let missing = finding(&review, "claim-evidence-missing");
+        assert_eq!(missing["scope"]["object"], "claim");
+        assert_eq!(missing["scope"]["id"], "c1");
+        // The cited location only a person can check.
+        assert_eq!(
+            finding(&review, "citation-location-review")["outcome"],
+            "needs-review"
+        );
+        // Each outcome counted apart; there is no score, total, pass or resolved field.
+        for outcome in ["detected", "potential", "needsReview"] {
+            assert!(review["counts"][outcome]["found"].as_u64().is_some());
+            assert_eq!(review["counts"][outcome]["acknowledged"], 0);
+        }
+        let text = review.to_string();
+        for word in [
+            "\"score\"",
+            "\"total\"",
+            "\"resolved\"",
+            "\"ready\"",
+            "\"pass\"",
+            "\"verdict\"",
+        ] {
+            assert!(!text.contains(word), "{word} in {text}");
+        }
+        // Private research never rides along: statements, notes, excerpts, rights notes.
+        for private in [
+            "ob-claim-statement",
+            "ob-claim-doubt",
+            "ob-hidden-locator",
+            "ob-rights-note",
+            "Why a cave?",
+            "Behold",
+            "ob-private-dating",
+        ] {
+            assert!(!text.contains(private), "{private} leaked into {text}");
+        }
+        assert!(review["acknowledgements"]["revision"].as_str().is_some());
+        assert_eq!(research_files(&f), before, "the review writes nothing");
+        assert_eq!(
+            fs::read(f.dir.join("content/posts/cave.md")).unwrap(),
+            saved_post
+        );
+        assert!(!f.dir.join(research_review::ACKNOWLEDGEMENTS_FILE).exists());
+    }
+
+    #[test]
+    fn a_post_outside_the_research_capability_is_not_reviewed() {
+        let f = review_fixture("review-opt-in");
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/review",
+                    json!({"kind": "posts", "path": "posts/plain.md",
+                        "fields": {"title": "Plain", "date": "2026-10-01"},
+                        "body": "A link to [the Good](/atlas/the-good/)."}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(response.status, 200);
+        let body = body_json(&response);
+        assert_eq!(body["applies"], false);
+        assert_eq!(body["findings"], json!([]));
+        assert_eq!(body["groups"], json!([]));
+        let pages = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/review",
+                    json!({"kind": "pages", "fields": {}, "body": ""}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(pages.status, 422);
+    }
+
+    #[test]
+    fn an_acknowledgement_never_resolves_a_finding_and_goes_stale_when_it_changes() {
+        let f = review_fixture("review-acknowledge");
+        let session = login_ok(&f);
+        let send = |method: &str, body: Json, with_csrf: bool| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(method, "/admin/api/research/review/acknowledgements", body),
+                    &session,
+                    with_csrf,
+                ),
+            )
+        };
+        let file = f.dir.join(research_review::ACKNOWLEDGEMENTS_FILE);
+        let first = review(&f, &session, REVIEW_BODY);
+        let revision = first["acknowledgements"]["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let context = finding(&first, "context-link-unpublished").clone();
+        let ack = |entry: &Json| {
+            let mut ack = json!({
+                "validator": entry["validator"], "code": entry["code"],
+                "object": entry["scope"]["object"], "fingerprint": entry["fingerprint"],
+            });
+            for part in ["path", "id", "field"] {
+                if !entry["scope"][part].is_null() {
+                    ack[part] = entry["scope"][part].clone();
+                }
+            }
+            ack
+        };
+
+        // A refusing finding cannot be acknowledged, and nothing is written.
+        let refused = send(
+            "PUT",
+            json!({"revision": revision, "acknowledgement": ack(finding(&first, "citation-unresolved"))}),
+            true,
+        );
+        assert_eq!(
+            refused.status,
+            422,
+            "{}",
+            String::from_utf8_lossy(&refused.body)
+        );
+        assert!(!file.exists());
+        // Hostile input is refused before anything is read or written.
+        let mut hostile = ack(&context);
+        hostile["resolved"] = json!(true);
+        assert_eq!(
+            send(
+                "PUT",
+                json!({"revision": revision, "acknowledgement": hostile}),
+                true
+            )
+            .status,
+            422
+        );
+        let mut hostile = ack(&context);
+        hostile["fingerprint"] = json!("../../etc/passwd");
+        assert_eq!(
+            send(
+                "PUT",
+                json!({"revision": revision, "acknowledgement": hostile}),
+                true
+            )
+            .status,
+            422
+        );
+        assert_eq!(
+            send(
+                "PUT",
+                json!({"revision": revision, "acknowledgement": ack(&context)}),
+                false
+            )
+            .status,
+            403
+        );
+        assert!(!file.exists());
+
+        let saved = send(
+            "PUT",
+            json!({"revision": revision, "acknowledgement": ack(&context)}),
+            true,
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let next = body_json(&saved)["revision"].as_str().unwrap().to_string();
+        // A stale revision is refused and leaves the file as it was.
+        let stored = fs::read(&file).unwrap();
+        let conflict = send(
+            "PUT",
+            json!({"revision": revision, "acknowledgement": ack(finding(&first, "claim-evidence-missing"))}),
+            true,
+        );
+        assert_eq!(conflict.status, 409);
+        assert_eq!(body_json(&conflict)["revision"], next.as_str());
+        assert_eq!(fs::read(&file).unwrap(), stored);
+        // The record holds the key and fingerprint only: no note, person or time.
+        let record: Json = serde_json::from_slice(&stored).unwrap();
+        assert_eq!(record["version"], 1);
+        let keys: BTreeSet<&str> = record["acknowledgements"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            keys,
+            BTreeSet::from(["validator", "code", "object", "path", "fingerprint"])
+        );
+
+        // Still listed, still counted, now acknowledged.
+        let second = review(&f, &session, REVIEW_BODY);
+        assert_eq!(
+            finding(&second, "context-link-unpublished")["acknowledgement"],
+            "current"
+        );
+        assert_eq!(
+            second["counts"]["detected"]["found"],
+            first["counts"]["detected"]["found"]
+        );
+        assert_eq!(second["counts"]["detected"]["acknowledged"], 1);
+        assert_eq!(
+            second["findings"].as_array().unwrap().len(),
+            first["findings"].as_array().unwrap().len()
+        );
+
+        // Moving the link down a paragraph keeps it current; changing its address makes it stale.
+        let moved = review(&f, &session, &format!("Intro.\n\n{REVIEW_BODY}"));
+        assert_eq!(
+            finding(&moved, "context-link-unpublished")["acknowledgement"],
+            "current"
+        );
+        let changed = review(
+            &f,
+            &session,
+            &REVIEW_BODY.replace("/atlas/the-good/", "/atlas/the-good/#dates"),
+        );
+        assert_eq!(
+            finding(&changed, "context-link-unpublished")["acknowledgement"],
+            "stale"
+        );
+        assert_eq!(changed["counts"]["detected"]["acknowledged"], 0);
+
+        // Withdrawing restores the unacknowledged finding.
+        let withdrawn = send(
+            "DELETE",
+            json!({"revision": next, "acknowledgement": ack(&context)}),
+            true,
+        );
+        assert_eq!(withdrawn.status, 200);
+        let third = review(&f, &session, REVIEW_BODY);
+        assert!(finding(&third, "context-link-unpublished")["acknowledgement"].is_null());
+    }
+
+    #[test]
+    fn a_private_file_the_build_cannot_read_blocks_publishing_against_that_file_only() {
+        let f = review_fixture("review-integrity");
+        let session = login_ok(&f);
+        let atlas_bytes = fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        fs::write(f.dir.join(crate::atlas_store::ATLAS_FILE), b"{ not json").unwrap();
+        let before = research_files(&f);
+        let broken = review(&f, &session, REVIEW_BODY);
+        let atlas: Vec<&Json> = broken["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|finding| finding["validator"] == "atlas")
+            .collect();
+        assert!(!atlas.is_empty(), "{broken}");
+        for finding in &atlas {
+            assert_eq!(finding["gate"], "refuses");
+            assert_eq!(finding["check"], "atlas-integrity");
+        }
+        assert_eq!(broken["groups"][0]["name"], "blocking");
+        assert_eq!(
+            research_files(&f),
+            before,
+            "nothing is repaired or replaced"
+        );
+
+        // An unreadable library is reported once, against the library; what depends on it is
+        // reported as not reviewed, and the alignments file is never blamed.
+        fs::write(f.dir.join(crate::atlas_store::ATLAS_FILE), atlas_bytes).unwrap();
+        fs::write(f.dir.join(crate::source_store::LIBRARY_FILE), b"{ not json").unwrap();
+        let library = review(&f, &session, "## Abstract\n\nText.\n\n## References\n");
+        let validators: BTreeSet<&str> = library["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|finding| finding["gate"] == "refuses")
+            .map(|finding| finding["validator"].as_str().unwrap())
+            .collect();
+        assert_eq!(validators, BTreeSet::from(["source-library"]), "{library}");
+        assert!(
+            !library.to_string().contains("alignments.json"),
+            "{library}"
+        );
+        assert!(library["notReviewed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["part"] == "published-research"));
     }
 
     #[test]
@@ -18278,16 +22057,404 @@ mod tests {
 
     const FEEDBACK_ITEM_ID: &str = "00000000-0000-4000-8000-0000000000a1";
 
-    fn feedback_routes() -> [(&'static str, &'static str); 7] {
+    /// Switch passage feedback on in a fixture's openblog.json, with a hosted
+    /// endpoint nothing in the test calls, so its kinds are shown (ADR 0101).
+    fn enable_passage_feedback(dir: &Path) {
+        let path = dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        config["engagement"] = json!({
+            "enabled": true,
+            "feedback": true,
+            "endpoint": "https://engagement.invalid/api",
+        });
+        fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+    }
+
+    fn feedback_routes() -> [(&'static str, &'static str); 14] {
         [
-            ("GET", "/admin/api/engagement/feedback"),
-            ("PATCH", "/admin/api/engagement/feedback"),
+            ("GET", "/admin/api/engagement/third-perspectives/published"),
+            ("POST", "/admin/api/engagement/third-perspectives/publish"),
+            ("POST", "/admin/api/engagement/third-perspectives/unpublish"),
+            ("GET", "/admin/api/engagement/moderation"),
+            ("PATCH", "/admin/api/engagement/moderation"),
+            ("POST", "/admin/api/engagement/moderation/decision"),
+            ("GET", "/admin/api/engagement/retention"),
+            ("POST", "/admin/api/engagement/retention"),
             ("POST", "/admin/api/engagement/feedback/publish"),
+            ("POST", "/admin/api/engagement/feedback/publish-decision"),
             ("POST", "/admin/api/engagement/feedback/unpublish"),
             ("GET", "/admin/api/engagement/feedback/published"),
             ("PUT", "/admin/api/engagement/feedback/response"),
             ("POST", "/admin/api/engagement/feedback/revision-note"),
         ]
+    }
+
+    #[test]
+    fn correction_decisions_are_read_strictly_before_any_hosted_request() {
+        let f = fixture("correction-decisions");
+        let session = login_ok(&f);
+        let decide = |body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req("POST", "/admin/api/engagement/moderation/decision", body),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let valid = json!({
+            "id": FEEDBACK_ITEM_ID, "expectedDecisions": 0, "itemRevision": 1, "outcome": "declined",
+            "declineReason": "maintains-reading", "rationale": "The survey measured neap tides.",
+            "decided": "2026-10-27",
+        });
+        // Off: it says how to turn hosted engagement on, asking nothing of it.
+        let off = decide(valid.clone());
+        assert_eq!(off.status, 404);
+        assert!(body_json(&off)["error"]
+            .as_str()
+            .unwrap()
+            .contains("Hosted engagement is not turned on"));
+        let with = |key: &str, value: Json| {
+            let mut body = valid.clone();
+            body[key] = value;
+            body
+        };
+        for body in [
+            with("id", json!("../x")),
+            with("expectedDecisions", json!(-1)),
+            with("expectedDecisions", json!("0")),
+            with("itemRevision", json!(null)),
+            with("itemRevision", json!(0)),
+            with("itemRevision", json!("1")),
+            with("outcome", json!("verified")),
+            with("outcome", json!("incorrect")),
+            with("extent", json!("most")),
+            with("declineReason", json!("misinformation")),
+            with("revisionNote", json!("2026-10-27: changed")),
+            with(
+                "claimEvidence",
+                json!({"claim": "a", "link": "b", "votes": 3}),
+            ),
+            with("confirmCheck", json!("stale:moved")),
+            with("decided", json!(null)),
+            with("decided", json!("2999-01-01")),
+            with("rationale", json!(7)),
+            json!("not an object"),
+        ] {
+            let refused = decide(body.clone());
+            assert!(
+                matches!(refused.status, 400 | 422),
+                "{body}: refused before any hosted request, got {}",
+                refused.status
+            );
+        }
+    }
+
+    #[test]
+    fn a_decision_is_about_the_revision_the_author_read() {
+        assert!(decision_revision_is_current(2, 2));
+        assert!(!decision_revision_is_current(1, 2));
+        let changed = |code: &str| {
+            hosted_decision_changed(&Response::json(422, &json!({ "error": "x", "code": code })))
+        };
+        assert!(changed("stale") && changed("itemClosed") && changed("awaitingClarification"));
+        assert!(!changed("malformed") && !changed("denied"));
+    }
+
+    #[test]
+    fn decision_choices_list_the_posts_notes_as_written_and_nothing_else() {
+        let f = fixture("decision-choices");
+        let post = "---\ntitle: Tides\ndate: 2026-10-20\nevidenceRevisions:\n  - \"2026-10-27 tides:  Corrected the height.\"\n---\nThe tide rises.\n";
+        fs::write(f.dir.join("content/posts/tides.md"), post).unwrap();
+        f.state.rebuild().unwrap();
+        let (site, _) = site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+        let mut items = vec![
+            json!({"id": "a", "recordDecision": {"post": "posts/tides.md"}}),
+            json!({"id": "b", "recordDecision": {"post": null}}),
+            json!({"id": "c"}),
+        ];
+        add_decision_choices(&f.state, &site, &mut items);
+        // Exactly as written, so the decision names the note the post holds.
+        assert_eq!(
+            items[0]["recordDecision"]["revisionNotes"],
+            json!(["2026-10-27 tides:  Corrected the height."])
+        );
+        assert_eq!(items[0]["recordDecision"]["claimEvidence"], json!([]));
+        assert_eq!(items[1]["recordDecision"]["revisionNotes"], json!([]));
+        assert!(items[2].get("recordDecision").is_none());
+        // The content a request may carry is read with closed lists only.
+        let content = decision_content(&json!({
+            "outcome": "accepted-as-evidence", "extent": "partial", "rationale": "Only the height.",
+            "revisionNote": {"post": "posts/tides.md", "note": "2026-10-27 tides: x"},
+            "claimEvidence": {"claim": "tides", "link": "tides-noaa"}, "addressedBy": "",
+        }))
+        .unwrap();
+        assert_eq!(content.outcome.id(), "accepted-as-evidence");
+        assert_eq!(content.addressed_by, None);
+        assert!(decision_content(&json!({"outcome": "accepted-as-evidence", "revisionNote": {"post": "p", "note": "n", "extra": 1}})).is_err());
+    }
+
+    #[test]
+    fn approved_third_perspectives_are_published_and_taken_off_as_the_hosted_copy_says() {
+        use openblog_core::third_perspective::{
+            ConsentChoices, Intake, LocalReflection, PerspectiveTarget, ReaderAttribution,
+        };
+        let f = fixture("perspective-publication");
+        // Locked without a transport: published reflections still show.
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["participation"] = json!({"kinds": {"third-perspective": "locked"}});
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let document = PassageDocument::of_post(&post, &site.config);
+        let digest = "5e".repeat(32);
+        let copy = |name: &str, shown: bool| {
+            LocalReflection {
+                work: post.url.clone(),
+                revision: document.revision.clone(),
+                target: PerspectiveTarget::work(),
+                category: None,
+                body: "A reader’s <b>reading</b>.".into(),
+                attribution: ReaderAttribution::named(name, shown),
+                seen_at: None,
+            }
+            .submission(ConsentChoices {
+                publish: true,
+                clarification: false,
+                feature: false,
+            })
+            .receive(
+                openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+                Intake::Hosted {
+                    receipt_digest: digest.clone(),
+                },
+            )
+            .unwrap()
+        };
+        let item = |copy: &third_perspective::SubmittedCopy, status: &str| {
+            let record: Json = serde_json::from_str(&copy.to_json()).unwrap();
+            let approved = status == "approved";
+            moderation_inbox::InboxItem::from_value(&json!({
+                "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": status, "version": 2,
+                "moderatedAt": "2026-10-27T09:00:00Z", "reason": null,
+                "feedback": {"version": 1, "kind": "third-perspective", "body": copy.body, "details": copy.stored_details(), "provenance": record["provenance"]},
+                "itemRevision": 1, "approvedRevision": if approved { json!(1) } else { Json::Null },
+                "clarificationAsked": null, "clarificationConsent": false,
+                "approvedConsent": if approved { json!(1) } else { Json::Null },
+            }))
+            .unwrap()
+        };
+        let path = f
+            .dir
+            .join("content")
+            .join(perspective_publication::THIRD_PERSPECTIVES_FILE);
+        let named = copy("Mina", true);
+        let approved = item(&named, "approved");
+        let pending = item(&named, "pending");
+        assert_eq!(
+            perspective_must_come_off(&site, true, &approved),
+            Some(false)
+        );
+        assert_eq!(perspective_must_come_off(&site, true, &pending), Some(true));
+        // Without the consent an approval covers, an approved copy is unknown; a pending one is not.
+        assert_eq!(perspective_must_come_off(&site, false, &approved), None);
+        assert_eq!(
+            perspective_must_come_off(&site, false, &pending),
+            Some(true)
+        );
+        assert!(
+            publish_approved_perspective(&path, &site, pending.perspective().unwrap()).is_err(),
+            "pending is never published"
+        );
+        assert!(!path.exists());
+        publish_approved_perspective(&path, &site, approved.perspective().unwrap()).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        for private in [digest.as_str(), "consents", "intake", "hosted", "10:00"] {
+            assert!(!text.contains(private), "{private} in {text}");
+        }
+        let file = perspective_publication::ThirdPerspectivesFile::from_json(&text).unwrap();
+        assert_eq!(file.items[0].name.as_deref(), Some("Mina"));
+        assert_eq!(file.items[0].approved, "2026-10-27");
+        // The site shows it, as a reader's, without a transport.
+        let (shown, _) = site::load_site(&f.dir, false, None).unwrap();
+        let response = &shown.posts[0].third_perspectives()[0].response;
+        assert_eq!(response.heading(), "Third Perspective from Mina, a reader");
+
+        // The inbox says it is published and may stay.
+        let works = moderation::SharedWorks::new(&[], &site);
+        let identities = Identities {
+            active_admin_users: &[],
+            contributor_ids: &[],
+        };
+        let inbox = moderation_inbox::Inbox {
+            site: &site,
+            works: &works,
+            principal: moderation::Principal::ModerationToken,
+            identities: &identities,
+            policy: moderation::ModerationPolicy::default(),
+            protocol: moderation_inbox::Protocol::Protected,
+            third_perspectives: true,
+            now: clock::now(),
+        };
+        let view = inbox_view(&inbox, &approved, None, Some(&file)).unwrap();
+        assert_eq!(
+            (&view["published"], &view["mayBeShown"]),
+            (&json!(true), &json!(true))
+        );
+        // Withdrawn by the reader and purged: it must come off, and does.
+        let withdrawn = moderation_inbox::InboxItem::from_value(&json!({
+            "source": "feedback", "id": FEEDBACK_ITEM_ID, "kind": "third-perspective", "status": "withdrawn",
+            "version": 4, "revision": 1, "moderatedAt": "2026-10-28T10:00:00Z", "reason": null,
+            "receivedAt": "2026-10-26T10:00:00Z", "work": post.url, "purgedAt": "2026-10-28T10:00:00Z",
+        }))
+        .unwrap();
+        assert_eq!(
+            perspective_must_come_off(&site, true, &withdrawn),
+            Some(true)
+        );
+        let view = inbox_view(&inbox, &withdrawn, None, Some(&file)).unwrap();
+        assert_eq!(
+            (&view["published"], &view["mayBeShown"]),
+            (&json!(true), &json!(false))
+        );
+        unpublish_perspective(&path, FEEDBACK_ITEM_ID).unwrap();
+        assert!(perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
+        // Passage feedback's file is never touched.
+        assert!(!f
+            .dir
+            .join("content")
+            .join(feedback_publication::READER_FEEDBACK_FILE)
+            .exists());
+        // A file that cannot be read refuses the build rather than drop reflections.
+        fs::write(&path, r#"{"version":1,"items":[{}]}"#).unwrap();
+        let refused = site::build(
+            &f.dir,
+            &site::BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .unwrap();
+        assert!(
+            refused.contains("third-perspectives.json: item 1:"),
+            "{refused}"
+        );
+    }
+
+    #[test]
+    fn publishing_and_taking_off_a_third_perspective_is_the_site_admins_and_follows_the_hosted_copy(
+    ) {
+        use openblog_core::third_perspective::{
+            ConsentChoices, Intake, LocalReflection, PerspectiveTarget, ReaderAttribution,
+        };
+        let f = fixture("perspective-sync-routes");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let document = PassageDocument::of_post(&post, &site.config);
+        let copy = LocalReflection {
+            work: post.url.clone(),
+            revision: document.revision.clone(),
+            target: PerspectiveTarget::work(),
+            category: None,
+            body: "A reader’s reading.".into(),
+            attribution: ReaderAttribution::named("Mina", true),
+            seen_at: None,
+        }
+        .submission(ConsentChoices {
+            publish: true,
+            clarification: false,
+            feature: false,
+        })
+        .receive(
+            openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+            Intake::Hosted {
+                receipt_digest: "5e".repeat(32),
+            },
+        )
+        .unwrap();
+        let record: Json = serde_json::from_str(&copy.to_json()).unwrap();
+        let item = |status: &str| {
+            let approved = status == "approved";
+            moderation_inbox::InboxItem::from_value(&json!({
+                "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": status, "version": 2,
+                "moderatedAt": "2026-10-27T09:00:00Z", "reason": null,
+                "feedback": {"version": 1, "kind": "third-perspective", "body": copy.body, "details": copy.stored_details(), "provenance": record["provenance"]},
+                "itemRevision": 1, "approvedRevision": if approved { json!(1) } else { Json::Null },
+                "clarificationAsked": null, "clarificationConsent": false,
+                "approvedConsent": if approved { json!(1) } else { Json::Null },
+            }))
+            .unwrap()
+        };
+        let path = f
+            .dir
+            .join("content")
+            .join(perspective_publication::THIRD_PERSPECTIVES_FILE);
+        let sync = |role, item: &moderation_inbox::InboxItem, publish| {
+            apply_perspective_sync(&f.state, role, true, item, FEEDBACK_ITEM_ID, publish)
+        };
+        let admin = moderation::ActorRole::SiteAdmin;
+        let approved = item("approved");
+        // Only the site Admin changes what the site publishes.
+        for role in [
+            moderation::ActorRole::ContributingAuthor,
+            moderation::ActorRole::Coordinator,
+            moderation::ActorRole::Public,
+        ] {
+            for publish in [true, false] {
+                assert_eq!(sync(role, &approved, publish).status, 403);
+            }
+        }
+        assert!(!path.exists());
+        // A copy that is not approved is never published.
+        let refused = sync(admin, &item("pending"), true);
+        assert_eq!(refused.status, 409);
+        assert!(!path.exists());
+        // Something that is not a Third Perspective is not found, whoever asks.
+        let question = moderation_inbox::InboxItem::from_value(&json!({
+            "source": "feedback", "id": FEEDBACK_ITEM_ID, "kind": "question", "status": "withdrawn",
+            "version": 4, "revision": 1, "moderatedAt": "2026-10-28T10:00:00Z", "reason": null,
+            "receivedAt": "2026-10-26T10:00:00Z", "work": post.url, "purgedAt": "2026-10-28T10:00:00Z",
+        }))
+        .unwrap();
+        for role in [admin, moderation::ActorRole::ContributingAuthor] {
+            for publish in [true, false] {
+                assert_eq!(sync(role, &question, publish).status, 404);
+            }
+        }
+        // An approved copy under a consent that allows it is published, and
+        // stays on its post until the hosted copy no longer allows it.
+        assert_eq!(sync(admin, &approved, true).status, 200);
+        assert!(path.exists());
+        let kept = sync(admin, &approved, false);
+        assert_eq!(kept.status, 409, "it may be shown, so it is not taken off");
+        let file = perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(file.items.len(), 1);
+        // A withdrawn copy must come off, and a hosted copy that cannot say
+        // (consent not read) may be taken off too.
+        assert_eq!(sync(admin, &item("removed"), false).status, 200);
+        assert!(perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
+        assert_eq!(sync(admin, &approved, true).status, 200);
+        let unknown =
+            apply_perspective_sync(&f.state, admin, false, &approved, FEEDBACK_ITEM_ID, false);
+        assert_eq!(unknown.status, 200);
     }
 
     #[test]
@@ -18316,12 +22483,12 @@ mod tests {
             );
             assert_eq!(response.status, 403, "{method} {path}");
         }
-        // Off by default: the queue says how to turn it on, without asking
+        // Off by default: the inbox says how to turn it on, without asking
         // any hosted service; what the site publishes is still readable.
         let queue = handle(
             &f.state,
             &authed(
-                req("GET", "/admin/api/engagement/feedback"),
+                req("GET", "/admin/api/engagement/moderation"),
                 &session,
                 false,
             ),
@@ -18330,7 +22497,33 @@ mod tests {
         assert!(body_json(&queue)["error"]
             .as_str()
             .unwrap()
-            .contains("engagement.feedback"));
+            .contains("Hosted engagement is not turned on"));
+        // The old separate queues are gone: one inbox moderates both.
+        for path in [
+            "/admin/api/engagement/feedback",
+            "/admin/api/engagement/comments",
+        ] {
+            let gone = handle(&f.state, &authed(req("GET", path), &session, false));
+            assert_eq!(gone.status, 404, "{path}");
+        }
+        for (query, status) in [
+            ("?state=published", 422),
+            ("?kind=vote", 422),
+            ("?after=a%20b", 422),
+        ] {
+            let refused = handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/engagement/moderation{query}")),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(
+                refused.status, status,
+                "{query}: refused before any hosted request"
+            );
+        }
         let published = handle(
             &f.state,
             &authed(
@@ -18349,27 +22542,90 @@ mod tests {
             &authed(
                 json_req(
                     "PATCH",
-                    "/admin/api/engagement/feedback",
-                    json!({ "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "pending", "version": 1 }),
+                    "/admin/api/engagement/moderation",
+                    json!({ "source": "feedback", "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "pending", "version": 1 }),
                 ),
                 &session,
                 true,
             ),
         );
         assert_eq!(moderated.status, 404);
-        let unknown = handle(
+        for body in [
+            json!({ "source": "feedback", "id": FEEDBACK_ITEM_ID, "action": "delete", "from": "pending", "version": 1 }),
+            json!({ "source": "feedback", "id": FEEDBACK_ITEM_ID, "action": "withdraw", "from": "pending", "version": 1 }),
+            json!({ "source": "feedback", "id": FEEDBACK_ITEM_ID, "action": "expire", "from": "pending", "version": 1 }),
+            json!({ "source": "abuse", "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "pending", "version": 1 }),
+            json!({ "source": "comment", "id": "../x", "action": "approve", "from": "pending", "version": 1 }),
+            json!({ "source": "comment", "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "published", "version": 1 }),
+            json!({ "source": "comment", "id": FEEDBACK_ITEM_ID, "action": "approve", "from": "pending", "version": 0 }),
+            json!({ "source": "comment", "id": FEEDBACK_ITEM_ID, "action": "reject", "from": "pending", "version": 1, "reason": "incorrect" }),
+            json!("not an object"),
+        ] {
+            let unknown = handle(
+                &f.state,
+                &authed(
+                    json_req("PATCH", "/admin/api/engagement/moderation", body.clone()),
+                    &session,
+                    true,
+                ),
+            );
+            assert!(
+                matches!(unknown.status, 400 | 422),
+                "{body}: refused before any hosted request, got {}",
+                unknown.status
+            );
+        }
+        // Retention runs only from a fresh dry run, and says what it needs.
+        for as_of in [
+            json!(null),
+            json!("yesterday"),
+            json!("2020-01-01T00:00:00Z"),
+            json!("2999-01-01T00:00:00Z"),
+        ] {
+            let run = handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/engagement/retention",
+                        json!({ "asOf": as_of }),
+                    ),
+                    &session,
+                    true,
+                ),
+            );
+            assert_eq!(
+                run.status, 422,
+                "{as_of}: refused before any hosted request"
+            );
+        }
+        let dry = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/engagement/retention"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(dry.status, 404);
+        assert!(body_json(&dry)["error"]
+            .as_str()
+            .unwrap()
+            .contains("protection.sql"));
+        // A deletion request takes no reason, and names a known action.
+        let erase = handle(
             &f.state,
             &authed(
                 json_req(
                     "PATCH",
-                    "/admin/api/engagement/feedback",
-                    json!({ "id": FEEDBACK_ITEM_ID, "action": "delete", "from": "pending", "version": 1 }),
+                    "/admin/api/engagement/moderation",
+                    json!({ "source": "report", "id": FEEDBACK_ITEM_ID, "action": "purge", "from": "rejected", "version": 1 }),
                 ),
                 &session,
                 true,
             ),
         );
-        assert_eq!(unknown.status, 422, "refused before any hosted request");
+        assert_eq!(erase.status, 422);
         let unpublish = handle(
             &f.state,
             &authed(
@@ -18392,6 +22648,7 @@ mod tests {
     #[test]
     fn author_responses_are_conflict_safe_and_failures_leave_the_file_unchanged() {
         let f = fixture("feedback-responses");
+        enable_passage_feedback(&f.dir);
         let (site, _) = site::load_site(&f.dir, false, None).unwrap();
         let post = site.posts[0].clone();
         let record = feedback_record(&site, &post, None, "work");
@@ -18672,6 +22929,225 @@ mod tests {
         );
     }
 
+    /// A hosted inbox page of `items` (each visible or not to the test's
+    /// viewer), with `invalid` broken items and a next cursor unless last.
+    fn inbox_page(items: &[bool], invalid: usize, next: bool) -> moderation_inbox::HostedPage {
+        let comment = |n: usize| {
+            json!({
+                "source": "comment", "id": format!("00000000-0000-4000-8000-{n:012}"),
+                "status": "pending", "version": 1,
+                "comment": {"path": "/p/", "authorName": if items[n % items.len().max(1)] { "seen" } else { "hidden" }, "body": "Hi", "createdAt": "2026-10-26T10:00:00Z"},
+            })
+        };
+        moderation_inbox::HostedPage {
+            protocol: moderation_inbox::Protocol::Full,
+            third_perspectives: false,
+            items: (0..items.len())
+                .map(|n| moderation_inbox::InboxItem::from_value(&comment(n)).unwrap())
+                .collect(),
+            invalid,
+            next: next.then(|| {
+                format!(
+                    "2026-10-26T10:00:00.000000Z~00000000-0000-4000-8000-{:012}",
+                    items.len()
+                )
+            }),
+        }
+    }
+
+    fn seen_only(page: &moderation_inbox::HostedPage) -> Vec<Json> {
+        page.items
+            .iter()
+            .filter(|item| matches!(&item.content, moderation_inbox::Content::Comment { author_name, .. } if author_name == "seen"))
+            .map(|item| json!(item.id))
+            .collect()
+    }
+
+    #[test]
+    fn an_inbox_page_never_betrays_items_its_viewer_may_not_see() {
+        // Someone who sees everything gets exactly one hosted page, its next
+        // link and the count of broken items.
+        let mut asked = Vec::new();
+        let page = collect_inbox_page(
+            false,
+            Some("2026-10-26T10:00:00.000000Z~00000000-0000-4000-8000-000000000000".into()),
+            |cursor| {
+                asked.push(cursor.map(str::to_string));
+                Ok(inbox_page(&[true, true], 1, true))
+            },
+            seen_only,
+        )
+        .unwrap();
+        assert_eq!(asked.len(), 1);
+        assert!(asked[0].is_some());
+        assert_eq!((page.items.len(), page.invalid), (2, 1));
+        assert!(page.next.is_some());
+
+        // A co-writer whose first pages hold only others' items is given the
+        // next pages until it has items of its own or the list ends, and is
+        // never told how many items were broken.
+        let pages = [
+            inbox_page(&[false, false], 2, true),
+            inbox_page(&[false], 0, true),
+            inbox_page(&[true, false], 0, false),
+        ];
+        let mut calls = 0;
+        let page = collect_inbox_page(
+            true,
+            None,
+            |_| {
+                calls += 1;
+                Ok(pages[calls - 1].clone())
+            },
+            seen_only,
+        )
+        .unwrap();
+        assert_eq!(calls, 3);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.invalid, 0);
+        assert_eq!(
+            page.next, None,
+            "the list ended: no link hints at hidden items"
+        );
+
+        // Nothing of theirs at all: an empty page with no next link, after
+        // at most the bounded number of hosted pages.
+        let mut calls = 0;
+        let page = collect_inbox_page(
+            true,
+            None,
+            |_| {
+                calls += 1;
+                Ok(inbox_page(&[false; 3], 0, true))
+            },
+            seen_only,
+        )
+        .unwrap();
+        assert_eq!(calls, MAX_INBOX_REQUESTS);
+        assert!(page.items.is_empty());
+        assert_eq!(
+            page.next, None,
+            "the cap with nothing visible ends the list: a next link would betray hidden items"
+        );
+        // Someone who sees everything still gets the hosted next link.
+        let page =
+            collect_inbox_page(false, None, |_| Ok(inbox_page(&[], 0, true)), seen_only).unwrap();
+        assert!(page.next.is_some());
+
+        // A failing provider stops at once and says so.
+        let failed =
+            collect_inbox_page(true, None, |_| Err(Response::error(502, "down")), seen_only);
+        assert_eq!(failed.err().unwrap().status, 502);
+    }
+
+    #[test]
+    fn the_retention_dry_run_shows_facts_and_counts_never_text_or_names() {
+        let policy = moderation::ModerationPolicy::default();
+        let as_of = DateTime::parse("2026-10-27T10:00:00Z").unwrap();
+        let item = moderation_inbox::InboxItem::from_value(&json!({
+            "source": "report", "id": FEEDBACK_ITEM_ID, "status": "rejected", "version": 2,
+            "moderatedAt": "2026-08-01T00:00:00Z", "reason": "no-action", "receivedAt": "2026-07-30T00:00:00Z",
+            "work": "/posts/tides/", "report": {"ground": "abusive", "body": "Private words from a reader"},
+            "target": null,
+        }))
+        .unwrap();
+        let step = policy.retention_due(&item.facts(), as_of).unwrap();
+        let plan = RetentionPlan {
+            cutoffs: policy.cutoffs(as_of),
+            items: vec![(item, step)],
+            audit: json!({ "comment": 2, "report": 0 }),
+            truncated: false,
+            disagreed: 1,
+        };
+        let report = retention_report(&policy, as_of, &plan);
+        assert_eq!(
+            report["summary"],
+            json!([{ "step": "purge-content", "kind": "abuse-report", "kindLabel": "Abuse report", "count": 1 }])
+        );
+        assert_eq!(report["items"][0]["since"], "2026-08-01T00:00:00Z");
+        assert_eq!(report["periods"]["comments"], false);
+        assert_eq!(report["skipped"], 1);
+        assert_eq!(report["cutoffs"]["closedUntil"], "2026-09-27T10:00:00Z");
+        assert!(!report.to_string().contains("Private words"));
+    }
+
+    #[test]
+    fn a_comment_removed_under_the_older_schema_reads_back_as_rejected() {
+        let mut rejected = inbox_page(&[true], 0, false).items.remove(0);
+        rejected.state = ModerationState::Rejected;
+        let legacy = moderation_inbox::Protocol::Legacy;
+        assert!(stored_as(legacy, &rejected, ModerationState::Removed));
+        assert!(stored_as(legacy, &rejected, ModerationState::Rejected));
+        assert!(!stored_as(legacy, &rejected, ModerationState::Approved));
+        // With the inbox's schema the full state is stored, so only it will do.
+        assert!(!stored_as(
+            moderation_inbox::Protocol::Full,
+            &rejected,
+            ModerationState::Removed
+        ));
+    }
+
+    #[test]
+    fn hosted_inbox_answers_pass_on_refusals_and_no_secret() {
+        assert_eq!(
+            hosted_moderation_answer(409, json!({ "code": "conflict" }))
+                .unwrap()
+                .0,
+            409
+        );
+        assert_eq!(
+            hosted_moderation_answer(403, json!({ "code": "denied" }))
+                .unwrap()
+                .0,
+            403
+        );
+        assert_eq!(
+            hosted_moderation_answer(404, json!({ "code": "notFound" }))
+                .unwrap()
+                .0,
+            404
+        );
+        let older =
+            hosted_moderation_answer(404, json!({ "error": "No such engagement operation." }))
+                .unwrap_err();
+        assert!(String::from_utf8_lossy(&older.body).contains("deploy netlify/functions"));
+        assert_eq!(
+            hosted_moderation_answer(403, json!({ "error": "Origin is not allowed." }))
+                .unwrap_err()
+                .status,
+            502
+        );
+        let refused = hosted_moderation_answer(
+            422,
+            json!({ "error": "Run supabase/moderation.sql first.", "code": "notAllowed" }),
+        )
+        .unwrap_err();
+        assert_eq!(refused.status, 422);
+        assert_eq!(
+            body_json(&refused),
+            json!({ "error": "Run supabase/moderation.sql first.", "code": "notAllowed" })
+        );
+        for (status, value) in [
+            (
+                500,
+                json!({ "error": "relation openblog_comments sb_secret_x" }),
+            ),
+            (401, json!({ "error": "Admin authorization is required." })),
+            (
+                422,
+                json!({ "error": format!("{} sb_secret_x", "x".repeat(400)), "code": "sb_secret" }),
+            ),
+        ] {
+            let body =
+                String::from_utf8_lossy(&hosted_moderation_answer(status, value).unwrap_err().body)
+                    .to_string();
+            assert!(
+                !body.contains("sb_secret") && !body.contains("relation"),
+                "{body}"
+            );
+        }
+    }
+
     #[test]
     fn a_passage_that_is_not_current_is_approved_only_with_the_check_confirmed() {
         let f = fixture("feedback-acknowledge");
@@ -18686,7 +23162,10 @@ mod tests {
             .unwrap()
         };
         let current = hosted(&feedback_record(&site, &post, None, "section"), "pending");
-        assert!(approval_acknowledged(&current, &site, None));
+        let acknowledged = |item: &HostedFeedback, check: Option<&str>| {
+            feedback_moderation::approval_acknowledged(&item.feedback, &site, check)
+        };
+        assert!(acknowledged(&current, None));
         let moved = hosted(
             &feedback_record(
                 &site,
@@ -18696,51 +23175,55 @@ mod tests {
             ),
             "pending",
         );
-        assert!(!approval_acknowledged(&moved, &site, None));
-        assert!(!approval_acknowledged(&moved, &site, Some("current")));
-        assert!(!approval_acknowledged(&moved, &site, Some("stale")));
-        assert!(approval_acknowledged(&moved, &site, Some("reanchored")));
+        assert!(!acknowledged(&moved, None));
+        assert!(!acknowledged(&moved, Some("current")));
+        assert!(!acknowledged(&moved, Some("stale")));
+        assert!(acknowledged(&moved, Some("reanchored")));
 
-        // The queue view says whether the site publishes each item, and
+        // The inbox says whether the site publishes each feedback item, and
         // claims nothing when the published file cannot be read.
-        let unknown = feedback_queue_view(
-            ModerationState::Pending,
-            std::slice::from_ref(&current),
-            2,
-            &site,
-            None,
-        );
-        assert_eq!(unknown["items"][0]["published"], Json::Null);
-        assert_eq!(unknown["invalid"], 2);
+        let works = moderation::SharedWorks::new(&[], &site);
+        let identities = Identities {
+            active_admin_users: &[],
+            contributor_ids: &[],
+        };
+        let inbox = moderation_inbox::Inbox {
+            site: &site,
+            works: &works,
+            principal: moderation::Principal::ModerationToken,
+            identities: &identities,
+            policy: moderation::ModerationPolicy::default(),
+            protocol: moderation_inbox::Protocol::Full,
+            third_perspectives: false,
+            now: clock::now(),
+        };
+        let item = |status: &str| {
+            let value = json!({
+                "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": status, "version": 1,
+                "moderatedAt": null, "reason": null,
+                "feedback": feedback_record(&site, &post, None, "section").to_value(),
+            });
+            moderation_inbox::InboxItem::from_value(&value).unwrap()
+        };
+        let unknown = inbox_view(&inbox, &item("pending"), None, None).unwrap();
+        assert_eq!(unknown["published"], Json::Null);
         let mut file = feedback_publication::ReaderFeedbackFile::default();
         let approved = hosted(&feedback_record(&site, &post, None, "section"), "approved");
-        let view = feedback_queue_view(
-            ModerationState::Approved,
-            std::slice::from_ref(&approved),
-            0,
-            &site,
-            Some(&file),
-        );
-        assert_eq!(view["items"][0]["published"], false);
+        let view = inbox_view(&inbox, &item("approved"), Some(&file), None).unwrap();
+        assert_eq!(view["published"], false);
         let path = f
             .dir
             .join("content")
             .join(feedback_publication::READER_FEEDBACK_FILE);
-        publish_approved_feedback(&path, &site, &approved).unwrap();
+        publish_approved_feedback(&path, &site, &approved, None).unwrap();
         file = feedback_publication::ReaderFeedbackFile::from_json(
             &fs::read_to_string(&path).unwrap(),
         )
         .unwrap();
-        let view = feedback_queue_view(
-            ModerationState::Approved,
-            std::slice::from_ref(&approved),
-            0,
-            &site,
-            Some(&file),
-        );
-        assert_eq!(view["items"][0]["published"], true);
+        let view = inbox_view(&inbox, &item("approved"), Some(&file), None).unwrap();
+        assert_eq!(view["published"], true);
         assert!(
-            publish_approved_feedback(&path, &site, &current).is_err(),
+            publish_approved_feedback(&path, &site, &current, None).is_err(),
             "pending is never published"
         );
         // Taking a note off the post again needs the hosted state to say it
@@ -18769,7 +23252,7 @@ mod tests {
         .items
         .is_empty());
         unpublish_moderated_feedback(&path, &rejected).unwrap();
-        publish_approved_feedback(&path, &site, &approved).unwrap();
+        publish_approved_feedback(&path, &site, &approved, None).unwrap();
         unpublish_feedback(&path, FEEDBACK_ITEM_ID).unwrap();
         assert!(feedback_publication::ReaderFeedbackFile::from_json(
             &fs::read_to_string(&path).unwrap()
@@ -18781,6 +23264,372 @@ mod tests {
         fs::write(&path, "{not json").unwrap();
         assert!(unpublish_moderated_feedback(&path, &removed).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "{not json");
+        let _ = fs::remove_dir_all(&f.dir);
+    }
+
+    /// A suggested correction of the post's first section, as a hosted item with `decisions`
+    /// holding one decision recorded on text revision `decided_on`.
+    fn decided_item(
+        site: &Site,
+        post: &openblog_core::Post,
+        item_revision: u32,
+        decided_on: u32,
+    ) -> Json {
+        use openblog_core::correction_decision::{
+            decide, CorrectionDecision, DecisionContent, DecisionFacts, DecisionLog,
+            DecisionOutcome, DecisionRequest, Extent, RevisionLink,
+        };
+        use openblog_core::feedback_moderation::PassageCheck;
+        let document = PassageDocument::of_post(post, &site.config);
+        let target = document.section_target(0).unwrap();
+        let record = openblog_core::scholarly_feedback::FeedbackSubmission::from_value(&json!({
+            "version": 1, "kind": "correction-suggestion", "work": post.url,
+            "revision": document.revision, "target": target.to_value(),
+            "body": "It is wrong.", "details": { "suggestedText": "It is right." },
+            "attribution": { "name": "Private Reader", "publishName": false },
+        }))
+        .unwrap()
+        .receive(
+            openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+            openblog_core::feedback_provenance::FeedbackChannel::Hosted,
+        )
+        .unwrap();
+        let facts = DecisionFacts {
+            item: moderation::ItemFacts {
+                id: FEEDBACK_ITEM_ID,
+                kind: ParticipationKind::CorrectionSuggestion,
+                work: Some(&post.url),
+                parent: None,
+                state: ModerationState::Approved,
+                version: 2,
+                revision: decided_on,
+                approved_revision: None,
+                clarification_asked: None,
+                clarification_consent: false,
+                content_retained: true,
+                state_since: openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+            },
+            received: "2026-10-26",
+            post: Some(&post.source),
+            check: PassageCheck::Current,
+            passage_revision: Some(&document.revision),
+        };
+        let request = DecisionRequest {
+            actor: moderation::Actor::SiteAdmin {
+                admin_user: "private-admin-account",
+            },
+            expected_decisions: 0,
+            content: DecisionContent {
+                extent: Some(Extent::Full),
+                revision_note: Some(RevisionLink {
+                    post: post.source.clone(),
+                    note: "2026-10-27: Fixed it after a reader's note.".into(),
+                }),
+                ..DecisionContent::new(DecisionOutcome::AcceptedAsCorrection)
+            },
+            confirmed_check: None,
+            decided: "2026-10-27",
+        };
+        let decision: CorrectionDecision =
+            decide(&facts, &DecisionLog::new(FEEDBACK_ITEM_ID), None, &request).unwrap();
+        let mut log = DecisionLog::new(FEEDBACK_ITEM_ID);
+        log.append(decision).unwrap();
+        json!({
+            "id": FEEDBACK_ITEM_ID, "status": "approved", "version": 2, "moderatedAt": null,
+            "reason": null, "feedback": record.to_value(), "itemRevision": item_revision,
+            "approvedRevision": item_revision, "decisions": log.to_value(),
+        })
+    }
+
+    #[test]
+    fn an_approved_note_publishes_the_decision_in_force_and_a_new_decision_updates_it() {
+        let f = fixture("outcome-publication");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let path = f
+            .dir
+            .join("content")
+            .join(feedback_publication::READER_FEEDBACK_FILE);
+        let read = || {
+            feedback_publication::ReaderFeedbackFile::from_json(&fs::read_to_string(&path).unwrap())
+                .unwrap()
+        };
+        // Approving a note whose decision is in force publishes the decision with it, and only
+        // what is public: no account, no role, no passage check.
+        let item = HostedFeedback::from_value(&decided_item(&site, &post, 1, 1)).unwrap();
+        publish_approved_feedback(&path, &site, &item, None).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"version\": 2"), "{text}");
+        assert_eq!(
+            read()
+                .get(FEEDBACK_ITEM_ID)
+                .unwrap()
+                .decision
+                .as_ref()
+                .unwrap()
+                .outcome,
+            "accepted-as-correction"
+        );
+        for private in [
+            "private-admin-account",
+            "site-admin",
+            "decidedBy",
+            "passageCheck",
+            "Private Reader",
+        ] {
+            assert!(!text.contains(private), "{private}");
+        }
+        // The reader changed the text since the author decided: the decision is about earlier
+        // words, so approving the new text publishes none, and the file is as before again.
+        let clarified = HostedFeedback::from_value(&decided_item(&site, &post, 2, 1)).unwrap();
+        publish_approved_feedback(&path, &site, &clarified, None).unwrap();
+        assert!(read().get(FEEDBACK_ITEM_ID).unwrap().decision.is_none());
+        assert!(fs::read_to_string(&path)
+            .unwrap()
+            .contains("\"version\": 1"));
+
+        // Recording a decision updates a note that is on its post, and publishes nothing else.
+        let hosted_item = moderation_inbox::InboxItem::from_value(&{
+            let mut value = decided_item(&site, &post, 1, 1);
+            value["source"] = json!("feedback");
+            value
+        })
+        .unwrap();
+        let build = publish_decision_outcome(&f.state, &hosted_item)
+            .unwrap()
+            .expect("the note is published, so its outcome is");
+        assert_eq!(build["ok"], true, "{build}");
+        assert!(read().get(FEEDBACK_ITEM_ID).unwrap().decision.is_some());
+        // A note that is not on its post is left alone: a decision never publishes it.
+        unpublish_feedback(&path, FEEDBACK_ITEM_ID).unwrap();
+        assert!(publish_decision_outcome(&f.state, &hosted_item)
+            .unwrap()
+            .is_none());
+        assert!(read().items.is_empty());
+        let _ = fs::remove_dir_all(&f.dir);
+    }
+
+    /// A claims file for the fixture's post: an approved claim with an approved and a private
+    /// link, and a private claim with an approved link.
+    fn write_claims(f: &Fixture, slug: &str) {
+        let library = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::create_dir_all(library.parent().unwrap()).unwrap();
+        fs::write(
+            &library,
+            r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia"}]}"#,
+        )
+        .unwrap();
+        let claims = json!({"version": 1,
+            "claims": [
+                {"id": "open-claim", "post": slug, "statement": "An open claim.", "visibility": "approved"},
+                {"id": "secret-claim", "post": slug, "statement": "A private claim."}],
+            "links": [
+                {"id": "open-link", "claim": "open-claim", "relation": "supports",
+                 "visibility": "approved", "evidence": {"source": "plato"}},
+                {"id": "secret-link", "claim": "open-claim", "relation": "contextualizes",
+                 "evidence": {"source": "plato"}},
+                {"id": "orphan-link", "claim": "secret-claim", "relation": "supports",
+                 "visibility": "approved", "evidence": {"source": "plato"}}]});
+        let path = f.dir.join(crate::claims_store::CLAIMS_FILE);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, claims.to_string()).unwrap();
+    }
+
+    /// A decided item whose decision names the evidence link `claim`/`link`.
+    fn evidence_item(site: &Site, post: &openblog_core::Post, claim: &str, link: &str) -> Json {
+        let mut value = decided_item(site, post, 1, 1);
+        let mut log = value["decisions"].clone();
+        let decision = &mut log["decisions"][0];
+        decision["outcome"] = json!("accepted-as-evidence");
+        decision["claimEvidence"] = json!({"claim": claim, "link": link});
+        value["decisions"] = log;
+        value
+    }
+
+    #[test]
+    fn private_claim_and_link_ids_never_reach_the_public_file_or_the_choices() {
+        let f = fixture("outcome-claims");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        write_claims(&f, &post.slug);
+        let path = f
+            .dir
+            .join("content")
+            .join(feedback_publication::READER_FEEDBACK_FILE);
+        let claims = claims_for_publication(&f.state).expect("the claims file is read");
+        let read = || fs::read_to_string(&path).unwrap();
+        // The decision form lists only what the post publishes.
+        let mut items =
+            vec![json!({"id": "a", "recordDecision": {"post": post.source.replace('\\', "/")}})];
+        add_decision_choices(&f.state, &site, &mut items);
+        let listed = items[0]["recordDecision"]["claimEvidence"].to_string();
+        assert!(listed.contains("open-link"), "{listed}");
+        for private in ["secret-link", "secret-claim", "orphan-link"] {
+            assert!(!listed.contains(private), "{private} is listed: {listed}");
+        }
+        // A published link is copied; a private one, or one on a private claim, never is, and the
+        // outcome is still published.
+        for (claim, link, kept) in [
+            ("open-claim", "open-link", true),
+            ("open-claim", "secret-link", false),
+            ("secret-claim", "orphan-link", false),
+        ] {
+            let item =
+                HostedFeedback::from_value(&evidence_item(&site, &post, claim, link)).unwrap();
+            publish_approved_feedback(&path, &site, &item, Some(&claims)).unwrap();
+            let text = read();
+            assert_eq!(text.contains("open-link"), kept, "{link}: {text}");
+            assert!(text.contains("accepted-as-evidence"), "{text}");
+            for private in ["secret-link", "secret-claim", "orphan-link"] {
+                assert!(
+                    !text.contains(private),
+                    "{link}: {private} is in the file: {text}"
+                );
+            }
+        }
+        // Without a readable claims file nothing says a link is published, so none is copied.
+        let item =
+            HostedFeedback::from_value(&evidence_item(&site, &post, "open-claim", "open-link"))
+                .unwrap();
+        publish_approved_feedback(&path, &site, &item, None).unwrap();
+        assert!(!read().contains("open-link"));
+        // Recording a decision on a note already on its post applies the same rule.
+        let inbox_item = |value: Json| {
+            moderation_inbox::InboxItem::from_value(&{
+                let mut value = value;
+                value["source"] = json!("feedback");
+                value
+            })
+            .unwrap()
+        };
+        publish_decision_outcome(
+            &f.state,
+            &inbox_item(evidence_item(&site, &post, "open-claim", "secret-link")),
+        )
+        .unwrap()
+        .expect("published");
+        let text = read();
+        assert!(
+            !text.contains("secret-link") && !text.contains("open-link"),
+            "{text}"
+        );
+        publish_decision_outcome(
+            &f.state,
+            &inbox_item(evidence_item(&site, &post, "open-claim", "open-link")),
+        )
+        .unwrap()
+        .expect("published");
+        assert!(read().contains("open-link"));
+        // Neither the file nor the built site names a private id.
+        let dist = f.dir.join("dist");
+        let mut stack = vec![dist];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Ok(text) = fs::read_to_string(&path) {
+                    for private in ["secret-link", "secret-claim", "orphan-link"] {
+                        assert!(
+                            !text.contains(private),
+                            "{} names {private}",
+                            path.display()
+                        );
+                    }
+                }
+            }
+        }
+        let _ = fs::remove_dir_all(&f.dir);
+    }
+
+    #[test]
+    fn a_decision_is_published_only_on_a_note_readers_see_and_a_mismatch_is_repairable() {
+        let f = fixture("outcome-repair");
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let path = f
+            .dir
+            .join("content")
+            .join(feedback_publication::READER_FEEDBACK_FILE);
+        let read = || {
+            feedback_publication::ReaderFeedbackFile::from_json(&fs::read_to_string(&path).unwrap())
+                .unwrap()
+        };
+        let inbox_item = |value: Json| {
+            moderation_inbox::InboxItem::from_value(&{
+                let mut value = value;
+                value["source"] = json!("feedback");
+                value
+            })
+            .unwrap()
+        };
+        // Recovery: a note put on its post again is read through the inbox, which carries the
+        // decisions, so the decision is published with it.
+        let undecided = HostedFeedback::from_value(&{
+            let mut value = decided_item(&site, &post, 1, 1);
+            value["decisions"] =
+                openblog_core::correction_decision::DecisionLog::new(FEEDBACK_ITEM_ID).to_value();
+            value
+        })
+        .unwrap();
+        publish_approved_feedback(&path, &site, &undecided, None).unwrap();
+        assert!(read().get(FEEDBACK_ITEM_ID).unwrap().decision.is_none());
+        let decided = inbox_item(decided_item(&site, &post, 1, 1));
+        let recovered = decided.feedback().unwrap();
+        publish_approved_feedback(&path, &site, recovered, None).unwrap();
+        assert!(read().get(FEEDBACK_ITEM_ID).unwrap().decision.is_some());
+        // The inbox flags a file whose decision is not the one in force, and the repair fixes it.
+        let works = moderation::SharedWorks::new(&[], &site);
+        let identities = Identities {
+            active_admin_users: &[],
+            contributor_ids: &[],
+        };
+        let inbox = moderation_inbox::Inbox {
+            site: &site,
+            works: &works,
+            principal: moderation::Principal::ModerationToken,
+            identities: &identities,
+            policy: moderation::ModerationPolicy::default(),
+            protocol: moderation_inbox::Protocol::Full,
+            third_perspectives: false,
+            now: clock::now(),
+        };
+        let flag = |item: &moderation_inbox::InboxItem| {
+            inbox_view(&inbox, item, Some(&read()), None).unwrap()["decisionPublished"].clone()
+        };
+        assert_eq!(flag(&decided), true);
+        let mut file = read();
+        file.set_decision(FEEDBACK_ITEM_ID, None);
+        fs::write(&path, file.to_json()).unwrap();
+        assert_eq!(
+            flag(&decided),
+            false,
+            "a decision the file lacks is flagged"
+        );
+        let build = publish_decision_outcome(&f.state, &decided)
+            .unwrap()
+            .expect("the repair writes the decision");
+        assert_eq!(build["ok"], true, "{build}");
+        assert_eq!(flag(&decided), true);
+        // Only a note readers see carries an outcome: one not approved at its current text is
+        // left as it is.
+        let mut value = decided_item(&site, &post, 2, 1);
+        value["approvedRevision"] = json!(1);
+        let stale = inbox_item(value);
+        assert!(publish_decision_outcome(&f.state, &stale)
+            .unwrap()
+            .is_none());
+        let mut pending = decided_item(&site, &post, 1, 1);
+        pending["status"] = json!("pending");
+        pending["approvedRevision"] = Json::Null;
+        let before = fs::read_to_string(&path).unwrap();
+        assert!(publish_decision_outcome(&f.state, &inbox_item(pending))
+            .unwrap()
+            .is_none());
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
         let _ = fs::remove_dir_all(&f.dir);
     }
 
@@ -18809,21 +23658,14 @@ mod tests {
         assert!(
             validate_hosted_engagement_response("GET", "admin/analytics", &unsafe_path).is_err()
         );
+        // Comments are moderated in the inbox now (ADR 0105); this path no
+        // longer passes any comment answer on.
         assert!(validate_hosted_engagement_response(
             "GET",
             "admin/comments",
-            &json!({ "comments": [{
-                "id": "x", "path": "//evil.example/", "authorName": "Mira", "body": "Hi",
-                "status": "pending", "createdAt": "2026-10-24T12:00:00Z"
-            }] })
+            &json!({ "comments": [] })
         )
         .is_err());
-        let list = json!({ "comments": [] });
-        let confirmation = json!({ "ok": true, "status": "approved" });
-        assert!(
-            validate_hosted_engagement_response("GET", "admin/comments", &confirmation).is_err()
-        );
-        assert!(validate_hosted_engagement_response("PATCH", "admin/comments", &list).is_err());
     }
 
     #[test]

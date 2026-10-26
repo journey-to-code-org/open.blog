@@ -39,6 +39,8 @@ import {
   validateAtlasDatings,
   validateAtlasEntryDraft,
   validateAtlasRelationshipDraft,
+  canonicalAdminHash,
+  researchHref,
 } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
@@ -533,6 +535,18 @@ test("opening an entry moves focus to it and lists its relationships from its si
   assert.equal(globalThis.document.activeElement.id, "oba-atlas-heading");
   assert.equal(root.querySelector("[data-atlas-sentence]").textContent, `${HOSTILE} authored Politeia`);
   assert.equal(root.querySelector("p[data-atlas-standing]").dataset.atlasStanding, "contested");
+}));
+
+test("a relationship's address opens it focused, and an unknown one says so", withDom(async () => {
+  const { app, root } = mountAtlas(atlasApi());
+  await app.showAtlas("relationships/plato-authored-politeia");
+  await tick();
+  assert.equal(globalThis.document.activeElement.id, "oba-atlas-heading");
+  assert.equal(root.querySelector("[data-atlas-sentence]").textContent, `${HOSTILE} authored Politeia`);
+  const other = mountAtlas(atlasApi());
+  await other.app.showAtlas("relationships/gone");
+  assert.match(other.root.textContent, /No relationship has the identifier gone/);
+  assert.equal(other.root.querySelector("[data-atlas-sentence]"), null);
 }));
 
 test("a concept lists the notebook notes that link it", withDom(async () => {
@@ -1438,12 +1452,13 @@ test("a note's concepts link to their atlas entries from the notebook", withDom(
   await app.showResearch();
   await root.querySelectorAll("button").find((button) => button.dataset.entryId === "note-2").click();
   const links = root.querySelector("[data-atlas-concepts]").querySelectorAll("a");
-  assert.deepEqual(links.map((link) => link.getAttribute("href")), ["#/atlas/allegory", "#/atlas/the-good"]);
+  assert.deepEqual(links.map((link) => link.getAttribute("href")), ["#/research/atlas/allegory", "#/research/atlas/the-good"]);
 }));
 
-test("the atlas is reachable from the research tools, the palette and the router", () => {
-  assert.match(admin, /href: "#\/atlas" \}, "Atlas"\)/);
-  assert.match(admin, /head === "atlas"\) await this\.showAtlas\(safeDecodeURIComponent\(tail\)\)/);
+test("the atlas is reachable from the research workspace, the palette and the router", () => {
+  assert.equal(researchHref("atlas", "the good"), "#/research/atlas/the%20good");
+  assert.equal(canonicalAdminHash("#/atlas/plato"), "#/research/atlas/plato", "the earlier address redirects");
+  assert.match(admin, /panel === "atlas"\) await this\.showAtlas\(id\)/);
   assert.match(admin, /label: "Knowledge Atlas", category: "Research"/);
   assert.equal(safeDecodeURIComponent("the%20good"), "the good");
   assert.equal(safeDecodeURIComponent("%E0%A4%A"), "");

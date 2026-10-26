@@ -8,14 +8,17 @@ use std::collections::BTreeMap;
 
 use openblog_core::date::DateTime;
 use openblog_core::feedback_moderation::{
-    moderation_view, plan, review_passage, rules, ModerationAction, ModerationErrorCode,
-    ModerationState, PassageCheck, ReasonCode,
+    available, plan, reasons, review_passage, rules, ModerationAction, ModerationState,
+    PassageCheck, PolicyError, ReasonCode,
 };
 use openblog_core::feedback_provenance::FeedbackChannel;
 use openblog_core::feedback_publication::{
     is_day, is_post_source, PublishedFeedback, ReaderFeedbackFile, MAX_PUBLISHED_FEEDBACK,
     READER_FEEDBACK_ANCHOR,
 };
+use openblog_core::invitation::Identities;
+use openblog_core::moderation::{ModerationPolicy, Principal, SharedWorks};
+use openblog_core::moderation_inbox::{Inbox, InboxItem, Protocol};
 use openblog_core::passage_target::PassageDocument;
 use openblog_core::portability::PortableProjection;
 use openblog_core::scholarly_feedback::{FeedbackSubmission, HostedFeedback, ScholarlyFeedback};
@@ -45,7 +48,7 @@ fn the_rules_are_the_shared_fixture_and_every_case_agrees() {
         match case["refused"].as_str() {
             Some(code) => {
                 let error = outcome.expect_err(&case.to_string());
-                assert_eq!(serde_json::to_value(error.code).unwrap(), code, "{case}");
+                assert_eq!(error.code(), code, "{case}");
             }
             None => {
                 let change = outcome.unwrap_or_else(|error| panic!("{case}: {error}"));
@@ -96,11 +99,11 @@ fn states_are_the_participation_policys_and_reasons_never_judge_facts() {
     }
     // Only an approval publishes, and nothing reopens or deletes.
     assert_eq!(
-        ModerationAction::available(ModerationState::Pending),
+        available(ModerationState::Pending),
         [ModerationAction::Approve, ModerationAction::Reject]
     );
     assert_eq!(
-        ModerationAction::available(ModerationState::Approved),
+        available(ModerationState::Approved),
         [ModerationAction::Remove]
     );
     for closed in [
@@ -108,13 +111,11 @@ fn states_are_the_participation_policys_and_reasons_never_judge_facts() {
         ModerationState::Removed,
         ModerationState::Withdrawn,
     ] {
-        assert!(ModerationAction::available(closed).is_empty());
+        assert!(available(closed).is_empty());
     }
     assert_eq!(
-        plan(ModerationState::Pending, "reject", None)
-            .unwrap_err()
-            .code,
-        ModerationErrorCode::ReasonRequired
+        plan(ModerationState::Pending, "reject", None).unwrap_err(),
+        PolicyError::ReasonRequired
     );
 }
 
@@ -260,6 +261,32 @@ fn received(
         .unwrap()
 }
 
+/// The item as the site Admin sees it in the moderation inbox (ADR 0105).
+fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
+    let value = json!({
+        "source": "feedback", "id": item.id, "status": item.status.id(), "version": item.version,
+        "moderatedAt": null, "reason": null, "feedback": item.feedback.to_value(),
+    });
+    let item = InboxItem::from_value(&value).unwrap();
+    let works = SharedWorks::new(&[], site);
+    let identities = Identities {
+        active_admin_users: &[],
+        contributor_ids: &[],
+    };
+    Inbox {
+        site,
+        works: &works,
+        principal: Principal::ModerationToken,
+        identities: &identities,
+        policy: ModerationPolicy::default(),
+        protocol: Protocol::Full,
+        third_perspectives: false,
+        now: at("2026-10-27T10:00:00Z"),
+    }
+    .view(&item)
+    .unwrap()
+}
+
 fn hosted(record: &ScholarlyFeedback, id: &str, status: &str) -> HostedFeedback {
     HostedFeedback::from_value(&json!({
         "id": id, "status": status, "version": 1, "moderatedAt": null, "reason": null,
@@ -348,7 +375,7 @@ fn a_moderator_sees_whether_the_passage_is_current_reanchored_or_stale() {
     assert_eq!(current["actions"][0]["action"], "remove");
     assert_eq!(
         current["actions"][0]["reasons"].as_array().unwrap().len(),
-        ReasonCode::ALL.len()
+        reasons(ModerationAction::Remove).len()
     );
 }
 
@@ -581,7 +608,7 @@ fn a_hostile_or_broken_file_is_refused_naming_the_item_and_never_repeating_it() 
         ),
         (
             "newer version",
-            json!({"version": 2, "items": []}).to_string(),
+            json!({"version": 3, "items": []}).to_string(),
         ),
         (
             "duplicate id",
@@ -807,4 +834,114 @@ fn a_feedback_site_publishes_the_authors_revision_notes_through_the_evidence_sec
     // notes are published and the post is as before.
     let plain = load(PLAIN_SITE, WITH_NOTE, None);
     assert!(!build(&plain)["tides/index.html"].contains("Corrected how often"));
+}
+
+/// ADR 0101: each published note is shown only where its own kind's mode on
+/// the post shows approved items, whatever the other kinds do.
+#[test]
+fn a_published_note_follows_its_own_kinds_mode_on_the_post() {
+    let site = load(FEEDBACK_SITE, TIDES, None);
+    let file = published_file(&site).to_json();
+    let per_kind = r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "engagement":{"enabled":true,"endpoint":"https://t.dev/api"},
+  "participation":{"kinds":{"question":"locked","correction-suggestion":"hidden"}}}"#;
+    let site = load(per_kind, TIDES, Some(file));
+    let pages = build(&site);
+    let tides = section(&pages["tides/index.html"]);
+    // The question is locked: still shown. The suggested correction is
+    // hidden on every post: never shown.
+    assert!(tides.contains("Why the sun?"), "{tides}");
+    assert!(!tides.contains("It was three times."), "{tides}");
+    // Nothing is open, so no post asks for more.
+    assert!(!pages["tides/index.html"].contains("<ob-passage-feedback"));
+}
+
+/// ADR 0101 and ADR 0083: a site that turns hosted engagement off, or leaves
+/// its hosted service, keeps every note it published, while a kind it
+/// switches off or hides still shows none. Nothing is offered without a
+/// transport.
+#[test]
+fn published_notes_stay_on_the_pages_of_a_site_without_hosted_engagement() {
+    let site = load(FEEDBACK_SITE, TIDES, None);
+    let file = published_file(&site).to_json();
+    for config in [
+        r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "engagement":{"enabled":false,"feedback":true,"endpoint":"https://t.dev/api"}}"#,
+        r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "engagement":{"feedback":true}}"#,
+        r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "participation":{"kinds":{"question":"follow-comments","correction-suggestion":"open",
+    "alternative-interpretation":"locked"}}}"#,
+    ] {
+        let site = load(config, TIDES, Some(file.clone()));
+        let pages = build(&site);
+        let tides = section(&pages["tides/index.html"]);
+        assert!(tides.contains("Why the sun?"), "{config}: {tides}");
+        assert!(tides.contains("It was three times."), "{config}: {tides}");
+        assert!(
+            section(&pages["locked/index.html"]).contains("Another reading of all of it."),
+            "{config}"
+        );
+        // A post that hides comments, which the kinds follow, still shows none.
+        assert!(
+            !pages["hidden/index.html"].contains("A question on a hidden post"),
+            "{config}"
+        );
+        // Without a transport nothing is accepted.
+        assert!(!pages["tides/index.html"].contains("<ob-passage-feedback"));
+    }
+    // Switching a kind off, or hiding it, takes its notes off the pages.
+    let off = r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "participation":{"kinds":{"question":"hidden"}}}"#;
+    let site = load(off, TIDES, Some(file));
+    let pages = build(&site);
+    assert!(!pages["tides/index.html"].contains("Why the sun?"));
+    assert!(!pages["tides/index.html"].contains("It was three times."));
+}
+
+/// ADR 0107: while abuse reports are open, every published note and the
+/// comments carry a report form whose static text works without a script;
+/// a site that offers receipts lets readers use them in the form. No
+/// service credential reaches any page.
+#[test]
+fn reports_and_receipts_are_offered_only_where_the_site_turns_them_on() {
+    let site = load(FEEDBACK_SITE, TIDES, None);
+    let file = published_file(&site).to_json();
+    let protected = r#"{"title":"T","url":"https://t.dev","postPath":"/{slug}/","author":{"name":"A"},
+  "engagement":{"enabled":true,"feedback":true,"receipts":true,"endpoint":"https://t.dev/api"},
+  "participation":{"kinds":{"abuse-report":"open"}}}"#;
+    let pages = build(&load(protected, TIDES, Some(file.clone())));
+    let tides = &pages["tides/index.html"];
+    for id in [ID_A, ID_B] {
+        assert!(
+            tides.contains(&format!(
+                "<ob-abuse-report endpoint=\"https://t.dev/api\" source=\"feedback\" item=\"{id}\" subject=\"this note\"><p class=\"ob-abuse-report-static\">To report this note as abusive, write to the author.</p></ob-abuse-report>"
+            )),
+            "{tides}"
+        );
+    }
+    assert!(tides.contains(" receipts>"), "{tides}");
+    assert!(tides.contains("<ob-comments path=\"/tides/\" endpoint=\"https://t.dev/api\" reports>"));
+    // Off by default: the same site without them has neither.
+    let plain = build(&load(FEEDBACK_SITE, TIDES, Some(file)));
+    for page in plain.values().chain(pages.values()) {
+        for secret in [
+            "sb_secret",
+            "SUPABASE",
+            "service_role",
+            "OPENBLOG_ADMIN_API_KEY",
+            "receipt_hash",
+        ] {
+            assert!(!page.contains(secret), "{secret}");
+        }
+    }
+    let plain = &plain["tides/index.html"];
+    assert!(
+        !plain.contains("ob-abuse-report")
+            && !plain.contains(" receipts>")
+            && !plain.contains(" reports>")
+    );
+    // Written back, the setting stays out of a file that never set it.
+    let config = SiteConfig::from_json(FEEDBACK_SITE).unwrap();
+    assert!(!serde_json::to_string(&config).unwrap().contains("receipts"));
 }

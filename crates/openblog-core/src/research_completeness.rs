@@ -23,7 +23,10 @@ use blake2::{Blake2s256, Digest};
 use serde::{Deserialize, Serialize};
 
 use crate::chronology_index::{ChronologyPrompt, ChronologyPromptCode};
-use crate::comparison_publication::{withheld_text, PublicComparisons, VersionKind, Withheld};
+use crate::comparison_publication::{
+    withheld_text, PublicComparison, PublicComparisons, VersionKind, Withheld,
+};
+use crate::context_links::{ContextKind, ContextLinkFinding};
 use crate::knowledge_atlas::{AtlasDiagnostic, AtlasDiagnosticCode, DiagnosticSubject};
 use crate::research::{EvidenceCode, EvidenceFinding, EvidenceObject, EvidenceOutcome};
 use crate::research_notes::{NoteDiagnostic, NoteDiagnosticCode};
@@ -32,6 +35,12 @@ use crate::source_review::{ReviewObject, SourceReviewCode, SourceReviewFinding};
 
 /// The version of the serialized [`CompletenessReport`].
 pub const COMPLETENESS_FORMAT_VERSION: u32 = 1;
+/// The version of the stored acknowledgements file.
+pub const ACKNOWLEDGEMENTS_FORMAT_VERSION: u32 = 1;
+/// The most acknowledgements one file may hold.
+pub const MAX_ACKNOWLEDGEMENTS: usize = 5000;
+/// The longest path, id or field an acknowledgement may name.
+pub const MAX_ACKNOWLEDGEMENT_PART: usize = 512;
 
 fn kebab<T: Serialize>(value: &T) -> String {
     serde_json::to_value(value)
@@ -69,10 +78,13 @@ pub enum Validator {
     /// Source-scoped identifier, version, quotation-location and
     /// citation-consistency diagnostics (ADR 0146).
     SourceReview,
+    /// `context_links::review_context_links`: whether each context link in a
+    /// post names a page the next build publishes (ADR 0123, ADR 0147).
+    PublicationContext,
 }
 
 impl Validator {
-    pub const ALL: [Validator; 11] = [
+    pub const ALL: [Validator; 12] = [
         Self::ResearchProfile,
         Self::CitationReview,
         Self::ClaimReview,
@@ -84,6 +96,7 @@ impl Validator {
         Self::Alignments,
         Self::ComparisonProjection,
         Self::SourceReview,
+        Self::PublicationContext,
     ];
 
     /// The core entry point whose output this validator's findings are.
@@ -100,6 +113,7 @@ impl Validator {
             Self::Alignments => "alignment::AlignmentSet::parse and AlignmentSet::notices",
             Self::ComparisonProjection => "comparison_publication::PublicComparisons::project",
             Self::SourceReview => "source_review::review_post and source_review::review_library",
+            Self::PublicationContext => "context_links::review_context_links",
         }
     }
 
@@ -199,10 +213,12 @@ pub enum Check {
     VersionIdentity,
     QuotationLocation,
     CitationConsistency,
+    /// Whether each context link names a page the next build publishes.
+    ContextLink,
 }
 
 impl Check {
-    pub const ALL: [Check; 25] = [
+    pub const ALL: [Check; 26] = [
         Self::WorkStructure,
         Self::ReferenceSection,
         Self::WorkIdentifier,
@@ -228,6 +244,7 @@ impl Check {
         Self::VersionIdentity,
         Self::QuotationLocation,
         Self::CitationConsistency,
+        Self::ContextLink,
     ];
 
     /// The one validator that owns the check.
@@ -255,6 +272,7 @@ impl Check {
             | Self::VersionIdentity
             | Self::QuotationLocation
             | Self::CitationConsistency => Validator::SourceReview,
+            Self::ContextLink => Validator::PublicationContext,
         }
     }
 
@@ -286,6 +304,7 @@ impl Check {
             Self::VersionIdentity => "whether an edition, translation or witness, and each citation, quotation or passage of it, records the version details its kind needs: a translator, a repository and shelfmark, the volume of a page",
             Self::QuotationLocation => "whether a quotation or notebook passage gives a location in its source, and how narrow it is, not whether the words are there",
             Self::CitationConsistency => "whether the records a post cites name each source once and one version of each work",
+            Self::ContextLink => "whether each link to an atlas entry or comparison names a page the next build publishes",
         }
     }
 
@@ -323,6 +342,7 @@ impl Check {
             Self::IdentifierCompatibility => "Fix the identifier in the source library.",
             Self::VersionIdentity => "Record the version's details in the source library if it has them.",
             Self::CitationConsistency => "Make the repeated citations agree, or keep both and say why.",
+            Self::ContextLink => "Publish the page, or fix or remove the link.",
         }
     }
 }
@@ -339,6 +359,10 @@ pub enum Gate {
     RefusesWhenPublished,
     /// The save, change or build that would write it is refused.
     Refuses,
+    /// The build publishes everything else and leaves this one item out until
+    /// the author fixes it (a stale approval). It does not stop a post and
+    /// cannot be acknowledged: acknowledging would not publish the item.
+    Withholds,
 }
 
 kebab_display!(Validator, Category, Check, Gate, ObjectKind);
@@ -606,6 +630,7 @@ code_table!(ATLAS_CODES, atlas_spec, AtlasDiagnosticCode -> (Class, Category, Ev
     MissingLocator => error(C::Locator),
     MissingOriginal => error(C::Integrity),
     StaleLocator => (Class::Notice, C::Locator, O::NeedsReview),
+    StaleApproval => (Class::Notice, C::Locator, O::NeedsReview),
     ArchivedMember => (Class::Notice, C::Provenance, O::NeedsReview),
     UnknownAlignment => error(C::Integrity),
 });
@@ -714,6 +739,7 @@ const SUBJECT_CODES: [(DiagnosticSubject, &[AtlasDiagnosticCode]); 3] = [
             A::MissingOriginal,
             A::UnknownAlignment,
             A::StaleLocator,
+            A::StaleApproval,
             A::ArchivedMember,
         ],
     ),
@@ -729,9 +755,10 @@ fn atlas_family(subject: DiagnosticSubject, code: AtlasDiagnosticCode) -> Spec {
         (DiagnosticSubject::Alignments, Class::Error) => K::AlignmentsIntegrity,
         (DiagnosticSubject::Alignments, Class::Notice) => K::AlignmentPlaces,
     };
-    let gate = match class {
-        Class::Error => G::Refuses,
-        Class::Notice => G::Advisory,
+    let gate = match (code, class) {
+        (AtlasDiagnosticCode::StaleApproval, _) => G::Withholds,
+        (_, Class::Error) => G::Refuses,
+        (_, Class::Notice) => G::Advisory,
     };
     spec(check, category, outcome, gate)
 }
@@ -808,6 +835,30 @@ code_table!(SOURCE_REVIEW_CODES, source_review_spec, SourceReviewCode -> Spec {
     CitationVersionsMixed => spec(K::CitationConsistency, C::Citation, O::NeedsReview, G::Advisory),
 });
 
+/// The code of the context-link check (ADR 0123, ADR 0147).
+pub const CONTEXT_LINK_UNPUBLISHED: &str = "context-link-unpublished";
+
+/// The adapter's code for a private file the publication reads that cannot
+/// be read or projected at all (an I/O, symlink or projection refusal with no
+/// record to point at). It sits under the integrity check of the file it is
+/// about, and refuses the build that would read the file.
+pub const FILE_UNREADABLE: &str = "file-unreadable";
+
+const CONTEXT_LINK: Spec = spec(K::ContextLink, C::PublicBoundary, O::Detected, G::Advisory);
+
+/// The integrity check of each private file, in the row order of the matrix.
+const FILE_CHECKS: [Check; 5] = [
+    K::LibraryIntegrity,
+    K::NotebookIntegrity,
+    K::AtlasIntegrity,
+    K::ClaimsIntegrity,
+    K::AlignmentsIntegrity,
+];
+
+fn unreadable_spec(check: Check) -> Spec {
+    spec(check, C::Integrity, O::Detected, G::Refuses)
+}
+
 fn row(code: String, spec: Spec) -> MatrixRow {
     MatrixRow {
         validator: spec.check.owner(),
@@ -861,7 +912,29 @@ pub fn matrix() -> Vec<MatrixRow> {
             .iter()
             .map(|&code| row(code.to_string(), source_review_spec(code))),
     );
+    rows.push(row(CONTEXT_LINK_UNPUBLISHED.to_string(), CONTEXT_LINK));
+    rows.extend(
+        FILE_CHECKS
+            .iter()
+            .map(|&check| row(FILE_UNREADABLE.to_string(), unreadable_spec(check))),
+    );
     rows
+}
+
+/// The matrix, built once.
+fn cached_matrix() -> &'static [MatrixRow] {
+    static MATRIX: std::sync::OnceLock<Vec<MatrixRow>> = std::sync::OnceLock::new();
+    MATRIX.get_or_init(matrix)
+}
+
+/// Whether a stored or requested acknowledgement may name this code: only an
+/// advisory row of the matrix for its owning validator. An integrity or
+/// privacy failure, a refusal and a withheld item are fixed, never
+/// acknowledged. This is the one place the question is answered.
+pub fn acknowledgeable(validator: Validator, code: &str) -> bool {
+    cached_matrix()
+        .iter()
+        .any(|row| row.validator == validator && row.code == code && row.gate == Gate::Advisory)
 }
 
 impl CompletenessFinding {
@@ -1042,8 +1115,18 @@ impl CompletenessFinding {
     /// message is the public "Wording not shown" sentence, which holds no
     /// author text.
     pub fn from_comparisons(published: &PublicComparisons) -> Vec<Self> {
+        published
+            .comparisons
+            .iter()
+            .flat_map(Self::from_comparison)
+            .collect()
+    }
+
+    /// The withheld places of one published comparison; see
+    /// [`Self::from_comparisons`].
+    pub fn from_comparison(comparison: &PublicComparison) -> Vec<Self> {
         let mut findings = Vec::new();
-        for comparison in &published.comparisons {
+        {
             for version in &comparison.versions {
                 let mut related = Vec::new();
                 if let (VersionKind::Interpretation, Some(interpretation)) =
@@ -1115,6 +1198,61 @@ impl CompletenessFinding {
             Some(finding.repair.clone()),
             finding.facts.clone(),
         )
+    }
+
+    /// A context link whose page the next build does not publish (ADR 0123),
+    /// scoped to the post at the link's line, with the page's object related.
+    /// Its fact is the address, so an acknowledgement goes stale if the link
+    /// changes.
+    pub fn from_context_link(post: &str, finding: &ContextLinkFinding) -> Self {
+        let kind = match finding.link.kind {
+            ContextKind::AtlasEntry => ObjectKind::Entry,
+            ContextKind::Comparison => ObjectKind::Alignment,
+        };
+        Self::mapped(
+            CONTEXT_LINK_UNPUBLISHED.to_string(),
+            CONTEXT_LINK,
+            CONTEXT_LINK.outcome,
+            FindingScope {
+                path: Some(post.to_string()),
+                line: Some(finding.link.line),
+                ..FindingScope::of(ObjectKind::Post)
+            },
+            vec![ObjectRef::new(kind, finding.link.id.clone())],
+            finding.message.clone(),
+            Some(finding.repair.clone()),
+            vec![finding.link.href.clone()],
+        )
+    }
+
+    /// A private file the publication reads that cannot be read or projected
+    /// at all, scoped to the whole file. Its owner refuses the build.
+    pub fn unreadable(file: ObjectKind, message: impl Into<String>) -> Self {
+        let (check, file) = match file {
+            ObjectKind::SourceLibrary => (K::LibraryIntegrity, file),
+            ObjectKind::Notebook => (K::NotebookIntegrity, file),
+            ObjectKind::Atlas => (K::AtlasIntegrity, file),
+            ObjectKind::ClaimsFile => (K::ClaimsIntegrity, file),
+            _ => (K::AlignmentsIntegrity, ObjectKind::AlignmentsFile),
+        };
+        let spec = unreadable_spec(check);
+        Self::mapped(
+            FILE_UNREADABLE.to_string(),
+            spec,
+            spec.outcome,
+            FindingScope::of(file),
+            Vec::new(),
+            message.into(),
+            None,
+            Vec::new(),
+        )
+    }
+
+    /// Whether the finding stops the build that publishes its post: its
+    /// validator refuses it. A potential or needs-review finding never does,
+    /// and a withheld item leaves only itself out.
+    pub fn blocks_publication(&self) -> bool {
+        matches!(self.gate, Gate::RefusesWhenPublished | Gate::Refuses)
     }
 
     /// What an acknowledgement is matched by: the validator, code, object,
@@ -1243,7 +1381,7 @@ struct AcknowledgementKey<'a> {
 /// what, if anything, to do. It never makes the finding resolved: the
 /// finding is still listed and counted under its outcome, and it disappears
 /// only when the record holds what was missing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Acknowledgement {
     pub validator: Validator,
@@ -1276,6 +1414,44 @@ impl Acknowledgement {
         })
     }
 
+    /// Why an acknowledgement received from a request or read from the file
+    /// cannot be stored or applied, or `None` when it can: only an advisory
+    /// code of its owning validator, short parts without control characters,
+    /// and a 32-character lowercase hexadecimal fingerprint.
+    pub fn problem(&self) -> Option<String> {
+        if !acknowledgeable(self.validator, &self.code) {
+            return Some(format!(
+                "`{}` from {} cannot be acknowledged: only an advisory finding can be, and an integrity or privacy failure is fixed instead",
+                self.code, self.validator
+            ));
+        }
+        if self.fingerprint.len() != 32
+            || !self
+                .fingerprint
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Some("the fingerprint must be 32 lowercase hexadecimal characters".into());
+        }
+        for (name, part) in [
+            ("path", &self.path),
+            ("id", &self.id),
+            ("field", &self.field),
+        ] {
+            if let Some(part) = part {
+                if part.is_empty()
+                    || part.len() > MAX_ACKNOWLEDGEMENT_PART
+                    || part.chars().any(char::is_control)
+                {
+                    return Some(format!(
+                        "the {name} must be 1 to {MAX_ACKNOWLEDGEMENT_PART} bytes without control characters"
+                    ));
+                }
+            }
+        }
+        None
+    }
+
     fn key(&self) -> AcknowledgementKey<'_> {
         AcknowledgementKey {
             validator: self.validator,
@@ -1286,6 +1462,109 @@ impl Acknowledgement {
             field: self.field.as_deref(),
         }
     }
+}
+
+/// The stored acknowledgements (ADR 0124): a versioned, sorted,
+/// duplicate-free list, in exactly the record shape of ADR 0145.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AcknowledgementSet {
+    pub version: u32,
+    pub acknowledgements: Vec<Acknowledgement>,
+}
+
+impl AcknowledgementSet {
+    pub fn empty() -> Self {
+        Self {
+            version: ACKNOWLEDGEMENTS_FORMAT_VERSION,
+            acknowledgements: Vec::new(),
+        }
+    }
+
+    /// Parse and validate a stored file. Every problem refuses it whole: an
+    /// acknowledgement file is never partly applied.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let set: Self = serde_json::from_str(text)
+            .map_err(|error| format!("not a valid acknowledgements file: {error}"))?;
+        if set.version != ACKNOWLEDGEMENTS_FORMAT_VERSION {
+            return Err(format!(
+                "unsupported version {}; this release reads version {ACKNOWLEDGEMENTS_FORMAT_VERSION}",
+                set.version
+            ));
+        }
+        if set.acknowledgements.len() > MAX_ACKNOWLEDGEMENTS {
+            return Err(format!(
+                "holds more than {MAX_ACKNOWLEDGEMENTS} acknowledgements"
+            ));
+        }
+        for (index, acknowledgement) in set.acknowledgements.iter().enumerate() {
+            if let Some(problem) = acknowledgement.problem() {
+                return Err(format!("acknowledgements[{index}]: {problem}"));
+            }
+        }
+        Ok(set.normalized())
+    }
+
+    fn normalized(mut self) -> Self {
+        self.acknowledgements.sort();
+        self.acknowledgements.dedup();
+        self
+    }
+
+    /// Add one acknowledgement, replacing any other with the same key and
+    /// fingerprint. A finding is acknowledged at most once.
+    pub fn add(&mut self, acknowledgement: Acknowledgement) -> Result<(), String> {
+        if let Some(problem) = acknowledgement.problem() {
+            return Err(problem);
+        }
+        self.acknowledgements.push(acknowledgement);
+        let set = std::mem::take(self).normalized();
+        if set.acknowledgements.len() > MAX_ACKNOWLEDGEMENTS {
+            return Err(format!(
+                "no more than {MAX_ACKNOWLEDGEMENTS} acknowledgements can be stored"
+            ));
+        }
+        *self = Self {
+            version: ACKNOWLEDGEMENTS_FORMAT_VERSION,
+            ..set
+        };
+        Ok(())
+    }
+
+    /// Withdraw exactly this acknowledgement (its key and fingerprint), so
+    /// the finding it was made for reads unacknowledged again; another
+    /// finding under the same key keeps its own. Returns whether it was stored.
+    pub fn withdraw(&mut self, acknowledgement: &Acknowledgement) -> bool {
+        let before = self.acknowledgements.len();
+        self.acknowledgements
+            .retain(|stored| stored != acknowledgement);
+        before != self.acknowledgements.len()
+    }
+
+    /// Deterministic, pretty-printed JSON with a trailing newline.
+    pub fn to_json(&self) -> String {
+        let mut json = serde_json::to_string_pretty(self).unwrap_or_default();
+        json.push('\n');
+        json
+    }
+}
+
+/// Whether a JSON object is shaped like the acknowledgements file (ADR 0124):
+/// exactly `version` and `acknowledgements`, every record naming a validator,
+/// code and fingerprint. The private-research guards refuse a copy of it in
+/// public input wherever it was saved, as they do the other research files.
+pub fn looks_like_acknowledgements(root: &serde_json::Map<String, serde_json::Value>) -> bool {
+    use serde_json::Value;
+    if root.len() != 2 || root.get("version").and_then(Value::as_u64).is_none() {
+        return false;
+    }
+    let Some(records) = root.get("acknowledgements").and_then(Value::as_array) else {
+        return false;
+    };
+    let text = |record: &Value, key: &str| record.get(key).is_some_and(Value::is_string);
+    records.iter().all(|record| {
+        text(record, "validator") && text(record, "code") && text(record, "fingerprint")
+    })
 }
 
 /// How an acknowledgement stands against the finding it names.
@@ -1371,8 +1650,13 @@ impl CompletenessReport {
         // An acknowledgement belongs to the finding it was made for while
         // that finding still reads the same; only one that fits no current
         // finding under its key marks the others with that key stale.
-        let mut states = advisory_states(&advisory, acknowledgements).into_iter();
-        let unmatched = acknowledgements
+        let usable: Vec<Acknowledgement> = acknowledgements
+            .iter()
+            .filter(|ack| ack.problem().is_none())
+            .cloned()
+            .collect();
+        let mut states = advisory_states(&advisory, &usable).into_iter();
+        let unmatched = usable
             .iter()
             .filter(|ack| !advisory.iter().any(|(key, _)| *key == ack.key()))
             .count();

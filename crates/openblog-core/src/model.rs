@@ -48,6 +48,9 @@ pub struct Sources {
     /// The site's published reader feedback (`reader-feedback.json` in the
     /// content folder, ADR 0083), when the file exists.
     pub reader_feedback: Option<SourceFile>,
+    /// The site's published Third Perspectives (`third-perspectives.json` in
+    /// the content folder, ADR 0115), when the file exists.
+    pub third_perspectives: Option<SourceFile>,
 }
 
 /// The private source library as a site load receives it.
@@ -229,6 +232,10 @@ pub struct Post {
     pub description: String,
     pub draft: bool,
     pub comments: CommentsPolicy,
+    /// This post's own modes for participation kinds beyond comments, from
+    /// its `participation:` front matter (ADR 0101). A kind the site has
+    /// switched off stays off whatever this says.
+    pub participation: crate::participation::PostParticipation,
     /// `<link rel="canonical">` override, for cross-posted articles.
     pub canonical: Option<String>,
     /// Where the article was first published (shown in the footer).
@@ -259,6 +266,9 @@ pub struct Post {
     /// The approved reader notes this post's canonical page shows, read
     /// through the public projection (ADR 0083); empty for most posts.
     pub(crate) reader_feedback: Vec<crate::feedback_publication::PublicFeedback>,
+    /// The approved Third Perspectives this post's canonical page shows, read
+    /// through the one public projection (ADRs 0111 and 0115).
+    pub(crate) third_perspectives: Vec<crate::perspective_publication::PublicPerspective>,
     pub html: String,
     pub text: String,
     pub headings: Vec<Heading>,
@@ -330,6 +340,11 @@ impl Post {
     /// The approved reader notes this post's canonical page shows (ADR 0083).
     pub fn reader_feedback(&self) -> &[crate::feedback_publication::PublicFeedback] {
         &self.reader_feedback
+    }
+
+    /// The approved Third Perspectives this post's canonical page shows (ADR 0115).
+    pub fn third_perspectives(&self) -> &[crate::perspective_publication::PublicPerspective] {
+        &self.third_perspectives
     }
 
     /// The reader-facing reference data of this post's published citations
@@ -477,6 +492,9 @@ pub struct Site {
     /// Like `claim_evidence_error`, a full build or `check` refuses while it
     /// is set, and a load that only validates content is not stopped.
     pub reader_feedback_error: Option<String>,
+    /// Why the site's published Third Perspectives cannot be read (ADR 0115),
+    /// refused like `reader_feedback_error`.
+    pub third_perspectives_error: Option<String>,
     /// The time the site was loaded for (`LoadOptions::now`). A post dated after it is scheduled,
     /// even when a preview or the admin editor loaded it, so it is never a series part.
     now: Option<DateTime>,
@@ -517,9 +535,8 @@ impl Site {
         // A site that takes passage feedback publishes the author's revision
         // notes too, without reading any claims file (ADR 0083): a note
         // recorded after a reader's suggestion led to a change.
-        let feedback_notes = config.engagement.enabled
-            && config.engagement.feedback
-            && !config.engagement.endpoint.trim().is_empty();
+        let feedback_notes = crate::participation::transport_available(&config)
+            && config.participation.passage_feedback_enabled();
         let claim_mode = if config.claim_evidence.publish {
             match &sources.claim_evidence {
                 Some(ClaimEvidenceSource::Stored(projection)) => {
@@ -682,6 +699,8 @@ impl Site {
         posts.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.slug.cmp(&b.slug)));
         let reader_feedback_error =
             attach_reader_feedback(&mut posts, &sources, &config, &mut warnings);
+        let third_perspectives_error =
+            attach_third_perspectives(&mut posts, &sources, &config, &mut warnings);
 
         let mut pages: Vec<Page> = Vec::new();
         for file in &sources.pages {
@@ -806,6 +825,7 @@ impl Site {
             comparisons: None,
             claim_evidence_error,
             reader_feedback_error,
+            third_perspectives_error,
             now: options.now,
         })
     }
@@ -1112,9 +1132,11 @@ pub fn uncitable_line(source: &str, library: &SourceLibrary) -> Option<usize> {
 }
 
 /// Give each post the approved reader notes its canonical page shows (ADR
-/// 0083), or say why the file cannot be read. A post that hides its
-/// discussion shows none; a note about a post that no longer exists is a
-/// warning, and one about a draft or scheduled post waits for it.
+/// 0083), or say why the file cannot be read. A note is shown only where its
+/// kind's site and post mode shows approved items (ADR 0101), so a post that
+/// hides a kind shows none of it, while a site without its hosted service
+/// keeps showing what it published; a note about a post that no longer exists
+/// is a warning, and one about a draft or scheduled post waits for it.
 fn attach_reader_feedback(
     posts: &mut [Post],
     sources: &Sources,
@@ -1143,21 +1165,101 @@ fn attach_reader_feedback(
         }
     }
     for post in posts.iter_mut() {
-        if post.comments == CommentsPolicy::Hidden {
-            continue;
-        }
-        let items = published.for_post(&post.source.replace('\\', "/"));
+        let mut items = published.for_post(&post.source.replace('\\', "/"));
+        items.retain(|item| {
+            crate::participation::published_mode(config, post, item.kind.participation_kind())
+                .shows_approved()
+        });
         if items.is_empty() {
             continue;
         }
         let document = crate::passage_target::PassageDocument::of_post(post, config);
-        post.reader_feedback = crate::feedback_publication::project(&items, post, &document);
+        // A suggestion the author has not decided reads as unresolved only where the
+        // site takes evidence submissions (ADR 0119): any other site's page is as before.
+        post.reader_feedback = crate::feedback_publication::project(
+            &items,
+            post,
+            &document,
+            config.engagement.evidence,
+        );
         // Portable copies and feeds carry a labelled link to the canonical
         // page instead of the notes (P6.2).
         post.capabilities.push(CapabilityDescriptor::describe(
             "passage-questions-and-corrections",
             Some(crate::feedback_publication::READER_FEEDBACK_ANCHOR),
         ));
+    }
+    None
+}
+
+/// Give each post the approved Third Perspectives its canonical page shows
+/// (ADR 0115), or say why the file cannot be read. Each is re-read through
+/// the one public projection against the post as published now, and only
+/// where RD12's published mode for the kind shows approved items, so a site
+/// without its hosted service keeps showing what was approved while a post
+/// that hides the kind shows none. A record about a post that no longer
+/// exists, or about an address the post no longer has, is a warning and is
+/// not shown; one about a draft or scheduled post waits for it. A post that
+/// shows Third Perspectives, or offers the form for them, carries a labelled
+/// link to its canonical page in portable copies and feeds instead (P6.2).
+fn attach_third_perspectives(
+    posts: &mut [Post],
+    sources: &Sources,
+    config: &SiteConfig,
+    warnings: &mut Vec<String>,
+) -> Option<String> {
+    use crate::participation::{ParticipationKind, ParticipationMode};
+    use crate::perspective_publication as publication;
+    let published = match &sources.third_perspectives {
+        None => None,
+        Some(file) => match publication::ThirdPerspectivesFile::from_json(&file.contents) {
+            Ok(published) => Some((file.path.as_str(), published)),
+            Err(error) => return Some(format!("{}: {error}", file.path)),
+        },
+    };
+    if let Some((path, published)) = &published {
+        let known: std::collections::HashSet<String> = sources
+            .posts
+            .iter()
+            .map(|post| post.path.replace('\\', "/"))
+            .collect();
+        for (index, item) in published.items.iter().enumerate() {
+            if !known.contains(&item.post) {
+                warnings.push(format!(
+                    "{path}: item {} is about {}, which is not a post; it is not published",
+                    index + 1,
+                    item.post
+                ));
+            }
+        }
+    }
+    for post in posts.iter_mut() {
+        let kind = ParticipationKind::ThirdPerspective;
+        if let Some((path, published)) = &published {
+            let items = published.for_post(&post.source.replace('\\', "/"));
+            let mode = crate::participation::published_mode(config, post, kind);
+            if !items.is_empty() && mode.shows_approved() {
+                for item in items.iter().filter(|item| item.work != post.url) {
+                    warnings.push(format!(
+                        "{path}: Third Perspective {} is about {}, but {} is now published at {}; it is not shown",
+                        item.id, item.work, item.post, post.url
+                    ));
+                }
+                post.third_perspectives = publication::project_post(&items, post, config, mode);
+            }
+        }
+        let offered =
+            crate::participation::effective_mode(config, post, kind) == ParticipationMode::Open;
+        if !post.third_perspectives.is_empty() || offered {
+            post.capabilities.push(CapabilityDescriptor::describe(
+                publication::THIRD_PERSPECTIVES_CAPABILITY,
+                // The region's component renders only the form: with reflections to
+                // show, the canonical section is plain HTML and has no renderer.
+                post.third_perspectives
+                    .is_empty()
+                    .then_some(crate::render::THIRD_PERSPECTIVE_ANCHOR),
+            ));
+        }
     }
     None
 }
@@ -1425,6 +1527,8 @@ fn load_post_in(
     }
     let draft = is_draft(fm);
     let comments = CommentsPolicy::parse(first(fm, &["comments"]))?;
+    let participation =
+        crate::participation::PostParticipation::parse(&fm.get_list("participation"))?;
     let date = match first(fm, &["date", "published", "publishedAt", "pubDate"]) {
         Some(raw) => DateTime::parse(raw)
             .ok_or_else(|| format!("unrecognised date `{raw}` (use YYYY-MM-DD or RFC 3339)"))?,
@@ -1558,6 +1662,7 @@ fn load_post_in(
         description,
         draft,
         comments,
+        participation,
         canonical: optional_string(first(fm, &["canonical", "canonicalUrl", "canonical_url"])),
         source_url: optional_string(first(
             fm,
@@ -1574,6 +1679,7 @@ fn load_post_in(
         claim_evidence: claim_section.map(|(_, post_evidence)| post_evidence),
         evidence_error,
         reader_feedback: Vec::new(),
+        third_perspectives: Vec::new(),
         html: rendered.html,
         text: rendered.text,
         headings: rendered.headings,
@@ -1814,6 +1920,7 @@ mod tests {
             source_library: None,
             claim_evidence: None,
             reader_feedback: None,
+            third_perspectives: None,
         });
         assert_eq!(s.posts.len(), 2);
         assert_eq!(s.posts[0].slug, "second");

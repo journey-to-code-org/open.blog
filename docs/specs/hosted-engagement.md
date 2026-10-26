@@ -58,6 +58,54 @@ function. Admin stores the public endpoint in `openblog.json` and a write-only m
 - The local built-in analytics store remains the default and remains available when hosted
   engagement is disabled.
 
+## Participation policy
+
+Comments are the first kind in the one participation and moderation policy
+(`openblog_core::participation` and `openblog_core::moderation`, ADRs 0101 to 0104). The comment
+manifest and `<ob-comments>` come from the policy's comment row, which keeps the rule above
+unchanged. Further kinds (passage feedback, Third Perspectives, author responses, abuse reports)
+are off until `participation.kinds` switches them on, then share this function, its quotas and its
+moderation token, read their modes from `openblog-participation.json`, and start pending.
+
+## Moderation inbox
+
+Comments and passage feedback are moderated in one Admin inbox through `GET` and `PATCH
+/admin/moderation` (ADR 0105): a keyset-paged list by state and kind, each item offered the
+decisions the one policy accepts for the signed-in account's role on its work, every decision
+decided again by the function from the stored row (`netlify/lib/participation-moderation.mjs`,
+checked against `tests/fixtures/participation-transitions.json`) and written once, conditionally,
+with its audit event. The hosted schema for every decision is opt in (ADR 0106): `moderation.sql`
+adds a version, the full state and a reason beside the comment `status` column, which keeps its
+three values for public reads, and a comment audit table; `feedback.sql` adds the item's
+revisions and the audit fields ADR 0083 left. Without `OPENBLOG_MODERATION_ENABLED` the inbox offers
+what the older schema can store. With engagement protection (ADRs 0107 and 0108) the inbox also
+lists abuse reports with the item each names, upholds them in one transaction, deletes a closed
+item's text for the site Admin, and runs retention from a confirmed dry run.
+
+## Engagement protection
+
+Reader receipts, anonymous abuse reports, deletion requests and the retention run (ADRs 0107 and
+0108) are opt in behind `supabase/protection.sql` and `OPENBLOG_PROTECTION_ENABLED`. Quotas store
+only hourly digests of the client, receipts only their digest, and reports no reporter identity;
+purging overwrites text and keeps state and audit events without it. The rules the function
+applies (`retentionStep`, `planErasure`, `planUphold`) are checked against
+`tests/fixtures/participation-protection.json`, which the Rust policy generates.
+
+## Third Perspectives
+
+A reader's own reflection on a work (ADRs 0109 to 0115) goes through the same `POST /feedback`
+route, read by its own contract (`web/components/third-perspective.js`, held to the build by
+`tests/fixtures/third-perspective-submissions.json`), into one `openblog_feedback` row of kind
+`third-perspective`. It is opt in behind `supabase/feedback.sql` run again and
+`OPENBLOG_THIRD_PERSPECTIVES_ENABLED`, on top of protection, because every hosted copy has a
+receipt. The row keeps the prompt category, the receipt's digest and the reader's numbered consent
+records in `details`; an approval is taken by `openblog_moderate_third_perspective` and records the
+consent record it covers in `approved_consent`, so a later consent change makes it stale.
+Admin publishes an approved one to `content/third-perspectives.json`, from which builds render
+it; nothing reads the hosted rows to show a page. A receipt's `published` flag for this kind is
+true only while the row is approved at its current revision under an approved consent record that
+agreed to publication while the consent in effect still does (ADR 0115).
+
 ## Testing decisions
 
 - Exercise the Netlify handler through HTTP-shaped events with a fake Supabase fetch seam.
@@ -67,6 +115,10 @@ function. Admin stores the public endpoint in `openblog.json` and a write-only m
 - Exercise comment submission and text-only rendering through the mounted web component.
 - Exercise Admin settings through authenticated/CSRF-protected routes and browser settings controls.
 - Run the full Rust, browser, documentation-link, formatting, lint, and locked release-build gates.
+- For protection (`tests/web/netlify-protection.test.mjs`): the shared fixture, stored digests
+  that change every hour, credentials absent from every answer, a disabled service, origin and
+  token checks, malformed JSON, floods and replays, races, receipts, reports, upholding, deletion,
+  the retention dry run and run, and the SQL with its rollback.
 
 ## Typed passage feedback
 
@@ -83,6 +135,23 @@ Moderation, author responses, revision notes and the published notes are
 the change with its audit event only while the item still has that state and version (`409`
 otherwise), and approved notes are published from `content/reader-feedback.json`, never read back
 from the hosted service by a build. Comments, their table and their routes are unchanged.
+
+Evidence submissions and correction decisions (RD6) extend the same two kinds rather than adding a
+third: a suggested source or correction may carry a version 2 evidence block naming the published
+claim, evidence link, citation or source it concerns
+([ADR 0116](../adr/0116-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md)),
+and only the author's correction decision, separate from moderation and kept in an append-only
+log per item, can label one a correction
+([ADR 0117](../adr/0117-only-the-authors-correction-decision-labels-a-correction.md)). Both are
+opt in ([ADR 0118](../adr/0118-evidence-and-correction-decisions-are-taken-opt-in-and-decided-in-the-inbox.md)):
+with `feedback.sql` run again and `OPENBLOG_CORRECTIONS_ENABLED=true`, `POST /feedback` takes
+version 2, checked before the quota and stored pending with its block in `evidence`, and `POST
+/admin/decisions` appends a decision to the item's `decisions` log with a `decide` audit event, only
+while the item is a pending or approved suggestion at the text revision and number of decisions the
+author saw. Without the variable version 2 is refused and no decision is stored. The form lists only
+what the site publishes (`engagement.evidence`), and the Moderation inbox shows how each item
+stands, the reader's evidence beside the claim it names, duplicate cues and "Record decision".
+`corrections-rollback.sql` undoes the schema.
 
 ## Out of scope
 

@@ -116,9 +116,16 @@ a second inbox. RD6 (#208) forbids calling a submission a correction before the 
 - Two moderators can never both act on one item, and an approval is always of the text the
   moderator saw.
 - RD12 can widen the actions (clarification, reopen, withdrawal, retention) on the same columns,
-  and #225 can show these items in the unified inbox and take over the Admin view.
+  and #225 can show these items in the unified inbox and take over the Admin view. (Amended by
+  [ADR 0105](0105-one-moderation-inbox-decided-per-item-by-the-one-policy.md) and
+  [ADR 0106](0106-the-inbox-adds-columns-an-audit-table-and-conditional-functions-opt-in.md): the
+  moderation inbox replaced the Reader feedback view and its `engagement/feedback` moderation
+  routes, and the audit fields left for #225 were added to `feedback.sql`.)
 - RD6 can add an author decision (accepted as a correction) to the published record without
   changing what is already stored.
+  (Done by [ADR 0119](0119-the-authors-decision-is-published-with-an-approved-note-and-carried-into-portable-copies.md):
+  the file is version 2 once it holds a decision, and portable copies carry each published
+  suggestion's outcome, though still never the note's words.)
 
 ## Domain language
 

@@ -6,12 +6,12 @@
 //! moderators can never both act on the same item, and the hosted function
 //! records an audit event for each one (`openblog_feedback_events`).
 //!
-//! The state names are those of the participation and moderation policy
-//! (RD12, #211): `pending`, `clarification`, `approved`, `rejected`,
-//! `removed` and `withdrawn`. This module uses the subset B5 needs: it reads
-//! every state, so an item another tool moved is shown rather than misread,
-//! but offers only approve, reject and remove. The unified moderation inbox
-//! (#225) can replace this module without a data migration.
+//! The states, actions, reasons and refusal codes are the participation and
+//! moderation policy's ([`crate::moderation`], ADR 0102), re-exported here:
+//! there is one set. This module uses the subset B5 needs: it reads every
+//! state, so an item another tool moved is shown rather than misread, but
+//! offers only approve, reject and remove. The unified moderation inbox
+//! (#225) can replace this subset without a data migration.
 //!
 //! A moderator always sees where the reader's passage is now
 //! ([`PassageReview`]): current, re-anchored after the page changed, or
@@ -19,232 +19,44 @@
 //! gone. Approval never edits the post: accepting a suggestion is a separate
 //! author edit, and a revision note is the author's own words (ADR 0075).
 
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::model::{Post, Site};
+use crate::participation::ParticipationKind;
 use crate::passage_target::{PassageDocument, PassageSelector, Resolution, StaleReason};
-use crate::scholarly_feedback::{HostedFeedback, ScholarlyFeedback};
+use crate::scholarly_feedback::ScholarlyFeedback;
 
-/// Where an item is in moderation. Only `Approved` is ever public.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ModerationState {
-    /// Received and waiting for a moderator.
-    Pending,
-    /// A moderator asked the submitter to clarify (RD12). Never public.
-    Clarification,
-    /// Accepted for publication on the post.
-    Approved,
-    /// Declined, with a reason. Never public.
-    Rejected,
-    /// Taken off the post after approval, with a reason. Never public.
-    Removed,
-    /// Taken back by its submitter (RD12). Never public.
-    Withdrawn,
+pub use crate::moderation::{ModerationAction, ModerationState, PolicyError, ReasonCode};
+
+/// The actions Admin's B5 view offers, a subset of the policy's (ADR 0083):
+/// approve, reject and remove.
+pub const FEEDBACK_ACTIONS: [ModerationAction; 3] = [
+    ModerationAction::Approve,
+    ModerationAction::Reject,
+    ModerationAction::Remove,
+];
+
+/// The states `action` may start from, by the one state machine.
+pub fn from_states(action: ModerationAction) -> Vec<ModerationState> {
+    ModerationState::ALL
+        .into_iter()
+        .filter(|state| crate::moderation::next_state(action, *state).is_some())
+        .collect()
 }
 
-impl ModerationState {
-    pub const ALL: [ModerationState; 6] = [
-        ModerationState::Pending,
-        ModerationState::Clarification,
-        ModerationState::Approved,
-        ModerationState::Rejected,
-        ModerationState::Removed,
-        ModerationState::Withdrawn,
-    ];
-
-    /// The stored id, as the `status` column holds it (ADR 0080).
-    pub fn id(self) -> &'static str {
-        match self {
-            ModerationState::Pending => "pending",
-            ModerationState::Clarification => "clarification",
-            ModerationState::Approved => "approved",
-            ModerationState::Rejected => "rejected",
-            ModerationState::Removed => "removed",
-            ModerationState::Withdrawn => "withdrawn",
-        }
-    }
-
-    pub fn from_id(id: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|state| state.id() == id)
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ModerationState::Pending => "Pending",
-            ModerationState::Clarification => "Waiting for clarification",
-            ModerationState::Approved => "Approved",
-            ModerationState::Rejected => "Rejected",
-            ModerationState::Removed => "Removed",
-            ModerationState::Withdrawn => "Withdrawn",
-        }
-    }
+/// The reasons `action` takes on passage feedback; empty means none. Every
+/// passage feedback kind has the same list, so `question` stands for all.
+pub fn reasons(action: ModerationAction) -> &'static [ReasonCode] {
+    crate::moderation::allowed_reasons(action, ParticipationKind::Question)
 }
 
-impl Serialize for ModerationState {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.id())
-    }
+/// The B5 actions open to an item in `state`, in a fixed order.
+pub fn available(state: ModerationState) -> Vec<ModerationAction> {
+    FEEDBACK_ACTIONS
+        .into_iter()
+        .filter(|action| crate::moderation::next_state(*action, state).is_some())
+        .collect()
 }
-
-impl<'de> Deserialize<'de> for ModerationState {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let id = String::deserialize(deserializer)?;
-        Self::from_id(&id).ok_or_else(|| serde::de::Error::custom("unknown moderation state"))
-    }
-}
-
-/// Why a moderator declined or removed an item. Reasons are moderation
-/// grounds, never a verdict on facts: there is no "incorrect" code, and a
-/// rejected suggested correction is not thereby wrong. The ids are RD12's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ReasonCode {
-    Spam,
-    Abusive,
-    PersonalData,
-    OffTopic,
-    Duplicate,
-    Rights,
-    Other,
-}
-
-impl ReasonCode {
-    pub const ALL: [ReasonCode; 7] = [
-        ReasonCode::Spam,
-        ReasonCode::Abusive,
-        ReasonCode::PersonalData,
-        ReasonCode::OffTopic,
-        ReasonCode::Duplicate,
-        ReasonCode::Rights,
-        ReasonCode::Other,
-    ];
-
-    pub fn id(self) -> &'static str {
-        match self {
-            ReasonCode::Spam => "spam",
-            ReasonCode::Abusive => "abusive",
-            ReasonCode::PersonalData => "personal-data",
-            ReasonCode::OffTopic => "off-topic",
-            ReasonCode::Duplicate => "duplicate",
-            ReasonCode::Rights => "rights",
-            ReasonCode::Other => "other",
-        }
-    }
-
-    pub fn from_id(id: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|reason| reason.id() == id)
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ReasonCode::Spam => "Spam",
-            ReasonCode::Abusive => "Abusive",
-            ReasonCode::PersonalData => "Contains personal data",
-            ReasonCode::OffTopic => "Off topic",
-            ReasonCode::Duplicate => "Duplicate",
-            ReasonCode::Rights => "Rights or permission problem",
-            ReasonCode::Other => "Other",
-        }
-    }
-}
-
-/// A change a moderator asks for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ModerationAction {
-    /// Pending to approved: publish it on the post.
-    Approve,
-    /// Pending or clarification to rejected, with a reason.
-    Reject,
-    /// Approved to removed, with a reason: take it off the post.
-    Remove,
-}
-
-impl ModerationAction {
-    pub const ALL: [ModerationAction; 3] = [
-        ModerationAction::Approve,
-        ModerationAction::Reject,
-        ModerationAction::Remove,
-    ];
-
-    pub fn id(self) -> &'static str {
-        match self {
-            ModerationAction::Approve => "approve",
-            ModerationAction::Reject => "reject",
-            ModerationAction::Remove => "remove",
-        }
-    }
-
-    pub fn from_id(id: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|action| action.id() == id)
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ModerationAction::Approve => "Approve",
-            ModerationAction::Reject => "Reject",
-            ModerationAction::Remove => "Remove from the post",
-        }
-    }
-
-    /// The states this action may start from.
-    pub fn from_states(self) -> &'static [ModerationState] {
-        match self {
-            ModerationAction::Approve => &[ModerationState::Pending],
-            ModerationAction::Reject => &[ModerationState::Pending, ModerationState::Clarification],
-            ModerationAction::Remove => &[ModerationState::Approved],
-        }
-    }
-
-    pub fn to_state(self) -> ModerationState {
-        match self {
-            ModerationAction::Approve => ModerationState::Approved,
-            ModerationAction::Reject => ModerationState::Rejected,
-            ModerationAction::Remove => ModerationState::Removed,
-        }
-    }
-
-    /// The reasons a request may give; empty means it gives none. Reject and
-    /// remove need one.
-    pub fn reasons(self) -> &'static [ReasonCode] {
-        match self {
-            ModerationAction::Approve => &[],
-            ModerationAction::Reject | ModerationAction::Remove => &ReasonCode::ALL,
-        }
-    }
-
-    /// The actions open to an item in `state`, in a fixed order.
-    pub fn available(state: ModerationState) -> Vec<ModerationAction> {
-        Self::ALL
-            .into_iter()
-            .filter(|action| action.from_states().contains(&state))
-            .collect()
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ModerationErrorCode {
-    UnknownAction,
-    NotAllowed,
-    ReasonRequired,
-    ReasonNotAllowed,
-    UnknownReason,
-}
-
-/// Why a change was refused. Nothing changed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ModerationError {
-    pub code: ModerationErrorCode,
-    pub message: String,
-}
-
-impl std::fmt::Display for ModerationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for ModerationError {}
 
 /// A checked change: from the state the moderator saw to the next one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -255,60 +67,33 @@ pub struct ModerationChange {
     pub reason: Option<ReasonCode>,
 }
 
-/// Check one requested change against the item's current state. Every
-/// combination this does not list is refused.
+/// Check one requested change against the item's current state, with the
+/// policy's codes (ADR 0102): an action outside B5's subset, or one that
+/// does not apply from this state, is `notAllowed`; a reason the action does
+/// not take, including one no version defines, is `reasonNotAllowed`.
 pub fn plan(
     current: ModerationState,
     action: &str,
     reason: Option<&str>,
-) -> Result<ModerationChange, ModerationError> {
-    let refuse = |code, message: String| Err(ModerationError { code, message });
-    let Some(action) = ModerationAction::from_id(action) else {
-        return refuse(
-            ModerationErrorCode::UnknownAction,
-            "Choose approve, reject or remove.".into(),
-        );
-    };
-    if !action.from_states().contains(&current) {
-        return refuse(
-            ModerationErrorCode::NotAllowed,
-            format!(
-                "An item that is {} cannot be changed with {}.",
-                current.label().to_lowercase(),
-                action.id()
-            ),
-        );
-    }
-    let reason = match (reason.filter(|reason| !reason.is_empty()), action.reasons()) {
-        (None, []) => None,
-        (Some(_), []) => {
-            return refuse(
-                ModerationErrorCode::ReasonNotAllowed,
-                format!("{} takes no reason.", action.label()),
-            )
-        }
-        (None, _) => {
-            return refuse(
-                ModerationErrorCode::ReasonRequired,
-                format!("Choose a reason to {}.", action.id()),
-            )
-        }
-        (Some(id), allowed) => {
-            match ReasonCode::from_id(id).filter(|code| allowed.contains(code)) {
-                Some(code) => Some(code),
-                None => {
-                    return refuse(
-                        ModerationErrorCode::UnknownReason,
-                        "Choose one of the listed reasons.".into(),
-                    )
-                }
-            }
-        }
+) -> Result<ModerationChange, PolicyError> {
+    let action = ModerationAction::from_id(action)
+        .filter(|action| FEEDBACK_ACTIONS.contains(action))
+        .ok_or(PolicyError::NotAllowed)?;
+    let to = crate::moderation::next_state(action, current).ok_or(PolicyError::NotAllowed)?;
+    let allowed = reasons(action);
+    let reason = match reason.filter(|reason| !reason.is_empty()) {
+        None if allowed.is_empty() => None,
+        None => return Err(PolicyError::ReasonRequired),
+        Some(id) => Some(
+            ReasonCode::from_id(id)
+                .filter(|code| allowed.contains(code))
+                .ok_or(PolicyError::ReasonNotAllowed)?,
+        ),
     };
     Ok(ModerationChange {
         action,
         from: current,
-        to: action.to_state(),
+        to,
         reason,
     })
 }
@@ -318,15 +103,20 @@ pub fn plan(
 /// function holds the same table; both are checked against
 /// `tests/fixtures/feedback-moderation.json`.
 pub fn rules() -> Value {
-    let actions: serde_json::Map<String, Value> = ModerationAction::ALL
+    let actions: serde_json::Map<String, Value> = FEEDBACK_ACTIONS
         .into_iter()
         .map(|action| {
+            let from = from_states(action);
+            let to = from
+                .first()
+                .and_then(|state| crate::moderation::next_state(action, *state))
+                .expect("every feedback action applies from some state");
             (
                 action.id().to_string(),
                 json!({
-                    "from": action.from_states().iter().map(|state| state.id()).collect::<Vec<_>>(),
-                    "to": action.to_state().id(),
-                    "reasons": action.reasons().iter().map(|reason| reason.id()).collect::<Vec<_>>(),
+                    "from": from.iter().map(|state| state.id()).collect::<Vec<_>>(),
+                    "to": to.id(),
+                    "reasons": reasons(action).iter().map(|reason| reason.id()).collect::<Vec<_>>(),
                 }),
             )
         })
@@ -367,7 +157,7 @@ impl PassageCheck {
     }
 }
 
-fn stale_reason_id(reason: StaleReason) -> &'static str {
+pub(crate) fn stale_reason_id(reason: StaleReason) -> &'static str {
     match reason {
         StaleReason::QuoteNotFound => "quoteNotFound",
         StaleReason::ContextChanged => "contextChanged",
@@ -489,30 +279,16 @@ pub fn post_for_work<'a>(site: &'a Site, work: &str) -> Option<&'a Post> {
     site.posts.iter().find(|post| post.url == work)
 }
 
-/// One moderation item as Admin shows it to the site's moderator: the
-/// reader's feedback, the passage check, the public form it would take, and
-/// the actions open to it. The reader's name is shown here, to moderation
-/// only, with their publication choice; the reader's own clock is not.
-pub fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
-    let feedback = &item.feedback;
+/// What a moderator sees of one feedback record beside its moderation state
+/// (ADR 0083): the passage check with both revisions and the reader's own
+/// quotation, the kind's details, and the public form approving would give
+/// it. Who sent it is the caller's to show, by the viewer's role (ADR 0103);
+/// the reader's own clock is never shown.
+pub fn feedback_review(feedback: &ScholarlyFeedback, site: &Site) -> Value {
     let provenance = &feedback.provenance;
     let post = post_for_work(site, &provenance.work);
     let document = post.map(|post| PassageDocument::of_post(post, &site.config));
     let review = review_passage(feedback, post.zip(document.as_ref()));
-    let quoted = match &provenance.target.selector {
-        PassageSelector::Quote(quote) => Some(quote.exact.clone()),
-        _ => None,
-    };
-    let actions: Vec<Value> = ModerationAction::available(item.status)
-        .into_iter()
-        .map(|action| {
-            json!({
-                "action": action.id(),
-                "label": action.label(),
-                "reasons": action.reasons().iter().map(|reason| json!({"id": reason.id(), "label": reason.label()})).collect::<Vec<_>>(),
-            })
-        })
-        .collect();
     let mut passage = json!({
         "check": review.check.id(),
         "explanation": review.explanation,
@@ -531,8 +307,8 @@ pub fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
     if let Some(revision) = &review.revision_now {
         passage["revisionNow"] = json!(revision);
     }
-    if let Some(quoted) = quoted {
-        passage["quoted"] = json!(quoted);
+    if let PassageSelector::Quote(quote) = &provenance.target.selector {
+        passage["quoted"] = json!(quote.exact);
     }
     let mut details = json!({});
     if let Some(url) = &feedback.details.source_url {
@@ -541,28 +317,24 @@ pub fn moderation_view(item: &HostedFeedback, site: &Site) -> Value {
     if let Some(text) = &feedback.details.suggested_text {
         details["suggestedText"] = json!(text);
     }
-    let mut reader = json!({ "publishName": provenance.attribution.publish_name });
-    if let Some(name) = &provenance.attribution.name {
-        reader["name"] = json!(name);
-    }
     json!({
-        "id": item.id,
-        "status": item.status.id(),
-        "statusLabel": item.status.label(),
-        "version": item.version,
-        "moderatedAt": item.moderated_at.map(crate::DateTime::rfc3339),
-        "reason": item.reason.map(ReasonCode::id),
-        "reasonLabel": item.reason.map(ReasonCode::label),
-        "kind": feedback.kind.id(),
-        "kindLabel": feedback.kind.label(),
-        "body": feedback.body,
-        "details": details,
-        "work": provenance.work,
-        "post": post.map(|post| json!({"title": post.title, "source": post.source, "url": post.url})),
-        "receivedAt": provenance.received_at.rfc3339(),
-        "reader": reader,
         "passage": passage,
+        "details": details,
         "publicPreview": document.as_ref().map(|document| serde_json::to_value(provenance.public(document)).expect("public provenance serializes")),
-        "actions": actions,
     })
+}
+
+/// Whether an approval may go ahead given the passage as it is now: a
+/// passage that is not current needs the moderator to name the check they
+/// read (`acknowledge`), so a re-anchored or stale passage is never approved
+/// unseen.
+pub fn approval_acknowledged(
+    feedback: &ScholarlyFeedback,
+    site: &Site,
+    acknowledge: Option<&str>,
+) -> bool {
+    let post = post_for_work(site, &feedback.provenance.work);
+    let document = post.map(|post| PassageDocument::of_post(post, &site.config));
+    let review = review_passage(feedback, post.zip(document.as_ref()));
+    !review.check.needs_acknowledgement() || acknowledge == Some(review.check.id())
 }

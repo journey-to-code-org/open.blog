@@ -155,6 +155,30 @@ pub fn review_citations<'l>(
                         identifier.value.as_str(),
                     ]));
                 }
+                // A web address the publication boundary withholds (ADR 0125).
+                if let Some(problem) = (identifier.scheme == "url")
+                    .then(|| crate::citations::public_url_problem(&identifier.value))
+                    .flatten()
+                {
+                    findings.push(
+                        finding(
+                            EvidenceCode::CitationIdentifierUnpublished,
+                            EvidenceOutcome::Potential,
+                            line,
+                            Some("identifiers".into()),
+                            format!(
+                                "Source `{}` has a web address that is not published because {problem}, so the note and exports leave it out.",
+                                reference.key
+                            ),
+                            "Give the source an address readers can reach, without a key, token or signature, in Admin's Sources view.".into(),
+                        )
+                        .with_facts([
+                            reference.key.as_str(),
+                            identifier.scheme.as_str(),
+                            identifier.value.as_str(),
+                        ]),
+                    );
+                }
             }
         }
         for (field, consequence) in missing_details(reference) {

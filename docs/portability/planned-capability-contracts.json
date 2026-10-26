@@ -291,6 +291,30 @@
       "scope_boundary": "The privacy/revision contract is owned by this task; protected draft UX and approval workflow remain with their separate child stories."
     },
     {
+      "id": "third-perspectives",
+      "status": "defined",
+      "owner_story": 201,
+      "portability_owner_issue": 222,
+      "implementation_issues": [210, 221],
+      "authored_data": [
+        "A reader's approved reflection on a published work or one of its sections, with its optional prompt category",
+        "The passage revision and target the reader wrote about, and the target's standing in the work now",
+        "The reader's name only while the approved and the current consent show it and it matches no credited name"
+      ],
+      "static_fallback": "The canonical page lists approved Third Perspectives as static, semantic text after the authors' work, each headed as a reader's and never an author's. Portable copies, feeds and llms files carry only a labelled link to the canonical page, never the reflections. Without a hosted service the page keeps what was approved and the form's static text is a copy-and-contact path.",
+      "participation_path": "The canonical page offers the progressive form where the kind is open; elsewhere the labelled canonical link is the only participation path, and a reader checks on a reflection only through their private receipt.",
+      "privacy_exclusions": [
+        "Pending, clarification, rejected, removed, withdrawn and deleted reflections, and any reflection whose consent no longer allows publication",
+        "Receipts and their digests, consent records, private names, moderators, reasons, the reader's clock, channel and hosted ids beyond the public report handle"
+      ],
+      "required_tests": [
+        "Prove the published file and every portable, feed, search and llms output carry no private field and no reflection text",
+        "Verify the name follows the approved and current consent and is withheld when it matches a credited name, including look-alike spellings",
+        "Verify published-mode gating without a transport, stale and moved section targets, and the receipt's status without enumeration"
+      ],
+      "scope_boundary": "Story #201 owns the reflection, consent, moderation and canonical rendering; issue #222 owns this portability gate. Featured placement belongs to RD14."
+    },
+    {
       "id": "diagrams",
       "status": "blocked-unscoped",
       "owner_story": null,

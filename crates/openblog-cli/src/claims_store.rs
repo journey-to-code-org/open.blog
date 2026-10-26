@@ -139,6 +139,15 @@ fn load_for_build(
     against_library(root, library)
 }
 
+/// The claims against a library and notebook already read for a build.
+pub fn from_parts(
+    root: &Path,
+    library: SourceLibrary,
+    notebook: Notebook,
+) -> Result<Snapshot, StoreError> {
+    read(root, library, notebook)
+}
+
 fn against_library(root: &Path, library: SourceLibrary) -> Result<Snapshot, StoreError> {
     let notebook = notebook_store::read(root, library.clone())
         .map_err(notebook_blocked)?
@@ -328,6 +337,11 @@ pub fn build_findings(
             "the private claims file {CLAIMS_FILE} cannot be read, so its evidence gaps were not reviewed; run `openblog check` to see why"
         )),
     }
+}
+
+/// Whether a claims file is stored, readable or not.
+pub fn claims_file_stored(root: &Path) -> bool {
+    !claims_file_absent(root)
 }
 
 /// Whether no claims file is stored at all. A build checks this before

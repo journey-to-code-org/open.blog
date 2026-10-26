@@ -14,15 +14,17 @@ use openblog_core::citation_review::review_citations;
 use openblog_core::claim_review::{review_claims, ReviewContext};
 use openblog_core::claims::ClaimSet;
 use openblog_core::comparison_publication::{ComparisonInputs, PublicComparisons};
+use openblog_core::context_links::{find_context_links, review_context_links, ContextGap};
 use openblog_core::frontmatter;
 use openblog_core::knowledge_atlas::{Atlas, Links};
+use openblog_core::publication_review::PublicationReview;
 use openblog_core::research::{
     audit_document, EvidenceCode, EvidenceFinding, EvidenceOutcome, EvidenceSource,
 };
 use openblog_core::research_completeness::{
-    matrix, Acknowledgement, AcknowledgementState, Category, Check, CompletenessFinding,
-    CompletenessReport, Gate, MatrixRow, ObjectKind, ObjectRef, Validator,
-    COMPLETENESS_FORMAT_VERSION,
+    acknowledgeable, matrix, Acknowledgement, AcknowledgementSet, AcknowledgementState, Category,
+    Check, CompletenessFinding, CompletenessReport, Gate, MatrixRow, ObjectKind, ObjectRef,
+    Validator, COMPLETENESS_FORMAT_VERSION, CONTEXT_LINK_UNPUBLISHED, FILE_UNREADABLE,
 };
 use openblog_core::research_notes::Notebook;
 use openblog_core::source_library::SourceLibrary;
@@ -440,11 +442,20 @@ fn the_rw9_hand_off_checks_each_name_one_check_and_one_owner() {
 #[test]
 fn outcomes_stay_distinct_and_only_detected_integrity_or_privacy_failures_refuse() {
     for row in matrix() {
-        if row.gate != Gate::Advisory {
+        // A withheld item (a stale approval) leaves only itself out of the
+        // build and is a prompt to re-check, so it keeps its needs-review
+        // outcome; every refusal is a deterministic detection.
+        if !matches!(row.gate, Gate::Advisory | Gate::Withholds) {
             assert_eq!(row.outcome, EvidenceOutcome::Detected, "{row:?}");
         }
         if row.outcome != EvidenceOutcome::Detected {
-            assert_eq!(row.gate, Gate::Advisory, "{row:?}");
+            assert!(
+                matches!(row.gate, Gate::Advisory | Gate::Withholds),
+                "{row:?}"
+            );
+        }
+        if row.gate == Gate::Withholds {
+            assert_eq!(row.code, "stale-approval", "{row:?}");
         }
         if row.gate == Gate::RefusesWhenPublished {
             assert_eq!(row.validator, Validator::CitationReview, "{row:?}");
@@ -869,7 +880,9 @@ fn an_acknowledgement_never_resolves_a_finding_and_counts_apart() {
     };
     let report = CompletenessReport::new(findings.clone(), &[forged]);
     assert!(report.findings.iter().all(|e| e.acknowledgement.is_none()));
-    assert_eq!(report.unmatched_acknowledgements, 1);
+    // A record the contract does not allow is never applied and never
+    // counted: the stored file holding one is refused whole (ADR 0147).
+    assert_eq!(report.unmatched_acknowledgements, 0);
     let published = findings
         .iter()
         .find(|f| f.gate == Gate::RefusesWhenPublished)
@@ -1375,4 +1388,255 @@ fn revising_the_source_or_notebook_record_stales_exactly_the_acknowledgements_it
             (Some("members[0].source"), None),
         ]
     );
+}
+
+// ---------------------------------------------------------------------------
+// The rows the publication review added (ADR 0123, ADR 0147): one contract,
+// one source of truth for validator, code, fingerprint and gate.
+// ---------------------------------------------------------------------------
+
+fn context_finding(markdown: &str) -> CompletenessFinding {
+    let links = find_context_links(markdown, 3);
+    let gap = |_, _: &str| Some(ContextGap::NotApproved);
+    CompletenessFinding::from_context_link("posts/cave.md", &review_context_links(&links, gap)[0])
+}
+
+fn rows_of(code: &str) -> Vec<MatrixRow> {
+    matrix()
+        .into_iter()
+        .filter(|row| row.code == code)
+        .collect()
+}
+
+#[test]
+fn the_rows_the_publication_review_added_have_one_owner_and_a_gate_each() {
+    assert_eq!(Check::ContextLink.owner(), Validator::PublicationContext);
+    assert_eq!(
+        Validator::PublicationContext.entry_point(),
+        "context_links::review_context_links"
+    );
+    assert!(Validator::ALL.contains(&Validator::PublicationContext));
+    assert!(Check::ALL.contains(&Check::ContextLink));
+
+    let link = rows_of(CONTEXT_LINK_UNPUBLISHED);
+    assert_eq!(link.len(), 1);
+    assert_eq!(link[0].validator, Validator::PublicationContext);
+    assert_eq!(link[0].check, Check::ContextLink);
+    assert_eq!(link[0].category, Category::PublicBoundary);
+    assert_eq!(link[0].outcome, EvidenceOutcome::Detected);
+    assert_eq!(link[0].gate, Gate::Advisory);
+
+    // `file-unreadable` is under each private file's integrity check, owned
+    // by that file's validator, and refuses the build that reads the file.
+    let unreadable = rows_of(FILE_UNREADABLE);
+    let owners: BTreeSet<(String, String)> = unreadable
+        .iter()
+        .map(|row| (row.validator.to_string(), row.check.to_string()))
+        .collect();
+    assert_eq!(
+        owners,
+        BTreeSet::from([
+            ("source-library".into(), "library-integrity".into()),
+            ("notebook".into(), "notebook-integrity".into()),
+            ("atlas".into(), "atlas-integrity".into()),
+            ("claims".into(), "claims-integrity".into()),
+            ("alignments".into(), "alignments-integrity".into()),
+        ])
+    );
+    for row in &unreadable {
+        assert_eq!(row.category, Category::Integrity);
+        assert_eq!(row.gate, Gate::Refuses);
+        assert!(!acknowledgeable(row.validator, &row.code));
+    }
+
+    // No (validator, check, code) is mapped twice, so a code has one meaning.
+    let mut seen = BTreeSet::new();
+    for row in matrix() {
+        assert!(
+            seen.insert((row.validator, row.check, row.code.clone())),
+            "{row:?} twice"
+        );
+    }
+}
+
+#[test]
+fn each_added_row_is_emitted_by_its_real_emitter_and_maps_to_its_own_row() {
+    // `context-link-unpublished`: the real context-link check.
+    let link = context_finding("[a](/atlas/a/)");
+    let rows = rows_of(CONTEXT_LINK_UNPUBLISHED);
+    let row = row_of(&rows, &link);
+    assert_eq!((row.validator, row.check), (link.validator, link.check));
+    assert_eq!(
+        (row.category, row.outcome, row.gate),
+        (link.category, link.outcome, link.gate)
+    );
+    assert_eq!(link.facts, vec!["/atlas/a/".to_string()]);
+    assert_eq!(link.scope.object, ObjectKind::Post);
+
+    // `file-unreadable`: each file kind lands on that file's own row.
+    for (file, check) in [
+        (ObjectKind::SourceLibrary, Check::LibraryIntegrity),
+        (ObjectKind::Notebook, Check::NotebookIntegrity),
+        (ObjectKind::Atlas, Check::AtlasIntegrity),
+        (ObjectKind::ClaimsFile, Check::ClaimsIntegrity),
+        (ObjectKind::AlignmentsFile, Check::AlignmentsIntegrity),
+    ] {
+        let finding = CompletenessFinding::unreadable(file, "cannot be read");
+        assert_eq!(finding.check, check);
+        assert_eq!(finding.code, FILE_UNREADABLE);
+        assert_eq!(finding.gate, Gate::Refuses);
+        assert_eq!(finding.scope.object, file);
+        assert!(finding.blocks_publication());
+        let rows = rows_of(FILE_UNREADABLE);
+        assert_eq!(row_of(&rows, &finding).check, check);
+    }
+
+    // The unsafe-address finding reuses `citation-identifier-unpublished` with
+    // [key, scheme, value] facts.
+    let library = SourceLibrary::parse(
+        &json!({"version": 1, "sources": [
+            {"id": "leaky", "kind": "work", "title": "Leaky",
+             "identifiers": [{"scheme": "url", "value": "https://example.org/a?token=abc"}]}
+        ]})
+        .to_string(),
+        &BTreeMap::new(),
+    )
+    .expect("library");
+    let found = review_citations("posts/u.md", "A [@leaky] note.\n", 1, || Ok(Some(&library)));
+    let unsafe_url: Vec<CompletenessFinding> = found
+        .iter()
+        .filter(|f| f.code == EvidenceCode::CitationIdentifierUnpublished)
+        .map(CompletenessFinding::from_evidence)
+        .collect();
+    assert_eq!(unsafe_url.len(), 1, "{found:?}");
+    assert_eq!(
+        unsafe_url[0].facts,
+        vec![
+            "leaky".to_string(),
+            "url".to_string(),
+            "https://example.org/a?token=abc".to_string()
+        ]
+    );
+    assert_eq!(unsafe_url[0].check, Check::CitationResolution);
+    assert_eq!(unsafe_url[0].gate, Gate::Advisory);
+    let rows = rows_of("citation-identifier-unpublished");
+    assert_eq!(
+        row_of(&rows, &unsafe_url[0]).check,
+        Check::CitationResolution
+    );
+    assert!(
+        !unsafe_url[0].message.contains("token=abc"),
+        "the message never repeats the unsafe address"
+    );
+    assert!(
+        !serde_json::to_string(&unsafe_url[0])
+            .unwrap()
+            .contains("token=abc"),
+        "the facts are never serialized"
+    );
+}
+
+#[test]
+fn a_stale_approval_withholds_and_is_never_acknowledgeable() {
+    use openblog_core::knowledge_atlas::{AtlasDiagnostic, AtlasDiagnosticCode, DiagnosticSubject};
+    let diagnostic = AtlasDiagnostic {
+        code: AtlasDiagnosticCode::StaleApproval,
+        subject: DiagnosticSubject::Alignments,
+        collection: Some("alignments"),
+        index: Some(0),
+        id: Some("cave".into()),
+        field: None,
+        message: "The approval is stale.".into(),
+        facts: Vec::new(),
+    };
+    let finding = CompletenessFinding::from_atlas_diagnostic(&diagnostic);
+    assert_eq!(finding.gate, Gate::Withholds);
+    assert!(!finding.blocks_publication());
+    assert_eq!(Acknowledgement::of(&finding), None);
+    assert!(!acknowledgeable(Validator::Alignments, "stale-approval"));
+}
+
+/// The acknowledgements file exactly as the Admin flow of #62 writes it
+/// (ADR 0124), with a record for an added row.
+fn stored_by_the_admin_flow(context: &CompletenessFinding) -> String {
+    let context_print = context.fingerprint();
+    format!(
+        r#"{{
+  "version": 1,
+  "acknowledgements": [
+    {{
+      "validator": "publication-context",
+      "code": "context-link-unpublished",
+      "object": "post",
+      "path": "posts/cave.md",
+      "fingerprint": "{context_print}"
+    }},
+    {{
+      "validator": "research-profile",
+      "code": "abstract-missing",
+      "object": "post",
+      "path": "posts/cave.md",
+      "fingerprint": "00112233445566778899aabbccddeeff"
+    }}
+  ]
+}}
+"#
+    )
+}
+
+#[test]
+fn acknowledgements_stored_by_the_admin_flow_stay_valid_under_the_contract() {
+    let context = context_finding("[a](/atlas/a/)");
+    // The fingerprint is the same function it was before the two models were
+    // unified, pinned from an independent digest of the key, related object
+    // and fact.
+    assert_eq!(context.fingerprint(), "725890777d1b5b11244dea097f07216f");
+
+    let stored = stored_by_the_admin_flow(&context);
+    let set = AcknowledgementSet::parse(&stored).expect("the stored file parses");
+    assert_eq!(set.acknowledgements.len(), 2);
+    // The contract's report and the review's report treat it identically.
+    let report = CompletenessReport::new(vec![context.clone()], &set.acknowledgements);
+    assert_eq!(
+        report.findings[0].acknowledgement,
+        Some(AcknowledgementState::Current)
+    );
+    assert_eq!(report.counts.detected.found, 1);
+    assert_eq!(report.counts.detected.acknowledged, 1);
+    let review = PublicationReview::new(vec![context.clone()], &set.acknowledgements);
+    assert_eq!(review.findings, report.findings);
+    assert_eq!(review.counts, report.counts);
+    assert_eq!(
+        review.unmatched_acknowledgements, 1,
+        "abstract-missing has no finding now"
+    );
+
+    // Round trips are stable and keep the record shape.
+    assert_eq!(AcknowledgementSet::parse(&set.to_json()).unwrap(), set);
+    let mut again = AcknowledgementSet::empty();
+    again.add(Acknowledgement::of(&context).unwrap()).unwrap();
+    assert!(again.to_json().contains("\"publication-context\""));
+
+    // Refused whole: a refusing code, an unknown field, a bad fingerprint,
+    // an unsupported version.
+    for bad in [
+        stored.replace("context-link-unpublished", "file-unreadable"),
+        stored.replace(
+            "\"object\": \"post\",",
+            "\"object\": \"post\", \"note\": \"x\",",
+        ),
+        stored.replace("00112233445566778899aabbccddeeff", "NOT-HEX"),
+        stored.replace("\"version\": 1", "\"version\": 2"),
+    ] {
+        assert!(AcknowledgementSet::parse(&bad).is_err(), "{bad}");
+    }
+
+    // Changing the address stales it, and a stale record counts for nothing.
+    let moved = context_finding("[a](/atlas/a/#dates)");
+    let stale = CompletenessReport::new(vec![moved], &set.acknowledgements);
+    assert_eq!(
+        stale.findings[0].acknowledgement,
+        Some(AcknowledgementState::Stale)
+    );
+    assert_eq!(stale.counts.detected.acknowledged, 0);
 }

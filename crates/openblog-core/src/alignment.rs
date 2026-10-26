@@ -196,11 +196,80 @@ pub struct Alignment {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub publish_normalized: bool,
+    /// The fingerprint of each aligned passage's locators when the alignment
+    /// was last saved approved (ADR 0125): what the author saw and approved.
+    /// Additive and optional: an approval recorded before this field has none
+    /// and is never withheld as stale. Cleared when the alignment is saved
+    /// private.
+    #[serde(
+        rename = "approvedPassages",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub approved_passages: BTreeMap<String, String>,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
 
+/// A short, stable fingerprint of where a passage is located: its locators'
+/// kinds, values and ends, in order. Private notes on a locator do not
+/// change it.
+pub fn locators_fingerprint(locators: &[Locator]) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for locator in locators {
+        let stated = serde_json::to_string(&(&locator.kind, &locator.value, &locator.to))
+            .unwrap_or_default();
+        for byte in stated.bytes().chain([0xff]) {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
 impl Alignment {
+    /// Record, for an approved alignment, the fingerprint of each aligned
+    /// passage's locators as the notebook holds them now; clear the record
+    /// for one that is not approved. Called whenever the alignment is saved,
+    /// so a later change to a passage's locators is told apart from an
+    /// approval that never recorded any.
+    pub fn record_approval(&mut self, notebook: &crate::research_notes::Notebook) {
+        self.approved_passages.clear();
+        if !self.is_approved() {
+            return;
+        }
+        for member in &self.members {
+            let Some(passage) = member
+                .passage
+                .as_deref()
+                .and_then(|id| notebook.passage(id))
+            else {
+                continue;
+            };
+            self.approved_passages
+                .insert(passage.id.clone(), locators_fingerprint(&passage.locators));
+        }
+    }
+
+    /// The passages whose locators changed after the approval recorded them:
+    /// each aligned passage the notebook still holds, with a recorded
+    /// fingerprint that no longer matches. Empty for an approval with no
+    /// record (made before the record existed) and for one that is not approved.
+    pub fn relocated_passages(&self, notebook: &crate::research_notes::Notebook) -> Vec<String> {
+        if !self.is_approved() {
+            return Vec::new();
+        }
+        self.members
+            .iter()
+            .filter_map(|member| member.passage.as_deref())
+            .filter_map(|id| notebook.passage(id))
+            .filter(|passage| {
+                self.approved_passages
+                    .get(&passage.id)
+                    .is_some_and(|recorded| *recorded != locators_fingerprint(&passage.locators))
+            })
+            .map(|passage| passage.id.clone())
+            .collect()
+    }
+
     /// Whether the author approved the alignment for publication.
     pub fn is_approved(&self) -> bool {
         self.visibility == Visibility::Approved
@@ -467,6 +536,18 @@ fn parse_alignment(
     };
     let evidence = parse_evidence_list(&mut ctx, &mut obj, "evidence");
     let failed = ctx.failed;
+    // Read tolerantly: a record that is not an object of strings is ignored,
+    // which leaves the approval as an unrecorded (never stale) one.
+    let approved_passages: BTreeMap<String, String> = match obj.map.remove("approvedPassages") {
+        Some(Value::Object(record)) => record
+            .into_iter()
+            .filter_map(|(passage, fingerprint)| match fingerprint {
+                Value::String(fingerprint) => Some((passage, fingerprint)),
+                _ => None,
+            })
+            .collect(),
+        _ => BTreeMap::new(),
+    };
     let extra = obj.rest();
     match (id, correspondence, confidence, recorded_by, failed) {
         (Some(id), Some(correspondence), Some(confidence), Some(recorded_by), false) => (
@@ -483,6 +564,7 @@ fn parse_alignment(
                 evidence,
                 visibility,
                 publish_normalized,
+                approved_passages,
                 extra,
             }),
         ),
@@ -657,13 +739,30 @@ impl AlignmentSet {
             let report = |code, field: String, message: String| {
                 item_diagnostic(code, "alignments", index, &alignment.id, &field, message)
             };
+            let relocated = alignment.relocated_passages(links.notebook);
             for (position, member) in alignment.members.iter().enumerate() {
                 let passage = member
                     .passage
                     .as_deref()
                     .and_then(|id| links.notebook.passage(id));
                 if let Some(passage) = passage {
-                    if !member.locators.is_empty()
+                    if relocated.contains(&passage.id) {
+                        notices.push(
+                            report(
+                                Code::StaleApproval,
+                                format!("members[{position}].passage"),
+                                format!(
+                                    "passage `{}` was re-located after this comparison was approved, so the approval no longer holds and the comparison is withheld; check the place, then save the alignment again to approve it as it is now",
+                                    passage.id
+                                ),
+                            )
+                            .with_facts(
+                                [format!("passage {}", passage.id)]
+                                    .into_iter()
+                                    .chain(passage.locators.iter().map(Locator::stated)),
+                            ),
+                        );
+                    } else if !member.locators.is_empty()
                         && !passage.locators.is_empty()
                         && member.locators != passage.locators
                     {
@@ -760,11 +859,42 @@ impl AlignmentSet {
 
     /// Add an alignment or replace the one with the same id in place; the set
     /// changes only when the whole result is valid.
+    ///
+    /// Saving never re-approves quietly. The fingerprints a stored approval
+    /// recorded are kept when an approved alignment is saved again, so an edit
+    /// to its rationale does not make a place whose locators changed look
+    /// checked. They are recorded afresh only for a new alignment, when the
+    /// visibility changes to approved, or when the author says `reapprove`
+    /// (they checked the places and approve again). A member added since is
+    /// recorded as it stands; an approval cleared by saving private stays
+    /// cleared.
     pub fn upsert_alignment(
         &mut self,
         alignment: Alignment,
         links: Links<'_>,
+        reapprove: bool,
     ) -> Result<(), Vec<AtlasDiagnostic>> {
+        let mut alignment = alignment;
+        let existing = self
+            .alignments
+            .iter()
+            .find(|a| a.id == alignment.id)
+            .filter(|a| a.is_approved());
+        match existing {
+            Some(stored) if alignment.is_approved() && !reapprove => {
+                let kept = stored.approved_passages.clone();
+                alignment.record_approval(links.notebook);
+                let current = std::mem::take(&mut alignment.approved_passages);
+                alignment.approved_passages = current
+                    .into_iter()
+                    .map(|(passage, now)| {
+                        let recorded = kept.get(&passage).cloned().unwrap_or(now);
+                        (passage, recorded)
+                    })
+                    .collect();
+            }
+            _ => alignment.record_approval(links.notebook),
+        }
         let mut candidate = self.clone();
         match candidate
             .alignments

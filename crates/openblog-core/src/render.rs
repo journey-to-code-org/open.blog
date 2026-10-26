@@ -21,7 +21,8 @@ use crate::escape::{attr, cdata, text};
 use crate::feeds;
 use crate::knowledge_atlas::{EntryKind, Standing};
 use crate::markdown::{self, RenderOptions};
-use crate::model::{CommentsPolicy, Post, Series, Site};
+use crate::model::{Post, Series, Site};
+use crate::participation::{self, ParticipationKind, ParticipationMode};
 use crate::reader_references::ReaderReferences;
 use crate::theme::{Theme, ThemeSet};
 
@@ -70,10 +71,14 @@ struct Meta<'a> {
     /// The `<ob-citation-previews>` element that enhances the markers with
     /// previews from that data (ADR 0061), present exactly when the data is.
     citation_previews: Option<String>,
-    /// The published passage text of a post that offers passage feedback, as
-    /// its `<script type="application/json">` element (ADR 0082); `None` on
-    /// every other page, which is then written exactly as before.
+    /// The published passage text of a post that offers passage feedback or
+    /// Third Perspectives, as its `<script type="application/json">` element
+    /// (ADRs 0082, 0114); `None` on every other page, which is then written
+    /// exactly as before.
     passage_data: Option<String>,
+    /// The participation forms' module scripts the page loads with its
+    /// passage data, in the order their regions appear.
+    participation_scripts: Vec<&'static str>,
     /// Whether the page carries the atlas timeline (ADR 0100), so it loads
     /// the `<ob-atlas-timeline>` component; `false` on every other page,
     /// which is then written exactly as before.
@@ -89,6 +94,9 @@ struct Meta<'a> {
 struct Renderer<'a> {
     site: &'a Site,
     themes: &'a HashMap<String, Theme>,
+    /// What the site publishes about sources, read once on first use, for every post's evidence
+    /// choices (ADR 0116).
+    site_references: std::cell::OnceCell<crate::evidence_submission::SiteReferenceIndex>,
 }
 
 struct Output {
@@ -140,8 +148,13 @@ fn resolve_social_metadata(config: &SiteConfig, input: SocialMetadataInput<'_>) 
 /// The id of a post's feedback region, which the no-JavaScript text and any
 /// participation link can target.
 const FEEDBACK_ANCHOR: &str = "ob-feedback";
+/// The id of a post's Third Perspective region (ADR 0114).
+pub(crate) const THIRD_PERSPECTIVE_ANCHOR: &str = "ob-third-perspective";
 /// The id of the page data element that holds a post's passage text.
 pub const PASSAGE_DATA_ELEMENT_ID: &str = "ob-passages";
+/// The page data element holding what a reader may name in an evidence
+/// offer (ADR 0116): only what the site publishes.
+pub const EVIDENCE_DATA_ELEMENT_ID: &str = "ob-evidence-references";
 
 /// A post's passage text as the feedback form reads it (ADRs 0076, 0082):
 /// the work's path, the passage revision and each section's index, anchor,
@@ -183,6 +196,15 @@ fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDo
         "revision": document.revision,
         "sections": sections,
     });
+    format!(
+        "<script type=\"application/json\" id=\"{PASSAGE_DATA_ELEMENT_ID}\">{}</script>",
+        script_json(&data)
+    )
+}
+
+/// JSON for a data element: `<`, `>`, `&` and the line separators written
+/// as escapes, so no published text can end or confuse the element.
+fn script_json(data: &serde_json::Value) -> String {
     let mut json = String::new();
     for character in data.to_string().chars() {
         match character {
@@ -192,7 +214,7 @@ fn passage_data_element(post: &Post, document: &crate::passage_target::PassageDo
             _ => json.push(character),
         }
     }
-    format!("<script type=\"application/json\" id=\"{PASSAGE_DATA_ELEMENT_ID}\">{json}</script>")
+    json
 }
 
 fn resolved_post_canonical(config: &SiteConfig, post: &Post) -> Option<String> {
@@ -298,6 +320,7 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
     let r = Renderer {
         site,
         themes: &resolved,
+        site_references: Default::default(),
     };
     let c = &site.config;
     let mut out = Output {
@@ -457,49 +480,30 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         "search.json".into(),
         c.apply_base_path(&feeds::search_index(site)),
     )?;
-    let hosted_comments =
-        c.engagement.enabled && c.engagement.comments && !c.engagement.endpoint.trim().is_empty();
+    // Comments keep their own manifest, unchanged; it is the comment row of
+    // the one participation policy (ADR 0101).
     let comment_policies: BTreeMap<&str, &str> = site
         .posts
         .iter()
         .map(|post| {
-            let policy = if !hosted_comments {
-                "hidden"
-            } else {
-                match post.comments {
-                    CommentsPolicy::Open => "open",
-                    CommentsPolicy::Locked => "locked",
-                    CommentsPolicy::Hidden => "hidden",
-                }
-            };
-            (post.url.as_str(), policy)
+            let mode = participation::effective_mode(c, post, ParticipationKind::Comment);
+            (post.url.as_str(), mode.id())
         })
         .collect();
     out.add(
         "openblog-comments.json".into(),
         serde_json::to_string(&comment_policies).expect("comment policy map is serializable"),
     )?;
-    // Typed passage feedback is opt-in (ADR 0081): only a site that enables
-    // it publishes the policy the hosted function checks, so every other
-    // site's output is unchanged. Feedback follows each post's discussion
-    // setting until the participation policy (#211) gives it its own.
-    if c.engagement.enabled && c.engagement.feedback && !c.engagement.endpoint.trim().is_empty() {
-        let feedback_policies: BTreeMap<&str, &str> = site
-            .posts
-            .iter()
-            .map(|post| {
-                let policy = match post.comments {
-                    CommentsPolicy::Open => "open",
-                    CommentsPolicy::Locked => "locked",
-                    CommentsPolicy::Hidden => "hidden",
-                };
-                (post.url.as_str(), policy)
-            })
-            .collect();
-        out.add(
-            "openblog-feedback.json".into(),
-            serde_json::to_string(&feedback_policies).expect("feedback policy map is serializable"),
-        )?;
+    // Published only once a kind beyond comments is switched on, so every
+    // other site's output is unchanged.
+    if let Some(manifest) = participation::manifest(site) {
+        out.add("openblog-participation.json".into(), manifest)?;
+    }
+    // B5's passage feedback manifest (ADR 0081), kept for a hosted function
+    // deployed before the participation manifest: derived from the policy,
+    // never more open than any of B5's four kinds (ADR 0101).
+    if let Some(manifest) = participation::legacy_feedback_manifest(site) {
+        out.add("openblog-feedback.json".into(), manifest)?;
     }
 
     Ok(out.files)
@@ -518,6 +522,7 @@ pub fn generate_document(
     let renderer = Renderer {
         site,
         themes: &resolved,
+        site_references: Default::default(),
     };
     let (url, contents) = if let Some((index, post)) = site
         .posts
@@ -785,8 +790,12 @@ impl<'a> Renderer<'a> {
         if let Some(element) = &meta.passage_data {
             h.push_str(element);
             h.push('\n');
-            // The feedback form's script is loaded only by pages that offer it.
-            h.push_str("<script type=\"module\" src=\"/assets/components/ob-passage-feedback.js\"></script>\n");
+            // Each form's script is loaded only by pages that offer it.
+            for script in &meta.participation_scripts {
+                h.push_str(&format!(
+                    "<script type=\"module\" src=\"/assets/components/{script}\"></script>\n"
+                ));
+            }
         }
         if meta.atlas_timeline {
             // The timeline's enhancement is loaded only by the page that has one.
@@ -820,18 +829,35 @@ impl<'a> Renderer<'a> {
 
     /// Passage feedback on one post (ADR 0082): the feedback region, whose
     /// static text is the no-JavaScript path, and the post's passage text as
-    /// page data for the form. Only an open post on a site that opts in to
-    /// hosted feedback has them; every other page is unchanged.
+    /// page data for the form. Only a post where at least one of B5's kinds
+    /// is `open` has them (ADR 0101), and the form offers exactly those; every
+    /// other page is unchanged.
     fn passage_feedback(&self, post: &Post) -> Option<(String, String)> {
         let c = &self.site.config;
         let endpoint = c.engagement.endpoint.trim().trim_end_matches('/');
-        if !(c.engagement.enabled
-            && c.engagement.feedback
-            && !endpoint.is_empty()
-            && post.comments == CommentsPolicy::Open)
-        {
+        let offered = participation::offered_passage_kinds(c, post);
+        if offered.is_empty() {
             return None;
         }
+        // Named only when the form offers some of the kinds, so a page that
+        // offers all four is what it was before the policy.
+        let (kinds_attr, invitation) = if offered.len() == ParticipationKind::PASSAGE_FEEDBACK.len()
+        {
+            (
+                String::new(),
+                "Ask a question about a passage, suggest a source or a correction, or offer another interpretation.".to_string(),
+            )
+        } else {
+            let ids: Vec<&str> = offered.iter().map(|kind| kind.id()).collect();
+            let labels: Vec<&str> = offered.iter().map(|kind| kind.label()).collect();
+            (
+                format!(" kinds=\"{}\"", attr(&ids.join(" "))),
+                format!(
+                    "Send the author a note about a passage: {}.",
+                    text(&labels.join(", ").to_lowercase())
+                ),
+            )
+        };
         let document = crate::passage_target::PassageDocument::of_post(post, c);
         let contact = c.engagement.feedback_contact.as_str();
         let (contact_attr, contact_words) = if contact.is_empty() {
@@ -850,13 +876,84 @@ impl<'a> Renderer<'a> {
                 ),
             )
         };
+        // Readers can use their receipts on the page once the site says the
+        // hosted service issues them (ADR 0107).
+        let receipts_attr = if c.engagement.receipts {
+            " receipts"
+        } else {
+            ""
+        };
+        // The evidence offer (ADR 0116), once the site says the hosted
+        // service stores it, on a post open to a suggested source or
+        // correction: the form lists only what the site publishes.
+        let evidence = c.engagement.evidence
+            && offered
+                .iter()
+                .any(|kind| crate::evidence_submission::is_evidence_kind(*kind));
+        let evidence_attr = if evidence { " evidence" } else { "" };
         let region = format!(
-            "<section id=\"{FEEDBACK_ANCHOR}\" class=\"ob-feedback\" aria-labelledby=\"{FEEDBACK_ANCHOR}-title\">\n<h2 id=\"{FEEDBACK_ANCHOR}-title\">Questions and corrections</h2>\n<ob-passage-feedback endpoint=\"{}\" page=\"{}\"{contact_attr}>\n<p>Ask a question about a passage, suggest a source or a correction, or offer another interpretation. The author reviews every note, and nothing is published without their approval.</p>\n<p class=\"ob-passage-feedback-static\">The feedback form needs JavaScript. Without it, you can send your note to the author{contact_words}: name the section by its link, quote the words you mean, and give this page’s passage revision, <code>{}</code>, so the author can find the text you read.</p>\n</ob-passage-feedback>\n</section>\n",
+            "<section id=\"{FEEDBACK_ANCHOR}\" class=\"ob-feedback\" aria-labelledby=\"{FEEDBACK_ANCHOR}-title\">\n<h2 id=\"{FEEDBACK_ANCHOR}-title\">Questions and corrections</h2>\n<ob-passage-feedback endpoint=\"{}\" page=\"{}\"{kinds_attr}{contact_attr}{receipts_attr}{evidence_attr}>\n<p>{invitation} The author reviews every note, and nothing is published without their approval.</p>\n<p class=\"ob-passage-feedback-static\">The feedback form needs JavaScript. Without it, you can send your note to the author{contact_words}: name the section by its link, quote the words you mean, and give this page’s passage revision, <code>{}</code>, so the author can find the text you read.</p>\n</ob-passage-feedback>\n</section>\n",
             attr(endpoint),
             attr(&c.absolute(&post.url)),
             text(&document.revision),
         );
-        Some((region, passage_data_element(post, &document)))
+        let mut data = passage_data_element(post, &document);
+        if evidence {
+            let index = self
+                .site_references
+                .get_or_init(|| crate::evidence_submission::SiteReferenceIndex::of_site(self.site));
+            let choices = crate::evidence_submission::reference_choices(post, index);
+            data.push_str(&format!(
+                "\n<script type=\"application/json\" id=\"{EVIDENCE_DATA_ELEMENT_ID}\">{}</script>",
+                script_json(&choices)
+            ));
+        }
+        Some((region, data))
+    }
+
+    /// The Third Perspective region of one post (ADR 0114): only a post where
+    /// the kind is `open` (`participation.kinds`, the post's own mode and a
+    /// hosted transport, ADR 0101) has it. Its static text is the
+    /// no-JavaScript path, with the site's feedback contact; the form sends
+    /// through the hosted service only where it issues receipts, and
+    /// otherwise prepares the reflection to copy and send.
+    fn third_perspective(&self, post: &Post) -> Option<String> {
+        let c = &self.site.config;
+        if participation::effective_mode(c, post, ParticipationKind::ThirdPerspective)
+            != ParticipationMode::Open
+        {
+            return None;
+        }
+        let endpoint = c.engagement.endpoint.trim().trim_end_matches('/');
+        let document = crate::passage_target::PassageDocument::of_post(post, c);
+        let contact = c.engagement.feedback_contact.as_str();
+        let (contact_attr, contact_words) = if contact.is_empty() {
+            (String::new(), String::new())
+        } else if let Some(address) = contact.strip_prefix("mailto:") {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(" at <a href=\"{}\">{}</a>", attr(contact), text(address)),
+            )
+        } else {
+            (
+                format!(" contact=\"{}\"", attr(contact)),
+                format!(
+                    " through <a href=\"{}\">the contact page</a>",
+                    attr(contact)
+                ),
+            )
+        };
+        let receipts_attr = if c.engagement.receipts {
+            " receipts"
+        } else {
+            ""
+        };
+        Some(format!(
+            "<section id=\"{THIRD_PERSPECTIVE_ANCHOR}\" class=\"ob-third-perspective\" aria-labelledby=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">\n<h2 id=\"{THIRD_PERSPECTIVE_ANCHOR}-title\">Offer a Third Perspective</h2>\n<ob-third-perspective endpoint=\"{}\" page=\"{}\"{contact_attr}{receipts_attr}>\n<p>Share your own reading of this work, or of one section of it. If a moderator approves it, it is shown here as a reader’s reflection, never as one of the authors’, and only as you agree: published or not, with your name or without. There are no scores and no votes.</p>\n<p class=\"ob-third-perspective-static\">The form needs JavaScript. Without it, you can write your reflection to the author{contact_words}: say which section it is about, whether it may be published, whether your name may be shown and whether you may be asked to clarify it, and give this page’s passage revision, <code>{}</code>.</p>\n</ob-third-perspective>\n</section>\n",
+            attr(endpoint),
+            attr(&c.absolute(&post.url)),
+            text(&document.revision),
+        ))
     }
 
     fn site_header(&self, theme: &Theme, current: &str) -> String {
@@ -1181,6 +1278,7 @@ impl<'a> Renderer<'a> {
             reader_references: None,
             citation_previews: None,
             passage_data: None,
+            participation_scripts: Vec::new(),
             atlas_timeline: false,
             theme,
             published: None,
@@ -1413,29 +1511,50 @@ impl<'a> Renderer<'a> {
         // Approved reader notes, with the author's responses, are shown on
         // the canonical page only (ADR 0083), before the form that asks for
         // more.
+        // Abuse reports (ADR 0107): offered under each public comment and
+        // published note while the site has them open.
+        let reports_endpoint =
+            (participation::effective_mode(c, post, ParticipationKind::AbuseReport)
+                == ParticipationMode::Open)
+                .then(|| c.engagement.endpoint.trim().trim_end_matches('/'));
         body.push_str(&crate::feedback_publication::render_section(
             post.reader_feedback(),
+            reports_endpoint,
         ));
         let passage_feedback = self.passage_feedback(post);
         if let Some((region, _)) = &passage_feedback {
             body.push_str(region);
         }
-        if c.engagement.enabled
-            && c.engagement.comments
-            && post.comments != crate::model::CommentsPolicy::Hidden
-            && !c.engagement.endpoint.trim().is_empty()
-        {
-            let mode = if post.comments == crate::model::CommentsPolicy::Locked {
+        // Approved Third Perspectives, each a reader's and never an author's,
+        // are shown on the canonical page only (ADRs 0111 and 0115), apart
+        // from the authors' text and before the form that asks for more.
+        body.push_str(&crate::perspective_publication::render_section(
+            post.third_perspectives(),
+            reports_endpoint,
+        ));
+        let third_perspective = self.third_perspective(post);
+        if let Some(region) = &third_perspective {
+            body.push_str(region);
+        }
+        let comment_mode = participation::effective_mode(c, post, ParticipationKind::Comment);
+        if comment_mode != ParticipationMode::Hidden {
+            let mode = if comment_mode == ParticipationMode::Locked {
                 " mode=\"locked\""
             } else {
                 ""
             };
+            let reports = if reports_endpoint.is_some() {
+                " reports"
+            } else {
+                ""
+            };
             body.push_str(&format!(
-                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
+                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
                 crate::model::DISCUSSION_ANCHOR,
                 attr(&post.url),
                 attr(c.engagement.endpoint.trim().trim_end_matches('/')),
                 mode,
+                reports,
             ));
         }
         if !c.snippets.post_footer.trim().is_empty() {
@@ -1575,7 +1694,23 @@ impl<'a> Renderer<'a> {
                 }
             }),
             reader_references: references.map(ReaderReferences::to_script_element),
-            passage_data: passage_feedback.map(|(_, data)| data),
+            participation_scripts: [
+                passage_feedback.as_ref().map(|_| "ob-passage-feedback.js"),
+                third_perspective
+                    .as_ref()
+                    .map(|_| "ob-third-perspective.js"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            passage_data: passage_feedback.map(|(_, data)| data).or_else(|| {
+                third_perspective.as_ref().map(|_| {
+                    passage_data_element(
+                        post,
+                        &crate::passage_target::PassageDocument::of_post(post, c),
+                    )
+                })
+            }),
             atlas_timeline: false,
             citation_previews: references.and(post.citations()).map(|summary| {
                 format!(
@@ -2730,6 +2865,7 @@ impl<'a> Renderer<'a> {
             reader_references: None,
             citation_previews: None,
             passage_data: None,
+            participation_scripts: Vec::new(),
             atlas_timeline: false,
             theme,
             published: None,
@@ -3244,6 +3380,7 @@ mod tests {
                 source_library: None,
                 claim_evidence: None,
                 reader_feedback: None,
+                third_perspectives: None,
             },
             LoadOptions::default(),
         )

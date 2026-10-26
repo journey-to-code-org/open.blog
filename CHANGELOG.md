@@ -3,7 +3,224 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.39.0] - 2026-10-26
+
+- Admin Studio gathers Sources, the research notebook, the Knowledge Atlas, Compare and claims
+  into one **Research workspace** under `#/research/`, with its own navigation that labels every
+  research panel as private research and the draft as publishable, in words that screen readers
+  announce. Its first panel, Workflow, leads from a first source to a cited draft and says how far
+  your research has come. Switching between the draft and research panels now keeps unsaved
+  changes in each, and returns to them exactly as you left them; leaving the workspace, opening
+  another document, signing out or closing the page still asks first, naming where the unsaved
+  work is. If your session expires, the unsaved panels wait in the page until you sign in again
+  as the same user; nothing kept is shown while signed out, or to another account signed in from
+  another tab. Notebook, atlas and comparison forms are now protected like the editor. The earlier
+  `#/sources`, `#/research`, `#/atlas` and `#/compare` addresses redirect to the same panels.
+  Guided and Advanced show the workspace in the main navigation, Simple reaches it from Advanced
+  tools and `Ctrl+K`, and Custom lets you choose. Every Admin page gains a skip link, and focus moves
+  to the new page's heading after navigation.
+- A post's Write toolbar gains **Research**, which opens your research beside the draft:
+  search passages, sources, atlas entries, comparisons and interpretations, and insert from them
+  without leaving the draft. A quotation goes in exactly as stored, as a block quote with its
+  citation checked by the server, and never with its notes; a version whose rights you have not
+  stated, or state are reserved, asks you to confirm first. A source gives a citation with
+  locators. Links to atlas entries, their datings and comparisons are offered only once the next
+  build publishes those pages, and otherwise say what is missing. Private notes are listed only
+  on request and go in only through an explicit conversion. Insertions work in Visual and
+  Markdown modes, never land in code, HTML or a link, and Ctrl+Z undoes them. Nothing is written
+  to your research files.
+- Publishing or scheduling a post on the Research profile, or one that publishes citations, now
+  opens a **research review** first. It gathers what your research checks already say about the
+  post: the research-profile and citation checks, the post's claims, links to atlas entries and
+  comparisons the next build will not publish, what a linked atlas entry or comparison leaves out
+  or asks you to check, and any private research file the build cannot read. Findings are grouped
+  by what the build would refuse, then as detected, potential or needs review, and each one goes
+  to its line, field, claim or research object. Only a citation the build would refuse or a
+  research file it cannot read stops publishing; everything else is yours to decide, and you can
+  acknowledge it. An acknowledged finding stays listed and counted, and asks again once what it
+  is about changes. There is no score. Evidence Studio can run the same review at any time, and
+  other posts publish exactly as before. Acknowledgements are kept privately in
+  `.openblog/private/research/acknowledgements.json`. Sources now opens a source by its address,
+  `#/research/sources/<id>`.
+- The Research workspace gains **What will be public**, and Evidence Studio **What this post makes
+  public**: exactly which research each projection publishes (cited sources, claims and evidence,
+  atlas entries, relationships and datings, comparisons, and the research pages a post links to),
+  with the fields it copies, and why everything else stays private, from the same projection the
+  build writes. Every withheld item opens where it is changed (a claim or evidence link opens its
+  post's Evidence Studio once the post is saved). Builds now check their output against it before
+  writing anything. A page or JSON artifact naming an item no projection publishes, a damaged
+  private file and a private file copied into a public folder refuse the build. A check for text
+  from a private research file reads text as runs of six words, so a quote that is hard-wrapped,
+  emphasised, linked or joined into the search index matches whatever its markup, and a note
+  with punctuation or tags is covered. It refuses only when that text appears in the data the
+  build generates from your approved research (the atlas, comparisons and claim-evidence JSON,
+  and a post's citation data), read field by field. Anywhere else (pages, feeds, the search index,
+  `llms.txt`, static, theme and front-end files, a portable Markdown export) it only warns, with a
+  `boundary:` line naming the output, the private file, the record and the field but never the
+  text, because the text is in a file you placed or wrote and only you can say whether it is meant
+  to be public. A note that lists a post's own headings, your series titles or the address of a
+  generated page no longer warns. Every copied text file is checked whatever its extension,
+  `paths.web` assets included, and a text file too large to check is named. Private notes shorter
+  than six words are not checked by text. A source's web address on a private network (including
+  `.corp`, `.test`, `.home`, benchmarking, multicast and reserved ranges, and numeric, mapped,
+  compatible, 6to4 and NAT64 forms) or carrying a key, token, signature, secret or password in
+  its query or in a `name=value` fragment is no longer published (the rest of its reference is;
+  OpenURL `sid`, `#Authorship`, `?author=`, `?sortKey=` and `?design=` are). A source with an
+  IPv6 address no longer stops the build. An approved comparison is withheld, and cannot be
+  acknowledged, when a passage it aligns was re-located after you saved it approved: saving it
+  again does not approve it again, and Compare offers **Checked - approve again** once you have
+  checked the place; comparisons approved before this change are not withheld until you save
+  them again. Both are printed as `boundary:` warnings.
+  `openblog build` adds one line saying how much research it published and withheld, and reads
+  your research once instead of several times. Sites that publish no research build byte for
+  byte as before.
+- In Visual mode, backslash-escaped `*`, `_`, backticks, `[` and `]` are now read as the
+  characters themselves. Before, `\*word\*` showed as emphasis and `\[x\](y)` as a link, and
+  switching modes could add backslashes to the draft.
+
+## [0.38.1] - 2026-10-26
+
+### Fixed
+
+- With `OPENBLOG_CORRECTIONS_ENABLED` on, Admin no longer drops every Third Perspective from the
+  **Moderation inbox**. The hosted function now sends a decision log only with the evidence
+  suggestions that take decisions, and Admin reads a Third Perspective whose log is empty (one
+  that holds a decision is still refused).
+
+## [0.38.0] - 2026-10-26
+
+- Defined how readers' evidence and the author's correction decisions work, ahead of the forms
+  that use them. A suggested source or correction may name the published claim, evidence link or
+  citation it questions and a published source with page or other locations; this is the
+  reader's statement, never checked for truth or counted. Only the author's decision can make a
+  suggestion a correction: accepted as a correction, as a clarification or as evidence (in full or
+  in part), declined with the author's reason, or already addressed, linked to the post's revision
+  note and claim evidence. Decisions are kept in order and never erase the reader's record, and a
+  decision is shown only beside a reader's note that is itself public.
+- Readers can name what a suggested source or correction is about, and you can record what you
+  decided. With `"evidence": true` in `engagement`, the "Questions and corrections" form offers an
+  optional Evidence part on those two kinds: a claim the post publishes, the evidence for it the
+  reader questions, a source the post cites or one the site publishes and where in it, and how the
+  reader says it bears on the passage, all picked from what the site publishes, never typed. In the
+  **Moderation inbox** each note says how it stands (a suggested source, a questioned citation or a
+  suggested correction until you decide, never a correction before), shows the reader's evidence
+  beside the published claim it names, links notes that seem to be about the same thing without
+  counting them, and offers **Record decision**: accept as a correction, a clarification or
+  evidence (in full or in part), decline with your reason, or already addressed, pointing at a
+  revision note and an evidence link you record separately. A decision never edits your post, its
+  citations or the Source Library, never publishes or hides the reader's note, is refused if
+  someone decided first or the reader's text changed, and is kept in the item's private record with
+  an audit entry. To use it, run `supabase/feedback.sql` again and set
+  `OPENBLOG_CORRECTIONS_ENABLED=true`; `supabase/corrections-rollback.sql` undoes it. Without it the
+  form and the inbox are unchanged, and evidence the service cannot take is given to the reader to
+  copy. Nothing is e-mailed to readers.
+
+- A published suggested source or correction now shows what you decided, in context. Under the
+  reader's note on the post, a decision you recorded reads "Author's decision: Correction" (or
+  Clarification, Added as evidence, Declined by the author with your reason, or Already addressed),
+  with the day, the revision the note was about, the revision note that records the change, linked
+  to the post's own Revision notes, the evidence link you recorded, linked to its claim, and your
+  rationale. A suggestion you have not decided reads "Unresolved" on a site that takes evidence,
+  never as a settled correction, and evidence or a note the post no longer publishes is said, not
+  linked. The decision is copied into `reader-feedback.json` (which becomes version 2 only once it
+  holds one) when you approve the note or when you record it on a note that is already on its post,
+  and never with who decided, a passage check or anything the reader wrote. Portable HTML, Markdown
+  and text, full-content feeds and exports gain a "Reader suggestions and the author's decisions"
+  section with each outcome, its revision note and evidence links, and a link to the note on the
+  canonical page; the reader's own words, `llms.txt` and search stay as they were. A site without
+  decisions or evidence builds exactly as before.
+- Fixed review findings on corrections: a decision is refused, with the item reloaded, when the
+  reader's text changed since you read it; a stored evidence submission still moderates when
+  `OPENBLOG_CORRECTIONS_ENABLED` is off; an evidence block that the hosted store could not keep is
+  refused before it uses the reader's quota; a revision note or evidence link cannot be linked from
+  an item whose post is unknown; the form's lists are built once per site; and
+  `supabase/moderation-rollback.sql` drops the decision function.
+
+## [0.37.0] - 2026-10-26
+
+- Approved Third Perspectives now appear on the work's canonical page, in a "Third Perspectives"
+  section after the authors' text: each headed as a reader's reflection, never an author's, with
+  the reader's name only while they agree to show it and never when it looks like a credited
+  name. Approving one in the Moderation inbox writes its public part to
+  `content/third-perspectives.json`, so static builds, CI and a site without its hosted service
+  keep showing it; removing one, or a reader withdrawing it through their receipt, is taken off
+  from its inbox card or from a banner on every tab of the inbox, which counts the published
+  reflections that must come off and says when the hosted copy cannot tell. Withdrawing deletes
+  the hosted copy only, and readers are told that copies already published may remain and that a
+  name they chose to show becomes part of the site's public record. Rolling the hosted opt-in
+  back first means emptying `content/third-perspectives.json`. Readers checking a receipt see whether their reflection is waiting,
+  needs clarifying, is shown, was not published or was withdrawn, and nothing about anyone else.
+  Portable copies, feeds and `llms-full.txt` link to the canonical page for Third Perspectives
+  and never carry the reflections. The no-JavaScript text of the Third Perspective form now wraps
+  its passage revision at 320px.
+- Readers can offer a Third Perspective on a post where `third-perspective` is open in
+  `participation.kinds`: their own reflection on the whole work or one section, with an optional
+  prompt (never a score or a vote). The form asks them to choose whether it may be published,
+  whether their name may be shown and whether they may be asked to clarify it, and sends it for
+  review through the hosted function, always pending, with a private receipt to check on it or
+  take it back. Without JavaScript, without the hosted service, when sending fails, or when the
+  reader does not agree to publish, they get their reflection to copy and send to the author,
+  and nothing they wrote is lost. Moderators approve exactly the text and consent they saw in the
+  Moderation inbox. Nothing is e-mailed. Hosting it takes `supabase/feedback.sql` run again (one
+  new nullable column and one function) and `OPENBLOG_THIRD_PERSPECTIVES_ENABLED=true` with
+  receipts.
+- Defined Third Perspectives, a reader's own reflection on a shared reflection or post, about the
+  whole work or one section. Each one has an optional prompt category (never a score or a side),
+  plain text of up to 4000 characters, and a numbered history of what the reader agreed to publish.
+  The reader can hide their name or take the reflection back at any time. A reflection is public
+  only once a named moderator approves that exact text and consent. It is always shown as a
+  reader's reflection, anonymously unless the reader chose to show a name, and never under the
+  name of the work's authors or group. A private draft, the submitted copy, the approved response
+  and a featured reflection are kept apart. This adds the contract and its checks only; nothing
+  is collected or shown yet.
+
+## [0.36.0] - 2026-10-26
+
+- Reader participation now has one policy. Comments keep `engagement.comments` and `comments:`
+  exactly as before; questions, suggested sources and corrections, other interpretations, Third
+  Perspectives, author responses and abuse reports are each off until `participation.kinds` in
+  `openblog.json` switches them on, and a post can choose its own mode with `participation:` front
+  matter. Everything submitted starts pending; a request for clarification never publishes the
+  text it asks about, removals and dismissed or upheld abuse reports always need a reason, and
+  `participation.retention` sets how long unpublished text and the private moderation record are
+  kept; comments stay out of retention unless you set it yourself. Nothing is e-mailed to readers.
+  Sites that switch nothing on build exactly as before. Passage feedback's `engagement.feedback` is
+  now the same as setting its four kinds to `follow-comments`, so each kind can also be set on its
+  own: the "Questions and corrections" form offers only the kinds open on a post, and a locked
+  kind keeps its published notes on show without taking new ones.
+- Comments and reader feedback are now moderated in one place: Admin's **Moderation inbox**
+  replaces the comment section of Analytics and the Reader feedback view. It lists every item by
+  state (pending, waiting for clarification, approved, rejected, removed, withdrawn) and kind,
+  oldest first, and pages through long lists. Each item shows only the decisions you can take on
+  it, with their reasons and what each does: approve, ask the reader to clarify, reject, remove
+  from the post, or reopen for a fresh decision. A removed or rejected comment can no longer be
+  approved straight away, a moved passage must still be confirmed before approval, and a decision
+  made on an out-of-date view is refused and the list reloaded. On a shared reflection a
+  co-writer moderates as its coordinator, or only reads as a contributing author, and never sees
+  a reader's private name. Everything works with the tables you have; to offer every decision,
+  with a version and an audit trail for comments, run the new optional
+  `supabase/moderation.sql` (and `feedback.sql` again if you use feedback) and set
+  `OPENBLOG_MODERATION_ENABLED=true`; `supabase/moderation-rollback.sql` undoes it. Nothing is
+  e-mailed to anyone.
+- Published reader notes now follow their own kind: switching a kind `off` in
+  `participation.kinds` (or leaving `engagement.feedback` unset), or making it `hidden` for the
+  site or a post, takes its published notes off those pages until you switch it back on;
+  `reader-feedback.json` keeps them. Turning hosted engagement off, or leaving the hosted service,
+  still keeps every published note on your pages.
+- Readers and owners get protection without tracking. With the new optional
+  `supabase/protection.sql` (and `feedback.sql` run again) and `OPENBLOG_PROTECTION_ENABLED=true`, a
+  reader who sends passage feedback gets a private receipt, shown once, to check on the note,
+  agree to be asked to clarify it, answer a clarification request, or withdraw it, which deletes
+  its text and their name at once (set `"receipts": true` in `engagement` to offer this on the
+  page). With `"abuse-report": "open"`, readers can report a published note or comment
+  anonymously; reports are never published or counted, and upholding one in the Moderation
+  inbox removes the item in the same decision. The site Admin can delete a closed item's text
+  and name for a reader who asks, and **Moderation inbox → Retention** shows what retention would
+  delete before you run it; nothing is deleted on a schedule, comments only if you set
+  `participation.retention`, and the database itself refuses to delete any moderation record
+  from the last day. Rate limits now keep only an hourly digest of the client, never one
+  that lasts across hours, and a note or comment sent twice within the hour is taken once.
+  `supabase/protection-rollback.sql` undoes the schema. Nothing is e-mailed to anyone.
 
 - `openblog check` and `openblog build` now review the sources your opted-in posts cite: a
   quotation (a block quotation or quoted words with a citation) that gives no location, or only

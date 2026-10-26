@@ -171,6 +171,7 @@ kbd {
 }
 
 .oba-tab[aria-current="page"],
+.oba-tab[aria-current="true"],
 .oba-tab[aria-selected="true"],
 .oba-tab[aria-pressed="true"] {
   border-color: var(--ob-color-accent-border);
@@ -3499,4 +3500,518 @@ a.oba-btn-primary {
 
 .oba-feedback-revision summary {
   cursor: pointer;
+}
+
+/* Skip link: off screen until it has keyboard focus. */
+.oba-skip-link {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 20;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-accent);
+  color: var(--ob-color-accent-contrast);
+  font-weight: 700;
+  transform: translateY(-200%);
+}
+
+.oba-skip-link:focus {
+  outline: var(--ob-focus-ring);
+  outline-offset: 2px;
+  transform: none;
+}
+
+.oba-workspace-content:focus,
+.oba-context-copy h1:focus {
+  outline: none;
+}
+
+.oba-workspace-content:focus-visible,
+.oba-context-copy h1:focus-visible {
+  outline: var(--ob-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Research workspace (ADR 0120): private research and the publishable draft are told apart in
+   words first; the border style only repeats it (solid for private, double for publishable). */
+.oba-research-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  padding: 0.6rem clamp(1rem, 2vw, 2rem);
+  border-bottom: var(--ob-border-width) solid var(--oba-panel-border);
+  background: var(--ob-color-surface);
+}
+
+.oba-research-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.oba-research-group ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-research-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.4rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.oba-visibility {
+  display: inline-block;
+  margin: 0;
+  padding: 0.1rem 0.5rem;
+  border: 2px solid var(--ob-color-border);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.oba-visibility[data-visibility="publishable"],
+.oba-visibility-note[data-visibility="publishable"] {
+  border-style: double;
+  border-width: 3px;
+  border-color: var(--ob-color-accent-border);
+}
+
+.oba-visibility-note {
+  margin: 0;
+  padding: 0.2rem 0.6rem;
+  border: 2px solid var(--ob-color-border);
+  border-radius: var(--ob-radius-sm);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-research-kept {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--ob-color-accent);
+}
+
+.oba-research-draft-title {
+  max-width: 20rem;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.oba-workspace-status {
+  margin: 0;
+  padding: 0.4rem clamp(1rem, 2vw, 2rem);
+  font-size: 0.85rem;
+}
+
+.oba-workspace-status:empty {
+  padding: 0;
+}
+
+.oba-research-overview {
+  max-width: 60rem;
+}
+
+.oba-research-steps {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: oba-research-step;
+}
+
+.oba-research-step {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface);
+  counter-increment: oba-research-step;
+  overflow-wrap: anywhere;
+}
+
+.oba-research-step h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.oba-research-step h3::before {
+  content: counter(oba-research-step) ". ";
+}
+
+.oba-research-step p {
+  margin: 0;
+}
+
+.oba-research-step .oba-toolbar {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 44rem) {
+  .oba-research-nav {
+    flex-direction: column;
+    padding-block: 0.5rem;
+  }
+}
+
+/* The draft-side research panel (ADR 0122): beside the writing surface on wide screens, below
+   it on narrow ones, in reading order either way. */
+.oba-write-layout[data-research="open"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-write-surface {
+  min-width: 0;
+}
+
+@media (min-width: 64rem) {
+  .oba-write-layout[data-research="open"] {
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+  }
+
+  .oba-write-layout[data-research="open"] .oba-draft-research-slot {
+    border-left: var(--ob-border-width) solid var(--oba-panel-border);
+  }
+}
+
+.oba-draft-research-slot[hidden] {
+  display: none;
+}
+
+.oba-draft-research {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+  min-width: 0;
+  max-height: 80vh;
+  padding: 0.9rem 1rem;
+  overflow-y: auto;
+  background: var(--ob-color-surface);
+  overflow-wrap: anywhere;
+}
+
+.oba-draft-research-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.oba-draft-research-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.oba-draft-research-head .oba-btn {
+  margin-left: auto;
+}
+
+.oba-draft-research p,
+.oba-draft-research h4,
+.oba-draft-research h5 {
+  margin: 0;
+}
+
+.oba-draft-research-results {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-draft-research-item {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-page);
+  color: var(--ob-color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.oba-draft-research-item[aria-current="true"] {
+  border-color: var(--ob-color-accent-border);
+  box-shadow: inset 3px 0 0 var(--ob-color-accent);
+}
+
+.oba-draft-research-item:focus-visible {
+  outline: 3px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+.oba-draft-research-type {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.oba-draft-research-item .oba-visibility {
+  justify-self: start;
+}
+
+.oba-draft-research-detail {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  background: var(--ob-color-surface-raised);
+}
+
+.oba-draft-research-detail[hidden] {
+  display: none;
+}
+
+.oba-draft-research-quote,
+.oba-draft-research-note {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.oba-draft-research-quote {
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--ob-color-border);
+}
+
+.oba-draft-research-markdown pre {
+  max-width: 100%;
+  margin: 0.4rem 0 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.oba-draft-research .oba-toolbar {
+  flex-wrap: wrap;
+}
+
+.oba-draft-research-claims {
+  display: grid;
+  gap: 0.4rem;
+  padding-top: 0.6rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+/* Research review before publication (#62, ADR 0123) */
+.oba-review-dialog {
+  width: min(48rem, calc(100vw - 2rem));
+}
+
+.oba-review {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.oba-review > h2 {
+  margin: 0;
+}
+
+.oba-review-group {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.oba-review-group > h3,
+.oba-review-group > p {
+  margin: 0;
+}
+
+.oba-review-list {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-review-finding {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.8rem 1rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-left: 0.25rem solid var(--ob-color-accent);
+  border-radius: var(--ob-radius);
+  overflow-wrap: anywhere;
+}
+
+.oba-review-finding p {
+  margin: 0;
+}
+
+.oba-review-group.is-blocking .oba-review-finding {
+  border-left-color: var(--oba-danger);
+}
+
+.oba-review-meta code {
+  color: var(--ob-color-text);
+  font-weight: 700;
+}
+
+.oba-review-finding .oba-toolbar {
+  flex-wrap: wrap;
+}
+
+.oba-review-finding .oba-btn[aria-pressed="true"] {
+  border-color: var(--ob-color-accent);
+  box-shadow: inset 0 0 0 1px var(--ob-color-accent);
+}
+
+@media (max-width: 40rem) {
+  .oba-review .oba-dialog-actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* The moderation inbox (ADR 0105): one decision per row, its guidance under it, wrapping at any
+   width or zoom. */
+/* Six states wrap rather than scroll, so the list reflows at any zoom. */
+.oba-moderation-states {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+
+.oba-moderation-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+
+.oba-moderation-actions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.oba-moderation-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.oba-moderation-guidance {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.oba-moderation-item h3:focus-visible {
+  outline: 2px solid var(--ob-color-accent-border);
+  outline-offset: 2px;
+}
+
+@media (max-width: 44rem) {
+  .oba-moderation-action select,
+  .oba-moderation-action .oba-btn {
+    flex: 1 1 100%;
+  }
+}
+
+/* What will be public (ADR 0125): one section per projection, items that wrap at any width or zoom.
+   Published and withheld are told apart in words; the border style only repeats it. */
+.oba-boundary-projection {
+  margin-block: 1.25rem;
+  min-width: 0;
+}
+
+.oba-boundary-list {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-boundary-item {
+  min-width: 0;
+  padding: 0.6rem 0.8rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.oba-boundary-item[data-boundary-state="withheld"] {
+  border-style: dashed;
+}
+
+.oba-boundary-item p {
+  margin: 0.2rem 0;
+}
+
+.oba-boundary-fields {
+  margin: 0.3rem 0 0;
+  padding-inline-start: 1.1rem;
+}
+
+.oba-boundary code,
+.oba-boundary bdi {
+  overflow-wrap: anywhere;
+}
+
+.oba-boundary-post {
+  margin-top: 1rem;
+  min-width: 0;
+}
+
+/* Correction decisions (ADR 0117): one disclosure per item, beside the moderation decisions, its
+   choices stacked so they reflow at any width or zoom. */
+.oba-decision {
+  margin-top: 0.75rem;
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: 0.5rem;
+}
+
+.oba-decision > summary,
+.oba-feedback-decisions > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.oba-decision-choices {
+  display: grid;
+  gap: 0.4rem;
+  min-inline-size: 0;
+  margin: 0.75rem 0;
+  border: 1px solid var(--ob-color-border);
+  border-radius: 0.35rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.oba-decision-choices[hidden],
+.oba-decision [hidden] {
+  display: none;
+}
+
+.oba-decision-choice p {
+  margin: 0.1rem 0 0 1.6rem;
+}
+
+.oba-decision select,
+.oba-decision textarea,
+.oba-decision input[type="text"] {
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
 }
