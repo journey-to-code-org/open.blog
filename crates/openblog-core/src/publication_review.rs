@@ -1145,6 +1145,24 @@ impl AcknowledgementSet {
     }
 }
 
+/// Whether a JSON object is shaped like the acknowledgements file (ADR 0136):
+/// exactly `version` and `acknowledgements`, every record naming a validator,
+/// code and fingerprint. The private-research guards refuse a copy of it in
+/// public input wherever it was saved, as they do the other research files.
+pub fn looks_like_acknowledgements(root: &serde_json::Map<String, serde_json::Value>) -> bool {
+    use serde_json::Value;
+    if root.len() != 2 || root.get("version").and_then(Value::as_u64).is_none() {
+        return false;
+    }
+    let Some(records) = root.get("acknowledgements").and_then(Value::as_array) else {
+        return false;
+    };
+    let text = |record: &Value, key: &str| record.get(key).is_some_and(Value::is_string);
+    records.iter().all(|record| {
+        text(record, "validator") && text(record, "code") && text(record, "fingerprint")
+    })
+}
+
 /// How an acknowledgement stands against the finding it names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
