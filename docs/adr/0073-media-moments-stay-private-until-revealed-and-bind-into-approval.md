@@ -77,6 +77,8 @@ early, or to publish words nobody approved.
   A set with no publication moments binds exactly as before, so existing approvals are unchanged.
   `assemble` and `preview::build` take the set too and pass it through; there is no second entry
   point that leaves moments out, and a caller that has not loaded them passes an empty set.
+- **Reconcile.** `reconcile` drops the moments and seals of anyone who is no longer an author.
+  Restoring the author does not restore either.
 
 ## Consequences
 
