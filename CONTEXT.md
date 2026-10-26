@@ -688,8 +688,9 @@ Reader data is never research: a notebook **Passage** is an author's excerpt of 
 **Passage text**:
 A post's published prose as a reader can quote it, section by section: the text before the first
 heading, then each heading's id with its title and the text up to the next heading. Generated
-markers, labels, image alternative text, raw HTML, code blocks and the generated citation notes
-are not part of it; only whitespace is normalized.
+markers, labels, image alternative text, raw HTML, embed frames, code blocks and the generated
+citation notes are not part of it; only whitespace is normalized. The build publishes it as page
+data; the browser maps a selection onto it rather than reading the page.
 _Avoid_: Plain text, search text, body when the quotable published text is meant
 
 **Passage revision**:
@@ -703,9 +704,10 @@ unchanged section from an edited one.
 _Avoid_: Section id, hash of the Markdown
 
 **Passage target**:
-A durable, versioned pointer at published text: a section anchor (the heading id) and either the
-whole section, optionally with its digest, or a quotation of at most 500 characters with up to 64
-characters of context on each side and a position hint. Never a positional element id.
+A durable, versioned pointer at published text: the whole post, or a section anchor (the heading
+id) and either the whole section, optionally with its digest, or a quotation of at most 500
+characters with up to 64 characters of context on each side and a position hint. Never a
+positional element id.
 _Avoid_: Passage (the notebook term), anchor, highlight, marker id, selector when the whole
 target is meant
 

@@ -1710,10 +1710,13 @@ pub(crate) fn heading_ids(markdown: &str) -> Vec<String> {
 /// so it is the text the native page shows, without what the page generates
 /// around it: footnote and citation markers, image alternative text, raw
 /// HTML, code blocks and the generated citation notes region. Whitespace is
-/// not yet collapsed; [`crate::passage_target`] does that.
+/// not yet collapsed; [`crate::passage_target`] does that. With `embeds`
+/// on, a paragraph that is only an embeddable link is left out, as
+/// [`apply_embeds`] replaces it with a frame that has no prose.
 pub(crate) fn passage_sections(
     markdown: &str,
     smart_punctuation: bool,
+    embeds: bool,
     notes: Option<&crate::bibliography::CitationNoteLabels<'_>>,
 ) -> Vec<(Option<String>, String)> {
     let mut events =
@@ -1723,9 +1726,24 @@ pub(crate) fn passage_sections(
     let mut sections: Vec<(Option<String>, String)> = vec![(None, String::new())];
     let mut in_code_block = false;
     let mut images = 0usize;
-    for (index, event) in events.iter().enumerate() {
-        if notes_start == Some(index) {
+    let mut index = 0;
+    while index < events.len() {
+        let event = &events[index];
+        let position = index;
+        index += 1;
+        if notes_start == Some(position) {
             break;
+        }
+        if embeds && matches!(event, Event::Start(Tag::Paragraph)) {
+            if let Some(len) = events[index..]
+                .iter()
+                .position(|e| matches!(e, Event::End(TagEnd::Paragraph)))
+            {
+                if standalone_embed(&events[index..index + len]).is_some() {
+                    index += len + 1;
+                    continue;
+                }
+            }
         }
         if let Event::Start(Tag::Heading { id, .. }) = event {
             sections.push((id.as_ref().map(|id| id.to_string()), String::new()));

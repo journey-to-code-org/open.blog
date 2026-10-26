@@ -131,6 +131,21 @@
           "digest": "f95bf6ce256653749ca2f7b1fb6e55dd"
         }
       ]
+    },
+    "shared-anchor": {
+      "revision": "p1:00dab1f646462c233980e1a8f3a5859a",
+      "sections": [
+        {
+          "anchor": "intro",
+          "text": "Intro The tide is a long wave.",
+          "digest": "97863d08f35cd9f66ed9f1aae81ffa71"
+        },
+        {
+          "anchor": "intro",
+          "text": "Other Moonlight was the sailors' clock.",
+          "digest": "1c85c435921220c3cf729ac5975cbd57"
+        }
+      ]
     }
   },
   "resolve": [
@@ -151,7 +166,8 @@
         "state": "current",
         "section": "the-claim",
         "start": 58,
-        "end": 83
+        "end": 83,
+        "index": 1
       }
     },
     {
@@ -171,7 +187,8 @@
         "state": "reanchored",
         "section": "the-claim",
         "start": 77,
-        "end": 102
+        "end": 102,
+        "index": 2
       }
     },
     {
@@ -209,7 +226,8 @@
         "state": "reanchored",
         "section": "the-claim",
         "start": 58,
-        "end": 83
+        "end": 83,
+        "index": 1
       }
     },
     {
@@ -229,7 +247,8 @@
         "state": "reanchored",
         "section": "the-claim",
         "start": 58,
-        "end": 83
+        "end": 83,
+        "index": 1
       }
     },
     {
@@ -249,7 +268,8 @@
         "state": "reanchored",
         "section": "history",
         "start": 56,
-        "end": 81
+        "end": 81,
+        "index": 2
       }
     },
     {
@@ -324,7 +344,8 @@
         "state": "reanchored",
         "section": "second",
         "start": 14,
-        "end": 30
+        "end": 30,
+        "index": 1
       }
     },
     {
@@ -380,7 +401,8 @@
         "state": "reanchored",
         "section": "unicode",
         "start": 28,
-        "end": 53
+        "end": 53,
+        "index": 6
       }
     },
     {
@@ -398,7 +420,8 @@
       "expect": {
         "state": "reanchored",
         "start": 20,
-        "end": 31
+        "end": 31,
+        "index": 0
       }
     },
     {
@@ -415,7 +438,8 @@
         "state": "current",
         "section": "the-claim",
         "start": 0,
-        "end": 97
+        "end": 97,
+        "index": 1
       }
     },
     {
@@ -432,7 +456,8 @@
         "state": "reanchored",
         "section": "notes-3",
         "start": 0,
-        "end": 25
+        "end": 25,
+        "index": 5
       }
     },
     {
@@ -480,7 +505,8 @@
         "state": "current",
         "section": "notes",
         "start": 0,
-        "end": 24
+        "end": 24,
+        "index": 2
       }
     },
     {
@@ -496,6 +522,91 @@
         "state": "stale",
         "reason": "unverified",
         "sectionPresent": true
+      }
+    },
+    {
+      "name": "a quotation in the second of two sections sharing an anchor resolves to that section",
+      "document": "shared-anchor",
+      "seenDocument": "shared-anchor",
+      "target": {
+        "version": 1,
+        "kind": "quote",
+        "section": "intro",
+        "exact": "sailors' clock",
+        "prefix": "Other Moonlight was the ",
+        "suffix": ".",
+        "start": 24
+      },
+      "expect": {
+        "state": "current",
+        "section": "intro",
+        "index": 1,
+        "start": 24,
+        "end": 38
+      }
+    },
+    {
+      "name": "a quotation seen elsewhere re-anchors to the section that holds it, not the first with its anchor",
+      "document": "shared-anchor",
+      "seenRevision": "p1:00000000000000000000000000000000",
+      "target": {
+        "version": 1,
+        "kind": "quote",
+        "section": "intro",
+        "exact": "sailors' clock",
+        "prefix": "Moonlight was the ",
+        "suffix": ".",
+        "start": 0
+      },
+      "expect": {
+        "state": "reanchored",
+        "section": "intro",
+        "index": 1,
+        "start": 24,
+        "end": 38
+      }
+    },
+    {
+      "name": "a section target without a digest is ambiguous when two sections share its anchor",
+      "document": "shared-anchor",
+      "seenDocument": "shared-anchor",
+      "target": {
+        "version": 1,
+        "kind": "section",
+        "section": "intro"
+      },
+      "expect": {
+        "state": "stale",
+        "reason": "ambiguous",
+        "sectionPresent": true
+      }
+    },
+    {
+      "name": "a work target is current at the revision seen",
+      "document": "original",
+      "seenDocument": "original",
+      "target": {
+        "version": 1,
+        "kind": "work"
+      },
+      "expect": {
+        "state": "current",
+        "start": 0,
+        "end": 0
+      }
+    },
+    {
+      "name": "a work target is current at any other revision, and with none seen",
+      "document": "edited",
+      "seenDocument": "original",
+      "target": {
+        "version": 1,
+        "kind": "work"
+      },
+      "expect": {
+        "state": "current",
+        "start": 0,
+        "end": 0
       }
     }
   ],
@@ -1097,6 +1208,109 @@
         "kind": "section",
         "section": "s"
       },
+      "error": null
+    },
+    {
+      "name": "a work target",
+      "target": {
+        "version": 1,
+        "kind": "work"
+      },
+      "error": null
+    },
+    {
+      "name": "a work target with a section",
+      "target": {
+        "version": 1,
+        "kind": "work",
+        "section": "s"
+      },
+      "error": "malformed"
+    },
+    {
+      "name": "a work target with a digest",
+      "target": {
+        "version": 1,
+        "kind": "work",
+        "digest": "0123456789abcdef0123456789abcdef"
+      },
+      "error": "malformed"
+    },
+    {
+      "name": "a work target with a quotation",
+      "target": {
+        "version": 1,
+        "kind": "work",
+        "exact": "x",
+        "prefix": "",
+        "suffix": "",
+        "start": 0
+      },
+      "error": "malformed"
+    },
+    {
+      "name": "a version written 1.0",
+      "raw": "{\"version\":1.0,\"kind\":\"work\"}",
+      "error": "malformed"
+    },
+    {
+      "name": "a version written 1e0",
+      "raw": "{\"version\":1e0,\"kind\":\"work\"}",
+      "error": "malformed"
+    },
+    {
+      "name": "a version written -0",
+      "raw": "{\"version\":-0,\"kind\":\"work\"}",
+      "error": "malformed"
+    },
+    {
+      "name": "a newer version written 7e0",
+      "raw": "{\"version\":7e0,\"kind\":\"work\"}",
+      "error": "malformed"
+    },
+    {
+      "name": "a version above 2^53 but inside 64 bits",
+      "raw": "{\"version\":9007199254740993,\"kind\":\"work\"}",
+      "error": "unsupportedVersion"
+    },
+    {
+      "name": "the largest 64-bit version",
+      "raw": "{\"version\":18446744073709551615,\"kind\":\"work\"}",
+      "error": "unsupportedVersion"
+    },
+    {
+      "name": "a version past 64 bits",
+      "raw": "{\"version\":18446744073709551616,\"kind\":\"work\"}",
+      "error": "malformed"
+    },
+    {
+      "name": "a start written 7.0",
+      "raw": "{\"version\":1,\"kind\":\"quote\",\"exact\":\"x\",\"prefix\":\"\",\"suffix\":\"\",\"start\":7.0}",
+      "error": "malformed"
+    },
+    {
+      "name": "a start written 7e0",
+      "raw": "{\"version\":1,\"kind\":\"quote\",\"exact\":\"x\",\"prefix\":\"\",\"suffix\":\"\",\"start\":7e0}",
+      "error": "malformed"
+    },
+    {
+      "name": "a start written -0",
+      "raw": "{\"version\":1,\"kind\":\"quote\",\"exact\":\"x\",\"prefix\":\"\",\"suffix\":\"\",\"start\":-0}",
+      "error": "malformed"
+    },
+    {
+      "name": "a start above 2^53 but inside 64 bits",
+      "raw": "{\"version\":1,\"kind\":\"quote\",\"exact\":\"x\",\"prefix\":\"\",\"suffix\":\"\",\"start\":9007199254740993}",
+      "error": "invalidRange"
+    },
+    {
+      "name": "a start past 64 bits",
+      "raw": "{\"version\":1,\"kind\":\"quote\",\"exact\":\"x\",\"prefix\":\"\",\"suffix\":\"\",\"start\":18446744073709551616}",
+      "error": "malformed"
+    },
+    {
+      "name": "a start in a string that looks like a number key",
+      "raw": "{\"version\":1,\"kind\":\"quote\",\"exact\":\"\\\"start\\\":1.0\",\"prefix\":\"\",\"suffix\":\"\",\"start\":7}",
       "error": null
     }
   ]

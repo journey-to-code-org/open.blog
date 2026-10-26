@@ -359,3 +359,99 @@ fn one_bad_target_fails_alone() {
     );
     assert_eq!(results[0], results[3]);
 }
+
+/// The page's visible text: tags dropped, with the content of iframes,
+/// scripts and styles left out, whitespace collapsed.
+fn page_text(html: &str) -> String {
+    let mut out = String::new();
+    let mut rest = html;
+    while let Some(open) = rest.find('<') {
+        out.push_str(&rest[..open]);
+        rest = &rest[open..];
+        let close = rest.find('>').map_or(rest.len(), |close| close + 1);
+        let tag = rest[..close].to_ascii_lowercase();
+        rest = &rest[close..];
+        for hidden in ["script", "style", "iframe"] {
+            if tag.starts_with(&format!("<{hidden}")) {
+                let end = format!("</{hidden}>");
+                rest = rest.find(&end).map_or("", |at| &rest[at + end.len()..]);
+            }
+        }
+        out.push(' ');
+    }
+    out.push_str(rest);
+    openblog_core::passage_target::normalize_passage_text(&out)
+}
+
+fn embedding(embeds: bool) -> Site {
+    let config = SiteConfig::from_json(&format!(
+        r#"{{"title": "T", "url": "https://example.test", "author": {{"name": "A"}},
+            "markdown": {{"embeds": {embeds}}}}}"#
+    ))
+    .unwrap();
+    let sources = Sources {
+        posts: vec![SourceFile {
+            path: "content/posts/mixed.md".into(),
+            contents: "---\ntitle: Mixed\ndate: 2026-10-20\n---\n\
+                ## Section\n\nBefore the embed.\n\n\
+                https://www.youtube.com/watch?v=dQw4w9WgXcQ\n\n\
+                | alpha | beta |\n|---|---|\n| gamma | delta |\n\n\
+                <div>raw block</div>\n\nAfter.\n"
+                .into(),
+        }],
+        ..Default::default()
+    };
+    Site::load(config, sources, LoadOptions::default()).expect("site loads")
+}
+
+/// What the build's passage text holds, set against the rendered page. The
+/// browser never derives passage text from the DOM (ADR 0084): the build
+/// publishes it, so the page may show more than the passage text does, but
+/// everything in the passage text is on the page.
+#[test]
+fn passage_text_against_the_rendered_page_for_a_table_an_embed_and_a_raw_block() {
+    let site = embedding(true);
+    let post = &site.posts[0];
+    let doc = PassageDocument::of_post(post, &site.config);
+    assert_eq!(doc.sections.len(), 1);
+    let build = doc.sections[0].text.as_str();
+    let page = page_text(&post.html);
+    assert!(post.html.contains("ob-embed"), "the embed is on the page");
+
+    // Prose and table cells are in both, in the same order.
+    assert_eq!(
+        build,
+        "Section Before the embed. alpha beta gamma delta After."
+    );
+    for part in ["Before the embed.", "alpha beta gamma delta", "After."] {
+        assert!(page.contains(part), "{part}: {page}");
+    }
+    // The embed paragraph is not passage text, and neither is its frame
+    // caption, which the page generates.
+    assert!(!build.contains("youtube"));
+    assert!(
+        page.to_lowercase().contains("youtube"),
+        "the caption names the provider"
+    );
+    // A raw HTML block is the author's markup, not prose a reader can
+    // quote, so the build leaves it out although the page shows it.
+    assert!(!build.contains("raw block"));
+    assert!(page.contains("raw block"));
+    // Every word of the passage text is a word on the page.
+    for word in build.split(' ') {
+        assert!(page.contains(word), "{word}");
+    }
+}
+
+#[test]
+fn an_embed_link_is_passage_text_only_while_embeds_are_off() {
+    let on = embedding(true);
+    let off = embedding(false);
+    let with = PassageDocument::of_post(&on.posts[0], &on.config);
+    let without = PassageDocument::of_post(&off.posts[0], &off.config);
+    assert!(!off.posts[0].html.contains("ob-embed"));
+    assert!(!with.sections[0].text.contains("youtube"));
+    assert!(without.sections[0].text.contains("youtube"));
+    assert!(page_text(&off.posts[0].html).contains("youtube"));
+    assert_ne!(with.revision, without.revision);
+}

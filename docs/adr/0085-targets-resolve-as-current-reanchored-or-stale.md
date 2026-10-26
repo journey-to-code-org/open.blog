@@ -23,6 +23,8 @@ current passage text. It returns exactly one of:
 - **Current**: the reader saw this very revision and the text is where the target says (for a
   quote: `exact` at `start` in the named section with its context; for a section: the anchor,
   and the digest when given).
+- A **work** target (the whole post) is always current while the post exists, whatever revision
+  the reader saw, and points at no section.
 - **Re-anchored**: the reader saw another revision (or an unknown one), and the identical text
   was found again, uniquely, as the same passage. It may have moved, even to another section.
 - **Stale**, with a reason and whether the target's section still exists (context for an honest
@@ -46,6 +48,8 @@ Rules for quotations seen at another revision:
 3. Candidates are ranked by how many context characters agree, then by being in the target's
    section. A unique best candidate re-anchors; a tie is `ambiguous`. The position hint never
    breaks a tie across revisions.
+
+A resolved location names its section by document index and anchor, because anchors can repeat.
 
 Section targets with a digest resolve to the named section if its digest is unchanged; if the
 anchor is gone or now holds other text, the one section elsewhere with the same digest (a heading

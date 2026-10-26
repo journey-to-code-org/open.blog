@@ -50,7 +50,9 @@ static reading must keep working without any hosted service.
   export: the work, the revision the reader saw, the day it was received, whether the passage is
   stale, its current section (or, when stale, its old section only while that still exists), the
   quoted text only while the work still publishes it, and the name only with the reader's
-  agreement. The reader's clock, the time of day, the channel and an unpublished name never
+  agreement. The quoted text is the `exact` text resolution verified in the section at the
+  resolved location (sections are named by index, since anchors can repeat); it is never read
+  again by anchor. The reader's clock, the time of day, the channel and an unpublished name never
   appear. A stale passage is never re-quoted, so text an author removed is not republished by a
   revision note.
 - **Separate from research.** Feedback provenance is reader data, never a research note,

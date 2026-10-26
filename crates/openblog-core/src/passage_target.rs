@@ -260,11 +260,13 @@ impl PassageDocument {
     }
 
     /// The passage text of a publication body, read as the native page
-    /// renders it (see [`crate::markdown`]).
+    /// renders it (see [`crate::markdown`]), without embeds; see
+    /// [`PassageDocument::of_post`] for a post under a site's settings.
     pub fn from_markdown(markdown: &str, smart_punctuation: bool) -> Self {
         Self::from_sections(crate::markdown::passage_sections(
             markdown,
             smart_punctuation,
+            false,
             None,
         ))
     }
@@ -281,6 +283,7 @@ impl PassageDocument {
         Self::from_sections(crate::markdown::passage_sections(
             post.publication_markdown(),
             config.markdown.smart_punctuation,
+            config.markdown.embeds,
             labels.as_ref(),
         ))
     }
@@ -297,17 +300,33 @@ impl PassageDocument {
     fn location(&self, index: usize, start: usize, end: usize) -> Location {
         Location {
             section: self.sections[index].anchor.clone(),
+            index: Some(index),
             start,
             end,
         }
     }
 
-    /// The text a location points at.
+    /// The text a location points at, read from the section the location
+    /// names by its index. Two sections may share an anchor (an author's
+    /// `{#id}` can repeat a generated one), so the anchor alone never picks
+    /// the section; a location whose anchor does not match its index's
+    /// section points at nothing.
     pub fn text_at(&self, location: &Location) -> Option<String> {
-        let index = *self.sections_with(location.section.as_deref()).first()?;
-        let chars: Vec<char> = self.sections[index].text.chars().collect();
+        let section = self.sections.get(location.index?)?;
+        if section.anchor != location.section {
+            return None;
+        }
+        let chars: Vec<char> = section.text.chars().collect();
         (location.start <= location.end && location.end <= chars.len())
             .then(|| chars[location.start..location.end].iter().collect())
+    }
+
+    /// A target for the whole post, which has no section or selector.
+    pub fn work_target(&self) -> PassageTarget {
+        PassageTarget {
+            section: None,
+            selector: PassageSelector::Work,
+        }
     }
 
     /// A target for the whole of section `index`, with its digest.
@@ -393,6 +412,13 @@ impl PassageDocument {
         let anchor = target.section.as_deref();
         let section_present = !self.sections_with(anchor).is_empty();
         match &target.selector {
+            // The whole post is there as long as this document is.
+            PassageSelector::Work => Resolution::Current(Location {
+                section: None,
+                index: None,
+                start: 0,
+                end: 0,
+            }),
             PassageSelector::Section { digest } => {
                 self.resolve_section(anchor, digest.as_deref(), same_revision, section_present)
             }
@@ -580,6 +606,10 @@ pub enum PassageSelector {
         digest: Option<String>,
     },
     Quote(TextQuote),
+    /// The whole post: no section and no selector. It stays current while
+    /// the post is published, whatever its text, so a reflection on the
+    /// whole work keeps valid provenance.
+    Work,
 }
 
 /// A durable pointer at published text: a section anchor and a selector.
@@ -656,6 +686,14 @@ impl PassageTarget {
             }
         }
         match &self.selector {
+            PassageSelector::Work => {
+                if self.section.is_some() {
+                    return Err(TargetError::new(
+                        TargetErrorCode::Malformed,
+                        "a work target has no `section`",
+                    ));
+                }
+            }
             PassageSelector::Section { digest } => {
                 if digest.as_deref().is_some_and(|digest| !is_digest(digest)) {
                     return Err(TargetError::new(
@@ -735,6 +773,21 @@ impl PassageTarget {
             malformed("a passage target has a field this version does not define, or a field of the wrong type")
         })?;
         let target = match wire.kind.as_str() {
+            "work" => {
+                if wire.section.is_some()
+                    || wire.digest.is_some()
+                    || wire.exact.is_some()
+                    || wire.prefix.is_some()
+                    || wire.suffix.is_some()
+                    || wire.start.is_some()
+                {
+                    return Err(malformed("a work target has no section or selector fields"));
+                }
+                PassageTarget {
+                    section: None,
+                    selector: PassageSelector::Work,
+                }
+            }
             "section" => {
                 if wire.exact.is_some()
                     || wire.prefix.is_some()
@@ -780,7 +833,7 @@ impl PassageTarget {
                     }),
                 }
             }
-            _ => return Err(malformed("`kind` must be `section` or `quote`")),
+            _ => return Err(malformed("`kind` must be `work`, `section` or `quote`")),
         };
         target.validate()?;
         Ok(target)
@@ -815,6 +868,7 @@ impl PassageTarget {
             start: None,
         };
         match &self.selector {
+            PassageSelector::Work => wire.kind = "work".into(),
             PassageSelector::Section { digest } => {
                 wire.kind = "section".into();
                 wire.digest = digest.clone();
@@ -860,10 +914,15 @@ impl PassageTarget {
 
 /// Where a resolved target points now. Offsets count Unicode scalar values
 /// of the section's passage text; a section target spans the whole section.
+/// `index` is the section's position in the document, the only unambiguous
+/// name for it: anchors can repeat. A work target points at no section, so it
+/// has no index and an empty range.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Location {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
     pub start: usize,
     pub end: usize,
 }

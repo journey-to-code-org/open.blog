@@ -3,14 +3,20 @@
 // both read the same fixtures (tests/fixtures/passage-targets.json) and must
 // agree on every result.
 //
-// A passage target names a section anchor (the heading id) and either the
-// whole section or a quotation with a little context on each side. It is
-// resolved against a post's passage text, given here as
-// { revision, sections: [{ anchor?, text, digest? }] }, where each text is
-// the section's visible prose (the heading's title and the text up to the
-// next heading, without generated markers, labels, code blocks or raw HTML).
-// A target resolves to the same text or is reported stale with a reason; it
-// never points at different text.
+// A passage target is the whole post (kind "work"), or names a section anchor
+// (the heading id) and either the whole section or a quotation with a little
+// context on each side. It is resolved against a post's passage text, given
+// here as { revision, sections: [{ anchor?, text, digest? }] }, where each
+// text is the section's visible prose (the heading's title and the text up to
+// the next heading, without generated markers, labels, code blocks or raw
+// HTML). A target resolves to the same text or is reported stale with a
+// reason; it never points at different text.
+//
+// The document is an input: the build computes and publishes the revision, each
+// section's text and each section's digest (ADR 0084). This module never
+// computes a revision or a digest and never reads the page's DOM; the browser
+// maps a reader's selection onto the published text. Sections are named by
+// their index, because two sections can share an anchor.
 //
 // Everything here is a pure function. Nothing is fetched or stored, inputs
 // are never changed, and a failure is returned as a value for the one target
@@ -97,11 +103,14 @@ function checkText(field, value, max, trimmed) {
 }
 
 function validate(target) {
-  if (target.section !== undefined) {
+  if (target.section !== undefined && target.kind !== "work") {
     const chars = Array.from(target.section);
     if (chars.length === 0 || chars.length > MAX_ANCHOR_CHARS || chars.some((c) => isWhiteSpace(c) || isForbidden(c))) {
       return failure("invalidAnchor", `\`section\` must be a heading id of 1 to ${MAX_ANCHOR_CHARS} characters without spaces`);
     }
+  }
+  if (target.kind === "work") {
+    return target.section === undefined ? null : malformed("a work target has no `section`");
   }
   if (target.kind === "section") {
     if (target.digest !== undefined && !isDigest(target.digest)) {
@@ -140,26 +149,89 @@ const freeze = (target) => Object.freeze(target);
  * Nothing is repaired, and the value passed in is never changed.
  */
 export function readTarget(value) {
+  return readValue(value, {});
+}
+
+const U64_LIMIT = 2n ** 64n;
+const CANONICAL_INTEGER = /^(?:0|[1-9][0-9]*)$/;
+const NUMBER_TOKEN = /\s*:\s*(-?[0-9][0-9.eE+-]*)/y;
+
+/**
+ * The raw text of the top-level `version` and `start` values of valid JSON
+ * text, so non-canonical integers (1.0, 7e0, -0) can be refused as the build
+ * refuses them. A value that is not a number has no token.
+ */
+function integerTokens(text) {
+  const tokens = {};
+  let depth = 0;
+  let expectKey = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const character = text[i];
+    if (character === '"') {
+      let end = i + 1;
+      while (end < text.length && text[end] !== '"') end += text[end] === "\\" ? 2 : 1;
+      if (depth === 1 && expectKey) {
+        expectKey = false;
+        const key = JSON.parse(text.slice(i, end + 1));
+        if (key === "version" || key === "start") {
+          NUMBER_TOKEN.lastIndex = end + 1;
+          const match = NUMBER_TOKEN.exec(text);
+          tokens[key] = match ? match[1] : undefined;
+        }
+      }
+      i = end;
+    } else if (character === "{" || character === "[") {
+      depth += 1;
+      expectKey = depth === 1 && character === "{";
+    } else if (character === "}" || character === "]") {
+      depth -= 1;
+    } else if (character === "," && depth === 1) {
+      expectKey = true;
+    }
+  }
+  return tokens;
+}
+
+function readValue(value, tokens) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return malformed("a passage target must be a JSON object");
   }
+  // An integer is a whole number the build can hold as an unsigned 64-bit
+  // value, written without a fraction, exponent or sign. Anything else is
+  // malformed; a larger version than ours is unsupported.
+  const versionToken = tokens.version;
   const version = value.version;
-  if (!Number.isSafeInteger(version) || version < 0) return malformed("a passage target needs `version` 1");
-  if (version > PASSAGE_TARGET_VERSION) {
-    return failure("unsupportedVersion", `this passage target is version ${version}, newer than the version ${PASSAGE_TARGET_VERSION} this open.blog reads`);
+  const versionBig =
+    versionToken !== undefined
+      ? CANONICAL_INTEGER.test(versionToken) && BigInt(versionToken) < U64_LIMIT ? BigInt(versionToken) : null
+      : Number.isInteger(version) && version >= 0 && version < 2 ** 64 ? BigInt(version) : null;
+  if (versionBig === null) return malformed("a passage target needs `version` 1");
+  if (versionBig > BigInt(PASSAGE_TARGET_VERSION)) {
+    return failure("unsupportedVersion", `this passage target is version ${versionBig}, newer than the version ${PASSAGE_TARGET_VERSION} this open.blog reads`);
   }
-  if (version !== PASSAGE_TARGET_VERSION) return malformed("a passage target needs `version` 1");
+  if (versionBig !== BigInt(PASSAGE_TARGET_VERSION)) return malformed("a passage target needs `version` 1");
   const wrongShape = malformed("a passage target has a field this version does not define, or a field of the wrong type");
   const keys = Object.keys(value);
   if (keys.some((key) => !FIELDS.has(key))) return wrongShape;
   const text = (key) => value[key] === undefined || value[key] === null || (typeof value[key] === "string" && !hasLoneSurrogate(value[key]));
   if (typeof value.kind !== "string" || hasLoneSurrogate(value.kind) || !["section", "digest", "exact", "prefix", "suffix"].every(text)) return wrongShape;
   const start = value.start;
-  if (start !== undefined && start !== null && !(Number.isSafeInteger(start) && start >= 0)) return wrongShape;
+  if (start !== undefined && start !== null) {
+    const startToken = tokens.start;
+    const holdable =
+      startToken !== undefined
+        ? CANONICAL_INTEGER.test(startToken) && BigInt(startToken) < U64_LIMIT
+        : Number.isInteger(start) && start >= 0 && start < 2 ** 64;
+    if (!holdable) return wrongShape;
+  }
   const given = (key) => value[key] !== undefined && value[key] !== null;
   const target = { version: PASSAGE_TARGET_VERSION, kind: value.kind };
   if (given("section")) target.section = value.section;
-  if (value.kind === "section") {
+  if (value.kind === "work") {
+    if (["section", "digest", "exact", "prefix", "suffix", "start"].some(given)) {
+      return malformed("a work target has no section or selector fields");
+    }
+  } else if (value.kind === "section") {
     if (["exact", "prefix", "suffix", "start"].some(given)) return malformed("a section target has no quotation fields");
     if (given("digest")) target.digest = value.digest;
   } else if (value.kind === "quote") {
@@ -170,7 +242,7 @@ export function readTarget(value) {
     if (start > MAX_SECTION_CHARS) return failure("invalidRange", `\`start\` is beyond ${MAX_SECTION_CHARS}`);
     Object.assign(target, { exact: value.exact, prefix: value.prefix, suffix: value.suffix, start });
   } else {
-    return malformed("`kind` must be `section` or `quote`");
+    return malformed("`kind` must be `work`, `section` or `quote`");
   }
   return validate(target) || { ok: true, target: freeze(target) };
 }
@@ -186,7 +258,12 @@ export function readTargetJson(text) {
   } catch {
     return malformed("a passage target is not valid JSON");
   }
-  return readTarget(value);
+  return readValue(value, integerTokens(String(text)));
+}
+
+/** The target for the whole post: no section and no selector. */
+export function createWorkTarget() {
+  return freeze({ version: PASSAGE_TARGET_VERSION, kind: "work" });
 }
 
 const sectionChars = (document) => document.sections.map((section) => Array.from(normalizePassageText(section.text)));
@@ -230,6 +307,7 @@ const location = (document, chars, index, start, end, state) => {
   const result = { state };
   const anchor = anchorOf(document.sections[index]);
   if (anchor !== undefined) result.section = anchor;
+  result.index = index;
   result.start = start;
   result.end = end;
   return result;
@@ -250,10 +328,13 @@ const sameRun = (chars, from, run) => run.every((character, offset) => chars[fro
 /**
  * Resolve a valid target (from readTarget) against a document. `seen` is the
  * revision the reader saw, when known. Returns
- * { state: "current" | "reanchored", section?, start, end } or
- * { state: "stale", reason, sectionPresent }.
+ * { state: "current" | "reanchored", section?, index, start, end } or
+ * { state: "stale", reason, sectionPresent }. `index` is the section's
+ * position in the document, the unambiguous name for it (anchors can repeat);
+ * a work target has no section, so it has no index and the empty range 0..0.
  */
 export function resolveTarget(target, document, seen) {
+  if (target.kind === "work") return { state: "current", start: 0, end: 0 };
   const chars = sectionChars(document);
   const sameRevision = typeof seen === "string" && seen === document.revision;
   const named = document.sections.map((section, index) => (anchorOf(section) === target.section ? index : -1)).filter((index) => index >= 0);

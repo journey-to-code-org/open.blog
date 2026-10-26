@@ -324,3 +324,104 @@ fn feedback_provenance_and_research_notes_never_read_as_each_other() {
     let (_, record) = record(Some("Ada"), true);
     assert!(Notebook::parse(&record.to_json(), &library).is_err());
 }
+
+const SHARED: &str =
+    "## Intro\n\nThe tide is a long wave.\n\n## Other {#intro}\n\nMoonlight was the sailors' clock.\n";
+
+fn shared_record(seen: &PassageDocument) -> FeedbackProvenance {
+    let text = &seen.sections[1].text;
+    let start = text.find("sailors").unwrap();
+    let target = seen.quote(1, start, text.len() - 1).unwrap();
+    FeedbackProvenance::record(
+        "/posts/tides/",
+        &seen.revision,
+        target,
+        None,
+        at("2026-10-26T10:00:00Z"),
+        FeedbackChannel::Manual,
+        ReaderAttribution::anonymous(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn two_sections_sharing_an_anchor_publish_the_verified_quotation_not_the_first_sections_text() {
+    let doc = PassageDocument::from_markdown(SHARED, false);
+    assert_eq!(doc.sections[0].anchor.as_deref(), Some("intro"));
+    assert_eq!(doc.sections[1].anchor.as_deref(), Some("intro"));
+    let record = shared_record(&doc);
+    // Current: the location names the second section by index.
+    let Resolution::Current(location) = record.resolve(&doc) else {
+        panic!("current");
+    };
+    assert_eq!(location.index, Some(1));
+    assert_eq!(doc.text_at(&location).as_deref(), Some("sailors' clock"));
+    assert_eq!(record.public(&doc).quote.as_deref(), Some("sailors' clock"));
+
+    // Re-anchored: a later edit lengthens the first section, so the same
+    // offsets would cut it mid-word. The published quotation is still
+    // exactly what the reader quoted.
+    let edited = PassageDocument::from_markdown(
+        &SHARED.replace(
+            "The tide is a long wave.",
+            "The tide is a long wave that crosses an ocean.",
+        ),
+        false,
+    );
+    assert_ne!(edited.revision, doc.revision);
+    let Resolution::Reanchored(location) = record.resolve(&edited) else {
+        panic!("reanchored");
+    };
+    assert_eq!(location.index, Some(1));
+    let public = record.public(&edited);
+    assert_eq!(public.quote.as_deref(), Some("sailors' clock"));
+    assert!(!public.stale);
+}
+
+#[test]
+fn a_location_is_read_by_its_section_index_and_refused_when_the_anchor_disagrees() {
+    let doc = PassageDocument::from_markdown(SHARED, false);
+    let record = shared_record(&doc);
+    let Resolution::Current(location) = record.resolve(&doc) else {
+        panic!("current");
+    };
+    let mut first = location.clone();
+    first.index = Some(0);
+    assert_ne!(doc.text_at(&first).as_deref(), Some("sailors' clock"));
+    let mut elsewhere = location.clone();
+    elsewhere.section = Some("other".into());
+    assert_eq!(doc.text_at(&elsewhere), None, "anchor and index disagree");
+    let mut beyond = location;
+    beyond.index = Some(9);
+    assert_eq!(doc.text_at(&beyond), None);
+}
+
+#[test]
+fn feedback_on_the_whole_post_has_valid_provenance_and_stays_current() {
+    let doc = PassageDocument::from_markdown(SEEN, false);
+    let record = FeedbackProvenance::record(
+        "/posts/tides/",
+        &doc.revision,
+        doc.work_target(),
+        None,
+        at("2026-10-26T10:00:00Z"),
+        FeedbackChannel::Hosted,
+        ReaderAttribution::anonymous(),
+    )
+    .unwrap();
+    assert_eq!(
+        value(&record)["target"],
+        json!({"version": 1, "kind": "work"})
+    );
+    assert_eq!(
+        FeedbackProvenance::from_json(&record.to_json()).unwrap(),
+        record
+    );
+    for text in [SEEN, EDITED, REMOVED] {
+        let now = PassageDocument::from_markdown(text, false);
+        assert!(matches!(record.resolve(&now), Resolution::Current(_)));
+        let public = record.public(&now);
+        assert!(!public.stale);
+        assert_eq!((public.section, public.quote), (None, None));
+    }
+}

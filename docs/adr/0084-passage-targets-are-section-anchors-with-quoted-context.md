@@ -34,8 +34,21 @@ without JavaScript, with the hosted service optional.
   level. It is what the native page shows without what the page generates around it: footnote
   and citation markers, image alternative text, raw HTML, code blocks and the generated
   citation notes region are left out; an author's own footnote text stays where it is written.
-  Text that only raw HTML shows cannot be targeted; a target made from it is reported stale,
+  With embeds on, a paragraph that is only an embeddable link is left out too, as the page
+  replaces it with a frame. Table cells are text; a raw HTML block, an embed frame and its
+  caption are not (a test compares the build text with the rendered page for each). Text that
+  only raw HTML or an embed shows cannot be targeted; a target made from it is reported stale,
   never matched elsewhere.
+- **The build publishes the passage text; the browser never re-derives it from the DOM.** When
+  feedback features are enabled (the opt-in of #82), the build publishes, as page data, each
+  section's passage text, index, anchor and digest, plus the post's passage revision.
+  `revision` and section `digest` are therefore *inputs* to the browser module, computed by
+  the build; `web/components/passage-target.js` never computes either. To make a target the
+  browser maps a reader's selection onto that published text: it normalizes the selected string
+  as the build does and searches for it within that section's build text. Parity with the DOM
+  is not required and not attempted, so generated parts of a page (anchor links, markers,
+  labels, callout titles, controls, embed captions) never need to be filtered out in the
+  browser. #82 and #84 consume this data.
 - **Only whitespace is normalized.** Each run of Unicode `White_Space` becomes one space and the
   ends are trimmed. Case and Unicode normalization forms are kept exactly: a quotation copied from
   the page matches the page and nothing else.
@@ -60,7 +73,15 @@ without JavaScript, with the hosted service optional.
   - Section: `{"version":1,"kind":"section","section":"methods","digest":"…"}` for the whole
     section. The digest is optional so a reader without JavaScript can name a section from its
     link alone; without it the target can only be confirmed at the revision the reader saw.
+  - Work: `{"version":1,"kind":"work"}` for the whole post, with no section and no selector.
+    It resolves current while the post exists, at any revision, so a reflection on a whole post
+    (RD10, RD11) has valid provenance. A section, digest or quotation field on it is refused.
   - `section` absent or `null` means the text before the first heading.
+- **Sections are named by index.** Anchors are not unique: an author's `{#id}` can repeat a
+  generated slug (`## Intro` then `## Other {#intro}`). A resolved location therefore carries
+  the section's document index as well as its anchor, and the text at a location is read by
+  index (and refused if the anchor disagrees). Public provenance publishes the `exact` text
+  resolution verified, never text re-read by anchor.
 - **Bounds and character rules.** Anchors are 1–200 characters without whitespace; text fields
   must already be passage text (single spaces, `exact` trimmed); control characters and the
   bidirectional embeddings, overrides and isolates are refused (they can make a quotation display
@@ -75,7 +96,10 @@ without JavaScript, with the hosted service optional.
   serves the build, Admin and moderation; `web/components/passage-target.js` (dependency-free,
   pure functions) serves forms (#82), local annotations (#84) and can validate in the hosted
   function (#81). Both read `tests/fixtures/passage-targets.json` and must produce the same
-  targets, codes and resolutions.
+  targets, codes and resolutions. Integers are read as the build reads them: `version` and
+  `start` must be canonical integer text (no `1.0`, `7e0` or `-0`), checked on the raw JSON
+  token in the browser; a number that fits 64 bits but is newer or beyond bounds gets the
+  build's code (`unsupportedVersion`, `invalidRange`), and one beyond 64 bits is `malformed`.
 - **No page change yet.** Section anchors already exist on every page and work without
   JavaScript. Emitting the revision and digests for no-JavaScript forms and the mail or copy
   fallback belongs to #82, behind its opt-in, so existing pages are unchanged.
@@ -85,9 +109,10 @@ without JavaScript, with the hosted service optional.
 - A durable reference to published text is a section anchor plus a quotation or a digest, never
   a positional id. Renaming a heading changes its anchor; a quote target then still re-anchors
   by its text, and a section target by its digest (ADR 0085).
-- A browser adapter that reads the passage text from the DOM must leave out the same generated
-  parts (heading anchor links, footnote and citation markers and labels, callout titles,
-  component controls) or its targets will be reported stale; they can never land on other text.
+- A browser adapter does not read the DOM for passage text. It uses the text the build
+  published, so a page may show more than the passage text (embed captions, raw HTML) without
+  any parity risk; text outside it simply cannot be selected into a target. Pages that publish
+  this data are a #82 change behind its opt-in; #82 and #84 consume it.
 - Revisions change when any passage text changes, including through smart punctuation or a
   citation style that writes locators into the prose.
 

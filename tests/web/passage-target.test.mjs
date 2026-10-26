@@ -37,7 +37,9 @@ test("fixture targets resolve or are explicitly stale, as the build resolves the
     const resolution = resolveTarget(read.target, document, seen);
     assert.deepEqual(resolution, testCase.expect, testCase.name);
     if (resolution.state !== "stale" && read.target.kind === "quote") {
-      const section = document.sections.find((s) => (s.anchor ?? undefined) === resolution.section);
+      // The index names the section; the anchor alone can name two.
+      const section = document.sections[resolution.index];
+      assert.equal(section.anchor, resolution.section, testCase.name);
       const text = Array.from(section.text).slice(resolution.start, resolution.end).join("");
       assert.equal(text, read.target.exact, `${testCase.name}: points at exactly the quoted text`);
     }

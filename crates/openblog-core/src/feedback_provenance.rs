@@ -17,8 +17,8 @@ use serde_json::Value;
 
 use crate::date::DateTime;
 use crate::passage_target::{
-    is_passage_revision, normalize_passage_text, PassageDocument, PassageTarget, Resolution,
-    TargetErrorCode,
+    is_passage_revision, normalize_passage_text, PassageDocument, PassageSelector, PassageTarget,
+    Resolution, TargetErrorCode,
 };
 
 /// The version of the record format; a reader refuses a higher one.
@@ -325,6 +325,15 @@ impl FeedbackProvenance {
         document.resolve(&self.target, Some(&self.revision))
     }
 
+    /// The text a quotation target quotes; a work or section target quotes
+    /// nothing.
+    fn verified_quote(&self) -> Option<String> {
+        match &self.target.selector {
+            PassageSelector::Quote(quote) => Some(quote.exact.clone()),
+            _ => None,
+        }
+    }
+
     /// The only form of this record that may appear on a public page, feed
     /// or export (ADR 0086): the work, the revision the reader saw and the
     /// day it was received; the passage only while the work still publishes
@@ -332,8 +341,11 @@ impl FeedbackProvenance {
     /// reader's clock, the channel and an unpublished name never appear.
     pub fn public(&self, document: &PassageDocument) -> PublicProvenance {
         let resolution = self.resolve(document);
+        // The quotation is the `exact` text resolution verified against the
+        // section at that location. It is never read again by anchor, which
+        // can name more than one section.
         let (section, quote) = match resolution.location() {
-            Some(location) => (location.section.clone(), document.text_at(location)),
+            Some(location) => (location.section.clone(), self.verified_quote()),
             None => (
                 self.target.section.clone().filter(
                     |_| matches!(resolution, Resolution::Stale(stale) if stale.section_present),
@@ -347,13 +359,7 @@ impl FeedbackProvenance {
             received: self.received_at.ymd(),
             stale: resolution.is_stale(),
             section,
-            // A whole-section target quotes nothing.
-            quote: quote.filter(|_| {
-                matches!(
-                    self.target.selector,
-                    crate::passage_target::PassageSelector::Quote(_)
-                )
-            }),
+            quote,
             name: self.attribution.public_name().map(str::to_string),
         }
     }
