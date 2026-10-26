@@ -31,6 +31,8 @@ All notable changes to open.blog are recorded here. Releases follow
   which date is right, never changes your atlas, and never links entries because their dates are
   close. The summary also says how many datings were indexed. Builds and published pages are
   unchanged.
+- Chronology prompts from `openblog check` are now always listed in the same order, even when two
+  parties record the same author.
 
 ## [0.32.0] - 2026-10-26
 

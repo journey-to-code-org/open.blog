@@ -53,7 +53,8 @@ claim the atlas refuses to make.
 - **Scoped and non-blocking.** A `ChronologyPrompt` has a code, the collection, position and id
   of the entry or relationship that owns the dating it starts from, that dating's field
   (`dates[1]`), every dating it is about (that one first) and the message. Prompts are sorted by
-  owner id, then datings, then code, and at most 1,000 are listed (`unlisted` counts the rest).
+  owner id, then datings, then code, then message (so two relationships naming the same author
+  never fall back to file order), and at most 1,000 are listed (`unlisted` counts the rest).
   They never make the atlas invalid, never block a save or a build, and leave every file
   unchanged.
 - **Where they appear.** `openblog check` prints each prompt as a `notice:` line beside the

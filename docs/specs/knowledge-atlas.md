@@ -193,7 +193,7 @@ the dating it starts from (`dates[1]`), every dating it is about, and a message 
 and stated values only ("not after c. 410 BCE"). It asks the author to check the values against
 the cited evidence and, for datings from different parties, says a recorded disagreement can stay
 side by side; it never says which dating is right and repeats no authored text. Prompts are
-sorted by owner id, datings and code; at most 1,000 are listed and `unlisted` counts the rest.
+sorted by owner id, datings, code and message, so the order never follows the file; at most 1,000 are listed and `unlisted` counts the rest.
 `openblog check` prints them as `notice:` lines and summarizes the index when the atlas has
 datings; builds never run them.
 

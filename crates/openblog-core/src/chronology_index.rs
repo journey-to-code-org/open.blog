@@ -126,7 +126,8 @@ pub struct ChronologyIndex {
     pub by_time: Vec<String>,
     /// The relative datings that point at each entry.
     pub relative_to: BTreeMap<String, Vec<String>>,
-    /// Structural prompts, sorted by the item they are scoped to, at most
+    /// Structural prompts, sorted by the item they are scoped to (then by
+    /// datings, code and message, so the order is total), at most
     /// [`MAX_CHRONOLOGY_PROMPTS`].
     pub prompts: Vec<ChronologyPrompt>,
     /// Prompts found beyond the limit and not listed.
@@ -191,7 +192,13 @@ impl ChronologyIndex {
         builder.relationships_needing_life(atlas);
         builder.relative(&sorted);
         let mut prompts = builder.prompts;
-        prompts.sort_by(|a, b| (&a.id, &a.datings, a.code).cmp(&(&b.id, &b.datings, b.code)));
+        // The message breaks the last ties: two relationships recording the
+        // same author give prompts with the same item, datings and code that
+        // differ only in the relationship they name, and their order must not
+        // follow the file.
+        prompts.sort_by(|a, b| {
+            (&a.id, &a.datings, a.code, &a.message).cmp(&(&b.id, &b.datings, b.code, &b.message))
+        });
         prompts.dedup();
         index.unlisted = prompts.len().saturating_sub(MAX_CHRONOLOGY_PROMPTS);
         prompts.truncate(MAX_CHRONOLOGY_PROMPTS);

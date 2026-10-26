@@ -554,6 +554,39 @@ fn works_and_lives_across_an_authored_relationship() {
 }
 
 #[test]
+fn two_parties_recording_the_same_author_give_prompts_in_a_fixed_order() {
+    let value = |relationships: Vec<Value>| {
+        atlas_of(
+            vec![
+                entry(
+                    "plato",
+                    "person",
+                    json!([dl("plato-died", "death", at(-348))]),
+                ),
+                entry(
+                    "laws",
+                    "work",
+                    json!([dl("laws-late", "composition", at(-300))]),
+                ),
+            ],
+            relationships,
+        )
+    };
+    let mut second = authored("b-wrote-laws", "plato", "laws");
+    second["assertedBy"] = json!({"kind": "source", "source": "nails-2002"});
+    let first = authored("a-wrote-laws", "plato", "laws");
+    let forward = ChronologyIndex::of(&parse(&value(vec![first.clone(), second.clone()])));
+    let backward = ChronologyIndex::of(&parse(&value(vec![second, first])));
+    // Both prompts share the item, the datings and the code, and differ only
+    // in the relationship they name; neither is dropped, and the order is the
+    // same whichever relationship the file lists first.
+    assert_eq!(forward.prompts.len(), 2);
+    assert!(forward.prompts[0].message.contains("`a-wrote-laws`"));
+    assert!(forward.prompts[1].message.contains("`b-wrote-laws`"));
+    assert_eq!(forward.prompts, backward.prompts);
+}
+
+#[test]
 fn a_relationship_dated_outside_a_life_it_needs_is_a_prompt_but_influence_is_not() {
     let value = |kind: &str, from: &str, to: &str| {
         atlas_of(
