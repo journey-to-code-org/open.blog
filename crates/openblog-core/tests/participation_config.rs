@@ -76,6 +76,7 @@ fn the_registry_is_closed_and_ids_round_trip() {
             "third-perspective",
             "author-response",
             "abuse-report",
+            "future-suggestion",
         ]
     );
     for kind in ParticipationKind::ALL {
@@ -89,10 +90,19 @@ fn the_registry_is_closed_and_ids_round_trip() {
     }
     assert_eq!(ParticipationKind::from_id("Comment"), None);
     assert_eq!(ParticipationKind::from_id("vote"), None);
-    // Only abuse reports are never public; only authors write responses.
+    // Only abuse reports and future suggestions are never public (a
+    // suggestion's approval admits it to the editors' queue, ADR 0190); only
+    // authors write responses.
     for kind in ParticipationKind::ALL {
         let rules = kind.rules();
-        assert_eq!(rules.publishable, kind != ParticipationKind::AbuseReport);
+        assert_eq!(
+            rules.publishable,
+            !matches!(
+                kind,
+                ParticipationKind::AbuseReport | ParticipationKind::FutureSuggestion
+            )
+        );
+        assert_eq!(rules.editorial, kind == ParticipationKind::FutureSuggestion);
         assert_eq!(
             rules.origin == openblog_core::participation::Origin::Author,
             kind == ParticipationKind::AuthorResponse

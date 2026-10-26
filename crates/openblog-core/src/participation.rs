@@ -45,6 +45,9 @@ pub enum ParticipationKind {
     /// A reader's report that an approved, public item is abusive. Never
     /// public itself.
     AbuseReport,
+    /// A question, text, video or source a reader suggests for future work,
+    /// kept in the editors' private queue (RD13). Never public.
+    FutureSuggestion,
 }
 
 /// Who creates a kind's items.
@@ -83,10 +86,15 @@ pub struct KindRules {
     /// Whether a post may set this kind's mode in its `participation:` front
     /// matter. Comments use `comments:`; abuse reports are site-wide.
     pub per_post: bool,
+    /// Whether approval admits the item to the editors' private queue
+    /// instead of publishing it (ADR 0190): such an item is never public,
+    /// is kept after approval until an author closes it, and is closed by
+    /// the same `remove` an approved public item is.
+    pub editorial: bool,
 }
 
 impl ParticipationKind {
-    pub const ALL: [ParticipationKind; 8] = [
+    pub const ALL: [ParticipationKind; 9] = [
         ParticipationKind::Comment,
         ParticipationKind::Question,
         ParticipationKind::SourceSuggestion,
@@ -95,6 +103,7 @@ impl ParticipationKind {
         ParticipationKind::ThirdPerspective,
         ParticipationKind::AuthorResponse,
         ParticipationKind::AbuseReport,
+        ParticipationKind::FutureSuggestion,
     ];
 
     /// The stored id: lowercase letters, digits and hyphens, at most 40
@@ -109,6 +118,7 @@ impl ParticipationKind {
             ParticipationKind::ThirdPerspective => "third-perspective",
             ParticipationKind::AuthorResponse => "author-response",
             ParticipationKind::AbuseReport => "abuse-report",
+            ParticipationKind::FutureSuggestion => "future-suggestion",
         }
     }
 
@@ -136,6 +146,7 @@ impl ParticipationKind {
             ParticipationKind::ThirdPerspective => "Third Perspective",
             ParticipationKind::AuthorResponse => "Author response",
             ParticipationKind::AbuseReport => "Abuse report",
+            ParticipationKind::FutureSuggestion => "Suggestion for future work",
         }
     }
 
@@ -147,6 +158,7 @@ impl ParticipationKind {
             publishable: true,
             clarification,
             per_post: true,
+            editorial: false,
         };
         match self {
             Comment => KindRules {
@@ -163,6 +175,7 @@ impl ParticipationKind {
                 publishable: true,
                 clarification: false,
                 per_post: true,
+                editorial: false,
             },
             AbuseReport => KindRules {
                 origin: Origin::Reader,
@@ -170,6 +183,12 @@ impl ParticipationKind {
                 publishable: false,
                 clarification: false,
                 per_post: false,
+                editorial: false,
+            },
+            FutureSuggestion => KindRules {
+                publishable: false,
+                editorial: true,
+                ..reader(TargetShape::Work, true)
             },
         }
     }

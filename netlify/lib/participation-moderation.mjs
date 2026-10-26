@@ -25,6 +25,8 @@ const KIND_RULES = Object.freeze({
   "third-perspective": { publishable: true, clarification: true },
   "author-response": { publishable: true, clarification: false },
   "abuse-report": { publishable: false, clarification: false },
+  // Approval admits it to the editors' private queue; it is never public (ADR 0190).
+  "future-suggestion": { publishable: false, editorial: true, clarification: true },
 });
 export const PARTICIPATION_KINDS = Object.freeze(Object.keys(KIND_RULES));
 
@@ -54,7 +56,7 @@ function applies(kind, action) {
   if (action === "approve") return kind !== "abuse-report";
   if (action === "uphold-report") return kind === "abuse-report";
   if (action === "request-clarification" || action === "clarify") return rules.clarification;
-  if (action === "remove") return rules.publishable;
+  if (action === "remove") return rules.publishable || rules.editorial === true;
   return true;
 }
 
@@ -196,7 +198,7 @@ export function retentionStep(item, cutoffs) {
   if (item.state === "pending") return due(cutoffs.pendingUntil) ? "expire" : null;
   if (item.state === "clarification") return due(cutoffs.clarificationUntil) ? "expire" : null;
   if (item.state === "withdrawn") return retained ? "purge-content" : null;
-  if (item.state === "approved" && KIND_RULES[kind].publishable) return null;
+  if (item.state === "approved" && (KIND_RULES[kind].publishable || KIND_RULES[kind].editorial === true)) return null;
   return retained && due(cutoffs.closedUntil) ? "purge-content" : null;
 }
 
@@ -217,7 +219,7 @@ export function planErasure(item, role, expectedVersion) {
   let withdraw = false;
   if (role === "submitter") {
     withdraw = ["pending", "clarification", "approved"].includes(item.state);
-  } else if (!["rejected", "removed", "withdrawn"].includes(item.state) && !(item.state === "approved" && !KIND_RULES[kind].publishable)) {
+  } else if (!["rejected", "removed", "withdrawn"].includes(item.state) && !(item.state === "approved" && !KIND_RULES[kind].publishable && KIND_RULES[kind].editorial !== true)) {
     return refuse("notAllowed");
   }
   return { ok: true, withdraw, to: withdraw ? "withdrawn" : item.state, version: item.version + (withdraw ? 2 : 1) };

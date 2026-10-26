@@ -1044,7 +1044,7 @@ fn removed_withdrawn_and_unknown_items_are_never_public() {
                 assert_eq!(
                     is_public(&facts, mode),
                     state == ModerationState::Approved
-                        && kind != ParticipationKind::AbuseReport
+                        && kind.rules().publishable
                         && mode != ParticipationMode::Hidden,
                     "{kind} {} {}",
                     state.id(),

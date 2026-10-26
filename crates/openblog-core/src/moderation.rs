@@ -1226,7 +1226,11 @@ impl ModerationPolicy {
             ModerationState::Pending | ModerationState::Clarification => {
                 self.expiry_due(item, now).then_some(RetentionStep::Expire)
             }
-            ModerationState::Approved if item.kind.rules().publishable => None,
+            ModerationState::Approved
+                if item.kind.rules().publishable || item.kind.rules().editorial =>
+            {
+                None
+            }
             ModerationState::Rejected | ModerationState::Removed | ModerationState::Approved => {
                 (item.content_retained
                     && RetentionPolicy::ended(item.state_since, self.retention.closed_days, now))
@@ -1329,7 +1333,11 @@ impl ModerationPolicy {
             (Actor::Submitter, _) => None,
             (_, ModerationState::Rejected | ModerationState::Removed)
             | (_, ModerationState::Withdrawn) => None,
-            (_, ModerationState::Approved) if !item.kind.rules().publishable => None,
+            (_, ModerationState::Approved)
+                if !item.kind.rules().publishable && !item.kind.rules().editorial =>
+            {
+                None
+            }
             _ => return Err(PolicyError::NotAllowed),
         };
         let (state, version) = withdrawal
@@ -1448,7 +1456,7 @@ fn applies(kind: ParticipationKind, action: ModerationAction) -> bool {
         ModerationAction::Approve => kind != ParticipationKind::AbuseReport,
         ModerationAction::UpholdReport => kind == ParticipationKind::AbuseReport,
         ModerationAction::RequestClarification | ModerationAction::Clarify => rules.clarification,
-        ModerationAction::Remove => rules.publishable,
+        ModerationAction::Remove => rules.publishable || rules.editorial,
         ModerationAction::Reject
         | ModerationAction::Reopen
         | ModerationAction::Withdraw

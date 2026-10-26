@@ -25,10 +25,11 @@ const WORKS: [&str; 1] = [WORK];
 const ITEM: &str = "00000000-0000-4000-8000-000000000001";
 const TARGET: &str = "00000000-0000-4000-8000-000000000002";
 const NOW: &str = "2026-10-27T10:00:00Z";
-const KINDS: [ParticipationKind; 3] = [
+const KINDS: [ParticipationKind; 4] = [
     ParticipationKind::Comment,
     ParticipationKind::Question,
     ParticipationKind::AbuseReport,
+    ParticipationKind::FutureSuggestion,
 ];
 
 fn at(text: &str) -> DateTime {
