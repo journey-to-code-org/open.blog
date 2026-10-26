@@ -22,6 +22,10 @@ All notable changes to open.blog are recorded here. Releases follow
   private schemes (such as a local file path) and extra fields on notebook locators are never
   published with a citation, and CSL citation items keep custom labels and normalise ids the way
   reference import does.
+- Citations typed or pasted in Visual mode now become chips, and a line whose citations the
+  visual editor cannot read exactly as a build does (such as one inside link text) is kept
+  verbatim instead of being rewritten. Cite refuses a caret inside code or a link in either mode
+  and explains why in the still-open dialog. CSL export writes the current `sub-verbo` label.
 
 ## [0.25.0] - 2026-10-25
 
