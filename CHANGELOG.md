@@ -22,6 +22,15 @@ All notable changes to open.blog are recorded here. Releases follow
   An uncited date is never published. `openblog build` and `openblog check` now warn about this,
   naming each affected entry and how many datings it holds, and Admin's atlas notices list each
   entry too.
+- `openblog check` now points out atlas datings that cannot all hold as recorded: a death dated
+  before a birth, a work composed after the death or before the birth of the person recorded as
+  its author, a publication before the composition, an activity or membership dated outside a
+  life, relative datings that order the same works both ways round or in a loop, and a relative
+  dating that the absolute dates disagree with. Each notice names the datings by id with the
+  values as you stated them and asks you to check them against the cited evidence; it never says
+  which date is right, never changes your atlas, and never links entries because their dates are
+  close. The summary also says how many datings were indexed. Builds and published pages are
+  unchanged.
 
 ## [0.32.0] - 2026-10-26
 
