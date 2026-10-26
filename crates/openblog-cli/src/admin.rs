@@ -22081,4 +22081,411 @@ series: letters
             file
         );
     }
+
+    // ---- Roundtables at scale, end to end (#188) ----
+
+    /// Mikey (owner, writer) and `others` more writers who joined through copy-link invitations,
+    /// each with their own account and contributor key. Returns their sessions in join order and
+    /// every invitation token handed out, so a test can prove none reaches public output.
+    fn group_fixture(
+        tag: &str,
+        others: usize,
+    ) -> (
+        Fixture,
+        (String, String),
+        String,
+        Vec<(String, String)>,
+        Vec<String>,
+    ) {
+        let f = fixture(tag);
+        let mut contributors = serde_json::Map::new();
+        contributors.insert("mikey-writer".into(), json!({ "name": "Mikey" }));
+        for n in 1..=others {
+            contributors.insert(
+                format!("key-{n:02}"),
+                json!({ "name": format!("Writer {n:02}") }),
+            );
+            add_admin_user(&f, &format!("acct{n:02}"), &format!("correct horse {n:02}"));
+        }
+        register_contributors(&f, Json::Object(contributors));
+        let mikey = login_ok(&f);
+        let created = create_shared(&f, &mikey, reflection_request());
+        let id = body_json(&created)["publication"]["publicationId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut sessions = Vec::new();
+        let mut tokens = Vec::new();
+        for n in 1..=others {
+            let (session, token) = join_writer(&f, &mikey, &id, n);
+            sessions.push(session);
+            tokens.push(token);
+        }
+        (f, mikey, id, sessions, tokens)
+    }
+
+    fn join_writer(
+        f: &Fixture,
+        owner: &(String, String),
+        id: &str,
+        n: usize,
+    ) -> ((String, String), String) {
+        let (user, key) = (format!("acct{n:02}"), format!("key-{n:02}"));
+        let issued = post_api(
+            f,
+            owner,
+            "invitations",
+            invite_body(id, &user, &key, json!(["contributor"])),
+        );
+        assert_eq!(
+            issued.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&issued.body)
+        );
+        let token = body_json(&issued)["token"].as_str().unwrap().to_string();
+        let session = login_as(f, &user, &format!("correct horse {n:02}"));
+        let accepted = post_api(
+            f,
+            &session,
+            "invitations/accept",
+            json!({ "token": token, "contributorId": key }),
+        );
+        assert_eq!(
+            accepted.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&accepted.body)
+        );
+        (session, token)
+    }
+
+    fn two_parts(n: usize, first: &str) -> String {
+        format!(
+            "{first}-{n:02}-OPEN said *this*.\n{}\n{first}-{n:02}-CLOSE said that.",
+            openblog_core::reflection::PART_MARKER
+        )
+    }
+
+    /// Two rounds: the first round the table from halfway, the second back the other way.
+    fn roundtable_arrangement(revision: u64, order: &[String]) -> Json {
+        let n = order.len();
+        json!({
+            "version": 1,
+            "revision": revision,
+            "layout": "roundtable",
+            "rounds": [
+                {
+                    "id": "round-1",
+                    "roundPrompt": "Opening round",
+                    "turns": (0..n).map(|k| json!({ "draft": order[(k + n / 2) % n], "part": 0 })).collect::<Vec<_>>(),
+                },
+                {
+                    "id": "round-2",
+                    "roundPrompt": "Closing round",
+                    "turns": order.iter().rev().map(|p| json!({ "draft": p, "part": 1 })).collect::<Vec<_>>(),
+                },
+            ],
+        })
+    }
+
+    /// Every file of public output, as text.
+    fn public_files(f: &Fixture) -> Vec<(PathBuf, String)> {
+        tree_snapshot(&f.dir.join("dist"))
+            .into_iter()
+            .map(|(path, bytes)| (path, String::from_utf8_lossy(&bytes).to_string()))
+            .collect()
+    }
+
+    fn in_reading_order(label: &str, output: &str, needles: &[String]) {
+        let mut from = 0;
+        for needle in needles {
+            let at = output[from..]
+                .find(needle.as_str())
+                .unwrap_or_else(|| panic!("{label} lost or reordered `{needle}`"));
+            from += at + needle.len();
+        }
+    }
+
+    fn roundtable_end_to_end(tag: &str, others: usize) {
+        let (f, mikey, id, writers, mut tokens) = group_fixture(tag, others);
+        let everyone = || {
+            std::iter::once(&mikey)
+                .chain(writers.iter())
+                .collect::<Vec<_>>()
+        };
+        let number = |k: usize| k; // Mikey is writer 0.
+                                   // Writer 01 edits after approving; the last writer is removed and comes back.
+        let (e, r) = (1, others);
+        // Everyone writes; one revision is then replaced and must never publish.
+        for (k, who) in everyone().into_iter().enumerate() {
+            assert_eq!(
+                draft_call(&f, who, &id, 0, &two_parts(number(k), "W")).status,
+                200
+            );
+        }
+        assert_eq!(
+            draft_call(&f, &mikey, &id, 1, &two_parts(0, "WM")).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "independent", "voluntary")
+            )
+            .status,
+            200
+        );
+        // Before anyone offers, nobody reads anyone else's words.
+        let alone = body_json(&reveal_state(&f, &writers[0], &id)).to_string();
+        assert!(
+            alone.contains("W-01-OPEN") && !alone.contains("W-02-OPEN") && !alone.contains("WM-00")
+        );
+        for (k, who) in everyone().into_iter().enumerate() {
+            let revision = if k == 0 { 2 } else { 1 };
+            assert_eq!(
+                reveal_call(&f, who, "ready", ready_body(&id, json!(revision))).status,
+                200
+            );
+        }
+
+        // A coordinator arranges a roundtable of everyone; a write from the same revision loses.
+        let order = participant_ids(&f, &mikey, &id);
+        assert_eq!(order.len(), others + 1);
+        let arranged =
+            arrangement_write(&f, &mikey, true, &id, 0, roundtable_arrangement(1, &order));
+        assert_eq!(
+            arranged.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&arranged.body)
+        );
+        assert_eq!(
+            arrangement_write(&f, &mikey, true, &id, 0, roundtable_arrangement(1, &order)).status,
+            409
+        );
+
+        // Everyone reads the whole piece and approves it.
+        for who in everyone() {
+            let preview = body_json(&preview_call(&f, who, &id));
+            assert_eq!(preview["preview"]["complete"], true);
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+
+        // A writer edits after approving: a save from the old revision is refused with only
+        // their own copy, and only their approval needs giving again.
+        let editor = &writers[e - 1];
+        let stale = draft_call(&f, editor, &id, 0, "LOST-UPDATE");
+        assert_eq!(stale.status, 409);
+        let stale = String::from_utf8_lossy(&stale.body).to_string();
+        assert!(stale.contains(&format!("W-{e:02}-OPEN")) && !stale.contains("W-02-OPEN"));
+        assert_eq!(
+            draft_call(&f, editor, &id, 1, &two_parts(e, "E")).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(&f, editor, "ready", ready_body(&id, json!(2))).status,
+            200
+        );
+        let refused = publish_as(&f, &mikey, &id);
+        assert_eq!(refused.status, 409);
+        assert_eq!(
+            body_json(&refused)["missing"],
+            json!([format!("Writer {e:02}")])
+        );
+        assert_eq!(approve_as(&f, editor, &id).status, 200);
+
+        // A writer is removed mid-flow: nobody's approval covers the new author set, and the
+        // removed account can no longer approve, read or publish.
+        let removed_id = participant_of(&f, &id, &format!("acct{r:02}"));
+        let revision = stored_record(&f, &id).authorization.revision;
+        let removal = post_api(
+            &f,
+            &mikey,
+            "members/remove",
+            json!({ "publicationId": id, "participantId": removed_id, "expectedRevision": revision }),
+        );
+        assert_eq!(removal.status, 200);
+        assert_eq!(publish_as(&f, &mikey, &id).status, 409);
+        assert_eq!(preview_call(&f, &writers[r - 1], &id).status, 404);
+        assert_eq!(publish_as(&f, &writers[r - 1], &id).status, 404);
+
+        // They are restored through a new invitation, as a new participant who writes afresh;
+        // the arrangement is updated to include them and everyone approves again.
+        let (returned, token) = join_writer(&f, &mikey, &id, r);
+        tokens.push(token);
+        let fresh = body_json(&draft_read(&f, &returned, &id)).to_string();
+        assert!(!fresh.contains(&format!("W-{r:02}-OPEN")));
+        assert_eq!(
+            draft_call(&f, &returned, &id, 0, &two_parts(r, "R")).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(&f, &returned, "ready", ready_body(&id, json!(1))).status,
+            200
+        );
+        let order = participant_ids(&f, &mikey, &id);
+        let rearranged =
+            arrangement_write(&f, &mikey, true, &id, 1, roundtable_arrangement(2, &order));
+        assert_eq!(
+            rearranged.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&rearranged.body)
+        );
+        let mut active = everyone();
+        active[r] = &returned;
+        for who in active {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+
+        let before_publish = tree_snapshot(&f.dir.join(".openblog/private"));
+        assert_eq!(publish_as(&f, &mikey, &id).status, 200);
+        let published = published_post(&f, &id).unwrap();
+        // A retry changes nothing.
+        let after = state_trees(&f);
+        assert_eq!(publish_as(&f, &mikey, &id).status, 200);
+        assert_eq!(state_trees(&f), after);
+        assert_ne!(
+            tree_snapshot(&f.dir.join(".openblog/private")),
+            before_publish
+        );
+
+        // What a reader meets, in order, by whom: the old participant's words and every
+        // replaced revision never appear.
+        let first = |k: usize| match k {
+            0 => "WM",
+            k if k == e => "E",
+            k if k == r => "R",
+            _ => "W",
+        };
+        // The arrangement still lists the removed participant; their turns are dropped.
+        let writer_of = (0..=others)
+            .map(|k| {
+                let user = if k == 0 {
+                    "mikey".to_string()
+                } else {
+                    format!("acct{k:02}")
+                };
+                (participant_of(&f, &id, &user), k)
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        let n = others + 1;
+        let m = order.len();
+        let opening = (0..m).map(|k| &order[(k + m / 2) % m]);
+        let closing = order.iter().rev();
+        let mut needles = vec!["Opening round".to_string()];
+        needles.extend(
+            opening
+                .filter_map(|p| writer_of.get(p))
+                .map(|at| format!("{}-{at:02}-OPEN", first(*at))),
+        );
+        needles.push("Closing round".to_string());
+        needles.extend(
+            closing
+                .filter_map(|p| writer_of.get(p))
+                .map(|at| format!("{}-{at:02}-CLOSE", first(*at))),
+        );
+        assert_eq!(needles.len(), 2 * n + 2);
+        in_reading_order("post", &published, &needles);
+
+        let private = [
+            "W-00-OPEN".to_string(),
+            format!("W-{e:02}-OPEN"),
+            format!("W-{r:02}-OPEN"),
+            "LOST-UPDATE".to_string(),
+            id.clone(),
+            "openblog:part".to_string(),
+            "acct0".to_string(),
+            "acct1".to_string(),
+            ".openblog".to_string(),
+        ];
+        let (site, _) = crate::site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+        let post = site
+            .posts
+            .iter()
+            .find(|post| post.source.ends_with(&format!("{id}.md")))
+            .unwrap();
+        let files = public_files(&f);
+        let page = files
+            .iter()
+            .find(|(path, _)| {
+                path.ends_with("index.html") && path.to_string_lossy().contains(post.slug.as_str())
+            })
+            .map(|(_, text)| text.clone())
+            .expect("the reflection's page");
+        in_reading_order("page", &page, &needles);
+        assert!(page.contains("ob-reflection-roundtable"));
+        assert_eq!(page.matches("<h2 class=\"ob-turn-author\">").count(), 2 * n);
+        for (path, text) in &files {
+            for needle in private.iter().chain(tokens.iter()) {
+                assert!(
+                    !text.contains(needle.as_str()),
+                    "{} leaked `{needle}`",
+                    path.display()
+                );
+            }
+        }
+        for feed in ["rss.xml", "feed.json", "llms-full.txt"] {
+            let (_, text) = files
+                .iter()
+                .find(|(path, _)| path.ends_with(feed))
+                .unwrap_or_else(|| panic!("{feed}"));
+            in_reading_order(feed, text, &needles);
+        }
+        let creators = files
+            .iter()
+            .find(|(path, _)| path.ends_with("rss.xml"))
+            .unwrap()
+            .1
+            .matches("<dc:creator>")
+            .count();
+        assert_eq!(creators, n, "one credit per author");
+
+        // The portable Markdown export carries every turn under its author, in order.
+        // The arrangement adds no accessibility finding to the published reflection.
+        let findings = site
+            .accessibility
+            .iter()
+            .filter(|finding| format!("{finding:?}").contains(&id))
+            .collect::<Vec<_>>();
+        assert!(findings.is_empty(), "{findings:?}");
+        let out = f.dir.join("roundtable-export.md");
+        crate::portable_export::run(
+            &f.dir,
+            &post.slug,
+            crate::portable_export::Format::Markdown,
+            Some("roundtable-export.md"),
+            true,
+            false,
+        )
+        .unwrap();
+        let exported = fs::read_to_string(&out).unwrap();
+        in_reading_order("export", &exported, &needles);
+        for k in 1..=others {
+            assert!(
+                exported.contains(&format!("## Writer {k:02}")),
+                "Writer {k:02}"
+            );
+        }
+        assert!(exported.contains("## Mikey"));
+        for needle in private.iter().chain(tokens.iter()) {
+            assert!(
+                !exported.contains(needle.as_str()),
+                "export leaked `{needle}`"
+            );
+        }
+    }
+
+    #[test]
+    fn a_roundtable_of_three_is_written_arranged_approved_published_and_exported() {
+        roundtable_end_to_end("roundtable-three", 2);
+    }
+
+    #[test]
+    fn a_roundtable_of_ten_survives_edits_removal_and_restore_end_to_end() {
+        roundtable_end_to_end("roundtable-ten", 9);
+    }
 }
