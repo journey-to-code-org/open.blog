@@ -401,15 +401,15 @@ test("every preset applies its toolbelt modules and the open route always stays 
     [{ preset: "simple" }, "overview", content],
     [{ preset: "simple" }, "sources", [...content, research]],
     [{ preset: "guided" }, "posts", [...content, research]],
-    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Reader feedback", research, "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Reader feedback", research]],
-    [{ preset: "custom", hiddenModules: ["research"] }, "overview", [...content, "Analytics", "Reader feedback", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["research"] }, "atlas", [...content, "Analytics", "Reader feedback", research, "Contributors"]],
-    [{ preset: "simple" }, "analytics", [...content, "Analytics", "Reader feedback"]],
-    [{ preset: "simple" }, "feedback", [...content, "Analytics", "Reader feedback"]],
-    [{ preset: "guided" }, "feedback", [...content, "Analytics", "Reader feedback", research]],
+    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Moderation inbox", research]],
+    [{ preset: "custom", hiddenModules: ["research"] }, "overview", [...content, "Analytics", "Moderation inbox", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["research"] }, "atlas", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
+    [{ preset: "simple" }, "analytics", [...content, "Analytics", "Moderation inbox"]],
+    [{ preset: "simple" }, "moderation", [...content, "Analytics", "Moderation inbox"]],
+    [{ preset: "guided" }, "moderation", [...content, "Analytics", "Moderation inbox", research]],
     [{ preset: "guided" }, "contributors", [...content, research, "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Reader feedback", research, "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Moderation inbox", research, "Contributors"]],
   ];
   for (const [preferences, active, expected] of cases) {
     const app = appWith(fakeApi({}));

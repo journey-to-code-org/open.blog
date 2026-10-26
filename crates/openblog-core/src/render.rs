@@ -21,7 +21,8 @@ use crate::escape::{attr, cdata, text};
 use crate::feeds;
 use crate::knowledge_atlas::{EntryKind, Standing};
 use crate::markdown::{self, RenderOptions};
-use crate::model::{CommentsPolicy, Post, Series, Site};
+use crate::model::{Post, Series, Site};
+use crate::participation::{self, ParticipationKind, ParticipationMode};
 use crate::reader_references::ReaderReferences;
 use crate::theme::{Theme, ThemeSet};
 
@@ -457,49 +458,30 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         "search.json".into(),
         c.apply_base_path(&feeds::search_index(site)),
     )?;
-    let hosted_comments =
-        c.engagement.enabled && c.engagement.comments && !c.engagement.endpoint.trim().is_empty();
+    // Comments keep their own manifest, unchanged; it is the comment row of
+    // the one participation policy (ADR 0101).
     let comment_policies: BTreeMap<&str, &str> = site
         .posts
         .iter()
         .map(|post| {
-            let policy = if !hosted_comments {
-                "hidden"
-            } else {
-                match post.comments {
-                    CommentsPolicy::Open => "open",
-                    CommentsPolicy::Locked => "locked",
-                    CommentsPolicy::Hidden => "hidden",
-                }
-            };
-            (post.url.as_str(), policy)
+            let mode = participation::effective_mode(c, post, ParticipationKind::Comment);
+            (post.url.as_str(), mode.id())
         })
         .collect();
     out.add(
         "openblog-comments.json".into(),
         serde_json::to_string(&comment_policies).expect("comment policy map is serializable"),
     )?;
-    // Typed passage feedback is opt-in (ADR 0081): only a site that enables
-    // it publishes the policy the hosted function checks, so every other
-    // site's output is unchanged. Feedback follows each post's discussion
-    // setting until the participation policy (#211) gives it its own.
-    if c.engagement.enabled && c.engagement.feedback && !c.engagement.endpoint.trim().is_empty() {
-        let feedback_policies: BTreeMap<&str, &str> = site
-            .posts
-            .iter()
-            .map(|post| {
-                let policy = match post.comments {
-                    CommentsPolicy::Open => "open",
-                    CommentsPolicy::Locked => "locked",
-                    CommentsPolicy::Hidden => "hidden",
-                };
-                (post.url.as_str(), policy)
-            })
-            .collect();
-        out.add(
-            "openblog-feedback.json".into(),
-            serde_json::to_string(&feedback_policies).expect("feedback policy map is serializable"),
-        )?;
+    // Published only once a kind beyond comments is switched on, so every
+    // other site's output is unchanged.
+    if let Some(manifest) = participation::manifest(site) {
+        out.add("openblog-participation.json".into(), manifest)?;
+    }
+    // B5's passage feedback manifest (ADR 0081), kept for a hosted function
+    // deployed before the participation manifest: derived from the policy,
+    // never more open than any of B5's four kinds (ADR 0101).
+    if let Some(manifest) = participation::legacy_feedback_manifest(site) {
+        out.add("openblog-feedback.json".into(), manifest)?;
     }
 
     Ok(out.files)
@@ -820,18 +802,35 @@ impl<'a> Renderer<'a> {
 
     /// Passage feedback on one post (ADR 0082): the feedback region, whose
     /// static text is the no-JavaScript path, and the post's passage text as
-    /// page data for the form. Only an open post on a site that opts in to
-    /// hosted feedback has them; every other page is unchanged.
+    /// page data for the form. Only a post where at least one of B5's kinds
+    /// is `open` has them (ADR 0101), and the form offers exactly those; every
+    /// other page is unchanged.
     fn passage_feedback(&self, post: &Post) -> Option<(String, String)> {
         let c = &self.site.config;
         let endpoint = c.engagement.endpoint.trim().trim_end_matches('/');
-        if !(c.engagement.enabled
-            && c.engagement.feedback
-            && !endpoint.is_empty()
-            && post.comments == CommentsPolicy::Open)
-        {
+        let offered = participation::offered_passage_kinds(c, post);
+        if offered.is_empty() {
             return None;
         }
+        // Named only when the form offers some of the kinds, so a page that
+        // offers all four is what it was before the policy.
+        let (kinds_attr, invitation) = if offered.len() == ParticipationKind::PASSAGE_FEEDBACK.len()
+        {
+            (
+                String::new(),
+                "Ask a question about a passage, suggest a source or a correction, or offer another interpretation.".to_string(),
+            )
+        } else {
+            let ids: Vec<&str> = offered.iter().map(|kind| kind.id()).collect();
+            let labels: Vec<&str> = offered.iter().map(|kind| kind.label()).collect();
+            (
+                format!(" kinds=\"{}\"", attr(&ids.join(" "))),
+                format!(
+                    "Send the author a note about a passage: {}.",
+                    text(&labels.join(", ").to_lowercase())
+                ),
+            )
+        };
         let document = crate::passage_target::PassageDocument::of_post(post, c);
         let contact = c.engagement.feedback_contact.as_str();
         let (contact_attr, contact_words) = if contact.is_empty() {
@@ -850,8 +849,15 @@ impl<'a> Renderer<'a> {
                 ),
             )
         };
+        // Readers can use their receipts on the page once the site says the
+        // hosted service issues them (ADR 0107).
+        let receipts_attr = if c.engagement.receipts {
+            " receipts"
+        } else {
+            ""
+        };
         let region = format!(
-            "<section id=\"{FEEDBACK_ANCHOR}\" class=\"ob-feedback\" aria-labelledby=\"{FEEDBACK_ANCHOR}-title\">\n<h2 id=\"{FEEDBACK_ANCHOR}-title\">Questions and corrections</h2>\n<ob-passage-feedback endpoint=\"{}\" page=\"{}\"{contact_attr}>\n<p>Ask a question about a passage, suggest a source or a correction, or offer another interpretation. The author reviews every note, and nothing is published without their approval.</p>\n<p class=\"ob-passage-feedback-static\">The feedback form needs JavaScript. Without it, you can send your note to the author{contact_words}: name the section by its link, quote the words you mean, and give this page’s passage revision, <code>{}</code>, so the author can find the text you read.</p>\n</ob-passage-feedback>\n</section>\n",
+            "<section id=\"{FEEDBACK_ANCHOR}\" class=\"ob-feedback\" aria-labelledby=\"{FEEDBACK_ANCHOR}-title\">\n<h2 id=\"{FEEDBACK_ANCHOR}-title\">Questions and corrections</h2>\n<ob-passage-feedback endpoint=\"{}\" page=\"{}\"{kinds_attr}{contact_attr}{receipts_attr}>\n<p>{invitation} The author reviews every note, and nothing is published without their approval.</p>\n<p class=\"ob-passage-feedback-static\">The feedback form needs JavaScript. Without it, you can send your note to the author{contact_words}: name the section by its link, quote the words you mean, and give this page’s passage revision, <code>{}</code>, so the author can find the text you read.</p>\n</ob-passage-feedback>\n</section>\n",
             attr(endpoint),
             attr(&c.absolute(&post.url)),
             text(&document.revision),
@@ -1413,29 +1419,39 @@ impl<'a> Renderer<'a> {
         // Approved reader notes, with the author's responses, are shown on
         // the canonical page only (ADR 0083), before the form that asks for
         // more.
+        // Abuse reports (ADR 0107): offered under each public comment and
+        // published note while the site has them open.
+        let reports_endpoint =
+            (participation::effective_mode(c, post, ParticipationKind::AbuseReport)
+                == ParticipationMode::Open)
+                .then(|| c.engagement.endpoint.trim().trim_end_matches('/'));
         body.push_str(&crate::feedback_publication::render_section(
             post.reader_feedback(),
+            reports_endpoint,
         ));
         let passage_feedback = self.passage_feedback(post);
         if let Some((region, _)) = &passage_feedback {
             body.push_str(region);
         }
-        if c.engagement.enabled
-            && c.engagement.comments
-            && post.comments != crate::model::CommentsPolicy::Hidden
-            && !c.engagement.endpoint.trim().is_empty()
-        {
-            let mode = if post.comments == crate::model::CommentsPolicy::Locked {
+        let comment_mode = participation::effective_mode(c, post, ParticipationKind::Comment);
+        if comment_mode != ParticipationMode::Hidden {
+            let mode = if comment_mode == ParticipationMode::Locked {
                 " mode=\"locked\""
             } else {
                 ""
             };
+            let reports = if reports_endpoint.is_some() {
+                " reports"
+            } else {
+                ""
+            };
             body.push_str(&format!(
-                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
+                "<section id=\"{}\" aria-label=\"Discussion\"><ob-comments path=\"{}\" endpoint=\"{}\"{}{}><p>Comments require JavaScript.</p></ob-comments></section>\n",
                 crate::model::DISCUSSION_ANCHOR,
                 attr(&post.url),
                 attr(c.engagement.endpoint.trim().trim_end_matches('/')),
                 mode,
+                reports,
             ));
         }
         if !c.snippets.post_footer.trim().is_empty() {

@@ -46,6 +46,54 @@ All notable changes to open.blog are recorded here. Releases follow
   characters themselves. Before, `\*word\*` showed as emphasis and `\[x\](y)` as a link, and
   switching modes could add backslashes to the draft.
 
+## [0.36.0] - 2026-10-26
+
+- Reader participation now has one policy. Comments keep `engagement.comments` and `comments:`
+  exactly as before; questions, suggested sources and corrections, other interpretations, Third
+  Perspectives, author responses and abuse reports are each off until `participation.kinds` in
+  `openblog.json` switches them on, and a post can choose its own mode with `participation:` front
+  matter. Everything submitted starts pending; a request for clarification never publishes the
+  text it asks about, removals and dismissed or upheld abuse reports always need a reason, and
+  `participation.retention` sets how long unpublished text and the private moderation record are
+  kept; comments stay out of retention unless you set it yourself. Nothing is e-mailed to readers.
+  Sites that switch nothing on build exactly as before. Passage feedback's `engagement.feedback` is
+  now the same as setting its four kinds to `follow-comments`, so each kind can also be set on its
+  own: the "Questions and corrections" form offers only the kinds open on a post, and a locked
+  kind keeps its published notes on show without taking new ones.
+- Comments and reader feedback are now moderated in one place: Admin's **Moderation inbox**
+  replaces the comment section of Analytics and the Reader feedback view. It lists every item by
+  state (pending, waiting for clarification, approved, rejected, removed, withdrawn) and kind,
+  oldest first, and pages through long lists. Each item shows only the decisions you can take on
+  it, with their reasons and what each does: approve, ask the reader to clarify, reject, remove
+  from the post, or reopen for a fresh decision. A removed or rejected comment can no longer be
+  approved straight away, a moved passage must still be confirmed before approval, and a decision
+  made on an out-of-date view is refused and the list reloaded. On a shared reflection a
+  co-writer moderates as its coordinator, or only reads as a contributing author, and never sees
+  a reader's private name. Everything works with the tables you have; to offer every decision,
+  with a version and an audit trail for comments, run the new optional
+  `supabase/moderation.sql` (and `feedback.sql` again if you use feedback) and set
+  `OPENBLOG_MODERATION_ENABLED=true`; `supabase/moderation-rollback.sql` undoes it. Nothing is
+  e-mailed to anyone.
+- Published reader notes now follow their own kind: switching a kind `off` in
+  `participation.kinds` (or leaving `engagement.feedback` unset), or making it `hidden` for the
+  site or a post, takes its published notes off those pages until you switch it back on;
+  `reader-feedback.json` keeps them. Turning hosted engagement off, or leaving the hosted service,
+  still keeps every published note on your pages.
+- Readers and owners get protection without tracking. With the new optional
+  `supabase/protection.sql` (and `feedback.sql` run again) and `OPENBLOG_PROTECTION_ENABLED=true`, a
+  reader who sends passage feedback gets a private receipt, shown once, to check on the note,
+  agree to be asked to clarify it, answer a clarification request, or withdraw it, which deletes
+  its text and their name at once (set `"receipts": true` in `engagement` to offer this on the
+  page). With `"abuse-report": "open"`, readers can report a published note or comment
+  anonymously; reports are never published or counted, and upholding one in the Moderation
+  inbox removes the item in the same decision. The site Admin can delete a closed item's text
+  and name for a reader who asks, and **Moderation inbox → Retention** shows what retention would
+  delete before you run it; nothing is deleted on a schedule, comments only if you set
+  `participation.retention`, and the database itself refuses to delete any moderation record
+  from the last day. Rate limits now keep only an hourly digest of the client, never one
+  that lasts across hours, and a note or comment sent twice within the hour is taken once.
+  `supabase/protection-rollback.sql` undoes the schema. Nothing is e-mailed to anyone.
+
 ## [0.35.0] - 2026-10-26
 
 - The private Knowledge Atlas can now record uncertain chronology. Entries and relationships

@@ -31,6 +31,7 @@ import {
   readFeedbackSubmissionJson,
   submissionValue,
 } from "./passage-feedback.js";
+import { isReceipt, receiptManager, receiptPanel } from "./feedback-receipt.js";
 
 export const DATA_ELEMENT_ID = "ob-passages";
 export const SUPPORTED_VERSION = 1;
@@ -44,6 +45,18 @@ const GUTTER = 8;
 const GAP = 8;
 
 const isText = (value) => typeof value === "string";
+
+/**
+ * The kinds a post's form offers, from its `kinds` attribute (the ids the participation policy has
+ * open on the post, ADR 0101), in the registry's order. No attribute offers every kind; an
+ * attribute naming no kind this version knows offers none, so the static text stays.
+ */
+export function offeredKinds(attribute) {
+  const all = Object.keys(FEEDBACK_KINDS);
+  if (attribute === null || attribute === undefined) return all;
+  const named = new Set(String(attribute).split(/\s+/).filter(Boolean));
+  return all.filter((kind) => named.has(kind));
+}
 const isDigest = (value) => isText(value) && /^[0-9a-f]{32}$/.test(value);
 
 /**
@@ -221,19 +234,23 @@ export class ObPassageFeedback extends HTMLElement {
   #endpoint = "";
   #page = "";
   #contact = null;
+  #kinds = [];
   #seenAt = undefined;
   #ui = null;
   #quote = null;
   #sending = null;
   #scheduled = false;
+  #receipt = null;
 
   connectedCallback() {
     if (this.#listeners) return;
     if (!this.#ui) {
       const passages = readPassages(document.getElementById(DATA_ELEMENT_ID)?.textContent);
       const endpoint = safeEndpoint(this.getAttribute("endpoint"));
-      // Without its data or an endpoint the static text stays, as without JavaScript.
-      if (!passages || !endpoint) return;
+      const kinds = offeredKinds(this.getAttribute("kinds"));
+      // Without its data, an endpoint or a kind to offer the static text stays, as without JavaScript.
+      if (!passages || !endpoint || !kinds.length) return;
+      this.#kinds = kinds;
       this.#passages = passages;
       this.#endpoint = endpoint;
       this.#page = this.getAttribute("page") || "";
@@ -244,6 +261,9 @@ export class ObPassageFeedback extends HTMLElement {
       this.#ui = this.#build(`ob-passage-feedback-${instances}`);
       this.querySelector(".ob-passage-feedback-static")?.remove();
       this.append(this.#ui.done, this.#ui.form, this.#ui.status, this.#ui.fallback, this.#ui.selectionButton);
+      // A reader's receipt (ADR 0107) is usable here once the site says the
+      // hosted service issues receipts.
+      if (this.hasAttribute("receipts")) this.append(receiptManager({ endpoint }));
       this.#kindChanged();
     }
     // The form's own listeners live as long as it does; these follow the page.
@@ -357,7 +377,8 @@ export class ObPassageFeedback extends HTMLElement {
       return wrapper;
     };
     const kind = make("select");
-    for (const [value, rules] of Object.entries(FEEDBACK_KINDS)) {
+    for (const value of this.#kinds) {
+      const rules = FEEDBACK_KINDS[value];
       const option = make("option", undefined, rules.label);
       option.value = value;
       kind.append(option);
@@ -665,7 +686,11 @@ export class ObPassageFeedback extends HTMLElement {
         signal: controller.signal,
       });
       const result = await response.json().catch(() => ({}));
-      outcome = { status: response.status, code: result && typeof result === "object" ? result.code : undefined };
+      outcome = {
+        status: response.status,
+        code: result && typeof result === "object" ? result.code : undefined,
+        receipt: result && typeof result === "object" && isReceipt(result.receipt) ? result.receipt : undefined,
+      };
     } catch {
       outcome = { status: 0 };
     } finally {
@@ -677,7 +702,7 @@ export class ObPassageFeedback extends HTMLElement {
     }
     if (!this.#listeners) return;
     if (outcome.status === 202) {
-      this.#succeeded();
+      this.#succeeded(outcome.receipt);
       return;
     }
     const known = FIELD_PROBLEMS[outcome.code];
@@ -688,6 +713,12 @@ export class ObPassageFeedback extends HTMLElement {
     }
     if (outcome.status === 403 && outcome.code === "closed") {
       ui.status.textContent = "Feedback on this post is closed, so your note was not sent.";
+      return;
+    }
+    // The same note from here within the hour (ADR 0108): it is already with the author, so there
+    // is nothing to copy and send again.
+    if (outcome.status === 409 && outcome.code === "duplicate") {
+      ui.status.textContent = "This note was already sent and is waiting for review.";
       return;
     }
     const reason =
@@ -701,12 +732,18 @@ export class ObPassageFeedback extends HTMLElement {
     this.#fallback(submission, reason);
   }
 
-  #succeeded() {
+  #succeeded(receipt) {
     const ui = this.#ui;
     for (const control of [ui.body, ui.source, ui.suggested]) control.value = "";
     ui.status.textContent = "Sent for review.";
-    ui.done.textContent = "Thank you. Your note was sent to the author for review. Nothing is published unless they approve it.";
+    ui.done.textContent = receipt
+      ? "Thank you. Your note was sent to the author for review. Nothing is published unless they approve it. Keep the receipt below."
+      : "Thank you. Your note was sent to the author for review. Nothing is published unless they approve it.";
     ui.done.hidden = false;
+    // The receipt is shown once, right after the note was taken; a newer one replaces it.
+    this.#receipt?.remove();
+    this.#receipt = receipt ? receiptPanel({ endpoint: this.#endpoint, receipt }) : null;
+    if (this.#receipt) ui.done.after(this.#receipt);
     ui.done.focus();
   }
 

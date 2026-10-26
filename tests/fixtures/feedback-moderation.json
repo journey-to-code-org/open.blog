@@ -1,5 +1,5 @@
 {
-  "about": "Moderation rules for passage feedback (ADR 0083), shared by openblog_core::feedback_moderation and netlify/lib/feedback-moderation.mjs. State names are RD12's (#211). Each case is a change requested from a current state, with the expected next state or the expected refusal code.",
+  "about": "Moderation rules for passage feedback (ADR 0083), shared by openblog_core::feedback_moderation and netlify/lib/feedback-moderation.mjs. States, reasons and refusal codes are the participation policy's (ADR 0102). Each case is a change requested from a current state, with the expected next state or the expected refusal code.",
   "rules": {
     "states": ["pending", "clarification", "approved", "rejected", "removed", "withdrawn"],
     "actions": {
@@ -27,14 +27,14 @@
     { "from": "pending", "action": "reject", "reason": "off-topic", "to": "rejected" },
     { "from": "clarification", "action": "reject", "reason": "duplicate", "to": "rejected" },
     { "from": "pending", "action": "reject", "refused": "reasonRequired" },
-    { "from": "pending", "action": "reject", "reason": "incorrect", "refused": "unknownReason" },
-    { "from": "pending", "action": "reject", "reason": "misinformation", "refused": "unknownReason" },
+    { "from": "pending", "action": "reject", "reason": "incorrect", "refused": "reasonNotAllowed" },
+    { "from": "pending", "action": "reject", "reason": "misinformation", "refused": "reasonNotAllowed" },
     { "from": "approved", "action": "reject", "reason": "spam", "refused": "notAllowed" },
     { "from": "approved", "action": "remove", "reason": "personal-data", "to": "removed" },
     { "from": "approved", "action": "remove", "refused": "reasonRequired" },
     { "from": "pending", "action": "remove", "reason": "spam", "refused": "notAllowed" },
-    { "from": "pending", "action": "delete", "refused": "unknownAction" },
-    { "from": "pending", "action": "constructor", "refused": "unknownAction" },
-    { "from": "pending", "action": "reopen", "refused": "unknownAction" }
+    { "from": "pending", "action": "delete", "refused": "notAllowed" },
+    { "from": "pending", "action": "constructor", "refused": "notAllowed" },
+    { "from": "pending", "action": "reopen", "refused": "notAllowed" }
   ]
 }
