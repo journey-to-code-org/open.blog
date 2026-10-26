@@ -17,6 +17,7 @@ import {
   moderationRequest,
   moderationRoleLine,
   parseModerationRoute,
+  perspectiveLines,
   retentionSummaryLines,
 } from "../../web/admin/admin.js";
 
@@ -26,7 +27,7 @@ const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url),
 test("the inbox lists every state of the one state machine, pending first", () => {
   assert.deepEqual([...MODERATION_STATES].sort(), [...new Set(transitions.cases.map((entry) => entry.state))].sort());
   assert.equal(MODERATION_STATES[0], "pending");
-  assert.deepEqual(MODERATION_KINDS.map(([id]) => id), ["", "comment", "question", "source-suggestion", "correction-suggestion", "alternative-interpretation", "abuse-report"]);
+  assert.deepEqual(MODERATION_KINDS.map(([id]) => id), ["", "comment", "question", "source-suggestion", "correction-suggestion", "alternative-interpretation", "third-perspective", "abuse-report"]);
 });
 
 test("addresses keep the state and kind, and anything unknown falls back to the defaults", () => {
@@ -139,4 +140,23 @@ test("the retention dry run says what would happen, and that comments are kept u
   assert.match(admin, /"GET", "engagement\/retention"/);
   assert.match(admin, /"POST", "engagement\/retention", \{ json: \{ asOf: report\.asOf, audit: auditBox\.checked \} \}/);
   assert.match(admin, /I understand that purged text, details and names cannot be recovered\./);
+});
+
+test("a Third Perspective's approval names the text revision and consent record shown, and its card says what binds", () => {
+  const item = {
+    source: "feedback", id: "00000000-0000-4000-8000-000000000001", kind: "third-perspective", status: "pending", version: 3, revision: 2,
+    details: { category: "connection", categoryLabel: "A connection", prompt: "What does this bring to mind: another work, idea or source?" },
+    perspective: { about: "section", section: "methods", check: "stale", consent: { number: 4, publish: true, showName: false, clarification: true, feature: false }, nameMatchesCredit: true },
+    post: { title: "Tides" },
+  };
+  assert.deepEqual(moderationRequest(item, "approve"), { source: "feedback", id: item.id, action: "approve", from: "pending", version: 3, seenRevision: 2, seenConsent: 4 });
+  assert.deepEqual(moderationRequest(item, "reject", "spam"), { source: "feedback", id: item.id, action: "reject", from: "pending", version: 3, reason: "spam" });
+  const lines = perspectiveLines(item);
+  assert.match(lines[0], /About the section #methods\. That section has changed/);
+  assert.match(lines[1], /Prompt: A connection/);
+  assert.match(lines[2], /Consent record 4: the reader agrees to publish it without their name, and may be asked to clarify it\. Approving binds this record/);
+  assert.match(lines[3], /never shown with the reflection/);
+  assert.deepEqual(perspectiveLines({ source: "feedback" }), []);
+  assert.match(moderationOutcome(item, "approve", {}), /consent record 4, as a reader’s reflection on “Tides”/);
+  assert.equal(moderationReaderLine({ name: "Ada", publishName: true }, "feedback", "third-perspective"), "From Ada, who agreed to show this name if you publish the reflection.");
 });

@@ -305,3 +305,50 @@ test("the inbox reflows at 320px with every control reachable", async ({ browser
   }
   await context.close();
 });
+
+test("a Third Perspective's card shows its consent and credit hint, and its approval names what was seen", async ({ page }) => {
+  const perspective = inboxItem(9, {
+    source: "feedback",
+    kind: "third-perspective",
+    kindLabel: "Third Perspective",
+    revision: 2,
+    body: `Tides as one conversation. ${HOSTILE}`,
+    details: { category: "connection", categoryLabel: "A connection", prompt: "What does this bring to mind: another work, idea or source?" },
+    reader: { name: "A", publishName: true },
+    clarification: { askedAboutThisText: false, consent: true },
+    perspective: { about: "section", section: "methods", check: "current", revision: 2, consent: { number: 3, publish: true, showName: true, clarification: true, feature: false }, approvedConsent: null, nameMatchesCredit: true, channel: "hosted" },
+    perspectivePreview: { heading: "Third Perspective from a reader", name: null, about: "section", section: "methods", stale: false, received: "2026-10-26" },
+    publicPreview: null,
+    published: null,
+    actions: [
+      { action: "approve", label: "Approve", reasons: [], guidance: "Approves exactly this text under the consent the reader gives now, to be shown on the post as a reader’s reflection, never as yours." },
+      { action: "reject", label: "Reject", reasons: DECLINE, guidance: "Never shown." },
+    ],
+  });
+  let items = [perspective];
+  const changes = [];
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_(items, { kind: "third-perspective" })));
+  await page.route(`${origin}/admin/api/engagement/moderation`, async (route) => {
+    const body = route.request().postDataJSON();
+    changes.push(body);
+    items = [];
+    return json(route, 200, { item: { id: body.id, status: "approved" }, published: false, publishError: null });
+  });
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation/pending?kind=third-perspective`);
+  await expect(page.getByLabel("Kind", { exact: true })).toHaveValue("third-perspective");
+  const card = page.locator(`[data-moderation-id="${ID(9)}"]`);
+  await expect(card.getByRole("heading", { name: "Third Perspective on “Tides”", level: 3 })).toBeVisible();
+  await expect(card.getByRole("heading", { name: "The reader’s reflection", level: 4 })).toBeVisible();
+  await expect(card.getByText(`Tides as one conversation. ${HOSTILE}`)).toBeVisible();
+  await expect(card.locator("img")).toHaveCount(0);
+  await expect(card.getByText("About the section #methods.")).toBeVisible();
+  await expect(card.getByText("Prompt: A connection", { exact: false })).toBeVisible();
+  await expect(card.getByText("Consent record 3: the reader agrees to publish it with their name, if you approve it", { exact: false })).toBeVisible();
+  await expect(card.getByText("matches a name this work credits", { exact: false })).toBeVisible();
+  await expect(card.getByText("If approved, it is shown as “Third Perspective from a reader”", { exact: false })).toBeVisible();
+  await card.getByRole("button", { name: "Approve", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(queueStatus(page)).toContainText("consent record 3, as a reader’s reflection on “Tides”");
+  expect(changes).toEqual([{ source: "feedback", id: ID(9), action: "approve", from: "pending", version: 3, seenRevision: 2, seenConsent: 3 }]);
+});

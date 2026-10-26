@@ -299,6 +299,7 @@ export const MODERATION_KINDS = [
   ["source-suggestion", "Suggested sources"],
   ["correction-suggestion", "Suggested corrections"],
   ["alternative-interpretation", "Other interpretations"],
+  ["third-perspective", "Third Perspectives"],
   ["abuse-report", "Abuse reports"],
 ];
 const MODERATION_STATE_NOTES = {
@@ -337,7 +338,36 @@ export function moderationRequest(item, action, reason, acknowledged) {
   const request = { source: item.source, id: item.id, action, from: item.status, version: item.version };
   if (reason) request.reason = reason;
   if (action === "approve" && item.passage?.acknowledge && acknowledged) request.acknowledge = item.passage.check;
+  // A Third Perspective's approval binds the text revision and consent record shown (ADR 0111).
+  if (action === "approve" && item.perspective) {
+    request.seenRevision = item.revision;
+    request.seenConsent = item.perspective.consent.number;
+  }
   return request;
+}
+
+/**
+ * What a moderator reads about a Third Perspective beside its text: what it is about, the prompt
+ * the reader chose, the consent in effect (the record an approval binds), and a warning when the
+ * reader's name is one the work credits, which is never shown with it.
+ */
+export function perspectiveLines(item) {
+  const perspective = item?.perspective;
+  if (!perspective) return [];
+  const lines = [];
+  const about = perspective.about === "work" ? "the whole work" : perspective.section ? `the section #${perspective.section}` : "the opening, before the first heading";
+  const check = perspective.check === "stale" ? " That section has changed since the reader read it." : perspective.check === "unknown-work" ? " No post has this address now." : "";
+  lines.push(`About ${about}.${check}`);
+  if (item.details?.categoryLabel) lines.push(`Prompt: ${item.details.categoryLabel} (“${item.details.prompt}”).`);
+  else lines.push("No prompt chosen.");
+  const consent = perspective.consent;
+  const name = consent.showName ? "with their name, if you approve it" : "without their name";
+  const clarify = consent.clarification ? "may be asked to clarify it" : "did not agree to be asked to clarify it";
+  lines.push(consent.publish
+    ? `Consent record ${consent.number}: the reader agrees to publish it ${name}, and ${clarify}. Approving binds this record; if the reader changes it first, you are asked to review again.`
+    : `Consent record ${consent.number}: the reader no longer agrees to publish it.`);
+  if (perspective.nameMatchesCredit) lines.push("The reader’s name matches a name this work credits. It is never shown with the reflection, which always appears as a reader’s.");
+  return lines;
 }
 
 /** What the signed-in account can do with an item, from the role the server resolved. */
@@ -351,13 +381,14 @@ export function moderationRoleLine(role) {
  * Who sent an item, for moderators only. A comment's name is always shown with it; a reader of
  * feedback chose whether to show theirs, and a private name reaches only the site Admin.
  */
-export function moderationReaderLine(reader, source = "feedback") {
+export function moderationReaderLine(reader, source = "feedback", kind = "") {
   if (source === "report") return "Reports are anonymous: nothing about the reader who sent it is kept.";
   if (source === "comment") return reader?.name ? `From ${reader.name}, shown with the comment.` : "From an unnamed commenter.";
   if (reader?.private) return "The reader gave a name that only the site Admin can see.";
   if (!reader?.name) return "From an anonymous reader.";
+  const what = kind === "third-perspective" ? "reflection" : "note";
   return reader.publishName
-    ? `From ${reader.name}, who agreed to show this name if you publish the note.`
+    ? `From ${reader.name}, who agreed to show this name if you publish the ${what}.`
     : `From ${reader.name}. The name stays private: the reader did not agree to show it.`;
 }
 
@@ -366,6 +397,7 @@ export function moderationOutcome(item, action, result) {
   const where = item.post ? `“${item.post.title}”` : item.work;
   if (action === "approve") {
     if (item.source === "comment") return `Approved. The comment is shown on ${where}.`;
+    if (item.perspective) return `Approved this text under the reader’s consent record ${item.perspective.consent.number}, as a reader’s reflection on ${where}. Nothing was e-mailed.`;
     return result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`.trim();
   }
   if (action === "reject") return "Rejected. Nothing was published.";
@@ -12647,13 +12679,15 @@ export class ObAdmin extends AdminElement {
         feedbackPassage(item.passage),
         item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
         item.report ? h("p", {}, h("strong", {}, "Ground: "), item.report.groundLabel) : null,
-        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : "The reader’s note"),
+        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : item.perspective ? "The reader’s reflection" : "The reader’s note"),
         item.purged || (item.source === "report" && !item.body) ? null : h("p", { class: "oba-feedback-body" }, item.body),
         item.source === "report" ? reportedItem(item.target) : null,
         item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
         item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
-        h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source)),
+        item.perspective && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this reflection"), perspectiveLines(item).map((line) => h("p", {}, line))) : null,
+        h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source, item.kind)),
         feedbackPreview(item.publicPreview),
+        item.perspectivePreview ? h("p", { class: "oba-small oba-feedback-preview" }, `If approved, it is shown as “${item.perspectivePreview.heading}”, received ${item.perspectivePreview.received}.`) : null,
       );
       const actions = h("div", { class: "oba-moderation-actions" });
       let acknowledge = null;
