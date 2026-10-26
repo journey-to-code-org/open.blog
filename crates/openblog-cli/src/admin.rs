@@ -2411,24 +2411,117 @@ fn claims_store_error(
 // cap a change at 256 KiB, need the revision, and never publish anything. The
 // comparison workspace (#54) builds its controls on them.
 
-fn alignments_view(snapshot: &alignment_store::Snapshot) -> Json {
+fn alignments_view(
+    snapshot: &alignment_store::Snapshot,
+    contributors: &BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Json {
     let links = openblog_core::knowledge_atlas::Links {
         library: &snapshot.library,
         notebook: &snapshot.notebook,
     };
-    json!({
+    let mut view = comparison_context(snapshot, contributors);
+    let extra = json!({
         "file": alignment_store::ALIGNMENTS_FILE,
         "revision": snapshot.revision,
         "stored": snapshot.stored,
         "alignments": snapshot.alignments.alignments,
         "notices": snapshot.alignments.notices(links),
         "notice": openblog_core::alignment::ALIGNMENT_NOTICE,
+    });
+    if let (Some(view), Json::Object(extra)) = (view.as_object_mut(), extra) {
+        view.extend(extra);
+    }
+    view
+}
+
+/// What the comparison workspace (#54) shows beside the alignments, read
+/// under the same snapshot: every library record with its rights label and
+/// realization chain, every notebook passage with its exact wording, and
+/// every interpretation with its interpreters' names. Admin-only and
+/// `no-store` like the rest of the private research routes; labels state the
+/// author's declaration and never grant permission (ADR 0113).
+fn comparison_context(
+    snapshot: &alignment_store::Snapshot,
+    contributors: &BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Json {
+    use openblog_core::alignment::Correspondence;
+    use openblog_core::interpretation::InterpreterIdentity;
+    use openblog_core::source_library::RightsStatus;
+    let library = &snapshot.library;
+    let rights = |declared: Option<&openblog_core::source_library::RightsDeclaration>,
+                  status: RightsStatus| {
+        json!({
+            "status": status.tag(),
+            "label": status.label(),
+            "declared": declared.is_some(),
+            "note": declared.and_then(|rights| rights.note.as_deref()),
+            "license": declared.and_then(|rights| rights.license.as_deref()),
+        })
+    };
+    let sources: Vec<Json> = library
+        .sources
+        .iter()
+        .map(|record| {
+            let mut value = json!(record);
+            value["chain"] = Json::Array(
+                library
+                    .realization_chain(&record.id)
+                    .iter()
+                    .skip(1)
+                    .map(|link| json!({ "id": link.id, "kind": link.kind, "title": link.title }))
+                    .collect(),
+            );
+            if let Some(status) = record.rights_status() {
+                value["rightsStatus"] = rights(record.rights.as_ref(), status);
+            }
+            value
+        })
+        .collect();
+    let interpretations: Vec<Json> = library
+        .interpretations
+        .iter()
+        .map(|interpretation| {
+            let mut value = json!(interpretation);
+            value["interpreters"] = Json::Array(
+                interpretation
+                    .interpreters
+                    .iter()
+                    .map(|interpreter| {
+                        let mut named = json!(interpreter);
+                        named["display"] = json!(match interpreter.identity() {
+                            InterpreterIdentity::Contributor(key) => contributors
+                                .get(key)
+                                .map_or(key, |contributor| contributor.name.as_str()),
+                            InterpreterIdentity::Named(name) => name,
+                        });
+                        named
+                    })
+                    .collect(),
+            );
+            value["rightsStatus"] = rights(
+                interpretation.rights.as_ref(),
+                interpretation.rights_status(),
+            );
+            value
+        })
+        .collect();
+    json!({
+        "sources": sources,
+        "passages": snapshot.notebook.passages,
+        "interpretations": interpretations,
+        "correspondences": Correspondence::ALL
+            .iter()
+            .map(|c| json!({ "value": c.as_str(), "label": c.label() }))
+            .collect::<Vec<_>>(),
     })
 }
 
 fn list_alignments(state: &AppState) -> Response {
     match alignment_store::load(&state.root, &source_contributors(state)) {
-        Ok(snapshot) => Response::json(200, &alignments_view(&snapshot)),
+        Ok(snapshot) => Response::json(
+            200,
+            &alignments_view(&snapshot, &source_contributors(state)),
+        ),
         Err(error) => alignments_store_error(state, error, None),
     }
 }
@@ -2469,7 +2562,7 @@ fn save_alignment(state: &AppState, req: &Request, create: bool) -> Response {
     };
     match saved {
         Ok(snapshot) => {
-            let mut view = alignments_view(&snapshot);
+            let mut view = alignments_view(&snapshot, &contributors);
             view["alignment"] = json!(snapshot.alignments.alignment(&id));
             Response::json(if create { 201 } else { 200 }, &view)
         }
@@ -2494,7 +2587,7 @@ fn remove_alignment_item(state: &AppState, req: &Request) -> Response {
     match alignment_store::remove_alignment(&state.root, &revision, id, &source_contributors(state))
     {
         Ok((snapshot, removed)) => {
-            let mut view = alignments_view(&snapshot);
+            let mut view = alignments_view(&snapshot, &source_contributors(state));
             view["removed"] = json!(removed);
             Response::json(200, &view)
         }
@@ -14081,6 +14174,138 @@ mod tests {
         assert_eq!(body_json(&removed)["removed"]["id"], "a1");
         // Removing the only alignment leaves the stored list empty.
         assert!(list(&session)["alignments"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn alignments_view_carries_versions_exact_wording_and_attributed_interpretations() {
+        let f = fixture_with_sources("alignments-compare");
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["contributors"] = json!({"ada": {"name": "Ada <b>Lovelace</b>"}});
+        fs::write(&config_path, config.to_string()).unwrap();
+        // Hebrew with a decomposed vowel point, mixed scripts and markup: all
+        // of it must travel back byte for byte.
+        let hebrew = "ב\u{05B0}ּרֵאשִׁית <script>x</script> Πλάτων";
+        fs::write(
+            f.dir.join(crate::source_store::LIBRARY_FILE),
+            json!({"version": 1, "sources": [
+                {"id": "plato", "kind": "work", "title": "Politeia"},
+                {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings",
+                    "creators": [{"name": "S. R. Slings", "role": "editor", "attribution": "stated"}],
+                    "rights": {"status": "publicDomain", "note": "ob-rights-note"}},
+                {"id": "slings-2", "kind": "edition", "of": "plato", "title": "Slings revised",
+                    "revises": "slings"},
+                {"id": "he", "kind": "translation", "of": "plato", "language": "he",
+                    "title": "פוליטאה", "anonymous": true},
+                {"id": "he-ed", "kind": "edition", "of": "he", "title": "Hebrew edition"},
+                {"id": "ms", "kind": "witness", "of": "plato", "title": "Paris gr. 1807",
+                    "repository": "BnF", "shelfmark": "gr. 1807", "volumes": 2}
+            ], "interpretations": [
+                {"id": "mine", "kind": "rendering", "source": "slings",
+                    "locators": [{"kind": "canonical", "value": "514a"}], "language": "en",
+                    "text": "ob-rendering",
+                    "interpreters": [{"contributor": "ada", "attribution": "uncertain"}]},
+                {"id": "gloss", "kind": "reading", "source": "ms", "text": "ob-gloss",
+                    "anonymous": true, "rights": {"status": "rightsReserved"}}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join(crate::notebook_store::NOTEBOOK_FILE),
+            json!({"version": 1, "passages": [{"id": "p-he", "source": "he",
+                "excerpt": {"text": hebrew, "language": "he"},
+                "locators": [{"kind": "canonical", "value": "514a"}]}]})
+            .to_string(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/research/alignments"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        assert!(response
+            .headers
+            .iter()
+            .any(|(name, value)| name == "Cache-Control" && value == "no-store"));
+        let view = body_json(&response);
+        let source = |id: &str| {
+            view["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|record| record["id"] == id)
+                .cloned()
+                .unwrap()
+        };
+        // Rights are the declaration, or "not checked" by default, and only on versions.
+        assert_eq!(source("slings")["rightsStatus"]["status"], "publicDomain");
+        assert_eq!(
+            source("slings")["rightsStatus"]["label"],
+            "The author states the text is in the public domain"
+        );
+        assert_eq!(source("slings")["rightsStatus"]["note"], "ob-rights-note");
+        assert_eq!(source("he")["rightsStatus"]["status"], "unknown");
+        assert_eq!(source("he")["rightsStatus"]["declared"], false);
+        assert!(source("plato").get("rightsStatus").is_none());
+        // Lineage, witness identity, volumes and attribution travel with the version.
+        assert_eq!(
+            source("he-ed")["chain"],
+            json!([{"id": "he", "kind": "translation", "title": "פוליטאה"},
+                {"id": "plato", "kind": "work", "title": "Politeia"}])
+        );
+        assert_eq!(source("slings-2")["revises"], "slings");
+        assert_eq!(source("ms")["shelfmark"], "gr. 1807");
+        assert_eq!(source("ms")["volumes"], 2);
+        assert_eq!(source("he")["anonymous"], true);
+        assert_eq!(source("slings")["creators"][0]["attribution"], "stated");
+        // The quoted wording is exact.
+        assert_eq!(view["passages"][0]["excerpt"]["text"], json!(hebrew));
+        assert_eq!(view["passages"][0]["excerpt"]["language"], "he");
+        // Interpretations carry who made them, by registry name or as stated.
+        let interpretations = view["interpretations"].as_array().unwrap();
+        let interpreter = &interpretations[0]["interpreters"][0];
+        assert_eq!(interpreter["contributor"], "ada");
+        assert_eq!(interpreter["display"], "Ada <b>Lovelace</b>");
+        assert_eq!(interpreter["attribution"], "uncertain");
+        assert_eq!(interpretations[0]["rightsStatus"]["status"], "unknown");
+        assert_eq!(interpretations[1]["anonymous"], true);
+        assert_eq!(
+            interpretations[1]["rightsStatus"]["label"],
+            "The author states the text is under copyright"
+        );
+        // Every correspondence label is the author's reading; none is "equivalent".
+        let labels = view["correspondences"].as_array().unwrap();
+        assert_eq!(labels.len(), 3);
+        for label in labels {
+            let text = label["label"].as_str().unwrap();
+            assert!(text.starts_with("The author reads"), "{text}");
+            assert!(!text.to_lowercase().contains("equivalent"));
+        }
+        // A damaged library is reported against its file and changes nothing.
+        let library = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::write(&library, "{not json").unwrap();
+        let broken = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/research/alignments"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(broken.status, 500);
+        assert_eq!(fs::read(&library).unwrap(), b"{not json");
+        assert!(!f.dir.join(crate::alignment_store::ALIGNMENTS_FILE).exists());
     }
 
     #[test]

@@ -58,6 +58,8 @@ pub enum Correspondence {
 }
 
 impl Correspondence {
+    pub const ALL: [Self; 3] = [Self::Corresponding, Self::Partial, Self::Divergent];
+
     fn parse(value: &str) -> Option<Self> {
         match value {
             "corresponding" => Some(Self::Corresponding),
