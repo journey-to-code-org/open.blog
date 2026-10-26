@@ -147,6 +147,25 @@ test("bad, hostile or oversized evidence is refused before the quota, and spam i
   const response = await handlerFor(corrections, limited)(event("feedback", "POST", evidenceText()));
   assert.equal(response.statusCode, 429);
   assert.equal(inserts(limited).length, 0);
+  // With engagement protection the same evidence submission again within the hour is a replay,
+  // refused before storage; the same note with other evidence is a different submission.
+  const protectedEnv = { ...corrections, OPENBLOG_PROTECTION_ENABLED: "true" };
+  const repeats = new Set();
+  const replaying = fakeDatabase((request) => {
+    if (!request.path.endsWith("openblog_consume_rate_limit")) return undefined;
+    if (request.body.p_bucket !== "feedback-repeat") return { allowed: true };
+    const seen = repeats.has(request.body.p_subject_hash);
+    repeats.add(request.body.p_subject_hash);
+    return { allowed: !seen };
+  });
+  const replayHandler = handlerFor(protectedEnv, replaying);
+  assert.equal((await replayHandler(event("feedback", "POST", evidenceText()))).statusCode, 202);
+  const replay = await replayHandler(event("feedback", "POST", evidenceText()));
+  assert.equal(replay.statusCode, 409);
+  assert.equal(JSON.parse(replay.body).code, "duplicate");
+  const other = { ...fixture.submissions.accepted[1].submission, evidence: { claim: "tide-height" } };
+  assert.equal((await replayHandler(event("feedback", "POST", JSON.stringify(other)))).statusCode, 202);
+  assert.equal(inserts(replaying).length, 2);
   // Another origin cannot submit.
   const elsewhere = fakeDatabase();
   assert.equal((await handlerFor(corrections, elsewhere)(event("feedback", "POST", evidenceText(), { origin: "https://evil.example" }))).statusCode, 403);
