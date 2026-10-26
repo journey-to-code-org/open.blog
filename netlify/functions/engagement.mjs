@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, readSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
+import { AUTHOR_RESPONSE_KIND, PARENT_UNAVAILABLE, checkAnswerParent, mayDecideResponse, parentFactsOfRow, readAuthorResponseRequest, receiveAuthorResponse } from "../lib/author-response.mjs";
 import { EVIDENCE_KINDS, decisionsOf, emptyLog, planDecision } from "../lib/correction-decisions.mjs";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
 import {
@@ -225,6 +226,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_UNAVAILABLE = "Passage feedback is not available on this site. The page itself is unchanged; you can copy your note and send it to the author instead.";
 const PERSPECTIVE_UNAVAILABLE = "This site does not take Third Perspectives through the form. The page itself is unchanged; you can copy your reflection and send it to the author instead.";
 const PERSPECTIVE_INBOX_UNAVAILABLE = "Run supabase/feedback.sql again and set OPENBLOG_THIRD_PERSPECTIVES_ENABLED=true to approve Third Perspectives, so each approval records the consent it covers.";
+// Author responses (ADR 0132) need no SQL: they are rows of the Third Perspectives' table. Only this opt-in.
+const ANSWER_UNAVAILABLE = "Set OPENBLOG_AUTHOR_RESPONSES_ENABLED=true, on top of Third Perspectives, for authors to answer them.";
+const ANSWER_PARENT_UNAVAILABLE = "The reflection this answers is not shown to readers now, so it cannot be answered or its answer approved.";
+// Which parent mismatches are the request's fault (422) and which are the world having moved (409).
+const ANSWER_PARENT_MISMATCHES = { notAttributed: "That reflection is not about one author's section.", responderMismatch: "That reflection is about another author's section.", wrongWork: "That reflection is about another work." };
 // Engagement protection (ADRs 0107 and 0108).
 const PROTECTION_UNAVAILABLE = "This site does not offer receipts or reports through the form. You can write to the author instead.";
 const RECEIPT = /^[A-Za-z0-9_-]{43}$/;
@@ -266,6 +272,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     // Third Perspectives (ADR 0113): set only after running supabase/feedback.sql again, on top of
     // passage feedback and protection, because every hosted copy needs its reader's receipt.
     values.thirdPerspectives = values.protection && values.feedback && String(env.OPENBLOG_THIRD_PERSPECTIVES_ENABLED || "").trim() === "true";
+    // Author responses (ADR 0132): the same store and inbox, opt in on top of Third Perspectives.
+    values.authorResponses = values.thirdPerspectives && String(env.OPENBLOG_AUTHOR_RESPONSES_ENABLED || "").trim() === "true";
     const required = [values.url, values.key, values.siteId, values.origin, values.adminKey, values.salt];
     if (!required.every(Boolean) || !/^\/(?:[^\\?#\u0000-\u001F]*\/)?$/.test(values.basePath) || values.basePath.includes("//") || values.basePath.split("/").some((segment) => segment === "." || segment === "..")) return null;
     return values;
@@ -566,6 +574,19 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     }
   };
 
+  // The stored Third Perspective an answer sits under, and the code of the first reason it does not
+  // belong there now (null when it does), read from the stored rows and never from the request.
+  const answerParentCode = async (settings, work, parentId, contributor) => {
+    if (!UUID.test(String(parentId || ""))) return { code: PARENT_UNAVAILABLE, parent: null };
+    const parent = await inboxRow(settings, "feedback", String(parentId).toLowerCase());
+    if (!parent || parent.kind !== THIRD_PERSPECTIVE_KIND) return { code: PARENT_UNAVAILABLE, parent };
+    if (await feedbackPolicy(settings, parent.work, THIRD_PERSPECTIVE_KIND) === "hidden") return { code: PARENT_UNAVAILABLE, parent };
+    return { code: checkAnswerParent(parentFactsOfRow(parent), work, contributor), parent };
+  };
+  const answerParentRefusal = (code, origin, current = null) => (code === PARENT_UNAVAILABLE
+    ? json(409, { error: ANSWER_PARENT_UNAVAILABLE, code, ...(current ? { item: current } : {}) }, origin)
+    : json(422, { error: ANSWER_PARENT_MISMATCHES[code] || ANSWER_PARENT_UNAVAILABLE, code }, origin));
+
   return async (event) => {
     const settings = configured();
     if (!settings) return json(503, { error: "Hosted engagement is not configured." });
@@ -857,6 +878,11 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           : facts.state === "approved" && target.approved_revision === facts.revision && facts.clarificationAsked !== facts.revision
             && (facts.kind !== THIRD_PERSPECTIVE_KIND || perspectivePublic(target) !== false) && await feedbackPolicy(settings, work, facts.kind) !== "hidden";
         if (!facts.retained || !shown) return unavailable();
+        // An answer is shown only under a Third Perspective shown now and about its own responder's
+        // section (ADR 0134), so a hidden answer, whose parent is gone, answers `unavailable` exactly
+        // as an answer that does not exist and its existence does not leak.
+        if (source === "feedback" && facts.kind === AUTHOR_RESPONSE_KIND
+          && (await answerParentCode(settings, work, target.details?.parent, target.details?.responder?.contributor)).code !== null) return unavailable();
         const mode = await feedbackPolicy(settings, work, "abuse-report");
         if (mode !== "open") return unavailable();
         if (!await consumeQuota(settings, event, "reports", 5, 500)) return json(429, { error: "Too many reports from here. Please try again later.", code: "rateLimited" }, corsOrigin);
@@ -903,6 +929,8 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         // so this route never decides one, whether or not the inbox takes Third Perspectives now.
         const stored = await feedbackRows(settings, { id: `eq.${id}` });
         if (stored[0]?.kind === THIRD_PERSPECTIVE_KIND) return json(409, { error: "Third Perspectives are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
+        // An author response is approved only under a shown parent and never by its own author.
+        if (stored[0]?.kind === AUTHOR_RESPONSE_KIND) return json(409, { error: "Author responses are moderated through /admin/moderation.", code: "useModerationInbox" }, corsOrigin);
         // With the inbox's schema the change goes through its function, so
         // the item's revisions and the audit event's kind, revision and role
         // are kept as the inbox keeps them (ADR 0106).
@@ -939,7 +967,7 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
           const limit = Math.min(Math.max(Number.parseInt(query.limit, 10) || INBOX_PAGE, 1), 100);
           const sources = [];
           if (!kind || kind === "comment") sources.push("comment");
-          if (settings.feedback && (!kind || Object.hasOwn(FEEDBACK_KINDS, kind) || kind === THIRD_PERSPECTIVE_KIND)) sources.push("feedback");
+          if (settings.feedback && (!kind || Object.hasOwn(FEEDBACK_KINDS, kind) || kind === THIRD_PERSPECTIVE_KIND || kind === AUTHOR_RESPONSE_KIND)) sources.push("feedback");
           if (settings.protection && (!kind || kind === "abuse-report")) sources.push("report");
           // Each store's first `limit + 1` rows after the cursor; merged, the
           // first `limit` are this page's, oldest first.
@@ -1042,8 +1070,100 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
             }
             return changed(await applyPerspectiveChange(settings, id, plan.change, version, auditActor(body.actor), role, consent));
           }
+          if (source === "feedback" && facts.kind === AUTHOR_RESPONSE_KIND) {
+            // An answer is approved only where the service records answers, only under a Third
+            // Perspective that is shown now and about its own author's section, and never by the
+            // account that wrote it (ADR 0128); anything else about it is decided like any item.
+            if (plan.change.to === "approved") {
+              if (!settings.authorResponses) return json(422, { error: ANSWER_UNAVAILABLE, code: "notAllowed" }, corsOrigin);
+              if (!mayDecideResponse(row.details?.binding?.account, auditActor(body.actor), "approve")) return refused("denied");
+              const { code } = await answerParentCode(settings, row.work, row.details?.parent, row.details?.responder?.contributor);
+              if (code) return answerParentRefusal(code, corsOrigin, await itemOf(row));
+              // Two answers written in the same instant can both be stored pending (no constraint
+              // stops it without a schema change), so at most one is ever shown: approving one while
+              // another is shown under the same parent is refused (ADR 0132).
+              const shown = new URLSearchParams({
+                site_id: `eq.${settings.siteId}`, kind: `eq.${AUTHOR_RESPONSE_KIND}`, "details->>parent": `eq.${row.details?.parent}`,
+                status: "eq.approved", purged_at: "is.null", id: `neq.${row.id}`, select: "id", limit: "1",
+              });
+              const others = await database(settings, `/rest/v1/openblog_feedback?${shown}`);
+              if (Array.isArray(others) && others.length) {
+                return json(409, { error: "Another answer to this reflection is already shown. Reject or remove one of them.", code: "alreadyAnswered" }, corsOrigin);
+              }
+            }
+            return changed(await applyInboxChange(settings, source, id, plan.change, version, auditActor(body.actor), role));
+          }
           return changed(await applyInboxChange(settings, source, id, plan.change, version, auditActor(body.actor), role));
         }
+      }
+      if (operation === "admin/author-response") {
+        // An author's answer to a Third Perspective (ADRs 0131 and 0132). Admin has already checked,
+        // against the private shared-publication record this function never holds, that the signed-in
+        // account is the contributor bound to the section; the function reads the request strictly,
+        // reads the parent from its own store and checks it again, and stores the answer pending.
+        if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);
+        if (!settings.authorResponses) return json(404, { error: ANSWER_UNAVAILABLE, code: "unavailable" }, corsOrigin);
+        if (event.httpMethod === "POST") {
+          const text = event.isBase64Encoded ? Buffer.from(String(event.body || ""), "base64").toString("utf8") : String(event.body || "");
+          const read = readAuthorResponseRequest(text);
+          if (!read.ok) {
+            const { code, message } = read.error;
+            return json(code === "tooLarge" ? 413 : 422, { error: message, code }, corsOrigin);
+          }
+          const answer = read.request;
+          const policy = await feedbackPolicy(settings, answer.work, AUTHOR_RESPONSE_KIND);
+          if (policy !== "open") {
+            return json(403, policy === "locked"
+              ? { error: "This work is not taking author responses now.", code: "closed" }
+              : { error: ANSWER_UNAVAILABLE, code: "unavailable" }, corsOrigin);
+          }
+          const { code, parent } = await answerParentCode(settings, answer.work, answer.parent.id, answer.responder.contributor);
+          if (code) return answerParentRefusal(code, corsOrigin);
+          if ((parent.version ?? 1) !== answer.parent.version) {
+            return json(409, { error: "That reflection changed since you loaded it. Review it again before answering.", code: "conflict" }, corsOrigin);
+          }
+          const existing = new URLSearchParams({
+            site_id: `eq.${settings.siteId}`, kind: `eq.${AUTHOR_RESPONSE_KIND}`, "details->>parent": `eq.${answer.parent.id}`,
+            status: "in.(pending,approved)", purged_at: "is.null", select: "id", limit: "1",
+          });
+          const answered = await database(settings, `/rest/v1/openblog_feedback?${existing}`);
+          if (Array.isArray(answered) && answered.length) {
+            return json(409, { error: "This reflection already has an answer waiting or shown. Withdraw it first to write another.", code: "alreadyAnswered" }, corsOrigin);
+          }
+          if (!await consumeQuota(settings, event, "author-response", 20, 500, answer.responder.account)) {
+            return json(429, { error: "Too many answers just now. Please try again later.", code: "rateLimited" }, corsOrigin);
+          }
+          const claim = await firstTimeThisHour(settings, event, "author-response", [answer.work, answer.parent.id, answer.body]);
+          if (!claim) return json(409, { error: "This answer was already sent and is waiting for review.", code: "duplicate" }, corsOrigin);
+          const row = receiveAuthorResponse(answer, { revision: parent.revision, target: parent.target }, canonicalTime(now()));
+          const rows = await storedOnce(settings, claim, () => database(settings, "/rest/v1/openblog_feedback?select=id,status,received_at", {
+            method: "POST",
+            headers: { Prefer: "return=representation" },
+            body: JSON.stringify({ site_id: settings.siteId, ...row, status: "pending" }),
+          }));
+          return json(202, { id: rows[0]?.id, status: "pending", receivedAt: row.received_at }, corsOrigin);
+        }
+        if (event.httpMethod === "PATCH") {
+          // The author takes their own answer back. The row, its responder and its audit trail stay
+          // (retention purges the text later, as for any closed item); it is never public again.
+          const id = String(body.id || "").toLowerCase();
+          const version = body.expectedVersion;
+          const actor = typeof body.actor === "string" && /^[a-z0-9_.-]{1,32}$/.test(body.actor) ? body.actor : "";
+          if (!UUID.test(id) || !Number.isInteger(version) || version < 1 || version > 2147483647 || !actor) {
+            return json(422, { error: "Invalid withdrawal.", code: "invalid" }, corsOrigin);
+          }
+          const row = await inboxRow(settings, "feedback", id);
+          if (!row || row.kind !== AUTHOR_RESPONSE_KIND || row.details?.binding?.account !== actor) {
+            return json(404, { error: "No such answer.", code: "notFound" }, corsOrigin);
+          }
+          const plan = planTransition(inboxFacts("feedback", row), { action: "withdraw", expectedVersion: version, role: "submitter" });
+          if (!plan.ok) return json(plan.code === "stale" ? 409 : 422, { error: "This answer cannot be withdrawn now.", code: plan.code === "stale" ? "conflict" : plan.code, item: inboxFeedback(row) }, corsOrigin);
+          const rows = await applyInboxChange(settings, "feedback", id, plan.change, version, actor, "contributing-author");
+          if (Array.isArray(rows) && rows.length === 1) return json(200, { ok: true, item: inboxFeedback(rows[0]) }, corsOrigin);
+          const current = await inboxRow(settings, "feedback", id);
+          return json(409, { error: "Your answer changed since you loaded it.", code: "conflict", item: current ? inboxFeedback(current) : null }, corsOrigin);
+        }
+        return json(405, { error: "Use POST to answer and PATCH to withdraw." }, corsOrigin);
       }
       if (operation === "admin/decisions") {
         // The author's correction decision on an evidence submission (ADR 0117), decided by Admin

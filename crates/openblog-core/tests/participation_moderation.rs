@@ -301,6 +301,8 @@ fn every_submission_starts_pending_whoever_sends_it() {
                     work: Some(WORK),
                     mode,
                     parent: item_target.then_some((&parent, ParticipationMode::Open)),
+                    parent_target: None,
+                    author_grant: None,
                     clarification_consent: true,
                     at: day(1),
                 };
@@ -348,6 +350,8 @@ fn responses_and_reports_need_a_public_parent_and_reveal_nothing_about_others() 
             work: Some(WORK),
             mode: ParticipationMode::Open,
             parent: Some((parent, mode)),
+            parent_target: None,
+            author_grant: None,
             clarification_consent: false,
             at: day(1),
         })
@@ -413,6 +417,8 @@ fn responses_and_reports_need_a_public_parent_and_reveal_nothing_about_others() 
         work: Some(WORK),
         mode: ParticipationMode::Open,
         parent: None,
+        parent_target: None,
+        author_grant: None,
         clarification_consent: false,
         at: day(1),
     };
@@ -435,6 +441,8 @@ fn responses_and_reports_need_a_public_parent_and_reveal_nothing_about_others() 
         work: Some(WORK),
         mode: ParticipationMode::Open,
         parent: Some((&response, ParticipationMode::Open)),
+        parent_target: None,
+        author_grant: None,
         clarification_consent: false,
         at: day(1),
     });
@@ -801,6 +809,8 @@ fn contributing_authors_read_and_respond_but_never_moderate() {
             work: Some(WORK),
             mode: ParticipationMode::Open,
             parent: Some((&parent, ParticipationMode::Open)),
+            parent_target: None,
+            author_grant: None,
             clarification_consent: true,
             at: day(1),
         })
@@ -1296,6 +1306,8 @@ fn audit_events_hold_who_when_why_and_which_revision_never_what_was_written() {
             work: Some(WORK),
             mode: ParticipationMode::Open,
             parent: None,
+            parent_target: None,
+            author_grant: None,
             clarification_consent: false,
             at: day(1),
         })

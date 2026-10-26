@@ -191,7 +191,7 @@ fn the_file_holds_only_public_parts_and_refuses_anything_else() {
             .contains("repeats the id")
     );
     assert!(
-        ThirdPerspectivesFile::from_json(r#"{"version":2,"items":[]}"#)
+        ThirdPerspectivesFile::from_json(r#"{"version":3,"items":[]}"#)
             .unwrap_err()
             .contains("newer")
     );

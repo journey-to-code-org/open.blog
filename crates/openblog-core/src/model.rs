@@ -1236,7 +1236,13 @@ fn attach_third_perspectives(
                         item.id, item.work, item.post, post.url
                     ));
                 }
-                post.third_perspectives = publication::project_post(&items, post, config, mode);
+                let answer_mode = crate::participation::published_mode(
+                    config,
+                    post,
+                    ParticipationKind::AuthorResponse,
+                );
+                post.third_perspectives =
+                    publication::project_post(&items, post, config, mode, answer_mode);
             }
         }
         let offered =

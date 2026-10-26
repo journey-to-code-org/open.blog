@@ -3,6 +3,63 @@
 All notable changes to open.blog are recorded here. Releases follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] - 2026-10-26
+
+- A reader's Third Perspective about one author's section of a shared reflection, and that
+  author's approved response, are now shown on the post, after that author's own words: a labelled
+  conversation inside the section's turn, the reader's reflection under "Third Perspective from a
+  reader" and the author's under "Author's response from NAME", in order, as plain HTML that works
+  without JavaScript or a stylesheet (with script, a long conversation folds behind one button, and
+  a link into it opens it). Each author's section now has an `ob-by-...` anchor, a reflection links
+  to it, no more than five show after a section (the rest stay in the post's "Third Perspectives"
+  list, each shown once), and it reflows at 320px and 400% zoom and prints whole. Admin publishes an
+  approved answer into `content/third-perspectives.json` with its reflection (the file becomes version
+  2 only while it holds an answer) and takes it off when its author withdraws it or a coordinator
+  removes it; the inbox counts any that must come off in the same banner as reflections. Portable
+  copies, feeds and `llms` files only link to the canonical post. Where `author-response` is
+  `hidden` or `off`, or no answer is published, pages build exactly as before. No SQL changes.
+- Credits that are edited after a shared reflection is published can no longer move a section to
+  another author: a section now states its contributor in the post, an older post is paired with
+  the committed contributor names, and anything that does not match attributes nothing. Admin
+  refuses a credits edit that would break it. Approving an answer re-checks the account that wrote
+  it against the shared publication, and an author whose membership was removed can still withdraw
+  their own answer.
+- Readers can write a Third Perspective about one author's section of a shared reflection, and that
+  author can answer it, through the moderation you already have. Where a site sets
+  `participation.kinds."author-response"` to `open`, a shared reflection's Third Perspective form
+  offers "One author's section", chosen by author and place from a list the build writes from the
+  post's committed body and credits (never a side of the page). In Admin, the contributor bound to
+  that section sees "Answer as ...", on a reflection that is shown, and sends a plain-text answer
+  that waits for a coordinator: it is never approved by the account that wrote it, only under a
+  reflection that is shown now and about that very author's section, and an author can take their
+  own answer back. Coordinators moderate answers in the one inbox. Hosted storage needs no SQL: an
+  answer is a row of the existing table, behind the new opt-in
+  `OPENBLOG_AUTHOR_RESPONSES_ENABLED=true` on top of Third Perspectives (remove it to turn answers
+  off). An approved reflection about an author's section is named by its author on the post and not
+  yet linked or answered on the page. Sites that do not set `author-response` build exactly as
+  before.
+- Groundwork for authors answering a reader's Third Perspective about their own section of a shared
+  reflection (nothing is shown or accepted yet): a section is named by its author and its text and
+  never by which side it is on, so a note reaches the intended author after layouts change or
+  sections move, and says honestly when that section has since changed or gone instead of pointing
+  at other words. Only the contributor who wrote the section, signed in as their own bound account,
+  may answer as its author; a contributor registry entry alone, a coordinator or a site owner
+  cannot. Answers will start pending like everything else and appear only while the reader's note
+  does. Nothing is stored or published by this change. Which author wrote a section is read from
+  the post's committed credits alongside its body, so it works in static and CI builds without
+  private records and is not changed by inviting someone with the same name later. Known change:
+  `ob-by-` is now reserved for these section anchors, so a heading whose text begins "OB by" gets
+  the id `heading-ob-by-...` instead of `ob-by-...`, and an `{#ob-by-...}` id written in a post is
+  replaced by the heading's own id. No post in this repository is affected; other existing posts
+  are unchanged.
+- A shared reflection's sections now carry one more class for theme authors,
+  `ob-turn-by-<contributor key>`, next to `ob-turn` and `ob-lane-N`: the registry key of the
+  contributor who wrote the section, which the post's credits already make public. Style it if you
+  like, but do not rely on it for anything else. Only composing a reflection writes it, so Admin
+  now refuses a manual edit that adds, removes, reorders or changes these classes, or that moves
+  an existing section to another author's name or id, whether through the body, the credits or both
+  in one save.
+
 ## [0.39.0] - 2026-10-26
 
 - Admin Studio gathers Sources, the research notebook, the Knowledge Atlas, Compare and claims

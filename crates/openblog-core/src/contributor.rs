@@ -281,6 +281,19 @@ pub fn resolve(
     Ok((resolved, CreditProvenance::ExplicitSidecar))
 }
 
+/// The contributor registry keys of a credits sidecar, in the order it lists
+/// them, or `None` when it is not a readable version 1 sidecar. A sidecar is
+/// committed with the post, so this needs no private record and no registry.
+pub fn credited_ids(sidecar: &str) -> Option<Vec<String>> {
+    let file: CreditFile = serde_json::from_str(sidecar).ok()?;
+    (file.version == 1).then(|| {
+        file.credits
+            .into_iter()
+            .map(|credit| credit.contributor)
+            .collect()
+    })
+}
+
 /// The ordered, escaped "Contributions" list: each credited name (linked through
 /// `link` when the contributor has a URL), its role labels, and a manually
 /// entered ORCID iD marked as unauthenticated. `orcid_icon` is the bundled
