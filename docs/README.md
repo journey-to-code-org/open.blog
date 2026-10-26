@@ -80,7 +80,14 @@ events typed and records every relationship as an attributed, evidence-backed as
 never presented as consensus, stored privately beside the notebook
 ([ADR 0055](adr/0055-private-knowledge-atlas-storage.md)) with one lock order and guards that
 keep sources and passages it uses from being removed
-([ADR 0056](adr/0056-one-lock-order-and-cross-store-research-guards.md)).
+([ADR 0056](adr/0056-one-lock-order-and-cross-store-research-guards.md)), and the
+[claims and evidence links format](specs/claims-evidence.md), which records the author's own
+reading of which sources support, contradict or contextualize a claim in a draft, with no score
+or verdict ([ADR 0078](adr/0078-claims-and-evidence-links-record-the-authors-reading.md)), never
+publishes support while contradiction is withheld
+([ADR 0079](adr/0079-contradicting-evidence-is-never-hidden-or-published-alone.md)), and checks
+claim anchors against the draft without repairing them
+([ADR 0080](adr/0080-claim-anchors-are-verified-utf8-byte-spans.md)).
 
 ## Command reference
 
