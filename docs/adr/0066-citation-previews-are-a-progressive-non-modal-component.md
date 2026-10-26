@@ -75,6 +75,8 @@ the page.
 - Readers with JavaScript can check a reference in place; without it, nothing changes.
 - Screen-reader users hear the reference as the marker's description and can Tab into its links.
 - Themes style the preview through the shared tokens; they cannot change what it shows.
+- A preview verifies nothing about a source; the contract states what it does not verify and
+  the guarantees each release keeps ([Citation format](../specs/citations.md#guarantees)).
 - Out of scope: fetching anything about a source, AI summaries and modal-only reading.
 
 ## Domain language

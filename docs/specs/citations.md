@@ -180,3 +180,37 @@ with no credentials, and the link to the note, all as text. It never fetches, st
 the marker; data of another version, unreadable data or a marker that no longer links to its
 note leaves the page as it is. It stays inside the viewport, opens above the marker when only
 that fits, fades in only without a reduced-motion preference and is not printed.
+
+### Guarantees
+
+These hold for every release and are pinned by `crates/openblog-core/tests/citation_navigation.rs`,
+`crates/openblog-core/tests/citation_preview_regressions.rs`, `tests/web/citation-previews.test.mjs`
+and the browser specs `tests/browser/citation-navigation.spec.mjs`,
+`tests/browser/citation-previews.spec.mjs` and `tests/browser/citation-preview-regressions.spec.mjs`.
+
+| Area | Guarantee |
+| --- | --- |
+| Links | A web address links only when it is an absolute `http(s)` address with a host and no credentials, and a DOI only to its `https://doi.org/` address. The source library refuses any other `url` or DOI where it enters; the reader data and the browser check each link again, and anything else is dropped while its text is kept. |
+| Escaping | Titles, names and other metadata are text everywhere: escaped in the notes, written into the `ob-references` element with `<`, `>`, `&`, U+2028 and U+2029 as `\u` escapes, and shown by the preview with `textContent`. A page of hostile sources has exactly the elements and attributes of the same page with harmless ones. |
+| Content security policy | The data element is `application/json` and never runs. The component is a same-origin module that needs only `script-src 'self'` and `style-src 'self'`: it adds no inline script, markup style or event handler and positions the preview with custom properties set through the CSS object model. Admin previews serve it under the preview policy. |
+| Requests and storage | The component makes no request of its own (a link in a preview is fetched only if the reader follows it), and reads or writes no storage, cookie or history entry. |
+| Focus and reading position | The marker stays the link: its `href`, role, name and id never change. Focus returns to the marker on Escape. The preview is absolutely positioned and the host element is not displayed, so enhancement never moves the text, and following a citation, its way back and the browser's Back button behave exactly as without JavaScript. |
+| Responsive and print | The preview fits the visible width (the root element's `clientWidth` less 8px on each side) at any zoom; notes wrap long addresses. Print hides the preview and the ways back and keeps every note. |
+| Without JavaScript | Every marker links to its focusable note and every note links back, checked when the page is built. A slow, failing or broken component, or data over its 1 MB budget, leaves exactly that page. |
+| Publication | Only the page of a post that publishes citations carries the data and loads the component. Indexes, feeds, search data, `llms.txt` and portable copies carry the notes and never the data, and pages of posts that publish no citations are byte for byte what they were before previews. Output is deterministic, whatever order the library lists its sources in. |
+
+### What previews do not verify
+
+A preview shows what the author's own source library says about a source, as the notes do. It
+does not check, and must not be read as saying:
+
+- that the source exists, or that its title, authors, date or publisher are right;
+- that a DOI is registered or resolves, or that a web address is reachable, current or the
+  version that was read (nothing is fetched to find out);
+- that the cited passage is at the given location, or that it supports the sentence it is
+  attached to;
+- that a source is authoritative, peer reviewed, reflects scholarly consensus, or may be quoted
+  or reused (copyright permission).
+
+The [offline citation checks](../adr/0050-offline-citation-checks-and-portable-bibliography-exports.md)
+make the same limits explicit to the author.

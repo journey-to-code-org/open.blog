@@ -366,7 +366,10 @@ _Avoid_: Footnotes section, bibliography block
 The small panel that opens beside a citation marker, on focus, hover or a first tap, showing the
 cited reference's formatted text, the citation's locators and at most one checked outside link
 plus the way to the note, all taken from the page's reader references as text. It enhances the
-marker, which stays the link to its note, and is never needed to read the post.
+marker, which stays the link to its note, and is never needed to read the post. It repeats what
+the author's library says and verifies nothing: not that the source exists or is described
+correctly, that its link resolves, that the passage supports the claim, or that the source is
+authoritative or may be reused.
 _Avoid_: Tooltip, popup, source card
 
 **Citation check**:

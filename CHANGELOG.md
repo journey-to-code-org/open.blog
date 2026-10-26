@@ -21,6 +21,12 @@ All notable changes to open.blog are recorded here. Releases follow
   moving elsewhere, stays on screen at any width, respects reduced motion and is not printed. The
   marker is still the link to its note, nothing is fetched or stored, and only pages with
   published citations load it; without JavaScript the page is unchanged.
+- The citation documentation now lists what citation previews guarantee in every release (safe
+  links, text-only metadata, the content security policy they need, no requests or storage,
+  unchanged reading position, zoom, print and no-JavaScript behaviour, and which outputs never
+  carry their data) and what they do not verify: that a source exists or is described correctly,
+  that a DOI or address resolves, that a passage supports the claim, or that a source is
+  authoritative or may be reused.
 
 ### Fixed
 
