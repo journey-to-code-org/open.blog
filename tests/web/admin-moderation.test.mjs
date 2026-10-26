@@ -204,6 +204,10 @@ test("decisions and evidence are worded as the author's and the reader's stateme
   );
   assert.match(decisionLine({ label: "Declined by the author", declineReasonLabel: "The author keeps the passage as written", decided: "2026-10-28", decidedBy: { role: "site-admin", account: "@moderation-token" }, inForce: false }), /^Declined by the author: The author keeps the passage as written, 2026-10-28 \(superseded/);
   assert.match(decisionOutcome({ decision: { label: "Clarification" } }), /^Decision recorded: Clarification\. The post, its citations and the Source Library were not changed/);
+  // A note already on its post shows the new outcome there; one that is not stays off it.
+  assert.match(decisionOutcome({ decision: { label: "Correction" }, outcomePublished: true }), /The outcome now shows on the published note\. Rebuild or publish to update the live site\.$/);
+  assert.doesNotMatch(decisionOutcome({ decision: { label: "Correction" }, outcomePublished: false }), /published note/);
+  assert.match(decisionOutcome({ decision: { label: "Correction" }, publishError: "reader-feedback.json could not be written" }), /The published note could not be updated: reader-feedback\.json could not be written$/);
   const lines = evidenceReviewLines({
     claim: { id: "cave", published: true, label: "Claim 1", statement: "The cave educates." },
     evidenceLink: { id: "h1", published: false },

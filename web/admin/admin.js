@@ -483,7 +483,12 @@ export function decisionLine(decision) {
 /** What a recorded decision did, for the status line after the list reloads. */
 export function decisionOutcome(result) {
   const label = result?.decision?.label || "Decision";
-  return `Decision recorded: ${label}. The post, its citations and the Source Library were not changed, the reader’s note was neither published nor hidden, and nothing was e-mailed.`;
+  const base = `Decision recorded: ${label}. The post, its citations and the Source Library were not changed, the reader’s note was neither published nor hidden, and nothing was e-mailed.`;
+  // A note that is already on its post shows the new outcome there (ADR 0141); one that is not
+  // stays off the post until the author approves it.
+  if (result?.outcomePublished) return `${base} The outcome now shows on the published note. Rebuild or publish to update the live site.`;
+  if (result?.publishError) return `${base} The published note could not be updated: ${result.publishError}`;
+  return base;
 }
 
 const LOCATOR_TEXT = (locator) => `${locator.kind} ${locator.value}${locator.to ? `–${locator.to}` : ""}`;
