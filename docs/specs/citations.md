@@ -124,7 +124,8 @@ On the native page a generated marker is
 and each note ends with one `doc-backlink` per citing marker. The generated heading and notes
 are one `<section class="ob-citation-notes" role="doc-endnotes" aria-labelledby="…">` named by
 that heading's id, which steps aside from the post's own `{#id}`s, footnote labels and raw HTML
-ids so no other element has it, and each generated note has `tabindex="-1"`, so following a marker moves focus
+ids so no other element has it (the author's own headings keep the ids they have without
+citations), and each generated note has `tabindex="-1"`, so following a marker moves focus
 to its note without JavaScript; the author's own footnotes stay outside it, unchanged. The
 reached note or marker is outlined (`:target`), long addresses wrap, and print hides only the
 back links ([ADR 0065](../adr/0065-citation-navigation-is-static-html-checked-at-build.md)).

@@ -402,28 +402,100 @@ fn the_notes_region_is_named_by_its_own_heading_whatever_the_author_wrote() {
         page.contains("<div class=\"footnote-definition\" id=\"notes\">"),
         "{page}"
     );
-    // `notes-2` is the author's own `## Notes`; `notes-3` is the raw span.
+    // The author's own `## Notes` keeps `notes`, as it would without
+    // citations; `notes-3` is the raw span.
+    assert!(page.contains("<h2 id=\"notes\">Notes<a "), "{page}");
     assert!(
         page.contains(
-            "role=\"doc-endnotes\" aria-labelledby=\"notes-4\">\n<h2 id=\"notes-4\">Notes"
+            "role=\"doc-endnotes\" aria-labelledby=\"notes-2\">
+<h2 id=\"notes-2\">Notes"
         ),
         "{page}"
     );
     let data = site.posts[0].reader_references().unwrap();
     data.check_page(&page).unwrap();
     // A page whose region label is carried twice, or not at all, is refused.
-    let twice = page.replacen(" id=\"notes\"", " id=\"notes-4\"", 1);
+    let twice = page.replacen(
+        "<div class=\"footnote-definition\" id=\"notes\">",
+        "<div class=\"footnote-definition\" id=\"notes-2\">",
+        1,
+    );
     let error = data.check_page(&twice).unwrap_err();
     assert!(
-        error.contains("more than one element with id `notes-4`"),
+        error.contains("more than one element with id `notes-2`"),
         "{error}"
     );
     assert!(error.contains("heading"), "{error}");
-    let missing = page.replacen("<h2 id=\"notes-4\"", "<h2 id=\"elsewhere\"", 1);
+    let missing = page.replacen("<h2 id=\"notes-2\"", "<h2 id=\"elsewhere\"", 1);
     assert!(data
         .check_page(&missing)
         .unwrap_err()
-        .contains("labelled by `notes-4`"));
+        .contains("labelled by `notes-2`"));
+}
+
+/// The ids of the page's headings, in order.
+fn page_heading_ids(page: &str) -> Vec<&str> {
+    page.match_indices("<h")
+        .filter_map(|(at, _)| {
+            let rest = &page[at + 2..];
+            let level = rest.as_bytes().first()?;
+            let rest = rest.get(1..)?.strip_prefix(" id=\"")?;
+            (b'1'..=b'6')
+                .contains(level)
+                .then(|| &rest[..rest.find('"').unwrap()])
+        })
+        .collect()
+}
+
+#[test]
+fn turning_citations_on_never_moves_the_authors_heading_ids() {
+    // Inbound links such as `#step-2` reach the same heading whether or not
+    // the post publishes citations, however the post's own ids collide.
+    let body = CITED.replace(
+        "## Notes
+",
+        "## Step
+
+## Step
+
+<span id=\"step-2\"></span>
+
+## Intro {#background}
+
+## Background
+
+See[^step].
+
+[^step]: A note.
+
+<p ID='notes'>x</p>
+
+## Notes
+",
+    );
+    let (site, with) = cited(&body);
+    let (_, without) = cited(&body.replace(
+        "citations: notes
+",
+        "",
+    ));
+    assert!(!without.contains("doc-endnotes"));
+    let region = attribute_values(&with, "aria-labelledby")
+        .into_iter()
+        .find(|id| id.starts_with("notes"))
+        .unwrap();
+    let mut authored = page_heading_ids(&with);
+    let generated = authored.iter().rposition(|id| *id == region).unwrap();
+    assert_eq!(authored.remove(generated), region);
+    assert_eq!(authored, page_heading_ids(&without));
+    assert!(authored.contains(&"step-2") && authored.contains(&"notes"));
+    // Only the generated heading steps aside from the written ids.
+    assert_eq!(region, "notes-2");
+    site.posts[0]
+        .reader_references()
+        .unwrap()
+        .check_page(&with)
+        .unwrap();
 }
 
 #[test]

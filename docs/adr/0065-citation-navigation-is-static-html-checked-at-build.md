@@ -26,9 +26,11 @@ return to the same place, on screen and on paper.
 - **The notes are one named region.** The generated heading and notes, which always close the
   post, are wrapped in `<section class="ob-citation-notes" role="doc-endnotes"
   aria-labelledby="…">` naming the generated heading's own id (`notes`, or `notes-2` when the
-  author already has a "Notes" heading). In a post that publishes citations every generated
-  heading id also steps aside from the ids the post writes itself (`{#id}` values, footnote labels
-  such as `[^notes]`, raw HTML `id`s), so the region's label is the only element with that id.
+  author already has a "Notes" heading). That one generated heading's id also steps aside from
+  the ids the post writes itself (`{#id}` values, footnote labels such as `[^notes]`, raw HTML
+  `id`s, in any case and quoting), so the region's label is the only element with that id. The
+  author's own headings keep exactly the ids they have without citations, so turning citations on
+  never moves an inbound link.
   The author's own footnotes stay outside it, unchanged.
 - **Generated ids avoid the author's headings.** The generated label prefix (`cite-`, then
   `cite2-` and so on) also skips any prefix for which a heading id, written or slugged (`## Cite 1`
