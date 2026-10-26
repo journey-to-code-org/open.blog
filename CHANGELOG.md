@@ -5,6 +5,8 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-25
+
 - Feeds and portable copies of a part of a collaborative series now say which series it belongs
   to, where it falls ("Part 2 in the series") and who wrote it, with a link to the series page: in
   the full RSS and JSON Feed content, in portable HTML, Markdown and text, in exports and
