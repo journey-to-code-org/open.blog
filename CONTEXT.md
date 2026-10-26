@@ -713,8 +713,143 @@ _Avoid_: Source identifier; treating syntax checks as proof the identifier resol
 
 **Source location**:
 A scheme-qualified position, such as a page, folio, line, or timestamp, inside the specific
-work, edition, translation, or witness a reference points at.
+work, edition, translation, or witness a reference points at. In a multi-volume edition or
+witness it also names its volume.
 _Avoid_: Citation, URL fragment
+
+**Realization chain**:
+A record and the records it realizes, followed through `of` up to the work, each keeping its
+own kind: a reference, the edition it points into, the translation that edition prints, and the
+work. A translation in the chain is never read as an edition or as the original work (ADR 0084).
+_Avoid_: Version history, lineage when a revision is meant
+
+**Revision**:
+An edition that revises an earlier edition of the same text, recorded with `revises`. A new
+translation is never a revision; it is its own translation (ADR 0084).
+_Avoid_: Reprint, version, new translation
+
+**Witness identity**:
+The repository and shelfmark that identify one held copy. Two witnesses never share both
+(ADR 0084).
+_Avoid_: Call number alone, CSL archive
+
+**Volume**:
+One physical part of an edition or witness that declares several. A page or folio in such a
+record must name its volume, because pages restart in each (ADR 0084).
+_Avoid_: Issue, part, tome when a separate edition is meant
+
+**Rights declaration**:
+The author's own statement of the rights in one version's text, or in an interpretation's text:
+a rights status, an optional one-line note and, for an open licence, the licence's name. It is
+private and never a legal determination (ADR 0085).
+_Avoid_: Licence check, clearance, permission
+
+**Rights status**:
+One of unknown, rights reserved, permission, open licence, public domain, or own work, as the
+author states it. A version that declares none is unknown, and no version inherits a status
+from the work, edition, or translation it comes from (ADR 0085).
+_Avoid_: Allowed, cleared, copyright status as a fact
+
+**Attribution certainty**:
+How firmly a name is tied to a source or interpretation, as the author records it: stated by the
+source, attributed by tradition or scholarship, uncertain, or disputed. Absent means not recorded,
+never "stated" by inference (ADR 0086).
+_Avoid_: Confidence score, authorship verdict
+
+**Anonymous source**:
+A work, edition, translation, or witness whose source names no maker. Names tradition assigns may
+still be recorded as attributed, uncertain, or disputed, but never as stated (ADR 0086).
+_Avoid_: Unknown author when the creators are simply not filled in
+
+**Interpretation**:
+An attributed rendering or reading of one located place in one exact text in the source library,
+kept beside the library's records. It is private research, never a source, never cited, and
+never a credit (ADR 0087).
+_Avoid_: Translation (a published version), annotation, research note, claim
+
+**Rendering**:
+An interpretation that translates one located place into another language. It names the edition,
+translation, or witness it was made from.
+_Avoid_: Translation when the library's published translation record is meant
+
+**Reading**:
+An interpretation of what one located place means.
+_Avoid_: Claim, evidence, commentary when a library source is meant
+
+**Interpreter**:
+Who made an interpretation: a contributor named by registry key, which reuses their identity
+without creating a work credit, or anyone else by a descriptive name, each with an optional
+attribution certainty. An interpretation with no interpreter is explicitly anonymous (ADR 0087).
+_Avoid_: Credit, author, creator
+
+**Passage alignment**:
+The author's private record that places in two or more versions or interpretations correspond,
+attributed and optionally evidenced. It never says the places mean the same thing and never
+treats a version as authoritative (ADR 0088). It is published only once approved, through the
+comparison projection (ADR 0092).
+_Avoid_: Equivalence, parallel text, translation memory, automatic alignment
+
+**Alignment member**:
+One place in a passage alignment: a version and its own locators, optionally the notebook passage
+quoting it, or an interpretation aligned as it is. Several members may come from one version, and
+a place may belong to several alignments.
+_Avoid_: Segment pair, row, one-to-one match
+
+**Absent member**:
+An alignment member recording that a version lacks the passage (an omission, a lost leaf, or a
+gap), so a missing passage is stated rather than inferred from silence.
+_Avoid_: Empty member, null match
+
+**Correspondence**:
+How the author reads an alignment's places: corresponding, corresponding in part, or
+corresponding but differing. There is deliberately no "equivalent".
+_Avoid_: Equivalence, similarity score
+
+**Normalization**:
+The author's normalized form of a member's original wording (for example, composed accents or
+expanded abbreviations), stored beside and never in place of the passage or interpretation text.
+_Avoid_: Correction, the text, cleaned excerpt
+
+**Comparison workspace**:
+The Admin research tool that reads one passage alignment as its versions' places side by side or
+in a single column, in the author's member order, with original wording exact and normalizations
+shown only on request (ADR 0090). It reads and edits alignments, previews what a public page
+would show for each place, and records approval; it publishes only through the comparison
+projection.
+_Avoid_: Parallel text viewer, diff, translation comparison score
+
+**Place identification**:
+The visible line on every compared place naming its version (kind and language), its maker in the
+version's own role (editor, translator, scribe, or interpreters, with attribution certainty), and
+its locator, so a place read or copied alone stays attributed.
+_Avoid_: Caption, citation
+
+**Comparison export**:
+Copying or downloading the places the author explicitly selected in the comparison workspace,
+each with its place identification and rights statement and its wording exactly. Copying waits
+for confirmation when a selected version's rights are unchecked or reserved, and a rights status
+never means permission. The author's private notes on places are left out unless the author ticks
+"Include my notes on places" (ADR 0091).
+_Avoid_: Publishing, sharing, licence check
+
+**Comparison projection**:
+The one public form of passage comparisons: approved alignments, each reduced to an explicit
+allowlist of fields, with every place identified and its wording passed through the rights gate.
+The comparison pages and `comparisons.json` are both rendered from it (ADR 0092).
+_Avoid_: Public alignments, parallel text export
+
+**Comparison publication switch**:
+The site setting `comparisons.publish`. Off by default, when no build reads the alignments file;
+on, the build publishes the comparison projection. Each alignment still needs the author's
+approval.
+_Avoid_: Treating approval alone as publication
+
+**Rights gate**:
+The rule that a compared place's wording is published only when the author's rights statement
+for its version or interpretation is permission, open licence, public domain, or own work, and the
+wording is a brief excerpt (at most 1,000 characters). Otherwise the place is identified and
+located, never quoted. It follows the author's declaration and is never a legal judgement.
+_Avoid_: Licence check, copyright clearance, fair-use test
 
 **Knowledge Atlas**:
 An author's private, versioned map of contextual entries and the attributed relationships between
@@ -748,12 +883,115 @@ publication projection may copy. An approved relationship touching a private ent
 private and is reported as a notice, never refused.
 _Avoid_: Public relationship, approved relationship when a private endpoint is possible
 
+**Dating**:
+One party's attributed claim about when one aspect of an atlas entry or relationship happened,
+resting on cited evidence (or explicitly unsourced), with a confidence and a note. It is private
+until approved and is never a fact.
+_Avoid_: Date field, the date of something; a date without who gives it
+
+**Dated aspect**:
+What a dating dates: an entry's `span`, a person's `birth`, `death` or `active` period, a work's
+`composition` or `publication`, a concept's or movement's `emergence`, or the `span` during which
+a relationship held. Only span, active and composition last. The chronology explorer lists one
+item's dated aspect (Plato's birth) as one row holding all its competing datings, and its filters
+show or hide a whole dated aspect, never one of its datings.
+_Avoid_: Event type, role; a timeline bar or merged date range for one aspect
+
+**Date expression**:
+The one form a dating takes: a point (`at`), a duration (`from`/`to`), a date window
+(`notBefore`/`notAfter`), unknown, or a relative dating.
+_Avoid_: Date string, parsed date
+
+**Date precision**:
+How finely a point is stated: day, month, year, decade or century. A point is read back exactly
+as written; nothing rounds, widens or narrows it.
+_Avoid_: Accuracy, granularity guessed from text
+
+**Circa**:
+A point the party gives as approximate. It is kept beside the point and does not move it.
+_Avoid_: Fuzzy date, estimated (when the party did not say so)
+
+**Date window**:
+The time inside which something happened, with an inclusive earliest (`notBefore`) and latest
+(`notAfter`) point; an open end is what "after" or "before" a date means.
+_Avoid_: Range (ambiguous with a duration), terminus as a stored word
+
+**Unknown date**:
+A party's explicit statement that a date is unknown. It is never coerced to a point and sorts
+after every dated item; having no dating at all simply means undated.
+_Avoid_: Null date, year 0, a placeholder year
+
+**Competing datings**:
+Two or more datings of the same aspect, by different parties or as one party's alternatives.
+They stand side by side in file order; nothing prefers, merges or resolves them.
+_Avoid_: Correct date, consensus date, resolved date
+
+**Relative dating**:
+A dating that places an aspect before, after or during another entry's aspect. It is the atlas's
+only temporal relationship: asserted and cited like any dating, never inferred from absolute
+dates, and never a relationship kind or a reason for one.
+_Avoid_: Preceded or contemporary-of relationship; order inferred from years
+
+**Calendar policy**:
+Years are historical BCE/CE years with no year 0. A month and day may name the calendar they
+are stated in (Gregorian or Julian); nothing converts calendars, and points in different
+calendars are compared by year only.
+_Avoid_: Normalized date, proleptic conversion
+
+**Projected dating**:
+An approved, cited dating with no notebook passage whose entry or relationship is published and,
+if relative, whose other entry is approved. Anything else stays private and is reported as a
+notice, never refused.
+_Avoid_: Public date; approved dating when its owner may be private
+
+**Chronology index**:
+Every dating of the atlas, private or approved, placed by the entry or relationship it dates, by
+aspect and on one timeline, in one deterministic display order that does not depend on file
+order. Competing, circa, relative and unknown datings are all kept; nothing is chosen, merged or
+linked by closeness in time. It is for the author's tools and is never published.
+_Avoid_: Canonical timeline, resolved dates, contemporaries
+
+**Chronology prompt**:
+A structural, non-blocking notice that some recorded datings cannot all hold as stated, such as a
+death dated before a birth or relative datings ordering two works both ways round. It names
+dating ids and their stated values, asks the author to check them against the cited evidence, and
+never says which dating is right; only relationships and relative datings someone asserted are
+followed across entries.
+_Avoid_: Chronology error, conflict resolution, verdict, inferred influence
+
+**Chronology explorer**:
+Admin Studio's text view of the chronology index: dated aspects in one display order, grouped by
+century, decade or year at the author's choice, with relative datings as sentences and
+chronology prompts as checks that link to the dating. It is lists and words only, private to the
+author, and never resolves or ranks datings.
+_Avoid_: Timeline chart, canonical chronology, zoomable graph
+
 **Atlas projection**:
 The one public form of the Knowledge Atlas: approved entries and projected relationships, each
 reduced to an explicit allowlist of fields, with the public description of the sources they use.
 Both the atlas pages and `atlas.json` are rendered from it, and nothing public reads the private
 atlas. Withdrawing approval removes an item from the next build.
 _Avoid_: Public atlas export, public graph; filtering the private atlas per surface
+
+**Published dating**:
+A projected dating as the atlas projection publishes it: who dates what, on which cited evidence,
+how firmly and with what note, at the precision stated and read back in words with BCE written
+out. Competing published datings appear side by side, in the chronology's one order, and none is
+preferred.
+_Avoid_: Public date, the date of an entry, resolved date
+
+**Public timeline**:
+The `/atlas/` section that lists every published dating as text, by the century in which each
+dated aspect's earliest dating begins, with aspects not placed in time listed apart. It reads
+completely without JavaScript; its component only filters whole dated aspects and moves focus to
+a period. Order on it never means cause or influence.
+_Avoid_: Timeline chart, canonical chronology, contemporaries list
+
+**Chronology trail**:
+The path a reader follows from one entry to another through published relative datings, one
+asserted, attributed and cited step at a time, each linked both ways. Nothing chains steps, infers
+an order from dates, or turns a step into a relationship.
+_Avoid_: Influence chain, inferred sequence, derived timeline
 
 **Atlas publication switch**:
 The site setting `knowledgeAtlas.publish`. Off by default, when no build reads the atlas at all;

@@ -19,6 +19,8 @@ use std::time::Duration;
 
 use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
+use openblog_core::chronology::{Aspect, ChronoKey, TemporalOrder, MAX_DATINGS, MAX_YEAR};
+use openblog_core::chronology_index::{date_text, ChronologyIndex};
 use openblog_core::citations::{self, PublicLocator};
 use openblog_core::claims;
 use openblog_core::collaboration::{
@@ -65,6 +67,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value as Json};
 
 use crate::admin_preferences::{self, Preferences, SaveError};
+use crate::alignment_store;
 use crate::assistant::{
     parse_skill, AnthropicProvider, AssistantCompletionSource, AssistantConcurrency,
     AssistantDocument, AssistantErrorKind, AssistantProvider, AssistantProviderStatus,
@@ -657,6 +660,10 @@ fn authenticated_api(
         ("POST", "research/claims/links") => save_claim_link(state, req, true),
         ("PUT", "research/claims/links") => save_claim_link(state, req, false),
         ("DELETE", "research/claims/links") => remove_claim_item(state, req, false),
+        ("GET", "research/alignments") => list_alignments(state),
+        ("POST", "research/alignments") => save_alignment(state, req, true),
+        ("PUT", "research/alignments") => save_alignment(state, req, false),
+        ("DELETE", "research/alignments") => remove_alignment_item(state, req),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
@@ -971,7 +978,17 @@ fn save_source(state: &AppState, req: &Request, create: bool) -> Response {
         source_store::update(&state.root, &revision, record, &contributors)
     };
     match saved {
-        Ok(snapshot) => source_saved(if create { 201 } else { 200 }, &snapshot, &id),
+        Ok(snapshot) => {
+            let mut view = source_saved_view(&snapshot, &id);
+            if !create {
+                attach_comparisons_build_if_used(
+                    state,
+                    &mut view,
+                    alignment_store::PublishedUse::Source(&id),
+                );
+            }
+            Response::json(if create { 201 } else { 200 }, &view)
+        }
         Err(error) => source_store_error(state, error, Some(&id)),
     }
 }
@@ -991,7 +1008,15 @@ fn archive_source(state: &AppState, req: &Request) -> Response {
         archived,
         &source_contributors(state),
     ) {
-        Ok(snapshot) => source_saved(200, &snapshot, id),
+        Ok(snapshot) => {
+            let mut view = source_saved_view(&snapshot, id);
+            attach_comparisons_build_if_used(
+                state,
+                &mut view,
+                alignment_store::PublishedUse::Source(id),
+            );
+            Response::json(200, &view)
+        }
         Err(error) => source_store_error(state, error, Some(id)),
     }
 }
@@ -1050,9 +1075,8 @@ fn import_sources(state: &AppState, req: &Request) -> Response {
         );
     }
     match source_store::import_csl(&state.root, revision, content, &contributors) {
-        Ok((saved, plan)) => Response::json(
-            200,
-            &json!({
+        Ok((saved, plan)) => {
+            let mut view = json!({
                 "file": source_store::LIBRARY_FILE,
                 "revision": saved.revision,
                 "stored": saved.stored,
@@ -1060,8 +1084,15 @@ fn import_sources(state: &AppState, req: &Request) -> Response {
                 "applicable": true,
                 "plan": plan,
                 "sources": saved.library.sources,
-            }),
-        ),
+            });
+            // An import may fill in attribution on records a comparison publishes.
+            attach_comparisons_build_if_used(
+                state,
+                &mut view,
+                alignment_store::PublishedUse::AnySource,
+            );
+            Response::json(200, &view)
+        }
         Err(error) => source_store_error(state, error, None),
     }
 }
@@ -1106,15 +1137,12 @@ fn export_sources(state: &AppState, req: &Request) -> Response {
     )
 }
 
-fn source_saved(status: u16, snapshot: &source_store::Snapshot, id: &str) -> Response {
-    Response::json(
-        status,
-        &json!({
-            "revision": snapshot.revision,
-            "stored": snapshot.stored,
-            "source": snapshot.library.get(id),
-        }),
-    )
+fn source_saved_view(snapshot: &source_store::Snapshot, id: &str) -> Json {
+    json!({
+        "revision": snapshot.revision,
+        "stored": snapshot.stored,
+        "source": snapshot.library.get(id),
+    })
 }
 
 fn source_diagnostics(diagnostics: Vec<SourceDiagnostic>) -> Response {
@@ -1426,6 +1454,13 @@ fn save_passage(state: &AppState, req: &Request, create: bool) -> Response {
         Ok(snapshot) => {
             let mut view = notebook_view(&snapshot);
             view["passage"] = json!(snapshot.notebook.passage(&id));
+            if !create {
+                attach_comparisons_build_if_used(
+                    state,
+                    &mut view,
+                    alignment_store::PublishedUse::Passage(&id),
+                );
+            }
             Response::json(if create { 201 } else { 200 }, &view)
         }
         Err(error) => notebook_store_error(state, error, Some((true, &id))),
@@ -1503,7 +1538,17 @@ fn archive_entry(state: &AppState, req: &Request) -> Response {
         archived,
         &source_contributors(state),
     ) {
-        Ok(snapshot) => Response::json(200, &notebook_view(&snapshot)),
+        Ok(snapshot) => {
+            let mut view = notebook_view(&snapshot);
+            if collection == notebook_store::Collection::Passages {
+                attach_comparisons_build_if_used(
+                    state,
+                    &mut view,
+                    alignment_store::PublishedUse::Passage(id),
+                );
+            }
+            Response::json(200, &view)
+        }
         Err(error) => notebook_store_error(
             state,
             error,
@@ -1699,6 +1744,90 @@ fn atlas_kinds() -> Json {
                 "acyclic": kind.is_acyclic(),
             }))
             .collect::<Vec<_>>(),
+        // What a dating may date on each owner, so the dating editor offers
+        // only aspects the core accepts and a duration only where one lasts.
+        "aspects": Aspect::ALL
+            .iter()
+            .map(|aspect| json!({
+                "aspect": aspect.as_str(),
+                "durative": aspect.is_durative(),
+                "entries": names(&EntryKind::ALL
+                    .into_iter()
+                    .filter(|kind| aspect.applies_to(*kind))
+                    .collect::<Vec<_>>()),
+                "relationship": *aspect == Aspect::Span,
+            }))
+            .collect::<Vec<_>>(),
+        "orders": TemporalOrder::ALL.iter().map(|order| order.as_str()).collect::<Vec<_>>(),
+        "maxDatings": MAX_DATINGS,
+        "maxYear": MAX_YEAR,
+    })
+}
+
+/// The chronology index for the explorer (ADR 0096, ADR 0097): every dating,
+/// private or approved, in the index's one display order, with its owner, its
+/// stated value read back at its own precision, and the first and last year
+/// it covers (none for an open end, a relative or an unknown dating), plus the
+/// structural prompts. Nothing is chosen, merged or dropped, and this view is
+/// for the author only, like the rest of Admin.
+fn atlas_chronology(atlas: &knowledge_atlas::Atlas) -> Json {
+    let index = ChronologyIndex::of(atlas);
+    let mut found = BTreeMap::new();
+    for (position, entry) in atlas.entries.iter().enumerate() {
+        for (at, dating) in entry.dates.iter().enumerate() {
+            found.insert(
+                dating.id.as_str(),
+                ("entries", position, entry.id.as_str(), at, dating),
+            );
+        }
+    }
+    for (position, relationship) in atlas.relationships.iter().enumerate() {
+        for (at, dating) in relationship.dates.iter().enumerate() {
+            found.insert(
+                dating.id.as_str(),
+                (
+                    "relationships",
+                    position,
+                    relationship.id.as_str(),
+                    at,
+                    dating,
+                ),
+            );
+        }
+    }
+    let timeline: Vec<Json> = index
+        .by_time
+        .iter()
+        .filter_map(|id| found.get(id.as_str()))
+        .map(|(collection, position, owner, at, dating)| {
+            let (placement, start, end) = match dating.key() {
+                ChronoKey::Dated { start, end } => (
+                    "dated",
+                    (start.0 != i32::MIN).then_some(start.0),
+                    (end.0 != i32::MAX).then_some(end.0),
+                ),
+                ChronoKey::Relative => ("relative", None, None),
+                ChronoKey::Unknown => ("unknown", None, None),
+            };
+            json!({
+                "id": dating.id,
+                "owner": owner,
+                "collection": collection,
+                "index": position,
+                "field": format!("dates[{at}]"),
+                "aspect": dating.aspect,
+                "text": date_text(&dating.date),
+                "placement": placement,
+                "startYear": start,
+                "endYear": end,
+                "projected": atlas.is_dating_projected(owner, dating),
+            })
+        })
+        .collect();
+    json!({
+        "timeline": timeline,
+        "prompts": index.prompts,
+        "unlisted": index.unlisted,
     })
 }
 
@@ -1728,6 +1857,7 @@ fn atlas_view(snapshot: &atlas_store::Snapshot) -> Json {
         "entries": atlas.entries,
         "relationships": atlas.relationships,
         "notices": atlas.notices(),
+        "chronology": atlas_chronology(atlas),
         "missingConcepts": atlas.missing_concepts(&snapshot.notebook),
         "kinds": atlas_kinds(),
         "sources": snapshot.library.sources,
@@ -2409,6 +2539,338 @@ fn claims_store_error(
         claims_store::StoreError::Storage(message) => Response::json(
             500,
             &json!({ "error": message, "file": claims_store::CLAIMS_FILE }),
+        ),
+    }
+}
+
+// ---- Passage alignments (A6.2, ADR 0088 and ADR 0089) ----------------------
+//
+// Private research like the notebook and the claims file: these routes sit
+// behind the session, CSRF token and deny-by-default router, are `no-store`,
+// cap a change at 256 KiB, need the revision, and never publish anything. The
+// comparison workspace (#54) builds its controls on them.
+
+fn alignments_view(
+    snapshot: &alignment_store::Snapshot,
+    contributors: &BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Json {
+    let links = openblog_core::knowledge_atlas::Links {
+        library: &snapshot.library,
+        notebook: &snapshot.notebook,
+    };
+    let mut view = comparison_context(snapshot, contributors);
+    let extra = json!({
+        "file": alignment_store::ALIGNMENTS_FILE,
+        "revision": snapshot.revision,
+        "stored": snapshot.stored,
+        "alignments": snapshot.alignments.alignments,
+        "notices": snapshot.alignments.notices(links),
+        "notice": openblog_core::alignment::ALIGNMENT_NOTICE,
+        "publication": publication_preview(snapshot, contributors),
+    });
+    if let (Some(view), Json::Object(extra)) = (view.as_object_mut(), extra) {
+        view.extend(extra);
+    }
+    view
+}
+
+/// What each alignment would publish (ADR 0092), approved or not, so the
+/// author sees before approving which places are quoted and which are only
+/// identified: per alignment, one status per member in member order
+/// (`shown`, `absent`, `unquoted`, or `withheld-rights` / `withheld-length`).
+/// Admin-only like the rest of the view; nothing here is published.
+fn publication_preview(
+    snapshot: &alignment_store::Snapshot,
+    contributors: &BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Json {
+    use openblog_core::comparison_publication::{
+        ComparisonInputs, PublicComparison, Withheld, COMPARISONS_URL, MAX_PUBLIC_EXCERPT_CHARS,
+    };
+    let inputs = ComparisonInputs {
+        library: &snapshot.library,
+        notebook: &snapshot.notebook,
+        contributors,
+    };
+    let mut places = serde_json::Map::new();
+    for alignment in &snapshot.alignments.alignments {
+        let Ok(projected) = PublicComparison::project(alignment, inputs) else {
+            continue;
+        };
+        let statuses: Vec<Json> = projected
+            .places_in_member_order()
+            .into_iter()
+            .map(|place| {
+                json!(match (place.absent, &place.text, place.withheld) {
+                    (true, _, _) => "absent",
+                    (_, Some(_), _) => "shown",
+                    (_, None, Some(Withheld::Rights)) => "withheld-rights",
+                    (_, None, Some(Withheld::Length)) => "withheld-length",
+                    (_, None, None) => "unquoted",
+                })
+            })
+            .collect();
+        places.insert(alignment.id.clone(), Json::Array(statuses));
+    }
+    json!({
+        "url": COMPARISONS_URL,
+        "maxExcerptChars": MAX_PUBLIC_EXCERPT_CHARS,
+        "places": places,
+    })
+}
+
+/// What the comparison workspace (#54) shows beside the alignments, read
+/// under the same snapshot: every library record with its rights label and
+/// realization chain, every notebook passage with its exact wording, and
+/// every interpretation with its interpreters' names. Admin-only and
+/// `no-store` like the rest of the private research routes; labels state the
+/// author's declaration and never grant permission (ADR 0085).
+fn comparison_context(
+    snapshot: &alignment_store::Snapshot,
+    contributors: &BTreeMap<String, openblog_core::contributor::Contributor>,
+) -> Json {
+    use openblog_core::alignment::Correspondence;
+    use openblog_core::interpretation::InterpreterIdentity;
+    use openblog_core::source_library::RightsStatus;
+    let library = &snapshot.library;
+    let rights = |declared: Option<&openblog_core::source_library::RightsDeclaration>,
+                  status: RightsStatus| {
+        json!({
+            "status": status.tag(),
+            "label": status.label(),
+            "declared": declared.is_some(),
+            "note": declared.and_then(|rights| rights.note.as_deref()),
+            "license": declared.and_then(|rights| rights.license.as_deref()),
+        })
+    };
+    let sources: Vec<Json> = library
+        .sources
+        .iter()
+        .map(|record| {
+            let mut value = json!(record);
+            value["chain"] = Json::Array(
+                library
+                    .realization_chain(&record.id)
+                    .iter()
+                    .skip(1)
+                    .map(|link| json!({ "id": link.id, "kind": link.kind, "title": link.title }))
+                    .collect(),
+            );
+            if let Some(status) = record.rights_status() {
+                value["rightsStatus"] = rights(record.rights.as_ref(), status);
+            }
+            value
+        })
+        .collect();
+    let interpretations: Vec<Json> = library
+        .interpretations
+        .iter()
+        .map(|interpretation| {
+            let mut value = json!(interpretation);
+            value["interpreters"] = Json::Array(
+                interpretation
+                    .interpreters
+                    .iter()
+                    .map(|interpreter| {
+                        let mut named = json!(interpreter);
+                        named["display"] = json!(match interpreter.identity() {
+                            InterpreterIdentity::Contributor(key) => contributors
+                                .get(key)
+                                .map_or(key, |contributor| contributor.name.as_str()),
+                            InterpreterIdentity::Named(name) => name,
+                        });
+                        named
+                    })
+                    .collect(),
+            );
+            value["rightsStatus"] = rights(
+                interpretation.rights.as_ref(),
+                interpretation.rights_status(),
+            );
+            value
+        })
+        .collect();
+    json!({
+        "sources": sources,
+        "passages": snapshot.notebook.passages,
+        "interpretations": interpretations,
+        "correspondences": Correspondence::ALL
+            .iter()
+            .map(|c| json!({ "value": c.as_str(), "label": c.label() }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn list_alignments(state: &AppState) -> Response {
+    match alignment_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => {
+            let mut view = alignments_view(&snapshot, &source_contributors(state));
+            view["publication"]["publish"] = json!(site::load_config(&state.root)
+                .map(|config| config.comparisons.publish)
+                .unwrap_or(false));
+            Response::json(200, &view)
+        }
+        Err(error) => alignments_store_error(state, error, None),
+    }
+}
+
+fn alignments_request(req: &Request) -> Result<(Json, String), Response> {
+    require_json(req)?;
+    if req.body.len() > MAX_NOTEBOOK_REQUEST_BYTES {
+        return Err(Response::error(
+            413,
+            "An alignments change is limited to 256 KiB",
+        ));
+    }
+    let body: Json =
+        serde_json::from_slice(&req.body).map_err(|_| Response::error(400, "Invalid JSON"))?;
+    let Some(revision) = body["revision"].as_str().map(str::to_string) else {
+        return Err(Response::error(400, "Missing alignments revision"));
+    };
+    Ok((body, revision))
+}
+
+/// Create (`POST`) or update (`PUT`) one alignment from its full JSON form.
+fn save_alignment(state: &AppState, req: &Request, create: bool) -> Response {
+    let (body, revision) = match alignments_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let alignment = match openblog_core::alignment::Alignment::from_json(body["alignment"].clone())
+    {
+        Ok(alignment) => alignment,
+        Err(diagnostics) => return alignments_diagnostics(diagnostics),
+    };
+    let id = alignment.id.clone();
+    let contributors = source_contributors(state);
+    let saved = if create {
+        alignment_store::create_alignment(&state.root, &revision, alignment, &contributors)
+    } else {
+        alignment_store::update_alignment(&state.root, &revision, alignment, &contributors)
+    };
+    match saved {
+        Ok(snapshot) => {
+            let mut view = alignments_view(&snapshot, &contributors);
+            view["alignment"] = json!(snapshot.alignments.alignment(&id));
+            attach_comparisons_build(state, &mut view);
+            Response::json(if create { 201 } else { 200 }, &view)
+        }
+        Err(error) => alignments_store_error(state, error, Some(&id)),
+    }
+}
+
+/// Remove one alignment. The removed alignment travels back so the editor
+/// can offer undo.
+fn remove_alignment_item(state: &AppState, req: &Request) -> Response {
+    let (body, revision) = match alignments_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    // Checked before it is named in any message, so a hostile id is never echoed.
+    let Some(id) = body["id"]
+        .as_str()
+        .filter(|id| knowledge_atlas::valid_id(id))
+    else {
+        return Response::error(400, "Name the id of the alignment to remove");
+    };
+    match alignment_store::remove_alignment(&state.root, &revision, id, &source_contributors(state))
+    {
+        Ok((snapshot, removed)) => {
+            let mut view = alignments_view(&snapshot, &source_contributors(state));
+            view["removed"] = json!(removed);
+            attach_comparisons_build(state, &mut view);
+            Response::json(200, &view)
+        }
+        Err(error) => alignments_store_error(state, error, Some(id)),
+    }
+}
+
+/// While the site publishes comparisons (ADR 0092), a saved alignments change
+/// is published at once, so approving or withdrawing a comparison reaches the
+/// public site without waiting for another save. The outcome travels as
+/// `build`; a site that does not publish comparisons is not rebuilt.
+fn attach_comparisons_build(state: &AppState, view: &mut Json) {
+    let publishes = site::load_config(&state.root)
+        .map(|config| config.comparisons.publish)
+        .unwrap_or(false);
+    view["publication"]["publish"] = json!(publishes);
+    if !publishes {
+        return;
+    }
+    view["build"] = match state.rebuild() {
+        Ok(report) => json!({ "ok": true, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
+}
+
+/// While the site publishes comparisons (ADR 0092), a saved or archived
+/// library source or notebook passage that an approved comparison uses is
+/// published at once, so a version whose rights become reserved or unknown,
+/// or a passage whose wording changes, never leaves a public page quoting
+/// the old wording. The outcome travels as `build`, as for alignment saves;
+/// a change nothing published uses, or a site that does not publish
+/// comparisons, is not rebuilt.
+fn attach_comparisons_build_if_used(
+    state: &AppState,
+    view: &mut Json,
+    used: alignment_store::PublishedUse<'_>,
+) {
+    let Ok(config) = site::load_config(&state.root) else {
+        return;
+    };
+    if !config.comparisons.publish
+        || !alignment_store::publishes(&state.root, &config.contributors, used)
+    {
+        return;
+    }
+    view["build"] = match state.rebuild() {
+        Ok(report) => json!({ "ok": true, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
+}
+
+fn alignments_diagnostics(diagnostics: Vec<AtlasDiagnostic>) -> Response {
+    let error = diagnostics.first().map_or_else(
+        || "The alignments change is invalid".to_string(),
+        |first| first.to_string(),
+    );
+    Response::json(
+        422,
+        &json!({
+            "error": error,
+            "file": alignment_store::ALIGNMENTS_FILE,
+            "diagnostics": diagnostics,
+        }),
+    )
+}
+
+/// A conflict carries the latest revision and the newer copy of the
+/// alignment being changed. Nothing is written either way.
+fn alignments_store_error(
+    state: &AppState,
+    error: alignment_store::StoreError,
+    id: Option<&str>,
+) -> Response {
+    match error {
+        alignment_store::StoreError::Conflict => {
+            let latest = alignment_store::load(&state.root, &source_contributors(state)).ok();
+            let current = latest
+                .as_ref()
+                .zip(id)
+                .and_then(|(snapshot, id)| snapshot.alignments.alignment(id).map(|a| json!(a)));
+            Response::json(
+                409,
+                &json!({
+                    "error": error.to_string(),
+                    "conflict": true,
+                    "revision": latest.as_ref().map(|snapshot| snapshot.revision.as_str()),
+                    "current": current,
+                }),
+            )
+        }
+        alignment_store::StoreError::Invalid(diagnostics) => alignments_diagnostics(diagnostics),
+        alignment_store::StoreError::Storage(message) => Response::json(
+            500,
+            &json!({ "error": message, "file": alignment_store::ALIGNMENTS_FILE }),
         ),
     }
 }
@@ -7553,6 +8015,30 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             &json!({
                 "error": "Contributors who take part in a shared reflection cannot be removed.",
                 "contributors": bound_removed,
+            }),
+        );
+    }
+    // Interpretations in the source library name interpreters by registry key
+    // (ADR 0087). The library lock is held until the registry is written.
+    let (_library_lock, interpreted) = match source_store::interpreters_in_use(
+        &state.root,
+        &current_config.contributors,
+        &removed,
+    ) {
+        Ok(found) => found,
+        Err(error) => return Response::error(422, &error),
+    };
+    if !interpreted.is_empty() {
+        let contributors: std::collections::BTreeSet<&str> =
+            interpreted.iter().map(|(key, _)| key.as_str()).collect();
+        let interpretations: std::collections::BTreeSet<&str> =
+            interpreted.iter().map(|(_, id)| id.as_str()).collect();
+        return Response::json(
+            422,
+            &json!({
+                "error": "Contributors named as interpreters in the source library cannot be removed. Change those interpretations first.",
+                "contributors": contributors,
+                "interpretations": interpretations,
             }),
         );
     }
@@ -14917,7 +15403,7 @@ mod tests {
     // Every atlas field holds its own sentinel, including approved items: the site
     // does not publish its atlas, so approval alone must not open any surface.
 
-    const ATLAS_SENTINELS: [(&str, &str); 14] = [
+    const ATLAS_SENTINELS: [(&str, &str); 18] = [
         ("entry id", "ob-atlas-entry-id-5309"),
         ("label", "ob-atlas-label-5309"),
         ("alias", "ob-atlas-alias-5309"),
@@ -14935,6 +15421,10 @@ mod tests {
         ),
         ("evidence unknown field", "ob-atlas-evidence-extra-5309"),
         ("top-level unknown field", "ob-atlas-top-extra-5309"),
+        ("dating id", "ob-atlas-dating-id-5309"),
+        ("dating note", "ob-atlas-dating-note-5309"),
+        ("dating party", "ob-atlas-dating-party-5309"),
+        ("dating unknown field", "ob-atlas-dating-extra-5309"),
     ];
 
     fn atlas_leaked(bytes: &[u8]) -> Vec<&'static str> {
@@ -14966,7 +15456,14 @@ mod tests {
         let person = Entry::from_json(json!({
             "id": ATLAS_SENTINELS[0].1, "kind": "person", "label": ATLAS_SENTINELS[1].1,
             "aliases": [ATLAS_SENTINELS[2].1], "summary": ATLAS_SENTINELS[3].1,
-            "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1}))
+            "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1,
+            // An approved, cited dating: published with the atlas (ADR 0099),
+            // except its unknown field.
+            "dates": [{"id": ATLAS_SENTINELS[14].1, "aspect": "birth",
+                "date": {"notBefore": {"year": -428, "circa": true}, "notAfter": {"century": -5}},
+                "assertedBy": {"kind": "named", "name": ATLAS_SENTINELS[16].1},
+                "evidence": [{"source": "slings"}], "note": ATLAS_SENTINELS[15].1,
+                "visibility": "approved", "shelf": ATLAS_SENTINELS[17].1}]}))
         .unwrap();
         let work = Entry::from_json(json!({"id": "politeia", "kind": "work",
             "label": "Politeia", "source": "plato", "visibility": "approved"}))
@@ -15022,8 +15519,11 @@ mod tests {
         assert!(names.iter().any(|name| name.ends_with(".xml")), "a feed");
         for file in &files {
             let name = crate::fsutil::relative(&dist, file);
+            // The timeline component ships with every site like any other
+            // component; it holds no atlas data and no page loads it unless
+            // the site publishes datings.
             assert!(
-                !name.contains("atlas")
+                (!name.contains("atlas") || name == "assets/components/ob-atlas-timeline.js")
                     && (name == crate::fsutil::MARKER || !name.contains(".openblog")),
                 "{name}"
             );
@@ -15270,6 +15770,607 @@ mod tests {
         assert!(error.contains(crate::claims_store::CLAIMS_FILE), "{error}");
         assert!(!f.dir.join("dist/posts/still-saved/index.html").exists());
         assert_eq!(fs::read(&claims).unwrap(), b"{ not json", "never replaced");
+    }
+
+    #[test]
+    fn alignments_api_is_authenticated_revision_checked_and_scoped() {
+        let f = fixture_with_sources("alignments-api");
+        for (method, path) in [
+            ("GET", "/admin/api/research/alignments"),
+            ("POST", "/admin/api/research/alignments"),
+            ("PUT", "/admin/api/research/alignments"),
+            ("DELETE", "/admin/api/research/alignments"),
+        ] {
+            assert_eq!(handle(&f.state, &req(method, path)).status, 401, "{path}");
+        }
+        let library = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::create_dir_all(library.parent().unwrap()).unwrap();
+        fs::write(
+            &library,
+            json!({"version": 1, "sources": [
+                {"id": "w", "kind": "work", "title": "W"},
+                {"id": "e", "kind": "edition", "of": "w", "title": "E"},
+                {"id": "t", "kind": "translation", "of": "w", "language": "he", "title": "T"}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let list = |session: &(String, String)| {
+            body_json(&handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/alignments"), session, false),
+            ))
+        };
+        let empty = list(&session);
+        assert_eq!(empty["stored"], false);
+        assert_eq!(empty["file"], crate::alignment_store::ALIGNMENTS_FILE);
+        assert!(empty["notice"]
+            .as_str()
+            .unwrap()
+            .contains("does not say they mean the same"));
+        let revision = empty["revision"].as_str().unwrap().to_string();
+        let file = f.dir.join(crate::alignment_store::ALIGNMENTS_FILE);
+        let alignment = json!({"id": "a1", "label": "ob-alignment-label", "members": [
+            {"source": "e", "locators": [{"kind": "canonical", "value": "514a"}]},
+            {"source": "t", "absent": true, "note": "מושמט"}
+        ]});
+        let send = |method: &str, body: Json, csrf: bool| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(method, "/admin/api/research/alignments", body),
+                    &session,
+                    csrf,
+                ),
+            )
+        };
+        // Without the CSRF token nothing is written.
+        let refused = send(
+            "POST",
+            json!({"revision": revision, "alignment": alignment}),
+            false,
+        );
+        assert_eq!(refused.status, 403);
+        assert!(!file.exists());
+        // An invalid alignment is scoped to its field and writes nothing.
+        let mut broken = alignment.clone();
+        broken["members"][0]["source"] = json!("w");
+        let invalid = send(
+            "POST",
+            json!({"revision": revision, "alignment": broken}),
+            true,
+        );
+        assert_eq!(invalid.status, 422);
+        let body = body_json(&invalid);
+        assert_eq!(body["diagnostics"][0]["field"], "members[0].source");
+        assert_eq!(body["diagnostics"][0]["code"], "wrong-source-kind");
+        assert!(!String::from_utf8_lossy(&invalid.body).contains("ob-alignment-label"));
+        assert!(!file.exists());
+        let created = send(
+            "POST",
+            json!({"revision": revision, "alignment": alignment}),
+            true,
+        );
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created = body_json(&created);
+        assert_eq!(created["alignment"]["members"][1]["note"], "מושמט");
+        assert_eq!(created["alignment"]["visibility"], "private");
+        let stored = fs::read(&file).unwrap();
+        // A stale revision is a conflict that carries the stored copy.
+        let mut changed = alignment.clone();
+        changed["correspondence"] = json!("partial");
+        let stale = send(
+            "PUT",
+            json!({"revision": revision, "alignment": changed}),
+            true,
+        );
+        assert_eq!(stale.status, 409);
+        let stale = body_json(&stale);
+        assert_eq!(stale["conflict"], true);
+        assert_eq!(stale["current"]["id"], "a1");
+        assert_eq!(fs::read(&file).unwrap(), stored);
+        let latest = created["revision"].as_str().unwrap().to_string();
+        let updated = send(
+            "PUT",
+            json!({"revision": latest, "alignment": changed}),
+            true,
+        );
+        assert_eq!(updated.status, 200);
+        let latest = body_json(&updated)["revision"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let hostile = send(
+            "DELETE",
+            json!({"revision": latest, "id": "<script>"}),
+            true,
+        );
+        assert_eq!(hostile.status, 400);
+        assert!(!String::from_utf8_lossy(&hostile.body).contains("<script>"));
+        let removed = send("DELETE", json!({"revision": latest, "id": "a1"}), true);
+        assert_eq!(removed.status, 200);
+        assert_eq!(body_json(&removed)["removed"]["id"], "a1");
+        // Removing the only alignment leaves the stored list empty.
+        assert!(list(&session)["alignments"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn approving_a_comparison_previews_its_rights_gate_and_publishes_it_at_once() {
+        let f = fixture_with_sources("comparison-publication");
+        fs::write(
+            f.dir.join(crate::source_store::LIBRARY_FILE),
+            json!({"version": 1, "sources": [
+                {"id": "w", "kind": "work", "title": "W"},
+                {"id": "e", "kind": "edition", "of": "w", "title": "ob-public-edition",
+                    "rights": {"status": "publicDomain", "note": "ob-never-rights-note"}},
+                {"id": "t", "kind": "translation", "of": "w", "language": "he", "title": "T"}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join(crate::notebook_store::NOTEBOOK_FILE),
+            json!({"version": 1, "passages": [
+                {"id": "p-e", "source": "e", "excerpt": {"text": "ob-public-wording"}},
+                {"id": "p-t", "source": "t", "excerpt": {"text": "ob-never-unknown-wording", "language": "he"}}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let list = || {
+            body_json(&handle(
+                &f.state,
+                &authed(
+                    req("GET", "/admin/api/research/alignments"),
+                    &session,
+                    false,
+                ),
+            ))
+        };
+        let send = |method: &str, body: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(method, "/admin/api/research/alignments", body),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let empty = list();
+        assert_eq!(empty["publication"]["publish"], false);
+        assert_eq!(empty["publication"]["url"], "/comparisons/");
+        let alignment = json!({"id": "cave", "label": "ob-public-label", "members": [
+            {"source": "e", "passage": "p-e", "note": "ob-never-member-note"},
+            {"source": "t", "passage": "p-t"},
+            {"source": "t", "absent": false, "locators": [{"kind": "page", "value": "2"}]}
+        ]});
+        let created = send(
+            "POST",
+            json!({"revision": empty["revision"], "alignment": alignment}),
+        );
+        assert_eq!(
+            created.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let created = body_json(&created);
+        // The preview names, per place, what a public page would show.
+        assert_eq!(
+            created["publication"]["places"]["cave"],
+            json!(["shown", "withheld-rights", "unquoted"])
+        );
+        assert!(
+            created.get("build").is_none(),
+            "a site that does not publish is not rebuilt"
+        );
+
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["comparisons"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let mut approved = alignment.clone();
+        approved["visibility"] = json!("approved");
+        let saved = send(
+            "PUT",
+            json!({"revision": created["revision"], "alignment": approved}),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let saved = body_json(&saved);
+        assert_eq!(saved["publication"]["publish"], true);
+        assert_eq!(saved["build"]["ok"], true, "{}", saved["build"]);
+        let dist = f.dir.join("dist");
+        let page = fs::read_to_string(dist.join("comparisons/cave/index.html")).unwrap();
+        assert!(page.contains("ob-public-label") && page.contains("ob-public-wording"));
+        for file in crate::fsutil::walk(&dist) {
+            let text = String::from_utf8_lossy(&fs::read(&file).unwrap()).to_string();
+            assert!(
+                !text.contains("ob-never-"),
+                "{} leaks private research",
+                file.display()
+            );
+        }
+        // Portable copies of posts do not carry comparisons.
+        let (site, _) = crate::site::load_site(&f.dir, false, None).unwrap();
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::from_post(post, &site.config)
+                    .unwrap();
+            assert!(!projection
+                .portable_markdown()
+                .unwrap()
+                .contains("ob-public-label"));
+        }
+
+        // Withdrawing is the same save with approval cleared; the page goes at once.
+        let withdrawn = send(
+            "PUT",
+            json!({"revision": saved["revision"], "alignment": alignment}),
+        );
+        assert_eq!(withdrawn.status, 200);
+        assert_eq!(body_json(&withdrawn)["build"]["ok"], true);
+        assert!(!dist.join("comparisons/cave/index.html").exists());
+        assert!(!fs::read_to_string(dist.join("comparisons.json"))
+            .unwrap()
+            .contains("ob-public-label"));
+    }
+
+    #[test]
+    fn a_source_or_passage_an_approved_comparison_uses_republishes_it_on_save() {
+        let f = fixture_with_sources("comparison-republish");
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["comparisons"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        fs::write(
+            f.dir.join(crate::source_store::LIBRARY_FILE),
+            json!({"version": 1, "sources": [
+                {"id": "w", "kind": "work", "title": "W"},
+                {"id": "e", "kind": "edition", "of": "w", "title": "E",
+                    "rights": {"status": "publicDomain"}},
+                {"id": "t", "kind": "translation", "of": "w", "language": "he", "title": "T"},
+                {"id": "other", "kind": "edition", "of": "w", "title": "Other"}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join(crate::notebook_store::NOTEBOOK_FILE),
+            json!({"version": 1, "passages": [
+                {"id": "p-e", "source": "e", "excerpt": {"text": "ob-first-wording"}},
+                {"id": "p-other", "source": "other", "excerpt": {"text": "unused"}}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join(crate::alignment_store::ALIGNMENTS_FILE),
+            json!({"version": 1, "alignments": [{"id": "cave", "visibility": "approved",
+                "members": [{"source": "e", "passage": "p-e"}, {"source": "t", "absent": true}]}]})
+            .to_string(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        f.state.rebuild().unwrap();
+        let page = f.dir.join("dist/comparisons/cave/index.html");
+        assert!(fs::read_to_string(&page)
+            .unwrap()
+            .contains("ob-first-wording"));
+        let get = |path: &str| {
+            body_json(&handle(
+                &f.state,
+                &authed(req("GET", path), &session, false),
+            ))
+        };
+        let send = |method: &str, path: &str, body: Json| {
+            let response = handle(
+                &f.state,
+                &authed(json_req(method, path, body), &session, true),
+            );
+            assert!(
+                response.status < 300,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            body_json(&response)
+        };
+
+        // Rewording a passage the comparison quotes republishes it at once.
+        let notebook = get("/admin/api/research/notebook");
+        let saved = send(
+            "PUT",
+            "/admin/api/research/passages",
+            json!({"revision": notebook["revision"], "passage":
+                {"id": "p-e", "source": "e", "excerpt": {"text": "ob-second-wording"}}}),
+        );
+        assert_eq!(saved["build"]["ok"], true, "{saved}");
+        let text = fs::read_to_string(&page).unwrap();
+        assert!(text.contains("ob-second-wording") && !text.contains("ob-first-wording"));
+        // A passage nothing published quotes is not rebuilt.
+        let unused = send(
+            "PUT",
+            "/admin/api/research/passages",
+            json!({"revision": saved["revision"], "passage":
+                {"id": "p-other", "source": "other", "excerpt": {"text": "still unused"}}}),
+        );
+        assert!(unused.get("build").is_none(), "{unused}");
+
+        // Reserving the version's rights withdraws its wording from every file.
+        let library = get("/admin/api/sources");
+        let other = send(
+            "PUT",
+            "/admin/api/sources",
+            json!({"revision": library["revision"], "source":
+                {"id": "other", "kind": "edition", "of": "w", "title": "Other, renamed"}}),
+        );
+        assert!(other.get("build").is_none(), "{other}");
+        let reserved = send(
+            "PUT",
+            "/admin/api/sources",
+            json!({"revision": other["revision"], "source":
+                {"id": "e", "kind": "edition", "of": "w", "title": "E",
+                    "rights": {"status": "rightsReserved"}}}),
+        );
+        assert_eq!(reserved["build"]["ok"], true, "{reserved}");
+        for file in crate::fsutil::walk(&f.dir.join("dist")) {
+            let text = String::from_utf8_lossy(&fs::read(&file).unwrap()).to_string();
+            assert!(
+                !text.contains("ob-second-wording"),
+                "{} still quotes the reserved wording",
+                file.display()
+            );
+        }
+        assert!(fs::read_to_string(&page)
+            .unwrap()
+            .contains("Wording not shown"));
+
+        // Archiving a source the comparison uses also republishes.
+        let archived = send(
+            "POST",
+            "/admin/api/sources/archive",
+            json!({"revision": reserved["revision"], "id": "e", "archived": true}),
+        );
+        assert_eq!(archived["build"]["ok"], true, "{archived}");
+    }
+
+    #[test]
+    fn alignments_view_carries_versions_exact_wording_and_attributed_interpretations() {
+        let f = fixture_with_sources("alignments-compare");
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["contributors"] = json!({"ada": {"name": "Ada <b>Lovelace</b>"}});
+        fs::write(&config_path, config.to_string()).unwrap();
+        // Hebrew with a decomposed vowel point, mixed scripts and markup: all
+        // of it must travel back byte for byte.
+        let hebrew = "ב\u{05B0}ּרֵאשִׁית <script>x</script> Πλάτων";
+        fs::write(
+            f.dir.join(crate::source_store::LIBRARY_FILE),
+            json!({"version": 1, "sources": [
+                {"id": "plato", "kind": "work", "title": "Politeia"},
+                {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings",
+                    "creators": [{"name": "S. R. Slings", "role": "editor", "attribution": "stated"}],
+                    "rights": {"status": "publicDomain", "note": "ob-rights-note"}},
+                {"id": "slings-2", "kind": "edition", "of": "plato", "title": "Slings revised",
+                    "revises": "slings"},
+                {"id": "he", "kind": "translation", "of": "plato", "language": "he",
+                    "title": "פוליטאה", "anonymous": true},
+                {"id": "he-ed", "kind": "edition", "of": "he", "title": "Hebrew edition"},
+                {"id": "ms", "kind": "witness", "of": "plato", "title": "Paris gr. 1807",
+                    "repository": "BnF", "shelfmark": "gr. 1807", "volumes": 2}
+            ], "interpretations": [
+                {"id": "mine", "kind": "rendering", "source": "slings",
+                    "locators": [{"kind": "canonical", "value": "514a"}], "language": "en",
+                    "text": "ob-rendering",
+                    "interpreters": [{"contributor": "ada", "attribution": "uncertain"}]},
+                {"id": "gloss", "kind": "reading", "source": "ms", "text": "ob-gloss",
+                    "anonymous": true, "rights": {"status": "rightsReserved"}}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join(crate::notebook_store::NOTEBOOK_FILE),
+            json!({"version": 1, "passages": [{"id": "p-he", "source": "he",
+                "excerpt": {"text": hebrew, "language": "he"},
+                "locators": [{"kind": "canonical", "value": "514a"}]}]})
+            .to_string(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let response = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/research/alignments"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        assert!(response
+            .headers
+            .iter()
+            .any(|(name, value)| name == "Cache-Control" && value == "no-store"));
+        let view = body_json(&response);
+        let source = |id: &str| {
+            view["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|record| record["id"] == id)
+                .cloned()
+                .unwrap()
+        };
+        // Rights are the declaration, or "not checked" by default, and only on versions.
+        assert_eq!(source("slings")["rightsStatus"]["status"], "publicDomain");
+        assert_eq!(
+            source("slings")["rightsStatus"]["label"],
+            "The author states the text is in the public domain"
+        );
+        assert_eq!(source("slings")["rightsStatus"]["note"], "ob-rights-note");
+        assert_eq!(source("he")["rightsStatus"]["status"], "unknown");
+        assert_eq!(source("he")["rightsStatus"]["declared"], false);
+        assert!(source("plato").get("rightsStatus").is_none());
+        // Lineage, witness identity, volumes and attribution travel with the version.
+        assert_eq!(
+            source("he-ed")["chain"],
+            json!([{"id": "he", "kind": "translation", "title": "פוליטאה"},
+                {"id": "plato", "kind": "work", "title": "Politeia"}])
+        );
+        assert_eq!(source("slings-2")["revises"], "slings");
+        assert_eq!(source("ms")["shelfmark"], "gr. 1807");
+        assert_eq!(source("ms")["volumes"], 2);
+        assert_eq!(source("he")["anonymous"], true);
+        assert_eq!(source("slings")["creators"][0]["attribution"], "stated");
+        // The quoted wording is exact.
+        assert_eq!(view["passages"][0]["excerpt"]["text"], json!(hebrew));
+        assert_eq!(view["passages"][0]["excerpt"]["language"], "he");
+        // Interpretations carry who made them, by registry name or as stated.
+        let interpretations = view["interpretations"].as_array().unwrap();
+        let interpreter = &interpretations[0]["interpreters"][0];
+        assert_eq!(interpreter["contributor"], "ada");
+        assert_eq!(interpreter["display"], "Ada <b>Lovelace</b>");
+        assert_eq!(interpreter["attribution"], "uncertain");
+        assert_eq!(interpretations[0]["rightsStatus"]["status"], "unknown");
+        assert_eq!(interpretations[1]["anonymous"], true);
+        assert_eq!(
+            interpretations[1]["rightsStatus"]["label"],
+            "The author states the text is under copyright"
+        );
+        // Every correspondence label is the author's reading; none is "equivalent".
+        let labels = view["correspondences"].as_array().unwrap();
+        assert_eq!(labels.len(), 3);
+        for label in labels {
+            let text = label["label"].as_str().unwrap();
+            assert!(text.starts_with("The author reads"), "{text}");
+            assert!(!text.to_lowercase().contains("equivalent"));
+        }
+        // A damaged library is reported against its file and changes nothing.
+        let library = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::write(&library, "{not json").unwrap();
+        let broken = handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/research/alignments"),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(broken.status, 500);
+        assert_eq!(fs::read(&library).unwrap(), b"{not json");
+        assert!(!f.dir.join(crate::alignment_store::ALIGNMENTS_FILE).exists());
+    }
+
+    #[test]
+    fn alignments_never_cross_a_publication_boundary() {
+        const SENTINEL: &str = "ob-alignment-sentinel";
+        let f = fixture_with_sources("alignments-leak");
+        let library = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::write(
+            &library,
+            json!({"version": 1, "sources": [
+                {"id": "plato", "kind": "work", "title": "Politeia"},
+                {"id": "slings", "kind": "edition", "of": "plato", "title": "Slings"},
+                {"id": "bloom", "kind": "translation", "of": "plato", "language": "en",
+                    "title": "Bloom"}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        let empty = body_json(&handle(
+            &f.state,
+            &authed(
+                req("GET", "/admin/api/research/alignments"),
+                &session,
+                false,
+            ),
+        ));
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/alignments",
+            json!({"revision": empty["revision"], "alignment": {"id": "a1",
+                "label": SENTINEL, "rationale": SENTINEL, "uncertainty": SENTINEL, "members": [
+                {"source": "slings", "locators": [{"kind": "canonical", "value": "514a"}],
+                    "note": SENTINEL, "shelf": SENTINEL},
+                {"source": "bloom", "absent": true, "note": SENTINEL}
+            ]}}),
+        );
+        assert_eq!(status, 201);
+        let stored = fs::read(f.dir.join(crate::alignment_store::ALIGNMENTS_FILE)).unwrap();
+        assert!(String::from_utf8_lossy(&stored).contains(SENTINEL));
+        assert!(openblog_core::research_bundle::looks_like_private_research(
+            &stored
+        ));
+
+        // Rebuild and read every output.
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        let files = crate::fsutil::walk(&dist);
+        assert!(!files.is_empty(), "the build wrote nothing");
+        for file in &files {
+            let name = crate::fsutil::relative(&dist, file);
+            let bytes = fs::read(file).unwrap();
+            assert!(
+                !String::from_utf8_lossy(&bytes).contains(SENTINEL),
+                "dist/{name} exposes an alignment"
+            );
+            assert!(
+                !openblog_core::research_bundle::looks_like_private_research(&bytes),
+                "dist/{name} looks like private research"
+            );
+        }
+        // The public server never serves the file under any spelling.
+        for path in [
+            "/.openblog/private/research/alignments.json",
+            "/.openblog/private/research/alignments.json/",
+            "/%2eopenblog/private/research/alignments.json",
+            "/%2Eopenblog%2Fprivate%2Fresearch%2Falignments.json",
+            "/../.openblog/private/research/alignments.json",
+            "/static/../.openblog/private/research/alignments.json",
+        ] {
+            let response = crate::serve::route(&f.state, &req("GET", path), &dist);
+            assert!(
+                !String::from_utf8_lossy(&response.body).contains(SENTINEL),
+                "{path}"
+            );
+        }
+        // Other Admin views never carry it.
+        for path in [
+            "meta",
+            "sources",
+            "research/notebook",
+            "research/atlas",
+            "research/claims",
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", &format!("/admin/api/{path}")), &session, false),
+            );
+            assert!(
+                !String::from_utf8_lossy(&response.body).contains(SENTINEL),
+                "admin {path}"
+            );
+        }
     }
 
     #[test]
@@ -15805,6 +16906,166 @@ mod tests {
     const HOSTILE_LABEL: &str = "<img src=x onerror=alert(1)> Πλάτων 🙂";
 
     #[test]
+    fn the_atlas_view_carries_the_chronology_index_and_its_prompts_for_the_explorer() {
+        let f = fixture_with_sources("atlas-chronology");
+        let session = login_ok(&f);
+        let empty = atlas(&f, &session);
+        // The dating editor reads which aspects each owner may use from the core.
+        let aspects = empty["kinds"]["aspects"].as_array().unwrap();
+        let birth = aspects.iter().find(|a| a["aspect"] == "birth").unwrap();
+        assert_eq!(birth["entries"], json!(["person"]));
+        assert_eq!(birth["durative"], false);
+        assert_eq!(birth["relationship"], false);
+        let span = aspects.iter().find(|a| a["aspect"] == "span").unwrap();
+        assert_eq!(span["relationship"], true);
+        assert_eq!(span["durative"], true);
+        assert_eq!(
+            empty["kinds"]["orders"],
+            json!(["before", "after", "during"])
+        );
+        assert_eq!(empty["kinds"]["maxDatings"], 20);
+        assert_eq!(
+            empty["chronology"],
+            json!({"timeline": [], "prompts": [], "unlisted": 0}),
+            "an empty atlas has an empty timeline"
+        );
+
+        let dating = |id: &str, aspect: &str, date: Json, party: Json| {
+            json!({"id": id, "aspect": aspect, "date": date, "assertedBy": party,
+                "evidence": [{"source": "slings"}], "note": HOSTILE_LABEL})
+        };
+        let person = json!({"id": "plato", "kind": "person", "label": "Plato", "dates": [
+            dating("plato-born-b", "birth", json!({"at": {"year": -427}}), json!({"kind": "author"})),
+            dating("plato-born-a", "birth", json!({"at": {"year": -428, "circa": true}}),
+                json!({"kind": "named", "name": "Diogenes"})),
+            dating("plato-died", "death", json!({"notAfter": {"century": -6}}), json!({"kind": "author"})),
+            dating("plato-active", "active", json!({"from": {"decade": -390}}), json!({"kind": "author"})),
+            dating("plato-unknown", "death", json!({"unknown": true}), json!({"kind": "source", "source": "plato"})),
+        ]});
+        let (status, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": empty["revision"], "entry": person}),
+        );
+        assert_eq!(status, 201, "{created}");
+        let work = json!({"id": "laws", "kind": "work", "label": "Laws", "dates": [
+            dating("laws-after", "composition",
+                json!({"relative": {"order": "after", "entry": "plato", "aspect": "active"}}),
+                json!({"kind": "author"})),
+        ]});
+        let (status, saved) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": created["revision"], "entry": work}),
+        );
+        assert_eq!(status, 201, "{saved}");
+        let chronology = &saved["chronology"];
+        let timeline = chronology["timeline"].as_array().unwrap();
+        let order: Vec<&str> = timeline.iter().map(|d| d["id"].as_str().unwrap()).collect();
+        // Open start first, then by stated day; relative, then unknown, last.
+        assert_eq!(
+            order,
+            [
+                "plato-died",
+                "plato-born-a",
+                "plato-born-b",
+                "plato-active",
+                "laws-after",
+                "plato-unknown"
+            ]
+        );
+        let died = &timeline[0];
+        assert_eq!(died["text"], "not after 6th century BCE");
+        assert_eq!(died["startYear"], Json::Null, "an open start has no year");
+        assert_eq!(died["endYear"], -501);
+        assert_eq!(died["placement"], "dated");
+        assert_eq!(died["collection"], "entries");
+        assert_eq!(died["owner"], "plato");
+        assert_eq!(died["field"], "dates[2]");
+        assert_eq!(timeline[1]["text"], "c. 428 BCE");
+        assert_eq!(timeline[3]["text"], "from the 390s BCE");
+        assert_eq!(timeline[3]["startYear"], -399);
+        assert_eq!(timeline[3]["endYear"], Json::Null);
+        assert_eq!(timeline[4]["placement"], "relative");
+        assert_eq!(timeline[4]["text"], "after `plato` active");
+        assert_eq!(timeline[4]["index"], 1);
+        assert_eq!(timeline[5]["placement"], "unknown");
+        assert_eq!(timeline[5]["projected"], false);
+        // Both competing birth datings are kept; neither is chosen.
+        assert_eq!(
+            timeline.iter().filter(|d| d["aspect"] == "birth").count(),
+            2
+        );
+        // A death that ends before either birth can begin is a prompt, never a verdict.
+        let prompts = chronology["prompts"].as_array().unwrap();
+        let codes: Vec<&str> = prompts
+            .iter()
+            .map(|p| p["code"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            codes,
+            [
+                "outside-lifetime",
+                "death-before-birth",
+                "death-before-birth"
+            ]
+        );
+        assert_eq!(prompts[1]["collection"], "entries");
+        assert_eq!(prompts[1]["id"], "plato");
+        assert_eq!(prompts[1]["field"], "dates[2]");
+        assert_eq!(prompts[1]["datings"], json!(["plato-died", "plato-born-a"]));
+        assert!(prompts
+            .iter()
+            .all(|p| p["message"].as_str().unwrap().contains("check")));
+        assert!(
+            !chronology.to_string().contains(HOSTILE_LABEL),
+            "the index repeats no note"
+        );
+        assert!(
+            !chronology.to_string().contains("Diogenes"),
+            "the index repeats no party name"
+        );
+        assert_eq!(atlas(&f, &session)["chronology"], *chronology);
+
+        // A dating edited in Admin keeps unknown fields at every level, and a
+        // refused one is scoped to its field and leaves the file unchanged.
+        let mut edited = saved["entries"][0].clone();
+        edited["dates"][0]["shelf"] = json!("kept");
+        edited["dates"][0]["date"]["at"]["hint"] = json!(1);
+        edited["dates"][0]["date"]["margin"] = json!(2);
+        let (status, kept) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": saved["revision"], "entry": edited}),
+        );
+        assert_eq!(status, 200, "{kept}");
+        let first = &kept["entry"]["dates"][0];
+        assert_eq!(first["shelf"], "kept");
+        assert_eq!(first["date"]["at"]["hint"], 1);
+        assert_eq!(first["date"]["margin"], 2);
+        let before = stored_atlas(&f).unwrap();
+        let mut year_zero = kept["entry"].clone();
+        year_zero["dates"][1]["date"] = json!({"at": {"year": 0}});
+        let (status, refused) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": kept["revision"], "entry": year_zero}),
+        );
+        assert_eq!(status, 422, "{refused}");
+        assert_eq!(refused["diagnostics"][0]["field"], "dates[1].date.at.year");
+        assert_eq!(refused["diagnostics"][0]["id"], "plato");
+        assert_eq!(stored_atlas(&f).unwrap(), before);
+    }
+
+    #[test]
     fn knowledge_atlas_api_is_authenticated_csrf_protected_and_revision_checked() {
         let f = fixture_with_sources("atlas-api");
         for (method, path) in [
@@ -16257,7 +17518,7 @@ mod tests {
     // level, private entries, private relationships and relationships to a private
     // entry never appear anywhere, and withdrawing approval removes them all.
 
-    const PUBLISHABLE: [usize; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10];
+    const PUBLISHABLE: [usize; 13] = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 14, 15, 16];
     const NEVER_PUBLIC: [(&str, &str); 3] = [
         ("private entry", "ob-atlas-private-entry-5309"),
         ("private relationship", "ob-atlas-private-relationship-5309"),
@@ -16302,7 +17563,7 @@ mod tests {
         f.state.rebuild().unwrap();
         let dist = f.dir.join("dist");
         let never = |text: &str| -> Vec<&'static str> {
-            let mut found: Vec<&'static str> = [8, 11, 12, 13]
+            let mut found: Vec<&'static str> = [8, 11, 12, 13, 17]
                 .iter()
                 .filter(|&&index| text.contains(ATLAS_SENTINELS[index].1))
                 .map(|&index| ATLAS_SENTINELS[index].0)
@@ -16346,6 +17607,13 @@ mod tests {
                 .unwrap();
         assert!(page.contains("<strong>Contested:</strong>"));
         assert!(page.contains(ATLAS_SENTINELS[10].1) && page.contains(ATLAS_SENTINELS[9].1));
+        // The approved dating is on the entry's page and the timeline, with
+        // its party and note; its unknown field is not (checked above).
+        assert!(page.contains(&format!("id=\"atlas-d-{}\"", ATLAS_SENTINELS[14].1)));
+        assert!(page.contains(ATLAS_SENTINELS[15].1) && page.contains(ATLAS_SENTINELS[16].1));
+        let index = fs::read_to_string(dist.join("atlas/index.html")).unwrap();
+        assert!(index.contains(&format!("id=\"atlas-d-{}\"", ATLAS_SENTINELS[14].1)));
+        assert!(index.contains("/assets/components/ob-atlas-timeline.js"));
 
         // The public server serves the projection, and still never the private file.
         let response = crate::serve::route(&f.state, &req("GET", "/atlas.json"), &dist);
@@ -16538,6 +17806,11 @@ mod tests {
                 "atlas_publication.rs",
                 include_str!("../../openblog-core/src/atlas_publication.rs"),
             ),
+            (
+                "comparison_publication.rs",
+                include_str!("../../openblog-core/src/comparison_publication.rs"),
+            ),
+            ("alignment_store.rs", include_str!("alignment_store.rs")),
         ];
         let banned = [
             "println!",
@@ -21253,6 +22526,86 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
         assert_eq!(written["futureSetting"]["keep"], true);
         assert_eq!(written["title"], config["title"]);
+    }
+
+    #[test]
+    fn contributors_named_as_interpreters_cannot_be_removed() {
+        let f = fixture("contributor-interpreter");
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["contributors"] = json!({ "ada": { "name": "Ada" }, "grace": { "name": "Grace" } });
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let library_path = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::create_dir_all(library_path.parent().unwrap()).unwrap();
+        fs::write(
+            &library_path,
+            json!({
+                "version": 1,
+                "sources": [
+                    { "id": "w", "kind": "work", "title": "W" },
+                    { "id": "e", "kind": "edition", "of": "w", "title": "E" }
+                ],
+                "interpretations": [{
+                    "id": "e-1", "kind": "reading", "source": "e",
+                    "text": "Private reading", "interpreters": [{ "contributor": "ada" }]
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let library_before = fs::read(&library_path).unwrap();
+        let session = login_ok(&f);
+        let registry = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/contributors"), &session, false),
+        ));
+        let etag = registry["etag"].as_str().unwrap().to_string();
+
+        let refused = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({ "etag": etag, "contributors": { "grace": { "name": "Grace" } } }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(refused.status, 422);
+        let body = body_json(&refused);
+        assert_eq!(body["contributors"], json!(["ada"]));
+        assert_eq!(body["interpretations"], json!(["e-1"]));
+        assert!(
+            !String::from_utf8_lossy(&refused.body).contains("Private reading"),
+            "the refusal names ids, never the interpretation's text"
+        );
+        let config_after: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        assert_eq!(config_after["contributors"]["ada"]["name"], "Ada");
+        assert_eq!(fs::read(&library_path).unwrap(), library_before);
+
+        // Removing a contributor no interpretation names is still allowed.
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({ "etag": etag, "contributors": { "ada": { "name": "Ada" } } }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
     }
 
     #[test]

@@ -29,6 +29,11 @@ that happens. Only a build that can read the private atlas publishes it: `openbl
 Admin on the machine that holds it, or an `openblog build` run there whose `dist/` you then
 upload.
 
+**Passage comparisons are not in the repository either.** With `comparisons.publish` on,
+`/comparisons/` and `/comparisons.json` come from `.openblog/private/research/alignments.json`,
+the library and the notebook, which are Git-ignored. A build from a clone publishes empty
+comparisons and warns.
+
 **Claim evidence is not in the repository either.** With `claimEvidence.publish` on, the "Claims
 and evidence" sections and `/claim-evidence.json` come from `.openblog/private/research/claims.json`,
 which is Git-ignored. A build from a clone publishes no claims and warns; the revision notes

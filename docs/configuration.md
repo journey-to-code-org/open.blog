@@ -45,7 +45,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] },
   "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true },
   "knowledgeAtlas": { "publish": false },
-  "claimEvidence": { "publish": false }
+  "claimEvidence": { "publish": false },
+  "comparisons": { "publish": false }
 }
 ```
 
@@ -265,7 +266,10 @@ credential names, and safety behavior.
 Knowledge Atlas: `/atlas/`, a page per approved entry at `/atlas/<id>/`, and the same data as
 `/atlas.json`. Only entries you approved, and relationships you approved whose entries are both
 approved, are published, each with who asserts it, its evidence, confidence, doubt and any
-dissent; private notes, notebook passages and unapproved items never are. While it is off, no
+dissent; private notes, notebook passages and unapproved items never are. Datings you approved
+on published items, each cited, are shown on the entry's page with who dates it, the evidence
+and your note, competing datings side by side, and on a timeline at the end of `/atlas/` that
+reads without JavaScript. While it is off, no
 build reads the atlas. Clearing an approval removes the item from the next build. Add
 `{ "label": "Atlas", "href": "/atlas/" }` to `nav` to link it from the header. See the
 [Knowledge Atlas format](specs/knowledge-atlas.md#publication).
@@ -275,6 +279,22 @@ The atlas is private and Git-ignored, so only a build that can read it publishes
 static-host build from the repository finds no atlas and publishes `/atlas/` and `/atlas.json`
 empty; `openblog build` and `openblog check` warn when publishing is on but no atlas is stored.
 See [Deploying](deploy.md).
+
+## Passage comparisons
+
+`comparisons.publish` (off by default) publishes the passage alignments you approved in Admin's
+Compare tool: `/comparisons/`, a page per comparison at `/comparisons/<id>/`, and the same data as
+`/comparisons.json`. Every place names its version, editor, translator, scribe or interpreters,
+its locators and the rights statement you recorded for that version. Its wording is quoted
+exactly only when you state the version's rights as permission, open licence, public domain or
+your own work, and only up to 1,000 characters; a version whose rights are unknown or reserved
+is identified but never quoted. Your notes on places, rights notes, notebook passage ids and
+unapproved alignments are never published, and normalizations only when you choose. Rights
+statements are your own declarations, never a legal judgement. While it is off, no build reads
+the alignments file; clearing an approval removes the comparison from the next build. Like the
+atlas, the alignments file is private and Git-ignored, so only a build that can read it publishes
+comparisons, and `build` and `check` warn when it cannot. See the
+[passage alignments format](specs/passage-alignments.md#publication).
 
 ## Claim evidence
 

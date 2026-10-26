@@ -2298,6 +2298,7 @@ html[data-admin-density="compact"] .oba-pane {
   }
 
   .oba-app-header {
+    flex-wrap: wrap;
     min-height: 4rem;
   }
 
@@ -2641,6 +2642,231 @@ html[data-admin-density="compact"] .oba-pane {
     width: 100%;
     max-width: 100%;
     white-space: normal;
+  }
+}
+
+/* Chronology: lists and tables of text only. Competing datings sit side by side,
+   each with its own border, and wrap into one column on narrow screens or at high zoom. */
+.oba-chronology-rows,
+.oba-chronology-groups,
+.oba-chronology-competing,
+.oba-chronology-single {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-chronology-row,
+.oba-chronology-prompt {
+  padding: 0.6rem 0;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-chronology-competing {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 0.5rem;
+}
+
+.oba-chronology-dating {
+  padding: 0.5rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: 4px;
+}
+
+/* Outside the time window is said in words; the dashed edge only repeats it. */
+.oba-chronology-dating[data-in-window="false"] {
+  border-style: dashed;
+}
+
+.oba-chronology-filters .oba-toolbar,
+.oba-chronology-window .oba-toolbar {
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.oba-chronology-filters input[inputmode="numeric"] {
+  max-width: 8rem;
+}
+
+.oba-atlas-dating {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-atlas-point,
+.oba-atlas-date-form {
+  margin: 0.5rem 0;
+}
+
+.oba-atlas-reads {
+  font-weight: 600;
+}
+
+.oba-chronology p,
+.oba-chronology li,
+.oba-chronology-results p,
+.oba-chronology-results li,
+.oba-chronology-results h4,
+.oba-atlas-reads {
+  overflow-wrap: anywhere;
+}
+
+.oba-chronology-results .oba-btn,
+.oba-chronology-filters .oba-btn {
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.oba-chronology-results button:focus-visible,
+.oba-chronology-filters button:focus-visible,
+.oba-chronology button:focus-visible {
+  outline: 3px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 40rem) {
+  .oba-chronology-results .oba-toolbar,
+  .oba-chronology-filters .oba-toolbar,
+  .oba-chronology-window .oba-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .oba-chronology-filters input[inputmode="numeric"] {
+    max-width: 100%;
+  }
+}
+
+/* Comparison workspace: versions side by side, collapsing into one column in the same reading order. */
+.oba-compare-controls fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0.25rem 0.75rem 0.5rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-compare-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.oba-compare-sequence,
+.oba-compare-places {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-compare-version {
+  min-width: 0;
+  padding: 0.75rem;
+  border: var(--ob-border-width) solid var(--oba-panel-border);
+  border-radius: var(--ob-radius);
+}
+
+.oba-compare-version h4 {
+  margin: 0 0 0.25rem;
+}
+
+.oba-compare-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.15rem 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.oba-compare-facts dt {
+  font-weight: 600;
+}
+
+.oba-compare-facts dd {
+  margin: 0;
+}
+
+.oba-compare-place {
+  padding-top: 0.75rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-compare-ident,
+.oba-compare-label {
+  margin: 0 0 0.25rem;
+  font-size: 0.9rem;
+}
+
+/* The stored wording, exactly: whitespace and line breaks are the source's. */
+.oba-compare-original,
+.oba-compare-normalized {
+  margin: 0 0 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-inline-start: 4px solid var(--ob-color-accent);
+  white-space: pre-wrap;
+  unicode-bidi: isolate;
+}
+
+/* Normalized text is set apart in words; the dashed rule only repeats it. */
+.oba-compare-normalized {
+  border-inline-start-style: dashed;
+}
+
+.oba-compare-version,
+.oba-compare-version h4,
+.oba-compare-ident,
+.oba-compare-facts dd,
+.oba-compare-original,
+.oba-compare-normalized,
+#oba-compare-heading,
+#oba-compare-alignments .oba-source-item strong {
+  overflow-wrap: anywhere;
+}
+
+.oba-compare-export {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+.oba-compare-export textarea {
+  width: 100%;
+  max-width: 100%;
+}
+
+.oba-compare-panel .oba-btn,
+.oba-compare-controls .oba-btn {
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.oba-compare-panel input:focus-visible,
+.oba-compare-panel button:focus-visible,
+.oba-compare-panel textarea:focus-visible,
+.oba-compare-controls input:focus-visible,
+.oba-compare-controls select:focus-visible,
+.oba-alignment-form fieldset:focus-visible,
+#oba-compare-heading:focus-visible {
+  outline: 3px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 40rem) {
+  .oba-compare-controls,
+  .oba-compare-panel .oba-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .oba-compare-facts {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

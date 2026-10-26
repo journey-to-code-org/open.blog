@@ -13,11 +13,11 @@
 //! replaces the file by atomic rename while holding locks: a refused, failed
 //! or interrupted change leaves the stored file exactly as it was.
 //!
-//! Locks are always taken in one order: atlas, claims, notebook, library
-//! (ADR 0072). A claims write takes claims, notebook and library; it never
-//! holds the atlas lock, and an atlas write never takes the claims lock, so
-//! each writer takes its locks in that one order and no two can wait on each
-//! other. Notebook and library changes take a suffix of the order and only
+//! Locks are always taken in one order: atlas, claims, alignments, notebook,
+//! library (ADR 0072, ADR 0089). A claims write takes claims, notebook and
+//! library; it never holds the atlas or alignments lock, and neither of their
+//! writers takes the claims lock, so each writer takes its locks in that one
+//! order and no two can wait on each other. Notebook and library changes take a suffix of the order and only
 //! *read* the claims file, which is safe because a claims write holds their
 //! locks for its whole critical section.
 //!
@@ -121,6 +121,19 @@ pub fn load(
     contributors: &BTreeMap<String, Contributor>,
 ) -> Result<Snapshot, StoreError> {
     let library = source_store::load(root, contributors)
+        .map_err(library_blocked)?
+        .library;
+    against_library(root, library)
+}
+
+/// The claims file as a build reads it, against the library read for a build
+/// (`source_store::load_for_build`), so a problem in an interpretation never
+/// stops a build.
+fn load_for_build(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, StoreError> {
+    let library = source_store::load_for_build(root, contributors)
         .map_err(library_blocked)?
         .library;
     against_library(root, library)
@@ -305,7 +318,7 @@ pub fn build_findings(
     if claims_file_absent(root) {
         return Ok(Vec::new());
     }
-    match load(root, contributors) {
+    match load_for_build(root, contributors) {
         Ok(snapshot) if snapshot.stored => {
             let (drafts, paths) = drafts_from_sources(sources);
             Ok(review_against(&snapshot, &drafts, &paths))
@@ -347,7 +360,7 @@ pub fn evidence_for_build(
             warning: unstored_evidence_warning(),
         };
     }
-    match load(root, contributors) {
+    match load_for_build(root, contributors) {
         Ok(snapshot) if !snapshot.stored => ClaimEvidenceSource::Unstored {
             warning: unstored_evidence_warning(),
         },
