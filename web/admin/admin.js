@@ -8848,7 +8848,7 @@ export class ObAdmin extends AdminElement {
               "section",
               { "aria-labelledby": "oba-compare-rights-heading", "data-compare-rights-summary": "true" },
               h("h4", { id: "oba-compare-rights-heading" }, "Rights statements for the selected places"),
-              h("ul", {}, picked.map((column) => h("li", { "data-compare-rights-item": column.rights.status }, h("bdi", {}, column.title), `: ${rightsText(column.rights)}`))),
+              h("ul", {}, picked.map((column) => h("li", { "data-compare-rights-item": column.rights.status }, h("bdi", {}, column.title), ": ", h("bdi", {}, rightsText(column.rights))))),
               h("p", { class: "oba-small" }, "These are the author's own statements, not permission. open.blog does not decide what you may copy."),
             )
           : null,
