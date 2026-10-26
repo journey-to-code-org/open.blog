@@ -5,6 +5,14 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Defined how reader questions, corrections and annotations will point at published text. A
+  passage target names a section by its heading id and either the whole section or a short
+  quotation with a little context on each side, and is checked against the post as it is now: it
+  finds the same words again, even after they moved to another section, or it is reported stale
+  with a reason (removed, reworded around it, ambiguous). It never silently points at different
+  words, and accents, emoji and other combined characters are never split. Nothing uses targets
+  yet, so no page changes.
+
 ## [0.30.0] - 2026-10-26
 
 - Defined the reader-facing reference data behind citation previews: each cited reference has a

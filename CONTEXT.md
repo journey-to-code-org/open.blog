@@ -679,6 +679,42 @@ How a relationship reads from one of its entries: its kind going out (`authored`
 label coming in (`authored by`). A label for display, never a second stored assertion.
 _Avoid_: Reverse edge, inferred relationship
 
+## Reader participation
+
+These terms describe how readers point at published text and where their feedback came from.
+Reader data is never research: a notebook **Passage** is an author's excerpt of a source, while a
+**Passage target** points into a published post.
+
+**Passage text**:
+A post's published prose as a reader can quote it, section by section: the text before the first
+heading, then each heading's id with its title and the text up to the next heading. Generated
+markers, labels, image alternative text, raw HTML, code blocks and the generated citation notes
+are not part of it; only whitespace is normalized.
+_Avoid_: Plain text, search text, body when the quotable published text is meant
+
+**Passage revision**:
+The fingerprint of a post's passage text, written `p1:` and 32 hex digits, whose number names the
+text model. Feedback records the passage revision the reader saw.
+_Avoid_: Version, commit, notebook revision
+
+**Section digest**:
+The fingerprint of one section's passage text, so a target for a whole section can tell an
+unchanged section from an edited one.
+_Avoid_: Section id, hash of the Markdown
+
+**Passage target**:
+A durable, versioned pointer at published text: a section anchor (the heading id) and either the
+whole section, optionally with its digest, or a quotation of at most 500 characters with up to 64
+characters of context on each side and a position hint. Never a positional element id.
+_Avoid_: Passage (the notebook term), anchor, highlight, marker id, selector when the whole
+target is meant
+
+**Target resolution**:
+The outcome of reading a passage target against the current passage text: current (seen at this
+revision, text in place), re-anchored (the identical text found again, uniquely, as the same
+passage) or stale with a reason. It never points at text the reader did not quote.
+_Avoid_: Fuzzy match, retargeting, best guess
+
 ## Admin workspace
 
 **Workspace preferences**:

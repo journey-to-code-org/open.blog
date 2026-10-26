@@ -21,6 +21,7 @@
 //! - [`citation_review`]: offline syntax, resolution, completeness and location checks of citations
 //! - [`knowledge_atlas`]: the private Knowledge Atlas of entries and attributed relationships
 //! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
+//! - [`passage_target`]: stable passage targets in published text, resolved as current, re-anchored or stale
 
 pub mod accessibility;
 pub mod approval;
@@ -47,6 +48,7 @@ pub mod knowledge_atlas;
 pub mod markdown;
 pub mod members;
 pub mod model;
+pub mod passage_target;
 pub mod portability;
 pub mod preview;
 pub mod profile;
