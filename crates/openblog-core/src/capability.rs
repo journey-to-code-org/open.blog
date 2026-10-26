@@ -11,6 +11,7 @@ const PORTABLE_FALLBACKS: &[&str] = &[
     "web-sandbox",
     "comments",
     "raw-html",
+    "citations",
 ];
 
 /// Planned capabilities registered in `docs/portability/planned-capability-contracts.json`,
@@ -127,6 +128,11 @@ impl CapabilityDescriptor {
                 "Markup the author wrote as raw HTML or Markdown attributes.",
                 Some("allowlisted-html"),
                 PortabilityLevel::GracefullyTransformed,
+            ),
+            "citations" => (
+                "Citations of saved references, published as numbered notes or a bibliography.",
+                Some("markdown-footnotes"),
+                PortabilityLevel::FullyPortable,
             ),
             planned if matches!(planned_entry(planned), Some(Some(_))) => (
                 "A planned capability: its authored content stays visible and the canonical article carries the rest.",

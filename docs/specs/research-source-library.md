@@ -3,8 +3,11 @@
 Version 1 of the private source library contract defined by
 [ADR 0009](../adr/0009-research-source-library-identity.md). It is implemented by
 `openblog_core::source_library` and stored as described in
-[ADR 0010](../adr/0010-private-source-library-storage.md). Builds never read it;
-`openblog check` validates it, and Admin Studio editing arrives with issue
+[ADR 0010](../adr/0010-private-source-library-storage.md). A build reads it only when a post
+that opts in to citations cites something, and then publishes only the cited references' public
+description ([ADR 0048](../adr/0048-citations-publish-through-the-one-publication-projection.md));
+a site whose posts cite nothing never reads it. `openblog check` validates it, and Admin Studio
+editing arrives with issue
 [#34](https://github.com/journey-to-code-org/open.blog/issues/34).
 
 ## Document

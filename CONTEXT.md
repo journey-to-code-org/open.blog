@@ -306,14 +306,65 @@ _Avoid_: Collaboration transcript, automatic byline, second Post or canonical do
 ## Evidence and identity
 
 **Citation**:
-An in-text pointer connecting a passage to a reference.
-_Avoid_: Reference, source
+An in-text pointer connecting a passage to a reference, written `[@key]` or
+`[@key, page 514]`. Its key is the reference's source identifier and its locators are the
+notebook's. Only its key, locators and the formatted reference are public; it asserts nothing
+about what the source proves.
+_Avoid_: Reference, source, footnote, link
 
 **Reference**:
 A description or resolvable identifier for a work used as evidence or context. In the
 source library, a reference record points at exactly one work, edition, translation, or
 witness, never at another reference or a contributor.
 _Avoid_: Citation when no in-text pointer is meant; contributor or work credit
+
+**Citation key**:
+The source identifier written after `@` in a citation. There is no separate key registry, so a
+citation resolves to exactly one source-library record, archived or not, or is reported.
+_Avoid_: Cite key table, alias, BibTeX key
+
+**Citation chip**:
+How the visual editor shows a citation: one atomic, keyboard-reachable unit that keeps the
+citation's exact Markdown and reopens it in the citation picker. It is an editing aid only; the
+Markdown file stays canonical. Citation text the editor cannot show as chips exactly as the
+scanner reads it stays a protected **Citation text** block instead.
+_Avoid_: Footnote marker, link, tag
+
+**Publication Markdown**:
+The body every public representation of a post is built from: the authored Markdown, or for a
+post that opts in to citations, that body with each citation written as a generated footnote
+and the notes appended. The file on disk never changes.
+_Avoid_: Export, rendered body
+
+**Citation note**:
+A generated, numbered note that publishes a citation: the formatted reference and the
+citation's locators, linked from its marker and back. One per distinct citation in the `notes`
+style.
+_Avoid_: Footnote when an author's own note is meant
+
+**Bibliography**:
+The citation style that publishes each cited reference once, numbered in order of first
+citation, under References, with locators kept next to the marker in the text.
+_Avoid_: References section when the research profile's hand-written list is meant
+
+**Citation check**:
+An offline finding about a post's citations, in one of four separate classes: syntax (the
+citation cannot be read), resolution (its key or locator does not resolve, or an identifier is
+left out), completeness (a cited reference lacks a detail its kind usually has) and location
+review (a cited location only a person can confirm). It never says whether a source is true,
+relevant or supports a claim, and never looks anything up online.
+_Avoid_: Verification, fact check, citation score
+
+**Bibliography export**:
+A post's cited references as CSL JSON or BibTeX, built only from the public description its
+published notes show, with every detail the format cannot carry reported as an omission. It is
+derived from the publication projection, not from the private source library export.
+_Avoid_: Library export, source export
+
+**Formatted reference**:
+The public, plain-text rendering of a reference built only from its bibliographic description
+(title, creators, date, identifiers, preserved CSL variables), never from notebook text.
+_Avoid_: Bibliography entry when the source-library record is meant; CSL style output
 
 **Work identifier**:
 A persistent identifier assigned to a published work, distinct from the page URL where a

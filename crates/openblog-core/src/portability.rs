@@ -674,7 +674,7 @@ impl<'a> PortableProjection<'a> {
             shared: post.shared_attribution.as_ref(),
             capabilities: &post.capabilities,
             html: &post.html,
-            markdown: &post.authored_markdown,
+            markdown: post.publication_markdown(),
             text: &post.text,
             render_options: RenderOptions {
                 smart_punctuation: config.markdown.smart_punctuation,
@@ -685,6 +685,8 @@ impl<'a> PortableProjection<'a> {
                 code_runner: None,
                 // Portable copies show sandboxes as static code, so no libraries load.
                 web_libraries: None,
+                // Generated notes are ordinary footnotes here, linked to the canonical article.
+                citation_notes: None,
             },
             runner_languages: (!config.code_runner.endpoint.is_empty())
                 .then(|| config.code_runner.languages.clone()),

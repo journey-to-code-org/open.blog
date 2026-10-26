@@ -37,6 +37,16 @@ pub enum EvidenceCode {
     FootnoteUnresolved,
     ReferenceLinkReview,
     DoiLinkNonPreferred,
+    /// A citation the scanner cannot read (ADR 0050).
+    CitationSyntax,
+    /// A citation key with no source, or a locator that does not fit it.
+    CitationUnresolved,
+    /// A public identifier in a form readers cannot follow, left out.
+    CitationIdentifierUnpublished,
+    /// A cited reference without a detail its kind usually has.
+    CitationReferenceIncomplete,
+    /// Located citations a person must check against the source.
+    CitationLocationReview,
 }
 
 impl fmt::Display for EvidenceCode {
@@ -49,6 +59,11 @@ impl fmt::Display for EvidenceCode {
             Self::FootnoteUnresolved => "footnote-unresolved",
             Self::ReferenceLinkReview => "reference-link-review",
             Self::DoiLinkNonPreferred => "doi-link-non-preferred",
+            Self::CitationSyntax => "citation-syntax",
+            Self::CitationUnresolved => "citation-unresolved",
+            Self::CitationIdentifierUnpublished => "citation-identifier-unpublished",
+            Self::CitationReferenceIncomplete => "citation-reference-incomplete",
+            Self::CitationLocationReview => "citation-location-review",
         })
     }
 }

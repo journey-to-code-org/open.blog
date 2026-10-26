@@ -19,11 +19,12 @@ use blake2::{Blake2b512, Digest};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+use crate::citations::{public_identifier, PublicReference};
 use crate::contributor::{valid_registry_key, Contributor};
 use crate::research::normalize_doi_url;
 use crate::source_library::{
-    ResearchSourceKind, SourceDiagnostic, SourceDiagnosticCode, SourceLibrary, SourceRecord,
-    MAX_TEXT_CHARS, RECORD_FIELDS,
+    ResearchSourceKind, SourceCreator, SourceDiagnostic, SourceDiagnosticCode, SourceIdentifier,
+    SourceLibrary, SourceRecord, MAX_TEXT_CHARS, RECORD_FIELDS,
 };
 
 /// Upper bound on a CSL JSON import, checked before parsing.
@@ -33,7 +34,7 @@ pub const MAX_IMPORT_ITEMS: usize = 5_000;
 const MAX_ID_BYTES: usize = 64;
 
 /// CSL name variables the library records as creator roles.
-const NAME_ROLES: [&str; 3] = ["author", "editor", "translator"];
+pub(crate) const NAME_ROLES: [&str; 3] = ["author", "editor", "translator"];
 /// Name parts kept on a creator so an export can rebuild the CSL name.
 const NAME_PARTS: [&str; 5] = [
     "family",
@@ -43,7 +44,7 @@ const NAME_PARTS: [&str; 5] = [
     "suffix",
 ];
 /// Identifier schemes with a dedicated CSL variable, in output order.
-const IDENTIFIER_FIELDS: [(&str, &str); 6] = [
+pub(crate) const IDENTIFIER_FIELDS: [(&str, &str); 6] = [
     ("doi", "DOI"),
     ("isbn", "ISBN"),
     ("issn", "ISSN"),
@@ -53,7 +54,7 @@ const IDENTIFIER_FIELDS: [(&str, &str); 6] = [
 ];
 /// CSL variables with no source-library field. Their text or number is kept
 /// verbatim under the record's `csl` field.
-const PRESERVED_FIELDS: &[&str] = &[
+pub(crate) const PRESERVED_FIELDS: &[&str] = &[
     "archive",
     "archive_location",
     "collection-title",
@@ -76,7 +77,7 @@ const PRESERVED_FIELDS: &[&str] = &[
 ];
 /// Private notes never enter the library through an import, so they cannot
 /// reach an export a person shares.
-const NOTE_FIELDS: &[&str] = &["abstract", "annote", "keyword", "note"];
+pub(crate) const NOTE_FIELDS: &[&str] = &["abstract", "annote", "keyword", "note"];
 const CUSTOM_KEYS: [&str; 8] = [
     "openblog-kind",
     "openblog-of",
@@ -461,7 +462,7 @@ pub fn plan_csl_import(
 /// A stable source identifier for a CSL id: its lowercase ASCII slug, or a
 /// short digest when the id has no usable slug, so distinct non-ASCII ids
 /// never collapse into each other.
-fn derive_id(raw: &str) -> String {
+pub(crate) fn derive_id(raw: &str) -> String {
     if raw.is_ascii() {
         let mut slug = String::new();
         let mut separator = false;
@@ -1422,6 +1423,138 @@ pub fn export_bibtex(library: &SourceLibrary) -> Export {
         content,
         count: library.sources.len(),
         losses,
+    }
+}
+
+/// A post's cited references as CSL JSON, in order of first citation: a
+/// portable bibliography (ADR 0050). Unlike [`export_csl_json`] it is built
+/// only from the public description ([`PublicReference`]) a published post
+/// already shows, so it carries no `custom` envelope, no relationships,
+/// locations, archived flags, unknown fields or private identifiers. What
+/// CSL cannot carry of that description is reported in `losses`.
+pub fn export_cited_csl_json(references: &[PublicReference]) -> Export {
+    let mut losses = Vec::new();
+    let items: Vec<Value> = references
+        .iter()
+        .map(|reference| {
+            let record = public_record(reference);
+            let mut item = csl_item(&record);
+            if let Value::Object(map) = &mut item {
+                map.remove("custom");
+            }
+            let mut lose = |field: String, reason: String| {
+                losses.push(ExportLoss {
+                    source_id: reference.key.clone(),
+                    field,
+                    reason,
+                });
+            };
+            if record.kind != ResearchSourceKind::Work {
+                lose(
+                    "kind".into(),
+                    format!("CSL JSON cannot tell {} from a work", record.kind.as_str()),
+                );
+            }
+            for (position, creator) in reference.creators.iter().enumerate() {
+                let role = creator.role.as_deref().unwrap_or("author");
+                if !NAME_ROLES.contains(&role) {
+                    lose(
+                        format!("creators[{position}]"),
+                        format!("CSL JSON has no name variable for the role `{role}`"),
+                    );
+                }
+            }
+            for (scheme, _) in IDENTIFIER_FIELDS {
+                let count = reference
+                    .identifiers
+                    .iter()
+                    .filter(|(held, _)| held == scheme)
+                    .count();
+                if count > 1 && !matches!(scheme, "isbn" | "issn") {
+                    lose(
+                        "identifiers".into(),
+                        format!("CSL JSON holds one `{scheme}`; the others are omitted"),
+                    );
+                }
+            }
+            item
+        })
+        .collect();
+    let mut content = serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".into());
+    content.push('\n');
+    Export {
+        content,
+        count: items.len(),
+        losses,
+    }
+}
+
+/// A post's cited references as BibTeX, in order of first citation and keyed
+/// by source id, built only from their public description like
+/// [`export_cited_csl_json`]. What BibTeX cannot carry is reported in
+/// `losses`.
+pub fn export_cited_bibtex(references: &[PublicReference]) -> Export {
+    let mut content = String::new();
+    let mut losses = Vec::new();
+    for (position, reference) in references.iter().enumerate() {
+        if position > 0 {
+            content.push('\n');
+        }
+        content.push_str(&bibtex_entry(&public_record(reference), &mut losses));
+    }
+    Export {
+        content,
+        count: references.len(),
+        losses,
+    }
+}
+
+/// A record holding exactly a reference's public description, so the library
+/// exporters can write it without ever seeing a private field.
+fn public_record(reference: &PublicReference) -> SourceRecord {
+    let mut extra = BTreeMap::new();
+    if !reference.csl.is_empty() {
+        extra.insert(
+            "csl".into(),
+            Value::Object(
+                reference
+                    .csl
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+                    .collect(),
+            ),
+        );
+    }
+    SourceRecord {
+        id: reference.key.clone(),
+        kind: ResearchSourceKind::parse(reference.kind).unwrap_or(ResearchSourceKind::Work),
+        title: reference.title.clone(),
+        creators: reference
+            .creators
+            .iter()
+            .map(|creator| SourceCreator {
+                name: creator.name.clone(),
+                role: creator.role.clone(),
+                extra: BTreeMap::new(),
+            })
+            .collect(),
+        language: reference.language.clone(),
+        issued: reference.issued.clone(),
+        of: None,
+        based_on: None,
+        location: None,
+        identifiers: reference
+            .identifiers
+            .iter()
+            .filter(|(scheme, value)| public_identifier(scheme, value))
+            .map(|(scheme, value)| SourceIdentifier {
+                scheme: scheme.clone(),
+                value: value.clone(),
+                extra: BTreeMap::new(),
+            })
+            .collect(),
+        archived: false,
+        extra,
     }
 }
 

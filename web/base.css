@@ -750,6 +750,17 @@ h2.ob-title {
   margin: 0;
 }
 
+/* Generated citation notes: each links back to every place it is cited. */
+.ob-citation-back {
+  margin-inline-start: 0.25em;
+  text-decoration: none;
+}
+
+.ob-citation-back:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
 /* ---------- Syntax highlighting (tokens painted by <ob-code highlight>) ---------- */
 
 .tok-keyword { color: var(--ob-color-code-keyword); }

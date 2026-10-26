@@ -160,6 +160,7 @@ fn try_build_as(site_author: &str, parts: &[Fixture]) -> Result<Vec<render::Outp
                 series_file("letters", "Letters"),
             ],
             pages: vec![],
+            ..Default::default()
         },
         LoadOptions {
             now: DateTime::parse("2030-01-01T00:00:00Z"),
@@ -330,6 +331,7 @@ fn an_unknown_contributor_fails_the_load_instead_of_publishing_a_guess() {
             credits: sidecars,
             series: vec![series_file("letters", "Letters")],
             pages: vec![],
+            ..Default::default()
         },
         LoadOptions::default(),
     );

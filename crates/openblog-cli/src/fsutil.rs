@@ -142,14 +142,14 @@ pub fn write_new_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
         drop(file);
         // A same-directory hard link is an atomic, no-replace publication on
         // supported filesystems. Rename would overwrite on Unix.
-        fs::hard_link(&temporary, &target).map_err(|error| {
+        retry_transient(|| fs::hard_link(&temporary, &target)).map_err(|error| {
             format!(
                 "cannot publish export {} without overwriting: {error}",
                 path.display()
             )
         })
     })();
-    let cleanup = fs::remove_file(&temporary).map_err(|error| {
+    let cleanup = retry_transient(|| fs::remove_file(&temporary)).map_err(|error| {
         format!(
             "cannot remove export staging file {}: {error}",
             temporary.display()

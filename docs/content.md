@@ -56,6 +56,8 @@ a `#` heading, which is then used. Everything else is optional:
 | `recipe` | Legacy recipe marker. `true` remains supported; new posts should use `profile: recipe`. |
 | `doi` | Research profile only. A DOI name or `https://doi.org/` URL for this work. |
 | `license` | Research profile only. An absolute HTTP or HTTPS URL for the work's license. |
+| `citations` | `notes` or `bibliography` publishes the post's `[@key, locator]` citations from the private source library as numbered notes or a reference list. Without it, `[@...]` stays text. See [Research posts](research-profile.md#citations-notes-and-bibliographies). |
+| `citationLocale` | With `citations`: `en`, `de`, `fr` or `es` for the generated notes. Defaults to the site language when it is one of those, otherwise English. |
 | `videoUrl` | Video profile only. A YouTube watch, short-link, or Shorts URL. |
 | `duration` | Video profile only. A duration such as `12 min 34 sec`, `12:34`, or `PT12M34S`. |
 | `thumbnail` | Video profile only. A site-relative or absolute video thumbnail URL. A `cover` is used as the fallback. |

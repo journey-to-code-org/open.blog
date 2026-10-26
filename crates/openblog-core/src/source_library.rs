@@ -81,7 +81,7 @@ impl ResearchSourceKind {
         }
     }
 
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "work" => Self::Work,
             "edition" => Self::Edition,
