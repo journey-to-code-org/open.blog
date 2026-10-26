@@ -57,7 +57,7 @@ different names, and nothing would say which outcomes may stop a build.
   | `claims` | `ClaimSet::parse`, `ClaimSet::notices` | `claims-integrity`, `claim-projection` |
   | `alignments` | `AlignmentSet::parse`, `AlignmentSet::notices` | `alignments-integrity`, `alignment-places` |
   | `comparison-projection` | `PublicComparisons::project` | `comparison-rights` |
-  | `source-review` (planned, #193) | not yet built | `identifier-compatibility`, `version-identity`, `quotation-location`, `citation-consistency` |
+  | `source-review` (ADR 0146) | `source_review::review_post`, `source_review::review_library` | `identifier-compatibility`, `version-identity`, `quotation-location`, `citation-consistency` |
 
   The RW9 hand-off checks map one to one: missing reference `citation-resolution`, reference
   completeness `reference-completeness`, identifier `identifier-compatibility`, locator
@@ -96,6 +96,15 @@ different names, and nothing would say which outcomes may stop a build.
   | alignments | `archived-member` | alignment-places | provenance | needs-review |
   | chronology-index | all eight prompt codes (ADR 0097) | chronology-consistency | chronology | needs-review |
   | comparison-projection | `withheld-rights`, `withheld-length` (a place's `withheld` value) | comparison-rights | rights | detected |
+  | source-review | `identifier-conflict` | identifier-compatibility | identifier | potential |
+  | source-review | `identifier-shared`, `identifier-on-work` | identifier-compatibility | identifier | needs-review |
+  | source-review | `volume-missing`, `volume-unknown` | version-identity | locator | detected |
+  | source-review | `translator-missing`, `witness-unidentified` | version-identity | version | potential |
+  | source-review | `version-unspecified` | version-identity | version | needs-review |
+  | source-review | `quotation-locator-missing`, `passage-locator-missing` | quotation-location | locator | potential |
+  | source-review | `quotation-location-broad` | quotation-location | locator | needs-review |
+  | source-review | `citation-same-identifier` | citation-consistency | citation | potential |
+  | source-review | `citation-versions-mixed` | citation-consistency | citation | needs-review |
 
 - **Gates: only deterministic integrity and privacy failures refuse.** `citation-syntax` and
   `citation-unresolved` (citation-review, citation and reference, detected) are

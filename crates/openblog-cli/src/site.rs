@@ -218,6 +218,8 @@ pub struct BuildReport {
     pub warnings: Vec<String>,
     pub accessibility: Vec<AccessibilityFinding>,
     pub evidence: Vec<EvidenceFinding>,
+    /// Source-review findings about the sources posts cite (ADR 0146).
+    pub source_review: Vec<openblog_core::source_review::SourceReviewFinding>,
 }
 
 pub fn load_config(root: &Path) -> Result<SiteConfig, String> {
@@ -887,6 +889,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
         warnings,
         accessibility: site.accessibility.clone(),
         evidence,
+        source_review: site.source_review.clone(),
     })
 }
 

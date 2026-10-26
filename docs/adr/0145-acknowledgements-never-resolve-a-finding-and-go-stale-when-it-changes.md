@@ -55,6 +55,7 @@ edited, or an author could acknowledge once and never see a new problem under th
   | `archived-member` | the archived passage or source |
   | chronology prompts | each dating's id, aspect and stated date |
   | `withheld-rights`, `withheld-length` | the version's rights status and license and the place's locators |
+  | `source-review` findings | the cited keys and locators, identifier comparison keys, source and version ids, volume counts and the quotation's own text each code names (ADR 0146) |
   | refusing errors | nothing beyond the key: they cannot be acknowledged |
 
   So inserting a line above a located citation keeps its acknowledgement current, and citing a

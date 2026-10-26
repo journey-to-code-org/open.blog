@@ -28,6 +28,7 @@ use crate::knowledge_atlas::{AtlasDiagnostic, AtlasDiagnosticCode, DiagnosticSub
 use crate::research::{EvidenceCode, EvidenceFinding, EvidenceObject, EvidenceOutcome};
 use crate::research_notes::{NoteDiagnostic, NoteDiagnosticCode};
 use crate::source_library::{SourceDiagnostic, SourceDiagnosticCode};
+use crate::source_review::{ReviewObject, SourceReviewCode, SourceReviewFinding};
 
 /// The version of the serialized [`CompletenessReport`].
 pub const COMPLETENESS_FORMAT_VERSION: u32 = 1;
@@ -65,8 +66,8 @@ pub enum Validator {
     Claims,
     Alignments,
     ComparisonProjection,
-    /// Source-scoped version, locator, identifier and citation-consistency
-    /// diagnostics, planned in #193.
+    /// Source-scoped identifier, version, quotation-location and
+    /// citation-consistency diagnostics (ADR 0146).
     SourceReview,
 }
 
@@ -98,16 +99,14 @@ impl Validator {
             Self::Claims => "claims::ClaimSet::parse and ClaimSet::notices",
             Self::Alignments => "alignment::AlignmentSet::parse and AlignmentSet::notices",
             Self::ComparisonProjection => "comparison_publication::PublicComparisons::project",
-            Self::SourceReview => "planned in #193",
+            Self::SourceReview => "source_review::review_post and source_review::review_library",
         }
     }
 
     /// The issue that will add this validator, when it does not exist yet.
+    /// Every validator exists now; a later one names its issue here.
     pub fn planned_in(self) -> Option<u32> {
-        match self {
-            Self::SourceReview => Some(193),
-            _ => None,
-        }
+        None
     }
 }
 
@@ -283,10 +282,10 @@ impl Check {
             Self::AlignmentPlaces => "whether an aligned member's locators still match its passage and whether it rests on an archived source or passage",
             Self::ChronologyConsistency => "whether recorded datings can all hold at their stated precision",
             Self::ComparisonRights => "which compared wording the projection leaves out under the rights statement or the excerpt limit",
-            Self::IdentifierCompatibility => "whether a source's identifiers have the form their scheme allows and do not conflict",
-            Self::VersionIdentity => "whether a cited edition, translation or witness records the version details its kind needs",
-            Self::QuotationLocation => "whether a quotation gives a location in its source, not whether the words are there",
-            Self::CitationConsistency => "whether repeated citations of one source give the same reference and version details",
+            Self::IdentifierCompatibility => "whether a source's identifiers conflict with each other or with another record's, or belong on another version",
+            Self::VersionIdentity => "whether an edition, translation or witness, and each citation, quotation or passage of it, records the version details its kind needs: a translator, a repository and shelfmark, the volume of a page",
+            Self::QuotationLocation => "whether a quotation or notebook passage gives a location in its source, and how narrow it is, not whether the words are there",
+            Self::CitationConsistency => "whether the records a post cites name each source once and one version of each work",
         }
     }
 
@@ -794,6 +793,22 @@ code_table!(WITHHELD, withheld_spec, Withheld -> (&'static str, Spec) {
     Length => ("withheld-length", spec(K::ComparisonRights, C::Rights, O::Detected, G::Advisory)),
 });
 
+code_table!(SOURCE_REVIEW_CODES, source_review_spec, SourceReviewCode -> Spec {
+    IdentifierConflict => spec(K::IdentifierCompatibility, C::Identifier, O::Potential, G::Advisory),
+    IdentifierShared => spec(K::IdentifierCompatibility, C::Identifier, O::NeedsReview, G::Advisory),
+    IdentifierOnWork => spec(K::IdentifierCompatibility, C::Identifier, O::NeedsReview, G::Advisory),
+    VolumeMissing => spec(K::VersionIdentity, C::Locator, O::Detected, G::Advisory),
+    VolumeUnknown => spec(K::VersionIdentity, C::Locator, O::Detected, G::Advisory),
+    TranslatorMissing => spec(K::VersionIdentity, C::Version, O::Potential, G::Advisory),
+    WitnessUnidentified => spec(K::VersionIdentity, C::Version, O::Potential, G::Advisory),
+    VersionUnspecified => spec(K::VersionIdentity, C::Version, O::NeedsReview, G::Advisory),
+    QuotationLocatorMissing => spec(K::QuotationLocation, C::Locator, O::Potential, G::Advisory),
+    QuotationLocationBroad => spec(K::QuotationLocation, C::Locator, O::NeedsReview, G::Advisory),
+    PassageLocatorMissing => spec(K::QuotationLocation, C::Locator, O::Potential, G::Advisory),
+    CitationSameIdentifier => spec(K::CitationConsistency, C::Citation, O::Potential, G::Advisory),
+    CitationVersionsMixed => spec(K::CitationConsistency, C::Citation, O::NeedsReview, G::Advisory),
+});
+
 fn row(code: String, spec: Spec) -> MatrixRow {
     MatrixRow {
         validator: spec.check.owner(),
@@ -842,6 +857,11 @@ pub fn matrix() -> Vec<MatrixRow> {
         let (code, spec) = withheld_spec(withheld);
         row(code.to_string(), spec)
     }));
+    rows.extend(
+        SOURCE_REVIEW_CODES
+            .iter()
+            .map(|&code| row(code.to_string(), source_review_spec(code))),
+    );
     rows
 }
 
@@ -1065,6 +1085,37 @@ impl CompletenessFinding {
             }
         }
         findings
+    }
+
+    /// A source-review finding (ADR 0146): scoped to the post, record or
+    /// passage it names, with every other source it is about related.
+    pub fn from_source_review(finding: &SourceReviewFinding) -> Self {
+        let object = match finding.object {
+            ReviewObject::Post => ObjectKind::Post,
+            ReviewObject::Source => ObjectKind::Source,
+            ReviewObject::Passage => ObjectKind::Passage,
+        };
+        Self::mapped(
+            finding.code.to_string(),
+            source_review_spec(finding.code),
+            finding.outcome,
+            FindingScope {
+                id: finding.id.clone(),
+                index: finding.index,
+                path: finding.path.clone(),
+                line: finding.line,
+                field: finding.field.clone(),
+                ..FindingScope::of(object)
+            },
+            finding
+                .related
+                .iter()
+                .map(|id| ObjectRef::new(ObjectKind::Source, id.clone()))
+                .collect(),
+            finding.message.clone(),
+            Some(finding.repair.clone()),
+            finding.facts.clone(),
+        )
     }
 
     /// What an acknowledgement is matched by: the validator, code, object,

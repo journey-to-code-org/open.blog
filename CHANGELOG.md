@@ -5,6 +5,17 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- `openblog check` and `openblog build` now review the sources your opted-in posts cite: a
+  quotation (a block quotation or quoted words with a citation) that gives no location, or only
+  a chapter or section; a page in an edition recorded in several volumes that names no volume;
+  a quotation of a work whose editions or translations are recorded; and a post that cites one
+  source under two records with the same DOI or ISBN, or several versions of one work.
+  `openblog check` also reviews the private source library and notebook: two records with the
+  same identifier (an ISBN-10 meets its ISBN-13), two DOIs on one record, an ISBN on a work whose
+  editions are recorded, a translation without a translator, a witness without its repository or
+  shelfmark, and a passage without a location. Every prompt is advisory, runs offline, changes
+  nothing and names records by id; none says whether a source or quotation is accurate.
+
 ## [0.35.0] - 2026-10-26
 
 - The private Knowledge Atlas can now record uncertain chronology. Entries and relationships

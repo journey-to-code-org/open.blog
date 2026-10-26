@@ -1124,6 +1124,26 @@ ids, identifier values, stated dates), never its message, lines or positions, so
 exactly when what the finding is about changes and not when text moves or wording is edited.
 _Avoid_: Finding id, revision; hashing the message
 
+**Source review**:
+The validator that prompts about identifiers two records share or one record holds twice,
+version details a citation, passage or record leaves out (a volume, a translator, a witness's
+shelfmark), quotations without a narrow location, and posts that cite one source under two
+records or several versions of one work. Every prompt is advisory and offline, and none says
+whether a source or quotation is accurate.
+_Avoid_: Fact check, quotation verification, metadata repair
+
+**Quotation**:
+For source review, a citation inside or directly after a block quotation, a citation directly
+after quoted words, or a notebook passage. A quotation needs a location in its source; whether
+the words are there is only ever for a person to check. A GitHub-style alert is not one.
+_Avoid_: Excerpt check, verified quote
+
+**Identifier comparison key**:
+The form two identifiers are compared in (a DOI case-folded in its resolver form, an ISBN-10 as
+its ISBN-13, a PMCID with its prefix upper-cased). It is only compared, never written back: the
+record keeps the identifier as written.
+_Avoid_: Normalizing, deduplicating, merging
+
 ## Reader participation
 
 These terms describe how readers point at published text and where their feedback came from.

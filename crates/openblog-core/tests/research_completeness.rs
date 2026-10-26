@@ -26,6 +26,7 @@ use openblog_core::research_completeness::{
 };
 use openblog_core::research_notes::Notebook;
 use openblog_core::source_library::SourceLibrary;
+use openblog_core::source_review::{review_library, review_post};
 use serde_json::{json, Value};
 
 /// Authored text no finding may carry.
@@ -288,6 +289,20 @@ fn everything() -> Vec<CompletenessFinding> {
     findings.extend(alignments.notices);
     findings.extend(alignments.withheld);
     findings.extend(private_file_errors());
+    findings.extend(
+        review_post(
+            "posts/q.md",
+            "> Quoted.
+> [@grube, chapter 7]
+And [@burnet, page 4].
+",
+            1,
+            || Ok(Some(&library)),
+        )
+        .iter()
+        .chain(&review_library(&library, &notebook))
+        .map(CompletenessFinding::from_source_review),
+    );
     findings
 }
 
@@ -417,9 +432,9 @@ fn the_rw9_hand_off_checks_each_name_one_check_and_one_owner() {
             .collect();
         assert_eq!(owners.len(), 1, "{name} has one owner");
     }
-    // #193 adds its checks to one new validator, never to a presentation.
+    // #193 added its checks to one new validator, never to a presentation.
     assert_eq!(Check::VersionIdentity.owner(), Validator::SourceReview);
-    assert_eq!(Validator::SourceReview.planned_in(), Some(193));
+    assert!(Validator::ALL.iter().all(|v| v.planned_in().is_none()));
 }
 
 #[test]
@@ -518,6 +533,9 @@ fn every_existing_finding_maps_into_its_matrix_row_with_its_own_words() {
         (Validator::SourceLibrary, "unresolved-relationship"),
         (Validator::SourceLibrary, "invalid-json"),
         (Validator::Atlas, "invalid-json"),
+        (Validator::SourceReview, "quotation-location-broad"),
+        (Validator::SourceReview, "citation-versions-mixed"),
+        (Validator::SourceReview, "translator-missing"),
     ] {
         assert!(seen.contains(&expected), "{expected:?} in {seen:#?}");
     }

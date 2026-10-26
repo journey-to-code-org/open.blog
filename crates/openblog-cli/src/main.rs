@@ -410,6 +410,12 @@ fn run(raw: &[String]) -> Result<(), String> {
             if let Some(summary) = check_research_notebook(&root, &site.config.contributors)? {
                 println!("{summary}");
             }
+            if let Some((summary, findings)) =
+                check_source_review(&root, &site.config.contributors, &site.source_review)?
+            {
+                serve::print_source_review_findings(&findings);
+                println!("{summary}");
+            }
             if let Some((summary, notices)) = check_knowledge_atlas(
                 &root,
                 &site.config.contributors,
@@ -865,6 +871,50 @@ fn check_research_notebook(
             snapshot.notebook.notes.len()
         )
     }))
+}
+
+/// Review the stored source library and notebook (ADR 0146), with the
+/// findings the site load made about the sources its posts cite, when a
+/// library is stored. Every finding is advisory; the summary counts each
+/// outcome apart and never combines them.
+fn check_source_review(
+    root: &std::path::Path,
+    contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+    posts: &[openblog_core::source_review::SourceReviewFinding],
+) -> Result<
+    Option<(
+        String,
+        Vec<openblog_core::source_review::SourceReviewFinding>,
+    )>,
+    String,
+> {
+    let sources = source_store::load(root, contributors).map_err(|error| error.to_string())?;
+    if !sources.stored {
+        return Ok(None);
+    }
+    let notebook = notebook_store::load(root, contributors)
+        .map_err(|error| error.to_string())?
+        .notebook;
+    let mut findings = posts.to_vec();
+    findings.extend(openblog_core::source_review::review_library(
+        &sources.library,
+        &notebook,
+    ));
+    let outcome = |wanted: openblog_core::research::EvidenceOutcome| {
+        findings.iter().filter(|f| f.outcome == wanted).count()
+    };
+    let summary = if findings.is_empty() {
+        "OK: source review found no identifier, version, quotation-location or citation-consistency prompts. It ran offline; nothing was looked up or changed.".to_string()
+    } else {
+        format!(
+            "OK: source review has {} identifier, version, quotation-location and citation-consistency prompt(s): {} detected, {} potential, {} needing review. It ran offline and changed nothing; prompts point at what the record leaves open or what only you can check against the source, never at whether a source or quotation is right.",
+            findings.len(),
+            outcome(openblog_core::research::EvidenceOutcome::Detected),
+            outcome(openblog_core::research::EvidenceOutcome::Potential),
+            outcome(openblog_core::research::EvidenceOutcome::NeedsReview)
+        )
+    };
+    Ok(Some((summary, findings)))
 }
 
 /// Validate the private Knowledge Atlas when one is stored, against the stored
@@ -1471,6 +1521,65 @@ mod tests {
                 && error.contains("(unresolved-relationship)"),
             "{error}"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn check_reviews_sources_only_when_a_library_is_stored_and_changes_nothing() {
+        let root = std::env::temp_dir().join(format!(
+            "openblog-check-source-review-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let contributors = std::collections::BTreeMap::new();
+        assert_eq!(check_source_review(&root, &contributors, &[]), Ok(None));
+        assert!(!root.join(".openblog").exists());
+
+        let library = root.join(source_store::LIBRARY_FILE);
+        std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+        let text = r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"}]}"#;
+        std::fs::write(&library, text).unwrap();
+        let (summary, findings) = check_source_review(&root, &contributors, &[])
+            .unwrap()
+            .unwrap();
+        assert!(findings.is_empty());
+        assert!(summary.contains("found no identifier"), "{summary}");
+
+        let text = r#"{"version":1,"sources":[{"id":"w","kind":"work","title":"W"},{"id":"t","kind":"translation","of":"w","title":"T","language":"en","identifiers":[{"scheme":"doi","value":"10.1000/a"}]},{"id":"u","kind":"work","title":"U","identifiers":[{"scheme":"doi","value":"10.1000/A"}]}]}"#;
+        std::fs::write(&library, text).unwrap();
+        std::fs::write(
+            root.join(notebook_store::NOTEBOOK_FILE),
+            r#"{"version":1,"passages":[{"id":"p","source":"t","excerpt":{"text":"Words"}}]}"#,
+        )
+        .unwrap();
+        let (summary, findings) = check_source_review(&root, &contributors, &[])
+            .unwrap()
+            .unwrap();
+        let codes: Vec<String> = findings.iter().map(|f| f.code.to_string()).collect();
+        assert_eq!(
+            codes,
+            [
+                "translator-missing",
+                "identifier-shared",
+                "passage-locator-missing"
+            ]
+        );
+        assert!(
+            summary.contains("3 identifier, version, quotation-location and citation-consistency prompt(s): 0 detected, 2 potential, 1 needing review"),
+            "{summary}"
+        );
+        let line = serve::source_review_line(&findings[1]);
+        assert!(
+            line.starts_with("source review needs-review: source `u` (identifiers): ")
+                && line.ends_with("[identifier-shared]"),
+            "{line}"
+        );
+        assert!(!line.contains("10.1000"), "{line}");
+        assert_eq!(std::fs::read_to_string(&library).unwrap(), text);
         std::fs::remove_dir_all(root).unwrap();
     }
 

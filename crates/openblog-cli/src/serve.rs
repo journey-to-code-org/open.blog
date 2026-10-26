@@ -17,6 +17,7 @@ use crate::http::{self, Conn, Request, Response};
 use crate::site;
 use openblog_core::accessibility::{AccessibilityFinding, FindingLocation};
 use openblog_core::research::EvidenceFinding;
+use openblog_core::source_review::SourceReviewFinding;
 
 /// Concurrent connections served at once; extras are dropped, so a flood of
 /// slow clients cannot exhaust threads.
@@ -230,6 +231,19 @@ pub fn print_report(report: &site::BuildReport) {
     }
     print_accessibility_findings(&report.accessibility);
     print_evidence_findings(&report.evidence);
+    print_source_review_findings(&report.source_review);
+}
+
+/// Source-review findings (ADR 0146), one line each in the shape evidence
+/// findings use: outcome, place, message, repair and code.
+pub fn print_source_review_findings(findings: &[SourceReviewFinding]) {
+    for finding in findings {
+        eprintln!("{}", source_review_line(finding));
+    }
+}
+
+pub(crate) fn source_review_line(finding: &SourceReviewFinding) -> String {
+    format!("source review {}: {finding}", finding.outcome)
 }
 
 pub fn print_evidence_findings(findings: &[EvidenceFinding]) {
