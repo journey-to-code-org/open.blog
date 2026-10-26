@@ -605,7 +605,22 @@ pub fn generate_site(
 }
 
 pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String> {
-    let (mut site, themes) = load_site(root, options.include_drafts, options.now)?;
+    let config = load_config(root)?;
+    let sources = read_sources(root, &config)?;
+    // Evidence gaps in the private claims file, for the author only: printed
+    // with the other evidence findings, never written to the output. They are
+    // reviewed against the posts this build read, before the load takes them.
+    let claim_findings = crate::claims_store::build_findings(root, &config.contributors, &sources);
+    let (mut site, themes) = load_site_from_sources(
+        root,
+        config,
+        sources,
+        LoadOptions {
+            include_drafts: options.include_drafts,
+            now: options.now,
+            preview_source: None,
+        },
+    )?;
     let files = generate_site(root, &mut site, &themes)?;
     let config = &site.config;
     let mut warnings = site.warnings.clone();
@@ -614,10 +629,8 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
             .into_iter()
             .map(|warning| format!("portability: {warning}")),
     );
-    // Evidence gaps in the private claims file, for the author only: printed
-    // with the other evidence findings, never written to the output.
     let mut evidence = site.evidence.clone();
-    match crate::claims_store::build_findings(root, &config.contributors, &config.paths.content) {
+    match claim_findings {
         Ok(found) => evidence.extend(found),
         Err(warning) => warnings.push(warning),
     }

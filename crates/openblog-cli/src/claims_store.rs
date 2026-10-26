@@ -198,9 +198,7 @@ pub fn check_against_library(root: &Path, library: &SourceLibrary) -> Result<(),
 /// verified.
 pub fn read_saved_posts(root: &Path, content_dir: &str) -> (Drafts, BTreeMap<String, String>) {
     let content = root.join(content_dir);
-    let mut drafts = Drafts::new();
-    let mut paths = BTreeMap::new();
-    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    let mut posts = Vec::new();
     // The build's own walk: a directory symlink that leaves the content
     // folder or loops stops the build, and leaves no draft to verify here.
     for file in crate::site::content_files(&content).unwrap_or_default() {
@@ -219,15 +217,45 @@ pub fn read_saved_posts(root: &Path, content_dir: &str) -> (Drafts, BTreeMap<Str
         let Ok(source) = fs::read_to_string(&file) else {
             continue;
         };
-        let (Some(slug), Ok(text)) = (
-            claims::post_slug(&path, &source),
-            claims::anchor_text(&source),
-        ) else {
+        posts.push((path, source));
+    }
+    drafts_of(
+        posts
+            .iter()
+            .map(|(path, source)| (path.as_str(), source.as_str())),
+    )
+}
+
+/// [`read_saved_posts`] for a build that has already read its content
+/// ([`crate::site::read_sources`]), so the posts are not walked and read a
+/// second time. The build decided which files are posts; an oversized post
+/// and two posts claiming one slug are left out as there.
+pub fn drafts_from_sources(sources: &openblog_core::Sources) -> (Drafts, BTreeMap<String, String>) {
+    drafts_of(
+        sources
+            .posts
+            .iter()
+            .filter(|post| post.contents.len() as u64 <= MAX_DRAFT_BYTES)
+            .map(|post| (post.path.as_str(), post.contents.as_str())),
+    )
+}
+
+/// Each post's anchor text and path by slug, leaving out a post with no slug
+/// or anchor text and every post of a slug that two posts claim.
+fn drafts_of<'a>(
+    posts: impl Iterator<Item = (&'a str, &'a str)>,
+) -> (Drafts, BTreeMap<String, String>) {
+    let mut drafts = Drafts::new();
+    let mut paths = BTreeMap::new();
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    for (path, source) in posts {
+        let (Some(slug), Ok(text)) = (claims::post_slug(path, source), claims::anchor_text(source))
+        else {
             continue;
         };
         *seen.entry(slug.clone()).or_default() += 1;
         drafts.insert(slug.clone(), text);
-        paths.insert(slug, path);
+        paths.insert(slug, path.to_string());
     }
     for (slug, count) in seen {
         if count > 1 {
@@ -243,11 +271,19 @@ pub fn read_saved_posts(root: &Path, content_dir: &str) -> (Drafts, BTreeMap<Str
 /// only: nothing is created, locked or changed.
 pub fn review(snapshot: &Snapshot, root: &Path, content_dir: &str) -> Vec<EvidenceFinding> {
     let (drafts, paths) = read_saved_posts(root, content_dir);
+    review_against(snapshot, &drafts, &paths)
+}
+
+fn review_against(
+    snapshot: &Snapshot,
+    drafts: &Drafts,
+    paths: &BTreeMap<String, String>,
+) -> Vec<EvidenceFinding> {
     openblog_core::claim_review::review_claims(
         &snapshot.claims,
         &openblog_core::claim_review::ReviewContext {
-            drafts: &drafts,
-            paths: &paths,
+            drafts,
+            paths,
             claims_file: CLAIMS_FILE,
             library: &snapshot.library,
             notebook: &snapshot.notebook,
@@ -256,16 +292,26 @@ pub fn review(snapshot: &Snapshot, root: &Path, content_dir: &str) -> Vec<Eviden
 }
 
 /// What a build reports about the claims file: its findings when one is
-/// stored, nothing when none is (a CI or static-host build never has one),
-/// and one warning, naming only the file, when it cannot be read. A claims
-/// problem never stops a build, and nothing from the file reaches its output.
+/// stored, against the posts the build read, nothing when none is (a CI or
+/// static-host build never has one), and one warning, naming only the file,
+/// when it cannot be read. Without a claims file nothing else is read, so a
+/// broken library or notebook is not reported here. A claims problem never
+/// stops a build, and nothing from the file reaches its output.
 pub fn build_findings(
     root: &Path,
     contributors: &BTreeMap<String, Contributor>,
-    content_dir: &str,
+    sources: &openblog_core::Sources,
 ) -> Result<Vec<EvidenceFinding>, String> {
+    if claims_path(root).is_ok_and(|path| {
+        matches!(fs::symlink_metadata(path), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+    }) {
+        return Ok(Vec::new());
+    }
     match load(root, contributors) {
-        Ok(snapshot) if snapshot.stored => Ok(review(&snapshot, root, content_dir)),
+        Ok(snapshot) if snapshot.stored => {
+            let (drafts, paths) = drafts_from_sources(sources);
+            Ok(review_against(&snapshot, &drafts, &paths))
+        }
         Ok(_) => Ok(Vec::new()),
         Err(_) => Err(format!(
             "the private claims file {CLAIMS_FILE} cannot be read, so its evidence gaps were not reviewed; run `openblog check` to see why"
@@ -1251,5 +1297,56 @@ mod tests {
             .count();
         assert_eq!(locks, 0, "every lock was released");
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_build_without_a_claims_file_reads_and_reports_nothing_else() {
+        let root = temp_root("build-absent");
+        // A broken library and no claims file: a build says nothing about claims.
+        let library = root.join(source_store::LIBRARY_FILE);
+        fs::create_dir_all(library.parent().unwrap()).unwrap();
+        fs::write(&library, "{ not json").unwrap();
+        let sources = openblog_core::Sources::default();
+        assert_eq!(build_findings(&root, &none(), &sources), Ok(Vec::new()));
+        // With a claims file the library is read, and its problem is one warning.
+        fs::write(file(&root), r#"{"version":1,"claims":[]}"#).unwrap();
+        let warning = build_findings(&root, &none(), &sources).unwrap_err();
+        assert!(warning.contains(CLAIMS_FILE));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_build_reads_drafts_from_the_posts_it_loaded() {
+        let post = |path: &str, contents: &str| openblog_core::SourceFile {
+            path: path.into(),
+            contents: contents.into(),
+        };
+        let sources = openblog_core::Sources {
+            posts: vec![
+                post(
+                    "posts/2026-01-07-on-caves.md",
+                    "---\ntitle: Caves\n---\n\nThe cave.\n",
+                ),
+                post(
+                    "posts/2026-01-08-twin.md",
+                    "---\ntitle: A\nslug: twin\n---\nA\n",
+                ),
+                post(
+                    "posts/2026-01-09-twin.md",
+                    "---\ntitle: B\nslug: twin\n---\nB\n",
+                ),
+            ],
+            ..Default::default()
+        };
+        let (drafts, paths) = drafts_from_sources(&sources);
+        assert_eq!(
+            drafts,
+            Drafts::from([("on-caves".to_string(), "The cave.".to_string())])
+        );
+        assert_eq!(paths["on-caves"], "posts/2026-01-07-on-caves.md");
+        assert!(
+            !paths.contains_key("twin"),
+            "a slug two posts claim has no draft"
+        );
     }
 }
