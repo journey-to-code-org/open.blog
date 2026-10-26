@@ -4805,7 +4805,11 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
     let reread = |value: &Json| moderation_inbox::InboxItem::from_value(&value["item"]).ok();
     let changed = match hosted_moderation_call(state, &[], Some(&request)) {
         Ok((200, value)) => match reread(&value) {
-            Some(changed) if changed.id == id && changed.state == decision.item.to => changed,
+            Some(changed)
+                if changed.id == id && stored_as(protocol, &changed, decision.item.to) =>
+            {
+                changed
+            }
             _ => {
                 return Response::error(
                     502,
@@ -4891,6 +4895,20 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
             "build": build,
         }),
     )
+}
+
+/// Whether the hosted function stored `to`: exactly, or, for a comment
+/// under the older schema, as the `status` value ADR 0101 maps it to (a
+/// removed comment is stored as rejected).
+fn stored_as(
+    protocol: moderation_inbox::Protocol,
+    changed: &moderation_inbox::InboxItem,
+    to: ModerationState,
+) -> bool {
+    changed.state == to
+        || (protocol == moderation_inbox::Protocol::Legacy
+            && changed.source == moderation_inbox::Source::Comment
+            && changed.state.id() == to.legacy_comment_status())
 }
 
 fn capitalize(text: &str) -> String {
@@ -17890,6 +17908,22 @@ mod tests {
         let failed =
             collect_inbox_page(true, None, |_| Err(Response::error(502, "down")), seen_only);
         assert_eq!(failed.err().unwrap().status, 502);
+    }
+
+    #[test]
+    fn a_comment_removed_under_the_older_schema_reads_back_as_rejected() {
+        let mut rejected = inbox_page(&[true], 0, false).items.remove(0);
+        rejected.state = ModerationState::Rejected;
+        let legacy = moderation_inbox::Protocol::Legacy;
+        assert!(stored_as(legacy, &rejected, ModerationState::Removed));
+        assert!(stored_as(legacy, &rejected, ModerationState::Rejected));
+        assert!(!stored_as(legacy, &rejected, ModerationState::Approved));
+        // With the inbox's schema the full state is stored, so only it will do.
+        assert!(!stored_as(
+            moderation_inbox::Protocol::Full,
+            &rejected,
+            ModerationState::Removed
+        ));
     }
 
     #[test]
