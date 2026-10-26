@@ -118,7 +118,14 @@ fn locked_hidden_and_switched_off_posts_and_feeds_have_no_form() {
     }
     for (path, contents) in &files {
         if path.ends_with(".xml") || path.ends_with(".json") || path.ends_with(".txt") {
-            assert!(!contents.contains("ob-third-perspective"), "{path}");
+            // Feeds link to the form's anchor (ADR 0115) but never carry the region.
+            for region in [
+                "<ob-third-perspective",
+                "ob-third-perspective-",
+                "Offer a Third Perspective",
+            ] {
+                assert!(!contents.contains(region), "{path}: {region}");
+            }
         }
     }
     // The kind left off, or no hosted transport: every page is as it was.
