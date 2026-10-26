@@ -650,6 +650,10 @@ pub struct HostedFeedback {
     pub clarification_asked: Option<u32>,
     /// The submitter agreed to be asked to clarify.
     pub clarification_consent: bool,
+    /// The author's correction decisions on the item (ADR 0139), oldest
+    /// first, when the hosted service stores them: `None` when it does not
+    /// (the column is not there), an empty log when nobody has decided yet.
+    pub decisions: Option<crate::correction_decision::DecisionLog>,
 }
 
 #[derive(Deserialize)]
@@ -671,6 +675,8 @@ struct WireHosted {
     clarification_asked: Option<u64>,
     #[serde(default)]
     clarification_consent: Option<bool>,
+    #[serde(default)]
+    decisions: Option<Value>,
 }
 
 pub fn is_uuid(value: &str) -> bool {
@@ -750,6 +756,17 @@ impl HostedFeedback {
                 "a hosted feedback item names a revision after its current one",
             ));
         }
+        let decisions = wire
+            .decisions
+            .map(|value| {
+                crate::correction_decision::DecisionLog::from_value(&value)
+                    .ok()
+                    .filter(|log| log.item() == wire.id.to_ascii_lowercase())
+                    .ok_or_else(|| {
+                        invalid("a hosted feedback item's `decisions` are not its decision log")
+                    })
+            })
+            .transpose()?;
         Ok(Self {
             id: wire.id,
             status,
@@ -764,6 +781,7 @@ impl HostedFeedback {
                 .then(|| approved_revision.unwrap_or(revision)),
             clarification_asked,
             clarification_consent: wire.clarification_consent.unwrap_or(false),
+            decisions,
         })
     }
 }

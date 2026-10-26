@@ -10,7 +10,7 @@
   [ADR 0077](0077-targets-resolve-as-current-reanchored-or-stale.md),
   [ADR 0078](0078-feedback-provenance-records-the-revision-seen-and-consent.md),
   [ADR 0079](0079-typed-scholarly-feedback-kinds-and-one-submission-format.md)
-- Coordinates with: [#211](https://github.com/journey-to-code-org/open.blog/issues/211) (RD12
+- Coordinates with: [#211](https://github.com/journey-to-code-org/open.blog/issues/211) (RD12,
   participation and moderation policy), [#217](https://github.com/journey-to-code-org/open.blog/issues/217)
   (RD6.2 submission and review), [#218](https://github.com/journey-to-code-org/open.blog/issues/218)
   (RD6.3 published outcomes), [ADR 0139](0139-only-the-authors-correction-decision-labels-a-correction.md)
@@ -108,7 +108,7 @@ reader's guess at an id must never confirm that something private exists.
   `submissions` fixtures, and stores the block with the row; storage only checks the kind id's
   shape (ADR 0080), so no kind migration is needed. Until then hosted transport refuses version 2,
   which is the safe default.
-- RD12 merges without renumbering anything: the kinds, their rules and their modes are its own
+- RD12 merged without renumbering anything: the kinds, their rules and their modes are its own
   `source-suggestion` and `correction-suggestion` rows.
 
 ## Domain language

@@ -14,13 +14,14 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::date::DateTime;
+use crate::evidence_submission::is_evidence_kind;
 use crate::feedback_moderation::{feedback_review, post_for_work};
 use crate::invitation::Identities;
 use crate::model::Site;
 use crate::moderation::{
-    allowed_reasons, is_public, may_view, Actor, ActorRole, Decision, Erasure, ItemFacts,
-    ModerationAction, ModerationPolicy, ModerationState, PolicyError, Principal, ReasonCode,
-    Request, RetentionStep, SharedWorks, View,
+    allowed_reasons, is_public, may_decide, may_view, Actor, ActorRole, Decision, Erasure,
+    ItemFacts, ModerationAction, ModerationPolicy, ModerationState, PolicyError, Principal,
+    ReasonCode, Request, RetentionStep, SharedWorks, View,
 };
 use crate::participation::{effective_mode, ParticipationKind, ParticipationMode};
 use crate::scholarly_feedback::{is_uuid, HostedFeedback};
@@ -59,6 +60,11 @@ pub fn report_grounds() -> &'static [ReasonCode] {
 /// The action id a site Admin sends to delete an item's text and name on a
 /// reader's request ([`ModerationPolicy::erase`]).
 pub const ERASE_ACTION: &str = "erase";
+
+/// The inbox's action for the author's correction decision (ADR 0139). It is
+/// not a moderation action: it never changes the item's state, version or
+/// approval, and it is offered beside them, never instead of them.
+pub const RECORD_DECISION: &str = "Record decision";
 
 /// What the hosted service can store for moderation (ADR 0106).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -776,6 +782,26 @@ impl<'a> Inbox<'a> {
         Ok(erasure)
     }
 
+    /// Whether this viewer may record the author's correction decision on
+    /// the item now (ADR 0139): a suggested source or correction whose text
+    /// is kept, pending or approved and not the text a clarification asked
+    /// about, stored where the hosted service keeps decisions, and a viewer
+    /// the policy lets decide on its work (the site Admin or a coordinator,
+    /// as for approval). A decision never waits on moderation, and showing
+    /// the reader's note stays moderation's decision.
+    pub fn may_record_decision(&self, item: &InboxItem) -> bool {
+        let facts = item.facts();
+        item.feedback()
+            .is_some_and(|hosted| hosted.decisions.is_some())
+            && is_evidence_kind(item.kind)
+            && matches!(
+                item.state,
+                ModerationState::Pending | ModerationState::Approved
+            )
+            && !facts.current_revision_asked()
+            && may_decide(&self.actor(item), &facts)
+    }
+
     /// The step retention owes the item now, if any (ADR 0104).
     pub fn retention_due(&self, item: &InboxItem) -> Option<RetentionStep> {
         self.policy.retention_due(&item.facts(), self.now)
@@ -824,6 +850,12 @@ impl<'a> Inbox<'a> {
                 "confirm": "I understand that the text and name are deleted for good.",
             }));
         }
+        let record_decision = self.may_record_decision(item).then(|| {
+            json!({
+                "label": RECORD_DECISION,
+                "guidance": "Records what you concluded about your work: a correction, a clarification, the source added as evidence, declined with your reason, or already addressed. It never edits the post, a citation or the Source Library, and it does not publish the reader’s note.",
+            })
+        });
         let mut view = json!({
             "id": item.id,
             "source": item.source.id(),
@@ -848,6 +880,9 @@ impl<'a> Inbox<'a> {
             },
             "actions": actions,
         });
+        if let Some(record_decision) = record_decision {
+            view["recordDecision"] = record_decision;
+        }
         match &item.content {
             Content::Purged => {
                 view["body"] = Value::Null;

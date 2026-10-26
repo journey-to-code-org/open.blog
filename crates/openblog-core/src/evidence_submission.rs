@@ -29,10 +29,11 @@ use crate::claims::Relation;
 use crate::date::DateTime;
 use crate::feedback_provenance::FeedbackChannel;
 use crate::knowledge_atlas::valid_id;
+use crate::participation::ParticipationKind;
 use crate::research_notes::LocatorKind;
 use crate::scholarly_feedback::{
-    reader_text, FeedbackError, FeedbackErrorCode, FeedbackKind, FeedbackSubmission,
-    ScholarlyFeedback, MAX_SUBMISSION_JSON_BYTES,
+    reader_text, FeedbackError, FeedbackErrorCode, FeedbackSubmission, ScholarlyFeedback,
+    MAX_SUBMISSION_JSON_BYTES,
 };
 
 /// The submission and record format version that carries an evidence block.
@@ -43,16 +44,22 @@ pub const MAX_OFFERED_LOCATORS: usize = 8;
 pub const MAX_LOCATOR_VALUE_CHARS: usize = 64;
 
 /// The kinds that make an evidence submission: the reader offers a source,
-/// or says the passage is wrong. Questions and other interpretations carry
-/// no evidence block.
-pub const EVIDENCE_KINDS: [FeedbackKind; 2] = [
-    FeedbackKind::SourceSuggestion,
-    FeedbackKind::CorrectionSuggestion,
+/// or says the passage is wrong. They are the participation registry's own
+/// `source-suggestion` and `correction-suggestion` rows (ADR 0101), so every
+/// mode, quota and moderation rule of those kinds applies unchanged.
+/// Questions, other interpretations and every other kind carry no evidence
+/// block.
+pub const EVIDENCE_KINDS: [ParticipationKind; 2] = [
+    ParticipationKind::SourceSuggestion,
+    ParticipationKind::CorrectionSuggestion,
 ];
 
-/// Whether submissions of `kind` are evidence submissions.
-pub fn is_evidence_kind(kind: FeedbackKind) -> bool {
-    EVIDENCE_KINDS.contains(&kind)
+/// Whether items of `kind` are evidence submissions.
+pub fn is_evidence_kind(kind: ParticipationKind) -> bool {
+    matches!(
+        kind,
+        ParticipationKind::SourceSuggestion | ParticipationKind::CorrectionSuggestion
+    )
 }
 
 /// One position in an offered source, in the notebook's locator kinds
@@ -395,7 +402,7 @@ impl EvidenceSubmission {
     pub fn from_value(value: &Value) -> Result<Self, EvidenceError> {
         let (plain, evidence) = split(value, "feedback submission")?;
         let feedback = FeedbackSubmission::from_value(&plain)?;
-        if !is_evidence_kind(feedback.kind) {
+        if !is_evidence_kind(feedback.kind.participation_kind()) {
             return Err(EvidenceError::new(
                 EvidenceErrorCode::NotEvidenceKind,
                 format!(
@@ -465,7 +472,7 @@ impl EvidenceRecord {
     pub fn from_value(value: &Value) -> Result<Self, EvidenceError> {
         let (plain, evidence) = split(value, "feedback record")?;
         let feedback = ScholarlyFeedback::from_value(&plain)?;
-        if !is_evidence_kind(feedback.kind) {
+        if !is_evidence_kind(feedback.kind.participation_kind()) {
             return Err(EvidenceError::new(
                 EvidenceErrorCode::NotEvidenceKind,
                 format!(

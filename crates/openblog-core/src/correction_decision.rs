@@ -4,7 +4,7 @@
 //! ([`crate::evidence_submission`]) is never a correction. Only the author's
 //! decision can make one, and the decision is a separate thing from
 //! moderation: moderation decides whether the reader's note may be shown
-//! (ADR 0083, RD12), the decision records what the author concluded about
+//! (ADRs 0083 and 0102), the decision records what the author concluded about
 //! the work. It does both of these and nothing else:
 //!
 //! - it names one [`DecisionOutcome`]: accepted as a correction, accepted as
@@ -22,20 +22,26 @@
 //! decision, and nothing counts, ranks or votes: two readers sending the same
 //! suggestion are two items with two decisions, never a score.
 //!
-//! The policy is pure. Callers build [`DecisionFacts`] from the stored item,
-//! its moderation state and the passage check, resolve who is deciding, and
-//! store the returned [`CorrectionDecision`] appended to the item's log in
-//! one write. Every error means nothing changed.
+//! The policy is pure. Callers build [`DecisionFacts`] from the stored item's
+//! moderation facts ([`ItemFacts`], RD12's) and the passage check, resolve
+//! who is deciding with [`crate::moderation::SharedWorks::actor`] as for
+//! every moderation action, and store the returned [`CorrectionDecision`]
+//! appended to the item's log, with its [`audit_event`], in one write. Every
+//! error means nothing changed.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::claim_publication::{revision_notes, RevisionNote};
 use crate::claims::ClaimSet;
+use crate::date::DateTime;
 use crate::evidence_submission::{is_evidence_kind, EvidenceOffer, PublishedReferences};
-use crate::feedback_moderation::{stale_reason_id, ModerationState, PassageCheck};
+use crate::feedback_moderation::{stale_reason_id, PassageCheck};
 use crate::feedback_publication::{is_day, is_post_source};
 use crate::knowledge_atlas::valid_id;
+use crate::moderation::{
+    may_decide, Actor, ActorRole, AuditAction, AuditEvent, ItemFacts, ModerationState,
+};
 use crate::passage_target::{is_passage_revision, StaleReason};
 use crate::scholarly_feedback::{is_uuid, reader_text, FeedbackKind};
 
@@ -191,49 +197,10 @@ impl DeclineReason {
     }
 }
 
-/// Who is deciding, in the participation policy's role ids (RD12's
-/// `ActorRole`), resolved by the server, never claimed by a request. Only
-/// the site Admin and a coordinator of the work's shared publication decide:
-/// the same actors who may approve, since a decision speaks for the work.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum DeciderRole {
-    Public,
-    Submitter,
-    SiteAdmin,
-    Coordinator,
-    ContributingAuthor,
-    System,
-}
-
-impl DeciderRole {
-    pub const ALL: [DeciderRole; 6] = [
-        DeciderRole::Public,
-        DeciderRole::Submitter,
-        DeciderRole::SiteAdmin,
-        DeciderRole::Coordinator,
-        DeciderRole::ContributingAuthor,
-        DeciderRole::System,
-    ];
-
-    pub fn id(self) -> &'static str {
-        match self {
-            DeciderRole::Public => "public",
-            DeciderRole::Submitter => "submitter",
-            DeciderRole::SiteAdmin => "site-admin",
-            DeciderRole::Coordinator => "coordinator",
-            DeciderRole::ContributingAuthor => "contributing-author",
-            DeciderRole::System => "system",
-        }
-    }
-
-    pub fn from_id(id: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|role| role.id() == id)
-    }
-
-    /// Whether this role may record a correction decision.
-    pub fn may_decide(self) -> bool {
-        matches!(self, DeciderRole::SiteAdmin | DeciderRole::Coordinator)
-    }
+/// Whether a recorded decision's role is one that may decide: the site
+/// Admin or a coordinator (ADR 0139), the roles [`may_decide`] grants.
+fn deciding_role(role: ActorRole) -> bool {
+    matches!(role, ActorRole::SiteAdmin | ActorRole::Coordinator)
 }
 
 /// The post's public revision note the decision rests on: the post's source
@@ -521,7 +488,9 @@ pub fn passage_check_from_id(id: &str) -> Option<PassageCheck> {
 /// Who decided, for the private record only: never public.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decider {
-    pub role: DeciderRole,
+    /// The role [`crate::moderation::SharedWorks::actor`] resolved on the
+    /// item's work: the site Admin or a coordinator.
+    pub role: ActorRole,
     /// The Admin account, or `@moderation-token` for the hosted token.
     pub account: Option<String>,
 }
@@ -741,8 +710,8 @@ impl CorrectionDecision {
                 "an item cannot be addressed by itself",
             ));
         }
-        let role = DeciderRole::from_id(&wire.decided_by.role)
-            .filter(|role| role.may_decide())
+        let role = ActorRole::from_id(&wire.decided_by.role)
+            .filter(|role| deciding_role(*role))
             .ok_or_else(|| {
                 DecisionError::new(
                     Code::Denied,
@@ -920,14 +889,10 @@ impl DecisionLog {
 /// The server's facts about the item being decided.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DecisionFacts<'a> {
-    /// The hosted item's id.
-    pub id: &'a str,
-    pub kind: FeedbackKind,
-    pub state: ModerationState,
-    /// The item's text revision (RD12); 1 for B5 items.
-    pub revision: u32,
-    /// The revision a moderator asked the submitter to clarify, if any (RD12).
-    pub clarification_asked: Option<u32>,
+    /// The stored item's moderation facts, as the participation policy reads
+    /// them (its kind, work, state, version, text revision and the revision
+    /// a clarification asked about). A decision changes none of them.
+    pub item: ItemFacts<'a>,
     /// The day the site received it, from its provenance.
     pub received: &'a str,
     /// The source path of the post that has the item's address now, when one
@@ -942,9 +907,10 @@ pub struct DecisionFacts<'a> {
 /// A request to record a decision.
 #[derive(Clone, Debug)]
 pub struct DecisionRequest<'a> {
-    /// Resolved by the server from the session or token, never the request.
-    pub role: DeciderRole,
-    pub account: Option<&'a str>,
+    /// Who is deciding on the item's work, resolved by the server with
+    /// [`crate::moderation::SharedWorks::actor`] from the session or token,
+    /// never from the request.
+    pub actor: Actor<'a>,
     /// How many decisions on the item the author saw; anything else is stale.
     pub expected_decisions: u32,
     pub content: DecisionContent,
@@ -1058,22 +1024,23 @@ pub fn decide(
     request: &DecisionRequest<'_>,
 ) -> Result<CorrectionDecision, DecisionError> {
     use DecisionErrorCode as Code;
-    if !request.role.may_decide() {
+    let item = &facts.item;
+    if !may_decide(&request.actor, item) {
         return Err(DecisionError::new(
             Code::Denied,
             "only the site Admin or a coordinator of this work records correction decisions",
         ));
     }
-    if !is_evidence_kind(facts.kind) {
+    if !is_evidence_kind(item.kind) {
         return Err(DecisionError::new(
             Code::NotDecidable,
             format!(
                 "a {} is answered, not decided: only suggested sources and corrections take a correction decision",
-                facts.kind.id()
+                item.kind.id()
             ),
         ));
     }
-    match facts.state {
+    match item.state {
         ModerationState::Pending | ModerationState::Approved => {}
         ModerationState::Clarification => {
             return Err(DecisionError::new(
@@ -1088,13 +1055,13 @@ pub fn decide(
             ))
         }
     }
-    if facts.clarification_asked == Some(facts.revision) {
+    if item.current_revision_asked() {
         return Err(DecisionError::new(
             Code::AwaitingClarification,
             "this text is the one the submitter was asked to clarify",
         ));
     }
-    if log.item() != facts.id.to_ascii_lowercase() || request.expected_decisions != log.len() {
+    if log.item() != item.id.to_ascii_lowercase() || request.expected_decisions != log.len() {
         return Err(DecisionError::new(
             Code::Stale,
             "someone recorded a decision on this item since you loaded it; reload and decide again",
@@ -1176,10 +1143,8 @@ pub fn decide(
             ));
         }
     }
-    if request
-        .account
-        .is_some_and(|account| !valid_account(account))
-    {
+    let account = request.actor.account();
+    if account.is_some_and(|account| !valid_account(account)) {
         return Err(DecisionError::new(
             Code::InvalidAccount,
             "the deciding account must be an Admin account name",
@@ -1202,15 +1167,41 @@ pub fn decide(
         item: log.item().to_string(),
         sequence: log.len() + 1,
         content,
-        item_revision: facts.revision,
+        item_revision: item.revision,
         passage_revision,
         passage_check: facts.check,
         decided: request.decided.to_string(),
         decided_by: Decider {
-            role: request.role,
-            account: request.account.map(str::to_string),
+            role: request.actor.role(),
+            account: account.map(str::to_string),
         },
     })
+}
+
+/// The audit event for a recorded decision (RD12's trail, ADR 0104): the
+/// item's kind, the `decide` action, its unchanged state as both `from` and
+/// `to`, the decider's role and account, no reason, and the item's revision
+/// and version, which a decision does not raise. Like every audit event it
+/// holds nothing anyone wrote, so it outlives a purge of the item's text.
+pub fn audit_event(
+    item: &ItemFacts<'_>,
+    decision: &CorrectionDecision,
+    at: DateTime,
+) -> AuditEvent {
+    AuditEvent {
+        item: item.id.to_string(),
+        kind: item.kind,
+        action: AuditAction::Decide,
+        from: Some(item.state),
+        to: item.state,
+        actor: decision.decided_by.role,
+        actor_id: decision.decided_by.account.clone(),
+        reason: None,
+        at,
+        revision: decision.item_revision,
+        version: item.version,
+        related: None,
+    }
 }
 
 /// How an item stands, as readers and editors tell it apart: a question, a
@@ -1288,7 +1279,7 @@ pub fn standing(
     item_revision: u32,
 ) -> Standing {
     if let Some(decision) = decision_in_force(log, item_revision) {
-        if is_evidence_kind(kind) {
+        if is_evidence_kind(kind.participation_kind()) {
             return Standing::Decided(decision.content.outcome);
         }
     }

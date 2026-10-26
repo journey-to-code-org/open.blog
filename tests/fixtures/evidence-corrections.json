@@ -2019,7 +2019,8 @@
               "post": "posts/tides.md",
               "note": "2026-10-28: Said which tide gauge the height comes from."
             }
-          }
+          },
+          "account": "grace"
         },
         "expect": {
           "decision": {
@@ -2038,7 +2039,8 @@
             "passageCheck": "current",
             "decided": "2026-10-28",
             "decidedBy": {
-              "role": "coordinator"
+              "role": "coordinator",
+              "account": "grace"
             }
           }
         },
@@ -2117,6 +2119,27 @@
         },
         "expect": {
           "error": "denied"
+        }
+      },
+      {
+        "name": "only an author decides: a coordinator of another publication may not",
+        "item": "accepted",
+        "request": {
+          "role": "coordinator",
+          "expectedDecisions": 0,
+          "decided": "2026-10-27",
+          "content": {
+            "outcome": "declined",
+            "declineReason": "other",
+            "rationale": "No."
+          },
+          "account": "grace"
+        },
+        "expect": {
+          "error": "denied"
+        },
+        "itemOverrides": {
+          "work": "/posts/other/"
         }
       },
       {

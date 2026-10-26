@@ -10,6 +10,11 @@
   [ADR 0077](0077-targets-resolve-as-current-reanchored-or-stale.md),
   [ADR 0078](0078-feedback-provenance-records-the-revision-seen-and-consent.md),
   [ADR 0083](0083-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md),
+  [ADR 0101](0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md),
+  [ADR 0102](0102-one-moderation-state-machine-where-everything-starts-pending.md),
+  [ADR 0103](0103-who-may-moderate-reader-participation.md),
+  [ADR 0104](0104-retention-audit-events-and-abuse-reports-fail-closed.md),
+  [ADR 0105](0105-one-moderation-inbox-decided-per-item-by-the-one-policy.md),
   [ADR 0138](0138-evidence-submissions-are-suggested-sources-and-corrections-with-unverified-reader-evidence.md)
 - Coordinates with: [#211](https://github.com/journey-to-code-org/open.blog/issues/211) and
   [#225](https://github.com/journey-to-code-org/open.blog/issues/225) (RD12 policy and inbox),
@@ -27,9 +32,9 @@ what changed (`evidenceRevisions`, ADR 0075) and, where the author recorded the 
 evidence, to that A4 link. #208's acceptance criteria are that a submission is never labelled a
 correction before an author decision, that decisions never erase the original provenance, and that
 no vote or popularity field implies accuracy; its fixtures must cover duplicate, withdrawn,
-conflicting, accepted, declined, partially applied and stale-target submissions. RD12 (#211, an
-unmerged branch) defines the one participation registry, state machine, roles and inbox this must
-slot into, with the same ids, while main must compile without it.
+conflicting, accepted, declined, partially applied and stale-target submissions. RD12 (#211, ADRs
+0101 to 0108) defines the one participation registry, state machine, roles and inbox this slots
+into, with the same ids.
 
 ## Decision
 
@@ -91,7 +96,7 @@ slot into, with the same ids, while main must compile without it.
   removing it. A decision's revision note stays in the post's front matter even when the decision
   is superseded, as ADR 0075 already keeps every note.
 - **Who decides.** Only the site Admin and a coordinator of the work's shared publication
-  (`DeciderRole::may_decide`), resolved by the server, never claimed by a request; contributing
+  (`moderation::may_decide`), resolved by the server, never claimed by a request; contributing
   authors, the submitter, the public and the retention job never decide. The Admin account is kept
   only in the private record.
 - **What can be decided.** Only evidence submissions (ADR 0138), while their moderation state is
@@ -127,36 +132,38 @@ slot into, with the same ids, while main must compile without it.
   hosted item (an additive change, #217's one-way door), and its public form copied into the
   versioned published-feedback file only for published items (#218).
 
-### How this maps onto RD12 at merge
+### How this maps onto RD12
 
-RD12 is unmerged; this module compiles on main without it and uses its ids so the merge renames
-nothing:
+This was written before RD12 merged, with RD12's ids, so the merge renamed nothing. It now applies
+as follows:
 
 - **Kinds.** Evidence submissions are RD12's `source-suggestion` and `correction-suggestion` rows
   (`ParticipationKind`), whose rules (reader origin, passage target, publishable, may ask to
-  clarify, per post) already fit. No registry row is added; `is_evidence_kind` becomes a match on
-  those two `ParticipationKind` variants. An author response stays RD12's `author-response` kind;
-  a decision is not a participation kind, because nobody submits it for moderation.
-- **States.** `DecisionFacts` takes B5's `feedback_moderation::ModerationState`, whose six ids are
-  RD12's `ModerationState`; at merge it takes RD12's type. Decidable means `pending` or `approved`
-  and not `ItemFacts::current_revision_asked()`; `revision` and `clarification_asked` are
-  `ItemFacts::revision` and `ItemFacts::clarification_asked`. A decision is not a
-  `ModerationAction` and never changes the state, version or `approved_revision`.
-- **Roles.** `DeciderRole` has exactly RD12's `ActorRole` ids (`public`, `submitter`,
-  `site-admin`, `coordinator`, `contributing-author`, `system`); at merge it is replaced by
-  `ActorRole`, taken from `SharedWorks::actor(principal, work, identities)` as RD12 resolves every
-  other action, and the grant is the approve row of ADR 0102's table: site Admin and in-scope
-  coordinator. Contributing authors keep the right RD12 gives them to write an `author-response`.
+  clarify, per post) already fit. No registry row is added; `is_evidence_kind` is a match on those
+  two `ParticipationKind` variants. An author response stays RD12's `author-response` kind; a
+  decision is not a participation kind, because nobody submits it for moderation.
+- **States.** `DecisionFacts` carries RD12's `ItemFacts`, with its `ModerationState`, beside the
+  receipt day, the post and the passage check. Decidable means `pending` or `approved` and not
+  `ItemFacts::current_revision_asked()`; the decision's `itemRevision` is `ItemFacts::revision`.
+  A decision is not a `ModerationAction` and never changes the state, version or
+  `approved_revision`.
+- **Roles.** The decider is RD12's `Actor`, taken from `SharedWorks::actor(principal, work,
+  identities)` as RD12 resolves every other action, and recorded by its `ActorRole` id. The grant
+  (`moderation::may_decide`) is the approve row of ADR 0103's table: the site Admin and a
+  coordinator of the item's work. Contributing authors keep the right RD12 gives them to write an
+  `author-response`. The private record keeps `Actor::account`, `@moderation-token` for the
+  hosted token.
 - **Reasons.** `DeclineReason` ids never coincide with a moderation meaning in RD12's
   `ReasonCode`; the only shared spelling, `other`, lives in a different field (`declineReason`
   against moderation's `reason`).
 - **Audit.** The decision log is its own private, append-only record of who decided what and when.
-  At merge, recording a decision should also write an RD12 `AuditEvent` with a new additive
-  `AuditAction::Decide` (id `decide`, `from` and `to` both the item's unchanged state, no reason,
-  the item's revision and version), so the inbox's trail shows decisions beside moderation;
-  retention purging an item's text leaves its decisions, which hold none of it.
-- **Inbox.** RD12's inbox (#225) shows each item's standing and offers "Record decision" only
-  where `decide` would accept the actor, kind and state, as it already does for moderation actions.
+  Recording a decision also writes an RD12 `AuditEvent` (`correction_decision::audit_event`) with
+  the additive `AuditAction::Decide` (id `decide`, `from` and `to` both the item's unchanged
+  state, no reason, the item's revision and version), so the inbox's trail shows decisions beside
+  moderation; retention purging an item's text leaves its decisions, which hold none of it.
+- **Inbox.** RD12's inbox (ADR 0105) offers "Record decision" (`Inbox::may_record_decision`) only
+  where `decide` would accept the actor, kind and state and the hosted service stores decisions,
+  as it already does for moderation actions, and beside them, never instead of them.
 
 ## Considered options
 

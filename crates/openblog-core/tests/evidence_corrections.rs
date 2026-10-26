@@ -9,19 +9,23 @@ use std::collections::BTreeMap;
 
 use openblog_core::claims::ClaimSet;
 use openblog_core::correction_decision::{
-    decide, decision_in_force, passage_check_from_id, passage_check_id, public_decision, standing,
-    ClaimEvidenceRef, CorrectionDecision, DeciderRole, DecisionContent, DecisionErrorCode,
-    DecisionFacts, DecisionLog, DecisionOutcome, DecisionRequest, DeclineReason, Extent,
-    RevisionLink, Standing,
+    audit_event, decide, decision_in_force, passage_check_from_id, passage_check_id,
+    public_decision, standing, ClaimEvidenceRef, CorrectionDecision, DecisionContent,
+    DecisionErrorCode, DecisionFacts, DecisionLog, DecisionOutcome, DecisionRequest, DeclineReason,
+    Extent, RevisionLink, Standing,
 };
 use openblog_core::date::DateTime;
 use openblog_core::evidence_submission::{
     is_evidence_kind, EvidenceErrorCode, EvidenceOffer, EvidenceRecord, EvidenceSubmission,
     PublishedReferences, ReferenceStatus, SitePublishedSources, EVIDENCE_KINDS,
 };
-use openblog_core::feedback_moderation::{ModerationState, PassageCheck};
+use openblog_core::feedback_moderation::PassageCheck;
 use openblog_core::feedback_provenance::FeedbackChannel;
 use openblog_core::knowledge_atlas::Links;
+use openblog_core::moderation::{
+    Actor, ActorRole, AuditAction, ItemFacts, ModerationState, MODERATION_TOKEN_ACTOR,
+};
+use openblog_core::participation::ParticipationKind;
 use openblog_core::research_notes::Notebook;
 use openblog_core::scholarly_feedback::{FeedbackKind, FeedbackSubmission};
 use openblog_core::source_library::SourceLibrary;
@@ -143,6 +147,52 @@ fn kind(id: &str) -> FeedbackKind {
     FeedbackKind::from_id(id).unwrap()
 }
 
+/// The work every fixture item is about, and the works of the fixtures'
+/// coordinator, whose shared publication holds it.
+const WORK: &str = "/posts/tides/";
+const COORDINATED: [&str; 1] = [WORK];
+
+/// The actor `SharedWorks::actor` would resolve for a fixture role: the
+/// fixtures name RD12's role ids, and an Admin role its account.
+fn actor<'a>(role: &str, account: Option<&'a str>) -> Actor<'a> {
+    match role {
+        "site-admin" => Actor::SiteAdmin {
+            admin_user: account.unwrap_or(MODERATION_TOKEN_ACTOR),
+        },
+        "coordinator" => Actor::Coordinator {
+            admin_user: account.expect("a coordinator is an Admin account"),
+            works: &COORDINATED,
+        },
+        "contributing-author" => Actor::ContributingAuthor {
+            admin_user: account.unwrap_or("someone"),
+            works: &COORDINATED,
+        },
+        "submitter" => Actor::Submitter,
+        "system" => Actor::System,
+        "public" => Actor::Public,
+        other => panic!("unknown fixture role {other}"),
+    }
+}
+
+fn item_facts<'a>(id: &'a str, item: &'a Value) -> ItemFacts<'a> {
+    ItemFacts {
+        id,
+        kind: kind(item["kind"].as_str().unwrap()).participation_kind(),
+        work: item["work"].as_str().or(Some(WORK)),
+        parent: None,
+        state: ModerationState::from_id(item["state"].as_str().unwrap()).unwrap(),
+        version: item["version"].as_u64().unwrap_or(3),
+        revision: item["revision"].as_u64().unwrap() as u32,
+        approved_revision: None,
+        clarification_asked: item["clarificationAsked"]
+            .as_u64()
+            .map(|value| value as u32),
+        clarification_consent: false,
+        content_retained: true,
+        state_since: DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+    }
+}
+
 fn log_of(item: &str, decisions: Option<&Value>) -> DecisionLog {
     let decisions = decisions.cloned().unwrap_or_else(|| json!([]));
     DecisionLog::from_value(&json!({"version": 1, "item": item, "decisions": decisions}))
@@ -182,11 +232,7 @@ fn decision_cases_record_or_refuse_as_the_fixtures_say() {
         let id = item["id"].as_str().unwrap();
         let check = passage_check_from_id(item["check"].as_str().unwrap()).unwrap();
         let facts = DecisionFacts {
-            id,
-            kind: kind(item["kind"].as_str().unwrap()),
-            state: ModerationState::from_id(item["state"].as_str().unwrap()).unwrap(),
-            revision: item["revision"].as_u64().unwrap() as u32,
-            clarification_asked: None,
+            item: item_facts(id, &item),
             received: item["received"].as_str().unwrap(),
             post: item["post"].as_str(),
             check,
@@ -205,8 +251,10 @@ fn decision_cases_record_or_refuse_as_the_fixtures_say() {
         });
         let request_value = &case["request"];
         let request = DecisionRequest {
-            role: DeciderRole::from_id(request_value["role"].as_str().unwrap()).unwrap(),
-            account: request_value["account"].as_str(),
+            actor: actor(
+                request_value["role"].as_str().unwrap(),
+                request_value["account"].as_str(),
+            ),
             expected_decisions: request_value["expectedDecisions"].as_u64().unwrap() as u32,
             content: content(&request_value["content"]),
             confirmed_check: request_value["confirmedCheck"]
@@ -216,7 +264,13 @@ fn decision_cases_record_or_refuse_as_the_fixtures_say() {
         };
         if let Some(before) = case.get("standing").and_then(|s| s.get("before")) {
             assert_eq!(
-                standing(facts.kind, evidence.as_ref(), &log, facts.revision).id(),
+                standing(
+                    kind(item["kind"].as_str().unwrap()),
+                    evidence.as_ref(),
+                    &log,
+                    facts.item.revision
+                )
+                .id(),
                 before,
                 "{name}: standing before"
             );
@@ -231,6 +285,21 @@ fn decision_cases_record_or_refuse_as_the_fixtures_say() {
         match (&case["expect"].get("decision"), result) {
             (Some(expected), Ok(decision)) => {
                 assert_eq!(&decision.to_value(), *expected, "{name}");
+                let at = DateTime::parse("2026-10-27T12:00:00Z").unwrap();
+                let event = audit_event(&facts.item, &decision, at);
+                assert_eq!(event.action, AuditAction::Decide, "{name}");
+                assert_eq!(event.action.id(), "decide", "{name}");
+                assert_eq!(
+                    (event.from, event.to, event.version, event.reason),
+                    (
+                        Some(facts.item.state),
+                        facts.item.state,
+                        facts.item.version,
+                        None
+                    ),
+                    "{name}: a decision leaves the item's state and version as they are"
+                );
+                assert_eq!(event.actor, decision.decided_by.role, "{name}");
                 assert_eq!(
                     CorrectionDecision::from_value(expected).unwrap(),
                     decision,
@@ -260,7 +329,13 @@ fn decision_cases_record_or_refuse_as_the_fixtures_say() {
         }
         if let Some(after) = case.get("standing").and_then(|s| s.get("after")) {
             assert_eq!(
-                standing(facts.kind, evidence.as_ref(), &log, facts.revision).id(),
+                standing(
+                    kind(item["kind"].as_str().unwrap()),
+                    evidence.as_ref(),
+                    &log,
+                    facts.item.revision
+                )
+                .id(),
                 after,
                 "{name}: standing after"
             );
@@ -269,7 +344,7 @@ fn decision_cases_record_or_refuse_as_the_fixtures_say() {
             let projected = public_decision(
                 &log,
                 public["itemPublic"].as_bool().unwrap(),
-                facts.revision,
+                facts.item.revision,
                 &references,
             )
             .map(|decision| serde_json::to_value(decision).unwrap())
@@ -702,32 +777,46 @@ fn passage_checks_round_trip_through_their_ids() {
 }
 
 #[test]
-fn ids_match_the_participation_policy_at_merge() {
-    // RD12 (#211) names these kinds and roles with the same ids, so the
-    // decision policy slots into its registry and resolver unchanged.
+fn kinds_and_roles_are_the_participation_policys() {
+    // The evidence kinds are RD12's registry rows and the deciders RD12's
+    // roles, resolved by its one resolver and granted by its approve row.
     assert_eq!(
-        EVIDENCE_KINDS.map(FeedbackKind::id),
+        EVIDENCE_KINDS.map(ParticipationKind::id),
         ["source-suggestion", "correction-suggestion"]
     );
-    assert!(!is_evidence_kind(FeedbackKind::Question));
-    assert!(!is_evidence_kind(FeedbackKind::AlternativeInterpretation));
-    assert_eq!(
-        DeciderRole::ALL.map(DeciderRole::id),
-        [
-            "public",
-            "submitter",
-            "site-admin",
-            "coordinator",
-            "contributing-author",
-            "system"
-        ]
-    );
-    let deciders: Vec<&str> = DeciderRole::ALL
+    for kind in ParticipationKind::ALL {
+        assert_eq!(
+            is_evidence_kind(kind),
+            EVIDENCE_KINDS.contains(&kind),
+            "{}",
+            kind.id()
+        );
+    }
+    assert!(!is_evidence_kind(ParticipationKind::Question));
+    assert!(!is_evidence_kind(ParticipationKind::AuthorResponse));
+    let stored = json!({"kind": "correction-suggestion", "state": "pending", "revision": 1});
+    let item = item_facts("11111111-1111-4111-8111-111111111111", &stored);
+    let deciders: Vec<&str> = ActorRole::ALL
         .into_iter()
-        .filter(|role| role.may_decide())
-        .map(DeciderRole::id)
+        .filter(|role| {
+            openblog_core::moderation::may_decide(&actor(role.id(), Some("grace")), &item)
+        })
+        .map(ActorRole::id)
         .collect();
     assert_eq!(deciders, ["site-admin", "coordinator"]);
+    // A coordinator decides only on its own publication's works.
+    let elsewhere = ItemFacts {
+        work: Some("/posts/other/"),
+        ..item
+    };
+    assert!(!openblog_core::moderation::may_decide(
+        &actor("coordinator", Some("grace")),
+        &elsewhere
+    ));
+    assert!(openblog_core::moderation::may_decide(
+        &actor("site-admin", Some("grace")),
+        &elsewhere
+    ));
     // A decision reason never reuses a moderation reason's meaning: there is
     // no spam, abuse, personal-data or duplicate ground among them.
     for reason in DeclineReason::ALL {

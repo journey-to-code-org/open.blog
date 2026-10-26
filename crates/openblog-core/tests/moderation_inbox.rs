@@ -741,3 +741,75 @@ fn a_missing_post_is_shown_to_the_site_admin_with_nothing_public_and_hostile_tex
     );
     assert!(as_coordinator.view(&gone).is_none());
 }
+
+/// A hosted suggested correction of the post's first section at `work`,
+/// with `extra` fields (such as its stored decision log).
+fn suggestion(site: &Site, id: &str, work: &str, status: &str, extra: Value) -> Value {
+    let post = site.posts.iter().find(|post| post.url == work).unwrap();
+    let document = PassageDocument::of_post(post, &site.config);
+    let record = FeedbackSubmission::from_value(&json!({
+        "version": 1, "kind": "correction-suggestion", "work": work, "revision": document.revision,
+        "target": document.section_target(1).unwrap().to_value(), "body": "Twice a day is wrong.",
+    }))
+    .unwrap()
+    .receive(
+        DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+        FeedbackChannel::Hosted,
+    )
+    .unwrap();
+    let mut value = json!({
+        "source": "feedback", "id": id, "status": status, "version": 1,
+        "moderatedAt": null, "reason": null, "feedback": record.to_value(),
+    });
+    for (key, field) in extra.as_object().unwrap() {
+        value[key] = field.clone();
+    }
+    value
+}
+
+#[test]
+fn record_decision_is_offered_only_where_the_author_may_decide() {
+    let site = site();
+    let records = [record()];
+    let works = SharedWorks::new(&records, &site);
+    let ids = identities();
+    let shared = format!("/posts/{SHARED}/");
+    let session = |user| Principal::AdminSession { admin_user: user };
+    let empty_log = |id: &str| json!({"decisions": {"version": 1, "item": id, "decisions": []}});
+    let offered = |principal, value: &Value| {
+        let item = InboxItem::from_value(value).unwrap();
+        inbox(&site, &works, &ids, principal, Protocol::Full)
+            .view(&item)
+            .is_some_and(|view| view.get("recordDecision").is_some())
+    };
+    let pending = suggestion(&site, ID_1, &shared, "pending", empty_log(ID_1));
+    let approved = suggestion(&site, ID_1, &shared, "approved", empty_log(ID_1));
+    // The site Admin and the work's coordinator decide, on a pending or an
+    // approved suggestion; a decision never waits on moderation.
+    for value in [&pending, &approved] {
+        assert!(offered(Principal::ModerationToken, value));
+        assert!(offered(session("coord-admin"), value));
+        assert!(offered(session("owner-admin"), value));
+        // A contributing author reads it and responds, never decides.
+        assert!(!offered(session("writer-admin"), value));
+    }
+    // Not where the hosted service keeps no decisions.
+    let unstored = suggestion(&site, ID_1, &shared, "pending", json!({}));
+    assert!(!offered(Principal::ModerationToken, &unstored));
+    // Not on a closed item, nor on text a clarification asked about.
+    for status in ["rejected", "removed"] {
+        let closed = suggestion(&site, ID_1, &shared, status, empty_log(ID_1));
+        assert!(!offered(Principal::ModerationToken, &closed), "{status}");
+    }
+    let mut asked = suggestion(&site, ID_1, &shared, "pending", empty_log(ID_1));
+    asked["itemRevision"] = json!(1);
+    asked["clarificationAsked"] = json!(1);
+    assert!(!offered(Principal::ModerationToken, &asked));
+    // A question is answered, never decided.
+    let mut question = feedback(&site, ID_2, &shared, "pending", json!({}));
+    question["decisions"] = json!({"version": 1, "item": ID_2, "decisions": []});
+    assert!(!offered(Principal::ModerationToken, &question));
+    // A log that is not the item's own is refused with the item.
+    let foreign = suggestion(&site, ID_1, &shared, "pending", empty_log(ID_2));
+    assert!(InboxItem::from_value(&foreign).is_err());
+}
