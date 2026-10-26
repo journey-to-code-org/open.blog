@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, readSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
-import { decisionsOf, emptyLog, planDecision } from "../lib/correction-decisions.mjs";
+import { EVIDENCE_KINDS, decisionsOf, emptyLog, planDecision } from "../lib/correction-decisions.mjs";
 import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
 import {
   INBOX_ACTIONS, MODERATOR_ROLES, PARTICIPATION_KINDS, REPORT_GROUNDS, commentState, commentStateFilter, issuesReceipts, legacyCommentStatus,
@@ -148,8 +148,10 @@ const inboxComment = (row) => ({
   comment: { path: row.path, authorName: row.author_name, body: row.body, createdAt: canonicalTime(row.created_at) },
 });
 // An inbox item carries its decision log where the schema keeps one, an empty one for an item
-// nobody decided, so Admin knows the hosted service can store a decision (ADR 0117).
-const decisionFacts = (row) => (Object.hasOwn(row, "decisions") ? { decisions: row.decisions ?? emptyLog(row.id) } : {});
+// nobody decided, so Admin knows the hosted service can store a decision (ADR 0117). Only an
+// evidence submission takes decisions: every other kind reads back without the field, as Admin
+// refuses an item of another kind that carries one.
+const decisionFacts = (row) => (Object.hasOwn(row, "decisions") && EVIDENCE_KINDS.includes(row.kind) ? { decisions: row.decisions ?? emptyLog(row.id) } : {});
 const inboxFeedback = (row) => ({ source: "feedback", ...hostedFeedback(row), ...moderationFacts(row), ...decisionFacts(row) });
 const inboxReport = (row, targets) => ({
   source: "report",

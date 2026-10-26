@@ -166,6 +166,31 @@ fn a_hosted_row_reads_back_into_the_checked_copy_it_stores() {
     assert_eq!(purged.kind, ParticipationKind::ThirdPerspective);
 }
 
+/// The hosted service sends every feedback item's decision log where its schema keeps one, empty
+/// for an item nobody decided. A Third Perspective takes no decisions, so an empty log must not
+/// fail the item, while a log that holds a decision is still refused.
+#[test]
+fn an_empty_decision_log_is_tolerated_on_a_third_perspective_and_a_decision_is_not() {
+    let site = site();
+    let copy = copy(&site, "Grace", true);
+    let empty = json!({"version": 1, "item": ID, "decisions": []});
+    let item =
+        InboxItem::from_value(&hosted(&copy, "pending", json!({"decisions": empty}))).unwrap();
+    assert_eq!(item.perspective().unwrap().copy, copy);
+    InboxItem::from_value(&hosted(&copy, "pending", json!({"decisions": null}))).unwrap();
+
+    let held =
+        json!({"version": 1, "item": ID, "decisions": [{"sequence": 1, "outcome": "declined"}]});
+    let refused = hosted(&copy, "pending", json!({"decisions": held}));
+    assert!(InboxItem::from_value(&refused).is_err());
+    let page = read_page(
+        &json!({"protocol": "protected", "thirdPerspectives": true, "items": [
+        hosted(&copy, "pending", json!({"decisions": empty})), refused], "next": null}),
+    )
+    .unwrap();
+    assert_eq!((page.items.len(), page.invalid), (1, 1));
+}
+
 #[test]
 fn moderators_see_the_category_consent_and_credit_hint_and_never_another_role() {
     let site = site();

@@ -201,6 +201,20 @@ test("the inbox carries the evidence block and the decision log only with the op
   assert.doesNotMatch(off.requests.find((request) => request.path.endsWith("/openblog_feedback")).params.select, /evidence|decisions/);
 });
 
+test("only an evidence submission carries a decision log, so Admin still reads every other kind", async () => {
+  const rows = ["third-perspective", "question", "alternative-interpretation", "source-suggestion", "correction-suggestion"].map((kind, index) => ({
+    ...stored(), id: `a1111111-1111-4111-8111-11111111111${index}`, kind, evidence: null, decisions: null, details: {}, received_at: "2026-10-26T10:00:00+00:00",
+  }));
+  const database = fakeDatabase((request) => (request.path.endsWith("/openblog_feedback") && request.method === "GET" ? rows : undefined));
+  const listed = JSON.parse((await handlerFor(corrections, database)(event("admin/moderation", "GET", undefined, ADMIN, { state: "pending" }))).body);
+  assert.equal(listed.items.length, rows.length);
+  for (const item of listed.items) {
+    const decidable = EVIDENCE_KINDS.includes(item.feedback.kind);
+    assert.equal("decisions" in item, decidable, item.feedback.kind);
+    if (decidable) assert.deepEqual(item.decisions, emptyLog(item.id));
+  }
+});
+
 test("a block too large for the store is refused before the quota or the replay claim is spent", async () => {
   const large = fixture.submissions.refused.find((item) => item.code === "evidenceTooLarge");
   assert.ok(large);

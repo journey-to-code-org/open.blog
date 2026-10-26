@@ -590,6 +590,21 @@ impl InboxItem {
             object.remove("source");
         }
         if wire["feedback"]["kind"] == ParticipationKind::ThirdPerspective.id() {
+            // The hosted service sends an item's decision log wherever its schema keeps one,
+            // empty for an item nobody decided. A Third Perspective takes no decisions, so an
+            // empty log is no more than absent; one holding a decision is still refused.
+            if let Some(object) = wire.as_object_mut() {
+                let empty = object.get("decisions").is_some_and(|log| {
+                    log.is_null()
+                        || log
+                            .get("decisions")
+                            .and_then(Value::as_array)
+                            .is_some_and(Vec::is_empty)
+                });
+                if empty {
+                    object.remove("decisions");
+                }
+            }
             return Self::read_perspective(&wire);
         }
         let hosted = HostedFeedback::from_value(&wire).map_err(|error| error.to_string())?;
