@@ -41,6 +41,7 @@ pub mod field_journal;
 pub mod frontmatter;
 pub mod invitation;
 pub mod markdown;
+pub mod media_moment;
 pub mod members;
 pub mod model;
 pub mod portability;

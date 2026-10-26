@@ -15,6 +15,7 @@ use crate::approval::{public_metadata, ApprovalSet, ApprovalSubject, Readiness, 
 use crate::collaboration::{valid_admin_username, AuthorizationRole, SharedPublication};
 use crate::draft::DraftSet;
 use crate::frontmatter::{self, Value};
+use crate::media_moment::MomentSet;
 use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
 use crate::shared_series::{SERIES_KEY, SERIES_ORDER_KEY};
 use crate::shared_source::{
@@ -127,6 +128,30 @@ pub fn with_subject<R>(
     active: &[&str],
     ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
 ) -> R {
+    with_subject_and_moments(
+        record,
+        structure,
+        drafts,
+        synthesis,
+        &MomentSet::new(),
+        active,
+        ask,
+    )
+}
+
+/// [`with_subject`] with the publication's media moments: the binding frame of every moment
+/// proposed for the piece follows the synthesis frame, and each participant with such a moment
+/// is a required approver (ADR 0073). With no publication moments the subject is exactly the one
+/// [`with_subject`] builds, so standing approvals stay valid.
+pub fn with_subject_and_moments<R>(
+    record: &SharedPublication,
+    structure: Option<&ReflectionStructure>,
+    drafts: &DraftSet,
+    synthesis: &SynthesisSet,
+    moments: &MomentSet,
+    active: &[&str],
+    ask: impl FnOnce(&ApprovalSubject<'_>) -> R,
+) -> R {
     let authors: Vec<&str> = record
         .collaboration
         .participants
@@ -156,8 +181,14 @@ pub fn with_subject<R>(
         metadata.push(format!("reflection-frame:{}", structure.binding_frame()));
     }
     metadata.extend(synthesis.binding_frame());
+    metadata.extend(moments.binding_frame(&record.sources));
     let metadata: Vec<&str> = metadata.iter().map(String::as_str).collect();
-    let attributed = synthesis.attributed_authors();
+    let mut attributed = synthesis.attributed_authors();
+    for participant in moments.attributed_participants() {
+        if !attributed.contains(&participant) {
+            attributed.push(participant);
+        }
+    }
     // The roles each author holds, for role-based approval rules (ADR 0052).
     let roles: Vec<(&str, AuthorizationRole)> = authors
         .iter()
