@@ -168,6 +168,17 @@ pub struct WithheldItem {
     pub reason: Reason,
     /// One sentence naming ids and fields only.
     pub message: String,
+    /// For a dating, the atlas item it dates (`entry` or `relationship`) and
+    /// its id, so the preview can link to where the dating is changed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<ItemOwner>,
+}
+
+/// The atlas item a dating belongs to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ItemOwner {
+    pub kind: &'static str,
+    pub id: String,
 }
 
 /// What one projection publishes and withholds.
@@ -416,6 +427,7 @@ fn withheld(kind: ItemKind, id: &str, reason: Reason, message: String) -> Withhe
         posts: Vec::new(),
         reason,
         message,
+        owner: None,
     }
 }
 
@@ -989,9 +1001,16 @@ fn datings(inputs: &BoundaryInputs<'_>) -> ProjectionReport {
                 format!("Dating `{id}` is not in the atlas the build publishes."),
             )
         };
-        report
-            .withheld
-            .push(withheld(ItemKind::Dating, id, reason, message));
+        let mut item = withheld(ItemKind::Dating, id, reason, message);
+        item.owner = Some(ItemOwner {
+            kind: if atlas.entry(owner).is_some() {
+                "entry"
+            } else {
+                "relationship"
+            },
+            id: owner.to_string(),
+        });
+        report.withheld.push(item);
     }
     report
 }

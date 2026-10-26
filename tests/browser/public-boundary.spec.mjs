@@ -54,7 +54,7 @@ const ALIGNMENTS = {
   version: 1,
   alignments: [
     { id: "cave-places", label: "The cave", visibility: "approved", members: [{ source: "slings", passage: "cave" }, { source: "bloom", absent: true }] },
-    { id: "stale-places", label: "Moved", visibility: "approved", rationale: LEAK("stalerationale"), members: [{ source: "slings", passage: "moved", locators: [{ kind: "page", value: "601" }] }, { source: "bloom", absent: true }] },
+    { id: "stale-places", label: "Moved", visibility: "approved", rationale: LEAK("stalerationale"), approvedPassages: { moved: "0000000000000000" }, members: [{ source: "slings", passage: "moved", locators: [{ kind: "page", value: "601" }] }, { source: "bloom", absent: true }] },
   ],
 };
 const CLAIMS = {
@@ -169,16 +169,20 @@ test("the site preview names what each projection publishes and why the rest is 
   await expect(page.locator('nav[aria-label="Research workspace"] a[aria-current="page"]')).toHaveText("What will be public");
   await expect(page.locator("[data-boundary-status]")).toContainText(/\d+ published, \d+ withheld\./);
 
-  await expect(projection(page, "atlas").getByRole("heading", { level: 2 })).toHaveText("Knowledge Atlas");
+  // Projections sit under the panel's h2, so they are h3.
+  await expect(projection(page, "atlas").getByRole("heading", { level: 3, name: "Knowledge Atlas" })).toBeVisible();
+  await expect(preview(page).getByRole("heading", { level: 2 })).toHaveCount(0);
   await expect(item(page, "entry:plato-person")).toHaveAttribute("data-boundary-state", "published");
   await expect(item(page, "entry:plato-person")).toContainText("Publishes: kind, label.");
   await expect(item(page, "entry:the-good")).toHaveAttribute("data-boundary-reason", "not-approved");
   await expect(item(page, "relationship:politeia-discusses-good")).toContainText("Depends on research that is not published");
   await expect(item(page, "comparison:cave-places")).toHaveAttribute("data-boundary-state", "published");
   await expect(item(page, "comparison:stale-places")).toHaveAttribute("data-boundary-reason", "stale-approval");
-  await expect(item(page, "comparison:stale-places")).toContainText("members[0].locators");
+  await expect(item(page, "comparison:stale-places")).toContainText("members[0].passage");
   await expect(item(page, "claim:c1")).toHaveAttribute("data-boundary-state", "published");
   await expect(item(page, "claim:c2")).toHaveAttribute("data-boundary-reason", "not-approved");
+  // A withheld claim opens its post's Evidence Studio.
+  await expect(item(page, "claim:c2").getByRole("link", { name: "Open claim c2" })).toHaveAttribute("href", "#/edit/posts%2Fcave.md?pane=evidence");
   const slings = projection(page, "citations").locator('[data-boundary-item="source:slings"]');
   await expect(slings.locator('[data-boundary-field="identifiers.url"]')).toContainText("A web address readers should not be given");
   await expect(preview(page).locator("[data-boundary-never]")).toContainText("Research notebook");
@@ -207,9 +211,15 @@ test("one post's preview reads the unsaved draft, names its citations, claims an
   const markdown = page.getByRole("textbox", { name: "Markdown", exact: true });
   await markdown.fill(`${BODY}\nAnd [moved](/comparisons/stale-places/).\n`);
   await page.keyboard.press("Alt+9");
-  await page.getByRole("button", { name: "What this post makes public", exact: true }).click();
+  const opener = page.getByRole("button", { name: "What this post makes public", exact: true });
+  await expect(opener).toHaveAttribute("aria-controls", "oba-boundary-post");
+  await expect(opener).toHaveAttribute("aria-expanded", "false");
+  await opener.click();
   await expect(preview(page, "post")).toBeVisible();
+  await expect(opener).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#oba-boundary-post")).toBeVisible();
   await expect(page.getByRole("heading", { name: "What this post makes public" })).toBeFocused();
+  await expect(page.locator("[data-boundary-post-stale]")).toBeHidden();
   await expect(page.locator("[data-boundary-post-status]")).toContainText("unsaved changes included");
   await expect(item(page, "source:slings", "post")).toHaveAttribute("data-boundary-state", "published");
   await expect(item(page, "claim:c1", "post")).toHaveAttribute("data-boundary-state", "published");
@@ -218,6 +228,17 @@ test("one post's preview reads the unsaved draft, names its citations, claims an
   await expect(item(page, "atlas-page:the-good", "post")).toHaveAttribute("data-boundary-reason", "page-not-published");
   await expect(item(page, "comparison-page:stale-places", "post")).toHaveAttribute("data-boundary-reason", "page-not-published");
   await expect(preview(page, "post")).not.toContainText("ZqxLeak");
+  // A claim of this post opens this post's Evidence Studio.
+  await expect(item(page, "claim:c2", "post").getByRole("link", { name: "Open claim c2" })).toHaveAttribute("href", "#/edit/posts%2Fcave.md?pane=evidence");
+  // Editing the draft again says the read is out of date; reading again clears it.
+  await page.keyboard.press("Alt+1");
+  await markdown.fill(`${BODY}
+And more.
+`);
+  await page.keyboard.press("Alt+9");
+  await expect(page.locator("[data-boundary-post-stale]")).toBeVisible();
+  await opener.click();
+  await expect(page.locator("[data-boundary-post-stale]")).toBeHidden();
   expect(readFileSync(post("cave.md"), "utf8")).toBe(POST);
   expect(researchBytes()).toEqual(before);
   expect(dialogs).toEqual([]);

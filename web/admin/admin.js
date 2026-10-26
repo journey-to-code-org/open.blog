@@ -7014,15 +7014,28 @@ const BOUNDARY_STORES = Object.freeze({
   acknowledgements: "Review acknowledgements",
 });
 
-/** Where an item of the preview is changed, by its own address in the research workspace, or null. */
-export function boundaryItemHref(item) {
+/**
+ * Where an item of the preview is changed, by its own address in the research workspace, or
+ * null. A dating opens the atlas entry or relationship it dates (the server names it as
+ * `owner`); a claim or an evidence link opens its post's Evidence Studio, when `postPaths`
+ * (a Map from post slug to saved path) says where the post is, and has no link otherwise.
+ */
+export function boundaryItemHref(item, { postPaths = null } = {}) {
   const id = String(item?.id || "");
   switch (item?.kind) {
     case "source": return researchHref("sources", id);
     case "entry": case "atlas-page": return researchHref("atlas", id);
     case "relationship": return atlasRelationshipHref(id);
-    case "dating": return researchHref("atlas");
+    case "dating": {
+      const owner = String(item?.owner?.id || "");
+      if (!owner) return researchHref("atlas");
+      return item.owner.kind === "relationship" ? atlasRelationshipHref(owner) : researchHref("atlas", owner);
+    }
     case "comparison": case "comparison-page": return researchHref("compare", id);
+    case "claim": case "evidence-link": {
+      const path = postPaths?.get?.(String(item?.posts?.[0] || ""));
+      return path ? `#/edit/${encodeURIComponent(path)}?pane=evidence` : null;
+    }
     default: return null;
   }
 }
@@ -7041,7 +7054,7 @@ export function boundaryCountsText(manifest) {
  * and why, then what is never published. `level` is the heading level of each projection.
  * Read-only: nothing here saves or publishes anything.
  */
-export function createBoundaryPreview({ manifest, idPrefix = "oba-boundary", level = 2, scope = "site" }) {
+export function createBoundaryPreview({ manifest, idPrefix = "oba-boundary", level = 2, scope = "site", postPaths = null }) {
   const heading = (offset, attrs, text) => h(`h${Math.min(6, level + offset)}`, attrs, text);
   const reports = Array.isArray(manifest?.projections) ? manifest.projections : [];
   const root = h("div", { class: "oba-boundary", "data-boundary-preview": scope });
@@ -7061,7 +7074,7 @@ export function createBoundaryPreview({ manifest, idPrefix = "oba-boundary", lev
   const itemTitle = (item) => h("strong", {}, h("bdi", {}, item.label || item.id));
   const itemKind = (item) => h("span", { class: "oba-small" }, ` ${BOUNDARY_KINDS[item.kind] || item.kind} `, h("code", {}, item.id));
   const repair = (item, text) => {
-    const href = boundaryItemHref(item);
+    const href = boundaryItemHref(item, { postPaths });
     return href ? h("a", { class: "oba-btn", href, "data-boundary-open": `${item.kind}:${item.id}` }, text) : null;
   };
   reports.forEach((report, position) => {
@@ -10287,6 +10300,17 @@ export class ObAdmin extends AdminElement {
 
   // ---- what will be public (#63, ADR 0137)
 
+  /** The saved path of each post by slug, so a claim can link to its post. Empty when the list cannot be read. */
+  async savedPostPaths() {
+    try {
+      const list = await this.api.call("GET", "documents?kind=posts");
+      const items = Array.isArray(list) ? list : Array.isArray(list?.items) ? list.items : [];
+      return new Map(items.filter((item) => item?.slug && item?.path).map((item) => [String(item.slug), String(item.path)]));
+    } catch {
+      return new Map();
+    }
+  }
+
   async showPublicPreview() {
     const mountedView = this.nextViewVersion();
     const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-boundary-status": "true" });
@@ -10297,9 +10321,9 @@ export class ObAdmin extends AdminElement {
       status.className = "oba-small";
       status.textContent = "Reading what the next build publishes…";
       try {
-        const manifest = await this.api.call("GET", "research/boundary");
+        const [manifest, postPaths] = await Promise.all([this.api.call("GET", "research/boundary"), this.savedPostPaths()]);
         if (this.viewVersion !== mountedView) return;
-        content.replaceChildren(createBoundaryPreview({ manifest, idPrefix: "oba-boundary-site", level: 2, scope: "site" }));
+        content.replaceChildren(createBoundaryPreview({ manifest, idPrefix: "oba-boundary-site", level: 3, scope: "site", postPaths }));
         status.textContent = `${announce ? "Refreshed. " : ""}${boundaryCountsText(manifest)}`;
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -14939,10 +14963,12 @@ export class Editor {
     );
     ui.boundaryStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-boundary-post-status": "true" });
     ui.boundaryContent = h("div", { class: "oba-boundary-content" });
+    ui.boundaryStale = h("p", { class: "oba-notice", role: "status", hidden: true, "data-boundary-post-stale": "true" }, "The draft has changed since this was read. Read it again to see what it publishes as it stands now.");
     ui.boundaryRegion = h(
       "section",
-      { class: "oba-boundary-post", "data-boundary-post": "true", "aria-labelledby": "oba-boundary-post-heading", hidden: true },
+      { id: "oba-boundary-post", class: "oba-boundary-post", "data-boundary-post": "true", "aria-labelledby": "oba-boundary-post-heading", hidden: true },
       h("h3", { id: "oba-boundary-post-heading", tabindex: "-1" }, "What this post makes public"),
+      ui.boundaryStale,
       ui.boundaryStatus,
       ui.boundaryContent,
     );
@@ -15593,7 +15619,7 @@ export class Editor {
                       "div",
                       { class: "oba-toolbar" },
                       h("button", { class: "oba-btn", type: "button", "data-review-open": "true", onClick: () => this.reviewResearch("check") }, "Review research before publishing"),
-                      h("button", { class: "oba-btn", type: "button", "data-boundary-post-open": "true", "aria-controls": "oba-boundary-post-heading", onClick: () => this.previewBoundary() }, "What this post makes public"),
+                      (ui.boundaryButton = h("button", { class: "oba-btn", type: "button", "data-boundary-post-open": "true", "aria-controls": "oba-boundary-post", "aria-expanded": "false", onClick: () => this.previewBoundary() }, "What this post makes public")),
                     )
                   : null,
                 kind === "posts" ? ui.boundaryRegion : null,
@@ -16200,8 +16226,16 @@ export class Editor {
     return this.ui.statusRadios.map((l) => l.querySelector("input")).find((i) => i.checked)?.value || "draft";
   }
 
+  /** The read of what the post publishes no longer matches the draft: say so, beside the read. */
+  markBoundaryStale() {
+    if (!this.boundaryRead || this.boundaryStale || !this.ui?.boundaryStale) return;
+    this.boundaryStale = true;
+    this.ui.boundaryStale.hidden = false;
+  }
+
   markDirty() {
     if (!this.ui?.saveState) return;
+    this.markBoundaryStale();
     this.app.editVersion += 1;
     if (this.ui.saveState.textContent === "Unsaved changes") return;
     this.ui.saveState.textContent = "Unsaved changes";
@@ -18445,12 +18479,20 @@ export class Editor {
     if (this.previewingBoundary) return;
     this.previewingBoundary = true;
     ui.boundaryRegion.hidden = false;
+    ui.boundaryButton?.setAttribute("aria-expanded", "true");
     ui.boundaryStatus.textContent = "Reading what this post publishes…";
+    const readAt = this.app.editVersion;
     try {
       const manifest = await this.app.api.call("POST", "research/boundary", {
         json: { kind: this.kind, path: this.doc.path, fields: this.collect(), body: ui.body.value, ...this.creditRequestFields() },
       });
-      ui.boundaryContent.replaceChildren(createBoundaryPreview({ manifest, idPrefix: "oba-boundary-post", level: 4, scope: "post" }));
+      // A post's claims are its own, so they link to its Evidence Studio.
+      const postPaths = this.doc.path ? new Map((manifest.projections || []).flatMap((report) => [...(report.published || []), ...(report.withheld || [])]).flatMap((item) => item.posts || []).map((slug) => [slug, this.doc.path])) : null;
+      ui.boundaryContent.replaceChildren(createBoundaryPreview({ manifest, idPrefix: "oba-boundary-post", level: 4, scope: "post", postPaths }));
+      this.boundaryRead = true;
+      // An edit made while it was being read is not in it.
+      this.boundaryStale = this.app.editVersion !== readAt;
+      ui.boundaryStale.hidden = !this.boundaryStale;
       ui.boundaryStatus.textContent = `Read from the draft as it stands, unsaved changes included: ${boundaryCountsText(manifest)}`;
     } catch (error) {
       if (error?.status === 401) {

@@ -298,10 +298,17 @@ test("every withheld item links to where it is changed, by its own address", () 
   assert.equal(boundaryItemHref({ kind: "atlas-page", id: "plato" }), "#/research/atlas/plato");
   assert.equal(boundaryItemHref({ kind: "relationship", id: "r/1" }), "#/research/atlas/relationships/r%2F1");
   assert.equal(boundaryItemHref({ kind: "dating", id: "born" }), "#/research/atlas");
+  assert.equal(boundaryItemHref({ kind: "dating", id: "born", owner: { kind: "entry", id: "plato person" } }), "#/research/atlas/plato%20person");
+  assert.equal(boundaryItemHref({ kind: "dating", id: "born", owner: { kind: "relationship", id: "r/1" } }), "#/research/atlas/relationships/r%2F1");
   assert.equal(boundaryItemHref({ kind: "comparison", id: "cave" }), "#/research/compare/cave");
   assert.equal(boundaryItemHref({ kind: "comparison-page", id: "cave" }), "#/research/compare/cave");
+  // A claim and an evidence link are changed in their post's Evidence Studio, once the post is located.
+  const postPaths = new Map([["cave", "posts/2026-01-07-the cave.md"]]);
+  assert.equal(boundaryItemHref({ kind: "claim", id: "c1", posts: ["cave"] }, { postPaths }), "#/edit/posts%2F2026-01-07-the%20cave.md?pane=evidence");
+  assert.equal(boundaryItemHref({ kind: "evidence-link", id: "l1", posts: ["cave"] }, { postPaths }), "#/edit/posts%2F2026-01-07-the%20cave.md?pane=evidence");
+  assert.equal(boundaryItemHref({ kind: "claim", id: "c1", posts: ["elsewhere"] }, { postPaths }), null, "an unknown post has no link");
   assert.equal(boundaryItemHref({ kind: "claim", id: "c1" }), null);
-  assert.equal(boundaryItemHref({ kind: "evidence-link", id: "l1" }), null);
+  assert.equal(boundaryItemHref({ kind: "evidence-link", id: "l1", posts: ["cave"] }), null);
   for (const reason of ["projection-off", "not-approved", "unsourced", "notebook-passage", "private-dependency", "contradiction-withheld", "post-not-published", "stale-approval", "unsafe-url", "private-identifier", "rights", "length", "stale-anchor", "page-not-published"]) {
     assert.ok(BOUNDARY_REASONS[reason], `${reason} has words`);
     assert.doesNotMatch(BOUNDARY_REASONS[reason], /score|verdict|false|true|wrong/i, "no reason judges the research");
@@ -324,4 +331,36 @@ test("the preview builds DOM safely, adds no motion, reflows, and is reachable f
   assert.doesNotMatch(css, /transition|animation/);
   assert.match(css, /overflow-wrap: anywhere/);
   assert.match(css, /min-width: 0/);
+});
+
+test("a withheld claim links to its post's Evidence Studio and a withheld dating to the item it dates", withDom(async () => {
+  const manifest = {
+    version: 1,
+    scope: { kind: "site" },
+    projections: [
+      { projection: "claim-evidence", switch: "claimEvidence.publish", enabled: true, published: [], withheld: [{ kind: "claim", id: "c2", posts: ["cave"], reason: "not-approved", message: "Claim `c2` is not approved." }, { kind: "evidence-link", id: "l2", posts: ["cave"], reason: "not-approved", message: "Link `l2` is not approved." }] },
+      { projection: "datings", switch: "knowledgeAtlas.publish", enabled: true, published: [], withheld: [{ kind: "dating", id: "died", owner: { kind: "entry", id: "plato-person" }, reason: "not-approved", message: "Dating `died` of `plato-person` is not approved." }] },
+    ],
+    never: [],
+  };
+  const root = createBoundaryPreview({ manifest, postPaths: new Map([["cave", "posts/cave.md"]]) });
+  const open = (key) => item(root, key).querySelectorAll("a").find((link) => link.dataset.boundaryOpen === key);
+  assert.equal(open("claim:c2").attributes.href, "#/edit/posts%2Fcave.md?pane=evidence");
+  assert.equal(open("evidence-link:l2").attributes.href, "#/edit/posts%2Fcave.md?pane=evidence");
+  assert.equal(open("dating:died").attributes.href, "#/research/atlas/plato-person");
+  const unlocated = createBoundaryPreview({ manifest });
+  assert.equal(item(unlocated, "claim:c2").querySelectorAll("a").length, 0, "no link where the post is not known");
+}));
+
+test("the site preview sits under the panel's h2 and the post preview's button controls and reports its region", () => {
+  const panel = admin.slice(admin.indexOf("async showPublicPreview()"), admin.indexOf("// ---- what will be public (#63, ADR 0137)") + 4000);
+  assert.match(admin, /level: 3, scope: "site", postPaths/, "projections are h3 under the panel's h2");
+  assert.match(panel, /h\("h2", \{ id: "oba-boundary-heading" \}/);
+  assert.match(admin, /"data-boundary-post-open": "true", "aria-controls": "oba-boundary-post", "aria-expanded": "false"/);
+  assert.match(admin, /\{ id: "oba-boundary-post", class: "oba-boundary-post"/, "the button controls the region, not its heading");
+  assert.match(admin, /setAttribute\("aria-expanded", "true"\)/);
+  // A read of the post goes stale as soon as the draft is edited again.
+  assert.match(admin, /markBoundaryStale\(\) \{\s+if \(!this\.boundaryRead \|\| this\.boundaryStale/);
+  assert.match(admin, /markDirty\(\) \{\s+if \(!this\.ui\?\.saveState\) return;\s+this\.markBoundaryStale\(\);/);
+  assert.match(admin, /data-boundary-post-stale/);
 });
