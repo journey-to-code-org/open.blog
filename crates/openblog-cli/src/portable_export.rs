@@ -492,7 +492,7 @@ mod tests {
             ("two", "## Series\n\nPart 2 in the series [Notes](https://portable.example.org/series/notes/). This part is by Ann and Bo. Series contributors: Site Owner, Ann, and Bo.\n"),
         ] {
             let destination = directory.join(format!("exports/{slug}.md"));
-            run(&directory, slug, Some(destination.to_str().unwrap()), true, false).unwrap();
+            run(&directory, slug, Format::Markdown, Some(destination.to_str().unwrap()), true, false).unwrap();
             let exported = std::fs::read_to_string(&destination).unwrap();
             assert!(exported.contains(expected), "{exported}");
         }
