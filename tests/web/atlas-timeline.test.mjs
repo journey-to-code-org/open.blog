@@ -71,3 +71,22 @@ test("print shows the whole timeline without its filters, and nothing in it move
   const atlas = styles.slice(styles.indexOf("/* Knowledge Atlas datings and timeline"));
   assert.ok(!/transition|animation/.test(atlas), "the timeline adds no motion");
 });
+
+test("a period a filter emptied never stays selected: the choice moves to the first enabled option", async () => {
+  const { settlePeriod } = await import("../../web/components/ob-atlas-timeline.js");
+  const select = (flags, selected) => {
+    const options = flags.map((disabled, index) => ({ value: `p${index}`, disabled }));
+    const box = { options, selectedIndex: selected, set value(v) { this.selectedIndex = options.findIndex((o) => o.value === v); } };
+    return box;
+  };
+  const stuck = select([true, false, false], 0);
+  assert.equal(settlePeriod(stuck), true);
+  assert.equal(stuck.selectedIndex, 1);
+  const fine = select([false, false], 1);
+  assert.equal(settlePeriod(fine), true);
+  assert.equal(fine.selectedIndex, 1, "an enabled selection is left alone");
+  const none = select([true, true], 0);
+  assert.equal(settlePeriod(none), false, "nothing enabled is reported so the status line can say so");
+  assert.equal(none.selectedIndex, 0);
+  assert.match(source, /No period has anything to go to\./);
+});

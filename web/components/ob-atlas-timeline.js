@@ -71,6 +71,20 @@ export function aspectChoices(rows) {
   return ASPECTS.filter(([value]) => present.has(value));
 }
 
+/**
+ * Moves a period choice off an option a filter disabled: the selection goes to
+ * the first enabled option. Returns false when none is enabled.
+ */
+export function settlePeriod(select) {
+  const options = [...select.options];
+  if (!options.length) return false;
+  if (options[select.selectedIndex]?.disabled === false) return true;
+  const open = options.find((option) => !option.disabled);
+  if (!open) return false;
+  select.value = open.value;
+  return true;
+}
+
 const BaseElement = globalThis.HTMLElement ?? class {};
 
 export class ObAtlasTimeline extends BaseElement {
@@ -135,7 +149,9 @@ export class ObAtlasTimeline extends BaseElement {
         const holder = heading?.closest(".ob-atlas-period, .ob-atlas-unplaced");
         option.disabled = Boolean(holder?.hidden);
       }
+      const placed = settlePeriod(periodSelect);
       status.textContent = statusText(rows, shown, filters);
+      if (!placed && periodSelect.options.length) status.textContent += " No period has anything to go to.";
     };
 
     aspectSelect.addEventListener("change", () => {
@@ -148,7 +164,10 @@ export class ObAtlasTimeline extends BaseElement {
     }, { signal });
     go.addEventListener("click", () => {
       const heading = section.querySelector(`#${CSS.escape(periodSelect.value)}`);
-      if (!heading || heading.closest("[hidden]")) return;
+      if (!heading || heading.closest("[hidden]")) {
+        status.textContent = `${statusText(rows, filterRows(rows, filters), filters)} No period has anything to go to.`;
+        return;
+      }
       heading.focus();
     }, { signal });
 
