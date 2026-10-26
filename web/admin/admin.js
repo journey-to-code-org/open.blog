@@ -7257,6 +7257,7 @@ export const BOUNDARY_REASONS = Object.freeze({
   "stale-anchor": "The anchored words have changed",
   "page-not-published": "The linked page is not published",
   "over-limit": "Over a size or count limit, so the file is left out",
+  inconsistent: "The published atlas does not agree with itself, so the file is left out",
 });
 
 const BOUNDARY_STORES = Object.freeze({
@@ -7297,7 +7298,9 @@ export function boundaryItemHref(item, { postPaths = null } = {}) {
 /** One line counting what the preview publishes and withholds. Never a score. */
 export function boundaryCountsText(manifest) {
   const reports = Array.isArray(manifest?.projections) ? manifest.projections : [];
-  const published = reports.reduce((sum, report) => sum + (report.published?.length || 0), 0);
+  // The query file repeats what the atlas already lists, so it adds nothing to the published count
+  // (the server's own summary skips it the same way); what it withholds is still counted.
+  const published = reports.reduce((sum, report) => sum + (report.projection === "atlas-query" ? 0 : report.published?.length || 0), 0);
   const withheld = reports.reduce((sum, report) => sum + (report.withheld?.length || 0), 0);
   return `${published} published, ${withheld} withheld.`;
 }

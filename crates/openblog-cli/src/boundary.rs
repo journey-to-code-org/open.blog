@@ -268,6 +268,7 @@ pub fn manifest(
             },
         )
     });
+    let base_path = site.config.base_path();
     let inputs = BoundaryInputs {
         switches: Switches::of(&site.config),
         posts: &site.posts,
@@ -284,6 +285,8 @@ pub fn manifest(
         stale_comparisons: stale.as_ref(),
         acknowledgements: stores.acknowledgements,
         unavailable: &stores.unavailable,
+        author: &site.config.author.name,
+        base_path: &base_path,
     };
     match post {
         Some(post) => BoundaryManifest::post(&inputs, post),
@@ -625,6 +628,7 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
     let datings = manifest.published_ids(Projection::Datings, ItemKind::Dating);
     let query_entries = manifest.published_ids(Projection::AtlasQuery, ItemKind::Entry);
     let query_edges = manifest.published_ids(Projection::AtlasQuery, ItemKind::Relationship);
+    let query_sources = manifest.published_ids(Projection::AtlasQuery, ItemKind::Source);
     let comparisons = manifest.published_ids(Projection::Comparisons, ItemKind::Comparison);
     let claims = manifest.published_ids(Projection::ClaimEvidence, ItemKind::Claim);
     let mut check = |file: &str, kind: &str, id: &str, known: &BTreeSet<&str>| {
@@ -669,6 +673,38 @@ fn unlisted(manifest: &BoundaryManifest, site: &Site, files: &[OutputFile]) -> V
             for id in ids_at(&value, "edges") {
                 check(&file.path, "relationship", &id, &relationships);
                 check(&file.path, "atlas query relationship", &id, &query_edges);
+            }
+            // Everything the file points at must be one of the items above,
+            // not only the items it lists itself.
+            for edge in value["edges"].as_array().into_iter().flatten() {
+                for end in ["from", "to"] {
+                    if let Some(id) = edge[end].as_str() {
+                        check(&file.path, "atlas query entry", id, &query_entries);
+                    }
+                }
+                for evidence in edge["evidence"].as_array().into_iter().flatten() {
+                    if let Some(id) = evidence["source"].as_str() {
+                        check(&file.path, "atlas query source", id, &query_sources);
+                    }
+                }
+                if let Some(id) = edge["assertedBy"]["source"].as_str() {
+                    check(&file.path, "atlas query source", id, &query_sources);
+                }
+            }
+            for entry in value["entries"].as_array().into_iter().flatten() {
+                if let Some(id) = entry["source"].as_str() {
+                    check(&file.path, "atlas query source", id, &query_sources);
+                }
+            }
+            for term in value["terms"].as_array().into_iter().flatten() {
+                for id in term["entries"].as_array().into_iter().flatten() {
+                    if let Some(id) = id.as_str() {
+                        check(&file.path, "atlas query entry", id, &query_entries);
+                    }
+                }
+            }
+            for id in ids_at(&value, "sources") {
+                check(&file.path, "atlas query source", &id, &query_sources);
             }
         } else if file.path == openblog_core::comparison_publication::COMPARISONS_JSON_FILE {
             for id in ids_at(&json(), "comparisons") {
@@ -1068,11 +1104,13 @@ date: 2026-01-07
             manifest.published_ids(Projection::AtlasQuery, ItemKind::Entry),
             std::collections::BTreeSet::from(["plato-person"])
         );
-        let query = site
-            .atlas
-            .as_ref()
-            .map(openblog_core::atlas_query::AtlasQuery::project);
-        let query = query.unwrap().unwrap().to_json();
+        let query = openblog_core::atlas_query::AtlasQuery::project(
+            site.atlas.as_ref().unwrap(),
+            &site.config.author.name,
+            &site.config.base_path(),
+        )
+        .unwrap()
+        .to_json();
         assert_eq!(
             check_output(&root, &site, &manifest, &[page("atlas-query.json", &query)]),
             Ok(Vec::new())
@@ -1092,6 +1130,90 @@ date: 2026-01-07
                 && error.contains("names the relationship `r-hidden`"),
             "{error}"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_atlas_query_file_may_only_point_at_published_entries_and_sources() {
+        let root = project_with_note("query-points", r#"{"knowledgeAtlas":{"publish":true}}"#);
+        // A work whose own source is the only thing the file cites.
+        fs::write(
+            root.join(".openblog/private/research/atlas.json"),
+            r#"{"version":2,"entries":[{"id":"republic","kind":"work","label":"Republic","source":"plato","visibility":"approved"}],"relationships":[]}"#,
+        )
+        .unwrap();
+        let (mut site, _) = crate::site::load_site(&root, false, None).unwrap();
+        let shared = Shared::read(&root, &site.config);
+        let blocked = project_with(&root, &mut site, &shared);
+        let stores = Stores::read(&root, &shared);
+        let manifest = manifest(&site, &stores, &blocked, None);
+        assert_eq!(
+            manifest.published_ids(Projection::AtlasQuery, ItemKind::Source),
+            std::collections::BTreeSet::from(["plato"]),
+            "the report lists the sources the file cites"
+        );
+        let real = openblog_core::atlas_query::AtlasQuery::project(
+            site.atlas.as_ref().unwrap(),
+            &site.config.author.name,
+            &site.config.base_path(),
+        )
+        .unwrap()
+        .to_json();
+        assert!(real.contains(r#""source":"plato""#), "{real}");
+        assert_eq!(
+            check_output(&root, &site, &manifest, &[page("atlas-query.json", &real)]),
+            Ok(Vec::new()),
+            "the real file passes"
+        );
+        // Ids the file points at, not only the ids it lists itself.
+        let forged = serde_json::json!({
+            "entries": [{"id": "republic", "source": "hidden-entry-source"}],
+            "edges": [{"id": "r-x", "from": "republic", "to": "hidden-end",
+                       "assertedBy": {"kind": "source", "source": "hidden-party"},
+                       "evidence": [{"source": "hidden-evidence"}]}],
+            "sources": [{"id": "hidden-listed"}],
+            "terms": [{"term": "t", "entries": ["hidden-term-entry"]}]
+        })
+        .to_string();
+        let error = check_output(
+            &root,
+            &site,
+            &manifest,
+            &[page("atlas-query.json", &forged)],
+        )
+        .unwrap_err();
+        for expected in [
+            "names the atlas query entry `hidden-end`",
+            "names the atlas query entry `hidden-term-entry`",
+            "names the atlas query source `hidden-evidence`",
+            "names the atlas query source `hidden-party`",
+            "names the atlas query source `hidden-entry-source`",
+            "names the atlas query source `hidden-listed`",
+        ] {
+            assert!(error.contains(expected), "{expected}: {error}");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn private_text_in_the_atlas_query_file_refuses_the_build() {
+        let root = project_with_note("query-leak", r#"{"knowledgeAtlas":{"publish":true}}"#);
+        let leaked = page(
+            "atlas-query.json",
+            &serde_json::json!({"entries":[{"id":"plato-person","preview":format!("A PRIVATE reading of the allegory that only the author, {NOTE}")}]})
+                .to_string(),
+        );
+        let error = checked(&root, &[leaked]).unwrap_err();
+        for expected in [
+            "refusing to build",
+            "`atlas-query.json`",
+            "the research notebook",
+            "`n1`",
+            "nothing was written",
+        ] {
+            assert!(error.contains(expected), "{expected}: {error}");
+        }
+        assert!(!error.to_lowercase().contains("allegory"), "{error}");
         let _ = fs::remove_dir_all(root);
     }
 
