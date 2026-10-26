@@ -131,6 +131,21 @@ impl CitationLocale {
     pub fn back_words(self) -> &'static str {
         self.strings().back
     }
+
+    /// The words of a citation preview's link to the note (`notes`) or the
+    /// reference list entry (`bibliography`) a marker leads to (ADR 0066).
+    pub fn go_to_words(self, style: CitationStyle) -> &'static str {
+        match style {
+            CitationStyle::Notes => self.strings().go_to.0,
+            CitationStyle::Bibliography => self.strings().go_to.1,
+        }
+    }
+
+    /// A citation's locators as readers see them in this locale:
+    /// `p. 514–520, l. 3`.
+    pub fn locators_text(self, locators: &[PublicLocator]) -> String {
+        locators_text(locators, self.strings())
+    }
 }
 
 /// A locator label in its singular and range (plural) forms.
@@ -141,6 +156,8 @@ struct LocaleStrings {
     references: &'static str,
     citation: &'static str,
     back: &'static str,
+    /// A preview's link to the note, then to the reference list entry.
+    go_to: (&'static str, &'static str),
     page: Label,
     folio: Label,
     line: Label,
@@ -156,6 +173,7 @@ const EN: LocaleStrings = LocaleStrings {
     references: "References",
     citation: "Citation",
     back: "Back to citation",
+    go_to: ("Go to note", "Go to reference"),
     page: ("p.", "pp."),
     folio: ("fol.", "fols."),
     line: ("l.", "ll."),
@@ -171,6 +189,7 @@ const DE: LocaleStrings = LocaleStrings {
     references: "Literatur",
     citation: "Beleg",
     back: "Zurück zum Beleg",
+    go_to: ("Zur Anmerkung", "Zum Literatureintrag"),
     page: ("S.", "S."),
     folio: ("Bl.", "Bl."),
     line: ("Z.", "Z."),
@@ -186,6 +205,7 @@ const FR: LocaleStrings = LocaleStrings {
     references: "Références",
     citation: "Citation",
     back: "Retour à la citation",
+    go_to: ("Aller à la note", "Aller à la référence"),
     page: ("p.", "p."),
     folio: ("fol.", "fol."),
     line: ("l.", "l."),
@@ -201,6 +221,7 @@ const ES: LocaleStrings = LocaleStrings {
     references: "Referencias",
     citation: "Cita",
     back: "Volver a la cita",
+    go_to: ("Ir a la nota", "Ir a la referencia"),
     page: ("p.", "pp."),
     folio: ("fol.", "fols."),
     line: ("lín.", "líns."),

@@ -316,7 +316,8 @@ fn print_keeps_every_note_and_hides_only_the_ways_back() {
         .replace("\r\n", "\n");
     let print = &css[css.find("@media print {").unwrap()..];
     let print = &print[..print.find("\n}\n").unwrap()];
-    assert!(print.contains(".ob-citation-back {\n    display: none !important;"));
+    assert!(print
+        .contains(".ob-citation-back,\n  .ob-citation-preview {\n    display: none !important;"));
     assert!(print.contains(".ob-citation-note {\n    break-inside: avoid;"));
     for kept in [
         ".ob-citation-notes",
@@ -443,5 +444,37 @@ fn headings_named_like_generated_ids_move_the_generated_ids_aside() {
         unique.sort_unstable();
         unique.dedup();
         assert_eq!(unique.len(), ids.len(), "{headings}: duplicate ids");
+    }
+}
+
+#[test]
+fn only_a_page_with_reference_data_loads_the_preview_component() {
+    let script =
+        "<script type=\"module\" src=\"/assets/components/ob-citation-previews.js\"></script>";
+    let (site, page) = cited(CITED);
+    assert_eq!(page.matches(script).count(), 1, "{page}");
+    let head = &page[..page.find("</head>").unwrap()];
+    assert!(head.find(script).unwrap() > head.find("id=\"ob-references\"").unwrap());
+    // One host element in the main content, after the article, with the
+    // localized words of its link to the note.
+    let host = "<ob-citation-previews note-label=\"Go to note\"></ob-citation-previews>\n</main>";
+    assert_eq!(page.matches("<ob-citation-previews").count(), 1);
+    assert!(page.contains(host), "{page}");
+    let (_, page) = cited(&CITED.replace("citations: notes", "citations: bibliography"));
+    assert!(page.contains("note-label=\"Go to reference\""));
+    let (_, page) =
+        cited(&CITED.replace("citations: notes", "citations: notes\ncitationLocale: de"));
+    assert!(page.contains("note-label=\"Zur Anmerkung\""));
+    // No other page loads it or carries the element.
+    for (path, contents) in build(&site) {
+        if path != page_path(&site.posts[0]) {
+            assert!(!contents.contains("ob-citation-previews"), "{path}");
+        }
+    }
+    for library in [None, Some(LIBRARY)] {
+        let site = load(LEGACY, library).unwrap();
+        for (path, contents) in build(&site) {
+            assert!(!contents.contains("ob-citation-previews"), "{path}");
+        }
     }
 }

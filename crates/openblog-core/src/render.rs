@@ -55,6 +55,9 @@ struct Meta<'a> {
     /// `<script type="application/json">` element (ADR 0064); `None` on every
     /// other page, which is then written exactly as before.
     reader_references: Option<String>,
+    /// The `<ob-citation-previews>` element that enhances the markers with
+    /// previews from that data (ADR 0066), present exactly when the data is.
+    citation_previews: Option<String>,
     theme: &'a Theme,
     published: Option<String>,
     modified: Option<String>,
@@ -613,6 +616,8 @@ impl<'a> Renderer<'a> {
         if let Some(element) = &meta.reader_references {
             h.push_str(element);
             h.push('\n');
+            // The preview component is loaded only by pages that carry its data.
+            h.push_str("<script type=\"module\" src=\"/assets/components/ob-citation-previews.js\"></script>\n");
         }
         // Owner-supplied raw HTML (third-party analytics, verification tags).
         if !c.snippets.head.trim().is_empty() {
@@ -624,6 +629,10 @@ impl<'a> Renderer<'a> {
         h.push_str(&self.site_header(theme, &meta.path));
         h.push_str("<main id=\"main\" tabindex=\"-1\">\n");
         h.push_str(body);
+        if let Some(element) = &meta.citation_previews {
+            h.push('\n');
+            h.push_str(element);
+        }
         h.push_str("\n</main>\n");
         h.push_str(&self.site_footer());
         h.push_str("<ob-back-to-top></ob-back-to-top>\n");
@@ -956,6 +965,7 @@ impl<'a> Renderer<'a> {
                 blog.to_string()
             }),
             reader_references: None,
+            citation_previews: None,
             theme,
             published: None,
             modified: None,
@@ -1339,6 +1349,12 @@ impl<'a> Renderer<'a> {
                 }
             }),
             reader_references: references.map(ReaderReferences::to_script_element),
+            citation_previews: references.and(post.citations()).map(|summary| {
+                format!(
+                    "<ob-citation-previews note-label=\"{}\"></ob-citation-previews>",
+                    attr(summary.locale.go_to_words(summary.style))
+                )
+            }),
             theme,
             published: Some(post.date.rfc3339()),
             modified: post.updated.map(|u| u.rfc3339()),
@@ -1967,6 +1983,7 @@ impl<'a> Renderer<'a> {
             image_alt: None,
             json_ld: None,
             reader_references: None,
+            citation_previews: None,
             theme,
             published: None,
             modified: None,

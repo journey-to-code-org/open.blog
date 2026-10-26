@@ -344,3 +344,36 @@ fn a_reference_with_nothing_but_its_key_previews_as_its_key() {
     }
     no_empty(entry, "references[0]");
 }
+
+#[test]
+fn each_citation_carries_its_locators_as_readers_see_them() {
+    let notes = data("notes");
+    let formatted: Vec<Option<&str>> = notes
+        .citations
+        .iter()
+        .map(|citation| citation.formatted.as_deref())
+        .collect();
+    assert_eq!(
+        formatted,
+        [
+            Some("pp. 514\u{2013}520, l. 3"),
+            Some("pp. 514\u{2013}520, l. 3"),
+            Some("514a"),
+            Some("p. 521"),
+            None,
+        ]
+    );
+    // In the notes' locale, and absent from the JSON when there are none.
+    let german = post("notes").replace("citations: notes", "citations: notes\ncitationLocale: de");
+    let german = site(&german, true).posts[0].reader_references().unwrap();
+    assert_eq!(
+        german.citations[0].formatted.as_deref(),
+        Some("S. 514\u{2013}520, Z. 3")
+    );
+    let json: serde_json::Value = serde_json::from_str(&notes.to_json()).unwrap();
+    assert_eq!(
+        json["citations"][0]["formatted"],
+        "pp. 514\u{2013}520, l. 3"
+    );
+    assert!(json["citations"][4].get("formatted").is_none());
+}

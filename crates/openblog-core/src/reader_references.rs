@@ -66,6 +66,11 @@ pub struct ReaderCitation {
     /// locators belong to the citation, never to the reference.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub locators: Vec<PublicLocator>,
+    /// The locators as readers see them in the notes' locale (`p. 514–520,
+    /// l. 3`), pre-rendered plain text for a preview to show as text (ADR
+    /// 0066). Absent when the citation has no locators.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formatted: Option<String>,
 }
 
 /// The reference data of one published post.
@@ -113,6 +118,8 @@ impl ReaderReferences {
                 note,
                 reference: reference.id.clone(),
                 locators: placement.locators.clone(),
+                formatted: (!placement.locators.is_empty())
+                    .then(|| summary.locale.locators_text(&placement.locators)),
             });
         }
         let data = Self {

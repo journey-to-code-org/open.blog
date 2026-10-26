@@ -362,6 +362,13 @@ note, and each note links back to every marker citing it. It never holds the aut
 footnotes.
 _Avoid_: Footnotes section, bibliography block
 
+**Citation preview**:
+The small panel that opens beside a citation marker, on focus, hover or a first tap, showing the
+cited reference's formatted text, the citation's locators and at most one checked outside link
+plus the way to the note, all taken from the page's reader references as text. It enhances the
+marker, which stays the link to its note, and is never needed to read the post.
+_Avoid_: Tooltip, popup, source card
+
 **Citation check**:
 An offline finding about a post's citations, in one of four separate classes: syntax (the
 citation cannot be read), resolution (its key or locator does not resolve, or an identifier is

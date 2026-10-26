@@ -15,6 +15,12 @@ All notable changes to open.blog are recorded here. Releases follow
   included), the place you arrive is highlighted, long addresses wrap at high zoom, and print keeps
   every note. If a page's citation links would not match its notes, for example because the post's
   own HTML reuses a generated id, the build stops and names the post. Other pages are unchanged.
+- Citation markers now open a preview of the cited source right beside them: on keyboard focus,
+  on hover, or on a first tap on touch screens. It shows the formatted reference, the cited
+  location and its DOI or web link, closes with Escape (returning focus to the marker) or by
+  moving elsewhere, stays on screen at any width, respects reduced motion and is not printed. The
+  marker is still the link to its note, nothing is fetched or stored, and only pages with
+  published citations load it; without JavaScript the page is unchanged.
 
 ### Fixed
 

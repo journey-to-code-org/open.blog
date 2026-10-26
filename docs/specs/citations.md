@@ -141,7 +141,7 @@ publishes none.
 | --- | --- |
 | `version`, `style`, `locale` | `1`; `notes` or `bibliography`; the notes' locale |
 | `references[]` | `id` (the citation key, distinct per work, edition, translation and witness), `number` (order of first citation), `preview` (the public description, ADR 0044), `formatted` (plain text), `link` (DOI resolver or plain HTTP(S) address, else absent) |
-| `citations[]` | `marker` (`cite-N-ref-K`), `note` (`cite-N`), `reference` (an id above), `locators` (kind, value, end) |
+| `citations[]` | `marker` (`cite-N-ref-K`), `note` (`cite-N`), `reference` (an id above), `locators` (kind, value, end), `formatted` (the locators as readers see them in the notes' locale, `pp. 514–520, l. 3`; absent without locators) |
 
 Every citation names a listed reference, every reference is cited, and `check_page` confirms the
 page holds each marker and note id, so each citation resolves to a visible reference without
@@ -157,3 +157,25 @@ or the passage and annotation selectors of #80 and #84. The document is written 
 `<script type="application/json" id="ob-references">` with `<`, `>`, `&` and U+2028/9 escaped
 (`to_script_element`) in the `<head>` of the post's page, after the JSON-LD, and nowhere else;
 there is no separate file in version 1.
+
+## Citation previews
+
+[ADR 0066](../adr/0066-citation-previews-are-a-progressive-non-modal-component.md) defines
+`<ob-citation-previews>` (`web/components/ob-citation-previews.js`). Only the page of a post that
+publishes citations loads it: its module script follows the `ob-references` element in the
+`<head>`, and one empty `<ob-citation-previews note-label="Go to note">` (`Go to reference` for a
+bibliography, in the citation locale) ends `<main>`.
+
+| Use | Behaviour |
+| --- | --- |
+| Keyboard | Focusing a marker opens its preview straight after the marker, so Tab continues into its links; the marker is `aria-describedby` its text while it is open. Escape closes it and returns focus to the marker. Enter follows the marker's link. |
+| Pointer | Hovering a marker opens it after 250 ms; leaving the marker and preview closes it after 300 ms. A click follows the link. |
+| Touch | A first tap opens the preview; its "Go to note" link or a second tap follows the link. |
+| Anywhere else | Focusing or pressing outside the marker and preview closes it. One preview is open at a time. |
+
+The preview (`role="group"`, named by its marker) shows the reference's `formatted` text, the
+citation's `formatted` locators, the reference's `link` when it is an absolute `http(s)` address
+with no credentials, and the link to the note, all as text. It never fetches, stores or changes
+the marker; data of another version, unreadable data or a marker that no longer links to its
+note leaves the page as it is. It stays inside the viewport, opens above the marker when only
+that fits, fades in only without a reduced-motion preference and is not printed.
