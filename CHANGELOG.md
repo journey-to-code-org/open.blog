@@ -18,6 +18,8 @@ All notable changes to open.blog are recorded here. Releases follow
 - Editing a creator's name or role in the Admin source form no longer drops its attribution
   certainty or note, and editing a reference's location keeps its volume. A reference to an edition
   or manuscript in several volumes now has a Volume field.
+- Building a site no longer fails when an interpretation in the private source library names a
+  contributor who was later removed from the registry; `openblog check` and Admin still report it.
 
 ## [0.32.0] - 2026-10-26
 
