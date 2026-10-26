@@ -2,10 +2,11 @@
 
 The contract defined by [ADR 0048](../adr/0048-citation-keys-are-source-identifiers.md) to
 [ADR 0053](../adr/0053-citation-picker-in-the-visual-editor.md), implemented by
-`openblog_core::citations`. A citation points at a record in the
-[source library](research-source-library.md) and reuses the
-[notebook's locators](research-notebook.md). The resolver never reads the notebook, and no build step
-calls it yet.
+`openblog_core::citations`, and published by `openblog_core::bibliography`
+([ADR 0054](../adr/0054-citations-publish-through-the-one-publication-projection.md),
+[ADR 0055](../adr/0055-built-in-citation-styles-locales-and-accessible-notes.md)). A citation
+points at a record in the [source library](research-source-library.md) and reuses the
+[notebook's locators](research-notebook.md). The resolver never reads the notebook.
 
 ## Syntax
 
@@ -70,3 +71,22 @@ text, or overlapping emphasis) is a protected **Citation text** block, kept verb
 mode inserts a citation inside code, a link or a protected block; the dialog explains why and
 stays open. Undo (Ctrl+Z or **Undo
 citation**) restores the exact prior draft and caret while nothing else has changed.
+
+## Publication
+
+A post opts in with `citations: notes` or `citations: bibliography` in its front matter
+(`citationLocale`: `en`, `de`, `fr` or `es`, defaulting to the site language). Without it, or
+with no citation in the body, the post publishes exactly as before.
+
+| Step | Rule |
+| --- | --- |
+| Scan and resolve | The core scanner and resolver. Any diagnostic, a missing library or an unreadable library refuses the post with its file line, key, code and a repair hint, before anything is written. |
+| Rewrite | Each citation becomes a footnote reference `[^cite-N]` (`cite2-` and so on when the author already uses `cite-` plus a number). `bibliography` adds ` (locators)` after the marker. A following `(`, `[` or `:` is escaped. |
+| Notes | Appended under `## Notes` or `## References` (localized) as `[^cite-N]: reference, locators.` in order of first citation: one per distinct citation (`notes`) or per reference (`bibliography`). Text is escaped Markdown from the public reference only. |
+| Check | The result is parsed again; it must hold one generated marker per citation and one note per number, or the post is refused. |
+| Publish | `Post::publication_markdown` feeds the native page and the portable projection (portable HTML, Markdown, text, RSS, JSON Feed, `llms.txt`, destinations). The authored file never changes. |
+
+On the native page a generated marker is
+`<sup class="footnote-reference ob-citation"><a href="#cite-1" id="cite-1-ref-1" role="doc-noteref"><span class="ob-visually-hidden">Citation </span>1</a></sup>`
+and each note ends with one `doc-backlink` per citing marker. Portable copies keep ordinary
+footnotes that link to the note on the canonical article.

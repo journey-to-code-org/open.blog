@@ -294,6 +294,23 @@ Markdown file stays canonical. Citation text the editor cannot show as chips exa
 scanner reads it stays a protected **Citation text** block instead.
 _Avoid_: Footnote marker, link, tag
 
+**Publication Markdown**:
+The body every public representation of a post is built from: the authored Markdown, or for a
+post that opts in to citations, that body with each citation written as a generated footnote
+and the notes appended. The file on disk never changes.
+_Avoid_: Export, rendered body
+
+**Citation note**:
+A generated, numbered note that publishes a citation: the formatted reference and the
+citation's locators, linked from its marker and back. One per distinct citation in the `notes`
+style.
+_Avoid_: Footnote when an author's own note is meant
+
+**Bibliography**:
+The citation style that publishes each cited reference once, numbered in order of first
+citation, under References, with locators kept next to the marker in the text.
+_Avoid_: References section when the research profile's hand-written list is meant
+
 **Formatted reference**:
 The public, plain-text rendering of a reference built only from its bibliographic description
 (title, creators, date, identifiers, preserved CSL variables), never from notebook text.

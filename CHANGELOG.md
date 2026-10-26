@@ -26,6 +26,13 @@ All notable changes to open.blog are recorded here. Releases follow
   visual editor cannot read exactly as a build does (such as one inside link text) is kept
   verbatim instead of being rewritten. Cite refuses a caret inside code or a link in either mode
   and explains why in the still-open dialog. CSL export writes the current `sub-verbo` label.
+- Posts can now publish their citations. Add `citations: notes` or `citations: bibliography` to a
+  post's front matter and each `[@key, locator]` becomes a numbered note (or a reference list
+  entry) built from the source library, in English, German, French or Spanish. The page, portable
+  copies, feeds and `llms.txt` all show the same notes, and on the page each marker and note link
+  to each other for keyboard and screen-reader users. Only the cited sources' public description
+  is published. An unknown key or ambiguous page stops that post with its line and a fix. Posts
+  without `citations` are unchanged.
 
 ## [0.25.0] - 2026-10-25
 
