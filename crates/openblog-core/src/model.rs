@@ -1117,6 +1117,12 @@ fn load_post_in(
     } else {
         Vec::new()
     };
+    // `citations: bibliography` appends the References heading (in the post's
+    // locale) to the published text only, so the authored-body audit above
+    // must not report it missing.
+    if published.is_some() && citation_style == Some(CitationStyle::Bibliography) {
+        evidence.retain(|finding| finding.code != research::EvidenceCode::ReferencesMissing);
+    }
     evidence.extend(citation_findings);
     let citation_summary = published
         .as_ref()

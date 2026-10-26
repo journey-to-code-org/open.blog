@@ -717,3 +717,39 @@ fn the_library_is_read_only_when_an_opted_in_post_cites_something() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn a_generated_bibliography_satisfies_the_research_references_check_in_any_locale() {
+    let research = "---
+title: The cave
+date: 2026-10-20
+profile: research
+citations: bibliography
+---
+## Abstract
+Summary.
+
+The cave [@republic-slings-2003, page 514].
+";
+    for (extra, heading) in [
+        ("", "## References"),
+        ("citationLocale: de\n", "## Literatur"),
+    ] {
+        let body = research.replace(
+            "citations: bibliography\n",
+            &format!("citations: bibliography\n{extra}"),
+        );
+        let site = cited_site(&body);
+        let published = site.posts[0].publication_markdown();
+        assert!(published.contains(&format!("\n{heading}\n")), "{published}");
+        assert!(
+            !site
+                .evidence
+                .iter()
+                .any(|finding| finding.code
+                    == openblog_core::research::EvidenceCode::ReferencesMissing),
+            "{extra}: {:?}",
+            site.evidence
+        );
+    }
+}
