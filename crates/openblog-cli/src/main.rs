@@ -816,8 +816,13 @@ fn check_source_library(
     let snapshot = source_store::load(root, contributors).map_err(|error| error.to_string())?;
     Ok(snapshot.stored.then(|| {
         let count = snapshot.library.sources.len();
+        let interpretations = match snapshot.library.interpretations.len() {
+            0 => String::new(),
+            1 => " and 1 private interpretation".into(),
+            n => format!(" and {n} private interpretations"),
+        };
         format!(
-            "OK: private source library {} has {count} source{}; builds publish only the public description of references that opted-in posts cite.",
+            "OK: private source library {} has {count} source{}{interpretations}; builds publish only the public description of references that opted-in posts cite.",
             source_store::LIBRARY_FILE,
             if count == 1 { "" } else { "s" }
         )

@@ -18,6 +18,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use openblog_core::contributor::Contributor;
+use openblog_core::interpretation::Interpretation;
 use openblog_core::model::{LibraryReader, LibrarySource};
 use openblog_core::source_interchange::{plan_csl_import, ImportPlan};
 use openblog_core::source_library::{
@@ -348,6 +349,119 @@ pub fn remove(
         keep_posts_citable(root, &before, library, &[id.to_string()])?;
         Ok(removed)
     })
+}
+
+// Interpretations (ADR 0115) share the library's file, revision, and lock.
+// Admin management arrives with the comparison workspace (#54).
+
+/// Add an interpretation whose identifier is not yet in use.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn create_interpretation(
+    root: &Path,
+    expected_revision: &str,
+    interpretation: Interpretation,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, StoreError> {
+    change(root, expected_revision, contributors, |library| {
+        if library.interpretation(&interpretation.id).is_some() {
+            return Err(vec![SourceDiagnostic {
+                code: SourceDiagnosticCode::DuplicateId,
+                index: None,
+                source_id: None,
+                field: Some("interpretations".into()),
+                message: format!(
+                    "`{}` is already used by an interpretation; edit it or choose another id",
+                    interpretation.id
+                ),
+            }]);
+        }
+        library.upsert_interpretation(interpretation.clone(), contributors)
+    })
+    .map(|(snapshot, ())| snapshot)
+}
+
+/// Replace the interpretation with the same identifier.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn update_interpretation(
+    root: &Path,
+    expected_revision: &str,
+    interpretation: Interpretation,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<Snapshot, StoreError> {
+    change(root, expected_revision, contributors, |library| {
+        if library.interpretation(&interpretation.id).is_none() {
+            return Err(vec![unknown_interpretation(&interpretation.id)]);
+        }
+        library.upsert_interpretation(interpretation.clone(), contributors)
+    })
+    .map(|(snapshot, ())| snapshot)
+}
+
+/// Remove an interpretation. Nothing points at one, so only an unknown
+/// identifier, a stale revision, or a damaged library refuses it.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn remove_interpretation(
+    root: &Path,
+    expected_revision: &str,
+    id: &str,
+    contributors: &BTreeMap<String, Contributor>,
+) -> Result<(Snapshot, Interpretation), StoreError> {
+    change(root, expected_revision, contributors, |library| {
+        library.remove_interpretation(id, contributors)
+    })
+}
+
+/// The library lock, held while a registry write is pending, and the
+/// `(contributor, interpretation id)` pairs still naming removed keys.
+pub(crate) type InterpretersInUse = (Option<FileLock>, Vec<(String, String)>);
+
+/// Which of the `removed` contributor keys an interpretation still names, as
+/// `(contributor, interpretation id)` pairs, read under the library lock. The
+/// returned lock is held by a caller that removes contributors from the
+/// registry until its write is done, so no interpretation can start naming
+/// one of them in between. A library that cannot be read blocks removals,
+/// because they cannot be shown to be unused.
+pub(crate) fn interpreters_in_use(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+    removed: &[String],
+) -> Result<InterpretersInUse, String> {
+    if removed.is_empty() {
+        return Ok((None, Vec::new()));
+    }
+    let path = library_path(root).map_err(|error| error.to_string())?;
+    let lock = match path.parent() {
+        Some(directory) if directory.is_dir() => {
+            Some(lock_library(root).map_err(|error| error.to_string())?)
+        }
+        _ => None,
+    };
+    let snapshot = read(&path, contributors).map_err(|error| {
+        format!("contributors cannot be removed while the source library cannot be read: {error}")
+    })?;
+    let mut using = Vec::new();
+    for interpretation in &snapshot.library.interpretations {
+        for interpreter in &interpretation.interpreters {
+            if let Some(key) = interpreter
+                .contributor
+                .as_ref()
+                .filter(|key| removed.contains(key))
+            {
+                using.push((key.clone(), interpretation.id.clone()));
+            }
+        }
+    }
+    Ok((lock, using))
+}
+
+fn unknown_interpretation(id: &str) -> SourceDiagnostic {
+    SourceDiagnostic {
+        code: SourceDiagnosticCode::UnknownSource,
+        index: None,
+        source_id: None,
+        field: Some("interpretations".into()),
+        message: format!("no interpretation has the id `{id}`"),
+    }
 }
 
 fn still_used(id: &str, message: String) -> SourceDiagnostic {
@@ -698,18 +812,9 @@ mod tests {
 
     fn record(id: &str, kind: ResearchSourceKind, of: Option<&str>) -> SourceRecord {
         SourceRecord {
-            id: id.into(),
-            kind,
             title: (kind != ResearchSourceKind::Reference).then(|| format!("Title of {id}")),
-            creators: Vec::new(),
-            language: None,
-            issued: None,
             of: of.map(Into::into),
-            based_on: None,
-            location: None,
-            identifiers: Vec::new(),
-            archived: false,
-            extra: BTreeMap::new(),
+            ..SourceRecord::new(id, kind)
         }
     }
 
@@ -1054,6 +1159,102 @@ mod tests {
         assert_eq!(removed.id, "e");
         assert_eq!(after.library.sources.len(), 1);
         assert_eq!(load(&root, &none()).unwrap(), after);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn interpretation(id: &str, source: &str, interpreter: serde_json::Value) -> Interpretation {
+        Interpretation::from_json(serde_json::json!({
+            "id": id,
+            "kind": "rendering",
+            "source": source,
+            "locators": [{"kind": "canonical", "value": "514a"}],
+            "language": "en",
+            "text": "A rendering of the place.",
+            "interpreters": [interpreter],
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn interpretations_share_the_library_revision_and_never_half_write() {
+        let root = temp_root("interpretations");
+        let registry = BTreeMap::from([(
+            "ada".to_string(),
+            openblog_core::contributor::Contributor {
+                name: "Ada".into(),
+                ..Default::default()
+            },
+        )]);
+        let empty = load(&root, &registry).unwrap();
+        let first = create(&root, &empty.revision, work("w"), &registry).unwrap();
+        let edition = create(
+            &root,
+            &first.revision,
+            record("e", ResearchSourceKind::Edition, Some("w")),
+            &registry,
+        )
+        .unwrap();
+        let mine = interpretation("e-514a", "e", serde_json::json!({"contributor": "ada"}));
+        let saved =
+            create_interpretation(&root, &edition.revision, mine.clone(), &registry).unwrap();
+        assert_ne!(saved.revision, edition.revision);
+        assert_eq!(load(&root, &registry).unwrap(), saved);
+        let stored = fs::read_to_string(library_file(&root)).unwrap();
+        assert!(stored.contains("\"interpretations\""), "{stored}");
+        let before = fs::read(library_file(&root)).unwrap();
+
+        // Stale revisions, duplicates, unknown ids, invalid entries, and a
+        // source still interpreted are all refused without writing.
+        assert_eq!(
+            update_interpretation(&root, &edition.revision, mine.clone(), &registry).unwrap_err(),
+            StoreError::Conflict
+        );
+        let duplicate =
+            create_interpretation(&root, &saved.revision, mine.clone(), &registry).unwrap_err();
+        assert_eq!(codes(&duplicate), [SourceDiagnosticCode::DuplicateId]);
+        let missing = update_interpretation(
+            &root,
+            &saved.revision,
+            interpretation("absent", "e", serde_json::json!({"name": "N"})),
+            &registry,
+        )
+        .unwrap_err();
+        assert_eq!(codes(&missing), [SourceDiagnosticCode::UnknownSource]);
+        let stranger = interpretation("e-514a", "e", serde_json::json!({"contributor": "grace"}));
+        let unresolved =
+            update_interpretation(&root, &saved.revision, stranger, &registry).unwrap_err();
+        assert_eq!(
+            codes(&unresolved),
+            [SourceDiagnosticCode::UnresolvedRelationship]
+        );
+        assert!(
+            unresolved
+                .to_string()
+                .contains("interpretations[0].interpreters[0].contributor"),
+            "{unresolved}"
+        );
+        let used = remove(&root, &saved.revision, "e", &registry).unwrap_err();
+        assert_eq!(codes(&used), [SourceDiagnosticCode::StillUsed]);
+        assert!(used.to_string().contains("e-514a"), "{used}");
+        assert_eq!(fs::read(library_file(&root)).unwrap(), before);
+
+        // Registry removals are guarded while an interpretation names them.
+        let (lock, using) = interpreters_in_use(&root, &registry, &["ada".into()]).unwrap();
+        assert!(lock.is_some(), "the library lock is held for the caller");
+        assert_eq!(using, [("ada".to_string(), "e-514a".to_string())]);
+        drop(lock);
+
+        let (after, removed) =
+            remove_interpretation(&root, &saved.revision, "e-514a", &registry).unwrap();
+        assert_eq!(removed, mine);
+        assert!(after.library.interpretations.is_empty());
+        assert!(
+            !fs::read_to_string(library_file(&root))
+                .unwrap()
+                .contains("interpretations"),
+            "an empty list is written as an absent field"
+        );
+        remove(&root, &after.revision, "e", &registry).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -5642,6 +5642,30 @@ fn save_contributors(state: &AppState, req: &Request) -> Response {
             }),
         );
     }
+    // Interpretations in the source library name interpreters by registry key
+    // (ADR 0115). The library lock is held until the registry is written.
+    let (_library_lock, interpreted) = match source_store::interpreters_in_use(
+        &state.root,
+        &current_config.contributors,
+        &removed,
+    ) {
+        Ok(found) => found,
+        Err(error) => return Response::error(422, &error),
+    };
+    if !interpreted.is_empty() {
+        let contributors: std::collections::BTreeSet<&str> =
+            interpreted.iter().map(|(key, _)| key.as_str()).collect();
+        let interpretations: std::collections::BTreeSet<&str> =
+            interpreted.iter().map(|(_, id)| id.as_str()).collect();
+        return Response::json(
+            422,
+            &json!({
+                "error": "Contributors named as interpreters in the source library cannot be removed. Change those interpretations first.",
+                "contributors": contributors,
+                "interpretations": interpretations,
+            }),
+        );
+    }
 
     candidate_json["contributors"] = json!(candidate_config.contributors);
     let written = match serde_json::to_string_pretty(&candidate_json) {
@@ -17785,6 +17809,86 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
         assert_eq!(written["futureSetting"]["keep"], true);
         assert_eq!(written["title"], config["title"]);
+    }
+
+    #[test]
+    fn contributors_named_as_interpreters_cannot_be_removed() {
+        let f = fixture("contributor-interpreter");
+        let config_path = f.dir.join("openblog.json");
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["contributors"] = json!({ "ada": { "name": "Ada" }, "grace": { "name": "Grace" } });
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let library_path = f.dir.join(crate::source_store::LIBRARY_FILE);
+        fs::create_dir_all(library_path.parent().unwrap()).unwrap();
+        fs::write(
+            &library_path,
+            json!({
+                "version": 1,
+                "sources": [
+                    { "id": "w", "kind": "work", "title": "W" },
+                    { "id": "e", "kind": "edition", "of": "w", "title": "E" }
+                ],
+                "interpretations": [{
+                    "id": "e-1", "kind": "reading", "source": "e",
+                    "text": "Private reading", "interpreters": [{ "contributor": "ada" }]
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let library_before = fs::read(&library_path).unwrap();
+        let session = login_ok(&f);
+        let registry = body_json(&handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/contributors"), &session, false),
+        ));
+        let etag = registry["etag"].as_str().unwrap().to_string();
+
+        let refused = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({ "etag": etag, "contributors": { "grace": { "name": "Grace" } } }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(refused.status, 422);
+        let body = body_json(&refused);
+        assert_eq!(body["contributors"], json!(["ada"]));
+        assert_eq!(body["interpretations"], json!(["e-1"]));
+        assert!(
+            !String::from_utf8_lossy(&refused.body).contains("Private reading"),
+            "the refusal names ids, never the interpretation's text"
+        );
+        let config_after: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        assert_eq!(config_after["contributors"]["ada"]["name"], "Ada");
+        assert_eq!(fs::read(&library_path).unwrap(), library_before);
+
+        // Removing a contributor no interpretation names is still allowed.
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    "/admin/api/contributors",
+                    json!({ "etag": etag, "contributors": { "ada": { "name": "Ada" } } }),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
     }
 
     #[test]
