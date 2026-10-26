@@ -125,9 +125,13 @@ interpretations, ADRs 0087 to 0089) is off by default and needs three explicit s
 additive migration [`supabase/feedback.sql`](../supabase/feedback.sql), set
 `OPENBLOG_FEEDBACK_ENABLED=true` in Netlify, and set `engagement.feedback` to `true` in
 `openblog.json`. The migration only creates the private `openblog_feedback` table; existing comments,
-analytics and their tables are not changed. To roll back, unset `OPENBLOG_FEEDBACK_ENABLED` and
-redeploy, then, if you also want the data gone, export it and run
-[`supabase/feedback-rollback.sql`](../supabase/feedback-rollback.sql), which drops only that table.
+analytics and their tables are not changed. It also adds the private moderation audit table
+`openblog_feedback_events` and the function `openblog_moderate_feedback` (ADR 0095). Approved notes
+are published from `content/reader-feedback.json` in the repository, so the build needs no access
+to the hosted service. To roll back, unset `OPENBLOG_FEEDBACK_ENABLED` and redeploy, then, if you
+also want the data gone, export it and run
+[`supabase/feedback-rollback.sql`](../supabase/feedback-rollback.sql), which drops only what the
+migration created.
 The [function setup guide](../netlify/functions/README.md#passage-feedback-optional) has the
 details. The engagement function is bundled with esbuild (`[functions."engagement"]` in `netlify.toml`) so it can share
 the feedback validator in `web/components/`.

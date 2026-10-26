@@ -1370,6 +1370,12 @@ impl<'a> Renderer<'a> {
             body.push_str("\n</section>\n");
         }
         body.push_str(&self.chronological_nav(index));
+        // Approved reader notes, with the author's responses, are shown on
+        // the canonical page only (ADR 0095), before the form that asks for
+        // more.
+        body.push_str(&crate::feedback_publication::render_section(
+            post.reader_feedback(),
+        ));
         let passage_feedback = self.passage_feedback(post);
         if let Some((region, _)) = &passage_feedback {
             body.push_str(region);
@@ -2600,6 +2606,7 @@ mod tests {
                 pages: vec![src("pages/about.md", "---\ntitle: About\nnav: true\n---\nHi")],
                 source_library: None,
                 claim_evidence: None,
+                reader_feedback: None,
             },
             LoadOptions::default(),
         )

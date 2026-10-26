@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { FEEDBACK_KINDS, canonicalTime, readFeedbackSubmissionJson, receiveFeedback } from "../../web/components/passage-feedback.js";
+import { MODERATION_STATES, auditActor, planModeration } from "../lib/feedback-moderation.mjs";
 
 const json = (statusCode, value, origin = "") => ({
   statusCode,
@@ -31,8 +32,9 @@ const publicComment = (row) => ({
   ...(row.status ? { status: row.status } : {}),
 });
 
-// A stored feedback row as the moderation item Admin reads (ADR 0089): the
-// ADR 0087 record with its provenance, plus the row id and moderation state.
+// A stored feedback row as the moderation item Admin reads (ADRs 0089 and
+// 0095): the ADR 0087 record with its provenance, plus the row id, its
+// moderation state, the version every change must name, and the last reason.
 // The reader's name is shown to moderators only, with their publication choice.
 const hostedFeedback = (row) => {
   const provenance = { version: 1, work: row.work, revision: row.revision, target: row.target };
@@ -44,12 +46,15 @@ const hostedFeedback = (row) => {
   return {
     id: row.id,
     status: row.status,
+    version: row.version,
     moderatedAt: row.moderated_at ? canonicalTime(row.moderated_at) : null,
+    reason: row.moderation_reason ?? null,
     feedback: { version: row.format_version, kind: row.kind, body: row.body, details: row.details || {}, provenance },
   };
 };
 
-const FEEDBACK_COLUMNS = "id,status,moderated_at,format_version,kind,work,revision,target,body,details,seen_at,received_at,channel,reader_name,publish_name";
+const FEEDBACK_COLUMNS = "id,status,version,moderated_at,moderation_reason,format_version,kind,work,revision,target,body,details,seen_at,received_at,channel,reader_name,publish_name";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FEEDBACK_UNAVAILABLE = "Passage feedback is not available on this site. The page itself is unchanged; you can copy your note and send it to the author instead.";
 
 export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchImpl = fetchImpl, now = () => new Date() } = {}) {
@@ -99,6 +104,10 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
     const policies = await response.json();
     const policy = policies && typeof policies === "object" ? policies[path] : "";
     return ["open", "locked", "hidden"].includes(policy) ? policy : "hidden";
+  };
+  const feedbackRows = (settings, filters) => {
+    const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, ...filters, select: FEEDBACK_COLUMNS, order: "received_at.asc", limit: "200" });
+    return database(settings, `/rest/v1/openblog_feedback?${params}`);
   };
   const commentPolicy = (settings, path) => publishedPolicy(settings, "openblog-comments.json", path);
   const feedbackPolicy = (settings, path) => publishedPolicy(settings, "openblog-feedback.json", path);
@@ -236,26 +245,50 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
         return json(202, { id: rows[0]?.id, status: "pending", receivedAt: provenance.receivedAt }, corsOrigin);
       }
       if (operation === "admin/feedback" && event.httpMethod === "GET") {
-        const status = ["pending", "approved", "rejected"].includes(query.status) ? query.status : "pending";
+        // One item by id, whatever its state (Admin re-reads an item before
+        // acting on it), or the queue of one state.
+        if (query.id !== undefined) {
+          if (!UUID.test(String(query.id))) return json(422, { error: "Invalid feedback id." }, corsOrigin);
+          const rows = await feedbackRows(settings, { id: `eq.${String(query.id).toLowerCase()}` });
+          return json(200, { feedback: rows.map(hostedFeedback) }, corsOrigin);
+        }
+        const status = MODERATION_STATES.includes(query.status) ? query.status : "pending";
         const kind = query.kind === undefined || query.kind === "" ? "" : String(query.kind);
         if (kind && !Object.hasOwn(FEEDBACK_KINDS, kind)) return json(422, { error: "Unknown feedback kind." }, corsOrigin);
-        const params = new URLSearchParams({ site_id: `eq.${settings.siteId}`, status: `eq.${status}`, select: FEEDBACK_COLUMNS, order: "received_at.asc", limit: "200" });
-        if (kind) params.set("kind", `eq.${kind}`);
-        const rows = await database(settings, `/rest/v1/openblog_feedback?${params}`);
+        const rows = await feedbackRows(settings, { status: `eq.${status}`, ...(kind ? { kind: `eq.${kind}` } : {}) });
         return json(200, { feedback: rows.map(hostedFeedback) }, corsOrigin);
       }
       if (operation === "admin/feedback" && event.httpMethod === "PATCH") {
-        const id = String(body.id || "");
-        const status = String(body.status || "");
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) || !["approved", "rejected"].includes(status)) {
+        // A change names the state and version the moderator saw (ADR 0095).
+        // The database applies it and records its audit event in one
+        // statement, only if the row still has both, so concurrent moderation
+        // is refused instead of overwritten.
+        const id = String(body.id || "").toLowerCase();
+        const version = body.expectedVersion;
+        if (!UUID.test(id) || !Number.isInteger(version) || version < 1 || version > 2147483647 || !MODERATION_STATES.includes(body.from)) {
           return json(422, { error: "Invalid moderation change." }, corsOrigin);
         }
-        await database(settings, `/rest/v1/openblog_feedback?id=eq.${encodeURIComponent(id)}&site_id=eq.${encodeURIComponent(settings.siteId)}`, {
-          method: "PATCH",
-          headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ status, moderated_at: canonicalTime(now()) }),
+        const plan = planModeration(body.from, body.action, body.reason);
+        if (!plan.ok) return json(422, { error: plan.message, code: plan.code }, corsOrigin);
+        const { change } = plan;
+        const rows = await database(settings, "/rest/v1/rpc/openblog_moderate_feedback", {
+          method: "POST",
+          body: JSON.stringify({
+            p_site_id: settings.siteId,
+            p_id: id,
+            p_expected_version: version,
+            p_from: change.from,
+            p_to: change.to,
+            p_action: change.action,
+            p_reason: change.reason,
+            p_actor: auditActor(body.actor),
+            p_at: canonicalTime(now()),
+          }),
         });
-        return json(200, { ok: true, status }, corsOrigin);
+        if (Array.isArray(rows) && rows.length === 1) return json(200, { ok: true, item: hostedFeedback(rows[0]) }, corsOrigin);
+        const current = await feedbackRows(settings, { id: `eq.${id}` });
+        if (!current.length) return json(404, { error: "No such feedback item.", code: "notFound" }, corsOrigin);
+        return json(409, { error: "This item changed since you loaded it. Review it again before acting.", code: "conflict", item: hostedFeedback(current[0]) }, corsOrigin);
       }
       if (operation === "admin/comments" && event.httpMethod === "GET") {
         if (!admin) return json(401, { error: "Admin authorization is required." }, corsOrigin);

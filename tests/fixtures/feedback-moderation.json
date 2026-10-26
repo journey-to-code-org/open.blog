@@ -1,0 +1,40 @@
+{
+  "about": "Moderation rules for passage feedback (ADR 0095), shared by openblog_core::feedback_moderation and netlify/lib/feedback-moderation.mjs. State names are RD12's (#211). Each case is a change requested from a current state, with the expected next state or the expected refusal code.",
+  "rules": {
+    "states": ["pending", "clarification", "approved", "rejected", "removed", "withdrawn"],
+    "actions": {
+      "approve": { "from": ["pending"], "to": "approved", "reasons": [] },
+      "reject": {
+        "from": ["pending", "clarification"],
+        "to": "rejected",
+        "reasons": ["spam", "abusive", "personal-data", "off-topic", "duplicate", "rights", "other"]
+      },
+      "remove": {
+        "from": ["approved"],
+        "to": "removed",
+        "reasons": ["spam", "abusive", "personal-data", "off-topic", "duplicate", "rights", "other"]
+      }
+    }
+  },
+  "cases": [
+    { "from": "pending", "action": "approve", "to": "approved" },
+    { "from": "pending", "action": "approve", "reason": "spam", "refused": "reasonNotAllowed" },
+    { "from": "approved", "action": "approve", "refused": "notAllowed" },
+    { "from": "rejected", "action": "approve", "refused": "notAllowed" },
+    { "from": "removed", "action": "approve", "refused": "notAllowed" },
+    { "from": "withdrawn", "action": "approve", "refused": "notAllowed" },
+    { "from": "clarification", "action": "approve", "refused": "notAllowed" },
+    { "from": "pending", "action": "reject", "reason": "off-topic", "to": "rejected" },
+    { "from": "clarification", "action": "reject", "reason": "duplicate", "to": "rejected" },
+    { "from": "pending", "action": "reject", "refused": "reasonRequired" },
+    { "from": "pending", "action": "reject", "reason": "incorrect", "refused": "unknownReason" },
+    { "from": "pending", "action": "reject", "reason": "misinformation", "refused": "unknownReason" },
+    { "from": "approved", "action": "reject", "reason": "spam", "refused": "notAllowed" },
+    { "from": "approved", "action": "remove", "reason": "personal-data", "to": "removed" },
+    { "from": "approved", "action": "remove", "refused": "reasonRequired" },
+    { "from": "pending", "action": "remove", "reason": "spam", "refused": "notAllowed" },
+    { "from": "pending", "action": "delete", "refused": "unknownAction" },
+    { "from": "pending", "action": "constructor", "refused": "unknownAction" },
+    { "from": "pending", "action": "reopen", "refused": "unknownAction" }
+  ]
+}

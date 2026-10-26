@@ -935,6 +935,31 @@ text tells a reader without JavaScript how to name a passage and reach the autho
 form enhances it, and a failed submission falls back to a copy of the note to send (ADR 0094).
 _Avoid_: Comment box, discussion when the hosted comments are meant
 
+**Feedback moderation**:
+A moderator's decision about one feedback item: approve, reject with a reason, or remove an
+approved item with a reason, in the participation policy's state names (pending, clarification,
+approved, rejected, removed, withdrawn). Each change names the state and version the moderator saw
+and is recorded as an audit event; approval never edits the post (ADR 0095).
+_Avoid_: Accepting a correction, verdict, review when a moderation decision is meant
+
+**Passage check**:
+What a moderator sees about a feedback item's passage before acting: current, re-anchored after
+the post changed, stale with its reason, or no post at that address. Approving anything but a
+current passage needs the moderator to confirm the check they read (ADR 0095).
+_Avoid_: Fuzzy match, auto-fix
+
+**Published reader feedback**:
+The public part of approved feedback, kept in `reader-feedback.json` in the content folder: the
+kind, text, details, target and revision seen, the days received and approved, a name only with
+consent, and the author's response. Shown on the post's canonical page only, through the public
+provenance; portable copies and feeds carry a labelled link instead (ADR 0095).
+_Avoid_: Comments, feedback export, moderation record
+
+**Author response**:
+The author's public reply to one published note, stored with it and shown under it. Replying
+sends nothing to the reader.
+_Avoid_: Reply notification, correction notice
+
 ## Admin workspace
 
 **Workspace preferences**:

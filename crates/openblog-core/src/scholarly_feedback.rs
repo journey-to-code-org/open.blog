@@ -248,7 +248,7 @@ fn forbidden_in_text(character: char) -> bool {
 }
 
 /// Trimmed reader text of 1 to `max` characters, or `None`.
-fn reader_text(value: &str, max: usize) -> Option<String> {
+pub(crate) fn reader_text(value: &str, max: usize) -> Option<String> {
     let text = value.trim();
     let count = text.chars().count();
     ((1..=max).contains(&count) && !text.chars().any(forbidden_in_text)).then(|| text.to_string())
@@ -609,16 +609,11 @@ impl ScholarlyFeedback {
     }
 }
 
-/// Where a hosted item is in moderation. Public submissions always start
-/// [`FeedbackStatus::Pending`]; the participation policy (#211) may add
-/// states, which this version refuses rather than misreads.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum FeedbackStatus {
-    Pending,
-    Approved,
-    Rejected,
-}
+/// Where a hosted item is in moderation: the participation policy's states
+/// (RD12, #211), read by [`crate::feedback_moderation`] (ADR 0095). Public
+/// submissions always start [`FeedbackStatus::Pending`]; an id no version
+/// defines is refused rather than misread.
+pub type FeedbackStatus = crate::feedback_moderation::ModerationState;
 
 /// One item of the hosted moderation list (`GET /admin/feedback`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -626,7 +621,12 @@ pub struct HostedFeedback {
     /// The hosted row id, a UUID.
     pub id: String,
     pub status: FeedbackStatus,
+    /// The row's moderation version: every change names the version it
+    /// expects and raises it, so concurrent moderation is refused (ADR 0095).
+    pub version: u64,
     pub moderated_at: Option<DateTime>,
+    /// Why the item was last rejected or removed, if it was.
+    pub reason: Option<crate::feedback_moderation::ReasonCode>,
     pub feedback: ScholarlyFeedback,
 }
 
@@ -635,12 +635,15 @@ pub struct HostedFeedback {
 struct WireHosted {
     id: String,
     status: String,
+    version: u64,
     #[serde(default)]
     moderated_at: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
     feedback: Value,
 }
 
-fn is_uuid(value: &str) -> bool {
+pub(crate) fn is_uuid(value: &str) -> bool {
     value.len() == 36
         && value.char_indices().all(|(index, c)| {
             if matches!(index, 8 | 13 | 18 | 23) {
@@ -652,6 +655,11 @@ fn is_uuid(value: &str) -> bool {
 }
 
 impl HostedFeedback {
+    /// Whether `value` is a hosted item id: a UUID.
+    pub fn is_id(value: &str) -> bool {
+        is_uuid(value)
+    }
+
     /// Read one moderation item. A bad item is refused on its own, so one
     /// broken row never hides the rest of the queue.
     pub fn from_value(value: &Value) -> Result<Self, FeedbackError> {
@@ -661,9 +669,20 @@ impl HostedFeedback {
         if !is_uuid(&wire.id) {
             return Err(invalid("a hosted feedback item needs a UUID `id`"));
         }
-        let status = serde_json::from_value(Value::String(wire.status)).map_err(|_| {
+        let status = FeedbackStatus::from_id(&wire.status).ok_or_else(|| {
             invalid("a hosted feedback item has a status this version does not know")
         })?;
+        if wire.version == 0 || wire.version > i32::MAX as u64 {
+            return Err(invalid("a hosted feedback item needs a positive `version`"));
+        }
+        let reason = wire
+            .reason
+            .map(|reason| {
+                crate::feedback_moderation::ReasonCode::from_id(&reason).ok_or_else(|| {
+                    invalid("a hosted feedback item has a reason this version does not know")
+                })
+            })
+            .transpose()?;
         let moderated_at = wire
             .moderated_at
             .map(|time| {
@@ -674,7 +693,9 @@ impl HostedFeedback {
         Ok(Self {
             id: wire.id,
             status,
+            version: wire.version,
             moderated_at,
+            reason,
             feedback: ScholarlyFeedback::from_value(&wire.feedback)?,
         })
     }

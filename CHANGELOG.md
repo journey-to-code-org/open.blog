@@ -42,6 +42,21 @@ All notable changes to open.blog are recorded here. Releases follow
   gives you the note to copy and send to the author, at the address in the new optional
   `engagement.feedbackContact`. Locked and hidden posts, sites that do not opt in, feeds and
   portable copies are unchanged.
+- Reader feedback can now be moderated and answered. Admin has a "Reader feedback" view that lists
+  what readers sent, by state, through Admin's own server, so the hosted token never reaches the
+  browser. Each note shows whether its passage is still where the reader saw it, has moved, or has
+  changed or gone; a note about a passage that is not current can be approved only after you
+  confirm you read it as it is now. Approve publishes a note, reject and remove need a reason, and
+  two people can never act on the same note at once: every decision is checked against the
+  version you saw and recorded in a private audit table. Approved notes are written to
+  `content/reader-feedback.json`, versioned with your site, without the reader's name unless they
+  agreed, their own clock or anything about moderation, and shown on the post's page only, under
+  "Reader questions and responses", with the quotation only while the post still has those words.
+  You can add a public response to each note and record what changed in the post as a revision
+  note (`evidenceRevisions`), which a site that takes feedback now publishes; neither edits the
+  post, and nothing is sent to readers. Feeds and portable copies carry a link to the page instead
+  of the notes. Run `supabase/feedback.sql` again to add moderation: it adds two columns, an audit
+  table and one moderation function, and changes nothing else.
 
 ## [0.32.0] - 2026-10-26
 

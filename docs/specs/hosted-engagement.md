@@ -77,7 +77,12 @@ the additive `openblog_feedback` table and its rollback are [ADR 0088](../adr/00
 and the transport, its double opt-in, quotas and fallback are [ADR 0089](../adr/0089-hosted-feedback-transport-is-opt-in-and-reuses-the-engagement-seam.md).
 The reader form on each open post, its passage data and its copy-and-send fallback are
 [ADR 0094](../adr/0094-passage-feedback-forms-are-one-progressive-region-over-the-build-passage-text.md).
-Comments, their table and their routes are unchanged.
+Moderation, author responses, revision notes and the published notes are
+[ADR 0095](../adr/0095-feedback-moderation-is-version-checked-and-approved-notes-publish-from-a-versioned-file.md):
+`PATCH /admin/feedback` takes `{id, action, from, expectedVersion, reason?, actor?}` and applies
+the change with its audit event only while the item still has that state and version (`409`
+otherwise), and approved notes are published from `content/reader-feedback.json`, never read back
+from the hosted service by a build. Comments, their table and their routes are unchanged.
 
 ## Out of scope
 

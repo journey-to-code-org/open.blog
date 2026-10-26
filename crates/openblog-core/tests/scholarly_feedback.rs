@@ -102,14 +102,47 @@ fn the_moderation_item_the_function_returns_reads_as_the_received_record() {
         Some("Ada Lovelace")
     );
 
-    let mut unknown_status = fixture["hostedItem"].clone();
-    unknown_status["status"] = json!("clarification");
+    assert_eq!(item.version, 1);
+    assert_eq!(item.reason, None);
+
+    // Every state of the participation policy (RD12) is read, so an item
+    // another tool moved is shown as it is; anything else is refused.
+    let mut clarification = fixture["hostedItem"].clone();
+    clarification["status"] = json!("clarification");
     assert_eq!(
-        HostedFeedback::from_value(&unknown_status)
-            .unwrap_err()
-            .code,
-        FeedbackErrorCode::InvalidRecord
+        HostedFeedback::from_value(&clarification).unwrap().status,
+        FeedbackStatus::Clarification
     );
+    for (field, value) in [
+        ("status", json!("bogus")),
+        ("status", json!("Approved")),
+        ("version", json!(0)),
+        ("version", json!(-1)),
+        ("version", json!("1")),
+        ("reason", json!("incorrect")),
+        ("reason", json!("Spam")),
+    ] {
+        let mut broken = fixture["hostedItem"].clone();
+        broken[field] = value.clone();
+        assert_eq!(
+            HostedFeedback::from_value(&broken).unwrap_err().code,
+            FeedbackErrorCode::InvalidRecord,
+            "{field}: {value}"
+        );
+    }
+    let mut missing_version = fixture["hostedItem"].clone();
+    missing_version.as_object_mut().unwrap().remove("version");
+    assert!(HostedFeedback::from_value(&missing_version).is_err());
+    let mut rejected = fixture["hostedItem"].clone();
+    rejected["status"] = json!("rejected");
+    rejected["version"] = json!(2);
+    rejected["reason"] = json!("off-topic");
+    let rejected = HostedFeedback::from_value(&rejected).unwrap();
+    assert_eq!(
+        rejected.reason,
+        Some(openblog_core::feedback_moderation::ReasonCode::OffTopic)
+    );
+    assert_eq!(rejected.version, 2);
     let mut bad_id = fixture["hostedItem"].clone();
     bad_id["id"] = json!("1; drop table");
     assert!(HostedFeedback::from_value(&bad_id).is_err());

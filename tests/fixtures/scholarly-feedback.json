@@ -1748,7 +1748,9 @@
   "storedRow": {
     "id": "00000000-0000-4000-8000-000000000001",
     "status": "pending",
+    "version": 1,
     "moderated_at": null,
+    "moderation_reason": null,
     "format_version": 1,
     "kind": "source-suggestion",
     "work": "/posts/tides/",
@@ -1770,7 +1772,9 @@
   "hostedItem": {
     "id": "00000000-0000-4000-8000-000000000001",
     "status": "pending",
+    "version": 1,
     "moderatedAt": null,
+    "reason": null,
     "feedback": {
       "version": 1,
       "kind": "source-suggestion",

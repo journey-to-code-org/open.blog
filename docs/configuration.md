@@ -96,7 +96,10 @@ These are described in [Sharing, views, analytics, and embeds](features.md).
   the kind and their note; their name is optional and shown only if they agree. Without
   JavaScript, or when the service cannot take the note, the reader gets instructions or a copy of
   the note to send to the author. `engagement.feedbackContact` (optional) is where that copy can
-  go: a plain `mailto:` address or an `https:` contact page, linked from the form.
+  go: a plain `mailto:` address or an `https:` contact page, linked from the form. Moderate what
+  readers send in Admin under **Reader feedback**; approved notes, with your responses, are kept in
+  `content/reader-feedback.json` and shown on the post's page only, and a site with feedback on
+  publishes the post's `evidenceRevisions` notes (ADR 0095).
 - `snippets` are raw HTML placed on every page (`head`, `bodyEnd`) or under every post
   (`postFooter`): third-party analytics, comments, newsletter forms.
 - `relatedPosts` is how many related posts to show under each post; `0` hides the section.
@@ -276,7 +279,8 @@ with the references, locations, your rationale, confidence and uncertainty, and 
 `/claim-evidence.json` with the same data. Support is never published while a contradicting link
 on the same claim is private, and nothing is netted or scored. Revision notes you write in a
 post's front matter as `evidenceRevisions` are published in the same section. While it is off, no
-build reads the private claims file and every post is unchanged. Clearing an approval removes the
+build reads the private claims file and every post is unchanged, except that a site with
+`engagement.feedback` on still publishes revision notes (ADR 0095). Clearing an approval removes the
 item from the next build. See the [claims format](specs/claims-evidence.md#publication).
 
 The claims file is private and Git-ignored, so only a build that can read it publishes claim

@@ -1619,6 +1619,61 @@ ob-comments {
   padding-top: var(--ob-space-6, 1.5rem);
 }
 
+/* Approved reader notes on a post's canonical page (ADR 0095): static text, no script. */
+.ob-reader-feedback {
+  margin-block: var(--ob-space-8, 2rem);
+  border-top: 1px solid var(--ob-color-border);
+  padding-top: var(--ob-space-6, 1.5rem);
+}
+
+/* A passage revision is one long word; let it wrap at 320px. */
+.ob-feedback code,
+.ob-reader-note code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.ob-reader-feedback-list {
+  display: grid;
+  gap: var(--ob-space-6, 1.5rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-reader-note {
+  max-inline-size: 42rem;
+  overflow-wrap: anywhere;
+}
+
+.ob-reader-note h3 {
+  margin-block: 0 .5rem;
+  font-size: 1.1rem;
+}
+
+.ob-reader-note blockquote {
+  margin: .5rem 0;
+  border-inline-start: 3px solid var(--ob-color-border);
+  padding-inline-start: 1rem;
+}
+
+.ob-reader-note-meta,
+.ob-reader-note-stale {
+  color: var(--ob-color-subtle, inherit);
+  font-size: .9rem;
+}
+
+.ob-reader-note-response {
+  margin-block-start: .75rem;
+  border-inline-start: 3px solid var(--ob-color-accent, currentColor);
+  padding-inline-start: 1rem;
+}
+
+.ob-reader-note-response h4 {
+  margin-block: 0 .25rem;
+  font-size: 1rem;
+}
+
 ob-passage-feedback {
   display: block;
 }

@@ -7,12 +7,15 @@
 --
 --   select * from public.openblog_feedback order by received_at;
 --
--- This drops only the table feedback.sql created, with its indexes. Comments,
+-- This drops only what feedback.sql created: the moderation function, the
+-- audit table and the feedback table, with their indexes. Comments,
 -- analytics, rate limits and every other table are untouched. Feedback rows
 -- are deleted with it and cannot be recovered without your export.
 
 begin;
 
+drop function if exists public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz);
+drop table if exists public.openblog_feedback_events;
 drop table if exists public.openblog_feedback;
 
 commit;

@@ -8,8 +8,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHandler } from "../../netlify/functions/engagement.mjs";
+import { MODERATION_ACTIONS, MODERATION_STATES, auditActor, planModeration } from "../../netlify/lib/feedback-moderation.mjs";
 
 const fixture = JSON.parse(readFileSync(new URL("../fixtures/scholarly-feedback.json", import.meta.url), "utf8"));
+const moderationFixture = JSON.parse(readFileSync(new URL("../fixtures/feedback-moderation.json", import.meta.url), "utf8"));
 const migration = readFileSync(new URL("../../supabase/feedback.sql", import.meta.url), "utf8");
 const rollback = readFileSync(new URL("../../supabase/feedback-rollback.sql", import.meta.url), "utf8");
 const baseSchema = readFileSync(new URL("../../supabase/openblog.sql", import.meta.url), "utf8");
@@ -48,6 +50,7 @@ const fakeDatabase = (answers = {}) => {
     requests.push({ url, options });
     let value;
     if (url.includes("openblog_consume_rate_limit")) value = answers.quota ?? { allowed: true };
+    else if (url.includes("openblog_moderate_feedback")) value = answers.moderated ?? [];
     else if (options.method === "POST") value = [{ id: "00000000-0000-4000-8000-000000000009", status: "pending", received_at: "2026-10-26T10:00:00+00:00" }];
     else if (options.method === "PATCH") value = null;
     else value = answers.rows ?? [];
@@ -268,16 +271,108 @@ test("moderation needs the server-held token and returns the record the build re
   }
   assert.equal((await handler(event("admin/feedback", "GET", undefined, { headers: admin, query: { kind: "constructor" } }))).statusCode, 422);
 
-  for (const status of ["approved", "rejected"]) {
-    const changed = await handler(event("admin/feedback", "PATCH", JSON.stringify({ id: fixture.storedRow.id, status }), { headers: admin }));
-    assert.equal(changed.statusCode, 200);
-    const request = database.requests.at(-1);
-    assert.match(request.url, /openblog_feedback\?id=eq\.00000000-0000-4000-8000-000000000001&site_id=eq\.lantern$/);
-    assert.deepEqual(JSON.parse(request.options.body), { status, moderated_at: "2026-10-26T10:00:00Z" });
+  for (const status of ["clarification", "removed", "withdrawn"]) {
+    await handler(event("admin/feedback", "GET", undefined, { headers: admin, query: { status } }));
+    assert.equal(new URL(database.requests.at(-1).url).searchParams.get("status"), `eq.${status}`);
   }
-  for (const change of [{ id: "1; drop table", status: "approved" }, { id: fixture.storedRow.id, status: "pending" }, { id: fixture.storedRow.id, status: "removed" }]) {
-    assert.equal((await handler(event("admin/feedback", "PATCH", JSON.stringify(change), { headers: admin }))).statusCode, 422);
+  // One item by id, whatever its state.
+  const one = await handler(event("admin/feedback", "GET", undefined, { headers: admin, query: { id: fixture.storedRow.id.toUpperCase(), status: "approved" } }));
+  assert.equal(one.statusCode, 200);
+  const byId = new URL(database.requests.at(-1).url);
+  assert.equal(byId.searchParams.get("id"), `eq.${fixture.storedRow.id}`);
+  assert.equal(byId.searchParams.get("status"), null);
+  assert.equal((await handler(event("admin/feedback", "GET", undefined, { headers: admin, query: { id: "1 or 1=1" } }))).statusCode, 422);
+});
+
+test("a moderation change names the state and version seen and is applied with its audit event in one statement", async () => {
+  const approvedRow = { ...fixture.storedRow, status: "approved", version: 2, moderated_at: "2026-10-26T10:00:00+00:00" };
+  const database = fakeDatabase({ moderated: [approvedRow] });
+  const handler = createHandler({ env: enabled, fetchImpl: database.fetchImpl, siteFetchImpl: noFetch, now: () => NOW });
+  const admin = { authorization: "Bearer admin-secret" };
+  const change = { id: fixture.storedRow.id, action: "approve", from: "pending", expectedVersion: 1, actor: "writer" };
+  const changed = await handler(event("admin/feedback", "PATCH", JSON.stringify(change), { headers: admin }));
+  assert.equal(changed.statusCode, 200);
+  const result = JSON.parse(changed.body);
+  assert.equal(result.ok, true);
+  assert.equal(result.item.status, "approved");
+  assert.equal(result.item.version, 2);
+  assert.equal(result.item.moderatedAt, "2026-10-26T10:00:00Z");
+  const request = database.requests.at(-1);
+  assert.match(request.url, /\/rest\/v1\/rpc\/openblog_moderate_feedback$/);
+  assert.deepEqual(JSON.parse(request.options.body), {
+    p_site_id: "lantern",
+    p_id: fixture.storedRow.id,
+    p_expected_version: 1,
+    p_from: "pending",
+    p_to: "approved",
+    p_action: "approve",
+    p_reason: null,
+    p_actor: "writer",
+    p_at: "2026-10-26T10:00:00Z",
+  });
+  // A rejection carries its reason code; an unknown actor is recorded as the token.
+  await handler(event("admin/feedback", "PATCH", JSON.stringify({ ...change, action: "reject", reason: "off-topic", actor: "<b>x</b>" }), { headers: admin }));
+  const rejection = JSON.parse(database.requests.at(-1).options.body);
+  assert.equal(rejection.p_to, "rejected");
+  assert.equal(rejection.p_reason, "off-topic");
+  assert.equal(rejection.p_actor, "@moderation-token");
+
+  // Refused before the database: a bad id or version, an unknown state, a
+  // transition the rules do not list, or a missing or unknown reason.
+  const before = database.requests.length;
+  for (const bad of [
+    { ...change, id: "1; drop table" },
+    { ...change, expectedVersion: 0 },
+    { ...change, expectedVersion: "1" },
+    { ...change, expectedVersion: 1.5 },
+    { ...change, from: "bogus" },
+    { ...change, from: "approved" },
+    { ...change, action: "delete" },
+    { ...change, action: "reject" },
+    { ...change, action: "reject", reason: "incorrect" },
+    { ...change, reason: "spam" },
+    { id: fixture.storedRow.id, status: "approved" },
+  ]) {
+    const refused = await handler(event("admin/feedback", "PATCH", JSON.stringify(bad), { headers: admin }));
+    assert.equal(refused.statusCode, 422, JSON.stringify(bad));
   }
+  assert.equal(database.requests.length, before);
+});
+
+test("a change to an item that moved meanwhile is a conflict carrying the item as it is now", async () => {
+  const current = { ...fixture.storedRow, status: "rejected", version: 2, moderation_reason: "spam", moderated_at: "2026-10-26T09:59:00+00:00" };
+  const database = fakeDatabase({ moderated: [], rows: [current] });
+  const handler = createHandler({ env: enabled, fetchImpl: database.fetchImpl, siteFetchImpl: noFetch, now: () => NOW });
+  const admin = { authorization: "Bearer admin-secret" };
+  const response = await handler(event("admin/feedback", "PATCH", JSON.stringify({ id: fixture.storedRow.id, action: "approve", from: "pending", expectedVersion: 1 }), { headers: admin }));
+  assert.equal(response.statusCode, 409);
+  const body = JSON.parse(response.body);
+  assert.equal(body.code, "conflict");
+  assert.equal(body.item.status, "rejected");
+  assert.equal(body.item.reason, "spam");
+  assert.equal(body.item.version, 2);
+  const missing = createHandler({ env: enabled, fetchImpl: fakeDatabase({ moderated: [], rows: [] }).fetchImpl, siteFetchImpl: noFetch, now: () => NOW });
+  const gone = await missing(event("admin/feedback", "PATCH", JSON.stringify({ id: fixture.storedRow.id, action: "approve", from: "pending", expectedVersion: 1 }), { headers: admin }));
+  assert.equal(gone.statusCode, 404);
+  assert.equal(JSON.parse(gone.body).code, "notFound");
+});
+
+test("the function's moderation rules are the shared fixture's", () => {
+  assert.deepEqual([...MODERATION_STATES], moderationFixture.rules.states);
+  assert.deepEqual(JSON.parse(JSON.stringify(MODERATION_ACTIONS)), moderationFixture.rules.actions);
+  for (const item of moderationFixture.cases) {
+    const outcome = planModeration(item.from, item.action, item.reason);
+    if (item.refused) {
+      assert.equal(outcome.ok, false, JSON.stringify(item));
+      assert.equal(outcome.code, item.refused, JSON.stringify(item));
+    } else {
+      assert.equal(outcome.ok, true, JSON.stringify(item));
+      assert.equal(outcome.change.to, item.to);
+      assert.equal(outcome.change.reason, item.reason ?? null);
+    }
+  }
+  assert.equal(auditActor("writer.one"), "writer.one");
+  for (const bad of ["", " writer", "a".repeat(65), "x y", null, 7]) assert.equal(auditActor(bad), "@moderation-token");
 });
 
 test("provider failures are reported without detail and change nothing else", async () => {
@@ -312,9 +407,11 @@ test("the migration is additive, private, and matches what the function writes a
   for (const column of Object.keys(fixture.storedRow)) assert.ok(columns.has(column), `missing column ${column}`);
 
   const statements = migration.replace(/--[^\n]*/g, "").toLowerCase();
-  for (const forbidden of [/\balter\s+table\s+(?!public\.openblog_feedback\b)/, /\bdrop\b/, /\brename\b/, /\bupdate\s+public\./, /\bdelete\s+from\b/, /\btruncate\b/, /openblog_comments/, /create\s+or\s+replace\s+function/]) {
+  for (const forbidden of [/\balter\s+table\s+(?!public\.openblog_feedback(?:_events)?\b)/, /\bdrop\b/, /\brename\b/, /\bdelete\s+from\b/, /\btruncate\b/, /openblog_comments/, /create\s+or\s+replace\s+function\s+(?!public\.openblog_moderate_feedback\()/]) {
     assert.doesNotMatch(statements, forbidden);
   }
+  // The only update is the moderation function's, of the feedback table.
+  assert.deepEqual(statements.match(/\bupdate\s+public\.[a-z_]+/g), ["update public.openblog_feedback"]);
   assert.match(statements, /create table if not exists public\.openblog_feedback/);
   assert.match(statements, /alter table public\.openblog_feedback enable row level security/);
   // service_role is revoked too, so Supabase's default DELETE and TRUNCATE
@@ -326,10 +423,25 @@ test("the migration is additive, private, and matches what the function writes a
   assert.match(statements, /status text not null default 'pending'/);
   assert.match(statements, /reader_name text check/);
   assert.match(statements, /publish_name boolean not null default false/);
+  // Moderation (ADR 0095): a version for every change, a reason code, an
+  // insert-only audit table and one function the public roles cannot run.
+  assert.match(statements, /version integer not null default 1 check \(version >= 1\)/);
+  assert.match(statements, /moderation_reason text check/);
+  assert.match(statements, /create table if not exists public\.openblog_feedback_events/);
+  assert.match(statements, /alter table public\.openblog_feedback_events enable row level security/);
+  assert.match(statements, /revoke all on public\.openblog_feedback_events from public, anon, authenticated, service_role;\s*grant select, insert on public\.openblog_feedback_events to service_role;/);
+  assert.match(statements, /and status = p_from\s+and version = p_expected_version/);
+  assert.match(statements, /insert into public\.openblog_feedback_events/);
+  assert.match(statements, /revoke all on function public\.openblog_moderate_feedback\([^)]*\) from public, anon, authenticated;\s*grant execute on function public\.openblog_moderate_feedback\([^)]*\) to service_role;/);
+  assert.doesNotMatch(statements, /security definer/);
   // Fresh installs without the feature are unchanged.
   assert.doesNotMatch(baseSchema, /openblog_feedback/);
 
   const undo = rollback.replace(/--[^\n]*/g, "").toLowerCase();
-  assert.deepEqual(undo.match(/\bdrop\b[^;]*;/g), ["drop table if exists public.openblog_feedback;"]);
+  assert.deepEqual(undo.match(/\bdrop\b[^;]*;/g), [
+    "drop function if exists public.openblog_moderate_feedback(text, uuid, integer, text, text, text, text, text, timestamptz);",
+    "drop table if exists public.openblog_feedback_events;",
+    "drop table if exists public.openblog_feedback;",
+  ]);
   assert.doesNotMatch(undo, /openblog_comments|openblog_rate_limits|openblog_daily/);
 });
