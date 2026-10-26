@@ -367,6 +367,79 @@ fn existing_comment_settings_keep_their_meaning() {
     }
 }
 
+/// The discussion section of a generated post page, exactly as written, or
+/// `None` when the page has no comments element at all.
+fn discussion(page: &str) -> Option<&str> {
+    let start = page.find("<section id=\"ob-discussion\"")?;
+    let end = start + page[start..].find("</section>\n")? + "</section>\n".len();
+    Some(&page[start..end])
+}
+
+/// The comment manifest and every post's `<ob-comments>` element, generated
+/// for representative configurations and compared byte for byte with what
+/// builds wrote before the participation policy existed. Switching new kinds
+/// on, or setting retention, changes neither, nor any post page.
+#[test]
+fn generated_comment_output_is_byte_for_byte_what_it_was() {
+    let posts = [
+        ("posts/a.md", post("")),
+        ("posts/b.md", post("comments: locked\n")),
+        ("posts/c.md", post("comments: hidden\n")),
+        ("posts/d.md", post("comments: false\n")),
+    ];
+    let all_hidden = r#"{"/a/":"hidden","/b/":"hidden","/c/":"hidden","/d/":"hidden"}"#;
+    let by_post = r#"{"/a/":"open","/b/":"locked","/c/":"hidden","/d/":"hidden"}"#;
+    let open_a = "<section id=\"ob-discussion\" aria-label=\"Discussion\"><ob-comments path=\"/a/\" endpoint=\"https://t.dev/api\"><p>Comments require JavaScript.</p></ob-comments></section>\n";
+    let locked_b = "<section id=\"ob-discussion\" aria-label=\"Discussion\"><ob-comments path=\"/b/\" endpoint=\"https://t.dev/api\" mode=\"locked\"><p>Comments require JavaScript.</p></ob-comments></section>\n";
+    let hosted = r#""engagement":{"enabled":true,"endpoint":"https://t.dev/api/"}"#;
+    let cases: [(String, &str, [Option<&str>; 4]); 5] = [
+        (String::new(), all_hidden, [None; 4]),
+        (
+            r#""engagement":{"enabled":false,"endpoint":"https://t.dev/api"}"#.into(),
+            all_hidden,
+            [None; 4],
+        ),
+        (
+            r#""engagement":{"enabled":true,"comments":false,"endpoint":"https://t.dev/api"}"#
+                .into(),
+            all_hidden,
+            [None; 4],
+        ),
+        (
+            hosted.into(),
+            by_post,
+            [Some(open_a), Some(locked_b), None, None],
+        ),
+        (
+            format!(
+                r#"{hosted},"participation":{{"kinds":{{"question":"open","third-perspective":"follow-comments","abuse-report":"open"}},"retention":{{"pendingDays":7}}}}"#
+            ),
+            by_post,
+            [Some(open_a), Some(locked_b), None, None],
+        ),
+    ];
+    let mut pages_by_case = Vec::new();
+    for (extra, manifest, sections) in &cases {
+        let files = generate(&site(config(extra), &posts).unwrap(), &ThemeSet::new()).unwrap();
+        assert_eq!(
+            output(&files, "openblog-comments.json"),
+            Some(*manifest),
+            "{extra}"
+        );
+        let mut pages = Vec::new();
+        for (slug, expected) in ["a", "b", "c", "d"].into_iter().zip(sections) {
+            let page = output(&files, &format!("{slug}/index.html")).expect("post page");
+            assert_eq!(discussion(page), *expected, "{extra} /{slug}/");
+            assert_eq!(page.contains("<ob-comments"), expected.is_some());
+            pages.push(page.to_string());
+        }
+        pages_by_case.push(pages);
+    }
+    // The hosted site with new kinds and retention renders every post page
+    // exactly as the same site without them.
+    assert_eq!(pages_by_case[4], pages_by_case[3]);
+}
+
 /// B5's interim rule (ADR 0089): feedback follows each post's `comments:`
 /// setting, whatever `engagement.comments` says. `follow-comments` is that
 /// rule; a post's own setting for the kind wins over it.
