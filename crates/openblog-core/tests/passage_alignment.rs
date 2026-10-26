@@ -6,13 +6,15 @@
 use std::collections::BTreeMap;
 
 use openblog_core::alignment::{
-    looks_like_alignments, Alignment, AlignmentSet, Correspondence, MemberVersion,
-    ALIGNMENT_NOTICE,
+    looks_like_alignments, Alignment, AlignmentSet, Correspondence, MemberVersion, ALIGNMENT_NOTICE,
 };
 use openblog_core::knowledge_atlas::{AtlasDiagnosticCode as Code, Links};
 use openblog_core::research_notes::Notebook;
 use openblog_core::source_library::SourceLibrary;
 use serde_json::{json, Value};
+
+/// A diagnostic's code, alignment id, and field.
+type Problem = (Code, Option<String>, Option<String>);
 
 fn library() -> SourceLibrary {
     SourceLibrary::parse(
@@ -39,7 +41,8 @@ fn library() -> SourceLibrary {
 
 /// Greek with combining marks written decomposed (NFD), so any normalization
 /// on the way through would be visible.
-const GREEK_NFD: &str = "\u{3bc}\u{3b5}\u{3c4}\u{3b1}\u{300} \u{3c4}\u{3b1}\u{3c5}\u{3c4}\u{3b1}\u{301}";
+const GREEK_NFD: &str =
+    "\u{3bc}\u{3b5}\u{3c4}\u{3b1}\u{300} \u{3c4}\u{3b1}\u{3c5}\u{3c4}\u{3b1}\u{301}";
 const HEBREW: &str = "אַחַר כָּךְ, הַמְשֵׁל";
 
 fn notebook(library: &SourceLibrary) -> Notebook {
@@ -100,7 +103,7 @@ fn fixture() -> Value {
     ]})
 }
 
-fn parse(value: &Value) -> Result<AlignmentSet, Vec<(Code, Option<String>, Option<String>)>> {
+fn parse(value: &Value) -> Result<AlignmentSet, Vec<Problem>> {
     let library = library();
     let notebook = notebook(&library);
     AlignmentSet::parse(
@@ -118,7 +121,7 @@ fn parse(value: &Value) -> Result<AlignmentSet, Vec<(Code, Option<String>, Optio
     })
 }
 
-fn refused(edit: impl FnOnce(&mut Value)) -> Vec<(Code, Option<String>, Option<String>)> {
+fn refused(edit: impl FnOnce(&mut Value)) -> Vec<Problem> {
     let mut value = fixture();
     edit(&mut value);
     parse(&value).expect_err("the alignments should be refused")
@@ -151,10 +154,18 @@ fn many_to_many_split_merged_reordered_and_missing_passages_are_representable() 
         .iter()
         .flat_map(|m| m.locators.iter().map(|l| l.value.as_str()))
         .collect();
-    assert_eq!(order, ["212", "515c", "514a"], "member order and locators are the author's, never sorted");
+    assert_eq!(
+        order,
+        ["212", "515c", "514a"],
+        "member order and locators are the author's, never sorted"
+    );
     let omitted = set.alignment("cave-omitted").unwrap();
     assert!(omitted.members[1].absent && omitted.members[1].locators.is_empty());
-    assert_eq!(omitted.correspondence, Correspondence::Corresponding, "the default");
+    assert_eq!(
+        omitted.correspondence,
+        Correspondence::Corresponding,
+        "the default"
+    );
 }
 
 #[test]
@@ -162,11 +173,26 @@ fn the_file_round_trips_losslessly_deterministically_and_without_normalizing_tex
     let set = parse(&fixture()).unwrap();
     let text = set.to_json();
     assert_eq!(parse(&serde_json::from_str(&text).unwrap()).unwrap(), set);
-    assert_eq!(parse(&serde_json::from_str(&text).unwrap()).unwrap().to_json(), text);
+    assert_eq!(
+        parse(&serde_json::from_str(&text).unwrap())
+            .unwrap()
+            .to_json(),
+        text
+    );
     let split = set.alignment("cave-split").unwrap();
-    assert_eq!(split.extra["shelf"], json!({"kept": true}), "unknown fields are kept");
-    assert!(text.contains("\"visibility\": \"private\""), "private is written explicitly");
-    assert!(text.contains("\"confidence\": \"tentative\""), "an unstated confidence reads as tentative");
+    assert_eq!(
+        split.extra["shelf"],
+        json!({"kept": true}),
+        "unknown fields are kept"
+    );
+    assert!(
+        text.contains("\"visibility\": \"private\""),
+        "private is written explicitly"
+    );
+    assert!(
+        text.contains("\"confidence\": \"tentative\""),
+        "an unstated confidence reads as tentative"
+    );
     let reordered = set.alignment("cave-reordered").unwrap();
     assert_eq!(
         reordered.members[0].normalized.as_ref().unwrap().text,
@@ -224,7 +250,11 @@ fn an_alignment_never_implies_semantic_equivalence_or_authority() {
     assert_eq!(problems[0].0, Code::InvalidField);
     assert_eq!(problems[0].2.as_deref(), Some("correspondence"));
     let problems = refused(|v| v["alignments"][0]["visibility"] = json!("approved"));
-    assert_eq!(problems[0].0, Code::InvalidVisibility, "alignments stay private");
+    assert_eq!(
+        problems[0].0,
+        Code::InvalidVisibility,
+        "alignments stay private"
+    );
     for correspondence in [
         Correspondence::Corresponding,
         Correspondence::Partial,
@@ -243,19 +273,71 @@ fn an_alignment_never_implies_semantic_equivalence_or_authority() {
 fn members_name_exact_versions_and_places() {
     let at = |field: &str| Some(field.to_string());
     for (edit, code, field) in [
-        (json!({"source": "plato-republic", "locators": [{"kind": "canonical", "value": "514a"}]}), Code::WrongSourceKind, at("members[0].source")),
-        (json!({"source": "cave-ref", "locators": [{"kind": "canonical", "value": "514a"}]}), Code::WrongSourceKind, at("members[0].source")),
-        (json!({"source": "missing", "locators": [{"kind": "page", "value": "1"}]}), Code::UnknownSource, at("members[0].source")),
-        (json!({"source": "burnet", "locators": [{"kind": "folio", "value": "1r"}]}), Code::AmbiguousLocator, at("members[0].locators[0].kind")),
-        (json!({"source": "burnet", "passage": "p-grube-1"}), Code::UnknownPassage, at("members[0].passage")),
-        (json!({"source": "burnet", "passage": "gone"}), Code::UnknownPassage, at("members[0].passage")),
-        (json!({"interpretation": "nobody"}), Code::UnknownInterpretation, at("members[0].interpretation")),
-        (json!({"source": "burnet"}), Code::MissingLocator, at("members[0].locators")),
-        (json!({"interpretation": "cave-mine", "locators": [{"kind": "page", "value": "1"}]}), Code::InvalidField, at("members[0].locators")),
-        (json!({"source": "burnet", "interpretation": "cave-mine"}), Code::InvalidField, at("members[0].interpretation")),
-        (json!({"locators": [{"kind": "page", "value": "1"}]}), Code::MissingField, at("members[0].source")),
-        (json!({"source": "paris", "absent": true, "locators": [{"kind": "folio", "value": "1r"}]}), Code::ConflictingMember, at("members[0].locators")),
-        (json!({"source": "burnet", "locators": [{"kind": "canonical", "value": "514a"}], "credit": "x"}), Code::ContributorCredit, at("members[0].credit")),
+        (
+            json!({"source": "plato-republic", "locators": [{"kind": "canonical", "value": "514a"}]}),
+            Code::WrongSourceKind,
+            at("members[0].source"),
+        ),
+        (
+            json!({"source": "cave-ref", "locators": [{"kind": "canonical", "value": "514a"}]}),
+            Code::WrongSourceKind,
+            at("members[0].source"),
+        ),
+        (
+            json!({"source": "missing", "locators": [{"kind": "page", "value": "1"}]}),
+            Code::UnknownSource,
+            at("members[0].source"),
+        ),
+        (
+            json!({"source": "burnet", "locators": [{"kind": "folio", "value": "1r"}]}),
+            Code::AmbiguousLocator,
+            at("members[0].locators[0].kind"),
+        ),
+        (
+            json!({"source": "burnet", "passage": "p-grube-1"}),
+            Code::UnknownPassage,
+            at("members[0].passage"),
+        ),
+        (
+            json!({"source": "burnet", "passage": "gone"}),
+            Code::UnknownPassage,
+            at("members[0].passage"),
+        ),
+        (
+            json!({"interpretation": "nobody"}),
+            Code::UnknownInterpretation,
+            at("members[0].interpretation"),
+        ),
+        (
+            json!({"source": "burnet"}),
+            Code::MissingLocator,
+            at("members[0].locators"),
+        ),
+        (
+            json!({"interpretation": "cave-mine", "locators": [{"kind": "page", "value": "1"}]}),
+            Code::InvalidField,
+            at("members[0].locators"),
+        ),
+        (
+            json!({"source": "burnet", "interpretation": "cave-mine"}),
+            Code::InvalidField,
+            at("members[0].interpretation"),
+        ),
+        (
+            json!({"locators": [{"kind": "page", "value": "1"}]}),
+            Code::MissingField,
+            at("members[0].source"),
+        ),
+        (
+            json!({"source": "paris", "absent": true, "locators": [{"kind": "folio", "value": "1r"}]}),
+            Code::ConflictingMember,
+            at("members[0].locators"),
+        ),
+        (
+            json!({"source": "burnet", "locators": [{"kind": "canonical", "value": "514a"}], "credit": "x"}),
+            Code::ContributorCredit,
+            at("members[0].credit"),
+        ),
     ] {
         let problems = refused(|v| v["alignments"][1]["members"][0] = edit.clone());
         assert_eq!(
@@ -268,38 +350,62 @@ fn members_name_exact_versions_and_places() {
 
 #[test]
 fn an_alignment_relates_two_versions_and_records_each_once() {
-    let missing = |problems: Vec<(Code, Option<String>, Option<String>)>| {
+    let missing = |problems: Vec<Problem>| {
         assert_eq!(
             problems,
-            [(Code::MissingCounterpart, Some("cave-omitted".into()), Some("members".into()))]
+            [(
+                Code::MissingCounterpart,
+                Some("cave-omitted".into()),
+                Some("members".into())
+            )]
         );
     };
     missing(refused(|v| {
-        v["alignments"][3]["members"] = json!([{"source": "burnet", "locators": [{"kind": "page", "value": "1"}]}]);
+        v["alignments"][3]["members"] =
+            json!([{"source": "burnet", "locators": [{"kind": "page", "value": "1"}]}]);
     }));
     missing(refused(|v| {
         v["alignments"][3]["members"][0] = json!({"source": "slings", "absent": true});
     }));
     // Two places in one version are a split, not an alignment across versions.
     missing(refused(|v| {
-        v["alignments"][3]["members"][1] = json!({"source": "burnet", "locators": [{"kind": "page", "value": "2"}]});
+        v["alignments"][3]["members"][1] =
+            json!({"source": "burnet", "locators": [{"kind": "page", "value": "2"}]});
     }));
     assert_eq!(
         refused(|v| {
             let first = v["alignments"][1]["members"][0].clone();
-            v["alignments"][1]["members"].as_array_mut().unwrap().push(first);
+            v["alignments"][1]["members"]
+                .as_array_mut()
+                .unwrap()
+                .push(first);
         }),
-        [(Code::DuplicateMember, Some("cave-merged".into()), Some("members[3]".into()))]
+        [(
+            Code::DuplicateMember,
+            Some("cave-merged".into()),
+            Some("members[3]".into())
+        )]
     );
     assert_eq!(
         refused(|v| {
-            v["alignments"][3]["members"].as_array_mut().unwrap().push(json!({"source": "burnet", "absent": true}));
+            v["alignments"][3]["members"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"source": "burnet", "absent": true}));
         }),
-        [(Code::ConflictingMember, Some("cave-omitted".into()), Some("members[2].absent".into()))]
+        [(
+            Code::ConflictingMember,
+            Some("cave-omitted".into()),
+            Some("members[2].absent".into())
+        )]
     );
     assert_eq!(
         refused(|v| v["alignments"][1]["id"] = json!("cave-split")),
-        [(Code::DuplicateId, Some("cave-split".into()), Some("id".into()))]
+        [(
+            Code::DuplicateId,
+            Some("cave-split".into()),
+            Some("id".into())
+        )]
     );
 }
 
@@ -318,15 +424,24 @@ fn failures_are_scoped_and_leave_the_set_unchanged() {
     let problems = set.upsert_alignment(broken, links).unwrap_err();
     assert_eq!(problems.len(), 1);
     assert_eq!(problems[0].id.as_deref(), Some("cave-merged"));
-    assert!(problems[0].to_string().starts_with("alignments[1] `cave-merged` members[0].source"));
+    assert!(problems[0]
+        .to_string()
+        .starts_with("alignments[1] `cave-merged` members[0].source"));
     assert_eq!(set, before, "nothing changed");
-    assert_eq!(set.remove_alignment("nope", links).unwrap_err()[0].code, Code::UnknownAlignment);
+    assert_eq!(
+        set.remove_alignment("nope", links).unwrap_err()[0].code,
+        Code::UnknownAlignment
+    );
     assert_eq!(set, before);
     // A request body is checked with the stored rules, scoped to its field.
-    let shape = Alignment::from_json(json!({"id": "x", "members": [{"source": "burnet"}]})).unwrap_err();
+    let shape =
+        Alignment::from_json(json!({"id": "x", "members": [{"source": "burnet"}]})).unwrap_err();
     assert!(shape.iter().all(|d| d.index.is_none()));
     assert!(shape.iter().any(|d| d.code == Code::MissingLocator));
-    assert!(!shape.iter().any(|d| d.message.contains("514")), "messages never repeat authored text");
+    assert!(
+        !shape.iter().any(|d| d.message.contains("514")),
+        "messages never repeat authored text"
+    );
     // Upserts and removals that are valid change only what they name.
     let mut added = Alignment::from_json(json!({"id": "new", "members": [
         {"source": "slings", "locators": [{"kind": "canonical", "value": "516"}]},
@@ -356,7 +471,7 @@ fn stale_locators_and_archived_members_are_reported_as_notices() {
     value["alignments"][3]["members"][1] = json!({"source": "paris", "passage": "p-paris"});
     value["alignments"][1]["members"][1]["source"] = json!("old");
     let set = parse(&value).unwrap();
-    let notices: Vec<(Code, Option<String>, Option<String>)> = set
+    let notices: Vec<Problem> = set
         .notices(links)
         .into_iter()
         .map(|d| (d.code, d.id, d.field))
@@ -364,9 +479,21 @@ fn stale_locators_and_archived_members_are_reported_as_notices() {
     assert_eq!(
         notices,
         [
-            (Code::ArchivedMember, Some("cave-merged".into()), Some("members[1].source".into())),
-            (Code::StaleLocator, Some("cave-reordered".into()), Some("members[0].locators".into())),
-            (Code::ArchivedMember, Some("cave-omitted".into()), Some("members[1].passage".into())),
+            (
+                Code::ArchivedMember,
+                Some("cave-merged".into()),
+                Some("members[1].source".into())
+            ),
+            (
+                Code::StaleLocator,
+                Some("cave-reordered".into()),
+                Some("members[0].locators".into())
+            ),
+            (
+                Code::ArchivedMember,
+                Some("cave-omitted".into()),
+                Some("members[1].passage".into())
+            ),
         ]
     );
     assert!(parse(&fixture()).unwrap().notices(links).is_empty());
@@ -375,8 +502,16 @@ fn stale_locators_and_archived_members_are_reported_as_notices() {
 #[test]
 fn uses_name_alignment_ids_for_cross_store_guards() {
     let set = parse(&fixture()).unwrap();
-    assert_eq!(set.uses_of_source("slings"), ["cave-split", "cave-merged"], "evidence counts as a use");
-    assert_eq!(set.uses_of_source("paris"), ["cave-omitted"], "so does recording an absence");
+    assert_eq!(
+        set.uses_of_source("slings"),
+        ["cave-split", "cave-merged"],
+        "evidence counts as a use"
+    );
+    assert_eq!(
+        set.uses_of_source("paris"),
+        ["cave-omitted"],
+        "so does recording an absence"
+    );
     assert!(set.uses_of_source("plato-republic").is_empty());
     assert_eq!(set.uses_of_interpretation("cave-mine"), ["cave-split"]);
     assert_eq!(set.uses_of_passage("p-hebrew"), ["cave-reordered"]);
@@ -384,12 +519,21 @@ fn uses_name_alignment_ids_for_cross_store_guards() {
 
 #[test]
 fn hostile_and_oversized_input_is_refused() {
-    assert_eq!(refused(|v| v["version"] = json!(2))[0].0, Code::UnsupportedVersion);
-    assert_eq!(refused(|v| v["credits"] = json!([]))[0].0, Code::ContributorCredit);
+    assert_eq!(
+        refused(|v| v["version"] = json!(2))[0].0,
+        Code::UnsupportedVersion
+    );
+    assert_eq!(
+        refused(|v| v["credits"] = json!([]))[0].0,
+        Code::ContributorCredit
+    );
     let problems = refused(|v| v["alignments"][0]["label"] = json!("a\u{0}b"));
     assert_eq!(problems[0].2.as_deref(), Some("label"));
     let problems = refused(|v| {
-        v["alignments"][0]["members"] = Value::Array(vec![json!({"source": "burnet", "locators": [{"kind": "page", "value": "1"}]}); 33]);
+        v["alignments"][0]["members"] = Value::Array(vec![
+            json!({"source": "burnet", "locators": [{"kind": "page", "value": "1"}]});
+            33
+        ]);
     });
     assert_eq!(problems[0].0, Code::TooLarge);
     let library = library();
@@ -417,7 +561,9 @@ fn the_shape_is_recognized_for_public_folder_guards() {
     assert!(openblog_core::research_bundle::looks_like_private_research(
         fixture().to_string().as_bytes()
     ));
-    assert!(!looks_like_alignments(&root(json!({"version": 1, "alignments": []}))));
+    assert!(!looks_like_alignments(&root(
+        json!({"version": 1, "alignments": []})
+    )));
     assert!(!looks_like_alignments(&root(
         json!({"version": 1, "alignments": [{"id": "a", "title": "Public page"}]})
     )));

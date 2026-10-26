@@ -361,8 +361,10 @@ fn check_members(ctx: &mut Ctx<'_>, members: &[AlignmentMember]) {
             );
         }
     }
-    let versions: BTreeSet<MemberVersion<'_>> =
-        members.iter().filter_map(AlignmentMember::version).collect();
+    let versions: BTreeSet<MemberVersion<'_>> = members
+        .iter()
+        .filter_map(AlignmentMember::version)
+        .collect();
     if versions.len() < 2 || present.is_empty() {
         ctx.report(
             Code::MissingCounterpart,
@@ -420,11 +422,7 @@ fn parse_alignment(
         .into_iter()
         .enumerate()
     {
-        members.extend(parse_member(
-            &mut ctx,
-            &format!("members[{position}]"),
-            raw,
-        ));
+        members.extend(parse_member(&mut ctx, &format!("members[{position}]"), raw));
     }
     if !ctx.failed {
         check_members(&mut ctx, &members);
@@ -673,7 +671,11 @@ impl AlignmentSet {
                         ));
                     }
                 }
-                if let Some(record) = member.source.as_deref().and_then(|id| links.library.get(id)) {
+                if let Some(record) = member
+                    .source
+                    .as_deref()
+                    .and_then(|id| links.library.get(id))
+                {
                     if record.archived {
                         notices.push(report(
                             Code::ArchivedMember,
