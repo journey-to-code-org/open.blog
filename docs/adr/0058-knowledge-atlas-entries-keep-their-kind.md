@@ -34,8 +34,10 @@ one identifier space of immutable lowercase slugs.
   concept entry with that id. The notebook format and parser are unchanged, so an existing
   notebook stays valid with no atlas, and a link to a missing concept is reported
   (`Atlas::concept_links`, `missing_concepts`) rather than refused. A link whose id names a
-  person, work, movement or event is reported as the wrong kind. Removing a concept entry is
-  refused while a note links to it, so a resolved link cannot silently become unresolved.
+  person, work, movement or event is reported as the wrong kind. Removing a concept entry that
+  notes link to is allowed, because an unresolved link is valid and nothing invariant depends
+  on it; the removal reports the notes whose link became unresolved
+  (`EntryRemoval::unresolved_notes`), and writing the concept again resolves them.
 - **Entry prose is the author's.** `label`, `aliases` and `summary` are the author's words;
   quotation belongs in notebook passages. Contributor credit fields are refused, as in the
   notebook, because attribution here is about who asserts, not who is credited.
@@ -60,8 +62,8 @@ one identifier space of immutable lowercase slugs.
   with a version bump rather than overloading it.
 - **Validation is all-or-nothing and scoped.** Diagnostics name the collection, index, id and
   field and never repeat authored text. `upsert_*` and `remove_*` change the in-memory atlas
-  only when the whole result is valid; removal is refused while relationships (or, for a
-  concept, notebook notes) depend on the entry. Unknown fields are preserved at every level
+  only when the whole result is valid; removal is refused while relationships depend on the
+  entry. Unknown fields are preserved at every level
   but may not reuse a defined name, serialization is deterministic, and the 4 MiB limit
   applies to the written form. A newer version is refused rather than reinterpreted; control
   and bidirectional override characters are refused in text.

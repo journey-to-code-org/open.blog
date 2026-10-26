@@ -159,15 +159,7 @@ impl RelationshipKind {
                 false,
                 false,
             ),
-            Self::Influenced => (
-                "influenced",
-                "influenced by",
-                ANY,
-                ANY,
-                false,
-                false,
-                false,
-            ),
+            Self::Influenced => ("influenced", "influenced by", ANY, ANY, false, false, false),
             Self::RespondsTo => (
                 "responds-to",
                 "answered by",
@@ -538,7 +530,7 @@ impl fmt::Display for AtlasDiagnosticCode {
 #[serde(rename_all = "camelCase")]
 pub struct AtlasDiagnostic {
     pub code: AtlasDiagnosticCode,
-    /// `entries`, `relationships`, or `notes` (a notebook note that blocks a removal).
+    /// `entries` or `relationships`.
     pub collection: Option<&'static str>,
     pub index: Option<usize>,
     pub id: Option<String>,
@@ -1368,6 +1360,16 @@ pub enum ConceptLinkStatus {
     WrongKind(EntryKind),
 }
 
+/// What removing an entry did besides removing it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EntryRemoval {
+    pub entry: Entry,
+    /// Notebook notes, in notebook order, whose concept link resolved to the
+    /// removed concept and is now unresolved. Reported, never refused: an
+    /// unresolved link is valid, and writing the concept again resolves it.
+    pub unresolved_notes: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConceptLink {
     pub note: String,
@@ -1780,16 +1782,18 @@ impl Atlas {
     }
 
     /// Remove an entry. Refused, leaving the atlas unchanged, while a
-    /// relationship names it or, for a concept, a notebook note still links to it.
+    /// relationship names it. Removing a concept that notebook notes link to is
+    /// not refused: the notebook stays valid without it, and the notes whose
+    /// link becomes unresolved are reported so the author can see them.
     pub fn remove_entry(
         &mut self,
         id: &str,
         links: Links<'_>,
-    ) -> Result<Entry, Vec<AtlasDiagnostic>> {
+    ) -> Result<EntryRemoval, Vec<AtlasDiagnostic>> {
         let Some(index) = self.entries.iter().position(|e| e.id == id) else {
             return Err(vec![unknown_item("entries", id)]);
         };
-        let mut blockers: Vec<AtlasDiagnostic> = self
+        let blockers: Vec<AtlasDiagnostic> = self
             .relationships
             .iter()
             .enumerate()
@@ -1805,27 +1809,27 @@ impl Atlas {
                 )
             })
             .collect();
-        if self.entries[index].kind == EntryKind::Concept {
-            for (position, note) in links.notebook.notes.iter().enumerate() {
-                if note.concepts.iter().any(|c| c == id) {
-                    blockers.push(item_diagnostic(
-                        AtlasDiagnosticCode::StillLinked,
-                        "notes",
-                        position,
-                        &note.id,
-                        "concepts",
-                        format!("this note still links to the concept `{id}`"),
-                    ));
-                }
-            }
-        }
         if !blockers.is_empty() {
             return Err(blockers);
         }
+        let unresolved_notes = if self.entries[index].kind == EntryKind::Concept {
+            links
+                .notebook
+                .notes
+                .iter()
+                .filter(|note| note.concepts.iter().any(|c| c == id))
+                .map(|note| note.id.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
         let mut candidate = self.clone();
-        let removed = candidate.entries.remove(index);
+        let entry = candidate.entries.remove(index);
         *self = Self::validated(&candidate, links).map_err(|d| shift_back("entries", index, d))?;
-        Ok(removed)
+        Ok(EntryRemoval {
+            entry,
+            unresolved_notes,
+        })
     }
 
     /// Remove a relationship.
@@ -2602,7 +2606,10 @@ mod tests {
             vec![AtlasDiagnosticCode::DuplicateRelationship]
         );
         // Unknown fields on the party do not make it a different party.
-        rival.asserted_by.extra.insert("memo".into(), json!("again"));
+        rival
+            .asserted_by
+            .extra
+            .insert("memo".into(), json!("again"));
         assert_eq!(
             codes_of(atlas.upsert_relationship(rival, links)),
             vec![AtlasDiagnosticCode::DuplicateRelationship]
@@ -2850,7 +2857,7 @@ mod tests {
     }
 
     #[test]
-    fn removal_is_refused_while_anything_depends_on_the_entry() {
+    fn removal_is_refused_while_relationships_depend_on_the_entry() {
         let notebook = notebook();
         let library = library();
         let links = Links {
@@ -2866,13 +2873,27 @@ mod tests {
         assert!(blocked
             .iter()
             .all(|d| d.code == AtlasDiagnosticCode::StillLinked));
+        assert_eq!(atlas, before);
+        // A note's concept link is reported as unresolved, not a reason to refuse.
+        assert_eq!(
+            atlas.concept_links(&notebook)[0].status,
+            ConceptLinkStatus::Resolved
+        );
         let concept = atlas
             .remove_entry("allegory", links)
-            .expect_err("note links to it");
-        assert_eq!(concept[0].collection, Some("notes"));
-        assert_eq!(concept[0].id.as_deref(), Some("n-1"));
-        assert_eq!(atlas, before);
-        assert!(atlas.remove_entry("trial", links).is_ok());
+            .expect("a linked concept can be removed");
+        assert_eq!(concept.entry.id, "allegory");
+        assert_eq!(concept.unresolved_notes, vec!["n-1"]);
+        assert_eq!(
+            atlas.concept_links(&notebook)[0].status,
+            ConceptLinkStatus::Unresolved
+        );
+        assert_eq!(atlas.missing_concepts(&notebook), vec!["allegory"]);
+        assert!(atlas
+            .remove_entry("trial", links)
+            .expect("unlinked")
+            .unresolved_notes
+            .is_empty());
         assert!(atlas.remove_relationship("r-infl", links).is_ok());
         assert_eq!(atlas.relationships.len(), 1);
         assert_eq!(

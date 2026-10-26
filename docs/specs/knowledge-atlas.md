@@ -34,7 +34,9 @@ explicit publication projection copies approved items.
 prose, 20,000 characters), `source` (work entries only; a source-library record of kind
 `work`), `bounds` (`from`/`until` whole years, negative is BCE, no year 0), and `visibility`
 (`private` default, or `approved`). A notebook note's `concepts` id resolves to the concept
-entry with the same id; an unresolved id is reported, not an error.
+entry with the same id; an unresolved id is reported, not an error. Removing an entry is
+refused while a relationship joins it; removing a concept that notes link to is allowed and
+reports those notes, whose links are now unresolved.
 
 ## Relationships
 
