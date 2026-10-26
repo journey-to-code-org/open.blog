@@ -352,3 +352,39 @@ test("a Third Perspective's card shows its consent and credit hint, and its appr
   await expect(queueStatus(page)).toContainText("consent record 3, as a reader’s reflection on “Tides”");
   expect(changes).toEqual([{ source: "feedback", id: ID(9), action: "approve", from: "pending", version: 3, seenRevision: 2, seenConsent: 3 }]);
 });
+
+test("a reflection the reader withdrew is taken off its post from its card, by the site Admin", async ({ page }) => {
+  const withdrawn = inboxItem(11, {
+    source: "feedback",
+    kind: "third-perspective",
+    kindLabel: "Third Perspective",
+    status: "withdrawn",
+    statusLabel: "Withdrawn",
+    purged: true,
+    body: null,
+    details: {},
+    reader: { publishName: false },
+    published: true,
+    mayBeShown: false,
+    nameOutOfDate: false,
+    actions: [],
+  });
+  let items = [withdrawn];
+  const synced = [];
+  await page.route(`${origin}/admin/api/engagement/moderation?**`, (route) => json(route, 200, page_(items, { state: "withdrawn", kind: "third-perspective" })));
+  await page.route(`${origin}/admin/api/engagement/third-perspectives/unpublish`, async (route) => {
+    synced.push(route.request().postDataJSON());
+    items = [{ ...withdrawn, published: false }];
+    return json(route, 200, { published: false, build: { ok: true, posts: 1 } });
+  });
+  await signIn(page);
+  await page.goto(`${origin}/admin/#/moderation/withdrawn?kind=third-perspective`);
+  const card = page.locator(`[data-moderation-id="${ID(11)}"]`);
+  await expect(card.getByText("The reader withdrew this reflection through their receipt", { exact: false })).toBeVisible();
+  const button = card.getByRole("button", { name: "Take it off the post" });
+  await button.focus();
+  await page.keyboard.press("Enter");
+  await expect(queueStatus(page)).toContainText("Taken off “Tides”.");
+  expect(synced).toEqual([{ id: ID(11) }]);
+  await expect(page.locator(`[data-moderation-id="${ID(11)}"]`).getByRole("button", { name: "Take it off the post" })).toHaveCount(0);
+});

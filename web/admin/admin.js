@@ -397,7 +397,10 @@ export function moderationOutcome(item, action, result) {
   const where = item.post ? `“${item.post.title}”` : item.work;
   if (action === "approve") {
     if (item.source === "comment") return `Approved. The comment is shown on ${where}.`;
-    if (item.perspective) return `Approved this text under the reader’s consent record ${item.perspective.consent.number}, as a reader’s reflection on ${where}. Nothing was e-mailed.`;
+    if (item.perspective) {
+      const approved = `Approved this text under the reader’s consent record ${item.perspective.consent.number}, as a reader’s reflection on ${where}. Nothing was e-mailed.`;
+      return result.published ? `${approved} It is published on the post; rebuild or publish to update the live site.` : `${approved} ${result.publishError || ""}`.trim();
+    }
     return result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`.trim();
   }
   if (action === "reject") return "Rejected. Nothing was published.";
@@ -424,11 +427,29 @@ export function moderationOutcome(item, action, result) {
  * unknown.
  */
 export function feedbackPublicationMismatch(item) {
+  if (item.kind === "third-perspective") return perspectivePublicationMismatch(item);
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
   if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "withdrawn" && item.published === true) return { notice: "The reader withdrew this note and asked for it to be deleted, but it is still on the post. Take it off now.", action: "unpublish", label: "Take it off the post" };
   return null;
+}
+
+/**
+ * The same for a Third Perspective (ADR 0115): an approved reflection the projection shows that
+ * is not on its post yet, or a published one it no longer shows, most often because the reader
+ * withdrew it through their receipt. `mayBeShown` is whether the hosted copy may be public now.
+ */
+export function perspectivePublicationMismatch(item) {
+  if (item.published === false && item.mayBeShown === true) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.published === true && item.mayBeShown === true && item.nameOutOfDate === true) return { notice: "The reader no longer shows their name, but the post still does. Update it now.", action: "publish", label: "Update it on the post" };
+  if (item.published !== true || item.mayBeShown !== false) return null;
+  const notice = {
+    withdrawn: "The reader withdrew this reflection through their receipt, and its text and name were deleted, but it is still on the post. Take it off now.",
+    removed: "Removed, but still on the post.",
+    rejected: "Rejected, but still on the post.",
+  }[item.status] || "The reader’s consent or this reflection’s state no longer allows it on the post, but it is still there. Take it off now.";
+  return { notice, action: "unpublish", label: "Take it off the post" };
 }
 
 /** The retention dry run's summary, in words: what would expire or be purged, by kind. */
@@ -12764,7 +12785,7 @@ export class ObAdmin extends AdminElement {
         actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
           busy(true);
           try {
-            await this.api.call("POST", `engagement/feedback/${mismatch.action}`, { json: { id: item.id } });
+            await this.api.call("POST", `engagement/${item.kind === "third-perspective" ? "third-perspectives" : "feedback"}/${mismatch.action}`, { json: { id: item.id } });
             await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
           } catch (error) {
             busy(false);
@@ -12772,6 +12793,8 @@ export class ObAdmin extends AdminElement {
           }
         } }, mismatch.label));
         card.append(h("p", { class: "oba-notice" }, mismatch.notice));
+      } else if (item.kind === "third-perspective" && item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post as a reader’s reflection."));
       } else if (item.source === "feedback" && item.status === "approved" && item.published === true) {
         card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${item.id}`, onClick: (event) => {
           event.preventDefault();

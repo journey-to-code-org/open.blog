@@ -49,6 +49,7 @@ use openblog_core::moderation::{self, ModerationState};
 use openblog_core::moderation_inbox;
 use openblog_core::participation::ParticipationKind;
 use openblog_core::passage_target::PassageDocument;
+use openblog_core::perspective_publication;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
 use openblog_core::research_bundle;
 use openblog_core::research_notes::{
@@ -677,6 +678,12 @@ fn authenticated_api(
         ("POST", "engagement/retention") => run_retention(state, req, session),
         ("POST", "engagement/feedback/publish") => publish_feedback(state, req),
         ("POST", "engagement/feedback/unpublish") => unpublish_moderated(state, req),
+        ("POST", "engagement/third-perspectives/publish") => {
+            sync_published_perspective(state, req, session, true)
+        }
+        ("POST", "engagement/third-perspectives/unpublish") => {
+            sync_published_perspective(state, req, session, false)
+        }
         ("GET", "engagement/feedback/published") => published_feedback(state),
         ("PUT", "engagement/feedback/response") => respond_to_feedback(state, req),
         ("POST", "engagement/feedback/revision-note") => record_revision_note(state, req),
@@ -4789,6 +4796,196 @@ fn unpublish_moderated_feedback(path: &Path, item: &HostedFeedback) -> Result<()
     unpublish_feedback(path, &item.id)
 }
 
+// ---- Published Third Perspectives (ADR 0115)
+//
+// What a site publishes of approved Third Perspectives lives in
+// `third-perspectives.json` in the content folder, beside
+// `reader-feedback.json`, written only here, under the content lock. Each
+// record holds exactly the parts the one public projection reads, taken
+// from the hosted copy only while that projection shows it.
+
+fn third_perspectives_path(state: &AppState) -> Result<PathBuf, Response> {
+    let config = site::load_config(&state.root).map_err(|error| Response::error(500, &error))?;
+    let path = state
+        .root
+        .join(&config.paths.content)
+        .join(perspective_publication::THIRD_PERSPECTIVES_FILE);
+    if fs::symlink_metadata(&path).is_ok_and(|metadata| !metadata.is_file()) {
+        return Err(Response::error(
+            409,
+            "third-perspectives.json must be a regular file in the content folder",
+        ));
+    }
+    Ok(path)
+}
+
+/// The published Third Perspectives; an absent file is an empty one. A file
+/// that cannot be read is refused, naming the file, and nothing is written
+/// over it.
+fn load_third_perspectives(
+    path: &Path,
+) -> Result<perspective_publication::ThirdPerspectivesFile, Response> {
+    let bytes = read_optional_bytes(path).map_err(|error| Response::error(500, &error))?;
+    let Some(bytes) = bytes else {
+        return Ok(Default::default());
+    };
+    let text = String::from_utf8(bytes).map_err(|_| {
+        Response::error(
+            409,
+            "third-perspectives.json is not UTF-8; fix it in source mode before moderating",
+        )
+    })?;
+    perspective_publication::ThirdPerspectivesFile::from_json(&text).map_err(|error| {
+        Response::error(
+            409,
+            &format!("third-perspectives.json {error}; fix it in source mode before moderating"),
+        )
+    })
+}
+
+fn published_perspectives_file(
+    state: &AppState,
+) -> Option<perspective_publication::ThirdPerspectivesFile> {
+    third_perspectives_path(state)
+        .and_then(|path| load_third_perspectives(&path))
+        .ok()
+}
+
+/// Put one approved Third Perspective on its post, or say why not: only
+/// while the one projection shows it now. The caller holds the content lock.
+fn publish_approved_perspective(
+    path: &Path,
+    site: &Site,
+    item: &third_perspective::HostedPerspective,
+) -> Result<(), String> {
+    if item.state != ModerationState::Approved {
+        return Err("Only an approved Third Perspective is published".into());
+    }
+    let post = feedback_moderation::post_for_work(site, &item.copy.provenance.work)
+        .ok_or_else(|| "No post has this address now, so the reflection is not on the site yet. Publish it from the Approved list once the post is back.".to_string())?;
+    let mut file = load_third_perspectives(path).map_err(|_| {
+        "third-perspectives.json cannot be read; fix it in source mode, then publish the reflection from the Approved list".to_string()
+    })?;
+    let record = perspective_publication::PublishedPerspective::from_hosted(
+        &post.source.replace('\\', "/"),
+        item,
+        post,
+        &site.config,
+        item.moderated_at.unwrap_or_else(clock::now),
+    )?;
+    file.publish(record)?;
+    write_atomic_bytes(path, file.to_json().as_bytes())
+        .map_err(|_| "third-perspectives.json could not be written".to_string())
+}
+
+/// Take one Third Perspective off the site. The caller holds the content lock.
+fn unpublish_perspective(path: &Path, id: &str) -> Result<(), String> {
+    let mut file = load_third_perspectives(path).map_err(|_| {
+        "third-perspectives.json cannot be read; remove the reflection from it in source mode"
+            .to_string()
+    })?;
+    if file.unpublish(id) {
+        write_atomic_bytes(path, file.to_json().as_bytes())
+            .map_err(|_| "third-perspectives.json could not be written".to_string())?;
+    }
+    Ok(())
+}
+
+/// Whether a published Third Perspective must come off its post now: the
+/// hosted copy is no longer one the projection shows (withdrawn, removed,
+/// rejected, purged, reopened or under a consent that no longer allows it).
+fn perspective_must_come_off(item: &moderation_inbox::InboxItem) -> bool {
+    match item.perspective() {
+        Some(hosted) => {
+            let copy = &hosted.copy;
+            let approved = hosted
+                .approved_consent
+                .and_then(|number| copy.consent_record(number));
+            !(hosted.state == ModerationState::Approved
+                && hosted.approved_revision == Some(copy.revision)
+                && hosted.clarification_asked != Some(copy.revision)
+                && copy.consent().publish
+                && approved.is_some_and(|record| record.publish))
+        }
+        // A purged item keeps no text: nothing of it may stay public.
+        None => item.kind == ParticipationKind::ThirdPerspective,
+    }
+}
+
+/// `POST engagement/third-perspectives/publish` or `/unpublish`: put an
+/// approved Third Perspective on its post again, after a failed write or an
+/// approval made outside Admin, or take one off that may no longer be shown
+/// (a reader withdrew it through their receipt). Only the site Admin of the
+/// item's work may, and only as the hosted copy says now.
+fn sync_published_perspective(
+    state: &AppState,
+    req: &Request,
+    session: &auth::Session,
+    publish: bool,
+) -> Response {
+    let body = match feedback_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let id = match feedback_id(&body["id"]) {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let (protocol, third_perspectives, item) =
+        match hosted_inbox_item(state, moderation_inbox::Source::Feedback, &id) {
+            Ok(found) => found,
+            Err(response) => return response,
+        };
+    if item.kind != ParticipationKind::ThirdPerspective {
+        return Response::error(404, "No such Third Perspective");
+    }
+    let sources = match inbox_sources(state) {
+        Ok(sources) => sources,
+        Err(response) => return response,
+    };
+    let role = sources.inbox(session, protocol, third_perspectives, |inbox| {
+        inbox.actor(&item).role()
+    });
+    if role != moderation::ActorRole::SiteAdmin {
+        return Response::json(
+            403,
+            &json!({ "error": "Only the site Admin can change what the site publishes.", "code": "denied" }),
+        );
+    }
+    let site = match feedback_site(state) {
+        Ok(site) => site,
+        Err(response) => return response,
+    };
+    let mut status = lock(&state.build);
+    let _transaction = match content_transaction(state) {
+        Ok(lock) => lock,
+        Err(response) => return response,
+    };
+    let path = match third_perspectives_path(state) {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let outcome = if publish {
+        match item.perspective() {
+            Some(hosted) => publish_approved_perspective(&path, &site, hosted),
+            None => Err("Its text was deleted, so it cannot be published".into()),
+        }
+    } else if perspective_must_come_off(&item) {
+        unpublish_perspective(&path, &id)
+    } else {
+        Err("This reflection is approved and the reader's consent allows it, so it stays on the post. Remove it in the inbox to take it off.".into())
+    };
+    if let Err(error) = outcome {
+        return Response::error(409, &error);
+    }
+    let build = feedback_build_json(&state.rebuild_locked(&mut status));
+    eprintln!(
+        "admin: third perspective {id} {}",
+        if publish { "published" } else { "unpublished" }
+    );
+    Response::json(200, &json!({ "published": publish, "build": build }))
+}
+
 // ---- The moderation inbox (ADR 0105)
 //
 // One list for hosted comments and passage feedback, driven by the one state
@@ -5004,14 +5201,34 @@ fn inbox_view(
     inbox: &moderation_inbox::Inbox<'_>,
     item: &moderation_inbox::InboxItem,
     published: Option<&feedback_publication::ReaderFeedbackFile>,
+    perspectives: Option<&perspective_publication::ThirdPerspectivesFile>,
 ) -> Option<Json> {
     let mut view = inbox.view(item)?;
-    // A Third Perspective is never written to reader-feedback.json.
-    if item.source == moderation_inbox::Source::Feedback && item.perspective().is_none() {
-        view["published"] = match published {
-            Some(file) => json!(file.get(&item.id).is_some()),
-            None => Json::Null,
-        };
+    if item.source == moderation_inbox::Source::Feedback {
+        // A Third Perspective is published in third-perspectives.json (ADR
+        // 0115), never in reader-feedback.json; the card also says whether
+        // it must come off its post now.
+        if item.kind == ParticipationKind::ThirdPerspective {
+            view["published"] = match perspectives {
+                Some(file) => json!(file.get(&item.id).is_some()),
+                None => Json::Null,
+            };
+            view["mayBeShown"] = json!(!perspective_must_come_off(item));
+            // A name the reader no longer shows must not stay on the post.
+            let shown_name = item
+                .perspective()
+                .and_then(|hosted| hosted.copy.consent().attribution.public_name());
+            view["nameOutOfDate"] = json!(perspectives
+                .and_then(|file| file.get(&item.id))
+                .is_some_and(
+                    |record| record.name.is_some() && record.name.as_deref() != shown_name
+                ));
+        } else {
+            view["published"] = match published {
+                Some(file) => json!(file.get(&item.id).is_some()),
+                None => Json::Null,
+            };
+        }
     }
     Some(view)
 }
@@ -5052,6 +5269,7 @@ fn moderation_inbox_page(state: &AppState, req: &Request, session: &auth::Sessio
             .any(|binding| binding.admin_user == session.user)
     });
     let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
     let page_size = moderation_inbox::PAGE_SIZE.to_string();
     let collected = collect_inbox_page(
         bound,
@@ -5078,7 +5296,9 @@ fn moderation_inbox_page(state: &AppState, req: &Request, session: &auth::Sessio
             sources.inbox(session, page.protocol, page.third_perspectives, |inbox| {
                 page.items
                     .iter()
-                    .filter_map(|item| inbox_view(inbox, item, published.as_ref()))
+                    .filter_map(|item| {
+                        inbox_view(inbox, item, published.as_ref(), perspectives.as_ref())
+                    })
                     .collect()
             })
         },
@@ -5508,6 +5728,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         Err(response) => return response,
     };
     let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
     // A Third Perspective's approval names the text revision and consent
     // record the moderator saw (ADR 0111); both are checked again here and
     // by the hosted function and the database.
@@ -5529,7 +5750,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
     // Decided here first, with this account's role on the item's work: the
     // state the item ends in, and the item an upheld report takes down.
     let decided = sources.inbox(session, protocol, third_perspectives, |inbox| {
-        let view = inbox_view(inbox, &item, published.as_ref());
+        let view = inbox_view(inbox, &item, published.as_ref(), perspectives.as_ref());
         let role = inbox.actor(&item).role();
         let binding = match seen_perspective {
             (Some(revision), Some(consent)) if approving_perspective => {
@@ -5652,7 +5873,7 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         Ok((409, value)) => {
             let current = reread(&value).and_then(|current| {
                 sources.inbox(session, protocol, third_perspectives, |inbox| {
-                    inbox_view(inbox, &current, published.as_ref())
+                    inbox_view(inbox, &current, published.as_ref(), perspectives.as_ref())
                 })
             });
             return conflict(current, INBOX_CHANGED);
@@ -5672,66 +5893,98 @@ fn moderate_inbox_item(state: &AppState, req: &Request, session: &auth::Session)
         session.user,
         role.id()
     );
-    // What the site publishes of passage feedback follows the decision: an
-    // approval publishes the note; a removal, an upheld report that took a
-    // note down, or a deletion request takes it off its post.
+    // What the site publishes of passage feedback and Third Perspectives
+    // follows the decision: an approval publishes the note or reflection; a
+    // removal, an upheld report that took one down, or a deletion request
+    // takes it off its post. Each kind has its own file (ADRs 0083, 0115).
     let approve = action == Some(moderation::ModerationAction::Approve);
-    let unpublish_id = match (&item.target, &removed_target) {
-        (Some(target), Some(_)) if target.source == moderation_inbox::Source::Feedback => {
-            Some(target.id.clone())
-        }
+    let unpublish = match (&item.target, &removed_target) {
+        (Some(target), Some(_)) if target.source == moderation_inbox::Source::Feedback => Some((
+            target.id.clone(),
+            target.kind == ParticipationKind::ThirdPerspective,
+        )),
         _ if source == moderation_inbox::Source::Feedback
             && (erase || action == Some(moderation::ModerationAction::Remove)) =>
         {
-            Some(id.clone())
+            Some((id.clone(), item.kind == ParticipationKind::ThirdPerspective))
         }
         _ => None,
     };
-    let unpublish_id = unpublish_id.filter(|target| {
-        // Only touch the file when the note is on it, or for a removal,
+    let unpublish = unpublish.filter(|(target, perspective)| {
+        // Only touch the file when the item is on it, or for a removal,
         // which always says what the file holds.
         action == Some(moderation::ModerationAction::Remove)
-            || published
-                .as_ref()
-                .is_none_or(|file| file.get(target).is_some())
+            || if *perspective {
+                perspectives
+                    .as_ref()
+                    .is_none_or(|file| file.get(target).is_some())
+            } else {
+                published
+                    .as_ref()
+                    .is_none_or(|file| file.get(target).is_some())
+            }
     });
     let mut published_now = false;
     let mut publish_error = None;
     let mut build = None;
     let approved_note = changed.feedback().filter(|_| approve);
-    if approved_note.is_some() || unpublish_id.is_some() {
+    let approved_perspective = changed.perspective().filter(|_| approve);
+    if approved_note.is_some() || approved_perspective.is_some() || unpublish.is_some() {
         let mut status = lock(&state.build);
         let _transaction = match content_transaction(state) {
             Ok(lock) => lock,
             Err(response) => return response,
         };
-        let outcome = reader_feedback_path(state)
-            .map_err(|_| "reader-feedback.json cannot be written".to_string())
-            .and_then(|path| match (approved_note, &unpublish_id) {
-                (Some(hosted), _) => publish_approved_feedback(&path, &sources.published, hosted),
-                (None, Some(target)) => unpublish_feedback(&path, target),
-                (None, None) => Ok(()),
-            });
+        let feedback_path = || {
+            reader_feedback_path(state)
+                .map_err(|_| "reader-feedback.json cannot be written".to_string())
+        };
+        let perspectives_path = || {
+            third_perspectives_path(state)
+                .map_err(|_| "third-perspectives.json cannot be written".to_string())
+        };
+        let outcome = match (approved_note, approved_perspective, &unpublish) {
+            (Some(hosted), _, _) => feedback_path()
+                .and_then(|path| publish_approved_feedback(&path, &sources.published, hosted)),
+            (None, Some(hosted), _) => perspectives_path()
+                .and_then(|path| publish_approved_perspective(&path, &sources.published, hosted)),
+            (None, None, Some((target, true))) => {
+                perspectives_path().and_then(|path| unpublish_perspective(&path, target))
+            }
+            (None, None, Some((target, false))) => {
+                feedback_path().and_then(|path| unpublish_feedback(&path, target))
+            }
+            (None, None, None) => Ok(()),
+        };
         match outcome {
             Ok(()) => {
                 published_now = approve;
                 build = Some(feedback_build_json(&state.rebuild_locked(&mut status)));
             }
             Err(error) => {
-                // A removal that could not be written leaves the note on the
+                // A removal that could not be written leaves the item on the
                 // post; say so when the file says so.
-                if let Some(target) = &unpublish_id {
-                    published_now = reader_feedback_path(state)
-                        .and_then(|path| load_reader_feedback(&path))
-                        .is_ok_and(|(file, _)| file.get(target).is_some());
+                match &unpublish {
+                    Some((target, true)) => {
+                        published_now = third_perspectives_path(state)
+                            .and_then(|path| load_third_perspectives(&path))
+                            .is_ok_and(|file| file.get(target).is_some());
+                    }
+                    Some((target, false)) => {
+                        published_now = reader_feedback_path(state)
+                            .and_then(|path| load_reader_feedback(&path))
+                            .is_ok_and(|(file, _)| file.get(target).is_some());
+                    }
+                    None => {}
                 }
                 publish_error = Some(error)
             }
         }
     }
     let published = published_feedback_file(state);
+    let perspectives = published_perspectives_file(state);
     let view = sources.inbox(session, protocol, third_perspectives, |inbox| {
-        inbox_view(inbox, &changed, published.as_ref())
+        inbox_view(inbox, &changed, published.as_ref(), perspectives.as_ref())
     });
     Response::json(
         200,
@@ -19034,8 +19287,10 @@ mod tests {
         fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
-    fn feedback_routes() -> [(&'static str, &'static str); 9] {
+    fn feedback_routes() -> [(&'static str, &'static str); 11] {
         [
+            ("POST", "/admin/api/engagement/third-perspectives/publish"),
+            ("POST", "/admin/api/engagement/third-perspectives/unpublish"),
             ("GET", "/admin/api/engagement/moderation"),
             ("PATCH", "/admin/api/engagement/moderation"),
             ("GET", "/admin/api/engagement/retention"),
@@ -19046,6 +19301,160 @@ mod tests {
             ("PUT", "/admin/api/engagement/feedback/response"),
             ("POST", "/admin/api/engagement/feedback/revision-note"),
         ]
+    }
+
+    #[test]
+    fn approved_third_perspectives_are_published_and_taken_off_as_the_hosted_copy_says() {
+        use openblog_core::third_perspective::{
+            ConsentChoices, Intake, LocalReflection, PerspectiveTarget, ReaderAttribution,
+        };
+        let f = fixture("perspective-publication");
+        // Locked without a transport: published reflections still show.
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        config["participation"] = json!({"kinds": {"third-perspective": "locked"}});
+        fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+        let (site, _) = site::load_site(&f.dir, false, None).unwrap();
+        let post = site.posts[0].clone();
+        let document = PassageDocument::of_post(&post, &site.config);
+        let digest = "5e".repeat(32);
+        let copy = |name: &str, shown: bool| {
+            LocalReflection {
+                work: post.url.clone(),
+                revision: document.revision.clone(),
+                target: PerspectiveTarget::work(),
+                category: None,
+                body: "A reader’s <b>reading</b>.".into(),
+                attribution: ReaderAttribution::named(name, shown),
+                seen_at: None,
+            }
+            .submission(ConsentChoices {
+                publish: true,
+                clarification: false,
+                feature: false,
+            })
+            .receive(
+                openblog_core::DateTime::parse("2026-10-26T10:00:00Z").unwrap(),
+                Intake::Hosted {
+                    receipt_digest: digest.clone(),
+                },
+            )
+            .unwrap()
+        };
+        let item = |copy: &third_perspective::SubmittedCopy, status: &str| {
+            let record: Json = serde_json::from_str(&copy.to_json()).unwrap();
+            let approved = status == "approved";
+            moderation_inbox::InboxItem::from_value(&json!({
+                "source": "feedback", "id": FEEDBACK_ITEM_ID, "status": status, "version": 2,
+                "moderatedAt": "2026-10-27T09:00:00Z", "reason": null,
+                "feedback": {"version": 1, "kind": "third-perspective", "body": copy.body, "details": copy.stored_details(), "provenance": record["provenance"]},
+                "itemRevision": 1, "approvedRevision": if approved { json!(1) } else { Json::Null },
+                "clarificationAsked": null, "clarificationConsent": false,
+                "approvedConsent": if approved { json!(1) } else { Json::Null },
+            }))
+            .unwrap()
+        };
+        let path = f
+            .dir
+            .join("content")
+            .join(perspective_publication::THIRD_PERSPECTIVES_FILE);
+        let named = copy("Mina", true);
+        let approved = item(&named, "approved");
+        let pending = item(&named, "pending");
+        assert!(!perspective_must_come_off(&approved));
+        assert!(perspective_must_come_off(&pending));
+        assert!(
+            publish_approved_perspective(&path, &site, pending.perspective().unwrap()).is_err(),
+            "pending is never published"
+        );
+        assert!(!path.exists());
+        publish_approved_perspective(&path, &site, approved.perspective().unwrap()).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        for private in [digest.as_str(), "consents", "intake", "hosted", "10:00"] {
+            assert!(!text.contains(private), "{private} in {text}");
+        }
+        let file = perspective_publication::ThirdPerspectivesFile::from_json(&text).unwrap();
+        assert_eq!(file.items[0].name.as_deref(), Some("Mina"));
+        assert_eq!(file.items[0].approved, "2026-10-27");
+        // The site shows it, as a reader's, without a transport.
+        let (shown, _) = site::load_site(&f.dir, false, None).unwrap();
+        let response = &shown.posts[0].third_perspectives()[0].response;
+        assert_eq!(response.heading(), "Third Perspective from Mina, a reader");
+
+        // The inbox says it is published and may stay.
+        let works = moderation::SharedWorks::new(&[], &site);
+        let identities = Identities {
+            active_admin_users: &[],
+            contributor_ids: &[],
+        };
+        let inbox = moderation_inbox::Inbox {
+            site: &site,
+            works: &works,
+            principal: moderation::Principal::ModerationToken,
+            identities: &identities,
+            policy: moderation::ModerationPolicy::default(),
+            protocol: moderation_inbox::Protocol::Protected,
+            third_perspectives: true,
+            now: clock::now(),
+        };
+        let view = inbox_view(&inbox, &approved, None, Some(&file)).unwrap();
+        assert_eq!(
+            (
+                &view["published"],
+                &view["mayBeShown"],
+                &view["nameOutOfDate"]
+            ),
+            (&json!(true), &json!(true), &json!(false))
+        );
+        // A name the reader no longer shows is out of date on the post.
+        let hidden = item(&copy("Mina", false), "approved");
+        assert_eq!(
+            inbox_view(&inbox, &hidden, None, Some(&file)).unwrap()["nameOutOfDate"],
+            true
+        );
+        // Withdrawn by the reader and purged: it must come off, and does.
+        let withdrawn = moderation_inbox::InboxItem::from_value(&json!({
+            "source": "feedback", "id": FEEDBACK_ITEM_ID, "kind": "third-perspective", "status": "withdrawn",
+            "version": 4, "revision": 1, "moderatedAt": "2026-10-28T10:00:00Z", "reason": null,
+            "receivedAt": "2026-10-26T10:00:00Z", "work": post.url, "purgedAt": "2026-10-28T10:00:00Z",
+        }))
+        .unwrap();
+        assert!(perspective_must_come_off(&withdrawn));
+        let view = inbox_view(&inbox, &withdrawn, None, Some(&file)).unwrap();
+        assert_eq!(
+            (&view["published"], &view["mayBeShown"]),
+            (&json!(true), &json!(false))
+        );
+        unpublish_perspective(&path, FEEDBACK_ITEM_ID).unwrap();
+        assert!(perspective_publication::ThirdPerspectivesFile::from_json(
+            &fs::read_to_string(&path).unwrap()
+        )
+        .unwrap()
+        .items
+        .is_empty());
+        // Passage feedback's file is never touched.
+        assert!(!f
+            .dir
+            .join("content")
+            .join(feedback_publication::READER_FEEDBACK_FILE)
+            .exists());
+        // A file that cannot be read refuses the build rather than drop reflections.
+        fs::write(&path, r#"{"version":1,"items":[{}]}"#).unwrap();
+        let refused = site::build(
+            &f.dir,
+            &site::BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .unwrap();
+        assert!(
+            refused.contains("third-perspectives.json: item 1:"),
+            "{refused}"
+        );
     }
 
     #[test]
@@ -19796,11 +20205,11 @@ mod tests {
             });
             moderation_inbox::InboxItem::from_value(&value).unwrap()
         };
-        let unknown = inbox_view(&inbox, &item("pending"), None).unwrap();
+        let unknown = inbox_view(&inbox, &item("pending"), None, None).unwrap();
         assert_eq!(unknown["published"], Json::Null);
         let mut file = feedback_publication::ReaderFeedbackFile::default();
         let approved = hosted(&feedback_record(&site, &post, None, "section"), "approved");
-        let view = inbox_view(&inbox, &item("approved"), Some(&file)).unwrap();
+        let view = inbox_view(&inbox, &item("approved"), Some(&file), None).unwrap();
         assert_eq!(view["published"], false);
         let path = f
             .dir
@@ -19811,7 +20220,7 @@ mod tests {
             &fs::read_to_string(&path).unwrap(),
         )
         .unwrap();
-        let view = inbox_view(&inbox, &item("approved"), Some(&file)).unwrap();
+        let view = inbox_view(&inbox, &item("approved"), Some(&file), None).unwrap();
         assert_eq!(view["published"], true);
         assert!(
             publish_approved_feedback(&path, &site, &current).is_err(),

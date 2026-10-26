@@ -317,6 +317,12 @@ pub fn read_sources_excluding(
     // Approved reader feedback the site publishes (ADR 0083), a versioned
     // file beside the posts.
     sources.reader_feedback = read_reader_feedback(root, config)?;
+    // Approved Third Perspectives the site publishes (ADR 0115), the same way.
+    sources.third_perspectives = read_content_file(
+        root,
+        config,
+        openblog_core::perspective_publication::THIRD_PERSPECTIVES_FILE,
+    )?;
     // Claim evidence is read only while the site publishes it (ADR 0075).
     if config.claim_evidence.publish {
         sources.claim_evidence = Some(crate::claims_store::evidence_for_build(
@@ -333,13 +339,24 @@ pub fn read_reader_feedback(
     root: &Path,
     config: &SiteConfig,
 ) -> Result<Option<SourceFile>, String> {
-    let path = root
-        .join(&config.paths.content)
-        .join(openblog_core::feedback_publication::READER_FEEDBACK_FILE);
+    read_content_file(
+        root,
+        config,
+        openblog_core::feedback_publication::READER_FEEDBACK_FILE,
+    )
+}
+
+/// A versioned file the site publishes from, beside the posts in the content
+/// folder, when it exists. Its contents are checked by the site load.
+pub fn read_content_file(
+    root: &Path,
+    config: &SiteConfig,
+    name: &str,
+) -> Result<Option<SourceFile>, String> {
+    let path = root.join(&config.paths.content).join(name);
     let display = format!(
-        "{}/{}",
-        config.paths.content.trim_end_matches(['/', '\\']),
-        openblog_core::feedback_publication::READER_FEEDBACK_FILE
+        "{}/{name}",
+        config.paths.content.trim_end_matches(['/', '\\'])
     );
     match fs::symlink_metadata(&path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -775,6 +792,11 @@ pub fn generate_site(
     // Published reader feedback that cannot be read refuses the output the
     // same way, rather than dropping notes the author published (ADR 0083).
     if let Some(error) = &site.reader_feedback_error {
+        return Err(error.clone());
+    }
+    // And published Third Perspectives, rather than dropping reflections a
+    // moderator approved (ADR 0115).
+    if let Some(error) = &site.third_perspectives_error {
         return Err(error.clone());
     }
     // Required destinations (including full-content feeds) must succeed before
