@@ -366,6 +366,19 @@ other way to take part is a participation kind, off until you switch it on in `p
   remain, which is what the form and the withdrawal say to readers, and a name a reader chose to
   show becomes part of the site's public record. To roll the hosted opt-in back, empty
   `content/third-perspectives.json` (or hide the kind) first.
+- `author-response` lets the author of one section of a shared reflection answer a Third Perspective
+  about it. Where it is `open` on a post whose body is an arranged shared reflection with a committed
+  credits sidecar, the "Offer a Third Perspective" form also offers "One author's section", chosen by
+  author and place (never a side of the page). In Admin, only the contributor bound to that section
+  sees "Answer as ...", on a reflection that is shown, and the answer waits for a coordinator in the
+  **Moderation inbox**: it is never approved by the account that wrote it, only under a reflection
+  that is shown now and about that very author's section, and its author can take it back. The
+  hosted function needs `OPENBLOG_AUTHOR_RESPONSES_ENABLED=true` on top of Third Perspectives and no
+  SQL ([the function's guide](../netlify/functions/README.md#author-responses-optional-no-sql); ADRs
+  [0165](adr/0165-a-reader-writes-about-one-authors-section-from-the-builds-own-list-by-author-and-place.md)
+  to [0169](adr/0169-until-sections-have-anchors-an-approved-reflection-about-an-authors-section-is-named-by-its-author-and-never-linked.md)).
+  Showing answers on the page is not part of this yet; `locked` still lets readers write about an
+  author's section and shows nothing new, and a post that leaves the kind off is built exactly as before.
 
 The rules are recorded in ADRs [0101](adr/0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
 to [0104](adr/0104-retention-audit-events-and-abuse-reports-fail-closed.md).

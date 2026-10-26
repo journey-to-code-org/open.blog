@@ -5,6 +5,20 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Readers can write a Third Perspective about one author's section of a shared reflection, and that
+  author can answer it, through the moderation you already have. Where a site sets
+  `participation.kinds."author-response"` to `open`, a shared reflection's Third Perspective form
+  offers "One author's section", chosen by author and place from a list the build writes from the
+  post's committed body and credits (never a side of the page). In Admin, the contributor bound to
+  that section sees "Answer as ...", on a reflection that is shown, and sends a plain-text answer
+  that waits for a coordinator: it is never approved by the account that wrote it, only under a
+  reflection that is shown now and about that very author's section, and an author can take their
+  own answer back. Coordinators moderate answers in the one inbox. Hosted storage needs no SQL: an
+  answer is a row of the existing table, behind the new opt-in
+  `OPENBLOG_AUTHOR_RESPONSES_ENABLED=true` on top of Third Perspectives (remove it to turn answers
+  off). An approved reflection about an author's section is named by its author on the post and not
+  yet linked or answered on the page. Sites that do not set `author-response` build exactly as
+  before.
 - Groundwork for authors answering a reader's Third Perspective about their own section of a shared
   reflection (nothing is shown or accepted yet): a section is named by its author and its text and
   never by which side it is on, so a note reaches the intended author after layouts change or

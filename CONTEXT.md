@@ -1493,6 +1493,21 @@ registry entry alone, a coordinator, a site owner, an editor and the moderation 
 they may moderate the answer but not write it, and nobody approves their own answer (ADR 0162).
 _Avoid_: Registry access, author role, impersonation, reply right
 
+**Author section list**:
+The build's list of a shared reflection's author sections in its Third Perspective region, written
+only where the site opens author responses on the post and the committed body and credits pair: each
+section by its anchor, contributor, place, author's published name, first words and digest. A reader
+chooses from it by author and place, never by a side (ADR 0165).
+_Avoid_: Left/right column picker, section by position
+
+**Answer request**:
+The one request Admin sends the hosted function to store an author's answer: the work, the parent
+as Admin saw it, the text, and the responder `admit_response` confirmed (public handle, published
+name, standing; private participant binding and account). The function reads it strictly, reads the
+parent from its own store and stores one pending row; it never holds the private record (ADRs 0166,
+0167).
+_Avoid_: Reply post, author comment, browser-built answer
+
 **Author answer**:
 A response written under that grant: the author's own words as a pending `author-response` that
 stores its responder, named by the name the section is published under, shown only while it and the

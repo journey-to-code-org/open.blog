@@ -106,6 +106,18 @@ it; nothing reads the hosted rows to show a page. A receipt's `published` flag f
 true only while the row is approved at its current revision under an approved consent record that
 agreed to publication while the consent in effect still does (ADR 0115).
 
+## Author responses
+
+An author's answer to a Third Perspective about their own section of a shared reflection (ADRs 0165
+to 0169) is one more `openblog_feedback` row of kind `author-response`, so it needs no SQL and no
+rollback; it is opt in behind `OPENBLOG_AUTHOR_RESPONSES_ENABLED`, on top of Third Perspectives.
+Admin decides who may answer from the private record and sends the function one checked request
+(`admin/author-response`, Admin's token only), which the function reads with its own contract
+(`netlify/lib/author-response.mjs`, held to the build by `tests/fixtures/author-responses.json`),
+re-checks against the parent row it reads, and stores pending with the responder in `details`. The
+one inbox moderates it; an approval needs a shown parent about that author's section and is never
+the writing account's own.
+
 ## Testing decisions
 
 - Exercise the Netlify handler through HTTP-shaped events with a fake Supabase fetch seam.

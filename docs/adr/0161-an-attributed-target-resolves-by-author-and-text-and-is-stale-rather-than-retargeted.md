@@ -34,9 +34,11 @@ and never be shown different words as if they were the ones read.
   still has a section), so the one vocabulary is reused and #224 renders no second one. The
   attributed digest has its own label (`openblog-attributed-section-v1`), not B5's
   `openblog-passage-section-v1`, so RD10's existing projection, which digests heading sections,
-  does not resolve an attributed target as current by accident. Wiring the projection to resolve
-  attributed targets through `AttributedSections` is #224's job; until then such a Third Perspective
-  is shown as it already is for any target the projection cannot match.
+  does not resolve an attributed target as current by accident. Wiring the page to link a
+  reflection to its section, and to show answers, is #224's job. #223 wires only the status: the
+  projection resolves an attributed target through `AttributedSections` and the page names the
+  author and never links the section (ADR 0169), so an approved reflection is never shown as
+  "revised or removed" when its section is unchanged.
 
 ## Consequences
 

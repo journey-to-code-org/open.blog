@@ -30,9 +30,9 @@ answer, whose author must be stored for the answer to be shown honestly.
   answer from a plain author response a coordinator was permitted to post. Two things enforce it
   in this contract: `ModerationPolicy::admit` refuses a plain author response to an attributed
   parent (ADR 0162), and `response_shown` shows an answer under an attributed parent only when its
-  stored responder contributor equals the section's. How #223 stores those fields, and any hosted
-  schema change, is #223's decision and must be additive, opt-in and reversible like RD10's, per its
-  own ADR; this contract does not change a hosted schema.
+  stored responder contributor equals the section's. #223 stores those fields in the existing row's
+  `details`, with no hosted schema change, behind one opt-in flag (ADR 0166); this contract does not
+  change a hosted schema.
 - **Nothing is published or sent.** The module is pure: it decides, and callers write. It does no
   e-mailing, notification or publication, and an answer is pending until a moderator approves it.
 - **Static and portable stay whole.** A post's canonical page, static builds, portable HTML and
