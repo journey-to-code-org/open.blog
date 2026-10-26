@@ -13391,6 +13391,103 @@ mod tests {
     }
 
     #[test]
+    fn claims_anchor_in_a_post_saved_by_admin_and_saving_moves_no_anchor() {
+        let f = fixture_with_sources("claims-admin-saved");
+        let session = login_ok(&f);
+        let words = "Πλάτων 🙂";
+        // A hand-written post without a blank line after its front matter,
+        // and an anchor recorded against it.
+        claim_post(&f, CLAIM_DRAFT);
+        let hand_written = fs::read_to_string(f.dir.join("content").join(CLAIM_POST)).unwrap();
+        let empty = claims_list(&f, &session);
+        let anchor = anchor_json(words);
+        let (status, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/claims",
+            json!({"revision": empty["revision"], "claim": {"id": "hand", "post": "cave",
+                "statement": "Plato says so.", "anchor": anchor}}),
+        );
+        assert_eq!(status, 201, "{created}");
+
+        // Save the post through the Admin document route: compose writes a
+        // blank line after the front matter.
+        let document = |f: &Fixture| {
+            body_json(&handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/document?path={CLAIM_POST}")),
+                    &session,
+                    false,
+                ),
+            ))
+        };
+        let fetched = document(&f);
+        let saved = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "PUT",
+                    &format!("/admin/api/document?path={CLAIM_POST}"),
+                    json!({"fields": fetched["fields"], "body": fetched["body"], "etag": fetched["etag"]}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(
+            saved.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&saved.body)
+        );
+        let resaved = fs::read_to_string(f.dir.join("content").join(CLAIM_POST)).unwrap();
+        assert!(resaved.contains("---\n\nThe cave"), "{resaved}");
+        assert_eq!(
+            claims::anchor_text(&hand_written).unwrap(),
+            claims::anchor_text(&resaved).unwrap()
+        );
+        // The anchor recorded before the save still verifies.
+        let listed = claims_list(&f, &session);
+        assert_eq!(listed["anchors"]["hand"]["status"], "verified", "{listed}");
+
+        // A selection made in Admin's editor, counted as the editor counts
+        // (from the first character after leading line breaks), verifies.
+        let reloaded = document(&f);
+        let body = reloaded["body"].as_str().unwrap();
+        let shown = body.trim_start_matches(['\r', '\n']);
+        let start = shown.find("The cave").unwrap();
+        let selection = json!({"path": CLAIM_POST, "etag": reloaded["etag"],
+            "start": start, "end": start + "The cave".len(), "text": "The cave"});
+        let (status, checked) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/anchor",
+            selection,
+        );
+        assert_eq!(
+            (status, checked["status"].clone()),
+            (200, json!("verified")),
+            "{checked}"
+        );
+        let (status, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/claims/claims",
+            json!({"revision": listed["revision"], "claim": {"id": "admin", "post": "cave",
+                "statement": "The cave is named.", "anchor": checked["anchor"]}}),
+        );
+        assert_eq!(status, 201, "{created}");
+        assert_eq!(
+            claims_list(&f, &session)["anchors"]["admin"]["status"],
+            "verified"
+        );
+    }
+
+    #[test]
     fn claims_never_cross_a_publication_boundary() {
         let f = fixture_with_sources("claims-leak");
         let session = login_ok(&f);

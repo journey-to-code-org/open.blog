@@ -35,8 +35,9 @@ only.
   `origin` authored, `recordedBy` author.
 - **Evidence** is the [Knowledge Atlas](knowledge-atlas.md) evidence object.
 - **Anchors** are UTF-8 byte offsets into the post's anchor text: the body after a leading
-  byte-order mark and the front matter are removed, with CRLF folded to LF
-  (`claims::anchor_text`). `text` is the exact span and keeps `\n` only. A check reports
+  byte-order mark and the front matter are removed, with CRLF folded to LF and then any leading
+  line breaks dropped (`claims::anchor_text`), so a hand-written post and the same post saved by
+  Admin (which writes one blank line after the front matter) index the same text. `text` is the exact span and keeps `\n` only. A check reports
   `verified`, `moved` (exactly one occurrence elsewhere, overlapping occurrences counted),
   `stale` or `ambiguous`, and never rewrites the anchor.
 - **Refused:** unknown source, passage from another source, ambiguous locator, unknown claim,

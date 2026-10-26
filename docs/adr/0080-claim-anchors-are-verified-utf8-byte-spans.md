@@ -21,7 +21,11 @@ evidence to different words than the author chose.
   claim.
 - **Anchor text is the body, LF only.** Offsets index the post body after a leading byte-order
   mark and the front matter are removed, as `frontmatter::parse` yields it, with every CRLF folded
-  to LF. `claims::anchor_text(source)` produces exactly this text; Admin selections, checks and
+  to LF and then any leading line breaks (CR or LF) dropped. Admin's save
+  (`frontmatter::compose`) writes `---` and one blank line before the body and trims the body's
+  leading line breaks, and Admin's editor counts from the first character after them, so dropping
+  them here is what keeps a hand-written post without that blank line and the same post re-saved
+  by Admin at identical offsets. `claims::anchor_text(source)` produces exactly this text; Admin selections, checks and
   tests all use it, so a selection and a later check can never disagree about offsets. Anchor
   `text` keeps `\n` only: a carriage return (like any other control character except tab) is
   refused. Editing the front matter never moves an anchor.

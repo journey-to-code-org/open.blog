@@ -140,16 +140,27 @@ impl Anchor {
 
 /// The text claim anchors index for one post source: the body after a
 /// leading byte-order mark and the front matter are removed, exactly as
-/// [`crate::frontmatter::parse`] yields it, with every CRLF folded to LF.
-/// Anchor offsets are UTF-8 byte offsets into this text, and anchor text
-/// keeps `\n` only. Admin and every check use this one function, so the
-/// offsets a selection produces are the offsets a check reads.
+/// [`crate::frontmatter::parse`] yields it, with every CRLF folded to LF and
+/// then any leading line breaks dropped. Admin's save
+/// ([`crate::frontmatter::compose`]) writes one blank line after the front
+/// matter and trims the body's leading line breaks, so a hand-written post
+/// and the same post saved by Admin index the same text, and Admin's editor
+/// counts from the first character after them. Anchor offsets are UTF-8 byte
+/// offsets into this text, and anchor text keeps `\n` only. Admin and every
+/// check use this one function, so the offsets a selection produces are the
+/// offsets a check reads.
 pub fn anchor_text(source: &str) -> Result<String, String> {
     let body = crate::frontmatter::parse(source)?.body;
-    Ok(if body.contains("\r\n") {
+    let body = if body.contains("\r\n") {
         body.replace("\r\n", "\n")
     } else {
         body
+    };
+    let lead = body.len() - body.trim_start_matches(['\r', '\n']).len();
+    Ok(if lead == 0 {
+        body
+    } else {
+        body[lead..].to_string()
     })
 }
 
@@ -1668,6 +1679,25 @@ mod tests {
             AnchorCheck::Verified
         );
         assert!(anchor_text("---\ntitle: x\n").is_err());
+        // Leading line breaks never count, so the blank line Admin's save
+        // writes after the front matter moves no anchor.
+        assert_eq!(
+            anchor_text("---\r\ntitle: Caves\r\n---\r\n\r\n\nThe caves!").unwrap(),
+            "The caves!"
+        );
+        assert_eq!(anchor_text("\n\nThe caves!").unwrap(), "The caves!");
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            "title".to_string(),
+            crate::frontmatter::Value::Scalar("Caves".into()),
+        );
+        let hand_written = "---\ntitle: Caves\n---\nThe caves!\nare here.\n";
+        let saved = crate::frontmatter::compose(&fields, "The caves!\nare here.\n");
+        assert!(saved.contains("---\n\nThe caves!"), "{saved}");
+        assert_eq!(
+            anchor_text(hand_written).unwrap(),
+            anchor_text(&saved).unwrap()
+        );
         // Anchor text keeps `\n` only: a carriage return is refused.
         let mut v = sample();
         v["claims"][0]["anchor"] = json!({"start": 0, "end": 2, "text": "a\r"});

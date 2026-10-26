@@ -686,7 +686,9 @@ _Avoid_: Fact, finding; treating a cited sentence as a claim automatically
 
 **Anchor text**:
 The text a claim anchor indexes: the post body after a leading byte-order mark and the front
-matter are removed, with every CRLF folded to LF. Offsets are UTF-8 bytes into it.
+matter are removed, with every CRLF folded to LF and then any leading line breaks dropped, so the
+blank line Admin's save writes after the front matter counts for nothing. Offsets are UTF-8 bytes
+into it.
 _Avoid_: Offsets into the raw file, character or UTF-16 offsets
 
 **Evidence link**:

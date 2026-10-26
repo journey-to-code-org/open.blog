@@ -267,7 +267,8 @@ test("selections become UTF-8 byte anchors in the saved draft's terms", () => {
   const body = "The cave. Πλάτων 🙂 says so.";
   const start = body.indexOf("Πλάτων");
   assert.deepEqual(claimSelectionAnchor(body, start, start + "Πλάτων 🙂".length), { anchor: { start: 10, end: 27, text: "Πλάτων 🙂" } });
-  // Surrounding spaces are trimmed, CRLF folds to LF, and leading newlines a save drops do not count.
+  // Surrounding spaces are trimmed, CRLF folds to LF, and leading line breaks do not count: the
+  // server's anchor text drops them too, as an Admin save trims them after the front matter.
   assert.deepEqual(claimSelectionAnchor("\n\nab  cd\r\nef ", 6, 13), { anchor: { start: 4, end: 9, text: "cd\nef" } });
   assert.match(claimSelectionAnchor(body, 3, 3).error, /Select the words/);
   assert.match(claimSelectionAnchor("a \u202e b", 0, 5).error, /control or direction-override/);
