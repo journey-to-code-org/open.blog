@@ -973,7 +973,17 @@ fn save_source(state: &AppState, req: &Request, create: bool) -> Response {
         source_store::update(&state.root, &revision, record, &contributors)
     };
     match saved {
-        Ok(snapshot) => source_saved(if create { 201 } else { 200 }, &snapshot, &id),
+        Ok(snapshot) => {
+            let mut view = source_saved_view(&snapshot, &id);
+            if !create {
+                attach_comparisons_build_if_used(
+                    state,
+                    &mut view,
+                    alignment_store::PublishedUse::Source(&id),
+                );
+            }
+            Response::json(if create { 201 } else { 200 }, &view)
+        }
         Err(error) => source_store_error(state, error, Some(&id)),
     }
 }
@@ -993,7 +1003,15 @@ fn archive_source(state: &AppState, req: &Request) -> Response {
         archived,
         &source_contributors(state),
     ) {
-        Ok(snapshot) => source_saved(200, &snapshot, id),
+        Ok(snapshot) => {
+            let mut view = source_saved_view(&snapshot, id);
+            attach_comparisons_build_if_used(
+                state,
+                &mut view,
+                alignment_store::PublishedUse::Source(id),
+            );
+            Response::json(200, &view)
+        }
         Err(error) => source_store_error(state, error, Some(id)),
     }
 }
@@ -1052,9 +1070,8 @@ fn import_sources(state: &AppState, req: &Request) -> Response {
         );
     }
     match source_store::import_csl(&state.root, revision, content, &contributors) {
-        Ok((saved, plan)) => Response::json(
-            200,
-            &json!({
+        Ok((saved, plan)) => {
+            let mut view = json!({
                 "file": source_store::LIBRARY_FILE,
                 "revision": saved.revision,
                 "stored": saved.stored,
@@ -1062,8 +1079,15 @@ fn import_sources(state: &AppState, req: &Request) -> Response {
                 "applicable": true,
                 "plan": plan,
                 "sources": saved.library.sources,
-            }),
-        ),
+            });
+            // An import may fill in attribution on records a comparison publishes.
+            attach_comparisons_build_if_used(
+                state,
+                &mut view,
+                alignment_store::PublishedUse::AnySource,
+            );
+            Response::json(200, &view)
+        }
         Err(error) => source_store_error(state, error, None),
     }
 }
@@ -1108,15 +1132,12 @@ fn export_sources(state: &AppState, req: &Request) -> Response {
     )
 }
 
-fn source_saved(status: u16, snapshot: &source_store::Snapshot, id: &str) -> Response {
-    Response::json(
-        status,
-        &json!({
-            "revision": snapshot.revision,
-            "stored": snapshot.stored,
-            "source": snapshot.library.get(id),
-        }),
-    )
+fn source_saved_view(snapshot: &source_store::Snapshot, id: &str) -> Json {
+    json!({
+        "revision": snapshot.revision,
+        "stored": snapshot.stored,
+        "source": snapshot.library.get(id),
+    })
 }
 
 fn source_diagnostics(diagnostics: Vec<SourceDiagnostic>) -> Response {
@@ -1428,6 +1449,13 @@ fn save_passage(state: &AppState, req: &Request, create: bool) -> Response {
         Ok(snapshot) => {
             let mut view = notebook_view(&snapshot);
             view["passage"] = json!(snapshot.notebook.passage(&id));
+            if !create {
+                attach_comparisons_build_if_used(
+                    state,
+                    &mut view,
+                    alignment_store::PublishedUse::Passage(&id),
+                );
+            }
             Response::json(if create { 201 } else { 200 }, &view)
         }
         Err(error) => notebook_store_error(state, error, Some((true, &id))),
@@ -1505,7 +1533,17 @@ fn archive_entry(state: &AppState, req: &Request) -> Response {
         archived,
         &source_contributors(state),
     ) {
-        Ok(snapshot) => Response::json(200, &notebook_view(&snapshot)),
+        Ok(snapshot) => {
+            let mut view = notebook_view(&snapshot);
+            if collection == notebook_store::Collection::Passages {
+                attach_comparisons_build_if_used(
+                    state,
+                    &mut view,
+                    alignment_store::PublishedUse::Passage(id),
+                );
+            }
+            Response::json(200, &view)
+        }
         Err(error) => notebook_store_error(
             state,
             error,
@@ -2666,6 +2704,32 @@ fn attach_comparisons_build(state: &AppState, view: &mut Json) {
         .unwrap_or(false);
     view["publication"]["publish"] = json!(publishes);
     if !publishes {
+        return;
+    }
+    view["build"] = match state.rebuild() {
+        Ok(report) => json!({ "ok": true, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
+}
+
+/// While the site publishes comparisons (ADR 0128), a saved or archived
+/// library source or notebook passage that an approved comparison uses is
+/// published at once, so a version whose rights become reserved or unknown,
+/// or a passage whose wording changes, never leaves a public page quoting
+/// the old wording. The outcome travels as `build`, as for alignment saves;
+/// a change nothing published uses, or a site that does not publish
+/// comparisons, is not rebuilt.
+fn attach_comparisons_build_if_used(
+    state: &AppState,
+    view: &mut Json,
+    used: alignment_store::PublishedUse<'_>,
+) {
+    let Ok(config) = site::load_config(&state.root) else {
+        return;
+    };
+    if !config.comparisons.publish
+        || !alignment_store::publishes(&state.root, &config.contributors, used)
+    {
         return;
     }
     view["build"] = match state.rebuild() {
@@ -15173,6 +15237,124 @@ mod tests {
         assert!(!fs::read_to_string(dist.join("comparisons.json"))
             .unwrap()
             .contains("ob-public-label"));
+    }
+
+    #[test]
+    fn a_source_or_passage_an_approved_comparison_uses_republishes_it_on_save() {
+        let f = fixture_with_sources("comparison-republish");
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["comparisons"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        fs::write(
+            f.dir.join(crate::source_store::LIBRARY_FILE),
+            json!({"version": 1, "sources": [
+                {"id": "w", "kind": "work", "title": "W"},
+                {"id": "e", "kind": "edition", "of": "w", "title": "E",
+                    "rights": {"status": "publicDomain"}},
+                {"id": "t", "kind": "translation", "of": "w", "language": "he", "title": "T"},
+                {"id": "other", "kind": "edition", "of": "w", "title": "Other"}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join(crate::notebook_store::NOTEBOOK_FILE),
+            json!({"version": 1, "passages": [
+                {"id": "p-e", "source": "e", "excerpt": {"text": "ob-first-wording"}},
+                {"id": "p-other", "source": "other", "excerpt": {"text": "unused"}}
+            ]})
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            f.dir.join(crate::alignment_store::ALIGNMENTS_FILE),
+            json!({"version": 1, "alignments": [{"id": "cave", "visibility": "approved",
+                "members": [{"source": "e", "passage": "p-e"}, {"source": "t", "absent": true}]}]})
+            .to_string(),
+        )
+        .unwrap();
+        let session = login_ok(&f);
+        f.state.rebuild().unwrap();
+        let page = f.dir.join("dist/comparisons/cave/index.html");
+        assert!(fs::read_to_string(&page)
+            .unwrap()
+            .contains("ob-first-wording"));
+        let get = |path: &str| {
+            body_json(&handle(
+                &f.state,
+                &authed(req("GET", path), &session, false),
+            ))
+        };
+        let send = |method: &str, path: &str, body: Json| {
+            let response = handle(
+                &f.state,
+                &authed(json_req(method, path, body), &session, true),
+            );
+            assert!(
+                response.status < 300,
+                "{}",
+                String::from_utf8_lossy(&response.body)
+            );
+            body_json(&response)
+        };
+
+        // Rewording a passage the comparison quotes republishes it at once.
+        let notebook = get("/admin/api/research/notebook");
+        let saved = send(
+            "PUT",
+            "/admin/api/research/passages",
+            json!({"revision": notebook["revision"], "passage":
+                {"id": "p-e", "source": "e", "excerpt": {"text": "ob-second-wording"}}}),
+        );
+        assert_eq!(saved["build"]["ok"], true, "{saved}");
+        let text = fs::read_to_string(&page).unwrap();
+        assert!(text.contains("ob-second-wording") && !text.contains("ob-first-wording"));
+        // A passage nothing published quotes is not rebuilt.
+        let unused = send(
+            "PUT",
+            "/admin/api/research/passages",
+            json!({"revision": saved["revision"], "passage":
+                {"id": "p-other", "source": "other", "excerpt": {"text": "still unused"}}}),
+        );
+        assert!(unused.get("build").is_none(), "{unused}");
+
+        // Reserving the version's rights withdraws its wording from every file.
+        let library = get("/admin/api/sources");
+        let other = send(
+            "PUT",
+            "/admin/api/sources",
+            json!({"revision": library["revision"], "source":
+                {"id": "other", "kind": "edition", "of": "w", "title": "Other, renamed"}}),
+        );
+        assert!(other.get("build").is_none(), "{other}");
+        let reserved = send(
+            "PUT",
+            "/admin/api/sources",
+            json!({"revision": other["revision"], "source":
+                {"id": "e", "kind": "edition", "of": "w", "title": "E",
+                    "rights": {"status": "rightsReserved"}}}),
+        );
+        assert_eq!(reserved["build"]["ok"], true, "{reserved}");
+        for file in crate::fsutil::walk(&f.dir.join("dist")) {
+            let text = String::from_utf8_lossy(&fs::read(&file).unwrap()).to_string();
+            assert!(
+                !text.contains("ob-second-wording"),
+                "{} still quotes the reserved wording",
+                file.display()
+            );
+        }
+        assert!(fs::read_to_string(&page)
+            .unwrap()
+            .contains("Wording not shown"));
+
+        // Archiving a source the comparison uses also republishes.
+        let archived = send(
+            "POST",
+            "/admin/api/sources/archive",
+            json!({"revision": reserved["revision"], "id": "e", "archived": true}),
+        );
+        assert_eq!(archived["build"]["ok"], true, "{archived}");
     }
 
     #[test]

@@ -152,7 +152,10 @@ interpretations, the build validates only those an approved alignment names, and
 refuses it, naming its id; any other interpretation, even an invalid one, never stops a build. A build without an
 alignments file (CI, a static host) publishes empty comparisons and warns. While publication is
 on, `comparisons` is a reserved path and every Admin alignments change rebuilds the site and
-returns `build`. The alignments view also returns `publication` (`publish`, `url`,
+returns `build`, as does saving or archiving a library source or a notebook passage that an
+approved comparison uses (and a source import while any comparison is published), so a version
+whose rights become reserved or unknown, or a reworded passage, never leaves a page quoting the
+old wording. The alignments view also returns `publication` (`publish`, `url`,
 `maxExcerptChars`, and `places`: per alignment, one of `shown`, `withheld-rights`,
 `withheld-length`, `unquoted` or `absent` per member) so the author can see what a page would
 show before approving.

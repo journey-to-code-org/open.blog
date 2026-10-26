@@ -1740,7 +1740,7 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
           savedNote = (await send("POST", "research/notes", "note", noteDraftPayload(draft))).note;
         }
         busy = false;
-        onSaved?.({ type: "passage", passage: result.passage, note: savedNote });
+        onSaved?.({ type: "passage", passage: result.passage, note: savedNote, build: result.build });
       } else {
         if (!editing) note.id = suggestEntryId("note", [...state.passages, ...state.notes].map((item) => item.id));
         say("Saving…");
@@ -7566,7 +7566,7 @@ export class ObAdmin extends AdminElement {
           this.dirty = false;
           renderList();
           renderPanel();
-          say(`${sourceLabel(result.source)} saved.`, "oba-ok");
+          say(`${sourceLabel(result.source)} saved.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
         } catch (error) {
           if (this.viewVersion !== mountedView) return;
           if (error.status === 409 && error.data?.conflict) {
@@ -7640,7 +7640,7 @@ export class ObAdmin extends AdminElement {
         this.dirty = false;
         renderList();
         renderPanel();
-        say(`${sourceLabel(result.source)} ${archived ? "archived" : "restored"}.`, "oba-ok");
+        say(`${sourceLabel(result.source)} ${archived ? "archived" : "restored"}.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         if (error.status === 409 && error.data?.conflict) {
@@ -7990,7 +7990,7 @@ export class ObAdmin extends AdminElement {
           selected = target;
           refreshSearch();
           renderPanel(true);
-          say("Saved to the private notebook.", "oba-ok");
+          say(`Saved to the private notebook.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
         },
         onCancel: () => close(),
       });
@@ -8117,7 +8117,7 @@ export class ObAdmin extends AdminElement {
         Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
         refreshSearch();
         renderPanel(true);
-        say(archived ? (filters.archived ? "Archived. It stays in the notebook and in exports." : "Archived. It stays in the notebook and in exports; tick Show archived to see it in lists.") : "Restored from the archive.", "oba-ok");
+        say(`${archived ? (filters.archived ? "Archived. It stays in the notebook and in exports." : "Archived. It stays in the notebook and in exports; tick Show archived to see it in lists.") : "Restored from the archive."}${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         say(error.status === 409 ? "Not changed: the notebook changed elsewhere. Reload this view and try again." : `${notebookErrorMessage(error)} The stored notebook is unchanged.`, "oba-error");

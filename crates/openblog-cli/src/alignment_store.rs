@@ -165,6 +165,53 @@ pub fn load_for_build(
     Ok(snapshot)
 }
 
+/// A library or notebook record whose change may alter a published comparison.
+#[derive(Clone, Copy, Debug)]
+pub enum PublishedUse<'a> {
+    /// A source an approved comparison identifies, cites or attributes to.
+    Source(&'a str),
+    /// Any source an approved comparison uses, for a change to many records.
+    AnySource,
+    /// A notebook passage whose wording an approved comparison may quote.
+    Passage(&'a str),
+}
+
+/// Whether the published comparisons, as a build would read them now, use
+/// this record (ADR 0128). An alignments file, library or notebook that
+/// cannot be read or projected counts as a use, so the rebuild that follows
+/// reports the problem instead of leaving the public pages silently stale.
+pub fn publishes(
+    root: &Path,
+    contributors: &BTreeMap<String, Contributor>,
+    used: PublishedUse<'_>,
+) -> bool {
+    let Ok(snapshot) = load_for_build(root, contributors) else {
+        return true;
+    };
+    if let PublishedUse::Passage(passage) = used {
+        return snapshot
+            .alignments
+            .alignments
+            .iter()
+            .filter(|alignment| alignment.is_approved())
+            .flat_map(|alignment| &alignment.members)
+            .any(|member| member.passage.as_deref() == Some(passage));
+    }
+    let projected = openblog_core::comparison_publication::PublicComparisons::project(
+        &snapshot.alignments,
+        openblog_core::comparison_publication::ComparisonInputs {
+            library: &snapshot.library,
+            notebook: &snapshot.notebook,
+            contributors,
+        },
+    );
+    match (projected, used) {
+        (Err(_), _) => true,
+        (Ok(public), PublishedUse::Source(source)) => public.source(source).is_some(),
+        (Ok(public), _) => !public.sources.is_empty(),
+    }
+}
+
 fn against_library(root: &Path, library: SourceLibrary) -> Result<Snapshot, StoreError> {
     let notebook = notebook_store::read(root, library.clone())
         .map_err(notebook_blocked)?

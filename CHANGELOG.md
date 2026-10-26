@@ -52,7 +52,9 @@ All notable changes to open.blog are recorded here. Releases follow
   attributed and kept apart from the text they interpret, your normalizations appear only if you
   choose, and your notes on places, rights notes and unapproved alignments are never published.
   Before approving, each place in Compare says what a public page would show; saving rebuilds the
-  site at once, and clearing approval removes the page. The pages need no JavaScript and read on a
+  site at once, as does changing the rights or wording of a source or passage a published
+  comparison uses, and clearing approval removes the page. Only the interpretations a published
+  comparison uses must be valid for the site to build. The pages need no JavaScript and read on a
   phone and in print. Sites that do not turn it on are unchanged and never read the alignments
   file.
 

@@ -111,6 +111,12 @@ published here.
   `withheld-length`, `unquoted`, `absent`), computed by the same projection, so before approving
   the author sees which places a public page would quote. While the site publishes comparisons,
   a saved or removed alignment rebuilds the site at once and reports the outcome as `build`.
+  So does a saved or archived library source, or notebook passage, that an approved comparison
+  uses (a source it identifies, cites or attributes to, or a passage it quotes), and a source
+  import while any comparison is published: a version whose rights become `rightsReserved` or
+  `unknown`, or a reworded passage, must not leave a public page quoting the old wording until
+  some later save. An alignments file that cannot be read counts as a use, so the rebuild
+  reports the problem. Changes nothing published uses do not rebuild.
 - **Deterministic.** Comparisons and sources are sorted by id, versions and places keep the
   author's order, and nothing depends on time or locale.
 
