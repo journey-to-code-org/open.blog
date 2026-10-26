@@ -200,7 +200,10 @@ pub fn audit_document(input: DocumentAuditInput<'_>) -> Vec<AccessibilityFinding
     // Document templates render the front-matter title as H1 before the body.
     let mut previous_heading = 1;
     let mut saw_table = false;
-    let mut saw_raw_html = false;
+    // A shared reflection's arrangement frame is markup openblog writes from a closed grammar
+    // (sections headed by their author's name, ADR 0033), and the publish gate refuses raw HTML in
+    // the turns themselves. It is not custom markup an author could inspect or repair (#188).
+    let mut saw_raw_html = crate::arrangement::Arrangement::parse(input.markdown).is_some();
     let mut saw_media = false;
     let options = crate::markdown::parser_options(false);
     let events: Vec<_> = Parser::new_ext(input.markdown, options)

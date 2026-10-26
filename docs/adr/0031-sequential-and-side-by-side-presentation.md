@@ -28,7 +28,12 @@ stores a structure, lets someone choose it, publishes it and shows it.
 - **No oracle.** Saving reads no draft, so it cannot tell a coordinator who is not entitled to a
   draft whether a part exists. It checks shape, participants and that the layout is presentable. A
   turn naming a part that is not there is caught by the combined preview and the publish gate, which
-  read as the requester or as the gate.
+  read as the requester or as the gate. (Amended in #188: the gate evaluates the approvals first,
+  before it reads any draft, so a coordinator who may arrange but not read gets the same refusal
+  whether or not the part exists. Only when the approvals are met does a turn naming a missing part
+  get its own error, `ArrangementMismatch`, which asks a coordinator to arrange the piece again
+  and names no part, author or prose. Until then the combined preview, scoped to what each author
+  may read, is where authors see that the arrangement no longer matches the drafts.)
 - **Presentable layouts.** (Superseded by [ADR 0032](0032-point-counterpoint-dialogue-and-roundtable-presentation.md): all five layouts are now presentable.) Only sequential and side-by-side are chosen or rendered
   (`ReflectionLayout::is_presentable`). The other three are valid structure values that are refused
   rather than silently shown as sequential; point-counterpoint and dialogue turns are out of scope.

@@ -262,6 +262,15 @@ export function closeCommandDialog(dialog) {
   if (returnFocus && typeof returnFocus.focus === "function") returnFocus.focus();
 }
 
+/** Decode one hash segment; a malformed escape is treated as no segment rather than an error. */
+export function safeDecodeURIComponent(value) {
+  try {
+    return decodeURIComponent(String(value || ""));
+  } catch {
+    return "";
+  }
+}
+
 export function parseAdminHash(value) {
   const hash = value.replace(/^#\/?/, "");
   const [route, query = ""] = hash.split("?");
@@ -1651,6 +1660,838 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
   };
 }
 
+// ---------------------------------------------------------------- knowledge atlas
+
+export const ATLAS_ENTRY_KINDS = Object.freeze([
+  { kind: "person", label: "Person" },
+  { kind: "work", label: "Work" },
+  { kind: "concept", label: "Concept" },
+  { kind: "movement", label: "Movement" },
+  { kind: "event", label: "Event" },
+]);
+/** How firmly the asserting party holds a relationship; never how widely it is accepted. */
+export const ATLAS_CONFIDENCE = Object.freeze([
+  { value: "tentative", label: "Tentative" },
+  { value: "plausible", label: "Plausible" },
+  { value: "strong", label: "Strong" },
+]);
+export const ATLAS_ATTRIBUTIONS = Object.freeze([
+  { kind: "author", label: "You, the author" },
+  { kind: "source", label: "A source in your library" },
+  { kind: "named", label: "A named person or group" },
+]);
+const MAX_ATLAS_SHORT_CHARS = 200;
+const MAX_ATLAS_SUMMARY_CHARS = 20000;
+const MAX_ATLAS_UNCERTAINTY_CHARS = 2000;
+const MAX_ATLAS_ALIASES = 20;
+const MAX_ATLAS_EVIDENCE = 20;
+const MAX_ATLAS_DISSENTS = 20;
+const sameLocator = (a, b) => a.kind === b.kind && a.value === b.value && (a.to ?? "") === (b.to ?? "");
+const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+
+export const atlasKindLabel = (kind) => ATLAS_ENTRY_KINDS.find((item) => item.kind === kind)?.label || String(kind || "Entry");
+
+/** The atlas identifier rule: a lowercase ASCII slug of at most 64 bytes. */
+export function validAtlasId(value) {
+  const text = String(value ?? "");
+  return text.length <= 64 && NOTEBOOK_SLUG.test(text);
+}
+
+/** A readable identifier made from a label that nothing in the atlas uses yet. */
+export function suggestAtlasId(text, used = [], fallback = "entry") {
+  const taken = new Set(used);
+  let base = String(text ?? "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 56)
+    .replace(/-+$/, "");
+  if (!base) base = fallback;
+  if (!taken.has(base)) return base;
+  let number = 2;
+  while (taken.has(`${base}-${number}`)) number += 1;
+  return `${base}-${number}`;
+}
+
+const foldAtlasText = (value) => String(value ?? "").normalize("NFC").toLowerCase().replace(/\s+/g, " ").trim();
+
+/** Entries of one kind (or any) whose id, label or other names contain every word of the query. */
+export function atlasFilterEntries(entries, { query = "", kind = "" } = {}) {
+  const words = foldAtlasText(query).split(" ").filter(Boolean);
+  return (Array.isArray(entries) ? entries : []).filter((entry) => {
+    if (kind && entry.kind !== kind) return false;
+    if (!words.length) return true;
+    const haystack = foldAtlasText([entry.id, entry.label, ...(entry.aliases || [])].join(" "));
+    return words.every((word) => haystack.includes(word));
+  });
+}
+
+export function atlasKindSpec(kinds, kind) {
+  return (kinds?.relationships || []).find((item) => item.kind === kind) || null;
+}
+
+/**
+ * Entries that may stand at one end (`from` or `to`) of a relationship kind,
+ * read from the server's table of endpoint kinds. `other` is the entry chosen
+ * for the opposite end: it is never offered (no self-relationships) and it
+ * narrows a kind that joins two entries of one kind. With no kind chosen,
+ * every other entry is offered.
+ */
+export function atlasEndpointChoices(kinds, kind, end, entries, other = null) {
+  const spec = atlasKindSpec(kinds, kind);
+  const allowed = spec ? new Set(end === "from" ? spec.from : spec.to) : null;
+  return (Array.isArray(entries) ? entries : []).filter(
+    (entry) => (!allowed || allowed.has(entry.kind)) && (!spec?.sameKind || !other || entry.kind === other.kind) && (!other || entry.id !== other.id),
+  );
+}
+
+export function atlasEntryName(entries, id) {
+  const entry = (entries || []).find((item) => item.id === id);
+  return entry ? entry.label : `${id} (missing)`;
+}
+
+/** Who holds a position, as plain text. */
+export function atlasAttributionText(attribution, sources = []) {
+  if (attribution?.kind === "source") {
+    const source = (sources || []).find((item) => item.id === attribution.source);
+    return `the source ${source ? sourceLabel(source) : attribution.source}`;
+  }
+  if (attribution?.kind === "named") return String(attribution.name || "an unnamed party");
+  return "you (the author)";
+}
+
+/**
+ * A relationship's standing as text. It is derived from recorded dissent only:
+ * asserted, or contested by named parties. There is no wording for agreement,
+ * because nothing in the atlas can establish it.
+ */
+export function atlasStandingText(relationship, sources = []) {
+  const dissents = Array.isArray(relationship?.contestedBy) ? relationship.contestedBy : [];
+  if (!dissents.length) return "Asserted; no recorded dissent";
+  return `Contested: ${plural(dissents.length, "recorded dissent")} (by ${dissents.map((dissent) => atlasAttributionText(dissent.by, sources)).join("; ")})`;
+}
+
+export function atlasConfidenceText(relationship) {
+  const confidence = ATLAS_CONFIDENCE.find((item) => item.value === (relationship?.confidence || "tentative")) || ATLAS_CONFIDENCE[0];
+  return `${confidence.label} confidence, as held by the asserting party`;
+}
+
+export function atlasEvidenceText(relationship) {
+  if (relationship?.unsourced) return "Unsourced draft: no evidence cited yet";
+  return `Rests on ${plural(relationship?.evidence?.length || 0, "piece")} of evidence`;
+}
+
+/** The relationship read in its stored direction, such as "Plato authored Politeia". */
+export function atlasRelationshipSentence(relationship, entries = []) {
+  return `${atlasEntryName(entries, relationship.from)} ${String(relationship.kind || "").replace(/-/g, " ")} ${atlasEntryName(entries, relationship.to)}`;
+}
+
+/** Map a server diagnostic's field path to the atlas form control that edits it. */
+export function atlasDiagnosticControl(field, type = "entry") {
+  const path = String(field || "");
+  const name = path.replace(/\[\d+\].*$/, "").split(".")[0];
+  if (type === "entry") {
+    if (name === "bounds") return path.endsWith("until") ? "until-year" : "from-year";
+    return { id: "id", kind: "kind", label: "label", aliases: "aliases", summary: "summary", source: "source", visibility: "approved" }[name] || "";
+  }
+  const evidenceControl = (prefix, rest) => {
+    const found = rest.match(/^evidence\[(\d+)\]\.?(source|passage|locators)?/);
+    return found ? `${prefix}evidence-${found[1]}-${found[2] || "source"}` : "";
+  };
+  const party = (prefix, rest) => (rest.endsWith("source") ? `${prefix}-source` : rest.endsWith("name") ? `${prefix}-name` : prefix);
+  const dissent = path.match(/^contestedBy\[(\d+)\](?:\.(.*))?$/);
+  if (dissent) {
+    const [, index, rest = ""] = dissent;
+    if (rest.startsWith("by")) return party(`dissent-${index}`, rest);
+    if (rest === "note") return `dissent-${index}-note`;
+    return evidenceControl(`dissent-${index}-`, rest) || `dissent-${index}`;
+  }
+  if (name === "contestedBy") return "contested";
+  if (name === "assertedBy") return party("asserted", path);
+  if (name === "evidence") return evidenceControl("", path) || "evidence";
+  return { id: "kind", kind: "kind", from: "from", to: "to", confidence: "confidence", unsourced: "unsourced", uncertainty: "uncertainty", visibility: "approved" }[name] || "";
+}
+
+/** Server diagnostics as one line of text; a cycle or a blocking relationship names the relationship. */
+/** What a save or removal did to the published site, when the site publishes its atlas. */
+export function atlasBuildText(build) {
+  if (!build || typeof build !== "object") return "";
+  if (build.ok) return " The published Knowledge Atlas was rebuilt.";
+  return ` The change is saved, but the site could not be rebuilt: ${String(build.error || "unknown error")}`;
+}
+
+export function atlasErrorMessage(error) {
+  const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
+  if (!diagnostics.length) return error?.data?.error || error?.message || "The atlas could not be changed.";
+  return diagnostics
+    .map((item) => `${item.id && ["cycle", "still-linked"].includes(item.code) ? `Relationship ${item.id}: ` : ""}${item.field ? `${item.field}: ` : ""}${item.message}`)
+    .join(" ");
+}
+
+/** Copy the parts of an atlas response that describe the stored atlas into the view state. */
+export function applyAtlasState(state, result) {
+  for (const key of ["revision", "file", "entries", "relationships", "sources", "passages", "kinds", "notices", "missingConcepts"]) {
+    if (result && result[key] !== undefined) state[key] = result[key];
+  }
+  for (const key of ["entries", "relationships", "sources", "passages", "notices", "missingConcepts"]) if (!Array.isArray(state[key])) state[key] = [];
+  return state;
+}
+
+function atlasAttributionDraft(record) {
+  const value = record && typeof record === "object" ? record : { kind: "author" };
+  return {
+    original: structuredClone(value),
+    kind: ["author", "source", "named"].includes(value.kind) ? value.kind : "author",
+    source: typeof value.source === "string" ? value.source : "",
+    name: typeof value.name === "string" ? value.name : "",
+  };
+}
+
+function atlasAttributionPayload(draft) {
+  const record = { ...draft.original };
+  delete record.source;
+  delete record.name;
+  record.kind = draft.kind;
+  if (draft.kind === "source") record.source = draft.source;
+  if (draft.kind === "named") record.name = String(draft.name ?? "").trim();
+  return record;
+}
+
+/** `from` is the item's index in the stored list it was read from, or null for a new item. */
+export function atlasEvidenceDraft(record = {}, from = null) {
+  const value = record && typeof record === "object" ? record : {};
+  return { original: structuredClone(value), from: Number.isInteger(from) ? from : null, source: typeof value.source === "string" ? value.source : "", passage: typeof value.passage === "string" ? value.passage : "", locators: formatLocatorLines(value.locators) };
+}
+
+function atlasEvidencePayload(draft) {
+  const original = draft.original || {};
+  const record = { ...original };
+  delete record.locators;
+  delete record.passage;
+  record.source = draft.source;
+  const locators = keepUnchanged(parseLocatorLines(draft.locators), original.locators, sameLocator);
+  if (locators.length) record.locators = locators;
+  if (draft.passage) record.passage = draft.passage;
+  return record;
+}
+
+export function atlasEntryDraft(record = null, prefill = {}) {
+  const entry = record && typeof record === "object" ? record : {};
+  const year = (value) => (Number.isInteger(value) ? String(value) : "");
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof entry.id === "string" ? entry.id : String(prefill.id || ""),
+    kind: typeof entry.kind === "string" ? entry.kind : ATLAS_ENTRY_KINDS.some((item) => item.kind === prefill.kind) ? prefill.kind : "concept",
+    label: typeof entry.label === "string" ? entry.label : String(prefill.label || ""),
+    aliases: (Array.isArray(entry.aliases) ? entry.aliases : []).join("\n"),
+    summary: typeof entry.summary === "string" ? entry.summary : "",
+    source: typeof entry.source === "string" ? entry.source : "",
+    fromYear: year(entry.bounds?.from),
+    untilYear: year(entry.bounds?.until),
+    approved: entry.visibility === "approved",
+  };
+}
+
+/** The full entry to send. Unknown stored fields, including those inside `bounds`, are carried over. */
+export function atlasEntryPayload(draft) {
+  const original = draft.original || {};
+  const record = { ...original };
+  for (const field of ["aliases", "summary", "source", "bounds"]) delete record[field];
+  record.id = String(draft.id || "").trim();
+  record.kind = draft.kind;
+  record.label = String(draft.label ?? "").trim();
+  const aliases = textLines(draft.aliases);
+  if (aliases.length) record.aliases = aliases;
+  if (String(draft.summary ?? "").trim()) record.summary = draft.summary;
+  if (draft.kind === "work" && draft.source) record.source = draft.source;
+  const bounds = { ...(original.bounds || {}) };
+  delete bounds.from;
+  delete bounds.until;
+  if (String(draft.fromYear ?? "").trim()) bounds.from = Number(String(draft.fromYear).trim());
+  if (String(draft.untilYear ?? "").trim()) bounds.until = Number(String(draft.untilYear).trim());
+  if (Object.keys(bounds).length) record.bounds = bounds;
+  record.visibility = draft.approved ? "approved" : "private";
+  return record;
+}
+
+const atlasYearProblem = (value, field, label) => {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const year = /^-?\d{1,6}$/.test(text) ? Number(text) : NaN;
+  return Number.isInteger(year) && year !== 0 && Math.abs(year) <= 100000 ? null : { field, message: `${label} must be a whole year between -100000 and 100000; negative is BCE and there is no year 0.` };
+};
+
+/** A quick, advisory check; the server's validation stays authoritative. */
+export function validateAtlasEntryDraft(draft, { sources = [], used = [], creating = false } = {}) {
+  if (creating) {
+    if (!validAtlasId(draft.id)) return { field: "id", message: "Use an identifier of lowercase letters, digits and single hyphens, such as plato or the-good, at most 64 characters." };
+    if (used.includes(draft.id)) return { field: "id", message: "That identifier is already used in the atlas; choose another." };
+  }
+  const label = String(draft.label ?? "").trim();
+  if (!label) return { field: "label", message: "Enter a label." };
+  if (codePoints(label) > MAX_ATLAS_SHORT_CHARS) return { field: "label", message: `A label is limited to ${MAX_ATLAS_SHORT_CHARS} characters.` };
+  const aliases = textLines(draft.aliases);
+  if (aliases.length > MAX_ATLAS_ALIASES) return { field: "aliases", message: `An entry may have at most ${MAX_ATLAS_ALIASES} other names.` };
+  if (aliases.some((alias) => codePoints(alias) > MAX_ATLAS_SHORT_CHARS)) return { field: "aliases", message: `Each other name is limited to ${MAX_ATLAS_SHORT_CHARS} characters.` };
+  if (new Set(aliases).size !== aliases.length) return { field: "aliases", message: "Each other name may appear only once." };
+  if (codePoints(draft.summary) > MAX_ATLAS_SUMMARY_CHARS) return { field: "summary", message: `A summary is limited to ${MAX_ATLAS_SUMMARY_CHARS} characters.` };
+  if (draft.kind === "work" && draft.source && !sources.some((source) => source.id === draft.source && source.kind === "work")) return { field: "source", message: "Choose a work from your source library, or none." };
+  const year = atlasYearProblem(draft.fromYear, "from-year", "The start year") || atlasYearProblem(draft.untilYear, "until-year", "The end year");
+  if (year) return year;
+  if (String(draft.fromYear).trim() && String(draft.untilYear).trim() && Number(draft.fromYear) > Number(draft.untilYear)) return { field: "until-year", message: "The end year must not be earlier than the start year." };
+  return null;
+}
+
+export function atlasRelationshipDraft(record = null, prefill = {}) {
+  const value = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof value.id === "string" ? value.id : "",
+    kind: typeof value.kind === "string" ? value.kind : String(prefill.kind || ""),
+    from: typeof value.from === "string" ? value.from : String(prefill.from || ""),
+    to: typeof value.to === "string" ? value.to : String(prefill.to || ""),
+    assertedBy: atlasAttributionDraft(value.assertedBy),
+    confidence: ATLAS_CONFIDENCE.some((item) => item.value === value.confidence) ? value.confidence : "tentative",
+    evidence: (Array.isArray(value.evidence) ? value.evidence : []).map((item, index) => atlasEvidenceDraft(item, index)),
+    unsourced: Boolean(value.unsourced),
+    uncertainty: typeof value.uncertainty === "string" ? value.uncertainty : "",
+    contestedBy: (Array.isArray(value.contestedBy) ? value.contestedBy : []).map((item, index) => atlasDissentDraft(item, index)),
+    approved: value.visibility === "approved",
+  };
+}
+
+/** `from` is the dissent's index in the stored `contestedBy`, or null for a new dissent. */
+export function atlasDissentDraft(record = {}, from = null) {
+  const value = record && typeof record === "object" ? record : {};
+  return {
+    original: structuredClone(value),
+    from: Number.isInteger(from) ? from : null,
+    by: atlasAttributionDraft(value.by),
+    note: typeof value.note === "string" ? value.note : "",
+    evidence: (Array.isArray(value.evidence) ? value.evidence : []).map((item, index) => atlasEvidenceDraft(item, index)),
+  };
+}
+
+/**
+ * Rests a relationship draft on a newer stored copy. Every nested item read
+ * from the store takes the newer copy of the item it came from, wherever that
+ * item still exists, so fields added elsewhere at any level survive the save.
+ * An item rests on the newer copy only while the stored item at its index is
+ * still the same item (evidence: the same source and passage; a dissent: the
+ * same party). When items were removed elsewhere, the index points at another
+ * item, and the draft keeps its own copy rather than take that item's fields.
+ */
+export function rebaseAtlasRelationshipDraft(draft, current) {
+  const stored = (list, from) => (Array.isArray(list) && Number.isInteger(from) && list[from] && typeof list[from] === "object" ? list[from] : null);
+  const text = (value) => (typeof value === "string" ? value : "");
+  const sameEvidence = (a = {}, b = {}) => text(a.source) === text(b.source) && text(a.passage) === text(b.passage);
+  const party = (value) => (value && typeof value === "object" ? value : {});
+  const sameDissent = (a = {}, b = {}) => {
+    const [x, y] = [party(a.by), party(b.by)];
+    return text(x.kind) === text(y.kind) && text(x.source) === text(y.source) && text(x.name) === text(y.name);
+  };
+  const rebaseEvidence = (drafts, list) => {
+    for (const item of drafts) {
+      const newer = stored(list, item.from);
+      if (newer && sameEvidence(newer, item.original)) item.original = structuredClone(newer);
+    }
+  };
+  draft.original = structuredClone(current);
+  draft.assertedBy.original = structuredClone(current.assertedBy || { kind: "author" });
+  rebaseEvidence(draft.evidence, current.evidence);
+  for (const dissent of draft.contestedBy) {
+    const newer = stored(current.contestedBy, dissent.from);
+    if (!newer || !sameDissent(newer, dissent.original)) continue;
+    dissent.original = structuredClone(newer);
+    dissent.by.original = structuredClone(newer.by || { kind: "author" });
+    rebaseEvidence(dissent.evidence, newer.evidence);
+  }
+  return draft;
+}
+
+/** The full relationship to send, carrying unknown fields at every level the form edits. */
+export function atlasRelationshipPayload(draft) {
+  const record = { ...(draft.original || {}) };
+  for (const field of ["evidence", "unsourced", "uncertainty", "contestedBy"]) delete record[field];
+  record.id = String(draft.id || "").trim();
+  record.kind = draft.kind;
+  record.from = draft.from;
+  record.to = draft.to;
+  record.assertedBy = atlasAttributionPayload(draft.assertedBy);
+  record.confidence = draft.confidence;
+  const evidence = draft.evidence.map(atlasEvidencePayload);
+  if (evidence.length) record.evidence = evidence;
+  else if (draft.unsourced) record.unsourced = true;
+  if (String(draft.uncertainty ?? "").trim()) record.uncertainty = draft.uncertainty;
+  const dissents = draft.contestedBy.map((dissent) => {
+    const item = { ...dissent.original };
+    delete item.note;
+    delete item.evidence;
+    item.by = atlasAttributionPayload(dissent.by);
+    const cited = dissent.evidence.map(atlasEvidencePayload);
+    if (cited.length) item.evidence = cited;
+    if (String(dissent.note ?? "").trim()) item.note = dissent.note;
+    return item;
+  });
+  if (dissents.length) record.contestedBy = dissents;
+  record.visibility = draft.approved ? "approved" : "private";
+  return record;
+}
+
+function atlasPartyProblem(party, sources, prefix) {
+  if (party.kind === "source" && !sources.some((source) => source.id === party.source)) return { field: `${prefix}-source`, message: "Choose the source that holds this position." };
+  if (party.kind === "named") {
+    const name = String(party.name ?? "").trim();
+    if (!name) return { field: `${prefix}-name`, message: "Enter who holds this position." };
+    if (codePoints(name) > MAX_ATLAS_SHORT_CHARS) return { field: `${prefix}-name`, message: `A name is limited to ${MAX_ATLAS_SHORT_CHARS} characters.` };
+  }
+  return null;
+}
+
+function atlasEvidenceProblem(list, sources, passages, prefix, noun) {
+  for (const [index, item] of list.entries()) {
+    const base = `${prefix}evidence-${index}`;
+    if (!sources.some((source) => source.id === item.source)) return { field: `${base}-source`, message: `Choose the source ${noun} ${index + 1} rests on.` };
+    const locators = parseLocatorLines(item.locators);
+    if (locators.length > MAX_PASSAGE_LOCATORS) return { field: `${base}-locators`, message: `Each piece of evidence may have at most ${MAX_PASSAGE_LOCATORS} locators.` };
+    const bad = locators.findIndex((locator) => !locator.kind || !locator.value);
+    if (bad >= 0) return { field: `${base}-locators`, message: `Locator ${bad + 1} of ${noun} ${index + 1} must look like page: 514 or canonical: 514a to 520a.` };
+    if (item.passage) {
+      const passage = passages.find((candidate) => candidate.id === item.passage);
+      if (!passage) return { field: `${base}-passage`, message: `The notebook passage of ${noun} ${index + 1} no longer exists.` };
+      if (passage.source !== item.source) return { field: `${base}-passage`, message: `The passage of ${noun} ${index + 1} must be quoted from the same source.` };
+    }
+  }
+  return null;
+}
+
+/** A quick, advisory check of a relationship; the server's validation stays authoritative. */
+export function validateAtlasRelationshipDraft(draft, { entries = [], kinds = null, sources = [], passages = [] } = {}) {
+  const spec = atlasKindSpec(kinds, draft.kind);
+  if (!spec) return { field: "kind", message: "Choose what kind of relationship this is." };
+  const from = entries.find((entry) => entry.id === draft.from);
+  const to = entries.find((entry) => entry.id === draft.to);
+  if (!from) return { field: "from", message: "Choose the entry the relationship starts from." };
+  if (!spec.from.includes(from.kind)) return { field: "from", message: `A ${spec.kind} relationship cannot start from a ${from.kind}.` };
+  if (!to) return { field: "to", message: "Choose the entry the relationship points to." };
+  if (to.id === from.id) return { field: "to", message: "An entry cannot be related to itself." };
+  if (!spec.to.includes(to.kind)) return { field: "to", message: `A ${spec.kind} relationship cannot point to a ${to.kind}.` };
+  if (spec.sameKind && to.kind !== from.kind) return { field: "to", message: `A ${spec.kind} relationship joins two entries of the same kind.` };
+  const party = atlasPartyProblem(draft.assertedBy, sources, "asserted");
+  if (party) return party;
+  if (draft.evidence.length > MAX_ATLAS_EVIDENCE) return { field: "evidence", message: `A relationship may cite at most ${MAX_ATLAS_EVIDENCE} pieces of evidence.` };
+  const evidence = atlasEvidenceProblem(draft.evidence, sources, passages, "", "evidence");
+  if (evidence) return evidence;
+  if (!draft.evidence.length && !draft.unsourced) return { field: "evidence", message: "Add evidence, or mark this relationship as an unsourced draft." };
+  if (!draft.evidence.length && draft.confidence === "strong") return { field: "confidence", message: "An unsourced draft cannot be strong; cite evidence first." };
+  if (codePoints(draft.uncertainty) > MAX_ATLAS_UNCERTAINTY_CHARS) return { field: "uncertainty", message: `The uncertainty note is limited to ${MAX_ATLAS_UNCERTAINTY_CHARS} characters.` };
+  if (draft.contestedBy.length > MAX_ATLAS_DISSENTS) return { field: "contested", message: `A relationship may record at most ${MAX_ATLAS_DISSENTS} dissents.` };
+  for (const [index, dissent] of draft.contestedBy.entries()) {
+    const prefix = `dissent-${index}`;
+    const problem = atlasPartyProblem(dissent.by, sources, prefix) || atlasEvidenceProblem(dissent.evidence, sources, passages, `${prefix}-`, `dissent ${index + 1} evidence`);
+    if (problem) return problem;
+    if (!dissent.evidence.length && !String(dissent.note ?? "").trim()) return { field: `${prefix}-note`, message: `Dissent ${index + 1} needs evidence or a note saying why.` };
+    if (codePoints(dissent.note) > MAX_ATLAS_UNCERTAINTY_CHARS) return { field: `${prefix}-note`, message: `A dissent note is limited to ${MAX_ATLAS_UNCERTAINTY_CHARS} characters.` };
+  }
+  if (draft.approved) {
+    if (!draft.evidence.length) return { field: "approved", message: "An unsourced draft cannot be approved; cite evidence first." };
+    const notebookPointer = [...draft.evidence, ...draft.contestedBy.flatMap((dissent) => dissent.evidence)].some((item) => item.passage);
+    if (notebookPointer) return { field: "approved", message: "An approved relationship cannot point into your private notebook; clear the passage and keep the source and locators." };
+  }
+  return null;
+}
+
+/**
+ * The editor for one atlas entry or relationship. `state` is the atlas as last
+ * read and is updated in place after every save or conflict. Nothing is saved
+ * until the author submits; every server message reaches the page as text,
+ * and a save that meets a newer atlas keeps the draft until the author
+ * chooses the stored copy or keeps the draft on top of it.
+ */
+export function createAtlasForm({ api, state, type = "entry", item = null, prefill = {}, idPrefix = "oba-atlas-form", onSaved, onCancel, onRefreshed }) {
+  const isEntry = type === "entry";
+  const editing = Boolean(item);
+  let draft = isEntry ? atlasEntryDraft(item, prefill) : atlasRelationshipDraft(item, prefill);
+  let idTouched = Boolean(prefill.id);
+  let busy = false;
+  // null, or { current } once a save met a newer atlas: the author chooses before anything is sent again.
+  let conflict = null;
+  let touched = false;
+  const root = h("form", { class: "oba-capture-form oba-atlas-form", novalidate: true, "data-atlas-form": type });
+  const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+  const control = (name) => root.querySelector(`#${idPrefix}-${name}`);
+  const used = () => [...(state.entries || []), ...(state.relationships || [])].map((record) => record.id);
+  const passageById = (id) => (state.passages || []).find((passage) => passage.id === id) || null;
+  const say = (text, kind = "oba-small") => {
+    status.className = kind;
+    status.textContent = text;
+  };
+
+  const field = (name, labelText, input, hint) => {
+    input.id = `${idPrefix}-${name}`;
+    if (hint) {
+      input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+      input.setAttribute("data-hint-id", `${idPrefix}-${name}-hint`);
+    }
+    return h("div", { class: "oba-field", "data-atlas-field": name }, h("label", { for: input.id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint) : null);
+  };
+  const check = (name, labelText, checked, onToggle, hint, disabled = false) => {
+    const id = `${idPrefix}-${name}`;
+    const input = h("input", { id, type: "checkbox", checked, disabled, onChange: (event) => onToggle(event.target.checked) });
+    if (hint) {
+      input.setAttribute("aria-describedby", `${id}-hint`);
+      input.setAttribute("data-hint-id", `${id}-hint`);
+    }
+    return h("div", { "data-atlas-field": name }, h("div", { class: "oba-capture-check" }, input, h("label", { for: id }, labelText)), hint ? h("p", { class: "oba-small", id: `${id}-hint` }, hint) : null);
+  };
+  const fail = (message, name = "") => {
+    errorBox.hidden = false;
+    errorBox.textContent = message;
+    const target = name ? control(name) : null;
+    if (target) {
+      target.setAttribute("aria-invalid", "true");
+      // The hint stays; the error is added to it, never in its place.
+      target.setAttribute("aria-describedby", [target.getAttribute("data-hint-id"), errorBox.id].filter(Boolean).join(" "));
+      target.focus();
+    } else errorBox.focus();
+  };
+  const clearInvalid = () => {
+    for (const target of root.querySelectorAll("[aria-invalid]")) {
+      target.removeAttribute("aria-invalid");
+      const hint = target.getAttribute("data-hint-id");
+      if (hint) target.setAttribute("aria-describedby", hint);
+      else target.removeAttribute("aria-describedby");
+    }
+  };
+  /** Library sources to pick from: live ones, plus an archived one this record already uses, labelled. */
+  const sourceSelect = (current, onPick, onlyKind = "") => {
+    const fits = (source) => !onlyKind || source.kind === onlyKind;
+    const live = captureSources(state.sources).filter(fits);
+    const kept = (state.sources || []).filter((source) => source.archived && source.id === current && fits(source));
+    return h(
+      "select",
+      { onChange: (event) => onPick(event.target.value) },
+      h("option", { value: "", selected: !current }, onlyKind ? "None" : "Choose a source"),
+      [...live, ...kept].map((source) => h("option", { value: source.id, selected: current === source.id }, `${sourceLabel(source)}${source.archived ? " (archived)" : ""} (${source.kind})`)),
+    );
+  };
+  const rerender = (focusName) => {
+    render();
+    control(focusName)?.focus();
+  };
+
+  // ---- relationship parts
+  const partyEditor = (prefix, legend, party, hint) =>
+    h(
+      "fieldset",
+      { class: "oba-atlas-party", id: `${idPrefix}-${prefix}`, tabindex: "-1" },
+      h("legend", {}, legend),
+      hint ? h("p", { class: "oba-small" }, hint) : null,
+      ATLAS_ATTRIBUTIONS.map(({ kind, label }) => {
+        const id = `${idPrefix}-${prefix}-is-${kind}`;
+        return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-${prefix}-kind`, value: kind, checked: party.kind === kind, onChange: () => { party.kind = kind; rerender(`${prefix}-is-${kind}`); } }), h("label", { for: id }, label));
+      }),
+      party.kind === "source" ? field(`${prefix}-source`, "Source that holds this position", sourceSelect(party.source, (value) => { party.source = value; })) : null,
+      party.kind === "named" ? field(`${prefix}-name`, "Who holds this position", h("input", { type: "text", value: party.name, autocomplete: "off", onInput: (event) => { party.name = event.target.value; } }), "A person or group outside your library. Stored as text.") : null,
+    );
+
+  const pickPassage = (evidence, id, base) => {
+    evidence.passage = id;
+    const passage = passageById(id);
+    if (passage) {
+      if (!evidence.source) evidence.source = passage.source;
+      if (!String(evidence.locators).trim() && passage.locators?.length) evidence.locators = formatLocatorLines(passage.locators);
+    }
+    rerender(`${base}-passage`);
+  };
+
+  /** One list of evidence: library source, optional notebook passage, locators. */
+  const evidenceEditor = (list, prefix, names) => {
+    const items = list.map((evidence, index) => {
+      const base = `${prefix}evidence-${index}`;
+      const passages = (state.passages || []).filter((passage) => (!evidence.source || passage.source === evidence.source) && (!passage.archived || passage.id === evidence.passage));
+      return h(
+        "fieldset",
+        { class: "oba-atlas-evidence", id: `${idPrefix}-${base}`, tabindex: "-1" },
+        h("legend", {}, names.item(index + 1)),
+        field(`${base}-source`, "Source", sourceSelect(evidence.source, (value) => {
+          evidence.source = value;
+          if (evidence.passage && passageById(evidence.passage)?.source !== value) evidence.passage = "";
+          rerender(`${base}-source`);
+        })),
+        field(
+          `${base}-passage`,
+          "Notebook passage (optional)",
+          h(
+            "select",
+            { onChange: (event) => pickPassage(evidence, event.target.value, base) },
+            h("option", { value: "", selected: !evidence.passage }, passages.length ? "No passage" : "No passages from this source"),
+            passages.map((passage) => h("option", { value: passage.id, selected: evidence.passage === passage.id }, `${passage.preview} (${passage.id})`)),
+          ),
+          "Choosing one fills in its source and locators. It points into your private notebook, so an approved relationship cannot keep it.",
+        ),
+        field(`${base}-locators`, "Locators (optional)", h("textarea", { rows: 2, value: evidence.locators, spellcheck: "false", onInput: (event) => { evidence.locators = event.target.value; } }), "One per line, such as page: 514 or canonical: 514a to 520a."),
+        h("button", { class: "oba-btn", type: "button", "data-atlas-remove-evidence": base, onClick: () => { list.splice(index, 1); rerender(`add-${prefix}evidence`); say(`${names.item(index + 1)} removed.`); } }, names.remove(index + 1)),
+      );
+    });
+    return [
+      ...items,
+      h("button", {
+        class: "oba-btn",
+        type: "button",
+        id: `${idPrefix}-add-${prefix}evidence`,
+        "data-atlas-add-evidence": prefix || "relationship",
+        disabled: list.length >= MAX_ATLAS_EVIDENCE,
+        onClick: () => {
+          list.push(atlasEvidenceDraft());
+          if (list === draft.evidence) draft.unsourced = false;
+          rerender(`${prefix}evidence-${list.length - 1}-source`);
+        },
+      }, names.add),
+    ];
+  };
+
+  const dissentEditor = (dissent, index) => {
+    const prefix = `dissent-${index}`;
+    return h(
+      "fieldset",
+      { class: "oba-atlas-dissent", id: `${idPrefix}-${prefix}-item`, tabindex: "-1" },
+      h("legend", {}, `Dissent ${index + 1}`),
+      partyEditor(`${prefix}`, "Disputed by", dissent.by),
+      field(`${prefix}-note`, "Why it is disputed (optional if evidence is cited)", h("textarea", { rows: 2, value: dissent.note, onInput: (event) => { dissent.note = event.target.value; } })),
+      evidenceEditor(dissent.evidence, `${prefix}-`, {
+        item: (number) => `Dissent ${index + 1} evidence ${number}`,
+        add: `Add evidence to dissent ${index + 1}`,
+        remove: (number) => `Remove evidence ${number} from dissent ${index + 1}`,
+      }),
+      h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-atlas-remove-dissent": String(index), onClick: () => { draft.contestedBy.splice(index, 1); rerender("add-dissent"); say(`Dissent ${index + 1} removed.`); } }, `Remove dissent ${index + 1}`),
+    );
+  };
+
+  const entryFields = () => {
+    const fields = [];
+    if (editing) fields.push(h("p", { class: "oba-small" }, `Kind: ${atlasKindLabel(draft.kind)}. An entry keeps its kind; record a different kind of thing as a new entry. Identifier: ${draft.id}.`));
+    else {
+      fields.push(field("kind", "Kind", h("select", { onChange: (event) => { draft.kind = event.target.value; if (draft.kind !== "work") draft.source = ""; rerender("kind"); } }, ATLAS_ENTRY_KINDS.map((kind) => h("option", { value: kind.kind, selected: draft.kind === kind.kind }, kind.label))), "It decides which relationships the entry may join, and it cannot change later."));
+    }
+    fields.push(field("label", "Label", h("input", { type: "text", value: draft.label, autocomplete: "off", onInput: (event) => {
+      draft.label = event.target.value;
+      if (!editing && !idTouched) {
+        draft.id = suggestAtlasId(draft.label, used(), draft.kind);
+        const idInput = control("id");
+        if (idInput) idInput.value = draft.id;
+      }
+    } }), "Your name for it, shown in lists. Stored as text."));
+    if (!editing) fields.push(field("id", "Identifier", h("input", { type: "text", value: draft.id, autocomplete: "off", spellcheck: "false", onInput: (event) => { idTouched = true; draft.id = event.target.value.trim(); } }), "Lowercase letters, digits and hyphens. It cannot change later; a concept's identifier is what notebook concept links use."));
+    fields.push(
+      field("aliases", "Other names (optional)", h("textarea", { rows: 2, value: draft.aliases, onInput: (event) => { draft.aliases = event.target.value; } }), "One per line. Search finds an entry by any of them."),
+      field("summary", "Summary (optional)", h("textarea", { rows: 4, value: draft.summary, onInput: (event) => { draft.summary = event.target.value; } }), "Your own words. Quotations belong in notebook passages."),
+    );
+    if (draft.kind === "work") fields.push(field("source", "Source-library work (optional)", sourceSelect(draft.source, (value) => { draft.source = value; }, "work"), "Editions, translations and witnesses are cited as evidence, never made entries."));
+    fields.push(
+      h(
+        "fieldset",
+        { class: "oba-atlas-dates" },
+        h("legend", {}, "Dates (optional)"),
+        h("p", { class: "oba-small", id: `${idPrefix}-dates-hint` }, "Whole years; negative is BCE and there is no year 0. Dates are context only: nothing is ordered or related by them."),
+        field("from-year", "From year", h("input", { type: "text", inputmode: "numeric", value: draft.fromYear, autocomplete: "off", onInput: (event) => { draft.fromYear = event.target.value; } })),
+        field("until-year", "Until year", h("input", { type: "text", inputmode: "numeric", value: draft.untilYear, autocomplete: "off", onInput: (event) => { draft.untilYear = event.target.value; } })),
+      ),
+      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish this entry on the site's Knowledge Atlas pages and atlas.json, once the site turns on knowledgeAtlas.publish. Only its label, other names, summary, years and work source are published. Clearing it removes the entry from the next build."),
+    );
+    return fields;
+  };
+
+  const relationshipFields = () => {
+    const spec = atlasKindSpec(state.kinds, draft.kind);
+    const entries = state.entries || [];
+    const fromEntry = entries.find((entry) => entry.id === draft.from) || null;
+    const toEntry = entries.find((entry) => entry.id === draft.to) || null;
+    const entryOption = (entry, current) => h("option", { value: entry.id, selected: current === entry.id }, `${entry.label} (${atlasKindLabel(entry.kind).toLowerCase()}, ${entry.id})`);
+    const endpointSelect = (end, current, choices, placeholder) =>
+      h(
+        "select",
+        { onChange: (event) => {
+          draft[end] = event.target.value;
+          const otherEnd = end === "from" ? "to" : "from";
+          const chosen = entries.find((entry) => entry.id === draft[end]) || null;
+          if (draft[otherEnd] && !atlasEndpointChoices(state.kinds, draft.kind, otherEnd, entries, chosen).some((entry) => entry.id === draft[otherEnd])) {
+            draft[otherEnd] = "";
+            rerender(end);
+            say(`The ${otherEnd === "from" ? "starting" : "target"} entry did not fit, so it was cleared.`);
+            return;
+          }
+          rerender(end);
+        } },
+        h("option", { value: "", selected: !current }, placeholder),
+        choices.map((entry) => entryOption(entry, current)),
+      );
+    const kindHint = spec
+      ? `Reads “${fromEntry ? fromEntry.label : "A"} ${spec.kind.replace(/-/g, " ")} ${toEntry ? toEntry.label : "B"}”; from the other end it reads “${spec.inverse}”. Only this direction is asserted. Joins ${spec.from.join(", ")} to ${spec.to.join(", ")}${spec.sameKind ? ", both of one kind" : ""}${spec.acyclic ? "; it cannot form a cycle" : ""}.`
+      : "The kind decides which entries may stand at each end.";
+    const fields = [
+      field("kind", "Kind of relationship", h(
+        "select",
+        { onChange: (event) => {
+          draft.kind = event.target.value;
+          const cleared = [];
+          const from = entries.find((entry) => entry.id === draft.from) || null;
+          if (draft.from && !atlasEndpointChoices(state.kinds, draft.kind, "from", entries, null).some((entry) => entry.id === draft.from)) {
+            draft.from = "";
+            cleared.push("starting");
+          }
+          if (draft.to && !atlasEndpointChoices(state.kinds, draft.kind, "to", entries, draft.from ? from : null).some((entry) => entry.id === draft.to)) {
+            draft.to = "";
+            cleared.push("target");
+          }
+          rerender("kind");
+          if (cleared.length) say(`The ${cleared.join(" and ")} ${cleared.length === 1 ? "entry does" : "entries do"} not fit a ${draft.kind} relationship, so ${cleared.length === 1 ? "it was" : "they were"} cleared.`);
+        } },
+        h("option", { value: "", selected: !draft.kind }, "Choose a kind"),
+        (state.kinds?.relationships || []).map((kind) => h("option", { value: kind.kind, selected: draft.kind === kind.kind }, `${kind.kind} (${kind.from.length === 5 ? "any" : kind.from.join(", ")} to ${kind.to.length === 5 ? "any" : kind.to.join(", ")})`)),
+      ), kindHint),
+      field("from", "From", endpointSelect("from", draft.from, atlasEndpointChoices(state.kinds, draft.kind, "from", entries, toEntry), "Choose the starting entry"), "Only entries this kind may start from are offered."),
+      field("to", "To", endpointSelect("to", draft.to, atlasEndpointChoices(state.kinds, draft.kind, "to", entries, fromEntry), "Choose the target entry"), "Only entries this kind may point to are offered."),
+      partyEditor("asserted", "Asserted by", draft.assertedBy, "Who makes this claim. It is attribution, not a contributor credit."),
+      field("confidence", "Confidence", h("select", { onChange: (event) => { draft.confidence = event.target.value; } }, ATLAS_CONFIDENCE.map((item) => h("option", { value: item.value, selected: draft.confidence === item.value }, item.label))), "How firmly the asserting party holds it, never how widely it is accepted. An unsourced draft cannot be strong."),
+      h(
+        "fieldset",
+        { class: "oba-atlas-evidence-list", id: `${idPrefix}-evidence`, tabindex: "-1" },
+        h("legend", {}, "Evidence"),
+        h("p", { class: "oba-small" }, "Sources from your library, with optional notebook passages and locators. Evidence is cited, never copied."),
+        evidenceEditor(draft.evidence, "", { item: (number) => `Evidence ${number}`, add: "Add evidence", remove: (number) => `Remove evidence ${number}` }),
+        check("unsourced", "Unsourced draft: no evidence yet", draft.unsourced && !draft.evidence.length, (on) => { draft.unsourced = on; }, draft.evidence.length ? "Remove all evidence to mark this relationship as an unsourced draft." : "The explicit draft state for a relationship that cites nothing yet. It can be neither strong nor approved.", draft.evidence.length > 0),
+      ),
+      field("uncertainty", "What is uncertain (optional)", h("textarea", { rows: 2, value: draft.uncertainty, onInput: (event) => { draft.uncertainty = event.target.value; } }), "Your note on what is doubtful or unsettled. It is shown wherever the relationship is listed."),
+      h(
+        "fieldset",
+        { class: "oba-atlas-contested", id: `${idPrefix}-contested`, tabindex: "-1" },
+        h("legend", {}, "Disagreements (optional)"),
+        h("p", { class: "oba-small" }, "Each recorded dissent makes the relationship contested. Nothing here can mark a relationship as agreed."),
+        draft.contestedBy.map(dissentEditor),
+        h("button", { class: "oba-btn", type: "button", id: `${idPrefix}-add-dissent`, "data-atlas-add-dissent": "true", disabled: draft.contestedBy.length >= MAX_ATLAS_DISSENTS, onClick: () => { draft.contestedBy.push(atlasDissentDraft({ by: { kind: "named" } })); rerender(`dissent-${draft.contestedBy.length - 1}-name`); } }, "Add a dissent"),
+      ),
+      check("approved", "Approved for the publication projection", draft.approved, (on) => { draft.approved = on; }, "Your consent to publish it with the Knowledge Atlas, only while both entries are approved too, with who asserts it, its evidence, confidence, doubt and dissents. An unsourced draft or evidence pointing into the private notebook cannot be approved. Clearing it removes it from the next build."),
+    ];
+    return fields;
+  };
+
+  const conflictNotice = () => {
+    if (!editing) return h("p", { class: "oba-notice", role: "alert", "data-atlas-conflict": "true" }, "The atlas changed after you opened it, so nothing was saved. Your draft is still here; save again to add it to the latest atlas.");
+    const removed = !conflict.current;
+    return h(
+      "div",
+      { class: "oba-notice", role: "alert", "data-atlas-conflict": "true" },
+      h("p", {}, removed ? `This ${type} was removed from the atlas after you opened it, so nothing was saved. Your draft is still here.` : `This ${type} was changed after you opened it, so nothing was saved. Your draft is still here. Choose which copy to continue with; nothing is overwritten until you save.`),
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", "data-atlas-conflict-use": "stored", onClick: () => resolveConflict(true) }, removed ? "Discard my draft" : "Use the stored copy"),
+        removed ? null : h("button", { class: "oba-btn", type: "button", "data-atlas-conflict-use": "draft", onClick: () => resolveConflict(false) }, "Keep my draft"),
+      ),
+    );
+  };
+
+  const resolveConflict = (useStored) => {
+    if (!conflict) return;
+    const { current } = conflict;
+    conflict = null;
+    errorBox.hidden = true;
+    clearInvalid();
+    if (useStored) {
+      if (!current) {
+        touched = false;
+        onCancel?.();
+        return;
+      }
+      draft = isEntry ? atlasEntryDraft(current) : atlasRelationshipDraft(current);
+      touched = false;
+      say("Showing the stored copy.");
+    } else {
+      // The author has seen the newer copy: the draft now rests on it, and its unknown fields carry over.
+      if (isEntry) draft.original = structuredClone(current);
+      else rebaseAtlasRelationshipDraft(draft, current);
+      say("Your draft now rests on the latest copy. Review it, then save.");
+    }
+    rerender(isEntry ? "label" : "kind");
+  };
+
+  const render = () => {
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-atlas-save": "true", disabled: busy || Boolean(conflict && editing) }, editing ? "Save changes" : isEntry ? "Add entry" : "Add relationship");
+    const cancel = h("button", { class: "oba-btn", type: "button", "data-atlas-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
+    root.replaceChildren(...(isEntry ? entryFields() : relationshipFields()), errorBox, conflict ? conflictNotice() : null, h("div", { class: "oba-toolbar" }, save, cancel), status);
+  };
+
+  const refresh = async () => {
+    applyAtlasState(state, await api.call("GET", "research/atlas"));
+  };
+
+  root.addEventListener("input", () => { touched = true; });
+  root.addEventListener("change", () => { touched = true; });
+  root.addEventListener("click", (event) => {
+    if (event.target?.tagName === "BUTTON" && event.target.type === "button" && !event.target.dataset?.atlasCancel && !event.target.dataset?.atlasConflictUse) touched = true;
+  });
+  root.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    if (conflict && editing) {
+      fail("Choose the stored copy or keep your draft before saving.");
+      return;
+    }
+    errorBox.hidden = true;
+    clearInvalid();
+    conflict = null;
+    const problem = isEntry
+      ? validateAtlasEntryDraft(draft, { sources: state.sources || [], used: used(), creating: !editing })
+      : validateAtlasRelationshipDraft(draft, { entries: state.entries || [], kinds: state.kinds, sources: state.sources || [], passages: state.passages || [] });
+    if (problem) return fail(problem.message, problem.field);
+    if (!isEntry && !editing) draft.id = suggestAtlasId(`${draft.from}-${draft.kind}-${draft.to}`, used(), "relationship");
+    busy = true;
+    root.querySelector("[data-atlas-save]")?.setAttribute("disabled", "");
+    say("Saving…");
+    const key = isEntry ? "entry" : "relationship";
+    try {
+      const result = await api.call(editing ? "PUT" : "POST", `research/atlas/${isEntry ? "entries" : "relationships"}`, { json: { revision: state.revision, [key]: isEntry ? atlasEntryPayload(draft) : atlasRelationshipPayload(draft) } });
+      applyAtlasState(state, result);
+      busy = false;
+      touched = false;
+      say("");
+      onSaved?.({ type, item: result[key] || null, build: result.build });
+    } catch (error) {
+      busy = false;
+      if (error.status === 409 && error.data?.conflict) {
+        try {
+          await refresh();
+        } catch {
+          // The next save reports whatever is wrong.
+        }
+        conflict = { current: error.data.current ?? null };
+        say("Not saved: the atlas changed elsewhere.", "oba-error");
+        render();
+        onRefreshed?.();
+        (editing ? root.querySelector("[data-atlas-conflict-use]") : root.querySelector("[data-atlas-save]"))?.focus();
+        return;
+      }
+      say("Not saved. The stored atlas is unchanged.", "oba-error");
+      render();
+      const first = error.data?.diagnostics?.[0];
+      fail(atlasErrorMessage(error), first ? atlasDiagnosticControl(first.field, type) : "");
+    }
+  });
+
+  render();
+  return {
+    element: root,
+    isDirty: () => touched && !busy,
+    focus() {
+      (control(isEntry ? (editing ? "label" : "kind") : "kind") || root.querySelector("input,select,textarea,button"))?.focus();
+    },
+  };
+}
+
 export const SHARED_SOURCE_KINDS = Object.freeze([
   { value: "video", label: "Video", example: "e.g. How to Listen, a talk on YouTube" },
   { value: "article", label: "Article", example: "e.g. The Slow Read, an essay in a magazine" },
@@ -2060,7 +2901,7 @@ export function seriesFailure(error) {
 export const REVEAL_POLICIES = Object.freeze([
   { value: "independent", label: "Independent", help: "Nobody sees anyone else's draft." },
   { value: "voluntary", label: "Voluntary", help: "Any two or more writers who offer a revision share those revisions with each other." },
-  { value: "allReady", label: "Everyone ready", help: "Nothing is shared until every writer has offered a revision." },
+  { value: "allReady", label: "Everyone ready", help: "Nothing is shared until every writer has offered a revision. If a writer cannot or will not offer, a coordinator can switch to Voluntary or change that person's role." },
 ]);
 
 /** One comparison slot as words: whose it is, and what the reader may know about it. */
@@ -2090,6 +2931,90 @@ export function previewStateText(preview) {
   if (preview?.ready) return "Every required author has approved this exact piece.";
   if (preview?.complete) return "Not ready to publish: approvals are missing or out of date.";
   return "Incomplete: some sections are not shared with you at their current revision.";
+}
+
+/** Whose approval publication needs (ADR 0052). Every writer approves under every rule. */
+export const APPROVAL_REQUIREMENTS = Object.freeze([
+  { value: "allAuthors", label: "Every author", help: "Everyone taking part as an author approves, whether or not they wrote a section." },
+  { value: "contributingAuthors", label: "Everyone who wrote", help: "Only authors who wrote a section, or are named on a conversation item, approve." },
+  { value: "namedAuthors", label: "Writers and named people", help: "Everyone who wrote approves, and so do the people you choose below, even if they later leave." },
+  { value: "authorsWithRoles", label: "Writers and people with a role", help: "Everyone who wrote approves, and so does every author with a role you choose below." },
+]);
+
+/** The roles a role-based rule can list. Readers and editors cannot approve, so they are not offered. */
+export const APPROVAL_ROLE_CHOICES = Object.freeze([
+  { value: "siteOwner", label: "Site owner" },
+  { value: "coordinator", label: "Coordinator" },
+  { value: "contributor", label: "Contributor" },
+]);
+
+const ROLE_WORDS = { siteOwner: "a site owner", coordinator: "a coordinator", contributor: "a contributor", editor: "an editor", reader: "a reader" };
+
+/** The server's policy as form choices: one kind, the named people, the roles and the scope. */
+export function approvalPolicyChoice(policy) {
+  const requirement = policy?.requirement ?? "allAuthors";
+  const choice = { kind: "allAuthors", named: [], roles: [], scope: policy?.scope === "wholePiece" ? "wholePiece" : "ownSections" };
+  if (typeof requirement === "string") choice.kind = APPROVAL_REQUIREMENTS.some((item) => item.value === requirement) ? requirement : "allAuthors";
+  else if (Array.isArray(requirement?.namedAuthors)) Object.assign(choice, { kind: "namedAuthors", named: [...requirement.namedAuthors] });
+  else if (Array.isArray(requirement?.authorsWithRoles)) Object.assign(choice, { kind: "authorsWithRoles", roles: [...requirement.authorsWithRoles] });
+  return choice;
+}
+
+/**
+ * Everyone a named rule can list: people who can approve now, then anyone the current rule names
+ * who no longer can (they left, or lost the approve grant). Those stay chosen, so nothing is kept
+ * unseen, and can be cleared like anyone else.
+ */
+export function approvalPeopleRows(rule) {
+  const rows = (rule?.approvers || []).map((person) => ({ participantId: person.participantId, displayName: person.displayName, canApprove: true }));
+  for (const person of rule?.formerApprovers || []) {
+    if (!rows.some((row) => row.participantId === person.participantId)) rows.push({ participantId: person.participantId, displayName: person.displayName || "Someone no longer in this reflection", canApprove: false });
+  }
+  return rows;
+}
+
+/** The policy the server expects for these choices, or a sentence saying what is missing. */
+export function approvalPolicyPayload(choice) {
+  const scope = choice?.scope === "wholePiece" ? "wholePiece" : "ownSections";
+  if (choice?.kind === "namedAuthors") {
+    const named = [...new Set(choice.named || [])];
+    if (!named.length) return { error: "Choose at least one person who must approve." };
+    return { policy: { requirement: { namedAuthors: named }, scope } };
+  }
+  if (choice?.kind === "authorsWithRoles") {
+    const roles = [...new Set(choice.roles || [])];
+    if (!roles.length) return { error: "Choose at least one role whose authors must approve." };
+    return { policy: { requirement: { authorsWithRoles: roles }, scope } };
+  }
+  const kind = choice?.kind === "contributingAuthors" ? "contributingAuthors" : "allAuthors";
+  return { policy: { requirement: kind, scope } };
+}
+
+/** The rule in words, with anything that keeps it from being met as things stand. */
+export function approvalRuleText(rule) {
+  const parts = [rule?.summary || "Every author must approve."];
+  const problems = [];
+  if (rule?.unmetNamed?.length) problems.push(`${rule.unmetNamed.join(", ")} can no longer approve`);
+  for (const role of rule?.unmetRoles || []) problems.push(`no author is ${ROLE_WORDS[role] || "in that role"}`);
+  if (problems.length) {
+    parts.push(`It cannot be met as things stand: ${problems.join("; ")}.`);
+    // Only a site owner can take a named person off the rule; a coordinator can change a role.
+    if (rule.unmetNamed?.length) parts.push("A site owner can take them off the rule, or restore their access.");
+    if (rule.unmetRoles?.length) parts.push("A coordinator can change the rule, or give an author that role.");
+  }
+  return parts.join(" ");
+}
+
+/** A failed rule change as words, and what kind of failure it was. */
+export function approvalRuleFailure(error) {
+  const status = error?.status;
+  const text = error?.data?.error || error?.message || "";
+  if (!status) return { kind: "offline", message: "Could not reach the server. The rule did not change; try again when you are back." };
+  if (status === 409) return { kind: "conflict", message: text || "The approval rule changed elsewhere. Reload to see it; nothing was changed." };
+  if (status === 403 && error?.data?.field === "policy") return { kind: "needsOwner", message: text || "Only a site owner can stop someone from having to approve. Nothing was changed." };
+  if (status === 404 || status === 403) return { kind: "denied", message: "You cannot choose the approval rule for this reflection, or your access changed." };
+  if (status === 422) return { kind: "invalid", message: text || "That approval rule is not valid. Nothing was changed." };
+  return { kind: "other", message: text || "That did not work. Nothing was changed; try again." };
 }
 
 /** The line that starts a new part of a draft (ADR 0029). It is invisible in published output. */
@@ -3558,7 +4483,7 @@ export class ObAdmin extends AdminElement {
   shownShellModules() {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
-    if (["sources", "research"].includes(this.activeRoute)) visible.add("evidence");
+    if (["sources", "research", "atlas"].includes(this.activeRoute)) visible.add("evidence");
     return visible;
   }
 
@@ -3702,6 +4627,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Sources", detail: "Keep private research sources, editions, translations, and references in one library." }
       : active === "research"
         ? { title: "Research notebook", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }
+      : active === "atlas"
+        ? { title: "Knowledge Atlas", detail: "Relate people, works, concepts, movements and events privately, with who asserts each link and on what evidence." }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "shared"
@@ -3734,7 +4661,7 @@ export class ObAdmin extends AdminElement {
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"))),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"), h("a", { class: "oba-tab", "aria-current": active === "atlas" ? "page" : null, href: "#/atlas" }, "Atlas"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
@@ -3917,6 +4844,7 @@ export class ObAdmin extends AdminElement {
       { label: "Analytics", category: "Observe", keywords: "views visitors", run: () => go("#/analytics") },
       { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go("#/sources") },
       { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go("#/research") },
+      { label: "Knowledge Atlas", category: "Research", keywords: "atlas people works concepts movements events relationships influence explore", run: () => go("#/atlas") },
       { label: "Contributors", category: "Site", keywords: "authors credits orcid identity", run: () => go("#/contributors") },
       { label: "View site", category: "Site", keywords: "public blog", run: () => open("/", "_blank", "noopener") },
       { label: "Advanced tools", category: "Workspace", keywords: "more optional hidden ai assistant research distribution", run: () => this.openAdvancedTools() },
@@ -4076,6 +5004,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "contributors") await this.showContributors();
       else if (head === "sources") await this.showSources();
       else if (head === "research") await this.showResearch();
+      else if (head === "atlas") await this.showAtlas(safeDecodeURIComponent(tail));
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
       else if (head === "shared") await this.showSharedReflections();
@@ -5115,6 +6044,14 @@ export class ObAdmin extends AdminElement {
         entry ? h("p", { class: "oba-small" }, `ID ${entry.id}. Private; never published.`) : null,
         form.element,
         linked.length ? h("p", { class: "oba-small" }, `${linked.length} note${linked.length === 1 ? "" : "s"} link${linked.length === 1 ? "s" : ""} to this passage, so it cannot be removed until they are.`) : null,
+        entry && selected.type === "note" && entry.concepts?.length
+          ? h(
+              "nav",
+              { class: "oba-atlas-concept-links", "aria-label": "Concepts in the Knowledge Atlas", "data-atlas-concepts": "true" },
+              h("p", { class: "oba-small" }, "Concepts in the Knowledge Atlas:"),
+              h("ul", {}, entry.concepts.map((concept) => h("li", {}, h("a", { href: `#/atlas/${encodeURIComponent(concept)}`, "data-atlas-concept": concept }, concept)))),
+            )
+          : null,
         backlinks,
         entry
           ? h(
@@ -5419,6 +6356,342 @@ export class ObAdmin extends AdminElement {
         ),
       ),
     );
+  }
+
+  // ---- knowledge atlas
+
+  /**
+   * The private Knowledge Atlas: entries listed, searched and filtered as
+   * text, an editor for one entry or relationship, and a textual explorer of
+   * each entry's relationships read from its side. There is no graph drawing,
+   * so the lists are the whole interface. `focus` opens one entry by id, or
+   * offers to add a concept with that id when a notebook link names a concept
+   * that has no entry yet.
+   */
+  async showAtlas(focus = "") {
+    let loaded;
+    try {
+      loaded = await this.api.call("GET", "research/atlas");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      // A damaged atlas (or library or notebook) is reported, never replaced.
+      this.mount(
+        this.shell(
+          "atlas",
+          h("p", { class: "oba-error", role: "alert" }, `The Knowledge Atlas could not be read. ${atlasErrorMessage(error)}`),
+          error.data?.file ? h("p", { class: "oba-small" }, `Repair ${error.data.file} by hand, then reload this view. Nothing was changed.`) : null,
+        ),
+      );
+      return;
+    }
+    const state = applyAtlasState({}, loaded);
+    const mountedView = this.viewVersion + 1;
+    const filters = { query: "", kind: "" };
+    let selected = null; // null, or { type: "entry" | "relationship", id: string | null, prefill }
+    let form = null;
+    let busy = false;
+    let exploreSequence = 0;
+
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const say = (text, kind = "oba-small") => {
+      status.className = kind;
+      status.textContent = text;
+    };
+    const count = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-atlas-count": "true" });
+    const search = h("input", { id: "oba-atlas-search", type: "search", autocomplete: "off", spellcheck: "false", "aria-controls": "oba-atlas-entries", placeholder: "Label, other name, or ID" });
+    const kindFilter = h(
+      "select",
+      { id: "oba-atlas-kind-filter", "aria-controls": "oba-atlas-entries", onChange: (event) => { filters.kind = event.target.value; renderLists(); } },
+      h("option", { value: "" }, "All kinds"),
+      ATLAS_ENTRY_KINDS.map((kind) => h("option", { value: kind.kind }, kind.label)),
+    );
+    const list = h("ul", { class: "oba-source-list", id: "oba-atlas-entries", "aria-labelledby": "oba-atlas-entries-heading" });
+    const listNav = h("nav", { "aria-label": "Atlas entries" });
+    const notices = h("div", { class: "oba-atlas-notices", "data-atlas-notices": "true" });
+    const panel = h("section", { class: "oba-source-editor", "aria-labelledby": "oba-atlas-heading" });
+    const newEntryButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-atlas-new": "entry", onClick: () => open({ type: "entry", id: null }) }, "New entry");
+    const newRelationshipButton = h("button", { class: "oba-btn", type: "button", "data-atlas-new": "relationship", onClick: () => open({ type: "relationship", id: null }) }, "New relationship");
+    const entryById = (id) => state.entries.find((entry) => entry.id === id) || null;
+    const relationshipById = (id) => state.relationships.find((relationship) => relationship.id === id) || null;
+    const joinCount = (id) => state.relationships.filter((relationship) => relationship.from === id || relationship.to === id).length;
+    const confirmDiscard = () => !form?.isDirty() || globalThis.confirm?.("Discard the unsaved atlas change?") !== false;
+
+    const renderNotices = () => {
+      const parts = [];
+      if (state.notices.length) {
+        parts.push(
+          h(
+            "section",
+            { class: "oba-notice", "aria-labelledby": "oba-atlas-notices-heading" },
+            h("h2", { class: "oba-small-heading", id: "oba-atlas-notices-heading" }, "Notices"),
+            h("ul", {}, state.notices.map((notice) => h("li", {}, `Relationship ${notice.id}, ${notice.field}: ${notice.message}`))),
+          ),
+        );
+      }
+      if (state.missingConcepts.length) {
+        parts.push(
+          h(
+            "section",
+            { "aria-labelledby": "oba-atlas-missing-heading" },
+            h("h2", { class: "oba-small-heading", id: "oba-atlas-missing-heading" }, "Concepts your notes link to without an entry"),
+            h("ul", { class: "oba-atlas-chips" }, state.missingConcepts.map((id) => h("li", {}, h("button", { class: "oba-btn", type: "button", "data-atlas-missing-concept": id, onClick: () => open({ type: "entry", id: null, prefill: { id, kind: "concept" } }) }, `Add concept ${id}`)))),
+          ),
+        );
+      }
+      notices.replaceChildren(...parts);
+    };
+
+    const renderLists = () => {
+      const shown = atlasFilterEntries(state.entries, filters);
+      const total = state.entries.length;
+      const contested = state.relationships.filter((relationship) => relationship.contestedBy?.length).length;
+      const drafts = state.relationships.filter((relationship) => relationship.unsourced).length;
+      const entriesText = shown.length === total ? plural(total, "entry", "entries") : `${shown.length} of ${plural(total, "entry", "entries")} shown`;
+      count.textContent = `${entriesText}, ${plural(state.relationships.length, "relationship")}${contested ? `, ${contested} contested` : ""}${drafts ? `, ${plural(drafts, "unsourced draft")}` : ""}.`;
+      const row = (entry) => {
+        const joins = joinCount(entry.id);
+        return h(
+          "li",
+          {},
+          h(
+            "button",
+            { class: "oba-source-item", type: "button", "data-atlas-entry": entry.id, "aria-current": selected?.type === "entry" && selected.id === entry.id ? "true" : null, onClick: () => open({ type: "entry", id: entry.id }) },
+            h("strong", {}, entry.label),
+            h("span", { class: "oba-small" }, `${atlasKindLabel(entry.kind)} · ${plural(joins, "relationship")}${entry.visibility === "approved" ? " · approved" : ""}`),
+          ),
+        );
+      };
+      list.replaceChildren(...(shown.length ? shown.map(row) : [h("li", { class: "oba-notice" }, total ? "No entries match the search and kind." : "No entries yet. Add a person, work, concept, movement or event.")]));
+      listNav.replaceChildren(h("h2", { class: "oba-small-heading", id: "oba-atlas-entries-heading" }, "Entries"), list);
+      newRelationshipButton.disabled = total < 2;
+      renderNotices();
+    };
+
+    const onSaved = ({ type, item, build }) => {
+      if (this.viewVersion !== mountedView) return;
+      if (item) selected = { type, id: item.id };
+      renderLists();
+      renderPanel(true);
+      say(`${type === "entry" ? "Entry saved to the private atlas." : "Relationship saved to the private atlas."}${atlasBuildText(build)}`, build && !build.ok ? "oba-error" : "oba-ok");
+    };
+    const onRefreshed = () => {
+      if (this.viewVersion === mountedView) renderLists();
+    };
+    const heading = (text) => h("h2", { id: "oba-atlas-heading", tabindex: "-1" }, text);
+
+    const incidentItem = (entry, incident) => {
+      const relationship = incident.relationship;
+      const known = typeof incident.other?.label === "string";
+      const otherName = known ? incident.other.label : `${incident.other?.id} (missing)`;
+      const reading = `${entry.label} ${incident.label} ${otherName}`;
+      return h(
+        "li",
+        { class: "oba-atlas-incident", "data-atlas-incident": relationship.id, "data-standing": incident.standing },
+        h("p", {}, h("strong", {}, reading), known ? h("span", { class: "oba-small" }, ` (${atlasKindLabel(incident.other.kind).toLowerCase()})`) : null),
+        h(
+          "ul",
+          { class: "oba-atlas-facts" },
+          h("li", {}, `Asserted by ${atlasAttributionText(relationship.assertedBy, state.sources)}`),
+          h("li", {}, atlasConfidenceText(relationship)),
+          h("li", { "data-atlas-standing": incident.standing }, atlasStandingText(relationship, state.sources)),
+          h("li", {}, atlasEvidenceText(relationship)),
+          relationship.uncertainty ? h("li", {}, `Uncertain: ${relationship.uncertainty}`) : null,
+          h("li", {}, relationship.visibility !== "approved" ? "Private" : incident.projected ? "Approved; published with the Knowledge Atlas when the site publishes it" : "Approved, but stays private while an entry it joins is private"),
+        ),
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          h("button", { class: "oba-btn", type: "button", "data-atlas-open-relationship": relationship.id, "aria-label": `Edit relationship: ${reading}`, onClick: () => open({ type: "relationship", id: relationship.id }) }, "Edit relationship"),
+          known ? h("button", { class: "oba-btn", type: "button", "data-atlas-go": incident.other.id, onClick: () => open({ type: "entry", id: incident.other.id }) }, `Explore ${otherName}`) : null,
+        ),
+      );
+    };
+
+    /** The entry's relationships read fresh from the stored atlas, outgoing then incoming, as lists. */
+    const loadExplorer = async (entry, box) => {
+      const sequence = ++exploreSequence;
+      const title = () => h("h3", { id: "oba-atlas-explorer-heading" }, `Relationships of ${entry.label}`);
+      let found;
+      try {
+        found = await this.api.call("POST", "research/atlas/explore", { json: { id: entry.id } });
+      } catch (error) {
+        if (sequence !== exploreSequence || this.viewVersion !== mountedView) return;
+        box.replaceChildren(title(), h("p", { class: "oba-error", role: "alert" }, `The relationships could not be listed. ${atlasErrorMessage(error)}`));
+        return;
+      }
+      if (sequence !== exploreSequence || this.viewVersion !== mountedView) return;
+      const group = (key, name, items, empty) => {
+        const id = `oba-atlas-explorer-${key}`;
+        return h(
+          "section",
+          { "aria-labelledby": id, "data-atlas-direction": key },
+          h("h4", { class: "oba-small-heading", id }, `${name} (${items.length})`),
+          items.length ? h("ul", { class: "oba-atlas-incidents", "aria-labelledby": id }, items.map((incident) => incidentItem(entry, incident))) : h("p", { class: "oba-small" }, empty),
+        );
+      };
+      const notes = found.notes || [];
+      box.replaceChildren(
+        title(),
+        h("p", { class: "oba-small" }, "Read from this entry's side. Only relationships someone asserted are listed: nothing is inferred from dates or order, and standing records who asserts and who dissents, never how widely a claim is accepted."),
+        group("outgoing", "Outgoing", found.outgoing || [], "This entry asserts nothing about another entry yet."),
+        group("incoming", "Incoming", found.incoming || [], "No relationship points to this entry yet."),
+        entry.kind === "concept"
+          ? h(
+              "section",
+              { "aria-labelledby": "oba-atlas-explorer-notes", "data-atlas-notes": "true" },
+              h("h4", { class: "oba-small-heading", id: "oba-atlas-explorer-notes" }, `Notebook notes linking this concept (${notes.length})`),
+              notes.length ? h("ul", {}, notes.map((note) => h("li", {}, `${note.preview} (${note.kind === "question" ? "question" : "observation"}, ${note.id})`))) : h("p", { class: "oba-small" }, "No notebook note links this concept yet."),
+              notes.length ? h("p", { class: "oba-small" }, h("a", { href: "#/research" }, "Open the research notebook")) : null,
+            )
+          : null,
+      );
+    };
+
+    const renderEntryPanel = () => {
+      const entry = selected.id ? entryById(selected.id) : null;
+      if (selected.id && !entry) {
+        selected = null;
+        renderPanel();
+        return;
+      }
+      form = createAtlasForm({ api: this.api, state, type: "entry", item: entry, prefill: selected.prefill || {}, idPrefix: "oba-atlas-entry", onSaved, onRefreshed, onCancel: () => close() });
+      if (!entry) {
+        const concept = selected.prefill?.kind === "concept" && selected.prefill?.id;
+        panel.replaceChildren(
+          heading(concept ? `New concept ${selected.prefill.id}` : "New entry"),
+          h("p", { class: "oba-small" }, concept ? "Notebook notes that link this concept resolve to it once it is saved." : "Private; never published unless you approve it and the site publishes its Knowledge Atlas."),
+          form.element,
+        );
+        return;
+      }
+      const joins = joinCount(entry.id);
+      const explorer = h("section", { class: "oba-atlas-explorer", "aria-labelledby": "oba-atlas-explorer-heading", "data-atlas-explorer": entry.id }, h("h3", { id: "oba-atlas-explorer-heading" }, `Relationships of ${entry.label}`), h("p", { class: "oba-small" }, "Loading relationships…"));
+      const lonely = state.entries.length < 2;
+      panel.replaceChildren(
+        heading(entry.label),
+        h("p", { class: "oba-small" }, `${atlasKindLabel(entry.kind)} · ID ${entry.id} · ${entry.visibility === "approved" ? "approved for the publication projection" : "private"}`),
+        entry.aliases?.length ? h("p", { class: "oba-small" }, `Also called: ${entry.aliases.join("; ")}`) : null,
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          h("button", { class: "oba-btn", type: "button", "data-atlas-relate": "from", disabled: lonely, onClick: () => open({ type: "relationship", id: null, prefill: { from: entry.id } }) }, "Add a relationship from this entry"),
+          h("button", { class: "oba-btn", type: "button", "data-atlas-relate": "to", disabled: lonely, onClick: () => open({ type: "relationship", id: null, prefill: { to: entry.id } }) }, "Add a relationship to this entry"),
+        ),
+        explorer,
+        h("section", { class: "oba-atlas-edit", "aria-labelledby": "oba-atlas-edit-heading" }, h("h3", { id: "oba-atlas-edit-heading" }, "Edit entry"), form.element),
+        joins ? h("p", { class: "oba-small" }, `${plural(joins, "relationship")} ${joins === 1 ? "joins" : "join"} this entry, so it cannot be removed until ${joins === 1 ? "it is" : "they are"} removed.`) : null,
+        h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-atlas-remove": "entry", onClick: () => remove() }, "Remove entry")),
+      );
+      loadExplorer(entry, explorer);
+    };
+
+    const renderRelationshipPanel = () => {
+      const relationship = selected.id ? relationshipById(selected.id) : null;
+      if (selected.id && !relationship) {
+        selected = null;
+        renderPanel();
+        return;
+      }
+      form = createAtlasForm({ api: this.api, state, type: "relationship", item: relationship, prefill: selected.prefill || {}, idPrefix: "oba-atlas-relationship", onSaved, onRefreshed, onCancel: () => close() });
+      const ends = relationship ? [...new Set([relationship.from, relationship.to])] : [];
+      panel.replaceChildren(
+        heading(relationship ? "Relationship" : "New relationship"),
+        relationship ? h("p", { "data-atlas-sentence": "true" }, atlasRelationshipSentence(relationship, state.entries)) : null,
+        relationship
+          ? h("p", { class: "oba-small", "data-atlas-standing": relationship.contestedBy?.length ? "contested" : "asserted" }, `${atlasStandingText(relationship, state.sources)}. ${atlasConfidenceText(relationship)}. ${atlasEvidenceText(relationship)}. ID ${relationship.id}.`)
+          : h("p", { class: "oba-small" }, "Choose the kind first: it decides which entries may stand at each end. A relationship is one party's claim on cited evidence."),
+        ends.length ? h("div", { class: "oba-toolbar" }, ends.map((id) => (entryById(id) ? h("button", { class: "oba-btn", type: "button", "data-atlas-go": id, onClick: () => open({ type: "entry", id }) }, `Explore ${atlasEntryName(state.entries, id)}`) : null))) : null,
+        form.element,
+        relationship ? h("div", { class: "oba-toolbar" }, h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-atlas-remove": "relationship", onClick: () => remove() }, "Remove relationship")) : null,
+      );
+    };
+
+    const renderPanel = (moveFocus = false) => {
+      form = null;
+      if (!selected) {
+        panel.replaceChildren(
+          heading("Knowledge Atlas"),
+          h("p", { class: "oba-notice" }, state.entries.length ? "Choose an entry to see its relationships and edit it, or add a new one." : "Add your first entry: a person, work, concept, movement or event."),
+        );
+      } else if (selected.type === "entry") renderEntryPanel();
+      else renderRelationshipPanel();
+      if (moveFocus) panel.querySelector("#oba-atlas-heading")?.focus();
+    };
+
+    const open = (target) => {
+      if (!confirmDiscard()) return;
+      selected = target;
+      say("");
+      renderLists();
+      renderPanel(true);
+    };
+    const close = () => {
+      if (!confirmDiscard()) return;
+      selected = null;
+      renderLists();
+      renderPanel();
+      newEntryButton.focus();
+    };
+
+    const remove = async () => {
+      if (busy || !selected?.id) return;
+      const isEntry = selected.type === "entry";
+      if (globalThis.confirm?.(`Remove this ${isEntry ? "entry" : "relationship"}? It is deleted from the private atlas.`) === false) return;
+      busy = true;
+      try {
+        const result = await this.api.call("DELETE", isEntry ? "research/atlas/entries" : "research/atlas/relationships", { json: { revision: state.revision, id: selected.id } });
+        if (this.viewVersion !== mountedView) return;
+        applyAtlasState(state, result);
+        selected = null;
+        renderLists();
+        renderPanel();
+        const unresolved = Array.isArray(result.unresolvedNotes) ? result.unresolvedNotes : [];
+        say(
+          `Removed from the private atlas.${unresolved.length ? ` ${plural(unresolved.length, "notebook note")} now ${unresolved.length === 1 ? "links" : "link"} to a concept with no entry (${unresolved.join(", ")}). Adding the concept again resolves ${unresolved.length === 1 ? "it" : "them"}.` : ""}${atlasBuildText(result.build)}`,
+          result.build && !result.build.ok ? "oba-error" : "oba-ok",
+        );
+        newEntryButton.focus();
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(error.status === 409 ? "Not removed: the atlas changed elsewhere. Reload this view and try again." : `Not removed. ${atlasErrorMessage(error)} The stored atlas is unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    search.addEventListener("input", () => {
+      filters.query = search.value;
+      renderLists();
+    });
+
+    if (focus) {
+      if (entryById(focus)) selected = { type: "entry", id: focus };
+      else if (validAtlasId(focus)) {
+        selected = { type: "entry", id: null, prefill: { id: focus, kind: "concept" } };
+        say(`No entry has the identifier ${focus} yet. Add it as a concept so the notebook notes that link it resolve.`);
+      }
+    }
+    renderLists();
+    renderPanel();
+    this.mount(
+      this.shell(
+        "atlas",
+        h("section", { class: "oba-contributor-intro" }, h("p", {}, "Map the people, works, concepts, movements and events you research, and who asserts what about them, on which evidence and with what doubt."), h("p", { class: "oba-small" }, `Private author research stored in ${state.file}. It never reaches the public site, and saving here changes only that file.`)),
+        h(
+          "div",
+          { class: "oba-toolbar oba-source-filters", role: "search", "aria-label": "Find atlas entries" },
+          h("div", { class: "oba-field" }, h("label", { for: "oba-atlas-search" }, "Search entries"), search),
+          h("div", { class: "oba-field" }, h("label", { for: "oba-atlas-kind-filter" }, "Kind"), kindFilter),
+          newEntryButton,
+          newRelationshipButton,
+        ),
+        count,
+        status,
+        notices,
+        h("div", { class: "oba-source-layout", id: "oba-atlas-lists" }, listNav, panel),
+      ),
+    );
+    if (selected) panel.querySelector("#oba-atlas-heading")?.focus();
   }
 
   // ---- shared reflections
@@ -6461,6 +7734,7 @@ export class ObAdmin extends AdminElement {
       try {
         const { preview } = await this.api.call("GET", `collaboration/preview?publicationId=${encodeURIComponent(id)}`);
         previewList.replaceChildren(
+          ...(preview.rule ? [h("li", {}, `Approval rule: ${approvalRuleText(preview.rule)}`)] : []),
           ...(preview.sections || []).map((section) => h("li", {}, previewSectionText(section))),
           ...(preview.items || []).map((item) => h("li", {}, previewItemText(item))),
         );
@@ -6668,6 +7942,139 @@ export class ObAdmin extends AdminElement {
       }
     };
 
+    // ---- approval rule (ADR 0052)
+    const ruleStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const ruleProblem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
+    const ruleBody = h("div", {});
+    const ruleBlock = h(
+      "div",
+      { class: "oba-approval-rule", hidden: true },
+      h("h4", { id: `${prefix}-rule-heading`, tabindex: "-1" }, "Approval rule"),
+      h("p", { class: "oba-small" }, "Decides whose approval publication needs. Everyone who wrote always approves their own words, and nobody can approve for someone else. Changing the rule clears every approval."),
+      ruleStatus,
+      ruleProblem,
+      ruleBody,
+    );
+    let ruleRequested = false;
+    const drawRule = (rule) => {
+      const choice = approvalPolicyChoice(rule.policy);
+      const facts = [
+        h("p", { class: "oba-small" }, h("strong", {}, "Current rule. "), approvalRuleText(rule)),
+        h("p", { class: "oba-small" }, `Must approve now: ${(rule.required || []).join(", ") || "no one yet"}. Still to approve: ${(rule.missing || []).join(", ") || "no one"}.`),
+      ];
+      if (rule.published) {
+        ruleBody.replaceChildren(...facts, h("p", { class: "oba-small" }, "This reflection is published, so its rule no longer changes."));
+        return;
+      }
+      const kinds = h(
+        "fieldset",
+        { class: "oba-fieldset" },
+        h("legend", {}, "Whose approval publication needs"),
+        APPROVAL_REQUIREMENTS.map((item) => {
+          const radio = h("input", { type: "radio", name: `${prefix}-rule-kind`, id: `${prefix}-rule-${item.value}`, value: item.value, checked: choice.kind === item.value, "aria-describedby": `${prefix}-rule-${item.value}-help` });
+          radio.addEventListener("change", () => {
+            choice.kind = item.value;
+          });
+          return h("div", { class: "oba-field oba-check" }, radio, " ", h("label", { for: `${prefix}-rule-${item.value}` }, item.label), h("span", { class: "oba-small", id: `${prefix}-rule-${item.value}-help` }, ` ${item.help}`));
+        }),
+      );
+      const toggle = (list, value, on) => (on ? [...new Set([...list, value])] : list.filter((entry) => entry !== value));
+      const peopleRows = approvalPeopleRows(rule);
+      const people = h(
+        "fieldset",
+        { class: "oba-fieldset" },
+        h("legend", {}, "People who must approve (with “Writers and named people”)"),
+        peopleRows.length
+          ? peopleRows.map((person) => {
+              const boxId = `${prefix}-rule-person-${person.participantId}`;
+              const helpId = `${boxId}-help`;
+              const box = h("input", { type: "checkbox", id: boxId, value: person.participantId, checked: choice.named.includes(person.participantId), "aria-describedby": person.canApprove ? null : helpId });
+              box.addEventListener("change", () => {
+                choice.named = toggle(choice.named, person.participantId, box.checked);
+              });
+              if (person.canApprove) return h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: boxId }, person.displayName));
+              const help = rule.mayDropApprovers === false ? " Only a site owner can take them off the rule." : " Clear this to take them off the rule.";
+              return h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: boxId }, `${person.displayName} (can no longer approve)`), h("span", { class: "oba-small", id: helpId }, help));
+            })
+          : h("p", { class: "oba-small" }, "Nobody can approve yet: only authors with the contributor role can."),
+      );
+      const roles = h(
+        "fieldset",
+        { class: "oba-fieldset" },
+        h("legend", {}, "Roles whose authors must approve (with “Writers and people with a role”)"),
+        APPROVAL_ROLE_CHOICES.map((role) => {
+          const box = h("input", { type: "checkbox", id: `${prefix}-rule-role-${role.value}`, value: role.value, checked: choice.roles.includes(role.value) });
+          box.addEventListener("change", () => {
+            choice.roles = toggle(choice.roles, role.value, box.checked);
+          });
+          return h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: `${prefix}-rule-role-${role.value}` }, role.label));
+        }),
+      );
+      const scopes = h(
+        "fieldset",
+        { class: "oba-fieldset" },
+        h("legend", {}, "What an approval covers"),
+        [
+          { value: "ownSections", label: "The approver's own sections", help: "Another author's edit leaves your approval standing." },
+          { value: "wholePiece", label: "The whole piece", help: "Any edit clears every approval." },
+        ].map((item) => {
+          const radio = h("input", { type: "radio", name: `${prefix}-rule-scope`, id: `${prefix}-rule-scope-${item.value}`, value: item.value, checked: choice.scope === item.value });
+          radio.addEventListener("change", () => {
+            choice.scope = item.value;
+          });
+          return h("div", { class: "oba-field oba-check" }, radio, " ", h("label", { for: `${prefix}-rule-scope-${item.value}` }, item.label), h("span", { class: "oba-small" }, ` ${item.help}`));
+        }),
+      );
+      const confirm = h("input", { type: "checkbox", id: `${prefix}-rule-confirm` });
+      const change = h("button", { class: "oba-btn oba-btn-primary", type: "button" }, "Change approval rule");
+      change.addEventListener("click", async () => {
+        ruleProblem.hidden = true;
+        const built = approvalPolicyPayload(choice);
+        if (built.error) {
+          ruleProblem.textContent = built.error;
+          ruleProblem.hidden = false;
+          ruleProblem.focus();
+          return;
+        }
+        change.disabled = true;
+        try {
+          const result = await this.api.call("PUT", "collaboration/approval-policy", { json: { publicationId: id, expectedRevision: rule.revision, policy: built.policy, confirmed: confirm.checked } });
+          ruleStatus.textContent = result?.changed
+            ? `The approval rule changed. ${result.cleared === 1 ? "1 approval was" : `${result?.cleared ?? 0} approvals were`} cleared; every required author reads the piece and approves again.`
+            : "That is already the rule. Nothing changed.";
+          await loadRule();
+          ruleBlock.querySelector(`#${prefix}-rule-heading`)?.focus();
+        } catch (error) {
+          const failure = approvalRuleFailure(error);
+          ruleProblem.textContent = failure.message;
+          ruleProblem.hidden = false;
+          ruleProblem.focus();
+          if (failure.kind === "conflict" || failure.kind === "denied") await loadRule();
+        } finally {
+          change.disabled = false;
+        }
+      });
+      ruleBody.replaceChildren(
+        ...facts,
+        kinds,
+        people,
+        roles,
+        scopes,
+        h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-rule-confirm` }, "I understand that changing the rule clears every approval, and every required author approves again.")),
+        h("div", { class: "oba-toolbar" }, change),
+      );
+    };
+    const loadRule = async () => {
+      ruleRequested = true;
+      try {
+        drawRule(await this.api.call("GET", `collaboration/approval-policy?publicationId=${encodeURIComponent(id)}`));
+        ruleBlock.hidden = false;
+      } catch {
+        ruleBlock.hidden = true;
+        ruleRequested = false; // try again on the next refresh
+      }
+    };
+
     const renderSharing = (reveal) => {
       const policy = REVEAL_POLICIES.find((item) => item.value === reveal.policy) || REVEAL_POLICIES[0];
       const slots = h(
@@ -6732,9 +8139,21 @@ export class ObAdmin extends AdminElement {
           { id: `${prefix}-policy` },
           REVEAL_POLICIES.map((item) => h("option", { value: item.value, selected: item.value === reveal.policy }, `${item.label}: ${item.help}`)),
         );
+        const confirm = h("input", { type: "checkbox", id: `${prefix}-policy-confirm` });
         const change = h("button", { class: "oba-btn", type: "button" }, "Change sharing rule");
-        change.addEventListener("click", () => runSharing("PUT", "collaboration/reveal/policy", { publicationId: id, policy: select.value }, () => "The sharing rule changed. Every standing offer was cleared and nothing was shared."));
-        parts.push(h("div", { class: "oba-field" }, h("label", { for: `${prefix}-policy` }, "Sharing rule (coordinators)"), select), change);
+        // The rule the coordinator read goes with the change, so a change made elsewhere is a
+        // conflict, and a real change needs the confirmation because it clears every offer.
+        change.addEventListener("click", () =>
+          runSharing("PUT", "collaboration/reveal/policy", { publicationId: id, policy: select.value, expectedPolicy: reveal.policy, confirmed: confirm.checked }, (result) =>
+            result?.changed === false ? "That is already the sharing rule. Nothing changed." : "The sharing rule changed. Every standing offer was cleared and nothing was shared.",
+          ),
+        );
+        parts.push(
+          h("div", { class: "oba-field" }, h("label", { for: `${prefix}-policy` }, "Sharing rule (coordinators)"), select),
+          h("div", { class: "oba-field oba-check" }, confirm, " ", h("label", { for: `${prefix}-policy-confirm` }, "I understand that changing the sharing rule clears every standing offer, and nothing is shared by the change.")),
+          change,
+        );
+        parts.push(ruleBlock);
       }
       if (reveal.slots?.length) parts.push(slots);
       if (reveal.slots?.length) parts.push(previewSection);
@@ -6744,6 +8163,7 @@ export class ObAdmin extends AdminElement {
       sharing.hidden = false;
       if (focused?.isConnected) focused.focus();
       if (!arrangementRequested) loadArrangement();
+      if (reveal.canSetPolicy && !ruleRequested) loadRule();
     };
 
     const loadSharing = async () => {

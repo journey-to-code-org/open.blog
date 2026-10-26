@@ -19,12 +19,15 @@
 //! - [`citations`]: the opt-in `[@key, locator]` syntax, its resolver and CSL citation items
 //! - [`bibliography`]: opt-in publication of citations as numbered notes or a bibliography
 //! - [`citation_review`]: offline syntax, resolution, completeness and location checks of citations
+//! - [`knowledge_atlas`]: the private Knowledge Atlas of entries and attributed relationships
+//! - [`atlas_publication`]: the one public projection of its approved items, for pages and `atlas.json`
 
 pub mod accessibility;
 pub mod approval;
 pub mod arrangement;
 pub mod assembly;
 pub mod assistant_guide;
+pub mod atlas_publication;
 pub mod bibliography;
 pub mod capability;
 pub mod citation_review;
@@ -40,6 +43,7 @@ pub mod feeds;
 pub mod field_journal;
 pub mod frontmatter;
 pub mod invitation;
+pub mod knowledge_atlas;
 pub mod markdown;
 pub mod members;
 pub mod model;

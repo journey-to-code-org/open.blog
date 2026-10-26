@@ -33,6 +33,10 @@ use openblog_core::frontmatter::{self, Value};
 use openblog_core::invitation::{
     Identities, Invitation, InvitationError, InvitationField, NewInvitation,
 };
+use openblog_core::knowledge_atlas::{
+    self, AtlasDiagnostic, Direction, Entry as AtlasEntry, EntryKind,
+    Relationship as AtlasRelationship, RelationshipKind, Standing,
+};
 use openblog_core::markdown::RenderOptions;
 use openblog_core::members::MemberError;
 use openblog_core::portability::{destination_policy, DestinationRepresentation};
@@ -60,6 +64,7 @@ use crate::assistant::{
     ReviewSkill, SkillDefinition, SkillOutputKind, SkillScope, ASSISTANT_SCHEMA_VERSION,
     BUILTIN_SKILL_SOURCES,
 };
+use crate::atlas_store;
 use crate::auth::{self, Sessions, Throttle, Users};
 use crate::clock;
 use crate::fsutil;
@@ -626,6 +631,14 @@ fn authenticated_api(
         ("POST", "research/notes") => save_note(state, req, true),
         ("PUT", "research/notes") => save_note(state, req, false),
         ("DELETE", "research/notes") => remove_entry(state, req, false),
+        ("GET", "research/atlas") => list_atlas(state),
+        ("POST", "research/atlas/explore") => explore_atlas(state, req),
+        ("POST", "research/atlas/entries") => save_atlas_entry(state, req, true),
+        ("PUT", "research/atlas/entries") => save_atlas_entry(state, req, false),
+        ("DELETE", "research/atlas/entries") => remove_atlas_item(state, req, true),
+        ("POST", "research/atlas/relationships") => save_atlas_relationship(state, req, true),
+        ("PUT", "research/atlas/relationships") => save_atlas_relationship(state, req, false),
+        ("DELETE", "research/atlas/relationships") => remove_atlas_item(state, req, false),
         ("GET", "assistant/status") => assistant_status(state),
         ("GET", "assistant/settings") => assistant_settings(state),
         ("PUT", "assistant/settings") => save_assistant_settings(state, req),
@@ -663,6 +676,8 @@ fn authenticated_api(
         ("PUT", "collaboration/draft") => save_own_draft(state, req, session),
         ("GET", "collaboration/reveal") => read_reveal_state(state, req, session),
         ("PUT", "collaboration/reveal/policy") => set_reveal_policy(state, req, session),
+        ("GET", "collaboration/approval-policy") => read_approval_policy(state, req, session),
+        ("PUT", "collaboration/approval-policy") => set_approval_policy(state, req, session),
         ("GET", "collaboration/reflection") => read_arrangement(state, req, session),
         ("PUT", "collaboration/reflection") => save_arrangement(state, req, session),
         ("PUT", "collaboration/reveal/ready") => set_reveal_ready(state, req, session),
@@ -1620,6 +1635,341 @@ fn notebook_store_error(
         }
         notebook_store::StoreError::Invalid(diagnostics) => notebook_diagnostics(diagnostics),
         notebook_store::StoreError::Storage(message) => Response::error(500, &message),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge Atlas: private entries and attributed relationships (ADR 0057)
+// ---------------------------------------------------------------------------
+
+/// A short, character-safe preview of private text for a picker label.
+fn atlas_preview(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= 80 {
+        flat
+    } else {
+        let mut cut: String = flat.chars().take(79).collect();
+        cut.push('…');
+        cut
+    }
+}
+
+/// What every relationship kind may join, read from the core so the Admin
+/// pickers can never offer an endpoint the store would refuse.
+fn atlas_kinds() -> Json {
+    let names = |kinds: &[EntryKind]| kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>();
+    json!({
+        "entries": names(&EntryKind::ALL),
+        "relationships": RelationshipKind::ALL
+            .iter()
+            .map(|kind| json!({
+                "kind": kind.as_str(),
+                "inverse": kind.inverse_label(),
+                "from": names(kind.from_kinds()),
+                "to": names(kind.to_kinds()),
+                "symmetric": kind.is_symmetric(),
+                "sameKind": kind.requires_same_kind(),
+                "acyclic": kind.is_acyclic(),
+            }))
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// The atlas as stored, with what the editor picks from: the library's
+/// sources and the notebook's passages (id, source, locators and a short
+/// preview, never a copy into the atlas). `no-store` like the rest of Admin.
+fn atlas_view(snapshot: &atlas_store::Snapshot) -> Json {
+    let atlas = &snapshot.atlas;
+    let passages: Vec<Json> = snapshot
+        .notebook
+        .passages
+        .iter()
+        .map(|passage| {
+            json!({
+                "id": passage.id,
+                "source": passage.source,
+                "locators": passage.locators,
+                "archived": passage.archived,
+                "preview": atlas_preview(&passage.excerpt.text),
+            })
+        })
+        .collect();
+    json!({
+        "file": atlas_store::ATLAS_FILE,
+        "revision": snapshot.revision,
+        "stored": snapshot.stored,
+        "entries": atlas.entries,
+        "relationships": atlas.relationships,
+        "notices": atlas.notices(),
+        "missingConcepts": atlas.missing_concepts(&snapshot.notebook),
+        "kinds": atlas_kinds(),
+        "sources": snapshot.library.sources,
+        "passages": passages,
+    })
+}
+
+fn list_atlas(state: &AppState) -> Response {
+    match atlas_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => Response::json(200, &atlas_view(&snapshot)),
+        Err(error) => atlas_store_error(state, error, None),
+    }
+}
+
+/// Every relationship that touches one entry, read from that entry's side
+/// (`authored` going out, `authored by` coming in), with its derived standing.
+/// Only asserted relationships appear; nothing is mirrored or inferred. The
+/// id travels in the body like a notebook backlink, and nothing is written.
+fn explore_atlas(state: &AppState, req: &Request) -> Response {
+    let body = match research_read_body(req) {
+        Ok(body) => body,
+        Err(response) => return response,
+    };
+    let Some(id) = body["id"]
+        .as_str()
+        .filter(|id| knowledge_atlas::valid_id(id))
+    else {
+        return Response::error(400, "Name the id of the entry to explore");
+    };
+    let snapshot = match atlas_store::load(&state.root, &source_contributors(state)) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return atlas_store_error(state, error, None),
+    };
+    let atlas = &snapshot.atlas;
+    let Some(entry) = atlas.entry(id) else {
+        return Response::json(
+            404,
+            &json!({ "error": "No atlas entry has this id", "missing": true, "revision": snapshot.revision }),
+        );
+    };
+    let (mut outgoing, mut incoming) = (Vec::new(), Vec::new());
+    for incident in atlas.relationships_of(id) {
+        let other = atlas.entry(incident.other);
+        let view = json!({
+            "label": incident.label,
+            "other": {
+                "id": incident.other,
+                "kind": other.map(|e| e.kind),
+                "label": other.map(|e| e.label.as_str()),
+            },
+            "standing": match incident.relationship.standing() {
+                Standing::Asserted => "asserted",
+                Standing::Contested => "contested",
+            },
+            "projected": atlas.is_projected(incident.relationship),
+            "relationship": incident.relationship,
+        });
+        match incident.direction {
+            Direction::Outgoing => outgoing.push(view),
+            Direction::Incoming => incoming.push(view),
+        }
+    }
+    let notes: Vec<Json> = if entry.kind == EntryKind::Concept {
+        snapshot
+            .notebook
+            .notes
+            .iter()
+            .filter(|note| note.concepts.iter().any(|concept| concept == id))
+            .map(|note| json!({ "id": note.id, "kind": note.kind, "preview": atlas_preview(&note.text) }))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Response::json(
+        200,
+        &json!({
+            "revision": snapshot.revision,
+            "entry": entry,
+            "outgoing": outgoing,
+            "incoming": incoming,
+            "notes": notes,
+        }),
+    )
+}
+
+/// Read an atlas change request: JSON, bounded, and naming the revision.
+fn atlas_request(req: &Request) -> Result<(Json, String), Response> {
+    require_json(req)?;
+    if req.body.len() > MAX_NOTEBOOK_REQUEST_BYTES {
+        return Err(Response::error(
+            413,
+            "An atlas change is limited to 256 KiB",
+        ));
+    }
+    let body: Json =
+        serde_json::from_slice(&req.body).map_err(|_| Response::error(400, "Invalid JSON"))?;
+    let Some(revision) = body["revision"].as_str().map(str::to_string) else {
+        return Err(Response::error(400, "Missing atlas revision"));
+    };
+    Ok((body, revision))
+}
+
+fn atlas_saved(
+    state: &AppState,
+    snapshot: &atlas_store::Snapshot,
+    key: &str,
+    item: Json,
+    create: bool,
+) -> Response {
+    let mut view = atlas_view(snapshot);
+    view[key] = item;
+    attach_atlas_build(state, &mut view);
+    Response::json(if create { 201 } else { 200 }, &view)
+}
+
+/// While the site publishes its atlas (ADR 0058), a saved atlas change is
+/// published at once, so granting or withdrawing approval reaches the public
+/// site without waiting for another save. The outcome travels as `build`; a
+/// site that does not publish its atlas is not rebuilt.
+fn attach_atlas_build(state: &AppState, view: &mut Json) {
+    let publishes = site::load_config(&state.root)
+        .map(|config| config.knowledge_atlas.publish)
+        .unwrap_or(false);
+    if !publishes {
+        return;
+    }
+    view["build"] = match state.rebuild() {
+        Ok(report) => json!({ "ok": true, "files": report.files }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
+}
+
+/// Create (`POST`) or update (`PUT`) one entry from its full JSON form.
+fn save_atlas_entry(state: &AppState, req: &Request, create: bool) -> Response {
+    let (body, revision) = match atlas_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let entry = match AtlasEntry::from_json(body["entry"].clone()) {
+        Ok(entry) => entry,
+        Err(diagnostics) => return atlas_diagnostics(diagnostics),
+    };
+    let id = entry.id.clone();
+    let contributors = source_contributors(state);
+    let saved = if create {
+        atlas_store::create_entry(&state.root, &revision, entry, &contributors)
+    } else {
+        atlas_store::update_entry(&state.root, &revision, entry, &contributors)
+    };
+    match saved {
+        Ok(snapshot) => {
+            let item = json!(snapshot.atlas.entry(&id));
+            atlas_saved(state, &snapshot, "entry", item, create)
+        }
+        Err(error) => atlas_store_error(state, error, Some((true, &id))),
+    }
+}
+
+/// Create (`POST`) or update (`PUT`) one relationship from its full JSON form.
+fn save_atlas_relationship(state: &AppState, req: &Request, create: bool) -> Response {
+    let (body, revision) = match atlas_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    let relationship = match AtlasRelationship::from_json(body["relationship"].clone()) {
+        Ok(relationship) => relationship,
+        Err(diagnostics) => return atlas_diagnostics(diagnostics),
+    };
+    let id = relationship.id.clone();
+    let contributors = source_contributors(state);
+    let saved = if create {
+        atlas_store::create_relationship(&state.root, &revision, relationship, &contributors)
+    } else {
+        atlas_store::update_relationship(&state.root, &revision, relationship, &contributors)
+    };
+    match saved {
+        Ok(snapshot) => {
+            let item = json!(snapshot.atlas.relationship(&id));
+            atlas_saved(state, &snapshot, "relationship", item, create)
+        }
+        Err(error) => atlas_store_error(state, error, Some((false, &id))),
+    }
+}
+
+/// Remove one entry (refused while a relationship joins it; notes whose
+/// concept link becomes unresolved are reported) or one relationship.
+fn remove_atlas_item(state: &AppState, req: &Request, entry: bool) -> Response {
+    let (body, revision) = match atlas_request(req) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
+    // Checked before it is named in any message, so a hostile id is never echoed.
+    let Some(id) = body["id"]
+        .as_str()
+        .filter(|id| knowledge_atlas::valid_id(id))
+    else {
+        return Response::error(400, "Name the id of the entry or relationship to remove");
+    };
+    let contributors = source_contributors(state);
+    if entry {
+        match atlas_store::remove_entry(&state.root, &revision, id, &contributors) {
+            Ok((snapshot, removal)) => {
+                let mut view = atlas_view(&snapshot);
+                view["unresolvedNotes"] = json!(removal.unresolved_notes);
+                attach_atlas_build(state, &mut view);
+                Response::json(200, &view)
+            }
+            Err(error) => atlas_store_error(state, error, Some((true, id))),
+        }
+    } else {
+        match atlas_store::remove_relationship(&state.root, &revision, id, &contributors) {
+            Ok(snapshot) => {
+                let mut view = atlas_view(&snapshot);
+                attach_atlas_build(state, &mut view);
+                Response::json(200, &view)
+            }
+            Err(error) => atlas_store_error(state, error, Some((false, id))),
+        }
+    }
+}
+
+fn atlas_diagnostics(diagnostics: Vec<AtlasDiagnostic>) -> Response {
+    let error = diagnostics.first().map_or_else(
+        || "The atlas change is invalid".to_string(),
+        |first| first.to_string(),
+    );
+    Response::json(
+        422,
+        &json!({
+            "error": error,
+            "file": atlas_store::ATLAS_FILE,
+            "diagnostics": diagnostics,
+        }),
+    )
+}
+
+/// A conflict carries the latest revision and the newer copy of the entry or
+/// relationship being changed, so the editor can keep the draft and compare.
+/// Nothing is written either way.
+fn atlas_store_error(
+    state: &AppState,
+    error: atlas_store::StoreError,
+    item: Option<(bool, &str)>,
+) -> Response {
+    match error {
+        atlas_store::StoreError::Conflict => {
+            let latest = atlas_store::load(&state.root, &source_contributors(state)).ok();
+            let current = latest
+                .as_ref()
+                .zip(item)
+                .and_then(|(snapshot, (entry, id))| {
+                    if entry {
+                        snapshot.atlas.entry(id).map(|e| json!(e))
+                    } else {
+                        snapshot.atlas.relationship(id).map(|r| json!(r))
+                    }
+                });
+            Response::json(
+                409,
+                &json!({
+                    "error": error.to_string(),
+                    "conflict": true,
+                    "revision": latest.as_ref().map(|snapshot| snapshot.revision.as_str()),
+                    "current": current,
+                }),
+            )
+        }
+        atlas_store::StoreError::Invalid(diagnostics) => atlas_diagnostics(diagnostics),
+        atlas_store::StoreError::Storage(message) => Response::error(500, &message),
     }
 }
 
@@ -5974,7 +6324,11 @@ fn list_members(state: &AppState, req: &Request, session: &auth::Session) -> Res
         |identities| match record.members_for(&session.user, identities) {
             Ok(members) => Response::json(
                 200,
-                &json!({ "revision": record.authorization.revision, "members": members }),
+                &json!({
+                    "revision": record.authorization.revision,
+                    "members": members,
+                    "audit": record.audit_for(&session.user, identities).unwrap_or_default(),
+                }),
             ),
             Err(error) => member_problem(error),
         },
@@ -6009,6 +6363,7 @@ fn change_member(
                 identities,
                 &body.participant_id,
                 body.expected_revision,
+                clock::now().unix(),
             )
         } else {
             record.change_member_roles(
@@ -6017,6 +6372,7 @@ fn change_member(
                 &body.participant_id,
                 &body.roles,
                 body.expected_revision,
+                clock::now().unix(),
             )
         }
     });
@@ -6442,6 +6798,22 @@ fn prepare_post(
             return Err(shared_problem(
                 "",
                 "This reflection cannot be published yet: it needs a title and at least one written section. Nothing was changed.",
+            ))
+        }
+        Err(AssemblyError::ArrangementMismatch) => {
+            return Err(shared_problem(
+                "",
+                "The arrangement no longer matches the drafts: a turn names a part an author has since removed. Ask a coordinator to arrange the piece again; the combined preview shows where. Nothing was changed.",
+            ))
+        }
+        Err(AssemblyError::RuleUnmet { named, roles }) => {
+            return Err(Response::json(
+                409,
+                &json!({
+                    "error": "The approval rule cannot be met as things stand: a person it names is no longer an author, or no author holds a role it lists. Change the rule, or restore that access or role. Nothing was changed.",
+                    "unmetNamed": named,
+                    "unmetRoles": roles,
+                }),
             ))
         }
     };
@@ -7195,6 +7567,13 @@ fn reconcile_approvals(
 struct RevealPolicyRequest {
     publication_id: String,
     policy: RevealPolicy,
+    /// The policy the requester read. When it is no longer current the change is refused, so two
+    /// coordinators cannot overwrite each other unseen (ADR 0052). Required: a request that does
+    /// not say what it replaces could silently overwrite a change made elsewhere.
+    expected_policy: RevealPolicy,
+    /// That the requester accepts that a real change clears every standing offer.
+    #[serde(default)]
+    confirmed: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -7429,8 +7808,9 @@ fn read_combined_preview(state: &AppState, req: &Request, session: &auth::Sessio
     Response::json(200, &json!({ "preview": summary }))
 }
 
-/// A coordinator chooses how drafts may be revealed. Changing it clears every standing offer and
-/// reveals nothing.
+/// A coordinator chooses how drafts may be revealed, against the policy they read. A real change
+/// needs an explicit confirmation, because it clears every standing offer; it reveals nothing.
+/// Resubmitting the current policy is a no-op that writes nothing.
 fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -> Response {
     if let Err(response) = require_json(req) {
         return response;
@@ -7457,6 +7837,21 @@ fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -
     let Ok(mut set) = draft_set_for(stored.set.as_ref(), record) else {
         return Response::error(500, "Sharing could not be changed. Nothing was changed.");
     };
+    if body.expected_policy != set.policy() {
+        return Response::error(
+            409,
+            "The sharing rule changed since you loaded it. Reload to see the current rule; nothing was changed.",
+        );
+    }
+    if body.policy == set.policy() {
+        return Response::json(200, &json!({ "policy": set.policy(), "changed": false }));
+    }
+    if !body.confirmed {
+        return shared_problem(
+            "confirmed",
+            "Confirm that changing the sharing rule clears every standing offer, so everyone offers again. Nothing was changed.",
+        );
+    }
     set.set_policy(body.policy);
     eprintln!(
         "admin: changed the reveal policy of shared publication {}",
@@ -7467,8 +7862,339 @@ fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -
         &body.publication_id,
         &stored,
         &set,
-        json!({ "policy": set.policy() }),
+        json!({ "policy": set.policy(), "changed": true }),
     )
+}
+
+// ---------------------------------------------------------------------------
+// The approval rule of a shared reflection (ADR 0052)
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ApprovalPolicyRequest {
+    publication_id: String,
+    /// The policy revision the requester read.
+    expected_revision: u64,
+    policy: openblog_core::approval::ApprovalPolicy,
+    /// That the requester accepts that a real change clears every standing approval.
+    #[serde(default)]
+    confirmed: bool,
+}
+
+/// Every refusal reads the same, so a request cannot confirm that a reflection exists.
+fn approval_policy_not_found() -> Response {
+    Response::error(
+        404,
+        "That shared reflection was not found, or you cannot choose its approval rule.",
+    )
+}
+
+/// Whether the signed-in user may choose the approval rule, decided by the single entry point,
+/// and under whose authority: only a site owner may drop someone the rule requires (ADR 0052).
+fn approval_rule_authority(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    session: &auth::Session,
+) -> Option<openblog_core::approval::RuleAuthority> {
+    use openblog_core::approval::RuleAuthority;
+    transaction
+        .with_identities(|identities| {
+            record
+                .authorize(
+                    &session.user,
+                    identities,
+                    AuthorizationAction::SetApprovalPolicy,
+                    AuthorizationTarget::Publication,
+                )
+                .map(|binding| {
+                    if binding.roles.contains(&AuthorizationRole::SiteOwner) {
+                        RuleAuthority::SiteOwner
+                    } else {
+                        RuleAuthority::Coordinator
+                    }
+                })
+        })
+        .ok()
+}
+
+/// Active authors who hold the approve grant for themselves: the only people a named or
+/// role-based rule may add, because nobody else can ever approve.
+fn active_approvers(
+    transaction: &InvitationTransaction<'_>,
+    record: &SharedPublication,
+    active: &[String],
+) -> Vec<String> {
+    record
+        .authorization
+        .bindings
+        .iter()
+        .filter(|binding| active.contains(&binding.participant_id))
+        .filter(|binding| {
+            transaction
+                .with_identities(|identities| {
+                    record.authorize(
+                        &binding.admin_user,
+                        identities,
+                        AuthorizationAction::ApproveContribution,
+                        AuthorizationTarget::Participant(&binding.participant_id),
+                    )
+                })
+                .is_ok()
+        })
+        .map(|binding| binding.participant_id.clone())
+        .collect()
+}
+
+/// The rule and where the piece stands under it, for someone who holds the policy grant (who
+/// also holds the publish grant, so may already learn who has not approved, ADR 0022). Display
+/// names and roles only: no prose, revision or digest.
+fn approval_policy_json(
+    record: &SharedPublication,
+    inputs: &GateInputs,
+    set: &openblog_core::approval::ApprovalSet,
+    approvers: &[String],
+) -> Json {
+    use openblog_core::assembly::{display_names, with_subject};
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let (rule, required, missing) = with_subject(
+        record,
+        inputs.structure.structure.as_ref(),
+        &inputs.drafts,
+        &inputs.synthesis,
+        &active,
+        |subject| {
+            let required = set.required(subject);
+            let missing = required
+                .iter()
+                .filter(|id| !set.is_approved(subject, id))
+                .cloned()
+                .collect::<Vec<_>>();
+            (
+                openblog_core::preview::rule_for(record, set, subject),
+                required,
+                missing,
+            )
+        },
+    );
+    let people = record
+        .collaboration
+        .participants
+        .iter()
+        .filter(|participant| approvers.contains(&participant.id))
+        .map(|participant| {
+            json!({ "participantId": participant.id, "displayName": participant.display_name })
+        })
+        .collect::<Vec<_>>();
+    // People the rule names who can no longer approve (removed, or without the approve grant),
+    // so Admin can show them as chosen and let them be cleared instead of keeping them unseen.
+    let former = match &set.policy().requirement {
+        openblog_core::approval::ApprovalRequirement::NamedAuthors(named) => named
+            .iter()
+            .filter(|id| !approvers.contains(id))
+            .map(|id| {
+                let name = record
+                    .collaboration
+                    .participants
+                    .iter()
+                    .find(|participant| &participant.id == id)
+                    .map_or("Someone no longer in this reflection", |participant| {
+                        participant.display_name.as_str()
+                    });
+                json!({ "participantId": id, "displayName": name })
+            })
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    json!({
+        "policy": rule.policy,
+        "revision": rule.revision,
+        "summary": rule.summary,
+        "unmetNamed": rule.unmet_named,
+        "unmetRoles": rule.unmet_roles,
+        "required": display_names(record, required.iter().map(String::as_str)),
+        "missing": display_names(record, missing.iter().map(String::as_str)),
+        "approvers": people,
+        "formerApprovers": former,
+        "published": matches!(
+            inputs.outcome.outcome,
+            Some(openblog_core::assembly::Outcome::Published { .. })
+        ),
+    })
+}
+
+/// The approval rule, for a site owner or coordinator. Everyone else gets the same not-found as
+/// a missing publication; authors see the rule in the combined preview.
+fn read_approval_policy(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    let Some(publication_id) = req.query.get("publicationId") else {
+        return approval_policy_not_found();
+    };
+    let Ok(transaction) = invitation_transaction(state, publication_id) else {
+        return approval_policy_not_found();
+    };
+    let Some(record) = transaction.record.clone() else {
+        return approval_policy_not_found();
+    };
+    let Some(authority) = approval_rule_authority(&transaction, &record, session) else {
+        return approval_policy_not_found();
+    };
+    let inputs = match gate_inputs(state, &transaction, &record) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
+    };
+    let approvers = active_approvers(&transaction, &record, &inputs.active);
+    let mut response = approval_policy_json(&record, &inputs, &inputs.approvals.set, &approvers);
+    if let Some(object) = response.as_object_mut() {
+        object.insert(
+            "mayDropApprovers".into(),
+            json!(authority == openblog_core::approval::RuleAuthority::SiteOwner),
+        );
+    }
+    Response::json(200, &response)
+}
+
+/// A site owner or coordinator changes whose approval publication needs, against the policy
+/// revision they read and with an explicit confirmation, because a real change clears every
+/// standing approval. The change is written with a compare-and-swap, so a concurrent approval or
+/// policy change is a conflict, never an overwrite, and the response re-evaluates the piece
+/// under the new rule. It records no approval for anyone.
+fn set_approval_policy(state: &AppState, req: &Request, session: &auth::Session) -> Response {
+    use openblog_core::approval::{role_with_article, PolicyChange, PolicyError};
+    if let Err(response) = require_json(req) {
+        return response;
+    }
+    let Ok(body) = serde_json::from_slice::<ApprovalPolicyRequest>(&req.body) else {
+        return shared_problem(
+            "policy",
+            "This approval rule is not valid. Reload Admin Studio and try again.",
+        );
+    };
+    let Ok(transaction) = invitation_transaction(state, &body.publication_id) else {
+        return approval_policy_not_found();
+    };
+    let Some(record) = transaction.record.clone() else {
+        return approval_policy_not_found();
+    };
+    let Some(authority) = approval_rule_authority(&transaction, &record, session) else {
+        return approval_policy_not_found();
+    };
+    let inputs = match gate_inputs(state, &transaction, &record) {
+        Ok(inputs) => inputs,
+        Err(response) => return response,
+    };
+    if matches!(
+        inputs.outcome.outcome,
+        Some(openblog_core::assembly::Outcome::Published { .. })
+    ) {
+        return published_already();
+    }
+    let approvers = active_approvers(&transaction, &record, &inputs.active);
+    let approver_ids = approvers.iter().map(String::as_str).collect::<Vec<_>>();
+    let active = inputs.active.iter().map(String::as_str).collect::<Vec<_>>();
+    let mut next = inputs.approvals.set.clone();
+    let result = openblog_core::assembly::with_subject(
+        &record,
+        inputs.structure.structure.as_ref(),
+        &inputs.drafts,
+        &inputs.synthesis,
+        &active,
+        |subject| {
+            next.change_policy(
+                body.policy.clone(),
+                body.expected_revision,
+                body.confirmed,
+                authority,
+                subject,
+                &approver_ids,
+            )
+        },
+    );
+    let cleared = match result {
+        Ok(PolicyChange::Unchanged) => None,
+        Ok(PolicyChange::Changed { cleared }) => Some(cleared),
+        Err(PolicyError::Stale) => {
+            return Response::error(
+                409,
+                "The approval rule changed since you loaded it. Reload to see the current rule; nothing was changed.",
+            )
+        }
+        Err(PolicyError::Invalid) => {
+            return shared_problem(
+                "policy",
+                "Choose at least one person or role, each only once. Nothing was changed.",
+            )
+        }
+        Err(PolicyError::Unconfirmed) => {
+            return shared_problem(
+                "confirmed",
+                "Confirm that changing the rule clears every approval, so every required author approves again. Nothing was changed.",
+            )
+        }
+        Err(PolicyError::DropsApprovers(dropped)) => {
+            let names = openblog_core::assembly::display_names(
+                &record,
+                dropped.iter().map(String::as_str),
+            );
+            let who = if names.is_empty() {
+                "someone the current rule requires".to_string()
+            } else {
+                names.join(", ")
+            };
+            return Response::json(
+                403,
+                &json!({
+                    "error": format!(
+                        "Only a site owner can change the rule so that {who} no longer has to approve. You can keep or add people who must approve. Nothing was changed."
+                    ),
+                    "field": "policy",
+                }),
+            );
+        }
+        Err(PolicyError::Unmeetable(gaps)) => {
+            let mut problems = Vec::new();
+            let names = openblog_core::assembly::display_names(
+                &record,
+                gaps.named.iter().map(String::as_str),
+            );
+            let unknown = gaps.named.len() - names.len();
+            if !names.is_empty() {
+                problems.push(format!("{} cannot approve this piece", names.join(", ")));
+            }
+            if unknown > 0 {
+                problems.push("a chosen person is not part of this reflection".to_string());
+            }
+            for role in &gaps.roles {
+                problems.push(format!("no author is {}", role_with_article(*role)));
+            }
+            return shared_problem(
+                "policy",
+                &format!(
+                    "This rule could never be met: {}. Only authors with the contributor role can approve. Nothing was changed.",
+                    problems.join("; ")
+                ),
+            );
+        }
+    };
+    if cleared.is_some() {
+        if let Err(error) = crate::shared_publications::replace_approvals(
+            &state.root,
+            &body.publication_id,
+            &inputs.approvals,
+            &next,
+        ) {
+            return publish_store_problem(error);
+        }
+        eprintln!(
+            "admin: changed the approval rule of shared publication {}",
+            body.publication_id
+        );
+    }
+    let mut response = approval_policy_json(&record, &inputs, &next, &approvers);
+    if let Some(object) = response.as_object_mut() {
+        object.insert("changed".into(), json!(cleared.is_some()));
+        object.insert("cleared".into(), json!(cleared.unwrap_or(0)));
+    }
+    Response::json(200, &response)
 }
 
 // ---------------------------------------------------------------------------
@@ -11748,6 +12474,974 @@ mod tests {
         }
     }
 
+    // ---- Knowledge Atlas leak regressions (A5.2, ADR 0055) ----------------------
+    //
+    // Every atlas field holds its own sentinel, including approved items: the site
+    // does not publish its atlas, so approval alone must not open any surface.
+
+    const ATLAS_SENTINELS: [(&str, &str); 14] = [
+        ("entry id", "ob-atlas-entry-id-5309"),
+        ("label", "ob-atlas-label-5309"),
+        ("alias", "ob-atlas-alias-5309"),
+        ("summary", "ob-atlas-summary-5309"),
+        ("relationship id", "ob-atlas-relationship-id-5309"),
+        ("named party", "ob-atlas-party-5309"),
+        ("uncertainty", "ob-atlas-uncertainty-5309"),
+        ("locator", "ob-atlas-locator-5309"),
+        ("unknown field", "ob-atlas-extra-5309"),
+        ("dissent note", "ob-atlas-dissent-note-5309"),
+        ("dissenting party", "ob-atlas-dissenter-5309"),
+        (
+            "relationship unknown field",
+            "ob-atlas-relationship-extra-5309",
+        ),
+        ("evidence unknown field", "ob-atlas-evidence-extra-5309"),
+        ("top-level unknown field", "ob-atlas-top-extra-5309"),
+    ];
+
+    fn atlas_leaked(bytes: &[u8]) -> Vec<&'static str> {
+        let text = String::from_utf8_lossy(bytes);
+        ATLAS_SENTINELS
+            .iter()
+            .filter(|(_, sentinel)| text.contains(sentinel))
+            .map(|(name, _)| *name)
+            .collect()
+    }
+
+    fn assert_atlas_clean(surface: &str, bytes: &[u8]) {
+        let found = atlas_leaked(bytes);
+        assert!(
+            found.is_empty(),
+            "{surface} exposes the Knowledge Atlas ({})",
+            found.join(", ")
+        );
+        assert!(
+            !openblog_core::research_bundle::looks_like_private_research(bytes),
+            "{surface} carries a copy of private research"
+        );
+    }
+
+    fn seeded_atlas(f: &Fixture) -> Vec<u8> {
+        use openblog_core::knowledge_atlas::{Entry, Relationship};
+        let none = BTreeMap::new();
+        let empty = crate::atlas_store::load(&f.dir, &none).unwrap();
+        let person = Entry::from_json(json!({
+            "id": ATLAS_SENTINELS[0].1, "kind": "person", "label": ATLAS_SENTINELS[1].1,
+            "aliases": [ATLAS_SENTINELS[2].1], "summary": ATLAS_SENTINELS[3].1,
+            "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1}))
+        .unwrap();
+        let work = Entry::from_json(json!({"id": "politeia", "kind": "work",
+            "label": "Politeia", "source": "plato", "visibility": "approved"}))
+        .unwrap();
+        let one = crate::atlas_store::create_entry(&f.dir, &empty.revision, person, &none).unwrap();
+        let two = crate::atlas_store::create_entry(&f.dir, &one.revision, work, &none).unwrap();
+        let relationship = Relationship::from_json(json!({
+            "id": ATLAS_SENTINELS[4].1, "kind": "authored",
+            "from": ATLAS_SENTINELS[0].1, "to": "politeia",
+            "assertedBy": {"kind": "named", "name": ATLAS_SENTINELS[5].1},
+            "uncertainty": ATLAS_SENTINELS[6].1, "visibility": "approved",
+            "contestedBy": [{"by": {"kind": "named", "name": ATLAS_SENTINELS[10].1},
+                "note": ATLAS_SENTINELS[9].1}],
+            "shelf": ATLAS_SENTINELS[11].1,
+            "evidence": [{"source": "slings", "margin": ATLAS_SENTINELS[12].1,
+                "locators": [{"kind": "page", "value": ATLAS_SENTINELS[7].1}]}]}))
+        .unwrap();
+        crate::atlas_store::create_relationship(&f.dir, &two.revision, relationship, &none)
+            .unwrap();
+        // The store edits entries and relationships only; a top-level unknown
+        // field arrives by hand edit, and the stored atlas stays valid with it.
+        let path = f.dir.join(crate::atlas_store::ATLAS_FILE);
+        let mut document: Json = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        document["workspace"] = json!(ATLAS_SENTINELS[13].1);
+        fs::write(&path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+        crate::atlas_store::load(&f.dir, &none).expect("the hand-edited atlas is valid");
+        let stored = fs::read(&path).unwrap();
+        assert_eq!(
+            atlas_leaked(&stored).len(),
+            ATLAS_SENTINELS.len(),
+            "every sentinel is stored, so a clean result below means something"
+        );
+        stored
+    }
+
+    #[test]
+    fn knowledge_atlas_sentinels_never_cross_a_publication_boundary() {
+        let f = fixture_with_sources("atlas-leak-corpus");
+        let session = login_ok(&f);
+        let stored = seeded_atlas(&f);
+
+        // The built site: pages, feeds, search index, llms files, assets.
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        let files = crate::fsutil::walk(&dist);
+        let names: Vec<String> = files
+            .iter()
+            .map(|file| crate::fsutil::relative(&dist, file))
+            .collect();
+        for expected in ["index.html", "search.json", "llms.txt", "llms-full.txt"] {
+            assert!(names.iter().any(|name| name == expected), "{expected}");
+        }
+        assert!(names.iter().any(|name| name.ends_with(".xml")), "a feed");
+        for file in &files {
+            let name = crate::fsutil::relative(&dist, file);
+            assert!(
+                !name.contains("atlas")
+                    && (name == crate::fsutil::MARKER || !name.contains(".openblog")),
+                "{name}"
+            );
+            assert_atlas_clean(&format!("dist/{name}"), &fs::read(file).unwrap());
+        }
+
+        // Portable exports of every published article.
+        let (site, _) = crate::site::load_site(&f.dir, false, None).unwrap();
+        assert!(!site.posts.is_empty());
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::from_post(post, &site.config)
+                    .unwrap();
+            assert_atlas_clean(
+                &format!("portable markdown of {}", post.slug),
+                projection.portable_markdown().unwrap().as_bytes(),
+            );
+            let html = projection.portable_html().unwrap();
+            assert_atlas_clean(
+                &format!("portable html of {}", post.slug),
+                format!("{html:?}").as_bytes(),
+            );
+        }
+
+        // Source exports, the research export, and other Admin views.
+        for format in ["csl-json", "bibtex"] {
+            let response = handle(
+                &f.state,
+                &authed(
+                    req("GET", &format!("/admin/api/sources/export?format={format}")),
+                    &session,
+                    false,
+                ),
+            );
+            assert_eq!(response.status, 200);
+            assert_atlas_clean(&format!("{format} export"), &response.body);
+        }
+        let (status, exported) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/export",
+            json!({"includePrivate": true}),
+        );
+        assert_eq!(status, 200);
+        assert!(atlas_leaked(exported.to_string().as_bytes()).is_empty());
+        for path in [
+            "meta",
+            "sources",
+            "preferences",
+            "contributors",
+            "session",
+            "research/notebook",
+        ] {
+            let response = handle(
+                &f.state,
+                &authed(req("GET", &format!("/admin/api/{path}")), &session, false),
+            );
+            assert!(atlas_leaked(&response.body).is_empty(), "admin {path}");
+        }
+        assert_atlas_clean(
+            "the source library file",
+            &fs::read(f.dir.join(crate::source_store::LIBRARY_FILE)).unwrap(),
+        );
+
+        // The public server does not serve the atlas under any spelling.
+        for path in [
+            "/.openblog/private/research/atlas.json",
+            "/.openblog/private/research/atlas.json/",
+            "/%2eopenblog/private/research/atlas.json",
+            "/../.openblog/private/research/atlas.json",
+            "/search.json?q=ob-atlas-label-5309",
+        ] {
+            let response = crate::serve::route(&f.state, &req("GET", path), &dist);
+            assert_atlas_clean(&format!("public route {path}"), &response.body);
+        }
+
+        // Publishing never commits it, even with the private folder listed.
+        let git = crate::git::Git::new(&f.dir);
+        git.init().unwrap();
+        git.run(&["config", "user.email", "t@example.com"]).unwrap();
+        git.run(&["config", "user.name", "T"]).unwrap();
+        git.run(&["config", "commit.gpgsign", "false"]).unwrap();
+        let mut config = site::load_config(&f.dir).unwrap();
+        config.publish.paths = vec!["content".into(), "static".into(), ".openblog".into()];
+        let outcome = crate::publish::publish(&f.dir, &config, Some("Atlas")).unwrap();
+        assert!(outcome
+            .committed
+            .iter()
+            .all(|path| !path.contains(".openblog/private") && !path.contains("atlas")));
+        for (name, sentinel) in ATLAS_SENTINELS {
+            let history = git
+                .run(&["log", "--all", "-p", "--format=%H", "-S", sentinel])
+                .unwrap();
+            assert!(
+                history.trim().is_empty(),
+                "{name} reached the commit history"
+            );
+        }
+
+        // A copy of the atlas in a public folder stops the build, Admin's
+        // rebuild and publishing, naming only its path.
+        fs::create_dir_all(f.dir.join("static")).unwrap();
+        fs::write(f.dir.join("static/graph.json"), &stored).unwrap();
+        let error = crate::publish::publish(&f.dir, &config, Some("Leak")).unwrap_err();
+        assert!(error.contains("static/graph.json"), "{error}");
+        assert!(atlas_leaked(error.as_bytes()).is_empty());
+        let Err(error) = f.state.rebuild() else {
+            panic!("Admin's rebuild refuses an atlas copy in static/")
+        };
+        assert!(error.contains("static/graph.json") && atlas_leaked(error.as_bytes()).is_empty());
+        let error = crate::site::build(
+            &f.dir,
+            &crate::site::BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .unwrap();
+        assert!(error.contains("static/graph.json") && atlas_leaked(error.as_bytes()).is_empty());
+    }
+
+    // ---- Knowledge Atlas Admin routes (A5.3, ADR 0057) -------------------------
+
+    fn atlas(f: &Fixture, session: &(String, String)) -> Json {
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/atlas"), session, false),
+        );
+        assert_eq!(
+            response.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&response.body)
+        );
+        assert!(response
+            .headers
+            .iter()
+            .any(|(name, value)| name == "Cache-Control" && value == "no-store"));
+        body_json(&response)
+    }
+
+    fn stored_atlas(f: &Fixture) -> Option<Vec<u8>> {
+        fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).ok()
+    }
+
+    fn explore(f: &Fixture, session: &(String, String), id: &str) -> (u16, Json) {
+        source_call(
+            f,
+            session,
+            "POST",
+            "/admin/api/research/atlas/explore",
+            json!({ "id": id }),
+        )
+    }
+
+    const HOSTILE_LABEL: &str = "<img src=x onerror=alert(1)> Πλάτων 🙂";
+
+    #[test]
+    fn knowledge_atlas_api_is_authenticated_csrf_protected_and_revision_checked() {
+        let f = fixture_with_sources("atlas-api");
+        for (method, path) in [
+            ("GET", "/admin/api/research/atlas"),
+            ("POST", "/admin/api/research/atlas/explore"),
+            ("POST", "/admin/api/research/atlas/entries"),
+            ("PUT", "/admin/api/research/atlas/entries"),
+            ("DELETE", "/admin/api/research/atlas/entries"),
+            ("POST", "/admin/api/research/atlas/relationships"),
+            ("PUT", "/admin/api/research/atlas/relationships"),
+            ("DELETE", "/admin/api/research/atlas/relationships"),
+        ] {
+            assert_eq!(handle(&f.state, &req(method, path)).status, 401, "{path}");
+        }
+        let session = login_ok(&f);
+        let empty = atlas(&f, &session);
+        assert_eq!(empty["file"], crate::atlas_store::ATLAS_FILE);
+        assert_eq!(empty["stored"], false);
+        assert_eq!(empty["sources"].as_array().unwrap().len(), 2);
+        let kinds = empty["kinds"]["relationships"].as_array().unwrap();
+        assert_eq!(kinds.len(), 12);
+        let part_of = kinds.iter().find(|k| k["kind"] == "part-of").unwrap();
+        assert_eq!(part_of["sameKind"], true);
+        assert_eq!(part_of["acyclic"], true);
+        let authored = kinds.iter().find(|k| k["kind"] == "authored").unwrap();
+        assert_eq!(authored["from"], json!(["person"]));
+        assert_eq!(authored["inverse"], "authored by");
+        assert!(stored_atlas(&f).is_none());
+
+        let person = json!({"id": "plato", "kind": "person", "label": HOSTILE_LABEL,
+            "aliases": ["Aristocles"], "shelf": {"kept": true}});
+        // No CSRF token: refused, nothing written.
+        let without = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "POST",
+                    "/admin/api/research/atlas/entries",
+                    json!({"revision": empty["revision"], "entry": person}),
+                ),
+                &session,
+                false,
+            ),
+        );
+        assert_eq!(without.status, 403);
+        assert!(stored_atlas(&f).is_none());
+        // No revision: refused.
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({ "entry": person }),
+        );
+        assert_eq!(status, 400);
+        assert!(stored_atlas(&f).is_none());
+
+        let (status, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": empty["revision"], "entry": person}),
+        );
+        assert_eq!(status, 201, "{created}");
+        assert_eq!(created["stored"], true);
+        assert_eq!(created["entry"]["label"], HOSTILE_LABEL);
+        assert_eq!(created["entry"]["visibility"], "private");
+        assert_eq!(created["entry"]["shelf"], json!({"kept": true}));
+        let (status, with_work) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": created["revision"], "entry":
+                {"id": "politeia", "kind": "work", "label": "Politeia", "source": "plato"}}),
+        );
+        assert_eq!(status, 201, "{with_work}");
+        let relationship = json!({"id": "plato-authored-politeia", "kind": "authored",
+            "from": "plato", "to": "politeia", "assertedBy": {"kind": "author"},
+            "confidence": "plausible", "uncertainty": "Dating is uncertain.",
+            "evidence": [{"source": "slings", "locators": [{"kind": "page", "value": "514"}]}]});
+        let (status, related) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/relationships",
+            json!({"revision": with_work["revision"], "relationship": relationship}),
+        );
+        assert_eq!(status, 201, "{related}");
+        assert_eq!(related["relationship"]["confidence"], "plausible");
+        let after_relationship = stored_atlas(&f).unwrap();
+
+        // Reusing an old revision conflicts, returns the stored copy, writes nothing.
+        let (status, stale) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/relationships",
+            json!({"revision": with_work["revision"], "relationship": relationship}),
+        );
+        assert_eq!(status, 409);
+        assert_eq!(stale["conflict"], true);
+        assert_eq!(stale["revision"], related["revision"]);
+        assert_eq!(stale["current"]["id"], "plato-authored-politeia");
+        assert_eq!(stored_atlas(&f).unwrap(), after_relationship);
+        let (status, stale_entry) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": empty["revision"], "entry": person}),
+        );
+        assert_eq!(status, 409);
+        assert_eq!(stale_entry["current"]["label"], HOSTILE_LABEL);
+
+        // The explorer reads each relationship from the entry's side.
+        let (status, from_person) = explore(&f, &session, "plato");
+        assert_eq!(status, 200, "{from_person}");
+        assert_eq!(from_person["outgoing"][0]["label"], "authored");
+        assert_eq!(from_person["outgoing"][0]["other"]["id"], "politeia");
+        assert_eq!(from_person["outgoing"][0]["standing"], "asserted");
+        assert_eq!(from_person["incoming"], json!([]));
+        let (_, from_work) = explore(&f, &session, "politeia");
+        assert_eq!(from_work["incoming"][0]["label"], "authored by");
+        assert_eq!(from_work["incoming"][0]["other"]["label"], HOSTILE_LABEL);
+        assert_eq!(from_work["outgoing"], json!([]));
+
+        // A recorded dissent makes it contested, never agreed.
+        let mut disputed = relationship.clone();
+        disputed["contestedBy"] =
+            json!([{"by": {"kind": "named", "name": "A later editor"}, "note": "Doubts it."}]);
+        let (status, contested) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/relationships",
+            json!({"revision": related["revision"], "relationship": disputed}),
+        );
+        assert_eq!(status, 200, "{contested}");
+        let (_, explored) = explore(&f, &session, "plato");
+        assert_eq!(explored["outgoing"][0]["standing"], "contested");
+        assert!(!explored.to_string().contains("consensus"));
+
+        // An entry keeps its kind.
+        let mut retyped = person.clone();
+        retyped["kind"] = json!("concept");
+        let (status, refused) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": contested["revision"], "entry": retyped}),
+        );
+        assert_eq!(status, 422, "{refused}");
+        assert_eq!(refused["diagnostics"][0]["code"], "endpoint-kind");
+        assert_eq!(refused["diagnostics"][0]["field"], "kind");
+        assert_eq!(refused["file"], crate::atlas_store::ATLAS_FILE);
+
+        // A linked entry cannot be removed; the relationship can, then the entry.
+        let (status, linked) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": contested["revision"], "id": "plato"}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(linked["diagnostics"][0]["code"], "still-linked");
+        let (status, unlinked) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/atlas/relationships",
+            json!({"revision": contested["revision"], "id": "plato-authored-politeia"}),
+        );
+        assert_eq!(status, 200, "{unlinked}");
+        assert_eq!(unlinked["relationships"], json!([]));
+        let (status, gone) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": unlinked["revision"], "id": "plato"}),
+        );
+        assert_eq!(status, 200, "{gone}");
+        assert_eq!(gone["unresolvedNotes"], json!([]));
+        assert_eq!(atlas(&f, &session)["entries"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn notebook_concept_links_resolve_to_atlas_concepts_and_removal_reports_them() {
+        let f = fixture_with_sources("atlas-concepts");
+        let session = login_ok(&f);
+        let empty_notebook = notebook(&f, &session);
+        let (status, _) = notebook_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/notes",
+            json!({"revision": empty_notebook["revision"], "note":
+                {"id": "n1", "kind": "question", "text": "Why a cave?", "concepts": ["allegory"]}}),
+        );
+        assert_eq!(status, 201);
+        let empty = atlas(&f, &session);
+        assert_eq!(empty["missingConcepts"], json!(["allegory"]));
+        let (status, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": empty["revision"], "entry":
+                {"id": "allegory", "kind": "concept", "label": "Allegory"}}),
+        );
+        assert_eq!(status, 201, "{created}");
+        assert_eq!(created["missingConcepts"], json!([]));
+        let (_, explored) = explore(&f, &session, "allegory");
+        assert_eq!(explored["notes"][0]["id"], "n1");
+        assert_eq!(explored["notes"][0]["kind"], "question");
+        let (status, removed) = source_call(
+            &f,
+            &session,
+            "DELETE",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": created["revision"], "id": "allegory"}),
+        );
+        assert_eq!(status, 200, "{removed}");
+        assert_eq!(removed["unresolvedNotes"], json!(["n1"]));
+        assert_eq!(removed["missingConcepts"], json!(["allegory"]));
+        // The notebook is untouched by atlas changes.
+        assert_eq!(
+            notebook(&f, &session)["notes"][0]["concepts"],
+            json!(["allegory"])
+        );
+    }
+
+    #[test]
+    fn knowledge_atlas_failures_are_scoped_and_leave_the_file_unchanged() {
+        let f = fixture_with_sources("atlas-api-failures");
+        let session = login_ok(&f);
+        let empty = atlas(&f, &session);
+        let mut revision = empty["revision"].clone();
+        for entry in [
+            json!({"id": "plato", "kind": "person", "label": "Plato"}),
+            json!({"id": "the-good", "kind": "concept", "label": "The Good"}),
+            json!({"id": "form", "kind": "concept", "label": "Form"}),
+            json!({"id": "politeia", "kind": "work", "label": "Politeia", "source": "plato"}),
+        ] {
+            let (status, saved) = source_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/atlas/entries",
+                json!({"revision": revision, "entry": entry}),
+            );
+            assert_eq!(status, 201, "{saved}");
+            revision = saved["revision"].clone();
+        }
+        let (status, saved) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/relationships",
+            json!({"revision": revision, "relationship": {"id": "good-specializes-form",
+                "kind": "specializes", "from": "the-good", "to": "form",
+                "assertedBy": {"kind": "author"}, "unsourced": true}}),
+        );
+        assert_eq!(status, 201, "{saved}");
+        let revision = saved["revision"].clone();
+        let before = stored_atlas(&f).unwrap();
+
+        let secret = "ob-atlas-secret-7731";
+        let edge = |over: Json| {
+            let mut base = json!({"id": "r-new", "kind": "influenced", "from": "plato",
+                "to": "the-good", "assertedBy": {"kind": "author"},
+                "uncertainty": secret, "unsourced": true});
+            for (key, value) in over.as_object().unwrap() {
+                if value.is_null() {
+                    base.as_object_mut().unwrap().remove(key);
+                } else {
+                    base[key] = value.clone();
+                }
+            }
+            base
+        };
+        let cases = [
+            (edge(json!({"kind": "invents"})), "unknown-kind", "kind"),
+            (edge(json!({"kind": "member-of"})), "endpoint-kind", "to"),
+            (
+                edge(json!({"unsourced": null})),
+                "missing-evidence",
+                "evidence",
+            ),
+            (
+                edge(json!({"confidence": "strong"})),
+                "evidence-conflict",
+                "confidence",
+            ),
+            (
+                edge(json!({"visibility": "approved"})),
+                "missing-evidence",
+                "visibility",
+            ),
+            (edge(json!({"to": "plato"})), "self-relationship", "to"),
+            (
+                edge(json!({"kind": "specializes", "from": "form", "to": "the-good"})),
+                "cycle",
+                "to",
+            ),
+            (
+                edge(json!({"unsourced": null, "evidence": [{"source": "absent"}]})),
+                "unknown-source",
+                "evidence[0].source",
+            ),
+            (
+                edge(json!({"assertedBy": {"kind": "named"}})),
+                "missing-field",
+                "assertedBy.name",
+            ),
+        ];
+        for (relationship, code, field) in cases {
+            let (status, response) = source_call(
+                &f,
+                &session,
+                "POST",
+                "/admin/api/research/atlas/relationships",
+                json!({"revision": revision, "relationship": relationship}),
+            );
+            assert_eq!(status, 422, "{code}: {response}");
+            let diagnostics = response["diagnostics"].as_array().unwrap();
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|d| d["code"] == code && d["field"] == field),
+                "{code} at {field}: {response}"
+            );
+            assert_eq!(response["file"], crate::atlas_store::ATLAS_FILE);
+            assert!(!response.to_string().contains(secret), "{code} echoed text");
+            assert_eq!(
+                stored_atlas(&f).unwrap(),
+                before,
+                "{code} changed the atlas"
+            );
+            assert!(
+                !f.dir
+                    .join(".openblog/private/research/atlas.json.lock")
+                    .exists(),
+                "{code} left a lock"
+            );
+        }
+        // An entry with a hostile id or label problem is scoped, never echoed.
+        let (status, bad_entry) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": revision, "entry":
+                {"id": "<script>alert(1)</script>", "kind": "person", "label": secret}}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(bad_entry["diagnostics"][0]["field"], "id");
+        assert!(
+            !bad_entry.to_string().contains("<script>") && !bad_entry.to_string().contains(secret)
+        );
+        let (status, bad_source) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": revision, "entry":
+                {"id": "p2", "kind": "person", "label": "P", "source": "plato"}}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(bad_source["diagnostics"][0]["field"], "source");
+        // Unknown ids and hostile removal ids.
+        let (status, unknown) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": revision, "entry": {"id": "ghost", "kind": "person", "label": "G"}}),
+        );
+        assert_eq!(status, 422);
+        assert_eq!(unknown["diagnostics"][0]["code"], "unknown-entry");
+        let response = handle(
+            &f.state,
+            &authed(
+                json_req(
+                    "DELETE",
+                    "/admin/api/research/atlas/relationships",
+                    json!({"revision": revision, "id": "<img src=x onerror=alert(1)>"}),
+                ),
+                &session,
+                true,
+            ),
+        );
+        assert_eq!(response.status, 400);
+        assert!(!String::from_utf8_lossy(&response.body).contains("<img"));
+        let (status, _) = explore(&f, &session, "<b>x</b>");
+        assert_eq!(status, 400);
+        let (status, missing) = explore(&f, &session, "ghost");
+        assert_eq!(status, 404);
+        assert_eq!(missing["missing"], true);
+
+        // Oversize and malformed requests.
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": revision, "entry": {"id": "x", "kind": "person", "label": "x".repeat(MAX_NOTEBOOK_REQUEST_BYTES)}}),
+        );
+        assert_eq!(status, 413);
+        let mut plain = authed(
+            req("POST", "/admin/api/research/atlas/entries"),
+            &session,
+            true,
+        );
+        plain.body = b"{}".to_vec();
+        assert_eq!(handle(&f.state, &plain).status, 415);
+        assert_eq!(stored_atlas(&f).unwrap(), before);
+
+        // A damaged atlas is reported with its path and never replaced.
+        let path = f.dir.join(crate::atlas_store::ATLAS_FILE);
+        fs::write(&path, "{\"version\":1,\"entries\":[").unwrap();
+        let damaged = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/atlas"), &session, false),
+        );
+        assert_eq!(damaged.status, 422);
+        assert_eq!(body_json(&damaged)["file"], crate::atlas_store::ATLAS_FILE);
+        let (status, _) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": revision, "entry": {"id": "n", "kind": "person", "label": "N"}}),
+        );
+        assert_ne!(status, 201);
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "{\"version\":1,\"entries\":["
+        );
+    }
+
+    // ---- Knowledge Atlas publication (A5.4, ADR 0058) ---------------------------
+    //
+    // With publication turned on, the approved sentinels above may appear, but only
+    // in the atlas pages, `atlas.json` and the sitemap. Unknown fields at every
+    // level, private entries, private relationships and relationships to a private
+    // entry never appear anywhere, and withdrawing approval removes them all.
+
+    const PUBLISHABLE: [usize; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10];
+    const NEVER_PUBLIC: [(&str, &str); 3] = [
+        ("private entry", "ob-atlas-private-entry-5309"),
+        ("private relationship", "ob-atlas-private-relationship-5309"),
+        ("private endpoint", "ob-atlas-private-endpoint-5309"),
+    ];
+
+    fn atlas_surface(name: &str) -> bool {
+        name == "atlas.json" || name == "sitemap.xml" || name.starts_with("atlas/")
+    }
+
+    #[test]
+    fn knowledge_atlas_publication_projects_only_approved_fields_and_withdrawal_removes_them() {
+        use openblog_core::knowledge_atlas::{Entry, Relationship};
+        let f = fixture_with_sources("atlas-publication-corpus");
+        seeded_atlas(&f);
+        let none = BTreeMap::new();
+        let seeded = crate::atlas_store::load(&f.dir, &none).unwrap();
+        let hidden = Entry::from_json(json!({"id": "hidden", "kind": "concept",
+            "label": NEVER_PUBLIC[0].1, "summary": NEVER_PUBLIC[0].1, "visibility": "private"}))
+        .unwrap();
+        let one =
+            crate::atlas_store::create_entry(&f.dir, &seeded.revision, hidden, &none).unwrap();
+        let private = Relationship::from_json(json!({"id": "r-private", "kind": "influenced",
+            "from": ATLAS_SENTINELS[0].1, "to": "politeia", "assertedBy": {"kind": "author"},
+            "evidence": [{"source": "plato"}], "uncertainty": NEVER_PUBLIC[1].1,
+            "visibility": "private"}))
+        .unwrap();
+        let two =
+            crate::atlas_store::create_relationship(&f.dir, &one.revision, private, &none).unwrap();
+        let endpoint = Relationship::from_json(json!({"id": "r-endpoint", "kind": "discusses",
+            "from": "politeia", "to": "hidden", "assertedBy": {"kind": "author"},
+            "evidence": [{"source": "plato"}], "uncertainty": NEVER_PUBLIC[2].1,
+            "visibility": "approved"}))
+        .unwrap();
+        let three = crate::atlas_store::create_relationship(&f.dir, &two.revision, endpoint, &none)
+            .unwrap();
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+        f.state.rebuild().unwrap();
+        let dist = f.dir.join("dist");
+        let never = |text: &str| -> Vec<&'static str> {
+            let mut found: Vec<&'static str> = [8, 11, 12, 13]
+                .iter()
+                .filter(|&&index| text.contains(ATLAS_SENTINELS[index].1))
+                .map(|&index| ATLAS_SENTINELS[index].0)
+                .collect();
+            found.extend(
+                NEVER_PUBLIC
+                    .iter()
+                    .filter(|(_, sentinel)| text.contains(sentinel))
+                    .map(|(name, _)| *name),
+            );
+            found
+        };
+        for file in crate::fsutil::walk(&dist) {
+            let name = crate::fsutil::relative(&dist, &file);
+            let bytes = fs::read(&file).unwrap();
+            let text = String::from_utf8_lossy(&bytes);
+            let found = never(&text);
+            assert!(found.is_empty(), "dist/{name} exposes {}", found.join(", "));
+            assert!(
+                !openblog_core::research_bundle::looks_like_private_research(&bytes),
+                "dist/{name} carries a copy of private research"
+            );
+            if !atlas_surface(&name) {
+                assert!(
+                    atlas_leaked(&bytes).is_empty(),
+                    "dist/{name} carries atlas data outside the atlas pages"
+                );
+            }
+        }
+        assert!(!dist.join("atlas/hidden/index.html").exists());
+        let published = fs::read_to_string(dist.join("atlas.json")).unwrap();
+        for index in PUBLISHABLE {
+            let (name, sentinel) = ATLAS_SENTINELS[index];
+            assert!(
+                published.contains(sentinel),
+                "the projection publishes the {name}"
+            );
+        }
+        let page =
+            fs::read_to_string(dist.join(format!("atlas/{}/index.html", ATLAS_SENTINELS[0].1)))
+                .unwrap();
+        assert!(page.contains("<strong>Contested:</strong>"));
+        assert!(page.contains(ATLAS_SENTINELS[10].1) && page.contains(ATLAS_SENTINELS[9].1));
+
+        // The public server serves the projection, and still never the private file.
+        let response = crate::serve::route(&f.state, &req("GET", "/atlas.json"), &dist);
+        assert_eq!(response.status, 200);
+        assert!(never(&String::from_utf8_lossy(&response.body)).is_empty());
+        let response = crate::serve::route(
+            &f.state,
+            &req("GET", "/.openblog/private/research/atlas.json"),
+            &dist,
+        );
+        assert_atlas_clean("the private atlas path", &response.body);
+
+        // Portable exports and feeds do not carry the atlas.
+        let (site, _) = crate::site::load_site(&f.dir, false, None).unwrap();
+        for post in &site.posts {
+            let projection =
+                openblog_core::portability::PortableProjection::from_post(post, &site.config)
+                    .unwrap();
+            assert_atlas_clean(
+                &format!("portable markdown of {}", post.slug),
+                projection.portable_markdown().unwrap().as_bytes(),
+            );
+        }
+
+        // Withdrawing the person's approval is one ordinary edit; the next build
+        // drops the person, the relationship and every sentinel with them.
+        let mut person = three.atlas.entry(ATLAS_SENTINELS[0].1).unwrap().clone();
+        person.visibility = openblog_core::knowledge_atlas::Visibility::Private;
+        let withdrawn =
+            crate::atlas_store::update_entry(&f.dir, &three.revision, person, &none).unwrap();
+        let before = fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        f.state.rebuild().unwrap();
+        for file in crate::fsutil::walk(&dist) {
+            let name = crate::fsutil::relative(&dist, &file);
+            let bytes = fs::read(&file).unwrap();
+            assert!(
+                atlas_leaked(&bytes).is_empty(),
+                "dist/{name} after withdrawal"
+            );
+            assert!(never(&String::from_utf8_lossy(&bytes)).is_empty());
+        }
+        assert!(dist.join("atlas/politeia/index.html").exists());
+        assert_eq!(
+            fs::read(f.dir.join(crate::atlas_store::ATLAS_FILE)).unwrap(),
+            before,
+            "building never touches the private atlas"
+        );
+        assert_eq!(
+            crate::atlas_store::load(&f.dir, &none).unwrap().revision,
+            withdrawn.revision
+        );
+    }
+
+    #[test]
+    fn an_atlas_change_rebuilds_the_site_only_while_it_publishes_its_atlas() {
+        let f = fixture_with_sources("atlas-publication-rebuild");
+        let session = login_ok(&f);
+        seeded_atlas(&f);
+        let none = BTreeMap::new();
+        let dist = f.dir.join("dist");
+        let page = dist.join(format!("atlas/{}/index.html", ATLAS_SENTINELS[0].1));
+        let withdraw = |revision: &str, visibility: &str| {
+            let snapshot = crate::atlas_store::load(&f.dir, &none).unwrap();
+            let mut person = json!(snapshot.atlas.entry(ATLAS_SENTINELS[0].1).unwrap());
+            person["visibility"] = json!(visibility);
+            notebook_call(
+                &f,
+                &session,
+                "PUT",
+                "/admin/api/research/atlas/entries",
+                json!({ "revision": revision, "entry": person }),
+            )
+        };
+
+        // Off: the change is saved and nothing is built.
+        let revision = crate::atlas_store::load(&f.dir, &none).unwrap().revision;
+        let (status, body) = withdraw(&revision, "private");
+        assert_eq!(status, 200, "{body}");
+        assert!(body.get("build").is_none());
+        assert!(!dist.join("atlas.json").exists());
+
+        // On: approving publishes at once, and withdrawing removes the page at once.
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["knowledgeAtlas"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let (status, body) = withdraw(body["revision"].as_str().unwrap(), "approved");
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["build"]["ok"], true, "{body}");
+        assert!(page.exists(), "approval is published by the save");
+        let (status, body) = withdraw(body["revision"].as_str().unwrap(), "private");
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["build"]["ok"], true, "{body}");
+        assert!(!page.exists(), "withdrawal is published by the save");
+        let published = fs::read(dist.join("atlas.json")).unwrap();
+        assert!(atlas_leaked(&published).is_empty());
+    }
+
+    #[test]
+    fn a_save_at_the_atlas_path_is_refused_while_the_site_publishes_its_atlas() {
+        let f = fixture("atlas-reserved-save");
+        let session = login_ok(&f);
+        let config_path = f.dir.join(site::CONFIG_FILE);
+        let mut config: Json = serde_json::from_slice(&fs::read(&config_path).unwrap()).unwrap();
+        config["postPath"] = json!("/{slug}/");
+        config["knowledgeAtlas"] = json!({"publish": true});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let save = |kind: &str, fields: Json| {
+            handle(
+                &f.state,
+                &authed(
+                    json_req(
+                        "POST",
+                        "/admin/api/document",
+                        json!({ "kind": kind, "fields": fields, "body": "Maps." }),
+                    ),
+                    &session,
+                    true,
+                ),
+            )
+        };
+        let pages = f.dir.join("content/pages");
+        let count = |dir: &Path| fs::read_dir(dir).map(|d| d.count()).unwrap_or(0);
+        let (pages_before, posts_before) = (count(&pages), count(&f.dir.join("content/posts")));
+
+        let page = save("pages", json!({ "title": "My atlas", "slug": "atlas" }));
+        assert_eq!(page.status, 422, "{}", String::from_utf8_lossy(&page.body));
+        let problem = body_json(&page)["problems"][0]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            problem.contains("`atlas`") && problem.contains("reserved"),
+            "{problem}"
+        );
+        let post = save(
+            "posts",
+            json!({ "title": "Atlas", "slug": "atlas", "date": "2020-02-02" }),
+        );
+        assert_eq!(post.status, 422, "{}", String::from_utf8_lossy(&post.body));
+        assert!(body_json(&post)["problems"][0]
+            .as_str()
+            .unwrap()
+            .contains("reserved"));
+        assert_eq!(count(&pages), pages_before, "nothing was written");
+        assert_eq!(count(&f.dir.join("content/posts")), posts_before);
+
+        // While the atlas is not published, `/atlas/` is an ordinary path.
+        config["knowledgeAtlas"] = json!({"publish": false});
+        fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        let page = save("pages", json!({ "title": "My atlas", "slug": "atlas" }));
+        assert_eq!(page.status, 201, "{}", String::from_utf8_lossy(&page.body));
+    }
+
     #[test]
     fn notebook_code_has_no_logging_path_for_private_text() {
         // Nothing that handles research text prints, logs or debug-dumps it, so
@@ -11777,6 +13471,15 @@ mod tests {
                 include_str!("../../openblog-core/src/research_notes.rs"),
             ),
             ("private_guard.rs", include_str!("private_guard.rs")),
+            ("atlas_store.rs", include_str!("atlas_store.rs")),
+            (
+                "knowledge_atlas.rs",
+                include_str!("../../openblog-core/src/knowledge_atlas.rs"),
+            ),
+            (
+                "atlas_publication.rs",
+                include_str!("../../openblog-core/src/atlas_publication.rs"),
+            ),
         ];
         let banned = [
             "println!",
@@ -18293,6 +19996,46 @@ series: letters
     }
 
     #[test]
+    fn two_invitations_built_on_one_loaded_record_cannot_both_land() {
+        let (f, _mikey, id) = invitation_fixture("invite-concurrent");
+        // Both requests load the same record and decide against it before either is stored, as
+        // two overlapping requests would if the store did not compare the whole record.
+        let transaction = invitation_transaction(&f.state, &id).unwrap();
+        let record = transaction.record.clone().unwrap();
+        let now = clock::now().unix();
+        let invite = |user: &str, key: &str, seed: char| {
+            let new = NewInvitation {
+                id: format!("invitation-{}", seed.to_string().repeat(12)),
+                secret: seed.to_string().repeat(64),
+                admin_user: user.into(),
+                contributor_id: key.into(),
+                roles: vec![AuthorizationRole::Reader],
+                lifetime_days: 0,
+            };
+            let result = transaction
+                .with_identities(|identities| record.invite("mikey", identities, &new, now));
+            (result, new.id)
+        };
+        let (first, first_id) = invite("grace", "grace", 'a');
+        let (second, second_id) = invite("linus", "linus", 'b');
+        let first = finish_invitation(&f.state, &transaction, first, &first_id, now);
+        assert_eq!(
+            first.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&first.body)
+        );
+        let second = finish_invitation(&f.state, &transaction, second, &second_id, now);
+        assert_eq!(second.status, 409);
+        drop(transaction);
+        let stored = stored_record(&f, &id);
+        assert_eq!(stored.invitations.len(), 1);
+        assert_eq!(stored.invitations[0].id, first_id);
+        assert_eq!(stored.audit.len(), 1);
+        assert_eq!(stored.audit[0].subject, first_id);
+    }
+
+    #[test]
     fn revoked_expired_declined_and_reissued_invitations_stop_working() {
         let (f, mikey, id) = invitation_fixture("invite-states");
         let grace = login_as(&f, "grace", "another correct horse");
@@ -19162,6 +20905,15 @@ series: letters
             .unwrap()
             .is_empty());
         assert_eq!(tree_snapshot(&f.dir.join("content")), content_before);
+
+        // Both changes are in the audit trail the managers see, and no one else sees it.
+        let listed = body_json(&members_of(&f, &mikey, &id));
+        let audit = listed["audit"].as_array().unwrap();
+        assert_eq!(audit[0]["event"], "removed");
+        assert_eq!(audit[1]["event"], "rolesChanged");
+        assert_eq!(audit[1]["to"], json!(["reader"]));
+        assert!(!listed["audit"].to_string().contains("grace\""));
+        assert_eq!(members_of(&f, &grace, &id).status, 404);
     }
 
     fn reveal_call(f: &Fixture, session: &(String, String), path: &str, body: Json) -> Response {
@@ -19206,8 +20958,9 @@ series: letters
         json!({ "publicationId": id, "revision": revision })
     }
 
-    fn policy_body(id: &str, policy: &str) -> Json {
-        json!({ "publicationId": id, "policy": policy })
+    /// A confirmed change of the sharing rule from the one the requester read.
+    fn policy_body(id: &str, read: &str, policy: &str) -> Json {
+        json!({ "publicationId": id, "policy": policy, "expectedPolicy": read, "confirmed": true })
     }
 
     #[test]
@@ -19272,21 +21025,41 @@ series: letters
 
         // Only a coordinator or owner picks the policy; bad values and fields are refused.
         for who in [&grace, &linus] {
-            let denied = reveal_call(&f, who, "policy", policy_body(&id, "voluntary"));
+            let denied = reveal_call(
+                &f,
+                who,
+                "policy",
+                policy_body(&id, "independent", "voluntary"),
+            );
             assert_eq!(denied.status, 404);
         }
-        let bad = reveal_call(&f, &ada, "policy", policy_body(&id, "everyone"));
+        let bad = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            policy_body(&id, "independent", "everyone"),
+        );
         assert_eq!(bad.status, 422);
-        let mut extra = policy_body(&id, "voluntary");
+        let mut extra = policy_body(&id, "independent", "voluntary");
         extra["x"] = json!(1);
         assert_eq!(reveal_call(&f, &ada, "policy", extra).status, 422);
-        let unknown = reveal_call(&f, &ada, "policy", policy_body("nope", "voluntary"));
+        let unknown = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            policy_body("nope", "independent", "voluntary"),
+        );
         assert_eq!(unknown.status, 404);
         assert_eq!(
             body_json(&reveal_state(&f, &ada, &id))["policy"],
             "independent"
         );
-        let set = reveal_call(&f, &ada, "policy", policy_body(&id, "allReady"));
+        let set = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            policy_body(&id, "independent", "allReady"),
+        );
         assert_eq!(set.status, 200);
 
         // A coordinator without a draft sees the policy only and cannot offer or read prose.
@@ -19320,11 +21093,21 @@ series: letters
         for who in [&grace, &mikey] {
             reveal_call(&f, who, "ready", ready_body(&id, json!(1)));
         }
-        let changed = reveal_call(&f, &ada, "policy", policy_body(&id, "voluntary"));
+        let changed = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            policy_body(&id, "allReady", "voluntary"),
+        );
         assert_eq!(changed.status, 200);
         let hidden = body_json(&reveal_state(&f, &mikey, &id)).to_string();
         assert!(!hidden.contains("GRACE-SECRET"));
-        let back_again = reveal_call(&f, &ada, "policy", policy_body(&id, "allReady"));
+        let back_again = reveal_call(
+            &f,
+            &ada,
+            "policy",
+            policy_body(&id, "voluntary", "allReady"),
+        );
         assert_eq!(back_again.status, 200);
 
         // Removing a participant mid-way: they no longer block the reveal or receive it.
@@ -19408,7 +21191,13 @@ series: letters
         }
         // Mikey turns on allReady and offers; Grace's offer would complete the reveal.
         assert_eq!(
-            reveal_call(&f, &mikey, "policy", policy_body(&id, "allReady")).status,
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "independent", "allReady")
+            )
+            .status,
             200
         );
         assert_eq!(
@@ -19567,7 +21356,13 @@ series: letters
 
         // Both mark revision 1 ready under the voluntary rule: both see the whole piece.
         assert_eq!(
-            reveal_call(&f, &ada, "policy", policy_body(&id, "voluntary")).status,
+            reveal_call(
+                &f,
+                &ada,
+                "policy",
+                policy_body(&id, "independent", "voluntary")
+            )
+            .status,
             200
         );
         for who in [&mikey, &grace] {
@@ -19646,7 +21441,7 @@ series: letters
     fn reveal_routes_without_the_admin_session_or_csrf_do_nothing() {
         let (f, mikey, id) = invitation_fixture("reveal-auth");
         let before = tree_snapshot(&f.dir.join(".openblog/private"));
-        let body = policy_body(&id, "voluntary");
+        let body = policy_body(&id, "independent", "voluntary");
         let path = "/admin/api/collaboration/reveal/policy";
         let no_csrf = handle(
             &f.state,
@@ -19692,7 +21487,13 @@ series: letters
             assert_eq!(draft_call(&f, who, &id, 0, text).status, 200);
         }
         assert_eq!(
-            reveal_call(&f, &ada, "policy", policy_body(&id, "voluntary")).status,
+            reveal_call(
+                &f,
+                &ada,
+                "policy",
+                policy_body(&id, "independent", "voluntary")
+            )
+            .status,
             200
         );
         for who in [&mikey, &grace] {
@@ -20328,6 +22129,373 @@ series: letters
         );
         assert_eq!(publish_as(&f, &grace, &id).status, 404);
         assert_eq!(state_trees(&f), before);
+    }
+
+    fn approval_policy_read(f: &Fixture, who: &Session, id: &str) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                req(
+                    "GET",
+                    &format!("/admin/api/collaboration/approval-policy?publicationId={id}"),
+                ),
+                who,
+                false,
+            ),
+        )
+    }
+
+    fn approval_policy_write(f: &Fixture, who: &Session, body: Json, csrf: bool) -> Response {
+        handle(
+            &f.state,
+            &authed(
+                json_req("PUT", "/admin/api/collaboration/approval-policy", body),
+                who,
+                csrf,
+            ),
+        )
+    }
+
+    fn rule_body(id: &str, revision: u64, policy: Json, confirmed: bool) -> Json {
+        json!({ "publicationId": id, "expectedRevision": revision, "policy": policy, "confirmed": confirmed })
+    }
+
+    fn approvals_file(f: &Fixture, id: &str) -> Json {
+        serde_json::from_str(
+            &fs::read_to_string(f.dir.join(format!(
+                ".openblog/private/collaboration/approvals/{id}.json"
+            )))
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn the_approval_rule_is_chosen_with_the_grant_a_confirmation_and_the_revision_read() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-rule");
+        // Linus joins as a contributor and writes nothing, so under "every author" he blocks.
+        let linus = join_via_api(
+            &f,
+            &mikey,
+            &id,
+            "linus",
+            "yet another horse",
+            json!(["contributor"]),
+        );
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let stale_token = approval_body(&f, &mikey, &id);
+        assert_eq!(
+            body_json(&publish_as(&f, &ada, &id))["missing"],
+            json!(["Linus"])
+        );
+
+        // Reading and changing the rule: site owners and coordinators only; everyone else gets
+        // the same not-found as an unknown publication, and nothing changes.
+        let unknown = approval_policy_read(&f, &ada, "shared-ffffffffffff");
+        assert_eq!(unknown.status, 404);
+        for who in [&grace, &linus] {
+            let denied = approval_policy_read(&f, who, &id);
+            assert_eq!(denied.status, 404);
+            assert_eq!(denied.body, unknown.body);
+        }
+        let read = approval_policy_read(&f, &ada, &id);
+        assert_eq!(read.status, 200);
+        assert_no_prose(&read);
+        let read = body_json(&read);
+        assert_eq!(read["policy"]["requirement"], "allAuthors");
+        assert_eq!(read["revision"], 0);
+        assert_eq!(read["required"], json!(["Mikey", "Grace", "Linus"]));
+        assert_eq!(read["missing"], json!(["Linus"]));
+        assert_eq!(read["approvers"].as_array().unwrap().len(), 3);
+        assert_eq!(read["mayDropApprovers"], false);
+        let owner_read = approval_policy_read(&f, &mikey, &id);
+        assert_eq!(owner_read.status, 200);
+        assert_eq!(body_json(&owner_read)["mayDropApprovers"], true);
+
+        let before = state_trees(&f);
+        let contributing = json!({ "requirement": "contributingAuthors" });
+        for who in [&grace, &linus] {
+            let denied =
+                approval_policy_write(&f, who, rule_body(&id, 0, contributing.clone(), true), true);
+            assert_eq!(denied.status, 404);
+        }
+        let no_csrf = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(&id, 0, contributing.clone(), true),
+            false,
+        );
+        assert!(no_csrf.status == 401 || no_csrf.status == 403);
+        // Unconfirmed, stale, malformed and unknown-field requests change nothing.
+        let unconfirmed = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(&id, 0, contributing.clone(), false),
+            true,
+        );
+        assert_eq!(unconfirmed.status, 422);
+        assert_eq!(body_json(&unconfirmed)["field"], "confirmed");
+        assert_eq!(
+            approval_policy_write(
+                &f,
+                &ada,
+                rule_body(&id, 3, contributing.clone(), true),
+                true
+            )
+            .status,
+            409
+        );
+        for policy in [
+            json!({ "requirement": { "namedAuthors": [] } }),
+            json!({ "requirement": "everyone" }),
+            json!({ "requirement": "allAuthors", "extra": 1 }),
+            json!({ "requirement": { "authorsWithRoles": ["editor", "editor"] } }),
+        ] {
+            assert_eq!(
+                approval_policy_write(&f, &ada, rule_body(&id, 0, policy, true), true).status,
+                422
+            );
+        }
+        // Resubmitting the current rule is a no-op: no confirmation needed, nothing written.
+        let same = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(&id, 0, json!({ "requirement": "allAuthors" }), false),
+            true,
+        );
+        assert_eq!(same.status, 200);
+        assert_eq!(body_json(&same)["changed"], false);
+        assert_eq!(state_trees(&f), before);
+        // Dropping Linus from the required approvers is a site owner's decision: the coordinator
+        // is refused, with his name and what they may do instead, and nothing changes.
+        let drops = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(&id, 0, contributing.clone(), true),
+            true,
+        );
+        assert_eq!(drops.status, 403);
+        assert_no_prose(&drops);
+        let drops = body_json(&drops);
+        assert_eq!(drops["field"], "policy");
+        let message = drops["error"].as_str().unwrap();
+        assert!(message.contains("Only a site owner") && message.contains("Linus"));
+        assert_eq!(state_trees(&f), before);
+
+        // A confirmed change clears every approval, advances the revision once and re-evaluates.
+        let changed = approval_policy_write(
+            &f,
+            &mikey,
+            rule_body(&id, 0, contributing.clone(), true),
+            true,
+        );
+        assert_eq!(changed.status, 200);
+        let changed = body_json(&changed);
+        assert_eq!(changed["changed"], true);
+        assert_eq!(changed["cleared"], 2);
+        assert_eq!(changed["revision"], 1);
+        assert_eq!(changed["required"], json!(["Mikey", "Grace"]));
+        assert_eq!(changed["missing"], json!(["Mikey", "Grace"]));
+        assert!(approvals_file(&f, &id)["approvals"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert_eq!(state_trees(&f)[0], before[0]);
+        assert_eq!(state_trees(&f)[1], before[1]);
+        // A second change from the revision already used loses the race.
+        assert_eq!(
+            approval_policy_write(
+                &f,
+                &ada,
+                rule_body(&id, 0, json!({ "requirement": "allAuthors" }), true),
+                true
+            )
+            .status,
+            409
+        );
+        // An approval read under the old rule no longer lands.
+        assert_eq!(post_api(&f, &mikey, "approve", stale_token).status, 409);
+        // The preview shows the rule, its version and that Linus is not required.
+        let preview = body_json(&preview_call(&f, &mikey, &id));
+        assert_eq!(preview["preview"]["rule"]["revision"], 1);
+        assert_eq!(
+            preview["preview"]["rule"]["policy"]["requirement"],
+            "contributingAuthors"
+        );
+        let linus_section = preview["preview"]["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["displayName"] == "Linus")
+            .unwrap()
+            .clone();
+        assert_eq!(linus_section["required"], false);
+        assert_eq!(linus_section["approval"], "awaiting");
+        assert!(preview_document_text(&f, &mikey, &preview)
+            .contains("Approval rule: Everyone who wrote a section"));
+        // Once both writers approve again the piece publishes; nobody approved for Linus.
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let stored = approvals_file(&f, &id);
+        assert_eq!(stored["approvals"].as_array().unwrap().len(), 2);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+        // A published reflection keeps its rule.
+        assert_eq!(
+            approval_policy_write(
+                &f,
+                &ada,
+                rule_body(&id, 1, json!({ "requirement": "allAuthors" }), true),
+                true
+            )
+            .status,
+            409
+        );
+    }
+
+    #[test]
+    fn a_named_approver_who_leaves_blocks_publishing_until_the_rule_changes() {
+        let (f, mikey, grace, ada, id) = approval_fixture("approval-rule-churn");
+        let record = stored_record(&f, &id);
+        let grace_id = participant_of(&f, &id, "grace");
+        let ada_id = participant_of(&f, &id, "ada");
+        // Rules the authors could never meet are refused: Ada coordinates but is not an author,
+        // nobody holds the editor role, and an unknown participant cannot approve.
+        for (policy, says) in [
+            (
+                json!({ "requirement": { "namedAuthors": [ada_id] } }),
+                "Ada cannot approve",
+            ),
+            (
+                json!({ "requirement": { "authorsWithRoles": ["editor"] } }),
+                "no author is an editor",
+            ),
+            (
+                json!({ "requirement": { "namedAuthors": ["PARTICIPANT-99"] } }),
+                "not part of this reflection",
+            ),
+        ] {
+            let refused = approval_policy_write(&f, &ada, rule_body(&id, 0, policy, true), true);
+            assert_eq!(refused.status, 422);
+            let message = body_json(&refused)["error"].as_str().unwrap().to_string();
+            assert!(message.contains(says), "{message}");
+        }
+        // Grace must approve the final piece, even if she later loses access.
+        let named = approval_policy_write(
+            &f,
+            &ada,
+            rule_body(
+                &id,
+                0,
+                json!({ "requirement": { "namedAuthors": [grace_id] } }),
+                true,
+            ),
+            true,
+        );
+        assert_eq!(
+            named.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&named.body)
+        );
+        let named = body_json(&named);
+        assert!(named["summary"]
+            .as_str()
+            .unwrap()
+            .contains("and so must Grace."));
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        let removed = post_api(
+            &f,
+            &mikey,
+            "members/remove",
+            json!({ "publicationId": id, "participantId": grace_id, "expectedRevision": record.authorization.revision }),
+        );
+        assert_eq!(removed.status, 200);
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        // Mikey's approval does not stand in for Grace's: publishing is refused with the reason.
+        let before = state_trees(&f);
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 409);
+        assert_no_prose(&refused);
+        assert_eq!(body_json(&refused)["unmetNamed"], json!(["Grace"]));
+        assert_eq!(state_trees(&f), before);
+        let preview = body_json(&preview_call(&f, &mikey, &id));
+        assert_eq!(preview["preview"]["rule"]["unmetNamed"], json!(["Grace"]));
+        assert_eq!(preview["preview"]["ready"], false);
+        let note = preview_document_text(&f, &mikey, &preview);
+        assert!(note.contains("Grace can no longer approve"));
+        // Only a site owner can take Grace off the rule, so a coordinator is not sent to do it.
+        assert!(note.contains("A site owner can take them off the rule"));
+        assert!(!note.contains("A coordinator can change the rule"));
+        let read = body_json(&approval_policy_read(&f, &ada, &id));
+        assert_eq!(read["unmetNamed"], json!(["Grace"]));
+        assert_eq!(
+            read["formerApprovers"],
+            json!([{ "participantId": grace_id, "displayName": "Grace" }])
+        );
+        // Losing Grace never lowers the bar on a coordinator's say-so: dropping her is refused.
+        let unnamed = json!({ "requirement": "contributingAuthors" });
+        let before = state_trees(&f);
+        let refused =
+            approval_policy_write(&f, &ada, rule_body(&id, 1, unnamed.clone(), true), true);
+        assert_eq!(refused.status, 403);
+        assert!(body_json(&refused)["error"]
+            .as_str()
+            .unwrap()
+            .contains("Grace no longer has to approve"));
+        assert_eq!(state_trees(&f), before);
+        // The resolution: a site owner changes the rule, and the remaining author approves again.
+        let resolved = approval_policy_write(&f, &mikey, rule_body(&id, 1, unnamed, true), true);
+        assert_eq!(resolved.status, 200);
+        assert_eq!(body_json(&resolved)["unmetNamed"], json!([]));
+        assert_eq!(approve_as(&f, &mikey, &id).status, 200);
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+    }
+
+    #[test]
+    fn a_reveal_rule_change_names_the_rule_it_replaces() {
+        let (f, mikey, grace, ada, id) = approval_fixture("reveal-rule-race");
+        let before = state_trees(&f);
+        let change = |body: Json| reveal_call(&f, &ada, "policy", body);
+        // Without the rule it replaces, a change could overwrite one made elsewhere: refused.
+        let unnamed =
+            change(json!({ "publicationId": id, "policy": "allReady", "confirmed": true }));
+        assert_eq!(unnamed.status, 422);
+        let stale = change(policy_body(&id, "independent", "allReady"));
+        assert_eq!(stale.status, 409);
+        // A real change clears both standing offers, so it needs a confirmation.
+        let unconfirmed = change(
+            json!({ "publicationId": id, "policy": "allReady", "expectedPolicy": "voluntary" }),
+        );
+        assert_eq!(unconfirmed.status, 422);
+        let unconfirmed = body_json(&unconfirmed);
+        assert_eq!(unconfirmed["field"], "confirmed");
+        assert!(unconfirmed["error"]
+            .as_str()
+            .unwrap()
+            .contains("clears every standing offer"));
+        // Resubmitting the current rule needs no confirmation and writes nothing.
+        let same = change(
+            json!({ "publicationId": id, "policy": "voluntary", "expectedPolicy": "voluntary" }),
+        );
+        assert_eq!(same.status, 200);
+        assert_eq!(body_json(&same)["changed"], false);
+        assert_eq!(state_trees(&f), before);
+        for who in [&mikey, &grace] {
+            assert_eq!(body_json(&reveal_state(&f, who, &id))["ready"], true);
+        }
+        let current = change(policy_body(&id, "voluntary", "allReady"));
+        assert_eq!(current.status, 200);
+        let current = body_json(&current);
+        assert_eq!(current["policy"], "allReady");
+        assert_eq!(current["changed"], true);
+        for who in [&mikey, &grace] {
+            assert_eq!(body_json(&reveal_state(&f, who, &id))["ready"], false);
+        }
     }
 
     #[test]
@@ -21339,5 +23507,669 @@ series: letters
             fs::read_to_string(f.dir.join("content/series/letters-across-time.md")).unwrap(),
             file
         );
+    }
+
+    // ---- Roundtables at scale, end to end (#188) ----
+
+    /// A fixture, Mikey's session, the publication, the other writers' sessions and every
+    /// invitation token handed out.
+    type Group = (Fixture, Session, String, Vec<Session>, Vec<String>);
+
+    /// Mikey (owner, writer) and `others` more writers who joined through copy-link invitations,
+    /// each with their own account and contributor key. Returns their sessions in join order and
+    /// every invitation token handed out, so a test can prove none reaches public output.
+    fn group_fixture(tag: &str, others: usize) -> Group {
+        let f = fixture(tag);
+        let mut contributors = serde_json::Map::new();
+        contributors.insert("mikey-writer".into(), json!({ "name": "Mikey" }));
+        for n in 1..=others {
+            contributors.insert(
+                format!("key-{n:02}"),
+                json!({ "name": format!("Writer {n:02}") }),
+            );
+            add_admin_user(&f, &format!("acct{n:02}"), &format!("correct horse {n:02}"));
+        }
+        register_contributors(&f, Json::Object(contributors));
+        let mikey = login_ok(&f);
+        let created = create_shared(&f, &mikey, reflection_request());
+        let id = body_json(&created)["publication"]["publicationId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut sessions = Vec::new();
+        let mut tokens = Vec::new();
+        for n in 1..=others {
+            let (session, token) = join_writer(&f, &mikey, &id, n);
+            sessions.push(session);
+            tokens.push(token);
+        }
+        (f, mikey, id, sessions, tokens)
+    }
+
+    fn join_writer(
+        f: &Fixture,
+        owner: &(String, String),
+        id: &str,
+        n: usize,
+    ) -> ((String, String), String) {
+        let (user, key) = (format!("acct{n:02}"), format!("key-{n:02}"));
+        let issued = post_api(
+            f,
+            owner,
+            "invitations",
+            invite_body(id, &user, &key, json!(["contributor"])),
+        );
+        assert_eq!(
+            issued.status,
+            201,
+            "{}",
+            String::from_utf8_lossy(&issued.body)
+        );
+        let token = body_json(&issued)["token"].as_str().unwrap().to_string();
+        let session = login_as(f, &user, &format!("correct horse {n:02}"));
+        let accepted = post_api(
+            f,
+            &session,
+            "invitations/accept",
+            json!({ "token": token, "contributorId": key }),
+        );
+        assert_eq!(
+            accepted.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&accepted.body)
+        );
+        (session, token)
+    }
+
+    fn two_parts(n: usize, first: &str) -> String {
+        format!(
+            "{first}-{n:02}-OPEN said *this*.\n{}\n{first}-{n:02}-CLOSE said that.",
+            openblog_core::reflection::PART_MARKER
+        )
+    }
+
+    /// Two rounds: the first round the table from halfway, the second back the other way.
+    fn roundtable_arrangement(revision: u64, order: &[String]) -> Json {
+        let n = order.len();
+        json!({
+            "version": 1,
+            "revision": revision,
+            "layout": "roundtable",
+            "rounds": [
+                {
+                    "id": "round-1",
+                    "roundPrompt": "Opening round",
+                    "turns": (0..n).map(|k| json!({ "draft": order[(k + n / 2) % n], "part": 0 })).collect::<Vec<_>>(),
+                },
+                {
+                    "id": "round-2",
+                    "roundPrompt": "Closing round",
+                    "turns": order.iter().rev().map(|p| json!({ "draft": p, "part": 1 })).collect::<Vec<_>>(),
+                },
+            ],
+        })
+    }
+
+    /// Every file of public output, as text.
+    fn public_files(f: &Fixture) -> Vec<(PathBuf, String)> {
+        tree_snapshot(&f.dir.join("dist"))
+            .into_iter()
+            .map(|(path, bytes)| (path, String::from_utf8_lossy(&bytes).to_string()))
+            .collect()
+    }
+
+    fn in_reading_order(label: &str, output: &str, needles: &[String]) {
+        let mut from = 0;
+        for needle in needles {
+            let at = output[from..]
+                .find(needle.as_str())
+                .unwrap_or_else(|| panic!("{label} lost or reordered `{needle}`"));
+            from += at + needle.len();
+        }
+    }
+
+    fn roundtable_end_to_end(tag: &str, others: usize) {
+        let (f, mikey, id, writers, mut tokens) = group_fixture(tag, others);
+        let everyone = || {
+            std::iter::once(&mikey)
+                .chain(writers.iter())
+                .collect::<Vec<_>>()
+        };
+        let number = |k: usize| k; // Mikey is writer 0.
+                                   // Writer 01 edits after approving; the last writer is removed and comes back.
+        let (e, r) = (1, others);
+        // Everyone writes; one revision is then replaced and must never publish.
+        for (k, who) in everyone().into_iter().enumerate() {
+            assert_eq!(
+                draft_call(&f, who, &id, 0, &two_parts(number(k), "W")).status,
+                200
+            );
+        }
+        assert_eq!(
+            draft_call(&f, &mikey, &id, 1, &two_parts(0, "WM")).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(
+                &f,
+                &mikey,
+                "policy",
+                policy_body(&id, "independent", "voluntary")
+            )
+            .status,
+            200
+        );
+        // Before anyone offers, nobody reads anyone else's words.
+        let alone = body_json(&reveal_state(&f, &writers[0], &id)).to_string();
+        assert!(
+            alone.contains("W-01-OPEN") && !alone.contains("W-02-OPEN") && !alone.contains("WM-00")
+        );
+        for (k, who) in everyone().into_iter().enumerate() {
+            let revision = if k == 0 { 2 } else { 1 };
+            assert_eq!(
+                reveal_call(&f, who, "ready", ready_body(&id, json!(revision))).status,
+                200
+            );
+        }
+
+        // A coordinator arranges a roundtable of everyone; a write from the same revision loses.
+        let order = participant_ids(&f, &mikey, &id);
+        assert_eq!(order.len(), others + 1);
+        let arranged =
+            arrangement_write(&f, &mikey, true, &id, 0, roundtable_arrangement(1, &order));
+        assert_eq!(
+            arranged.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&arranged.body)
+        );
+        assert_eq!(
+            arrangement_write(&f, &mikey, true, &id, 0, roundtable_arrangement(1, &order)).status,
+            409
+        );
+
+        // Everyone reads the whole piece and approves it.
+        for who in everyone() {
+            let preview = body_json(&preview_call(&f, who, &id));
+            assert_eq!(preview["preview"]["complete"], true);
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+
+        // A writer edits after approving: a save from the old revision is refused with only
+        // their own copy, and only their approval needs giving again.
+        let editor = &writers[e - 1];
+        let stale = draft_call(&f, editor, &id, 0, "LOST-UPDATE");
+        assert_eq!(stale.status, 409);
+        let stale = String::from_utf8_lossy(&stale.body).to_string();
+        assert!(stale.contains(&format!("W-{e:02}-OPEN")) && !stale.contains("W-02-OPEN"));
+        assert_eq!(
+            draft_call(&f, editor, &id, 1, &two_parts(e, "E")).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(&f, editor, "ready", ready_body(&id, json!(2))).status,
+            200
+        );
+        let refused = publish_as(&f, &mikey, &id);
+        assert_eq!(refused.status, 409);
+        assert_eq!(
+            body_json(&refused)["missing"],
+            json!([format!("Writer {e:02}")])
+        );
+        assert_eq!(approve_as(&f, editor, &id).status, 200);
+
+        // A writer is removed mid-flow: nobody's approval covers the new author set, and the
+        // removed account can no longer approve, read or publish.
+        let removed_id = participant_of(&f, &id, &format!("acct{r:02}"));
+        let revision = stored_record(&f, &id).authorization.revision;
+        let removal = post_api(
+            &f,
+            &mikey,
+            "members/remove",
+            json!({ "publicationId": id, "participantId": removed_id, "expectedRevision": revision }),
+        );
+        assert_eq!(removal.status, 200);
+        assert_eq!(publish_as(&f, &mikey, &id).status, 409);
+        assert_eq!(preview_call(&f, &writers[r - 1], &id).status, 404);
+        assert_eq!(publish_as(&f, &writers[r - 1], &id).status, 404);
+
+        // They are restored through a new invitation, as a new participant who writes afresh;
+        // the arrangement is updated to include them and everyone approves again.
+        let (returned, token) = join_writer(&f, &mikey, &id, r);
+        tokens.push(token);
+        let fresh = body_json(&draft_read(&f, &returned, &id)).to_string();
+        assert!(!fresh.contains(&format!("W-{r:02}-OPEN")));
+        assert_eq!(
+            draft_call(&f, &returned, &id, 0, &two_parts(r, "R")).status,
+            200
+        );
+        assert_eq!(
+            reveal_call(&f, &returned, "ready", ready_body(&id, json!(1))).status,
+            200
+        );
+        let order = participant_ids(&f, &mikey, &id);
+        let rearranged =
+            arrangement_write(&f, &mikey, true, &id, 1, roundtable_arrangement(2, &order));
+        assert_eq!(
+            rearranged.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&rearranged.body)
+        );
+        let mut active = everyone();
+        active[r] = &returned;
+        for who in active {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+
+        let before_publish = tree_snapshot(&f.dir.join(".openblog/private"));
+        assert_eq!(publish_as(&f, &mikey, &id).status, 200);
+        let published = published_post(&f, &id).unwrap();
+        // A retry changes nothing.
+        let after = state_trees(&f);
+        assert_eq!(publish_as(&f, &mikey, &id).status, 200);
+        assert_eq!(state_trees(&f), after);
+        assert_ne!(
+            tree_snapshot(&f.dir.join(".openblog/private")),
+            before_publish
+        );
+
+        // What a reader meets, in order, by whom: the old participant's words and every
+        // replaced revision never appear.
+        let first = |k: usize| match k {
+            0 => "WM",
+            k if k == e => "E",
+            k if k == r => "R",
+            _ => "W",
+        };
+        // The arrangement still lists the removed participant; their turns are dropped.
+        let writer_of = (0..=others)
+            .map(|k| {
+                let user = if k == 0 {
+                    "mikey".to_string()
+                } else {
+                    format!("acct{k:02}")
+                };
+                (participant_of(&f, &id, &user), k)
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        let n = others + 1;
+        let m = order.len();
+        let opening = (0..m).map(|k| &order[(k + m / 2) % m]);
+        let closing = order.iter().rev();
+        let mut needles = vec!["Opening round".to_string()];
+        needles.extend(
+            opening
+                .filter_map(|p| writer_of.get(p))
+                .map(|at| format!("{}-{at:02}-OPEN", first(*at))),
+        );
+        needles.push("Closing round".to_string());
+        needles.extend(
+            closing
+                .filter_map(|p| writer_of.get(p))
+                .map(|at| format!("{}-{at:02}-CLOSE", first(*at))),
+        );
+        assert_eq!(needles.len(), 2 * n + 2);
+        in_reading_order("post", &published, &needles);
+
+        let private = [
+            "W-00-OPEN".to_string(),
+            format!("W-{e:02}-OPEN"),
+            format!("W-{r:02}-OPEN"),
+            "LOST-UPDATE".to_string(),
+            id.clone(),
+            "openblog:part".to_string(),
+            "acct0".to_string(),
+            "acct1".to_string(),
+            ".openblog".to_string(),
+        ];
+        let (site, _) = crate::site::load_site(&f.dir, false, Some(clock::now())).unwrap();
+        let post = site
+            .posts
+            .iter()
+            .find(|post| post.source.ends_with(&format!("{id}.md")))
+            .unwrap();
+        let files = public_files(&f);
+        let page = files
+            .iter()
+            .find(|(path, _)| {
+                path.ends_with("index.html") && path.to_string_lossy().contains(post.slug.as_str())
+            })
+            .map(|(_, text)| text.clone())
+            .expect("the reflection's page");
+        in_reading_order("page", &page, &needles);
+        assert!(page.contains("ob-reflection-roundtable"));
+        assert_eq!(page.matches("<h2 class=\"ob-turn-author\">").count(), 2 * n);
+        for (path, text) in &files {
+            for needle in private.iter().chain(tokens.iter()) {
+                assert!(
+                    !text.contains(needle.as_str()),
+                    "{} leaked `{needle}`",
+                    path.display()
+                );
+            }
+        }
+        for feed in ["rss.xml", "feed.json", "llms-full.txt"] {
+            let (_, text) = files
+                .iter()
+                .find(|(path, _)| path.ends_with(feed))
+                .unwrap_or_else(|| panic!("{feed}"));
+            in_reading_order(feed, text, &needles);
+        }
+        let creators = files
+            .iter()
+            .find(|(path, _)| path.ends_with("rss.xml"))
+            .unwrap()
+            .1
+            .matches("<dc:creator>")
+            .count();
+        assert_eq!(creators, n, "one credit per author");
+
+        // The portable Markdown export carries every turn under its author, in order.
+        // The arrangement adds no accessibility finding to the published reflection.
+        let findings = site
+            .accessibility
+            .iter()
+            .filter(|finding| format!("{finding:?}").contains(&id))
+            .collect::<Vec<_>>();
+        assert!(findings.is_empty(), "{findings:?}");
+        let out = f.dir.join("roundtable-export.md");
+        crate::portable_export::run(
+            &f.dir,
+            &post.slug,
+            crate::portable_export::Format::Markdown,
+            Some("roundtable-export.md"),
+            true,
+            false,
+        )
+        .unwrap();
+        let exported = fs::read_to_string(&out).unwrap();
+        in_reading_order("export", &exported, &needles);
+        for k in 1..=others {
+            assert!(
+                exported.contains(&format!("## Writer {k:02}")),
+                "Writer {k:02}"
+            );
+        }
+        assert!(exported.contains("## Mikey"));
+        for needle in private.iter().chain(tokens.iter()) {
+            assert!(
+                !exported.contains(needle.as_str()),
+                "export leaked `{needle}`"
+            );
+        }
+    }
+
+    #[test]
+    fn a_roundtable_of_three_is_written_arranged_approved_published_and_exported() {
+        roundtable_end_to_end("roundtable-three", 2);
+    }
+
+    #[test]
+    fn a_roundtable_of_ten_survives_edits_removal_and_restore_end_to_end() {
+        roundtable_end_to_end("roundtable-ten", 9);
+    }
+
+    #[test]
+    fn a_part_removed_after_arranging_is_shown_in_the_preview_and_publishes_nothing() {
+        let (f, mikey, grace, ada, id) = approval_fixture("arrangement-mismatch");
+        for (n, who) in [&mikey, &grace].into_iter().enumerate() {
+            let draft = draft_call(&f, who, &id, 1, &two_parts(n, "M"));
+            assert_eq!(draft.status, 200);
+            let offer = reveal_call(&f, who, "ready", ready_body(&id, json!(2)));
+            assert_eq!(offer.status, 200);
+        }
+        let order = participant_ids(&f, &mikey, &id);
+        let arranged = arrangement_write(&f, &ada, true, &id, 0, roundtable_arrangement(1, &order));
+        assert_eq!(arranged.status, 200);
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        // Mikey then folds his two parts into one: the second round names a part that is gone.
+        let folded = draft_call(&f, &mikey, &id, 2, "M-00-ONLY MIKEY-SECRET");
+        assert_eq!(folded.status, 200);
+        assert_eq!(
+            reveal_call(&f, &mikey, "ready", ready_body(&id, json!(3))).status,
+            200
+        );
+        // The authors, who may read the drafts, are told why in the combined preview.
+        let preview = body_json(&preview_call(&f, &grace, &id));
+        assert!(preview_document_text(&f, &grace, &preview)
+            .contains("arrangement of this piece does not match the drafts"));
+        assert!(approval_body(&f, &mikey, &id)["seen"].is_null());
+        // Ada may arrange but not read the drafts, so the gate tells her only whose approval is
+        // missing, never whether a part exists (ADR 0031).
+        let before = state_trees(&f);
+        let refused = publish_as(&f, &ada, &id);
+        assert_eq!(refused.status, 409);
+        assert_no_prose(&refused);
+        assert_eq!(body_json(&refused)["missing"], json!(["Mikey"]));
+        assert_eq!(state_trees(&f), before);
+        // Arranging the piece again resolves it.
+        let single = json!({
+            "version": 1,
+            "revision": 2,
+            "layout": "roundtable",
+            "rounds": [{ "id": "round-1", "turns": order.iter().map(|p| json!({ "draft": p, "part": 0 })).collect::<Vec<_>>() }],
+        });
+        assert_eq!(
+            arrangement_write(&f, &ada, true, &id, 1, single).status,
+            200
+        );
+        for who in [&mikey, &grace] {
+            assert_eq!(approve_as(&f, who, &id).status, 200);
+        }
+        assert_eq!(publish_as(&f, &ada, &id).status, 200);
+    }
+
+    #[test]
+    fn scheduling_never_tells_a_coordinator_who_cannot_read_the_drafts_whether_a_part_exists() {
+        let (f, mikey, _grace, ada, id) = approval_fixture("arrangement-oracle");
+        // Ada coordinates but writes nothing, so she is not entitled to the drafts.
+        assert_eq!(preview_call(&f, &ada, &id).status, 404);
+        let participants = body_json(&arrangement_read(&f, &mikey, &id))["participants"].clone();
+        let mikey_id = participants
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["displayName"] == "Mikey")
+            .unwrap()["id"]
+            .clone();
+        // Mikey's draft has one part. The first arrangement names a part it does not have, the
+        // second the part it does; neither approval has been given.
+        let naming = |revision: u64, part: usize| {
+            json!({
+                "version": 1,
+                "revision": revision,
+                "layout": "sequential",
+                "rounds": [{ "id": "round-1", "turns": [{ "draft": mikey_id, "part": part }] }],
+            })
+        };
+        let at = json!("2099-01-01T00:00:00Z");
+        let mut answers = Vec::new();
+        for (expected, part) in [(0, 7), (1, 0)] {
+            let saved =
+                arrangement_write(&f, &ada, true, &id, expected, naming(expected + 1, part));
+            assert_eq!(saved.status, 200);
+            let before = state_trees(&f);
+            let refused = schedule_as(&f, &ada, &id, at.clone());
+            assert_eq!(state_trees(&f), before);
+            assert_no_prose(&refused);
+            answers.push((refused.status, refused.body));
+        }
+        assert_eq!(answers[0].0, 409);
+        assert_eq!(
+            answers[0], answers[1],
+            "the refusal must not depend on the part"
+        );
+    }
+
+    #[test]
+    fn a_full_group_refuses_one_more_invitation_and_a_freed_place_can_be_used() {
+        use openblog_core::collaboration::MAX_PARTICIPANTS;
+        let f = fixture("roundtable-cap");
+        // Accounts share Mikey's password hash, so a full group costs no extra hashing.
+        let path = f.dir.join(".openblog/users.json");
+        let mut users = Users::load(&path).unwrap();
+        let hash = users.find("mikey").unwrap().hash.clone();
+        let mut contributors = serde_json::Map::new();
+        contributors.insert("mikey-writer".into(), json!({ "name": "Mikey" }));
+        for n in 1..=MAX_PARTICIPANTS {
+            users.users.push(crate::auth::UserRecord {
+                name: format!("acct{n:03}"),
+                hash: hash.clone(),
+            });
+            contributors.insert(
+                format!("key-{n:03}"),
+                json!({ "name": format!("Writer {n:03}") }),
+            );
+        }
+        users.save(&path).unwrap();
+        register_contributors(&f, Json::Object(contributors));
+        let mikey = login_ok(&f);
+        let id = body_json(&create_shared(&f, &mikey, reflection_request()))["publication"]
+            ["publicationId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let invite = |n: usize| {
+            post_api(
+                &f,
+                &mikey,
+                "invitations",
+                invite_body(
+                    &id,
+                    &format!("acct{n:03}"),
+                    &format!("key-{n:03}"),
+                    json!(["contributor"]),
+                ),
+            )
+        };
+        // Mikey plus 99 pending invitations fill the group.
+        let mut tokens = Vec::new();
+        for n in 1..MAX_PARTICIPANTS {
+            let issued = invite(n);
+            assert_eq!(issued.status, 201, "invitation {n}");
+            tokens.push(body_json(&issued)["token"].as_str().unwrap().to_string());
+        }
+        let before = state_trees(&f);
+        let refused = invite(MAX_PARTICIPANTS);
+        assert_eq!(refused.status, 422);
+        assert!(
+            String::from_utf8_lossy(&refused.body).contains("too many invitations or participants")
+        );
+        assert_eq!(state_trees(&f), before);
+        // Accepting keeps the group full; a joined writer cannot widen it either.
+        let joined = login_as(&f, "acct001", "correct horse battery");
+        let accepted = post_api(
+            &f,
+            &joined,
+            "invitations/accept",
+            json!({ "token": tokens[0], "contributorId": "key-001" }),
+        );
+        assert_eq!(accepted.status, 200);
+        assert_eq!(invite(MAX_PARTICIPANTS).status, 422);
+        // Revoking a pending invitation frees exactly one place.
+        let pending = stored_record(&f, &id)
+            .invitations
+            .iter()
+            .find(|invitation| invitation.admin_user == "acct002")
+            .unwrap()
+            .id
+            .clone();
+        let revoked = post_api(
+            &f,
+            &mikey,
+            "invitations/revoke",
+            json!({ "publicationId": id, "invitationId": pending }),
+        );
+        assert_eq!(revoked.status, 200);
+        assert_eq!(invite(MAX_PARTICIPANTS).status, 201);
+        assert_eq!(invite(2).status, 422);
+        // The full record still loads and lists every member for the owner.
+        let record = stored_record(&f, &id);
+        assert_eq!(record.collaboration.participants.len(), 2);
+        let members = body_json(&members_of(&f, &mikey, &id));
+        assert_eq!(members["members"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn ten_writers_saving_and_approving_at_once_lose_nothing() {
+        let (fixture, mikey, id, writers, _) = group_fixture("roundtable-concurrent", 9);
+        let everyone = std::iter::once(&mikey)
+            .chain(writers.iter())
+            .collect::<Vec<_>>();
+        let (f, id) = (&fixture, id.as_str());
+        let saved = std::thread::scope(|scope| {
+            let saves = everyone
+                .iter()
+                .enumerate()
+                .map(|(n, who)| {
+                    scope.spawn(move || draft_call(f, who, id, 0, &two_parts(n, "C")).status)
+                })
+                .collect::<Vec<_>>();
+            saves
+                .into_iter()
+                .map(|save| save.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert!(saved.iter().all(|status| *status == 200), "{saved:?}");
+        // Every writer's own words are there, and nobody else's draft was overwritten.
+        for (n, who) in everyone.iter().enumerate() {
+            let own = body_json(&draft_read(f, who, id));
+            assert_eq!(own["draft"]["markdown"], two_parts(n, "C"));
+        }
+        assert_eq!(
+            reveal_call(
+                f,
+                &mikey,
+                "policy",
+                policy_body(id, "independent", "allReady")
+            )
+            .status,
+            200
+        );
+        let offered = std::thread::scope(|scope| {
+            let offers = everyone
+                .iter()
+                .map(|who| {
+                    scope.spawn(move || {
+                        reveal_call(f, who, "ready", ready_body(id, json!(1))).status
+                    })
+                })
+                .collect::<Vec<_>>();
+            offers
+                .into_iter()
+                .map(|offer| offer.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert!(offered.iter().all(|status| *status == 200), "{offered:?}");
+        // The last offer revealed everything to everyone at once.
+        let preview = body_json(&preview_call(f, &writers[4], id));
+        assert_eq!(preview["preview"]["complete"], true);
+        let bodies = everyone
+            .iter()
+            .map(|who| approval_body(f, who, id))
+            .collect::<Vec<_>>();
+        let approved = std::thread::scope(|scope| {
+            let approvals = everyone
+                .iter()
+                .zip(&bodies)
+                .map(|(who, body)| {
+                    scope.spawn(move || post_api(f, who, "approve", body.clone()).status)
+                })
+                .collect::<Vec<_>>();
+            approvals
+                .into_iter()
+                .map(|approval| approval.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert!(approved.iter().all(|status| *status == 200), "{approved:?}");
+        assert_eq!(
+            approvals_file(f, id)["approvals"].as_array().unwrap().len(),
+            10
+        );
+        assert_eq!(publish_as(f, &mikey, id).status, 200);
     }
 }

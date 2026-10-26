@@ -141,8 +141,7 @@ impl CitationLocale {
         }
     }
 
-    /// A citation's locators as readers see them in this locale:
-    /// `p. 514–520, l. 3`.
+    /// Public locators as readers see them in this locale: `p. 514–520, 514a`.
     pub fn locators_text(self, locators: &[PublicLocator]) -> String {
         locators_text(locators, self.strings())
     }

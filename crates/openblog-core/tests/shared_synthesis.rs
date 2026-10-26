@@ -436,6 +436,7 @@ fn binding(set: &SynthesisSet, approvals: &ApprovalSet, who: &str) -> String {
                 sections: &sections,
                 metadata: &metadata,
                 attributed: &[],
+                roles: &[],
             },
             who,
         )
@@ -461,6 +462,7 @@ fn approval_binds_to_exact_items_order_and_attribution() {
                 sections: &sections,
                 metadata: &["Title"],
                 attributed: &[],
+                roles: &[],
             },
             "bo",
         )
@@ -552,6 +554,7 @@ fn a_standing_approval_goes_stale_when_the_synthesis_changes() {
         sections: &sections,
         metadata: &refs,
         attributed: &[],
+        roles: &[],
     };
     for who in authors {
         let seen = approvals.binding_for(&view, who).unwrap();
@@ -579,6 +582,7 @@ fn a_standing_approval_goes_stale_when_the_synthesis_changes() {
         sections: &sections,
         metadata: &refs,
         attributed: &[],
+        roles: &[],
     };
     assert!(matches!(
         approvals.evaluate(&changed).unwrap(),
@@ -616,6 +620,7 @@ fn a_named_author_must_approve_even_under_contributing_authors() {
         sections: &sections,
         metadata: &refs,
         attributed: &attributed,
+        roles: &[],
     };
     let seen = approvals.binding_for(&view, "ann").unwrap();
     approvals

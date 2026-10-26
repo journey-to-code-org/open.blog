@@ -48,6 +48,71 @@ All notable changes to open.blog are recorded here. Releases follow
   like a redirect address, such as a title or note containing `; url=/x`, is no longer rewritten
   to `; url=/blog/x` on pages, in their structured data or in citation preview data.
 
+## [0.29.0] - 2026-10-26
+
+- Defined the format for a private Knowledge Atlas of people, works, concepts, movements and events,
+  with relationships that always name who asserts them, the source evidence and the uncertainty,
+  and that never present a contested relationship as consensus. Research-note concept links now
+  have a defined home in concept entries; existing notebooks are unchanged. Nothing reads or writes
+  an atlas yet, so no site output changes.
+- The Knowledge Atlas is now stored privately in `.openblog/private/research/atlas.json` and
+  checked by `openblog check`, which also notes approved relationships that stay private
+  because an entry they join is private. Withdrawing an entry's approval is never refused,
+  events can answer, influence and be influenced, and removing a concept your notes link to is
+  allowed and lists those notes. A source or notebook passage the atlas uses cannot be removed
+  until the atlas stops using it, and a copy of the atlas inside `content/`, `static/` or a
+  theme stops the build and publishing. Nothing from the atlas reaches your site, feeds,
+  search, `llms.txt` or exports.
+- Admin Studio has a new **Atlas** view under Research tools. You can list, search and filter
+  entries by kind, add and edit people, works, concepts, movements and events, and relate them
+  with pickers that offer only the entries a relationship kind may join. Each relationship
+  names who asserts it, rests on sources from your library (optionally a notebook passage) or
+  is marked as an unsourced draft, and records confidence, what is uncertain and who disputes
+  it. Each entry lists its incoming and outgoing relationships as text you can move through
+  from the keyboard, and a disputed relationship is always shown as contested, never as
+  agreed. A note's concepts in the notebook link to their atlas entries. Everything stays
+  private.
+- You can now publish the approved part of your Knowledge Atlas by setting
+  `"knowledgeAtlas": {"publish": true}` in `openblog.json`. The build writes `/atlas/`, a page
+  for each approved entry with its relationships from and to it, and the same data as
+  `/atlas.json`, built from one projection with a fixed list of public fields. A relationship
+  appears only when it and both its entries are approved, always in its stored direction with
+  who asserts it, its sources, confidence and doubt, and a disputed one is shown as contested
+  with everyone who disagrees. Private entries, notebook passages, unknown fields and anything
+  unapproved never appear, clearing an approval removes the item from the next build, and
+  sites that leave publication off build exactly as before without reading the atlas.
+  Because the atlas is private and Git-ignored, only `openblog serve`, Admin or a local build
+  you upload can publish it; `openblog build` and `openblog check` warn when publishing is on
+  but no atlas is stored, as in a CI or static-host build.
+
+## [0.28.0] - 2026-10-26
+
+- Shared reflections now work for groups of any size up to the participant cap, through the same
+  copy-link invitations. Site owners and coordinators see an audit trail of invitations, joins,
+  role changes, and removals (participants and roles only, never links or prose), and role
+  changes keep approvals and continuing-conversation attribution in step. Existing records need no
+  migration.
+- Site owners and coordinators can choose a shared reflection's approval rule in Admin: every
+  author, everyone who wrote, the writers plus named people, or the writers plus everyone with a
+  chosen role, and whether an approval covers one's own sections or the whole piece. Everyone who
+  wrote always approves their own words. Changing the rule needs a confirmation, clears every
+  approval, and is refused if someone else changed it first or if the authors could never meet
+  it. A coordinator can keep or add people who must approve, but only a site owner can change the
+  rule so that someone no longer has to. If a named person leaves, or nobody holds a listed role,
+  publishing waits until the rule changes. The combined preview shows the rule. Changing the
+  sharing rule now refuses to overwrite a change made elsewhere and, because it clears every
+  standing offer, needs a confirmation too.
+- A shared reflection with a large group, long names and a long membership history no longer
+  risks being saved in a form that could not be opened again; a save that would be too large is
+  refused and the reflection stays as it was.
+- Accessibility Studio and `openblog check` no longer ask you to review the layout markup of an
+  arranged shared reflection as custom raw HTML: it is written by open.blog, with every turn
+  under a heading naming its author. Raw HTML anywhere else is still flagged for review.
+- When an author removes a part of their draft after the piece was arranged, the combined
+  preview says the arrangement no longer matches the drafts, and once every required approval is
+  in, publishing asks a coordinator to arrange it again rather than failing with a generic error.
+  A coordinator who cannot read the drafts is never told whether a part exists.
+
 ## [0.27.0] - 2026-10-25
 
 - Defined how citations work, ahead of in-post citations: a citation is `[@key]` or

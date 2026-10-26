@@ -126,6 +126,7 @@ pub fn update(
         let before = library.clone();
         library.upsert(record.clone(), contributors)?;
         keep_notebook_valid(root, &before, library, vec![record.id.clone()])?;
+        keep_atlas_valid(root, &before, library, std::slice::from_ref(&record.id))?;
         keep_posts_citable(root, &before, library, std::slice::from_ref(&record.id))
     })
     .map(|(snapshot, ())| snapshot)
@@ -176,6 +177,7 @@ pub fn import_csl(
             .map(|record| record.id.clone())
             .collect();
         keep_notebook_valid(root, &before, library, moved.clone())?;
+        keep_atlas_valid(root, &before, library, &moved)?;
         keep_posts_citable(root, &before, library, &moved)?;
         Ok(plan)
     })
@@ -211,6 +213,33 @@ fn keep_notebook_valid(
                         many.iter().map(|id| format!("`{id}`")).collect::<Vec<_>>().join(", ")
                     ),
                 }
+            ),
+        }]
+    })
+}
+
+/// A library change must not leave a valid Knowledge Atlas invalid, for
+/// example by re-pointing a reference so an evidence locator turns ambiguous.
+/// It runs after the notebook check, under the library lock (which every atlas
+/// write also holds), and an atlas that was already unreadable does not block
+/// unrelated library edits.
+fn keep_atlas_valid(
+    root: &Path,
+    before: &SourceLibrary,
+    after: &SourceLibrary,
+    ids: &[String],
+) -> Result<(), Vec<SourceDiagnostic>> {
+    if crate::atlas_store::check_against_library(root, before).is_err() {
+        return Ok(());
+    }
+    crate::atlas_store::check_against_library(root, after).map_err(|message| {
+        vec![SourceDiagnostic {
+            code: SourceDiagnosticCode::StillUsed,
+            index: None,
+            source_id: ids.first().cloned(),
+            field: None,
+            message: format!(
+                "the change would leave the Knowledge Atlas invalid, so nothing was saved ({message}); adjust the affected entries and relationships first"
             ),
         }]
     })
@@ -295,6 +324,20 @@ pub fn remove(
                 id,
                 format!(
                     "{} in the research notebook still use this source ({}); remove or move them first",
+                    using.len(),
+                    using.join(", ")
+                ),
+            )]);
+        }
+        // The Knowledge Atlas cites sources as evidence, attribution, and the
+        // work an entry stands for; its writes hold this lock too.
+        let using = crate::atlas_store::uses_of_source(root, library, id)
+            .map_err(|message| vec![still_used(id, message)])?;
+        if !using.is_empty() {
+            return Err(vec![still_used(
+                id,
+                format!(
+                    "{} in the Knowledge Atlas still use this source ({}); remove them or change their evidence first",
                     using.len(),
                     using.join(", ")
                 ),

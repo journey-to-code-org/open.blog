@@ -43,7 +43,8 @@ default, so you can edit values in place and delete the ones you do not need.
   "knowledgeChecks": { "generationEndpoint": "", "model": "" },
   "paths": { "content": "content", "static": "static", "output": "dist", "themes": "themes", "web": "web" },
   "admin": { "usersFile": ".openblog/users.json", "sessionHours": 12, "secureCookies": false, "maxUploadMb": 10, "trustedProxies": [] },
-  "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true }
+  "publish": { "remote": "origin", "branch": "main", "auto": false, "includeDrafts": false, "paths": ["content", "static", "openblog.json", "themes", ".github"], "pullFirst": true },
+  "knowledgeAtlas": { "publish": false }
 }
 ```
 
@@ -238,6 +239,23 @@ defaults to `.openblog/syndication.json`. Credentials are environment-only and n
 in this file. See [Cross-posting](cross-posting.md#built-in-command) for setup and the
 [automated syndication specification](specs/automated-syndication.md) for the exact fields,
 credential names, and safety behavior.
+
+## Knowledge Atlas
+
+`knowledgeAtlas.publish` (off by default) publishes the approved part of your private
+Knowledge Atlas: `/atlas/`, a page per approved entry at `/atlas/<id>/`, and the same data as
+`/atlas.json`. Only entries you approved, and relationships you approved whose entries are both
+approved, are published, each with who asserts it, its evidence, confidence, doubt and any
+dissent; private notes, notebook passages and unapproved items never are. While it is off, no
+build reads the atlas. Clearing an approval removes the item from the next build. Add
+`{ "label": "Atlas", "href": "/atlas/" }` to `nav` to link it from the header. See the
+[Knowledge Atlas format](specs/knowledge-atlas.md#publication).
+
+The atlas is private and Git-ignored, so only a build that can read it publishes it:
+`openblog serve` and Admin, or a local `openblog build` whose `dist/` you then upload. A CI or
+static-host build from the repository finds no atlas and publishes `/atlas/` and `/atlas.json`
+empty; `openblog build` and `openblog check` warn when publishing is on but no atlas is stored.
+See [Deploying](deploy.md).
 
 ## Themes
 

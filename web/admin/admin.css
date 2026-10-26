@@ -2555,6 +2555,95 @@ html[data-admin-density="compact"] .oba-pane {
   width: min(40rem, calc(100vw - 2rem));
 }
 
+/* Knowledge Atlas: lists and forms only, no drawing. */
+.oba-atlas-incidents,
+.oba-atlas-facts,
+.oba-atlas-chips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-atlas-incident {
+  padding: 0.6rem 0;
+  border-top: var(--ob-border-width) solid var(--oba-panel-border);
+}
+
+/* Contested is said in words; the rule only repeats it for sighted readers. */
+.oba-atlas-incident[data-standing="contested"] {
+  padding-left: 0.6rem;
+  border-left: 4px double var(--ob-color-accent);
+}
+
+#oba-atlas-lists .oba-btn {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#oba-atlas-heading,
+.oba-atlas-incident p,
+.oba-atlas-facts li,
+.oba-atlas-notices li,
+.oba-atlas-explorer h3,
+#oba-atlas-entries .oba-source-item strong {
+  overflow-wrap: anywhere;
+}
+
+.oba-atlas-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.oba-atlas-explorer .oba-btn,
+.oba-atlas-chips .oba-btn,
+.oba-atlas-form .oba-btn,
+.oba-atlas-concept-links a {
+  min-height: 44px;
+}
+
+.oba-atlas-concept-links ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.oba-atlas-concept-links a {
+  display: inline-flex;
+  align-items: center;
+}
+
+.oba-atlas-form input[inputmode="numeric"] {
+  max-width: 12rem;
+}
+
+.oba-atlas-explorer button:focus-visible,
+.oba-atlas-chips button:focus-visible,
+.oba-atlas-concept-links a:focus-visible,
+.oba-atlas-form fieldset:focus-visible,
+#oba-atlas-heading:focus-visible {
+  outline: 3px solid var(--ob-color-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 40rem) {
+  .oba-atlas-explorer .oba-toolbar,
+  .oba-atlas-edit + p + .oba-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .oba-atlas-form .oba-btn {
+    width: 100%;
+    max-width: 100%;
+    white-space: normal;
+  }
+}
+
 /* Anchors styled as buttons or tabs should not look like prose links. */
 a.oba-btn,
 a.oba-tab {
@@ -2843,6 +2932,7 @@ a.oba-btn-primary {
 }
 
 .oba-arrangement { margin-top: 1rem; }
+.oba-approval-rule { margin-top: 1rem; }
 .oba-arrangement-turn { margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 .oba-arrangement-turn input[type="number"] { width: 5rem; }
 
