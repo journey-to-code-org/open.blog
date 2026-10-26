@@ -376,6 +376,26 @@ test("an abuse report is taken only for an item that is public now, and names no
   }
 });
 
+test("a site that publishes only B5's feedback manifest never takes abuse reports", async () => {
+  // Built before the participation manifest existed: openblog-feedback.json opens the post.
+  const b5Site = async (url) => {
+    if (url.endsWith("openblog-feedback.json")) return { ok: true, status: 200, json: async () => ({ "/posts/tides/": "open" }) };
+    if (url.endsWith("openblog-comments.json")) return { ok: true, status: 200, json: async () => ({ "/posts/tides/": "open" }) };
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
+  for (const [source, row] of [["comment", commentRow()], ["feedback", feedbackRow({ status: "approved", approved_revision: 1 })]]) {
+    const database = fakeDatabase((request) => (request.path.endsWith(source === "comment" ? "/openblog_comments" : "/openblog_feedback") ? [row] : []));
+    const response = await handlerFor(protectedEnv, database, { siteFetch: b5Site })(event("reports", "POST", { headers: ORIGIN, body: { source, id: row.id, ground: "spam" } }));
+    assert.equal(response.statusCode, 404, source);
+    assert.equal(JSON.parse(response.body).code, "unavailable");
+    assert.equal(writes(database).length, 0);
+  }
+  // B5's four kinds still follow that manifest.
+  const notes = fakeDatabase((request) => (request.method === "POST" && request.path.endsWith("/openblog_feedback") ? [{ id: ID(1), status: "pending" }] : []));
+  const taken = await handlerFor(protectedEnv, notes, { siteFetch: b5Site })(event("feedback", "POST", { headers: ORIGIN, body: JSON.stringify(scholarly.accepted[0].submission) }));
+  assert.equal(taken.statusCode, 202, taken.body);
+});
+
 test("report floods and repeats are bounded without telling the reporter", async () => {
   // Over the client's quota: told to wait.
   const limited = fakeDatabase((request) => (request.path.endsWith("/rpc/openblog_consume_rate_limit") ? { allowed: request.body.p_bucket !== "reports" } : request.path.endsWith("/openblog_comments") ? [commentRow()] : []));

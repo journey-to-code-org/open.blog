@@ -127,7 +127,8 @@ setting, whatever `engagement.comments` says, when `engagement.feedback` is on",
   derived from the policy: each post's most restrictive mode of the four, so an older function
   never accepts a kind the policy keeps hidden or locked (a site that only sets
   `engagement.feedback` gets B5's file byte for byte). The current function reads it only when
-  the site publishes no `openblog-participation.json`, a site built before the policy; a
+  the site publishes no `openblog-participation.json`, a site built before the policy, and only
+  for B5's four kinds: every other kind, abuse reports among them, is hidden on such a site. A
   participation manifest it cannot read is "hidden", never a reason to read the older file.
 - B5's `FeedbackKind` stays the registry of its submission format
   ([ADR 0079](0079-typed-scholarly-feedback-kinds-and-one-submission-format.md)); every

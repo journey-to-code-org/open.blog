@@ -428,10 +428,12 @@ export function createHandler({ env = process.env, fetchImpl = fetch, siteFetchI
   // One passage feedback kind's mode on one post (ADR 0100), from the
   // participation manifest; a missing post or kind is "hidden". A site built
   // before that manifest existed still publishes B5's openblog-feedback.json,
-  // which is read only when the participation manifest is not published.
+  // which is read only when the participation manifest is not published,
+  // and only for B5's four passage kinds: every other kind, abuse reports
+  // among them, is hidden on a site that never published its mode.
   const feedbackPolicy = async (settings, path, kind) => {
     const { value, missing } = await siteManifest(settings, "openblog-participation.json");
-    if (missing) return publishedPolicy(settings, "openblog-feedback.json", path);
+    if (missing) return Object.hasOwn(FEEDBACK_KINDS, kind) ? publishedPolicy(settings, "openblog-feedback.json", path) : "hidden";
     const modes = value && Object.hasOwn(value, path) ? value[path] : null;
     const mode = modes && typeof modes === "object" && Object.hasOwn(modes, kind) ? modes[kind] : "";
     return MODES.includes(mode) ? mode : "hidden";
