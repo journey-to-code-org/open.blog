@@ -1425,7 +1425,7 @@ repair, never a privacy failure.
 _Avoid_: Broken link check, link validation
 
 **Finding acknowledgement**:
-The author's private record that they have seen an advisory finding: its key and fingerprint, in
-`.openblog/private/research/acknowledgements.json` (ADR 0136). The finding stays listed and
-counted; the acknowledgement goes stale when what the finding is about changes.
-_Avoid_: Dismissal, resolution, waiver, sign-off
+An author's record that they have considered an advisory finding. It names the finding's key and
+fingerprint, never makes the finding resolved, is counted apart from what was found, and goes
+stale when what the finding says changes.
+_Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy failure

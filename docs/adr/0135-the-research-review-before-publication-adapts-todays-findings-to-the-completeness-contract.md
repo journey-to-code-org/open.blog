@@ -96,16 +96,28 @@ would make #194 a migration.
   comparison `PublicComparison::project` accepts it). Its finding is scoped to the post at the
   link's line, relates the entry or alignment, is `detected`, category `public-boundary`, and
   advisory: the address is the author's own text, so a missing page is a gap, not a leak. Its
-  fact is the address. #194 adds the row (`publication-context`, `context-link`,
-  `context-link-unpublished`) and `file-unreadable` to the matrix, or replaces them.
+  fact is the address.
+- **Rows this review adds to the matrix.** The contract keeps these; #194 must add them to
+  ADR 0144's matrix when it replaces the converters, rather than drop or rename them, so
+  acknowledgements stored in the meantime keep their keys:
+
+  | Kind | Added | Owner and mapping |
+  | --- | --- | --- |
+  | validator | `publication-context` (`Validator::PublicationContext`) | `context_links::review_context_links` |
+  | check | `context-link` (`Check::ContextLink`) | owned by `publication-context` |
+  | code | `context-link-unpublished` | `context-link`, `public-boundary`, `detected`, advisory; fact: the address |
+  | code | `file-unreadable` | the unreadable file's integrity check (`library-integrity`, `notebook-integrity`, `atlas-integrity`, `claims-integrity`, `alignments-integrity`), `integrity`, `detected`, `refuses`; no facts |
+
 - **What #194 swaps.** #194 replaces the converters with `research_completeness`'s and the
-  review with `CompletenessReport`, keeping `groups` and the route. Today's validators state no
-  position-free facts (RW9 adds them), so the adapter fingerprints evidence findings, notices and
-  prompts by their key and related objects alone; withheld places and context links state the
-  same facts as ADR 0145. Until the swap an acknowledgement of, say, `citation-location-review`
-  does not go stale when another located citation appears. After it, fingerprints that gain
-  facts change, so those acknowledgements read as stale and the author sees the finding again:
-  the safe direction. Fingerprints with no facts in either version are identical.
+  review with `CompletenessReport`, keeping `groups`, the route and the rows above. The
+  validators state RW9's position-free facts (`EvidenceFinding::facts`, `AtlasDiagnostic::facts`
+  and `ChronologyPrompt::facts`, set with `with_facts` exactly as RW9 sets them per code: a
+  footnote's name, a DOI or licence as written, a citation's code and key, a claim's linked
+  evidence, a notice's ids, a dating's id, aspect and stated date), and the converters pass them
+  through, so a fingerprint here equals the contract's for the same finding and no stored
+  acknowledgement goes stale at the swap. Two findings that share a key without an id or field
+  (two unresolved footnotes on one post) are told apart by their facts, so acknowledging one
+  never acknowledges the other.
 - **Every item links to its object and repair.** A finding on the post goes to its line in the
   Markdown source (switching the view to Markdown without changing the saved writing-mode
   preference) or to its front matter field; a claim or evidence link opens it in Evidence Studio;
