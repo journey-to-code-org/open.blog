@@ -37,9 +37,11 @@ single readable source:
   processors ignore. Import restores that list when its first locator still agrees with `label`
   and `locator`; if someone edited those elsewhere, CSL wins and the disagreement is reported.
 - A CSL label with no matching kind is kept as an `x-csl-<label>` extension kind, not dropped,
-  and export writes it back as that `label`. A kind cannot hold a space, so CSL's `sub verbo` is
-  kept as `x-csl-sub-verbo` through a fixed two-way table and round-trips exactly; any other label
-  with spaces is kept with hyphens and the respelling is reported. An item without a label is a
+  and export writes it back as that `label`. The current CSL schema spells the sub-verbo label
+  `sub-verbo`, which is kept as `x-csl-sub-verbo` and round-trips exactly; export always writes
+  `sub-verbo`. The legacy spelling `sub verbo` (CSL 1.0.1) is accepted on import as an alias of
+  the same kind, and the respelling is reported as a loss. A kind cannot hold a space, so any other
+  label with spaces is kept with hyphens and the respelling is reported. An item without a label is a
   `page` locator, as CSL specifies.
 - `prefix`, `suffix`, `suppress-author`, `author-only`, embedded `itemData` and any other field
   are reported and not stored. The library stays the only source of reference data. An item's

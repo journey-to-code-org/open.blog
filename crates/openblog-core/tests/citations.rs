@@ -456,13 +456,24 @@ fn csl_extension_labels_are_written_back_and_spaced_labels_round_trip() {
     assert_eq!(exported["locator"], "3");
     assert!(losses.is_empty(), "{losses:?}");
 
-    let item = json!({"id": "plato-republic", "label": "sub verbo", "locator": "polis"});
+    // The current CSL schema spells it `sub-verbo`: it round-trips exactly.
+    let item = json!({"id": "plato-republic", "label": "sub-verbo", "locator": "polis"});
     let (citation, losses) = citation_from_csl_item(&item).unwrap();
     assert_eq!(citation.locators[0].kind.as_str(), "x-csl-sub-verbo");
     assert!(losses.is_empty(), "{losses:?}");
-    let (exported, _) = citation_to_csl_item(&citation);
-    assert_eq!(exported["label"], "sub verbo");
+    let (exported, losses) = citation_to_csl_item(&citation);
+    assert_eq!(exported["label"], "sub-verbo");
+    assert!(losses.is_empty(), "{losses:?}");
     assert_eq!(citation_from_csl_item(&exported).unwrap().0, citation);
+
+    // The legacy `sub verbo` is accepted and the respelling reported.
+    let item = json!({"id": "plato-republic", "label": "sub verbo", "locator": "polis"});
+    let (legacy, losses) = citation_from_csl_item(&item).unwrap();
+    assert_eq!(legacy, citation);
+    assert_eq!(losses.len(), 1, "{losses:?}");
+    assert_eq!(losses[0].field, "label");
+    assert!(losses[0].reason.contains("sub-verbo"), "{losses:?}");
+    assert_eq!(citation_to_csl_item(&legacy).0["label"], "sub-verbo");
 
     let item = json!({"id": "plato-republic", "label": "folio verso", "locator": "2"});
     let (citation, losses) = citation_from_csl_item(&item).unwrap();

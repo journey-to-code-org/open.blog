@@ -771,10 +771,10 @@ const CSL_LABELS: [&str; 6] = ["page", "folio", "line", "section", "chapter", "t
 const OPENBLOG_LOCATORS: &str = "openblog-locators";
 /// Prefix of the extension kind that keeps a CSL label with no kind of its own.
 const CSL_EXTENSION_PREFIX: &str = "x-csl-";
-/// CSL labels spelled with a space, which a kind cannot hold, and the
-/// hyphenated name each is kept under. Both directions use this table, so
-/// these labels round-trip exactly.
-const CSL_SPACED_LABELS: [(&str, &str); 1] = [("sub verbo", "sub-verbo")];
+/// Legacy CSL label spellings and the current schema's spelling. CSL 1.0.1
+/// wrote `sub verbo`; the current schema writes `sub-verbo`. Import accepts
+/// the legacy spelling and reports the respelling; export writes the current.
+const CSL_LEGACY_LABELS: [(&str, &str); 1] = [("sub verbo", "sub-verbo")];
 
 /// The CSL label a kind exports as: its own name for a kind CSL shares, the
 /// kept label for an `x-csl-` kind, and none for any other kind.
@@ -783,34 +783,41 @@ fn csl_label(kind: &LocatorKind) -> Option<String> {
     if CSL_LABELS.contains(&name) {
         return Some(name.into());
     }
-    let kept = name
-        .strip_prefix(CSL_EXTENSION_PREFIX)
-        .filter(|kept| !kept.is_empty())?;
-    Some(
-        CSL_SPACED_LABELS
-            .iter()
-            .find(|(_, hyphenated)| *hyphenated == kept)
-            .map_or(kept, |(label, _)| label)
-            .to_string(),
-    )
+    name.strip_prefix(CSL_EXTENSION_PREFIX)
+        .filter(|kept| !kept.is_empty())
+        .map(str::to_string)
 }
 
-/// The kind a CSL label imports as, and whether an unlisted label with
-/// spaces had to be respelled with hyphens to fit.
-fn kind_for_csl_label(label: &str) -> Option<(LocatorKind, bool)> {
+/// How a CSL label had to change to become a kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LabelRespelling {
+    None,
+    /// A legacy spelling, replaced by the current schema's.
+    Legacy(&'static str),
+    /// An unlisted label with spaces, kept with hyphens.
+    Hyphenated,
+}
+
+/// The kind a CSL label imports as, and how the label was respelled to fit.
+fn kind_for_csl_label(label: &str) -> Option<(LocatorKind, LabelRespelling)> {
     if CSL_LABELS.contains(&label) {
-        return LocatorKind::parse(label).map(|kind| (kind, false));
+        return LocatorKind::parse(label).map(|kind| (kind, LabelRespelling::None));
     }
-    if let Some((_, hyphenated)) = CSL_SPACED_LABELS
+    if let Some((_, current)) = CSL_LEGACY_LABELS
         .iter()
-        .find(|(spaced, _)| *spaced == label)
+        .find(|(legacy, _)| *legacy == label)
     {
-        return LocatorKind::parse(&format!("{CSL_EXTENSION_PREFIX}{hyphenated}"))
-            .map(|kind| (kind, false));
+        return LocatorKind::parse(&format!("{CSL_EXTENSION_PREFIX}{current}"))
+            .map(|kind| (kind, LabelRespelling::Legacy(current)));
     }
     let hyphenated = label.split(' ').collect::<Vec<_>>().join("-");
+    let respelling = if hyphenated == label {
+        LabelRespelling::None
+    } else {
+        LabelRespelling::Hyphenated
+    };
     LocatorKind::parse(&format!("{CSL_EXTENSION_PREFIX}{hyphenated}"))
-        .map(|kind| (kind, hyphenated != label))
+        .map(|kind| (kind, respelling))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -938,14 +945,22 @@ pub fn citation_from_csl_item(
                     "this CSL label cannot be kept as an extension kind",
                 )
             })?;
-            if respelled {
-                losses.push(CitationLoss {
+            match respelled {
+                LabelRespelling::None => {}
+                LabelRespelling::Legacy(current) => losses.push(CitationLoss {
+                    field: "label".into(),
+                    reason: format!(
+                        "the legacy label `{label}` is kept as `{}` and exports as the current `{current}`",
+                        kind.as_str()
+                    ),
+                }),
+                LabelRespelling::Hyphenated => losses.push(CitationLoss {
                     field: "label".into(),
                     reason: format!(
                         "kept as `{}`, so it exports with hyphens for spaces",
                         kind.as_str()
                     ),
-                });
+                }),
             }
             Some(checked(Locator {
                 kind,
