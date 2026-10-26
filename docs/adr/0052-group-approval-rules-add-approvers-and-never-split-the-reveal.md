@@ -1,4 +1,4 @@
-# ADR 0043: Group approval rules add approvers, and the reveal is never split into groups
+# ADR 0052: Group approval rules add approvers, and the reveal is never split into groups
 
 - Status: Accepted
 - Date: 2026-10-25
@@ -9,7 +9,7 @@
   [ADR 0020](0020-approval-snapshots-bound-to-exact-content.md),
   [ADR 0021](0021-combined-review-preview.md),
   [ADR 0022](0022-gate-schedule-and-publication-on-exact-approvals.md),
-  [ADR 0042](0042-groups-use-the-same-invitation-seam-and-an-audited-membership.md)
+  [ADR 0051](0051-groups-use-the-same-invitation-seam-and-an-audited-membership.md)
 
 ## Context
 

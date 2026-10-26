@@ -7214,7 +7214,7 @@ struct RevealPolicyRequest {
     publication_id: String,
     policy: RevealPolicy,
     /// The policy the requester read. When given and no longer current, the change is refused,
-    /// so two coordinators cannot overwrite each other unseen (ADR 0043).
+    /// so two coordinators cannot overwrite each other unseen (ADR 0052).
     #[serde(default)]
     expected_policy: Option<RevealPolicy>,
 }
@@ -7503,7 +7503,7 @@ fn set_reveal_policy(state: &AppState, req: &Request, session: &auth::Session) -
 }
 
 // ---------------------------------------------------------------------------
-// The approval rule of a shared reflection (ADR 0043)
+// The approval rule of a shared reflection (ADR 0052)
 // ---------------------------------------------------------------------------
 
 #[derive(serde::Deserialize)]

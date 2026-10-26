@@ -1,4 +1,4 @@
-//! Configurable group approval rules (ADR 0043): all, named and role-based requirements over one
+//! Configurable group approval rules (ADR 0052): all, named and role-based requirements over one
 //! author set, under membership churn, ties, coordinator loss, concurrent approvals and stale
 //! policy versions. Every rule needs each writer's own approval; none fabricates one.
 

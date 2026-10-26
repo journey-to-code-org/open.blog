@@ -105,7 +105,7 @@ fn preview_items(
 }
 
 /// The approval rule the piece is reviewed under. It is part of what every approval binds to, so
-/// it is shown with the piece like everything else that binds (ADR 0043).
+/// it is shown with the piece like everything else that binds (ADR 0052).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewRule {

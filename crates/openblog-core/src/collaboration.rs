@@ -151,7 +151,7 @@ pub enum AuthorizationAction {
     /// Choose how contribution drafts may be revealed. Targets the publication. Coordinators and
     /// site owners hold it; it reveals nothing and reads no draft.
     SetRevealPolicy,
-    /// Choose whose approval publication needs and what an approval covers (ADR 0043). Targets
+    /// Choose whose approval publication needs and what an approval covers (ADR 0052). Targets
     /// the publication. Coordinators and site owners hold it; it reads no draft, never approves
     /// for anyone, and a real change clears every standing approval.
     SetApprovalPolicy,
@@ -747,7 +747,7 @@ pub struct SharedPublication {
     /// participant, the binding, and the invitation outcome in one atomic write.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invitations: Vec<crate::invitation::Invitation>,
-    /// Who changed membership and when (ADR 0042). Absent in records written before it existed.
+    /// Who changed membership and when (ADR 0051). Absent in records written before it existed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub audit: Vec<crate::members::AuditEntry>,
     /// The ordinary series this publication joins (ADR 0038). Absent for every legacy record.

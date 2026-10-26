@@ -59,7 +59,7 @@ impl std::error::Error for ApprovalError {}
 
 /// Whose approval publication needs. Under every requirement each author who owns a section, and
 /// each author named on a synthesis item, must approve: nobody's words publish without their own
-/// consent. The requirement only decides who else must approve as well (ADR 0043).
+/// consent. The requirement only decides who else must approve as well (ADR 0052).
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ApprovalRequirement {

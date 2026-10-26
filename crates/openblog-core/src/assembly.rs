@@ -38,7 +38,7 @@ pub enum AssemblyError {
     /// The approval rule cannot be met by the authors as they are now, whatever anyone approves:
     /// a named participant (display names here) is no longer an author, or no author holds a
     /// listed role. Someone with the policy grant changes the rule, or the maintainer restores the
-    /// person or gives the role (ADR 0043).
+    /// person or gives the role (ADR 0052).
     RuleUnmet {
         named: Vec<String>,
         roles: Vec<AuthorizationRole>,
@@ -153,7 +153,7 @@ pub fn with_subject<R>(
     metadata.extend(synthesis.binding_frame());
     let metadata: Vec<&str> = metadata.iter().map(String::as_str).collect();
     let attributed = synthesis.attributed_authors();
-    // The roles each author holds, for role-based approval rules (ADR 0043).
+    // The roles each author holds, for role-based approval rules (ADR 0052).
     let roles: Vec<(&str, AuthorizationRole)> = authors
         .iter()
         .flat_map(|author| {

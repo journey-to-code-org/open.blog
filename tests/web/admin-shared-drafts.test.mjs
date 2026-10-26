@@ -1059,7 +1059,7 @@ test("the dismissed-prompts preference uses the ob-admin key", () => {
   assert.doesNotMatch(admin, /openblog\.admin\.synthesisPromptsDismissed/);
 });
 
-// ---------------------------------------------------------------- approval rule (ADR 0043)
+// ---------------------------------------------------------------- approval rule (ADR 0052)
 
 const RULE = {
   policy: { requirement: "allAuthors", scope: "ownSections" },

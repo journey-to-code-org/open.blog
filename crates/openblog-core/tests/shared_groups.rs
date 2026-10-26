@@ -1,5 +1,5 @@
 //! Groups of more than two: invitations, roles, removal, bounds, and the membership audit trail
-//! (ADR 0042).
+//! (ADR 0051).
 
 use openblog_core::collaboration::{
     AuthorizationAction, AuthorizationRole, AuthorizationTarget, NewParticipant,

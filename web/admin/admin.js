@@ -2092,7 +2092,7 @@ export function previewStateText(preview) {
   return "Incomplete: some sections are not shared with you at their current revision.";
 }
 
-/** Whose approval publication needs (ADR 0043). Every writer approves under every rule. */
+/** Whose approval publication needs (ADR 0052). Every writer approves under every rule. */
 export const APPROVAL_REQUIREMENTS = Object.freeze([
   { value: "allAuthors", label: "Every author", help: "Everyone taking part as an author approves, whether or not they wrote a section." },
   { value: "contributingAuthors", label: "Everyone who wrote", help: "Only authors who wrote a section, or are named on a conversation item, approve." },
@@ -6734,7 +6734,7 @@ export class ObAdmin extends AdminElement {
       }
     };
 
-    // ---- approval rule (ADR 0043)
+    // ---- approval rule (ADR 0052)
     const ruleStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
     const ruleProblem = h("p", { class: "oba-error", role: "alert", tabindex: "-1", hidden: true });
     const ruleBody = h("div", {});

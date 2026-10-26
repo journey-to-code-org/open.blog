@@ -169,7 +169,7 @@ approvers and never counts, votes or stands in for anyone. A named person who le
 author holds, keeps the piece blocked until the rule changes. Site owners and coordinators change
 it against the revision they read, with an explicit confirmation, and a real change clears every
 approval. It is bound into every approval and shown in the combined preview. It never changes who
-reads which draft: reveal stays one group (ADR 0043).
+reads which draft: reveal stays one group (ADR 0052).
 _Avoid_: Quorum, vote, approval threshold, reveal group
 
 **Synthesis item**:

@@ -1,4 +1,4 @@
-# ADR 0042: Groups use the same invitation seam, and membership changes are audited
+# ADR 0051: Groups use the same invitation seam, and membership changes are audited
 
 - Status: Accepted
 - Date: 2026-10-25
