@@ -255,7 +255,8 @@ test("only a page with reference data loads the component, and without JavaScrip
   expect(loaded.some((url) => url.includes("ob-citation-previews"))).toBe(false);
   await expect(page.locator("ob-citation-previews")).toHaveCount(0);
   await open(page);
-  expect(loaded.some((url) => url.endsWith("/assets/components/ob-citation-previews.js"))).toBe(true);
+  // The built page versions its asset addresses (`?v=`), so compare the path only.
+  expect(loaded.some((url) => new URL(url).pathname === "/assets/components/ob-citation-previews.js")).toBe(true);
   await context.close();
 
   const scriptless = await browser.newContext({ javaScriptEnabled: false });
