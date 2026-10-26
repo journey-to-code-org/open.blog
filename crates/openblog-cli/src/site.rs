@@ -1064,6 +1064,101 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn citations_and_claims_stay_separate() {
+        let root = project_with_private_library("claims-citations", "{}");
+        let library = r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia","issued":"2003"},{"id":"slings","kind":"edition","of":"plato","title":"Slings"}]}"#;
+        fs::write(root.join(crate::source_store::LIBRARY_FILE), library).unwrap();
+        fs::remove_file(root.join(crate::notebook_store::NOTEBOOK_FILE)).unwrap();
+        fs::remove_file(root.join(crate::atlas_store::ATLAS_FILE)).unwrap();
+        let post = "---\ntitle: Cave\ndate: 2026-01-07\ncitations: bibliography\n---\n\nThe cave educates [@slings, page 514].\n";
+        let claims_file = root.join(".openblog/private/research/claims.json");
+        let options = BuildOptions {
+            include_drafts: false,
+            out_override: None,
+            now: None,
+        };
+        // `p. 514` is not a locator kind: the citation check reports the same
+        // problem whether or not a claims file exists, and never mentions it.
+        let loose = post.replace("page 514", "p. 514");
+        fs::write(root.join("content/posts/2026-01-07-cave.md"), &loose).unwrap();
+        let refused = build(&root, &options).err().unwrap();
+        fs::write(
+            &claims_file,
+            r#"{"version":1,"claims":[{"id":"c0","post":"cave","statement":"S"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(build(&root, &options).err().unwrap(), refused);
+        assert!(!refused.contains("claim"), "{refused}");
+        let loose_body = openblog_core::claims::anchor_text(&loose).unwrap();
+        assert!(loose_body.contains("[@slings, p. 514]"));
+        fs::remove_file(&claims_file).unwrap();
+        fs::write(root.join("content/posts/2026-01-07-cave.md"), post).unwrap();
+
+        // A citation with a locator is not a claim and asserts no relation.
+        let body = openblog_core::claims::anchor_text(post).unwrap();
+        let (library_set, notebook) = (
+            openblog_core::source_library::SourceLibrary::parse(library, &Default::default())
+                .unwrap(),
+            openblog_core::research_notes::Notebook::default(),
+        );
+        let links = openblog_core::knowledge_atlas::Links {
+            library: &library_set,
+            notebook: &notebook,
+        };
+        let empty = openblog_core::claims::ClaimSet::default();
+        assert!(empty.claims.is_empty() && empty.links.is_empty());
+        assert_eq!(empty.counts("cave"), Default::default());
+
+        production_build(&root);
+        let without = dist_bytes(&root);
+        let (mut site, themes) = load_site(&root, false, None).unwrap();
+        generate_site(&root, &mut site, &themes).unwrap();
+        let warnings = site.warnings.clone();
+
+        // A claims file anchored on that very sentence, with approved support
+        // and contradiction on the cited source, changes neither citation
+        // resolution nor the bibliography.
+        let start = body.find("The cave").unwrap();
+        let text = "The cave educates";
+        let claims = serde_json::json!({"version": 1,
+            "claims": [{"id": "c1", "post": "cave", "statement": "The cave educates.",
+                "anchor": {"start": start, "end": start + text.len(), "text": text},
+                "visibility": "approved"}],
+            "links": [
+                {"id": "l1", "claim": "c1", "relation": "supports", "visibility": "approved",
+                 "evidence": {"source": "slings", "locators": [{"kind": "page", "value": "514"}]}},
+                {"id": "l2", "claim": "c1", "relation": "contradicts", "visibility": "approved",
+                 "evidence": {"source": "plato"}}]})
+        .to_string();
+        let set = openblog_core::claims::ClaimSet::parse(&claims, links).unwrap();
+        assert_eq!(
+            set.claims[0].anchor.as_ref().unwrap().check(&body),
+            openblog_core::claims::AnchorCheck::Verified
+        );
+        fs::write(&claims_file, &claims).unwrap();
+        production_build(&root);
+        assert_eq!(
+            dist_bytes(&root),
+            without,
+            "a claims file changes no output"
+        );
+        let (mut site, themes) = load_site(&root, false, None).unwrap();
+        generate_site(&root, &mut site, &themes).unwrap();
+        assert_eq!(site.warnings, warnings);
+        let page = without
+            .iter()
+            .find(|(path, _)| path.ends_with("cave/index.html"))
+            .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+            .unwrap();
+        assert!(
+            page.contains("Slings"),
+            "the bibliography is unchanged: {page}"
+        );
+        assert!(!page.contains("The cave educates.") && !page.contains("contradicts"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     // ---- Knowledge Atlas publication (A5.4, ADR 0058) ---------------------------
 
     fn dist_bytes(root: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
