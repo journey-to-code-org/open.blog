@@ -2,7 +2,9 @@
 //!
 //! The library lives at [`LIBRARY_FILE`], inside the Git-ignored private
 //! directory and outside content, static files, themes, and build output, so
-//! no build reads or copies it. Every change names the revision it was based
+//! no build copies it. A build reads it only to resolve the citations of a
+//! post that opts in, and publishes only those references' public
+//! description ([`read_for_build`], ADR 0054). Every change names the revision it was based
 //! on, is validated by `openblog_core::source_library`, and replaces the file
 //! by atomic rename while holding a lock: a refused, failed, or interrupted
 //! change leaves the stored library exactly as it was.
@@ -15,10 +17,12 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use openblog_core::contributor::Contributor;
+use openblog_core::model::LibrarySource;
 use openblog_core::source_interchange::{plan_csl_import, ImportPlan};
 use openblog_core::source_library::{
     SourceDiagnostic, SourceDiagnosticCode, SourceLibrary, SourceRecord, MAX_LIBRARY_BYTES,
 };
+use openblog_core::SourceFile;
 use sha2::{Digest, Sha256};
 
 use crate::transaction::FileLock;
@@ -329,16 +333,30 @@ fn checked(current: Snapshot, expected_revision: &str) -> Result<SourceLibrary, 
 }
 
 fn read(path: &Path, contributors: &BTreeMap<String, Contributor>) -> Result<Snapshot, StoreError> {
+    let Some(bytes) = read_bytes(path)? else {
+        let library = SourceLibrary::default();
+        return Ok(Snapshot {
+            revision: revision(library.to_json().as_bytes()),
+            library,
+            stored: false,
+        });
+    };
+    let revision = revision(&bytes);
+    let text = String::from_utf8(bytes).map_err(|_| not_utf8())?;
+    let library = SourceLibrary::parse(&text, contributors).map_err(StoreError::Invalid)?;
+    Ok(Snapshot {
+        library,
+        revision,
+        stored: true,
+    })
+}
+
+/// The stored bytes, or `None` while no library is stored. A symlink, a
+/// non-file or an oversized file is refused before anything is read.
+fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>, StoreError> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let library = SourceLibrary::default();
-            return Ok(Snapshot {
-                revision: revision(library.to_json().as_bytes()),
-                library,
-                stored: false,
-            });
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(StoreError::Storage(format!(
                 "cannot inspect {LIBRARY_FILE}: {error}"
@@ -368,19 +386,37 @@ fn read(path: &Path, contributors: &BTreeMap<String, Contributor>) -> Result<Sna
     if bytes.len() > MAX_LIBRARY_BYTES {
         return Err(StoreError::Invalid(vec![too_large()]));
     }
-    let revision = revision(&bytes);
-    let text = String::from_utf8(bytes).map_err(|_| {
-        StoreError::Invalid(vec![library_diagnostic(
-            SourceDiagnosticCode::InvalidJson,
-            "the library is not valid UTF-8".into(),
-        )])
-    })?;
-    let library = SourceLibrary::parse(&text, contributors).map_err(StoreError::Invalid)?;
-    Ok(Snapshot {
-        library,
-        revision,
-        stored: true,
-    })
+    Ok(Some(bytes))
+}
+
+fn not_utf8() -> StoreError {
+    StoreError::Invalid(vec![library_diagnostic(
+        SourceDiagnosticCode::InvalidJson,
+        "the library is not valid UTF-8".into(),
+    )])
+}
+
+/// The stored library's text for a site load, through the same safe path
+/// checks as every other read. The load parses it only for a post that opts
+/// in to citations and has some, and publishes only the cited references'
+/// public description. `None` while no library is stored; a library that
+/// cannot be read safely is reported only to the posts that need it.
+pub fn read_for_build(root: &Path) -> Option<LibrarySource> {
+    let read = library_path(root)
+        .and_then(|path| read_bytes(&path))
+        .and_then(|bytes| {
+            bytes
+                .map(|bytes| String::from_utf8(bytes).map_err(|_| not_utf8()))
+                .transpose()
+        });
+    match read {
+        Ok(None) => None,
+        Ok(Some(contents)) => Some(LibrarySource::Text(SourceFile {
+            path: LIBRARY_FILE.into(),
+            contents,
+        })),
+        Err(error) => Some(LibrarySource::Unreadable(error.to_string())),
+    }
 }
 
 fn library_diagnostic(code: SourceDiagnosticCode, message: String) -> SourceDiagnostic {

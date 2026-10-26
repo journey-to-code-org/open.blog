@@ -771,7 +771,7 @@ fn check_source_library(
     Ok(snapshot.stored.then(|| {
         let count = snapshot.library.sources.len();
         format!(
-            "OK: private source library {} has {count} source{}; builds never read or publish it.",
+            "OK: private source library {} has {count} source{}; builds publish only the public description of references that opted-in posts cite.",
             source_store::LIBRARY_FILE,
             if count == 1 { "" } else { "s" }
         )

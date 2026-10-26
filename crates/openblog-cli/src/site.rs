@@ -268,6 +268,8 @@ pub fn read_sources_excluding(
             contents,
         });
     }
+    // Only posts that opt in to citations read it; see `Site::load`.
+    sources.source_library = crate::source_store::read_for_build(root);
     Ok(sources)
 }
 
@@ -919,6 +921,56 @@ mod tests {
             assert_no_private_output(&root);
             assert!(!root.join("dist/leak.json").exists());
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_build_publishes_only_the_public_description_of_cited_references() {
+        let root = project_with_private_library("cited-build", "{}");
+        let library = format!(
+            r#"{{"version":1,"sources":[{{"id":"{PRIVATE_MARKER}","kind":"work","title":"{PRIVATE_MARKER} title"}},{{"id":"public-work","kind":"work","title":"A Public Title","issued":"2001","notes":"{PRIVATE_MARKER} note","identifiers":[{{"scheme":"my-drive","value":"{PRIVATE_MARKER}.pdf"}}]}}]}}"#
+        );
+        fs::write(root.join(crate::source_store::LIBRARY_FILE), library).unwrap();
+        fs::write(
+            root.join("content/posts/2026-01-06-cited.md"),
+            "---\ntitle: Cited\ndate: 2026-01-06\ncitations: notes\n---\n\nA claim [@public-work, canonical 4].\n",
+        )
+        .unwrap();
+        let report = production_build(&root);
+        assert_eq!(report.posts, 2);
+        assert_no_private_output(&root);
+        let page = fs::read_to_string(root.join("dist/posts/cited/index.html"))
+            .or_else(|_| fs::read_to_string(root.join("dist/cited/index.html")))
+            .unwrap();
+        assert!(page.contains("A Public Title. 2001, 4."), "{page}");
+        assert!(page.contains("role=\"doc-noteref\""), "{page}");
+
+        // An unknown key refuses the build before any output changes.
+        let before = fs::read_to_string(root.join("dist/search.json")).unwrap();
+        fs::write(
+            root.join("content/posts/2026-01-06-cited.md"),
+            "---\ntitle: Cited\ndate: 2026-01-06\ncitations: notes\n---\n\nA claim [@missing-work].\n",
+        )
+        .unwrap();
+        let Err(error) = build(
+            &root,
+            &BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        ) else {
+            panic!("a build with an unknown citation key succeeded");
+        };
+        assert!(
+            error.contains("posts/2026-01-06-cited.md: line 7: citation `missing-work`")
+                && !error.contains(PRIVATE_MARKER),
+            "{error}"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("dist/search.json")).unwrap(),
+            before
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }
