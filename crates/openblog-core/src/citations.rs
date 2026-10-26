@@ -674,9 +674,7 @@ fn parameter_words(name: &str) -> Vec<String> {
             && !word.is_empty()
             && (chars[index - 1].is_ascii_lowercase()
                 || chars[index - 1].is_ascii_digit()
-                || chars
-                    .get(index + 1)
-                    .is_some_and(char::is_ascii_lowercase)
+                || chars.get(index + 1).is_some_and(char::is_ascii_lowercase)
                     && chars[index - 1].is_ascii_uppercase());
         if boundary {
             words.push(std::mem::take(&mut word));

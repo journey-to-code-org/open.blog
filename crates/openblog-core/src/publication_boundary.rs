@@ -1431,19 +1431,15 @@ impl PrivateText {
             return Vec::new();
         }
         let mut origins: Vec<u32> = Vec::new();
-        each_output_shingle(
-            &String::from_utf8_lossy(output),
-            Some(&self.cuts),
-            |hash| {
-                if origins.len() < limit {
-                    if let Some(&origin) = self.shingles.get(&hash) {
-                        if !origins.contains(&origin) {
-                            origins.push(origin);
-                        }
+        each_output_shingle(&String::from_utf8_lossy(output), Some(&self.cuts), |hash| {
+            if origins.len() < limit {
+                if let Some(&origin) = self.shingles.get(&hash) {
+                    if !origins.contains(&origin) {
+                        origins.push(origin);
                     }
                 }
-            },
-        );
+            }
+        });
         origins
             .into_iter()
             .map(|origin| Leak {
@@ -1619,7 +1615,10 @@ wall of the cave</p>",
             ("https://example.org/openurl?sid=google&genre=book", true),
             // A fragment is a pair only when it has an `=`; a heading anchor is not.
             ("https://en.wikipedia.org/wiki/Plato#Authorship", true),
-            ("https://plato.stanford.edu/entries/plato/#KeyConcepts", true),
+            (
+                "https://plato.stanford.edu/entries/plato/#KeyConcepts",
+                true,
+            ),
             ("https://example.org/x#Passwords-and-secrets", true),
             ("https://example.org/x#/route?token=abc", false),
             ("https://example.org/x#a=1&secret=2", false),
@@ -1632,7 +1631,10 @@ wall of the cave</p>",
             ("https://example.org/mss?sigla=A", true),
             ("https://example.org/map?region=turkey&monkey=1", true),
             ("https://example.org/page?design=wide", true),
-            ("https://example.org/page?bypass=1&passage=2&keyword=x", true),
+            (
+                "https://example.org/page?bypass=1&passage=2&keyword=x",
+                true,
+            ),
             ("https://books.google.com/books?id=abc&sig=ACfU3U", false),
             ("https://example.org/x?key=abc", false),
             ("https://example.org/x?API_KEY=abc", false),

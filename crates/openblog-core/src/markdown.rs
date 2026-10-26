@@ -356,9 +356,10 @@ fn restore_bracketed_hosts(html: String) -> String {
     }
     let mut out = String::with_capacity(html.len());
     let mut rest = html.as_str();
-    while let Some(at) = rest.find("://%5").filter(|&at| {
-        matches!(rest.as_bytes().get(at + 5..at + 6), Some(b"B" | b"b"))
-    }) {
+    while let Some(at) = rest
+        .find("://%5")
+        .filter(|&at| matches!(rest.as_bytes().get(at + 5..at + 6), Some(b"B" | b"b")))
+    {
         let authority = at + 3;
         let end = rest[authority..]
             .find(['/', '?', '#', '"', '\'', '<', ' '])

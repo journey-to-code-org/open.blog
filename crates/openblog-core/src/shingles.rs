@@ -697,7 +697,8 @@ mod tests {
 
     #[test]
     fn a_stray_quote_and_angle_bracket_in_a_script_does_not_hang_the_markup_remover() {
-        let script = "if (a<b && x==\"b>c\") { y = 1 < z + 'q>' ; } else { two three four five six seven }";
+        let script =
+            "if (a<b && x==\"b>c\") { y = 1 < z + 'q>' ; } else { two three four five six seven }";
         assert!(!shingle_set(script, Form::Output).is_empty());
     }
 
@@ -705,7 +706,8 @@ mod tests {
     fn private_text_is_normalised_like_output_and_backslashes_are_not_json_escapes() {
         let note = "A <i>reading</i> of the <i>cave</i> that the <i>author</i> keeps";
         assert!(same(note, "A reading of the cave that the author keeps"));
-        let tex = r"Set \theta to the new value before the next run, then copy C:\new\tmp\data back";
+        let tex =
+            r"Set \theta to the new value before the next run, then copy C:\new\tmp\data back";
         assert!(same(tex, tex));
         assert!(same(tex, &format!("<pre>{tex}</pre>")));
         // A JSON string literal inside a page is still decoded.
@@ -744,7 +746,10 @@ mod tests {
         cuts.add("The cave");
         cuts.add("The divided line");
         cuts.add("Sun");
-        let outline = shingle_set("Outline The cave The divided line The sun Conclusion", Form::Plain);
+        let outline = shingle_set(
+            "Outline The cave The divided line The sun Conclusion",
+            Form::Plain,
+        );
         let toc = "<ul><li><a>Outline</a></li><li><a>The cave</a></li><li><a>The divided line</a></li><li><a>Sun</a></li></ul> Conclusion";
         let mut cut = HashSet::new();
         each_output_shingle(toc, Some(&cuts), |hash| {
@@ -759,9 +764,13 @@ mod tests {
         // A one-word string is cut only when it is a whole element.
         let sentence = shingle_set("we saw the sun rise over the hill today", Form::Plain);
         let mut got = HashSet::new();
-        each_output_shingle("<p>we saw the sun rise over the hill today</p>", Some(&cuts), |hash| {
-            got.insert(hash);
-        });
+        each_output_shingle(
+            "<p>we saw the sun rise over the hill today</p>",
+            Some(&cuts),
+            |hash| {
+                got.insert(hash);
+            },
+        );
         assert!(!got.is_disjoint(&sentence));
         let _ = outline;
     }

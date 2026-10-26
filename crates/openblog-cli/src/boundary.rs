@@ -5,11 +5,14 @@
 //! a build does; [`manifest`] then says what they publish and why everything
 //! else is withheld, from those same values, so the preview Admin shows and
 //! the output a build writes come from one projection. [`check_output`] is the
-//! build's last guard: no page exists for an item the manifest does not
-//! publish, the JSON artifacts name only published items, and no text of a
-//! private research file appears in any generated file unless a public input
-//! or an approved projection holds it too. A refusal names the output, the
-//! private file, the record and the field, never the text.
+//! build's last guard. It refuses when a page or JSON artifact names an item that
+//! no approved projection publishes, and when private research text is in a
+//! projection's machine data (the atlas, comparisons and claim-evidence JSON,
+//! and a page's reference data). Private text anywhere else (pages, feeds,
+//! search, static, theme and front-end files, a portable Markdown export) is a
+//! `boundary:` warning, because the text match is a heuristic and the file is
+//! one the author placed or wrote. A refusal or a warning names the output,
+//! the private file, the record and the field, never the text.
 
 use std::cell::OnceCell;
 use std::collections::BTreeSet;
@@ -694,7 +697,10 @@ fn projection_data(path: &str) -> bool {
 /// A page's reader reference data (`<script type="application/json"
 /// id="ob-references">`), when it has any, and the page without it.
 fn split_reference_data(page: &str) -> (Option<&str>, String) {
-    let marker = format!("id=\"{}\">", openblog_core::reader_references::READER_REFERENCES_ELEMENT_ID);
+    let marker = format!(
+        "id=\"{}\">",
+        openblog_core::reader_references::READER_REFERENCES_ELEMENT_ID
+    );
     let Some(at) = page.find(&marker) else {
         return (None, page.to_string());
     };
@@ -920,8 +926,8 @@ mod tests {
             &serde_json::json!({"entries":[{"id":"plato-person","label":format!("A PRIVATE reading of the allegory that only the author, {NOTE}")}]})
                 .to_string(),
         );
-        let error = checked(&root, &[page("index.html", "<p>Hello</p>"), leaked.clone()])
-            .unwrap_err();
+        let error =
+            checked(&root, &[page("index.html", "<p>Hello</p>"), leaked.clone()]).unwrap_err();
         for expected in [
             "refusing to build",
             "`atlas.json`",
@@ -948,13 +954,15 @@ mod tests {
         // The same words in a post are the author's own public text.
         fs::write(
             root.join("content/posts/2026-01-07-reading.md"),
-            format!("---
+            format!(
+                "---
 title: Reading
 date: 2026-01-07
 ---
 
 {NOTE}.
-"),
+"
+            ),
         )
         .unwrap();
         assert_eq!(checked(&root, &[leaked]), Ok(Vec::new()));
@@ -987,13 +995,15 @@ date: 2026-01-07
         // The same words in a post are the author's own public text.
         fs::write(
             root.join("content/posts/2026-01-07-reading.md"),
-            format!("---
+            format!(
+                "---
 title: Reading
 date: 2026-01-07
 ---
 
 {NOTE}.
-"),
+"
+            ),
         )
         .unwrap();
         assert_eq!(checked(&root, &[leaked]), Ok(Vec::new()));
@@ -1261,7 +1271,8 @@ date: 2026-01-07
     fn a_note_with_markup_or_backslashes_is_found_as_the_output_writes_it() {
         let root = research_site("normalise");
         let tagged = "A <i>reading</i> of the <i>cave</i> that the <i>author</i> keeps <i>private</i> until <i>Dana</i> agrees to it";
-        let tex = r"Set \theta to the new value before the next run, then copy C:\new\tmp\data back";
+        let tex =
+            r"Set \theta to the new value before the next run, then copy C:\new\tmp\data back";
         set_notes(
             &root,
             serde_json::json!([
@@ -1372,7 +1383,9 @@ date: 2026-01-07
         fs::write(root.join("static/notes.txt"), SHORT_NOTES[0]).unwrap();
         let warnings = warnings_of(&root);
         assert!(
-            warnings.len() == 1 && warnings[0].contains("`notes.txt`") && warnings[0].contains("`n1`"),
+            warnings.len() == 1
+                && warnings[0].contains("`notes.txt`")
+                && warnings[0].contains("`n1`"),
             "{warnings:?}"
         );
         // Published, the same quote is the author's own text.
@@ -1422,7 +1435,11 @@ date: 2026-01-07
             serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
         config["knowledgeAtlas"] = serde_json::json!({"publish": true});
         fs::write(&config_path, config.to_string()).unwrap();
-        fs::write(root.join(".openblog/private/research/atlas.json"), "{ not json").unwrap();
+        fs::write(
+            root.join(".openblog/private/research/atlas.json"),
+            "{ not json",
+        )
+        .unwrap();
         write_post(
             &root,
             "later",

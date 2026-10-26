@@ -15839,7 +15839,11 @@ mod tests {
         let read = || {
             let response = handle(
                 &f.state,
-                &authed(req("GET", "/admin/api/research/alignments"), &session, false),
+                &authed(
+                    req("GET", "/admin/api/research/alignments"),
+                    &session,
+                    false,
+                ),
             );
             assert_eq!(response.status, 200);
             body_json(&response)

@@ -3367,7 +3367,6 @@ mod tests {
         assert_eq!(projection.portable_html().unwrap(), output);
     }
 
-
     #[test]
     fn an_ipv6_literal_link_projects_to_every_representation() {
         let (config, site) = public_post(
@@ -3375,9 +3374,21 @@ mod tests {
         );
         let projection = PortableProjection::from_post(&site.posts[0], &config).unwrap();
         let html = projection.portable_html().unwrap();
-        assert!(html.html.contains("href=\"http://[2001:db8::1]/x\""), "{}", html.html);
-        assert!(html.html.contains("href=\"http://[2001:db8::2]/y\""), "{}", html.html);
-        assert!(html.html.contains("href=\"http://[2001:db8::3]/z\""), "{}", html.html);
+        assert!(
+            html.html.contains("href=\"http://[2001:db8::1]/x\""),
+            "{}",
+            html.html
+        );
+        assert!(
+            html.html.contains("href=\"http://[2001:db8::2]/y\""),
+            "{}",
+            html.html
+        );
+        assert!(
+            html.html.contains("href=\"http://[2001:db8::3]/z\""),
+            "{}",
+            html.html
+        );
         projection.portable_markdown().unwrap();
         projection.portable_text().unwrap();
     }
