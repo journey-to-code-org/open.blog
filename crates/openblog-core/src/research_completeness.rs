@@ -973,14 +973,16 @@ impl CompletenessFinding {
         findings
     }
 
-    /// What an acknowledgement is matched by: the validator, code, object
-    /// and field. Lines and positions are left out because they move with
-    /// unrelated edits.
+    /// What an acknowledgement is matched by: the validator, code, object,
+    /// file and field. The file keeps findings about different posts apart
+    /// when they name no id (`abstract-missing` on two posts). Lines and
+    /// positions are left out because they move with unrelated edits.
     fn key(&self) -> AcknowledgementKey<'_> {
         AcknowledgementKey {
             validator: self.validator,
             code: &self.code,
             object: self.scope.object,
+            path: self.scope.path.as_deref(),
             id: self.scope.id.as_deref(),
             field: self.scope.field.as_deref(),
         }
@@ -998,6 +1000,7 @@ impl CompletenessFinding {
             key.validator,
             key.code,
             key.object,
+            key.path,
             key.id,
             key.field,
             self.related,
@@ -1082,6 +1085,7 @@ struct AcknowledgementKey<'a> {
     validator: Validator,
     code: &'a str,
     object: ObjectKind,
+    path: Option<&'a str>,
     id: Option<&'a str>,
     field: Option<&'a str>,
 }
@@ -1096,6 +1100,9 @@ pub struct Acknowledgement {
     pub validator: Validator,
     pub code: String,
     pub object: ObjectKind,
+    /// The file the finding points into, as its scope names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1113,6 +1120,7 @@ impl Acknowledgement {
             validator: finding.validator,
             code: finding.code.clone(),
             object: finding.scope.object,
+            path: finding.scope.path.clone(),
             id: finding.scope.id.clone(),
             field: finding.scope.field.clone(),
             fingerprint: finding.fingerprint(),
@@ -1124,6 +1132,7 @@ impl Acknowledgement {
             validator: self.validator,
             code: &self.code,
             object: self.object,
+            path: self.path.as_deref(),
             id: self.id.as_deref(),
             field: self.field.as_deref(),
         }

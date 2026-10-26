@@ -22,7 +22,9 @@ edited, or an author could acknowledge once and never see a new problem under th
 ## Decision
 
 - **What an acknowledgement is.** An `Acknowledgement` records the finding's validator, code,
-  object kind, id and field (its key) and the finding's `fingerprint` when it was acknowledged.
+  object kind, file (`path`), id and field (its key) and the finding's `fingerprint` when it was
+  acknowledged. The file is part of the key because a post-scoped finding names no id: without
+  it, acknowledging `abstract-missing` on one post would mark another post's acknowledged.
   It holds no note, no person and no time, so it has nothing private to leak. Its JSON refuses
   unknown fields, so a stored record cannot claim more (there is no `resolved`).
 - **The fingerprint.** A 128-bit BLAKE2s digest, as 32 hexadecimal characters, of the key, the

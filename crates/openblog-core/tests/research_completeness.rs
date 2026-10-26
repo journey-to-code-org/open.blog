@@ -797,6 +797,7 @@ fn an_acknowledgement_never_resolves_a_finding_and_counts_apart() {
         validator: refused.validator,
         code: refused.code.clone(),
         object: refused.scope.object,
+        path: refused.scope.path.clone(),
         id: refused.scope.id.clone(),
         field: refused.scope.field.clone(),
         fingerprint: refused.fingerprint(),
@@ -893,6 +894,51 @@ A[^1] and B[^2].
 }
 
 #[test]
+fn an_acknowledgement_of_a_post_finding_applies_to_that_post_only() {
+    // Two posts with the same post-scoped finding and no id: acknowledging
+    // one leaves the other unacknowledged, never acknowledged or stale.
+    let audit = |path: &str| {
+        let doc = frontmatter::parse("---
+title: T
+profile: research
+---
+Body.
+")
+            .expect("front matter");
+        audit_document(path, &doc.front_matter, &doc.body, doc.body_line)
+            .iter()
+            .map(CompletenessFinding::from_evidence)
+            .filter(|f| f.code == "abstract-missing")
+            .collect::<Vec<_>>()
+    };
+    let a = audit("posts/a.md");
+    let b = audit("posts/b.md");
+    assert_eq!((a.len(), b.len()), (1, 1));
+    assert_eq!(a[0].scope.id, None);
+    assert_ne!(a[0].fingerprint(), b[0].fingerprint());
+    let ack = Acknowledgement::of(&a[0]).expect("advisory");
+    assert_eq!(ack.path.as_deref(), Some("posts/a.md"));
+    let report = CompletenessReport::new(a.iter().chain(&b).cloned(), &[ack.clone()]);
+    let state = |path: &str| {
+        report
+            .findings
+            .iter()
+            .find(|e| e.finding.scope.path.as_deref() == Some(path))
+            .expect("listed")
+            .acknowledgement
+    };
+    assert_eq!(state("posts/a.md"), Some(AcknowledgementState::Current));
+    assert_eq!(state("posts/b.md"), None);
+    assert_eq!(report.counts.detected.acknowledged, 1);
+
+    // Only b.md's finding remains: a.md's acknowledgement names nothing in
+    // the report and leaves b.md alone.
+    let report = CompletenessReport::new(b.clone(), &[ack]);
+    assert_eq!(report.findings[0].acknowledgement, None);
+    assert_eq!(report.unmatched_acknowledgements, 1);
+}
+
+#[test]
 fn serialization_is_compatible_and_versioned() {
     // Existing finding JSON is unchanged by the contract.
     let finding = EvidenceFinding {
@@ -982,7 +1028,7 @@ fn serialization_is_compatible_and_versioned() {
     assert_eq!(
         text,
         format!(
-            r#"{{"validator":"claim-review","code":"claim-location-unreviewed","object":"evidence-link","id":"l1","field":"links[l1].reviewState","fingerprint":"{fingerprint}"}}"#
+            r#"{{"validator":"claim-review","code":"claim-location-unreviewed","object":"evidence-link","path":"posts/cave.md","id":"l1","field":"links[l1].reviewState","fingerprint":"{fingerprint}"}}"#
         )
     );
     assert_eq!(serde_json::from_str::<Acknowledgement>(&text).unwrap(), ack);
