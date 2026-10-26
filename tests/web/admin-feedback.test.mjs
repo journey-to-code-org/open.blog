@@ -5,15 +5,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { FEEDBACK_QUEUE_STATES, feedbackModerationRequest, feedbackPreviewText, feedbackPublicationMismatch, feedbackReaderLine } from "../../web/admin/admin.js";
+import { FEEDBACK_QUEUE_STATES, feedbackModerationRequest, feedbackPreviewText, feedbackPublicationMismatch, feedbackQueueSummary, feedbackReaderLine } from "../../web/admin/admin.js";
 
 const moderation = JSON.parse(readFileSync(new URL("../fixtures/feedback-moderation.json", import.meta.url), "utf8"));
 
 const item = (passage) => ({ id: "00000000-0000-4000-8000-00000000000a", status: "pending", version: 3, passage });
 
-test("the queue lists the participation policy's states that B5 writes", () => {
-  for (const state of FEEDBACK_QUEUE_STATES) assert.ok(moderation.rules.states.includes(state), state);
-  assert.deepEqual(FEEDBACK_QUEUE_STATES, ["pending", "approved", "rejected", "removed"]);
+test("the queue lists every participation policy state, the two B5 does not write last", () => {
+  assert.deepEqual([...FEEDBACK_QUEUE_STATES].sort(), [...moderation.rules.states].sort());
+  assert.deepEqual(FEEDBACK_QUEUE_STATES, ["pending", "approved", "rejected", "removed", "clarification", "withdrawn"]);
+  assert.equal(feedbackQueueSummary("pending", 2), "2 pending items.");
+  assert.equal(feedbackQueueSummary("withdrawn", 0), "No withdrawn feedback.");
+  assert.equal(feedbackQueueSummary("clarification", 1), "1 item waiting for clarification.");
+  assert.equal(feedbackQueueSummary("clarification", 0), "No feedback is waiting for clarification.");
 });
 
 test("a moderation request names what the moderator saw", () => {

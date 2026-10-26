@@ -286,10 +286,22 @@ export function normalizeStatusFilter(value) {
   return ["published", "scheduled", "draft", "error"].includes(value) ? value : "all";
 }
 
-// Reader feedback moderation (ADR 0095). The states are the participation policy's (RD12);
-// this view lists the four B5 uses.
-export const FEEDBACK_QUEUE_STATES = ["pending", "approved", "rejected", "removed"];
-const FEEDBACK_STATE_LABELS = { pending: "Pending", approved: "Approved", rejected: "Rejected", removed: "Removed" };
+// Reader feedback moderation (ADR 0095). The states are the participation policy's (RD12). B5
+// writes four of them; clarification and withdrawn are listed read-only, so an item another tool
+// moved there is still seen, and one waiting for clarification can still be rejected.
+export const FEEDBACK_QUEUE_STATES = ["pending", "approved", "rejected", "removed", "clarification", "withdrawn"];
+const FEEDBACK_STATE_LABELS = { pending: "Pending", approved: "Approved", rejected: "Rejected", removed: "Removed", clarification: "Waiting for clarification", withdrawn: "Withdrawn" };
+const FEEDBACK_READ_ONLY_NOTES = {
+  clarification: "Admin does not ask readers to clarify; items here were moved by another tool. You can still reject one.",
+  withdrawn: "Readers took these notes back. They are never published and cannot be changed here.",
+};
+
+/** The queue's status line for one state. */
+export function feedbackQueueSummary(status, count) {
+  const items = `item${count === 1 ? "" : "s"}`;
+  if (status === "clarification") return count ? `${count} ${items} waiting for clarification.` : "No feedback is waiting for clarification.";
+  return count ? `${count} ${status} ${items}.` : `No ${status} feedback.`;
+}
 const FEEDBACK_CHECK_LABELS = { current: "Current", reanchored: "Re-anchored", stale: "Stale", "unknown-work": "Post not found" };
 
 /**
@@ -10177,7 +10189,8 @@ export class ObAdmin extends AdminElement {
    */
   async showFeedback(requested) {
     const status = FEEDBACK_QUEUE_STATES.includes(requested) ? requested : "pending";
-    const queueStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, `Loading ${status} feedback…`);
+    const queueStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, `Loading ${FEEDBACK_STATE_LABELS[status].toLowerCase()} feedback…`);
+    const readOnlyNote = FEEDBACK_READ_ONLY_NOTES[status] ? h("p", { class: "oba-small" }, FEEDBACK_READ_ONLY_NOTES[status]) : null;
     const queue = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-queue-title" });
     const publishedStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "Loading published feedback…");
     const published = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-published-title" });
@@ -10211,7 +10224,7 @@ export class ObAdmin extends AdminElement {
         const items = Array.isArray(result.items) ? result.items : [];
         queue.replaceChildren(...items.map((item) => h("li", {}, queueCard(item))));
         const skipped = result.invalid ? ` ${result.invalid} item${result.invalid === 1 ? " was" : "s were"} not valid and ${result.invalid === 1 ? "is" : "are"} not shown.` : "";
-        announce(queueStatus, (items.length ? `${items.length} ${status} item${items.length === 1 ? "" : "s"}.` : `No ${status} feedback.`) + skipped);
+        announce(queueStatus, feedbackQueueSummary(status, items.length) + skipped);
       } catch (error) {
         queue.replaceChildren();
         announce(queueStatus, `Feedback could not be loaded. ${error.message}`, error.status === 404 || error.status === 503 ? "notice" : "error");
@@ -10398,7 +10411,7 @@ export class ObAdmin extends AdminElement {
       this.shell(
         "feedback",
         h("p", {}, "Questions, suggested sources, suggested corrections and other interpretations readers sent about passages of your posts. Nothing is published until you approve it, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post."),
-        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-queue-title" }, h("h2", { id: "oba-feedback-queue-title" }, "Moderation queue"), filters, queueStatus, queue),
+        h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-queue-title" }, h("h2", { id: "oba-feedback-queue-title" }, "Moderation queue"), filters, readOnlyNote, queueStatus, queue),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
       ),
     );
