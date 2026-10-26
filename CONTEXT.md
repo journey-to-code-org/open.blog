@@ -1362,7 +1362,7 @@ _Avoid_: Default tool, pinned tool
 
 ## Third Perspectives
 
-Readers' own reflections on published works (ADRs 0109 to 0114). They extend the one reader
+Readers' own reflections on published works (ADRs 0109 to 0115). They extend the one reader
 participation seam as the kind `third-perspective`; they never join the authors' work.
 
 **Reader reflection**:
@@ -1452,3 +1452,19 @@ A Submission consent as a hosted row keeps it: one numbered entry of `details.co
 one in effect. A reader changes it only through their receipt, which appends a record and raises
 the row's version; an approval stores the number of the record it covered (ADR 0113).
 _Avoid_: Consent flag, clarification column
+
+**Published Third Perspective**:
+The public part of an approved Third Perspective, kept in `third-perspectives.json` in the content
+folder: the post and work, the revision and target the reader wrote about, the optional prompt,
+the text, the days received and approved, and a name only while the approved and current consent
+show it and it matches no credited name. Written by Admin only while the one projection shows the
+copy, re-projected on every build under the kind's published mode, shown on the canonical page
+only; portable copies, feeds and `llms` files carry a labelled link instead (ADR 0115).
+_Avoid_: Comment, reader feedback, moderation record, export
+
+**Reflection status**:
+What a reader learns of their own Third Perspective through its private receipt, and nothing
+else: waiting for review (never published), asked to clarify, approved and shown as a reader's
+reflection, approved but not shown, not published, or withdrawn. Looked up by the receipt alone,
+so it cannot enumerate anyone else's reflection (ADR 0115).
+_Avoid_: Public queue, submission list, tracking id

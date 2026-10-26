@@ -5,6 +5,17 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+- Approved Third Perspectives now appear on the work's canonical page, in a "Third Perspectives"
+  section after the authors' text: each headed as a reader's reflection, never an author's, with
+  the reader's name only while they agree to show it and never when it looks like a credited
+  name. Approving one in the Moderation inbox writes its public part to
+  `content/third-perspectives.json`, so static builds, CI and a site without its hosted service
+  keep showing it; removing one, or a reader withdrawing it through their receipt, is taken off
+  from the inbox card. Readers checking a receipt see whether their reflection is waiting,
+  needs clarifying, is shown, was not published or was withdrawn, and nothing about anyone else.
+  Portable copies, feeds and `llms-full.txt` link to the canonical page for Third Perspectives
+  and never carry the reflections. The no-JavaScript text of the Third Perspective form now wraps
+  its passage revision at 320px.
 - Readers can offer a Third Perspective on a post where `third-perspective` is open in
   `participation.kinds`: their own reflection on the whole work or one section, with an optional
   prompt (never a score or a vote). The form asks them to choose whether it may be published,
@@ -15,7 +26,7 @@ All notable changes to open.blog are recorded here. Releases follow
   and nothing they wrote is lost. Moderators approve exactly the text and consent they saw in the
   Moderation inbox. Nothing is e-mailed. Hosting it takes `supabase/feedback.sql` run again (one
   new nullable column and one function) and `OPENBLOG_THIRD_PERSPECTIVES_ENABLED=true` with
-  receipts; approved reflections are not shown on pages yet.
+  receipts.
 - Defined Third Perspectives, a reader's own reflection on a shared reflection or post, about the
   whole work or one section. Each one has an optional prompt category (never a score or a side),
   plain text of up to 4000 characters, and a numbered history of what the reader agreed to publish.

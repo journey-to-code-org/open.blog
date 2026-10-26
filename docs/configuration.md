@@ -354,6 +354,12 @@ other way to take part is a participation kind, off until you switch it on in `p
   send to `engagement.feedbackContact`. Moderators approve exactly the text and the consent they
   saw in the **Moderation inbox** (ADRs [0113](adr/0113-third-perspectives-are-one-feedback-row-submitted-through-the-one-route-with-a-receipt.md)
   and [0114](adr/0114-the-third-perspective-form-is-one-progressive-region-with-explicit-consent.md)).
+  Approving one writes its public part to `content/third-perspectives.json`, versioned with the
+  site; posts where the kind is `open` or `locked` show those reflections in a "Third
+  Perspectives" section, even without a hosted service, and portable copies, feeds and
+  `llms-full.txt` link there instead of carrying them
+  ([ADR 0115](adr/0115-approved-third-perspectives-publish-from-a-versioned-public-file-and-portable-copies-link-to-them.md)).
+  A file that cannot be read stops `build` and `check`, as `reader-feedback.json` does.
 
 The rules are recorded in ADRs [0101](adr/0101-one-registry-of-participation-kinds-enabled-per-site-and-post.md)
 to [0104](adr/0104-retention-audit-events-and-abuse-reports-fail-closed.md).
