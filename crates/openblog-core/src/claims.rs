@@ -153,6 +153,166 @@ pub fn anchor_text(source: &str) -> Result<String, String> {
     })
 }
 
+impl AnchorCheck {
+    /// The machine name Admin and `check` report: `verified`, `moved`,
+    /// `stale` or `ambiguous`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Moved { .. } => "moved",
+            Self::Stale => "stale",
+            Self::Ambiguous => "ambiguous",
+        }
+    }
+}
+
+/// The slug a post source publishes under, decided as the build decides it:
+/// a non-empty `slug` field, slugified, or else the file name without a
+/// leading `YYYY-MM-DD-` date. `None` when the front matter cannot be read or
+/// no slug can be derived.
+pub fn post_slug(path: &str, source: &str) -> Option<String> {
+    let document = crate::frontmatter::parse(source).ok()?;
+    let slug = match document
+        .front_matter
+        .get("slug")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(slug) => crate::slug::slugify(slug),
+        None => {
+            let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+            let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
+            crate::slug::from_file_stem(stem)
+        }
+    };
+    (!slug.is_empty()).then_some(slug)
+}
+
+/// The anchor text of every post a claim may name, by slug (see
+/// [`anchor_text`]). A post that is missing here cannot verify an anchor.
+pub type Drafts = BTreeMap<String, String>;
+
+/// Where a claim's anchor stands against the current drafts: `None` for a
+/// statement claim without an anchor. A claim whose post is missing is stale,
+/// because nothing can show its words are still there.
+pub fn anchor_status(claim: &Claim, drafts: &Drafts) -> Option<AnchorCheck> {
+    let anchor = claim.anchor.as_ref()?;
+    Some(
+        drafts
+            .get(&claim.post)
+            .map_or(AnchorCheck::Stale, |draft| anchor.check(draft)),
+    )
+}
+
+fn anchor_problem(
+    collection: &'static str,
+    id: &str,
+    field: &str,
+    check: &AnchorCheck,
+    noun: &str,
+) -> AtlasDiagnostic {
+    let (code, message) = match check {
+        AnchorCheck::Moved { start } => (
+            Code::AnchorMismatch,
+            format!("{noun} words are now at byte {start} of the draft, not at the recorded offsets; re-anchor the claim first"),
+        ),
+        AnchorCheck::Stale => (
+            Code::StaleAnchor,
+            format!("{noun} words are no longer in the saved draft; select them again to re-anchor the claim"),
+        ),
+        AnchorCheck::Ambiguous | AnchorCheck::Verified => (
+            Code::AmbiguousAnchor,
+            format!("{noun} words occur more than once in the saved draft and the offsets no longer match; select the intended words to re-anchor the claim"),
+        ),
+    };
+    AtlasDiagnostic {
+        subject: DiagnosticSubject::Claims,
+        code,
+        collection: Some(collection),
+        index: None,
+        id: Some(id.into()),
+        field: Some(field.into()),
+        message,
+    }
+}
+
+/// A claim may be saved with a new or changed anchor only when the anchor is
+/// verified against the saved draft of its post: the exact words at the exact
+/// offsets. An unchanged anchor is not re-checked, so the author can still
+/// edit, withdraw or remove a claim whose draft has moved on. Nothing is
+/// repaired.
+pub fn check_claim_anchor(
+    stored: Option<&Claim>,
+    claim: &Claim,
+    drafts: &Drafts,
+) -> Result<(), AtlasDiagnostic> {
+    let Some(anchor) = &claim.anchor else {
+        return Ok(());
+    };
+    if stored.is_some_and(|s| s.post == claim.post && s.anchor.as_ref() == Some(anchor)) {
+        return Ok(());
+    }
+    let Some(draft) = drafts.get(&claim.post) else {
+        return Err(AtlasDiagnostic {
+            subject: DiagnosticSubject::Claims,
+            code: Code::UnknownPost,
+            collection: Some("claims"),
+            index: None,
+            id: Some(claim.id.clone()),
+            field: Some("post".into()),
+            message: format!(
+                "no saved post has the slug `{}`, so the anchor cannot be checked; save the post first",
+                claim.post
+            ),
+        });
+    };
+    match anchor.check(draft) {
+        AnchorCheck::Verified => Ok(()),
+        other => Err(anchor_problem(
+            "claims",
+            &claim.id,
+            "anchor",
+            &other,
+            "the selected",
+        )),
+    }
+}
+
+/// Evidence may be linked to a claim, or a link changed, only while the
+/// claim's anchor can still be found: a stale or ambiguous anchor refuses it,
+/// so evidence never attaches to words the author did not choose. A moved
+/// anchor (its words occur once, elsewhere) is allowed and reported. Removing
+/// a link, and withdrawing a link's approval without any other change, are
+/// always allowed.
+pub fn check_link_anchor(
+    set: &ClaimSet,
+    stored: Option<&EvidenceLink>,
+    link: &EvidenceLink,
+    drafts: &Drafts,
+) -> Result<(), AtlasDiagnostic> {
+    if let Some(stored) = stored {
+        let mut withdrawn = stored.clone();
+        withdrawn.visibility = Visibility::Private;
+        if *link == withdrawn || link == stored {
+            return Ok(());
+        }
+    }
+    let Some(claim) = set.claim(&link.claim) else {
+        // An unknown claim is reported by validation.
+        return Ok(());
+    };
+    match anchor_status(claim, drafts) {
+        None | Some(AnchorCheck::Verified) | Some(AnchorCheck::Moved { .. }) => Ok(()),
+        Some(other) => Err(anchor_problem(
+            "links",
+            &link.id,
+            "claim",
+            &other,
+            "the claim's",
+        )),
+    }
+}
+
 /// A statement made in one draft post.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct Claim {
@@ -521,6 +681,40 @@ fn parse_link(
             }),
         ),
         (id, ..) => (id.or(known), None),
+    }
+}
+
+fn item_result<T>(
+    item: Option<T>,
+    mut diagnostics: Vec<AtlasDiagnostic>,
+) -> Result<T, Vec<AtlasDiagnostic>> {
+    for diagnostic in &mut diagnostics {
+        diagnostic.index = None;
+    }
+    match item {
+        Some(item) if diagnostics.is_empty() => Ok(item),
+        _ => Err(relabel(diagnostics)),
+    }
+}
+
+impl Claim {
+    /// Read one claim from a request body with the stored rules. Whether its
+    /// post exists and its anchor holds is decided when the file changes.
+    pub fn from_json(raw: Value) -> Result<Self, Vec<AtlasDiagnostic>> {
+        let mut diagnostics = Vec::new();
+        let (_, claim) = parse_claim(0, raw, &mut diagnostics);
+        item_result(claim, diagnostics)
+    }
+}
+
+impl EvidenceLink {
+    /// Read one evidence link from a request body with the stored rules.
+    /// Whether its claim, source and passage resolve is decided when the file
+    /// changes.
+    pub fn from_json(raw: Value) -> Result<Self, Vec<AtlasDiagnostic>> {
+        let mut diagnostics = Vec::new();
+        let (_, link) = parse_link(0, raw, &mut diagnostics);
+        item_result(link, diagnostics)
     }
 }
 
@@ -1599,6 +1793,107 @@ mod tests {
         assert_eq!(error.code, Code::InvalidJson);
         assert!(error.to_string().starts_with("claims file: "), "{error}");
         assert!(!error.to_string().contains("atlas"), "{error}");
+    }
+
+    #[test]
+    fn post_slugs_follow_the_build() {
+        assert_eq!(
+            post_slug("posts/2026-01-07-on-caves.md", "---\ntitle: x\n---\nb").as_deref(),
+            Some("on-caves")
+        );
+        assert_eq!(
+            post_slug("posts/x.md", "---\nslug: The Cave\n---\nb").as_deref(),
+            Some("the-cave")
+        );
+        assert_eq!(post_slug("posts/x.md", "---\ntitle: open"), None);
+    }
+
+    fn drafts(body: &str) -> Drafts {
+        Drafts::from([("on-caves".to_string(), body.to_string())])
+    }
+
+    #[test]
+    fn a_new_anchor_must_be_verified_and_an_unchanged_one_is_not_rechecked() {
+        let set = parse(sample()).unwrap();
+        let claim = set.claim("c1").unwrap().clone(); // "caves!" at 4..10
+        let here = drafts("Two caves! here");
+        assert_eq!(anchor_status(&claim, &here), Some(AnchorCheck::Verified));
+        assert!(check_claim_anchor(None, &claim, &here).is_ok());
+        // UTF-8 offsets: one two-byte character before the span moves it.
+        let moved = drafts("\u{e9}wo caves! here");
+        assert_eq!(
+            anchor_status(&claim, &moved),
+            Some(AnchorCheck::Moved { start: 5 })
+        );
+        let error = check_claim_anchor(None, &claim, &moved).unwrap_err();
+        assert_eq!(
+            (error.code, error.field.as_deref()),
+            (Code::AnchorMismatch, Some("anchor"))
+        );
+        // Overlapping claims are independent spans of the same draft.
+        let mut inner = claim.clone();
+        inner.id = "c9".into();
+        inner.anchor = Some(Anchor {
+            start: 4,
+            end: 8,
+            text: "cave".into(),
+            extra: BTreeMap::new(),
+        });
+        assert!(check_claim_anchor(None, &inner, &here).is_ok());
+        for (draft, code) in [
+            ("No hollows", Code::StaleAnchor),
+            ("caves! and caves!", Code::AmbiguousAnchor),
+        ] {
+            let error = check_claim_anchor(None, &claim, &drafts(draft)).unwrap_err();
+            assert_eq!(error.code, code);
+            assert!(!error.to_string().contains("caves!"), "{error}");
+            // The stored, unchanged anchor can still be edited or withdrawn.
+            let mut edited = claim.clone();
+            edited.statement = "Reworded.".into();
+            assert!(check_claim_anchor(Some(&claim), &edited, &drafts(draft)).is_ok());
+        }
+        let error = check_claim_anchor(None, &claim, &Drafts::new()).unwrap_err();
+        assert_eq!(error.code, Code::UnknownPost);
+        let mut statement = claim.clone();
+        statement.anchor = None;
+        assert!(check_claim_anchor(None, &statement, &Drafts::new()).is_ok());
+        assert_eq!(anchor_status(&statement, &Drafts::new()), None);
+    }
+
+    #[test]
+    fn evidence_never_attaches_to_a_stale_or_ambiguous_claim() {
+        let set = parse(sample()).unwrap();
+        let link = set.link("l2").unwrap().clone();
+        let mut fresh = link.clone();
+        fresh.id = "l7".into();
+        fresh.relation = Relation::Supports;
+        assert!(check_link_anchor(&set, None, &fresh, &drafts("The caves! x")).is_ok());
+        assert!(check_link_anchor(&set, None, &fresh, &drafts("Oh, the caves!")).is_ok());
+        for (draft, code) in [
+            ("gone", Code::StaleAnchor),
+            ("caves! caves!", Code::AmbiguousAnchor),
+        ] {
+            let error = check_link_anchor(&set, None, &fresh, &drafts(draft)).unwrap_err();
+            assert_eq!(
+                (error.code, error.collection, error.field.as_deref()),
+                (code, Some("links"), Some("claim"))
+            );
+            // Withdrawing approval, or saving the link unchanged, stays possible.
+            let mut approved = link.clone();
+            approved.visibility = Visibility::Approved;
+            let mut approved_set = set.clone();
+            approved_set.links[1] = approved.clone();
+            assert!(
+                check_link_anchor(&approved_set, Some(&approved), &link, &drafts(draft)).is_ok()
+            );
+            let mut changed = link.clone();
+            changed.rationale = Some("New reading.".into());
+            assert!(check_link_anchor(&set, Some(&link), &changed, &drafts(draft)).is_err());
+        }
+        // A claim without an anchor takes evidence whatever the draft says.
+        let mut statement = fresh.clone();
+        statement.claim = "c2".into();
+        assert!(check_link_anchor(&set, None, &statement, &Drafts::new()).is_ok());
     }
 
     #[test]

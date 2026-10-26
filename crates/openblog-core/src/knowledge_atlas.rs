@@ -546,6 +546,9 @@ pub enum AtlasDiagnosticCode {
     AnchorMismatch,
     UndisclosedContradiction,
     UnknownLink,
+    StaleAnchor,
+    AmbiguousAnchor,
+    UnknownPost,
 }
 
 /// Which private file a diagnostic is about, so a message names the right
