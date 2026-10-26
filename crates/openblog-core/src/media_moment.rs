@@ -18,6 +18,11 @@
 //! digests only. Every change names the set revision the caller read, so a concurrent change is
 //! [`MomentError::Stale`] and a failed call changes nothing; every refusal about a moment the
 //! requester may not touch is the same [`MomentError::Denied`].
+//!
+//! Every place a moment shows credits it the same way through [`Moment::attribution`]: the
+//! speaker, the source and the location (ADR 0075). Rights guidance ([`QuotationRights::guidance`],
+//! [`Quotation::notices`]) explains the participant's own statement and warns about a long or
+//! unattributed quotation; it never judges whether a use is permitted and never blocks anything.
 
 use std::collections::HashSet;
 use std::fmt;
@@ -45,6 +50,13 @@ pub const MAX_QUOTATION_CHARS: usize = 1_000;
 pub const MAX_OBSERVATION_BYTES: usize = 8 * 1024;
 /// Upper bound on a speaker's name.
 pub const MAX_SPEAKER_BYTES: usize = 200;
+/// Upper bound on the participant's rights note, one line of plain text.
+pub const MAX_RIGHTS_NOTE_BYTES: usize = 500;
+/// Above this many characters a quotation counts as long in the rights guidance. It is a guide to
+/// quoting only what a point needs, never a legal limit, and it blocks nothing (ADR 0075).
+pub const BRIEF_QUOTATION_CHARS: usize = 300;
+/// Shown with every rights status: the status is the participant's word, never open.blog's.
+pub const RIGHTS_STATEMENT: &str = "The rights status is the participant's own statement about these words. open.blog records it and shows it to co-authors; it does not check rights or decide how the words may be used.";
 /// The largest stored set that loads. It sits above a set at every other bound at once, so a
 /// change the set accepts can always be read back; a change that would write more is refused.
 pub const MAX_MOMENT_SET_BYTES: usize = 4 * 1024 * 1024;
@@ -70,6 +82,8 @@ pub enum MomentField {
     Quotation,
     Speaker,
     Language,
+    /// The rights note: one line of plain text within its limit.
+    RightsNote,
     Observation,
     /// Neither a quotation nor an observation: a moment says something.
     Content,
@@ -121,6 +135,7 @@ impl MomentField {
             Self::Quotation => "quotation",
             Self::Speaker => "speaker",
             Self::Language => "language",
+            Self::RightsNote => "rights note",
             Self::Observation => "observation",
             Self::Content => "content (add a quotation or an observation)",
             Self::Limit => "size",
@@ -150,7 +165,43 @@ pub enum QuotationRights {
 }
 
 impl QuotationRights {
-    fn tag(self) -> &'static str {
+    /// Every status, in the order the guidance lists them.
+    pub const ALL: [Self; 6] = [
+        Self::Unknown,
+        Self::BriefQuotation,
+        Self::Permission,
+        Self::OpenLicense,
+        Self::PublicDomain,
+        Self::OwnWords,
+    ];
+
+    /// The status as the participant states it, in a few words.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "Not checked yet",
+            Self::BriefQuotation => "A brief quotation for commentary or review",
+            Self::Permission => "The rights holder gave permission",
+            Self::OpenLicense => "The source is under an open licence",
+            Self::PublicDomain => "The source is in the public domain",
+            Self::OwnWords => "The participant's own words",
+        }
+    }
+
+    /// Neutral guidance for the status: what the participant is stating and what helps their
+    /// co-authors review it. Never a statement that a use is permitted (ADR 0075).
+    pub fn guidance(self) -> &'static str {
+        match self {
+            Self::Unknown => "Nobody has considered yet how these words may be reused. The moment can stay private, but it cannot be proposed for the piece until another status is chosen.",
+            Self::BriefQuotation => "This states that the words are quoted briefly to comment on, criticise or review the source. Quote only the words the point needs, and name the speaker so the words are credited precisely.",
+            Self::Permission => "This states that the rights holder agreed to this use. Say in the rights note who agreed and when, and keep their reply outside open.blog.",
+            Self::OpenLicense => "This states that the source carries an open licence covering this use. Name the licence in the rights note and follow its terms for crediting the source.",
+            Self::PublicDomain => "This states that the source is in the public domain. Say why in the rights note, such as its age; the answer can differ from country to country.",
+            Self::OwnWords => "This states that the words are the participant's own, so they speak for how the words are reused.",
+        }
+    }
+
+    /// The stable value clients send and receive.
+    pub fn tag(self) -> &'static str {
         match self {
             Self::Unknown => "unknown",
             Self::BriefQuotation => "briefQuotation",
@@ -175,6 +226,15 @@ pub enum QuotationProvenance {
 }
 
 impl QuotationProvenance {
+    /// Where the words came from, as a short clause.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Transcribed => "Transcribed from the media",
+            Self::Copied => "Copied from published text, captions or a transcript",
+            Self::Supplied => "Supplied by the speaker or the rights holder",
+        }
+    }
+
     fn tag(self) -> &'static str {
         match self {
             Self::Transcribed => "transcribed",
@@ -197,6 +257,96 @@ pub struct Quotation {
     pub language: Option<String>,
     pub rights: QuotationRights,
     pub provenance: QuotationProvenance,
+    /// The participant's own note about the rights status, such as who gave permission or which
+    /// licence applies. One line of plain text, shown to co-authors for review and never published.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rights_note: Option<String>,
+}
+
+/// A warning about a quotation that a co-author should look at. It never judges whether the words
+/// are accurate or whether their use is permitted, and it never blocks a change or a publication.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuotationNotice {
+    /// No speaker is named, so the words are credited to the source alone.
+    NoSpeaker,
+    /// The quotation is longer than [`BRIEF_QUOTATION_CHARS`].
+    Long,
+    /// The quotation is longer than [`BRIEF_QUOTATION_CHARS`] and its status is a brief quotation.
+    LongForBriefQuotation,
+}
+
+impl QuotationNotice {
+    /// A stable code for clients.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::NoSpeaker => "noSpeaker",
+            Self::Long => "long",
+            Self::LongForBriefQuotation => "longForBriefQuotation",
+        }
+    }
+
+    /// The warning as a sentence, safe to show (it holds no author text).
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::NoSpeaker => "No speaker is named, so the words are credited to the source alone. Name who said or wrote them if you know.",
+            Self::Long => "This quotation is longer than 300 characters. Consider quoting only the words the point needs.",
+            Self::LongForBriefQuotation => "This quotation is longer than 300 characters, which is long for a brief quotation. Consider quoting fewer words. This is a guide, not a legal limit.",
+        }
+    }
+}
+
+impl Quotation {
+    /// The quotation's length as the limits count it: Unicode characters, newlines included.
+    pub fn chars(&self) -> usize {
+        self.text.chars().count()
+    }
+
+    /// Warnings for co-authors, in a fixed order. Empty for a short, attributed quotation.
+    pub fn notices(&self) -> Vec<QuotationNotice> {
+        let mut notices = Vec::new();
+        if self.speaker.is_none() {
+            notices.push(QuotationNotice::NoSpeaker);
+        }
+        if self.chars() > BRIEF_QUOTATION_CHARS {
+            notices.push(if self.rights == QuotationRights::BriefQuotation {
+                QuotationNotice::LongForBriefQuotation
+            } else {
+                QuotationNotice::Long
+            });
+        }
+        notices
+    }
+}
+
+/// Who and where a moment is credited to, the same wherever it shows: the quotation's speaker,
+/// the source's title and kind from the record (never a copy), and the moment's location.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MomentAttribution<'a> {
+    /// The quotation's speaker, when there is a quotation and it names one.
+    pub speaker: Option<&'a str>,
+    /// The source's public title and kind; `None` when the source is no longer listed.
+    pub source: Option<(&'a str, SourceKind)>,
+    /// The location as plain words ([`location_text`]).
+    pub location: String,
+}
+
+impl MomentAttribution<'_> {
+    /// The attribution as one line of plain text: "The host, in Episode 4 (Podcast), from 1:02 to
+    /// 1:10". The parts are author and site text, so callers escape the line like any other text.
+    pub fn text(&self) -> String {
+        let source = self
+            .source
+            .map(|(title, kind)| format!("{title} ({})", kind.label()));
+        match (self.speaker, source) {
+            (Some(speaker), Some(source)) => format!("{speaker}, in {source}, {}", self.location),
+            (Some(speaker), None) => format!(
+                "{speaker}, in a source that is no longer listed, {}",
+                self.location
+            ),
+            (None, Some(source)) => format!("{source}, {}", self.location),
+            (None, None) => format!("A source that is no longer listed, {}", self.location),
+        }
+    }
 }
 
 /// Whether a moment is the owner's working note or proposed for the published piece.
@@ -332,6 +482,28 @@ impl Moment {
         self.intent
     }
 
+    /// How the moment is credited wherever it shows (ADR 0075). The source's title and kind come
+    /// from `sources` as they are now, so correcting a source corrects every attribution.
+    pub fn attribution<'a>(&'a self, sources: &'a [SourceReference]) -> MomentAttribution<'a> {
+        MomentAttribution {
+            speaker: self
+                .quotation
+                .as_ref()
+                .and_then(|quotation| quotation.speaker.as_deref()),
+            source: sources
+                .iter()
+                .find(|source| source.id == self.source)
+                .map(|source| (source.title.as_str(), source.kind)),
+            location: location_text(&self.locators),
+        }
+    }
+
+    /// Whether the moment still fits the record's sources: its source is listed and its locators
+    /// fit that source's kind. The publish gate refuses a proposed moment that does not.
+    pub fn resolves(&self, sources: &[SourceReference]) -> bool {
+        check_against_sources(&self.source, &self.locators, sources).is_ok()
+    }
+
     /// The timestamp locator, if the moment has one.
     pub fn timestamp(&self) -> Option<&Locator> {
         self.locators
@@ -435,6 +607,11 @@ impl Moment {
                 put(quotation.language.as_deref().unwrap_or("\0"));
                 put(quotation.rights.tag());
                 put(quotation.provenance.tag());
+                // Only a note that exists is hashed, so a quotation without one keeps its digest.
+                if let Some(note) = &quotation.rights_note {
+                    put("rightsNote");
+                    put(note);
+                }
             }
             None => put("\0"),
         }
@@ -563,6 +740,13 @@ fn check_quotation(quotation: &Quotation) -> Result<(), MomentError> {
         .is_some_and(|language| language.len() > 64 || !valid_language_tag(language))
     {
         return Err(MomentError::Invalid(MomentField::Language));
+    }
+    if quotation
+        .rights_note
+        .as_deref()
+        .is_some_and(|note| note.trim() != note || !valid_text(note, MAX_RIGHTS_NOTE_BYTES))
+    {
+        return Err(MomentError::Invalid(MomentField::RightsNote));
     }
     Ok(())
 }
@@ -991,9 +1175,7 @@ impl MomentSet {
     pub fn unresolved(&self, sources: &[SourceReference]) -> Vec<&str> {
         self.publication_moments()
             .into_iter()
-            .filter(|moment| {
-                check_against_sources(&moment.source, &moment.locators, sources).is_err()
-            })
+            .filter(|moment| !moment.resolves(sources))
             .map(Moment::id)
             .collect()
     }

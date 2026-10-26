@@ -7769,6 +7769,7 @@ fn moment_problem(error: openblog_core::media_moment::MomentError) -> Response {
         MomentError::Invalid(MomentField::Quotation) => ("quotation", "Keep the quotation to 1,000 characters of text, without control or direction-override characters. Moments quote; they never hold a transcript.".into()),
         MomentError::Invalid(MomentField::Speaker) => ("speaker", "Write the speaker's name on one line, up to 200 bytes, without surrounding spaces.".into()),
         MomentError::Invalid(MomentField::Language) => ("language", "Use a language tag such as en or pt-BR.".into()),
+        MomentError::Invalid(MomentField::RightsNote) => ("rightsNote", "Write the rights note on one line, up to 500 bytes, without surrounding spaces or control or direction-override characters.".into()),
         MomentError::Invalid(MomentField::Observation) => ("observation", "Keep the observation to 8 KiB of Markdown, without control or direction-override characters.".into()),
         MomentError::Invalid(MomentField::Content) => ("content", "Add a quotation, an observation, or both.".into()),
         MomentError::Invalid(MomentField::Limit) => ("", "This reflection has reached its limit of 100 moments, or the moments are too large to store. Nothing was changed.".into()),

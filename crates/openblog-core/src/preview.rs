@@ -29,7 +29,9 @@ use crate::collaboration::SharedPublication;
 use crate::draft::DraftSet;
 use crate::escape;
 use crate::markdown::{self, RenderOptions};
-use crate::media_moment::{location_text, Moment, MomentSet};
+use crate::media_moment::{
+    location_text, Moment, MomentAttribution, MomentSet, Quotation, RIGHTS_STATEMENT,
+};
 use crate::reflection::{compose, strip_part_markers, ComposedTurn, ReflectionStructure};
 use crate::shared_source::SharedAttribution;
 use crate::synthesis::{SynthesisKind, SynthesisSet};
@@ -342,9 +344,11 @@ pub fn build(
 }
 
 /// The moments proposed for the piece that the requester may read, grouped by owner: where in
-/// which source, the quotation with its speaker, and the observation through the production
+/// which source, the quotation credited precisely (speaker, source, location) with its owner's
+/// rights statement, guidance and warnings for review, and the observation through the production
 /// renderer. Plainly labelled as covered by approval and not yet published. Empty when there are
-/// none, so a piece without moments previews exactly as before.
+/// none, so a piece without moments previews exactly as before. The rights statement, note and
+/// warnings are for the authors' review only and are never part of the published piece (ADR 0075).
 fn moments_html(
     record: &SharedPublication,
     shown: &[(&str, Vec<&Moment>)],
@@ -374,14 +378,10 @@ fn moments_html(
                 escape::text(&location_text(moment.locators()))
             ));
             if let Some(quotation) = moment.quotation() {
-                html.push_str(&format!(
-                    "<blockquote class=\"ob-preview-quotation\"><p>{}</p>",
-                    escape::text(&quotation.text)
+                html.push_str(&quotation_html(
+                    quotation,
+                    &moment.attribution(&record.sources),
                 ));
-                if let Some(speaker) = &quotation.speaker {
-                    html.push_str(&format!("<footer>{}</footer>", escape::text(speaker)));
-                }
-                html.push_str("</blockquote>\n");
             }
             if let Some(observation) = moment.observation() {
                 html.push_str("<div class=\"ob-preview-prose\">\n");
@@ -393,6 +393,46 @@ fn moments_html(
         html.push_str("</ol>\n");
     }
     html.push_str("</section>\n");
+    html
+}
+
+/// One quotation as the preview shows it: the words exactly as quoted, credited with the one
+/// attribution line every view uses, then the owner's rights statement with its neutral guidance,
+/// the rights note, where the words came from, and any warnings. Everything is escaped text.
+fn quotation_html(quotation: &Quotation, attribution: &MomentAttribution<'_>) -> String {
+    let lang = quotation
+        .language
+        .as_deref()
+        .map(|language| format!(" lang=\"{}\"", escape::attr(language)))
+        .unwrap_or_default();
+    let mut html = format!(
+        "<figure class=\"ob-preview-quotation\">\n<blockquote{lang}><p>{}</p></blockquote>\n<figcaption>{}</figcaption>\n</figure>\n",
+        escape::text(&quotation.text),
+        escape::text(&attribution.text())
+    );
+    html.push_str(&format!(
+        "<p class=\"ob-preview-rights\">Rights, as the author states them: {}. {} {}",
+        escape::text(quotation.rights.label()),
+        escape::text(quotation.rights.guidance()),
+        escape::text(RIGHTS_STATEMENT)
+    ));
+    if let Some(note) = &quotation.rights_note {
+        html.push_str(&format!(" Rights note: {}", escape::text(note)));
+    }
+    html.push_str(&format!(
+        " {}.</p>\n",
+        escape::text(quotation.provenance.label())
+    ));
+    let notices = quotation.notices();
+    if !notices.is_empty() {
+        html.push_str(
+            "<ul class=\"ob-preview-notices\" aria-label=\"Things to check in this quotation\">\n",
+        );
+        for notice in notices {
+            html.push_str(&format!("<li>{}</li>\n", escape::text(notice.message())));
+        }
+        html.push_str("</ul>\n");
+    }
     html
 }
 
@@ -671,6 +711,10 @@ body { margin: 0 auto; max-width: 42rem; padding: 1rem; font: 1rem/1.6 system-ui
 .ob-preview-status { font-size: .875rem; font-weight: 600; }\n\
 .ob-preview-hidden { font-style: italic; }\n\
 .ob-preview-quotation { margin: .5rem 0; padding-left: .75rem; border-left: 3px solid var(--line); }\n\
+.ob-preview-quotation blockquote { margin: 0; }\n\
 .ob-preview-quotation p { white-space: pre-wrap; margin: 0; }\n\
+.ob-preview-quotation figcaption { font-size: .875rem; }\n\
+.ob-preview-rights { font-size: .875rem; }\n\
+.ob-preview-notices { font-size: .875rem; color: var(--warn); }\n\
 img { max-width: 100%; }\n\
 </style>\n";

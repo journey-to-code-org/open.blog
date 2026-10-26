@@ -16,8 +16,9 @@ use openblog_core::config::SiteConfig;
 use openblog_core::draft::{DraftSet, RevealPolicy};
 use openblog_core::media_moment::{
     location_text, timestamp_value, MomentError, MomentField, MomentInput, MomentIntent,
-    MomentRule, MomentSet, Quotation, QuotationProvenance, QuotationRights, MAX_MOMENTS,
-    MAX_MOMENT_SET_BYTES, MAX_QUOTATION_CHARS,
+    MomentRule, MomentSet, Quotation, QuotationNotice, QuotationProvenance, QuotationRights,
+    BRIEF_QUOTATION_CHARS, MAX_MOMENTS, MAX_MOMENT_SET_BYTES, MAX_QUOTATION_CHARS,
+    MAX_RIGHTS_NOTE_BYTES, RIGHTS_STATEMENT,
 };
 use openblog_core::preview::CombinedPreview;
 use openblog_core::research_notes::{Locator, LocatorKind};
@@ -114,6 +115,7 @@ fn quote(text: &str, rights: QuotationRights) -> Quotation {
         language: None,
         rights,
         provenance: QuotationProvenance::Transcribed,
+        rights_note: None,
     }
 }
 
@@ -382,6 +384,7 @@ fn quotation_speaker_source_participant_and_observation_stay_distinct() {
                 language: Some("en".into()),
                 rights: QuotationRights::BriefQuotation,
                 provenance: QuotationProvenance::Transcribed,
+                rights_note: None,
             }),
             observation: Some("I had never heard it read aloud.".into()),
             intent: MomentIntent::Publication,
@@ -528,6 +531,34 @@ fn untrusted_markdown_metadata_urls_and_identities_fail_safely_without_echoing_t
                 ..quote("ok", QuotationRights::BriefQuotation)
             },
             MomentField::Language,
+        ),
+        (
+            Quotation {
+                rights_note: Some("Permission\nInjected: header".into()),
+                ..quote("ok", QuotationRights::Permission)
+            },
+            MomentField::RightsNote,
+        ),
+        (
+            Quotation {
+                rights_note: Some(" padded".into()),
+                ..quote("ok", QuotationRights::Permission)
+            },
+            MomentField::RightsNote,
+        ),
+        (
+            Quotation {
+                rights_note: Some("\u{202E}reversed".into()),
+                ..quote("ok", QuotationRights::Permission)
+            },
+            MomentField::RightsNote,
+        ),
+        (
+            Quotation {
+                rights_note: Some("n".repeat(MAX_RIGHTS_NOTE_BYTES + 1)),
+                ..quote("ok", QuotationRights::Permission)
+            },
+            MomentField::RightsNote,
         ),
         (
             quote(&long, QuotationRights::BriefQuotation),
@@ -691,6 +722,7 @@ fn the_set_refuses_to_grow_past_its_limits_and_a_full_set_still_loads() {
         let input = MomentInput {
             quotation: Some(Quotation {
                 speaker: Some("S".repeat(200)),
+                rights_note: Some("N".repeat(MAX_RIGHTS_NOTE_BYTES)),
                 ..quote(&quotation, QuotationRights::OpenLicense)
             }),
             ..publish(observe(
@@ -1179,7 +1211,9 @@ fn the_preview_withholds_an_owner_s_part_until_their_moments_are_sealed_to_the_r
     assert!(bo
         .document
         .contains("The Art of Noticing, from 1:02 to 1:10"));
-    assert!(bo.document.contains("<footer>The host</footer>"));
+    assert!(bo.document.contains(
+        "<figcaption>The host, in The Art of Noticing (Video), from 1:02 to 1:10</figcaption>"
+    ));
     assert!(bo.document.contains("ANN-OBSERVATION"));
     assert!(!bo.document.contains("BO-PRIVATE"));
 
@@ -1246,4 +1280,297 @@ fn a_location_reads_as_plain_words_in_order() {
         ]),
         "chapter 2, pages 3 to 5, page 9"
     );
+}
+
+// ---- attribution and rights guidance (ADR 0075)
+
+fn quoted(text: &str, speaker: Option<&str>, rights: QuotationRights) -> MomentInput {
+    MomentInput {
+        quotation: Some(Quotation {
+            speaker: speaker.map(Into::into),
+            ..quote(text, rights)
+        }),
+        observation: None,
+        ..observe(VIDEO, vec![span("1:02", "1:10")], "unused")
+    }
+}
+
+#[test]
+fn every_view_credits_a_moment_by_speaker_source_and_location() {
+    let mut record = record();
+    let mut set = MomentSet::new();
+    add(
+        &mut set,
+        "ann",
+        quoted(
+            "Listen first.",
+            Some("The host"),
+            QuotationRights::BriefQuotation,
+        ),
+    )
+    .unwrap();
+    add(
+        &mut set,
+        "ann",
+        quoted("Unattributed words.", None, QuotationRights::BriefQuotation),
+    )
+    .unwrap();
+    add(
+        &mut set,
+        "ann",
+        observe(
+            BOOK,
+            vec![locator(LocatorKind::Page, "12", Some("14"))],
+            "a note",
+        ),
+    )
+    .unwrap();
+    let moments = set.own("ann", &ALL).unwrap();
+    let title = record.sources[0].title.clone();
+    let lines = |record: &SharedPublication| -> Vec<String> {
+        moments
+            .iter()
+            .map(|moment| moment.attribution(&record.sources).text())
+            .collect()
+    };
+    let book = record.sources[3].title.clone();
+    assert_eq!(
+        lines(&record),
+        vec![
+            format!("The host, in {title} (Video), from 1:02 to 1:10"),
+            format!("{title} (Video), from 1:02 to 1:10"),
+            format!("{book} (Book), pages 12 to 14"),
+        ]
+    );
+    let first = moments[0].attribution(&record.sources);
+    assert_eq!(first.speaker, Some("The host"));
+    assert_eq!(first.location, "from 1:02 to 1:10");
+
+    // Correcting the source corrects every attribution: the moment holds no copy of it.
+    record.sources[0].title = "A corrected title".into();
+    assert_eq!(
+        lines(&record)[0],
+        "The host, in A corrected title (Video), from 1:02 to 1:10"
+    );
+    assert!(moments[0].resolves(&record.sources));
+    // A source that is gone still leaves the speaker and the location, plainly marked.
+    record.sources.remove(0);
+    assert_eq!(
+        lines(&record)[..2],
+        [
+            "The host, in a source that is no longer listed, from 1:02 to 1:10".to_string(),
+            "A source that is no longer listed, from 1:02 to 1:10".to_string(),
+        ]
+    );
+    assert!(!moments[0].resolves(&record.sources));
+}
+
+#[test]
+fn quotation_notices_warn_about_length_and_a_missing_speaker_without_blocking() {
+    let notices = |text: &str, speaker: Option<&str>, rights| {
+        Quotation {
+            speaker: speaker.map(Into::into),
+            ..quote(text, rights)
+        }
+        .notices()
+    };
+    use QuotationRights::*;
+    // Short and attributed: nothing to check.
+    assert_eq!(
+        notices("Listen first.", Some("Ada"), BriefQuotation),
+        vec![]
+    );
+    assert_eq!(
+        notices("Listen first.", None, BriefQuotation),
+        vec![QuotationNotice::NoSpeaker]
+    );
+    // Exactly at the threshold is not long; one character over is.
+    let at = "a".repeat(BRIEF_QUOTATION_CHARS);
+    let over = "a".repeat(BRIEF_QUOTATION_CHARS + 1);
+    assert_eq!(notices(&at, Some("Ada"), BriefQuotation), vec![]);
+    assert_eq!(
+        notices(&over, Some("Ada"), BriefQuotation),
+        vec![QuotationNotice::LongForBriefQuotation]
+    );
+    for rights in [Permission, OpenLicense, PublicDomain, OwnWords, Unknown] {
+        assert_eq!(
+            notices(&over, None, rights),
+            vec![QuotationNotice::NoSpeaker, QuotationNotice::Long]
+        );
+    }
+    // Length counts Unicode characters, newlines included, never bytes.
+    let wide = "é".repeat(BRIEF_QUOTATION_CHARS);
+    assert!(wide.len() > BRIEF_QUOTATION_CHARS);
+    assert_eq!(notices(&wide, Some("Ada"), BriefQuotation), vec![]);
+    let emoji = "🎙".repeat(BRIEF_QUOTATION_CHARS / 2) + &"\n".repeat(BRIEF_QUOTATION_CHARS / 2);
+    assert_eq!(notices(&emoji, Some("Ada"), BriefQuotation), vec![]);
+    assert_eq!(
+        notices(&(emoji + "x"), Some("Ada"), BriefQuotation),
+        vec![QuotationNotice::LongForBriefQuotation]
+    );
+
+    // A long, unattributed quotation is still accepted and still proposed: warnings never block.
+    let mut set = MomentSet::new();
+    let long = "Line one.\nLine two.\n".repeat(BRIEF_QUOTATION_CHARS / 10);
+    let id = add(
+        &mut set,
+        "ann",
+        publish(quoted(&long, None, BriefQuotation)),
+    )
+    .unwrap();
+    let stored = set.own("ann", &ALL).unwrap()[0];
+    assert_eq!(stored.id(), id);
+    assert_eq!(
+        stored.quotation().unwrap().text,
+        long,
+        "kept exactly, line breaks and all"
+    );
+    assert_eq!(set.publication_moments().len(), 1);
+
+    // Every message names the threshold it uses and holds no author text.
+    for notice in [
+        QuotationNotice::Long,
+        QuotationNotice::LongForBriefQuotation,
+    ] {
+        assert!(notice
+            .message()
+            .contains(&BRIEF_QUOTATION_CHARS.to_string()));
+    }
+}
+
+#[test]
+fn rights_guidance_explains_the_author_s_statement_and_never_grants_permission() {
+    let forbidden = [
+        "fair use",
+        "fair dealing",
+        "is allowed",
+        "is permitted",
+        "you may publish",
+        "you may republish",
+        "safe to",
+        "cleared",
+        "legal to",
+        "no permission needed",
+    ];
+    let mut texts: Vec<&str> = vec![RIGHTS_STATEMENT];
+    for rights in QuotationRights::ALL {
+        texts.push(rights.label());
+        texts.push(rights.guidance());
+    }
+    for notice in [
+        QuotationNotice::NoSpeaker,
+        QuotationNotice::Long,
+        QuotationNotice::LongForBriefQuotation,
+    ] {
+        texts.push(notice.message());
+    }
+    for text in texts {
+        let lower = text.to_lowercase();
+        for phrase in forbidden {
+            assert!(!lower.contains(phrase), "{text:?} contains {phrase:?}");
+        }
+    }
+    // Each status has its own guidance, and the statement says plainly that nothing was checked.
+    let guidance: std::collections::HashSet<_> =
+        QuotationRights::ALL.iter().map(|r| r.guidance()).collect();
+    assert_eq!(guidance.len(), QuotationRights::ALL.len());
+    assert!(RIGHTS_STATEMENT.contains("does not check rights"));
+    assert!(QuotationRights::Unknown
+        .guidance()
+        .contains("cannot be proposed"));
+}
+
+#[test]
+fn a_rights_note_is_kept_exactly_bound_into_approval_and_survives_a_reload() {
+    let sources = record().sources;
+    let mut set = MomentSet::new();
+    let mut input = publish(quoted(
+        "Listen first.",
+        Some("Ada"),
+        QuotationRights::Permission,
+    ));
+    let id = add(&mut set, "ann", input.clone()).unwrap();
+    let before = set.binding_frame(&sources);
+    assert_eq!(set.seal("ann", &ALL, 1), Ok(true));
+    input.quotation.as_mut().unwrap().rights_note =
+        Some("Agreed by the publisher by email, 3 March 2026 — «ok» 中文".into());
+    let revision = set.revision();
+    set.edit("ann", &ALL, revision, &sources, &id, input)
+        .unwrap();
+    // The note is part of what every approval binds and what a seal covers.
+    assert_ne!(set.binding_frame(&sources), before);
+    assert!(!set.is_sealed("ann", 1), "the note changes what was sealed");
+    let reloaded = MomentSet::from_json(&set.to_json()).unwrap();
+    assert_eq!(reloaded, set);
+    assert_eq!(
+        reloaded.own("ann", &ALL).unwrap()[0]
+            .quotation()
+            .unwrap()
+            .rights_note
+            .as_deref(),
+        Some("Agreed by the publisher by email, 3 March 2026 — «ok» 中文")
+    );
+    // A quotation without a note stores no note field at all.
+    let mut plain = MomentSet::new();
+    add(
+        &mut plain,
+        "ann",
+        quoted("Listen first.", Some("Ada"), QuotationRights::Permission),
+    )
+    .unwrap();
+    assert!(!plain.to_json().contains("rightsNote"));
+}
+
+#[test]
+fn the_preview_credits_quotations_precisely_and_shows_rights_guidance_as_escaped_text() {
+    let record = record();
+    let drafts = revealed_drafts();
+    let approvals = ApprovalSet::new();
+    let mut moments = MomentSet::new();
+    let mut attributed = publish(quoted(
+        "Line one <script>alert(1)</script>\nLine two",
+        Some("Dr <b>Host</b>"),
+        QuotationRights::OpenLicense,
+    ));
+    let words = attributed.quotation.as_mut().unwrap();
+    words.rights_note = Some("CC BY 4.0 <a href=x>licence</a>".into());
+    words.language = Some("pt-BR".into());
+    add(&mut moments, "ann", attributed).unwrap();
+    let long = "a".repeat(BRIEF_QUOTATION_CHARS + 1);
+    add(
+        &mut moments,
+        "ann",
+        publish(quoted(&long, None, QuotationRights::BriefQuotation)),
+    )
+    .unwrap();
+    assert_eq!(moments.seal("ann", &ALL, 1), Ok(true));
+    let bo = preview_for(&record, &drafts, &moments, &approvals, "bo");
+    let doc = &bo.document;
+    let title = escape_text(&record.sources[0].title);
+    // The attribution names the speaker, the source and the time range, escaped.
+    assert!(doc.contains(&format!(
+        "<figcaption>Dr &lt;b&gt;Host&lt;/b&gt;, in {title} (Video), from 1:02 to 1:10</figcaption>"
+    )));
+    assert!(doc.contains(&format!(
+        "<figcaption>{title} (Video), from 1:02 to 1:10</figcaption>"
+    )));
+    assert!(doc.contains("<blockquote lang=\"pt-BR\">"));
+    assert!(doc.contains("Line one &lt;script&gt;alert(1)&lt;/script&gt;\nLine two"));
+    assert!(
+        !doc.contains("<script>alert") && !doc.contains("<b>Host") && !doc.contains("<a href=x>")
+    );
+    // The owner's rights statement with its guidance, labelled as theirs, and the note as text.
+    assert!(doc.contains("Rights, as the author states them: The source is under an open licence."));
+    assert!(doc.contains(QuotationRights::OpenLicense.guidance()));
+    assert!(doc.contains("Rights note: CC BY 4.0 &lt;a href=x&gt;licence&lt;/a&gt;"));
+    // Warnings show for review, and never stop the preview or the approval token.
+    assert!(doc.contains(QuotationNotice::NoSpeaker.message()));
+    assert!(doc.contains(QuotationNotice::LongForBriefQuotation.message()));
+    assert!(bo.complete && bo.seen.is_some());
+}
+
+fn escape_text(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }

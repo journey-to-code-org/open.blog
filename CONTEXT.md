@@ -230,6 +230,30 @@ provenance: transcribed, copied, or supplied. It is never a legal determination,
 whose rights are unknown cannot be proposed for the piece (ADR 0072).
 _Avoid_: Licence check, clearance, fair use ruling
 
+**Quotation attribution**:
+The one line that credits a moment quotation wherever it shows: its speaker when named, the source's
+title and kind as the record holds them now, and the moment's location, such as "The host, in Episode
+4 (Podcast), from 1:02 to 1:10" (ADR 0075).
+_Avoid_: Byline, credit line when the participant is meant
+
+**Rights guidance**:
+Neutral text explaining what a quotation rights status states and what helps co-authors review it,
+always shown with the statement that the status is the participant's own and that open.blog does not
+check rights. It never says that a use is allowed (ADR 0075).
+_Avoid_: Legal advice, clearance, permission check
+
+**Rights note**:
+The participant's optional one-line note on a moment quotation's rights status, such as who gave
+permission or which licence applies. It is covered by the seal and approval, shown to co-authors, and
+never published (ADR 0075).
+_Avoid_: Licence field, permission record
+
+**Quotation warning**:
+Advice about a moment quotation that names no speaker or is longer than the 300-character guide for a
+brief quotation. It never judges accuracy and never blocks saving, proposing, approving or publishing
+(ADR 0075).
+_Avoid_: Error, violation, plagiarism flag
+
 **Moment seal**:
 The digest of an owner's proposed media moments, written when the owner offers a draft revision and
 tied to that revision. It covers the moments' own content only, never the source's title or link,
