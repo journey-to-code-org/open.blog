@@ -22491,7 +22491,7 @@ series: letters
     }
 
     #[test]
-    fn a_part_removed_after_arranging_is_named_as_an_arrangement_problem_and_publishes_nothing() {
+    fn a_part_removed_after_arranging_is_shown_in_the_preview_and_publishes_nothing() {
         let (f, mikey, grace, ada, id) = approval_fixture("arrangement-mismatch");
         for (n, who) in [&mikey, &grace].into_iter().enumerate() {
             let draft = draft_call(&f, who, &id, 1, &two_parts(n, "M"));
@@ -22512,20 +22512,18 @@ series: letters
             reveal_call(&f, &mikey, "ready", ready_body(&id, json!(3))).status,
             200
         );
+        // The authors, who may read the drafts, are told why in the combined preview.
         let preview = body_json(&preview_call(&f, &grace, &id));
         assert!(preview_document_text(&f, &grace, &preview)
             .contains("arrangement of this piece does not match the drafts"));
-        // Nobody can approve a piece that cannot be read in order, so the refusal names the
-        // arrangement, which a coordinator can fix, rather than the approval Mikey cannot give.
         assert!(approval_body(&f, &mikey, &id)["seen"].is_null());
+        // Ada may arrange but not read the drafts, so the gate tells her only whose approval is
+        // missing, never whether a part exists (ADR 0031).
         let before = state_trees(&f);
         let refused = publish_as(&f, &ada, &id);
-        assert_eq!(refused.status, 422);
+        assert_eq!(refused.status, 409);
         assert_no_prose(&refused);
-        assert!(body_json(&refused)["error"]
-            .as_str()
-            .unwrap()
-            .contains("arrangement no longer matches the drafts"));
+        assert_eq!(body_json(&refused)["missing"], json!(["Mikey"]));
         assert_eq!(state_trees(&f), before);
         // Arranging the piece again resolves it.
         let single = json!({
@@ -22542,6 +22540,48 @@ series: letters
             assert_eq!(approve_as(&f, who, &id).status, 200);
         }
         assert_eq!(publish_as(&f, &ada, &id).status, 200);
+    }
+
+    #[test]
+    fn scheduling_never_tells_a_coordinator_who_cannot_read_the_drafts_whether_a_part_exists() {
+        let (f, mikey, _grace, ada, id) = approval_fixture("arrangement-oracle");
+        // Ada coordinates but writes nothing, so she is not entitled to the drafts.
+        assert_eq!(preview_call(&f, &ada, &id).status, 404);
+        let participants = body_json(&arrangement_read(&f, &mikey, &id))["participants"].clone();
+        let mikey_id = participants
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["displayName"] == "Mikey")
+            .unwrap()["id"]
+            .clone();
+        // Mikey's draft has one part. The first arrangement names a part it does not have, the
+        // second the part it does; neither approval has been given.
+        let naming = |revision: u64, part: usize| {
+            json!({
+                "version": 1,
+                "revision": revision,
+                "layout": "sequential",
+                "rounds": [{ "id": "round-1", "turns": [{ "draft": mikey_id, "part": part }] }],
+            })
+        };
+        let at = json!("2099-01-01T00:00:00Z");
+        let mut answers = Vec::new();
+        for (expected, part) in [(0, 7), (1, 0)] {
+            let saved =
+                arrangement_write(&f, &ada, true, &id, expected, naming(expected + 1, part));
+            assert_eq!(saved.status, 200);
+            let before = state_trees(&f);
+            let refused = schedule_as(&f, &ada, &id, at.clone());
+            assert_eq!(state_trees(&f), before);
+            assert_no_prose(&refused);
+            answers.push((refused.status, refused.body));
+        }
+        assert_eq!(answers[0].0, 409);
+        assert_eq!(
+            answers[0], answers[1],
+            "the refusal must not depend on the part"
+        );
     }
 
     #[test]

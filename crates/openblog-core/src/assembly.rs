@@ -47,7 +47,8 @@ pub enum AssemblyError {
     Invalid,
     /// The arrangement names a part or draft the current drafts no longer have (an author
     /// removed a part after it was arranged). Distinct from [`Self::Invalid`] because the fix is
-    /// a coordinator's: arrange the piece again (#188).
+    /// a coordinator's: arrange the piece again (#188). Reported only once the approvals are met,
+    /// so it never tells someone who may not read the drafts whether a part exists (ADR 0031).
     ArrangementMismatch,
     /// A section contains raw HTML or a link or image with an active address (`javascript:`,
     /// `data:`). Native pages pass these through, which is right for the site owner's own posts
@@ -323,16 +324,10 @@ pub fn assemble(
     active: &[&str],
     date: &str,
 ) -> Result<Assembly, AssemblyError> {
-    // An arrangement that no longer matches the drafts is named first: nobody can approve such a
-    // piece, so reporting the missing approvals instead would send people to a step they cannot
-    // take. Only a coordinator's new arrangement resolves it.
-    if structure.is_some_and(|structure| {
-        structure
-            .reading_order(&record.collaboration, drafts)
-            .is_err()
-    }) {
-        return Err(AssemblyError::ArrangementMismatch);
-    }
+    // The approvals are evaluated before anything reads a draft. Checking the arrangement against
+    // the drafts first would refuse differently depending on whether a draft has a given part, an
+    // oracle on unrevealed prose for a coordinator who may arrange but not read (ADR 0031). Only a
+    // piece whose approvals are met can be refused as `ArrangementMismatch`, below.
     match with_subject(record, structure, drafts, synthesis, active, |subject| {
         approvals.evaluate(subject)
     }) {
@@ -380,7 +375,9 @@ pub fn assemble(
     let mut credits = Vec::new();
     let mut arranged = None;
     if let Some(structure) = structure {
-        // The same latest revisions the approval's binding covers, in the one reading order.
+        // The same latest revisions the approval's binding covers, in the one reading order. A
+        // turn naming a part an author has since removed is a coordinator's fix, so it gets its
+        // own error; it is reached only once the approvals are met.
         let order = structure
             .reading_order(&record.collaboration, drafts)
             .map_err(|_| AssemblyError::ArrangementMismatch)?;

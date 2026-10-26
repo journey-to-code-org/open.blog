@@ -322,6 +322,27 @@ fn a_stale_or_unsupported_arrangement_publishes_nothing() {
         ),
         Err(AssemblyError::ArrangementMismatch)
     );
+    // Without the approvals the gate refuses for them, whether or not the part exists, so the
+    // refusal says nothing about a draft to someone who may arrange but not read it (ADR 0031).
+    let present_part = structure(
+        r#"{"version":1,"revision":1,"layout":"sequential","rounds":[{"id":"r1","turns":[{"draft":"ann","part":0}]}]}"#,
+    );
+    let unapproved = |s: &ReflectionStructure| {
+        assemble(
+            &record,
+            Some(s),
+            &set,
+            &SynthesisSet::new(),
+            &ApprovalSet::new(),
+            &ALL,
+            DATE,
+        )
+    };
+    assert!(matches!(
+        unapproved(&missing_part),
+        Err(AssemblyError::Blocked { .. })
+    ));
+    assert_eq!(unapproved(&missing_part), unapproved(&present_part));
 }
 
 #[test]

@@ -26,9 +26,10 @@ All notable changes to open.blog are recorded here. Releases follow
 - Accessibility Studio and `openblog check` no longer ask you to review the layout markup of an
   arranged shared reflection as custom raw HTML: it is written by open.blog, with every turn
   under a heading naming its author. Raw HTML anywhere else is still flagged for review.
-- When an author removes a part of their draft after the piece was arranged, publishing now
-  says the arrangement no longer matches the drafts and asks a coordinator to arrange it again,
-  instead of waiting for an approval nobody can give.
+- When an author removes a part of their draft after the piece was arranged, the combined
+  preview says the arrangement no longer matches the drafts, and once every required approval is
+  in, publishing asks a coordinator to arrange it again rather than failing with a generic error.
+  A coordinator who cannot read the drafts is never told whether a part exists.
 
 ## [0.27.0] - 2026-10-25
 
