@@ -302,9 +302,7 @@ pub fn build_findings(
     contributors: &BTreeMap<String, Contributor>,
     sources: &openblog_core::Sources,
 ) -> Result<Vec<EvidenceFinding>, String> {
-    if claims_path(root).is_ok_and(|path| {
-        matches!(fs::symlink_metadata(path), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
-    }) {
+    if claims_file_absent(root) {
         return Ok(Vec::new());
     }
     match load(root, contributors) {
@@ -319,10 +317,21 @@ pub fn build_findings(
     }
 }
 
+/// Whether no claims file is stored at all. A build checks this before
+/// loading, because a load reads the library and notebook first and a site
+/// with no claims file must never be stopped by either.
+fn claims_file_absent(root: &Path) -> bool {
+    claims_path(root).is_ok_and(|path| {
+        matches!(fs::symlink_metadata(path), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+    })
+}
+
 /// What a build that publishes claim evidence (ADR 0091) reads from the
 /// claims file: its projection, a warning when none is stored (a CI or
 /// static-host build), or a refusal that names the file and counts its
-/// problems without repeating anything from it.
+/// problems without repeating anything from it. Without a claims file
+/// nothing else is read, so a broken library or notebook never refuses the
+/// build: the notebook is not an input to the projection at all.
 pub fn evidence_for_build(
     root: &Path,
     contributors: &BTreeMap<String, Contributor>,
@@ -333,6 +342,11 @@ pub fn evidence_for_build(
             "the claim evidence cannot be published ({reason}); run `openblog check` and repair it, or set `claimEvidence.publish` to false. Nothing was written."
         ))
     };
+    if claims_file_absent(root) {
+        return ClaimEvidenceSource::Unstored {
+            warning: unstored_evidence_warning(),
+        };
+    }
     match load(root, contributors) {
         Ok(snapshot) if !snapshot.stored => ClaimEvidenceSource::Unstored {
             warning: unstored_evidence_warning(),
@@ -1350,6 +1364,32 @@ mod tests {
         fs::write(file(&root), r#"{"version":1,"claims":[]}"#).unwrap();
         let warning = build_findings(&root, &none(), &sources).unwrap_err();
         assert!(warning.contains(CLAIMS_FILE));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_publishing_build_without_a_claims_file_is_not_refused_by_a_broken_library_or_notebook() {
+        use openblog_core::claim_publication::ClaimEvidenceSource;
+        let root = temp_root("publish-absent");
+        let unstored = |root: &Path| {
+            matches!(
+                evidence_for_build(root, &none()),
+                ClaimEvidenceSource::Unstored { .. }
+            )
+        };
+        let notebook = root.join(notebook_store::NOTEBOOK_FILE);
+        fs::create_dir_all(notebook.parent().unwrap()).unwrap();
+        fs::write(&notebook, "{ not json").unwrap();
+        assert!(unstored(&root), "a broken notebook alone");
+        let library = root.join(source_store::LIBRARY_FILE);
+        fs::write(&library, "{ not json").unwrap();
+        assert!(unstored(&root), "a broken library too");
+        // With a claims file the library is read, and its problem refuses.
+        fs::write(file(&root), r#"{"version":1,"claims":[]}"#).unwrap();
+        assert!(matches!(
+            evidence_for_build(&root, &none()),
+            ClaimEvidenceSource::Unreadable(_)
+        ));
         fs::remove_dir_all(root).unwrap();
     }
 

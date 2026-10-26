@@ -105,10 +105,12 @@ evidence. Existing posts must publish byte for byte as before.
   fully portable with a `markdown-section` fallback.
 - **Only a build that can read the claims file publishes evidence.** The claims file is private
   and Git-ignored. A build without one (CI, a static host) is not refused: it publishes no claims,
-  still publishes the revision notes, and `build` and `check` warn, naming the file. A claims
-  file, library or notebook that cannot be read or validated refuses every full generation
-  before anything is written, naming the file and counting problems without repeating its text;
-  a load that only reads content (an Admin save, a preview) is not stopped by it.
+  still publishes the revision notes, and `build` and `check` warn, naming the file; without a
+  claims file neither the library nor the notebook is read for it, so neither can refuse the
+  build. A stored claims file that cannot be read or validated, or a library or notebook it
+  cannot be checked against, refuses every full generation before anything is written, naming
+  the file and counting problems without repeating its text; a load that only reads content (an
+  Admin save, a preview) is not stopped by it.
 - **Deterministic.** Nothing depends on time, locale or hash order: projection order is file
   order, posts and sources in the artifact are sorted.
 
