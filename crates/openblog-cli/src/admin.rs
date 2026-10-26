@@ -7622,6 +7622,26 @@ fn approval_policy_json(
             json!({ "participantId": participant.id, "displayName": participant.display_name })
         })
         .collect::<Vec<_>>();
+    // People the rule names who can no longer approve (removed, or without the approve grant),
+    // so Admin can show them as chosen and let them be cleared instead of keeping them unseen.
+    let former = match &set.policy().requirement {
+        openblog_core::approval::ApprovalRequirement::NamedAuthors(named) => named
+            .iter()
+            .filter(|id| !approvers.contains(id))
+            .map(|id| {
+                let name = record
+                    .collaboration
+                    .participants
+                    .iter()
+                    .find(|participant| &participant.id == id)
+                    .map_or("Someone no longer in this reflection", |participant| {
+                        participant.display_name.as_str()
+                    });
+                json!({ "participantId": id, "displayName": name })
+            })
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
     json!({
         "policy": rule.policy,
         "revision": rule.revision,
@@ -7631,6 +7651,7 @@ fn approval_policy_json(
         "required": display_names(record, required.iter().map(String::as_str)),
         "missing": display_names(record, missing.iter().map(String::as_str)),
         "approvers": people,
+        "formerApprovers": former,
         "published": matches!(
             inputs.outcome.outcome,
             Some(openblog_core::assembly::Outcome::Published { .. })
@@ -20926,6 +20947,10 @@ series: letters
         assert!(preview_document_text(&f, &mikey, &preview).contains("Grace can no longer approve"));
         let read = body_json(&approval_policy_read(&f, &ada, &id));
         assert_eq!(read["unmetNamed"], json!(["Grace"]));
+        assert_eq!(
+            read["formerApprovers"],
+            json!([{ "participantId": grace_id, "displayName": "Grace" }])
+        );
         // Losing Grace never lowers the bar on a coordinator's say-so: dropping her is refused.
         let unnamed = json!({ "requirement": "contributingAuthors" });
         let before = state_trees(&f);

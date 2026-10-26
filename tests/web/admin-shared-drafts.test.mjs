@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { APPROVAL_REQUIREMENTS, APPROVAL_ROLE_CHOICES, ARRANGEMENT_LAYOUTS, ObAdmin, approvalPolicyChoice, approvalPolicyPayload, approvalRuleFailure, approvalRuleText, REFLECTION_PROMPTS, SYNTHESIS_KINDS, TURN_LABEL_MAX_BYTES, arrangementDraft, arrangementFailure, arrangementPayload, draftFailure, draftStateText, insertAtSelection, moveItem, moveSynthesisItem, nextRoundId, partBreakInsertion, previewItemText, previewSectionText, previewStateText, promptInsertion, revealSlotText, synthesisFailure, synthesisItemText, validateArrangement } from "../../web/admin/admin.js";
+import { APPROVAL_REQUIREMENTS, APPROVAL_ROLE_CHOICES, ARRANGEMENT_LAYOUTS, ObAdmin, approvalPeopleRows, approvalPolicyChoice, approvalPolicyPayload, approvalRuleFailure, approvalRuleText, REFLECTION_PROMPTS, SYNTHESIS_KINDS, TURN_LABEL_MAX_BYTES, arrangementDraft, arrangementFailure, arrangementPayload, draftFailure, draftStateText, insertAtSelection, moveItem, moveSynthesisItem, nextRoundId, partBreakInsertion, previewItemText, previewSectionText, previewStateText, promptInsertion, revealSlotText, synthesisFailure, synthesisItemText, validateArrangement } from "../../web/admin/admin.js";
 
 const admin = readFileSync(new URL("../../web/admin/admin.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../../web/admin/admin.css", import.meta.url), "utf8");
@@ -265,6 +265,8 @@ function fakeApi({ number = 0, markdown = "", reveal = {}, failures = {} } = {})
           return state.rule;
         case "PUT collaboration/approval-policy": {
           if (options.json.expectedRevision !== state.rule.revision) throw new FakeApiError("changed", 409, { error: "The approval rule changed since you loaded it. Reload to see the current rule; nothing was changed." });
+          const named = options.json.policy?.requirement?.namedAuthors || [];
+          if (named.some((who) => !(state.rule.approvers || []).some((person) => person.participantId === who))) throw new FakeApiError("unmeetable", 422, { error: "This rule could never be met: Grace cannot approve this piece. Nothing was changed.", field: "policy" });
           if (!options.json.confirmed) throw new FakeApiError("confirm", 422, { error: "Confirm that changing the rule clears every approval, so every required author approves again. Nothing was changed.", field: "confirmed" });
           state.rule = { ...state.rule, policy: options.json.policy, revision: state.rule.revision + 1, summary: "Changed rule." };
           return { ...state.rule, changed: true, cleared: 2 };
@@ -1094,6 +1096,48 @@ test("approval rule choices round-trip and never send an empty list", () => {
   assert.match(owner.message, /Only a site owner/);
   assert.equal(approvalRuleFailure({ status: 403, data: { error: "Missing or invalid CSRF token" } }).kind, "denied");
 });
+
+test("a named approver who left is listed as chosen and can be cleared", () => {
+  const rows = approvalPeopleRows({ approvers: RULE.approvers, formerApprovers: [{ participantId: "p9", displayName: "Grace" }, { participantId: "p2", displayName: "Bo" }] });
+  assert.deepEqual(rows, [
+    { participantId: "p1", displayName: "Ann", canApprove: true },
+    { participantId: "p2", displayName: "Bo", canApprove: true },
+    { participantId: "p9", displayName: "Grace", canApprove: false },
+  ]);
+  assert.deepEqual(approvalPeopleRows({}), []);
+});
+
+test("replacing a named approver who left saves without them", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  api.state.rule = { ...RULE, policy: { requirement: { namedAuthors: ["p2", "p9"] }, scope: "ownSections" }, unmetNamed: ["Grace"], formerApprovers: [{ participantId: "p9", displayName: "Grace" }], mayDropApprovers: true };
+  const { panel } = await openDraft(api, ["siteOwner"]);
+  const block = panel.querySelector(".oba-approval-rule");
+  const inputs = block.querySelectorAll("input");
+  const grace = inputs.find((input) => input.attributes.id === "oba-draft-0-rule-person-p9");
+  assert.equal(grace.checked, true);
+  assert.ok(block.querySelectorAll("label").some((label) => label.attributes.for === "oba-draft-0-rule-person-p9" && /Grace \(can no longer approve\)/.test(label.textContent)));
+  assert.match(textOf(block), /Clear this to take them off the rule\./);
+  grace.checked = false;
+  await grace.dispatch("change");
+  const ann = inputs.find((input) => input.attributes.id === "oba-draft-0-rule-person-p1");
+  ann.checked = true;
+  await ann.dispatch("change");
+  inputs.find((input) => input.attributes.id === "oba-draft-0-rule-confirm").checked = true;
+  await button(block, "Change approval rule").click();
+  await settle();
+  const put = api.state.calls.filter((call) => call.key === "PUT collaboration/approval-policy").at(-1);
+  assert.deepEqual(put.body.policy, { requirement: { namedAuthors: ["p2", "p1"] }, scope: "ownSections" });
+  assert.match(textOf(block), /The approval rule changed/);
+  assert.equal(alertOf(block).hidden, true);
+}));
+
+test("a coordinator is told that only a site owner can take a departed approver off the rule", withDom(async () => {
+  const api = fakeApi({ number: 1, markdown: "x", reveal: { canSetPolicy: true, slots: SLOTS.slice(0, 1) } });
+  api.state.rule = { ...RULE, policy: { requirement: { namedAuthors: ["p9"] }, scope: "ownSections" }, formerApprovers: [{ participantId: "p9", displayName: "Grace" }], mayDropApprovers: false };
+  const { panel } = await openDraft(api, ["coordinator"]);
+  const block = panel.querySelector(".oba-approval-rule");
+  assert.match(textOf(block), /Grace \(can no longer approve\) Only a site owner can take them off the rule\./);
+}));
 
 test("only someone who may change the rule loads it, and a writer never asks", withDom(async () => {
   const writer = fakeApi({ number: 1, markdown: "x", reveal: { slots: SLOTS.slice(0, 1) } });

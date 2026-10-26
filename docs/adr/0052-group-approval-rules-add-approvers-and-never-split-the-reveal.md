@@ -77,7 +77,9 @@ stored groups.
   section, a coordinator changes the rule (for example to `contributingAuthors`, or names the
   people who must approve), or the maintainer changes their role. A named approver who is removed
   blocks until the rule changes or their access is restored. Both are shown in the preview, the
-  rule block and the gate's refusal, as display names only.
+  rule block and the gate's refusal, as display names only. The rule read lists such named people
+  (`formerApprovers`), and Admin shows each as a chosen row marked "can no longer approve" that
+  can be cleared, so a rule is never saved with someone kept in it unseen.
 - **The reveal stays one group (reconciling the issue with ADR 0018).** A named or role-based
   *reveal* rule would either show prose to a sub-group while the others see nothing, or wait on
   people and then reveal to members who never offered. Both split the one author set. So reveal

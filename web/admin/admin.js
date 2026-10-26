@@ -2119,6 +2119,19 @@ export function approvalPolicyChoice(policy) {
   return choice;
 }
 
+/**
+ * Everyone a named rule can list: people who can approve now, then anyone the current rule names
+ * who no longer can (they left, or lost the approve grant). Those stay chosen, so nothing is kept
+ * unseen, and can be cleared like anyone else.
+ */
+export function approvalPeopleRows(rule) {
+  const rows = (rule?.approvers || []).map((person) => ({ participantId: person.participantId, displayName: person.displayName, canApprove: true }));
+  for (const person of rule?.formerApprovers || []) {
+    if (!rows.some((row) => row.participantId === person.participantId)) rows.push({ participantId: person.participantId, displayName: person.displayName || "Someone no longer in this reflection", canApprove: false });
+  }
+  return rows;
+}
+
 /** The policy the server expects for these choices, or a sentence saying what is missing. */
 export function approvalPolicyPayload(choice) {
   const scope = choice?.scope === "wholePiece" ? "wholePiece" : "ownSections";
@@ -6772,17 +6785,22 @@ export class ObAdmin extends AdminElement {
         }),
       );
       const toggle = (list, value, on) => (on ? [...new Set([...list, value])] : list.filter((entry) => entry !== value));
+      const peopleRows = approvalPeopleRows(rule);
       const people = h(
         "fieldset",
         { class: "oba-fieldset" },
         h("legend", {}, "People who must approve (with “Writers and named people”)"),
-        (rule.approvers || []).length
-          ? rule.approvers.map((person) => {
-              const box = h("input", { type: "checkbox", id: `${prefix}-rule-person-${person.participantId}`, value: person.participantId, checked: choice.named.includes(person.participantId) });
+        peopleRows.length
+          ? peopleRows.map((person) => {
+              const boxId = `${prefix}-rule-person-${person.participantId}`;
+              const helpId = `${boxId}-help`;
+              const box = h("input", { type: "checkbox", id: boxId, value: person.participantId, checked: choice.named.includes(person.participantId), "aria-describedby": person.canApprove ? null : helpId });
               box.addEventListener("change", () => {
                 choice.named = toggle(choice.named, person.participantId, box.checked);
               });
-              return h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: `${prefix}-rule-person-${person.participantId}` }, person.displayName));
+              if (person.canApprove) return h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: boxId }, person.displayName));
+              const help = rule.mayDropApprovers === false ? " Only a site owner can take them off the rule." : " Clear this to take them off the rule.";
+              return h("div", { class: "oba-field oba-check" }, box, " ", h("label", { for: boxId }, `${person.displayName} (can no longer approve)`), h("span", { class: "oba-small", id: helpId }, help));
             })
           : h("p", { class: "oba-small" }, "Nobody can approve yet: only authors with the contributor role can."),
       );
