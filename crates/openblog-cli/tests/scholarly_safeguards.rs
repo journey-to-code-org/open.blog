@@ -130,12 +130,7 @@ fn rows(report: &Value) -> BTreeSet<String> {
 }
 
 fn cli_cases(corpus: &Value) -> Vec<&Value> {
-    corpus["cases"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|case| case["layer"] != "admin")
-        .collect()
+    corpus["cases"].as_array().unwrap().iter().collect()
 }
 
 /// Every file under the project with its bytes, so a command can be shown to

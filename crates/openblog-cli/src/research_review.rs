@@ -134,6 +134,9 @@ pub(crate) struct Published {
     /// were read, or are not needed (the build reads no research).
     pub(crate) ready: bool,
     pub(crate) claims_stored: bool,
+    /// The build reads the claims file and cannot; its finding is already in
+    /// the report, scoped to the file.
+    pub(crate) claims_unreadable: bool,
 }
 
 /// Gather the review of one post. Reads only; nothing is written.
@@ -149,7 +152,7 @@ pub fn gather(root: &Path, config: &SiteConfig, post: &DraftPost<'_>) -> Gathere
     );
     let published = read_published(root, config, &mut gathered, false);
     if published.ready && published.claims_stored {
-        claims(root, config, post, &mut gathered);
+        claims(root, config, post, &published, &mut gathered);
     }
     context(post, config, &published, &mut gathered);
     gathered
@@ -228,6 +231,7 @@ pub(crate) fn read_published(
         alignments: None,
         ready,
         claims_stored,
+        claims_unreadable: false,
     };
     if ready && config.knowledge_atlas.publish {
         match atlas_store::load_for_build(root, contributors) {
@@ -278,6 +282,23 @@ pub(crate) fn read_published(
         }
     }
 
+    if ready && config.claim_evidence.publish && claims_stored {
+        use openblog_core::claim_publication::ClaimEvidenceSource;
+        if let ClaimEvidenceSource::Unreadable(message) =
+            claims_store::evidence_for_build(root, contributors)
+        {
+            published.claims_unreadable = true;
+            match claims_store::load(root, contributors) {
+                Err(claims_store::StoreError::Invalid(diagnostics)) => gathered
+                    .findings
+                    .extend(diagnostics.iter().map(ReviewFinding::from_atlas_diagnostic)),
+                _ => gathered
+                    .findings
+                    .push(ReviewFinding::unreadable(ObjectKind::ClaimsFile, message)),
+            }
+        }
+    }
+
     published.ready = ready;
     published.claims_stored = claims_stored;
     published
@@ -287,23 +308,17 @@ pub(crate) fn read_published(
 /// and `openblog check` review them, and, while the site publishes claim
 /// evidence, the claims file's projection notices about this post's claims
 /// and whatever stops the build from reading the file.
-fn claims(root: &Path, config: &SiteConfig, post: &DraftPost<'_>, gathered: &mut Gathered) {
-    use openblog_core::claim_publication::ClaimEvidenceSource;
+fn claims(
+    root: &Path,
+    config: &SiteConfig,
+    post: &DraftPost<'_>,
+    published: &Published,
+    gathered: &mut Gathered,
+) {
     let contributors = &config.contributors;
-    if config.claim_evidence.publish {
-        if let ClaimEvidenceSource::Unreadable(message) =
-            claims_store::evidence_for_build(root, contributors)
-        {
-            match claims_store::load(root, contributors) {
-                Err(claims_store::StoreError::Invalid(diagnostics)) => gathered
-                    .findings
-                    .extend(diagnostics.iter().map(ReviewFinding::from_atlas_diagnostic)),
-                _ => gathered
-                    .findings
-                    .push(ReviewFinding::unreadable(ObjectKind::ClaimsFile, message)),
-            }
-            return;
-        }
+    if published.claims_unreadable {
+        // The report already says why, scoped to the file.
+        return;
     }
     let snapshot = match claims_store::load(root, contributors) {
         Ok(snapshot) => snapshot,

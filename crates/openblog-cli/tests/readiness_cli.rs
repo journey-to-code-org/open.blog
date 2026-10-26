@@ -48,13 +48,7 @@ fn project(tag: &str, research: bool) -> PathBuf {
         // research has an ordinary article.
         fs::write(
             root.join("content/posts/portable-lesson.md"),
-            "---
-title: A plain post
-date: 2026-10-24
----
-
-Just an article.
-",
+            "---\ntitle: A plain post\ndate: 2026-10-24\n---\n\nJust an article.\n",
         )
         .unwrap();
     }
@@ -415,4 +409,72 @@ fn a_site_report_names_the_claims_of_the_site_not_of_a_post() {
     assert!(!notes.contains("This post's claims"), "{notes}");
     assert!(notes.contains("The claims were not reviewed"), "{notes}");
     fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn an_unreadable_claims_file_is_in_the_site_report_and_refuses_the_build() {
+    let root = project("claims-unreadable", true);
+    let config_path = root.join("openblog.json");
+    let mut config: Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    config["knowledgeAtlas"] = json!({"publish": false});
+    config["claimEvidence"] = json!({"publish": true});
+    fs::write(&config_path, config.to_string()).unwrap();
+    // A folder stands where the claims file would be.
+    fs::create_dir_all(root.join(".openblog/private/research/claims.json")).unwrap();
+    let before = snapshot(&root);
+
+    let json = run(&root, &["check", "--json"]);
+    assert!(!json.status.success(), "the next build would refuse");
+    let view: Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert!(
+        listed_codes(&view)
+            .iter()
+            .any(|code| code == "claims: file-unreadable"),
+        "{view}"
+    );
+    assert!(view["error"].is_string(), "{view}");
+    let terminal = text(&run(&root, &["check"]).stderr);
+    assert!(terminal.contains("file-unreadable"), "{terminal}");
+    assert!(
+        !terminal.contains("nothing to review"),
+        "a failure is never reported as nothing to review: {terminal}"
+    );
+
+    let out = root.join("claims-out");
+    let built = run(&root, &["build", "--out", out.to_str().unwrap()]);
+    assert!(!built.status.success());
+    assert!(text(&built.stderr).contains("file-unreadable"));
+    assert!(!out.exists(), "a refused build writes nothing");
+    assert_eq!(snapshot(&root), before, "nothing was repaired or written");
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn the_error_envelope_has_the_full_empty_report_shape() {
+    let ok = project("shape-ok", false);
+    let ok_view: Value = serde_json::from_slice(&run(&ok, &["check", "--json"]).stdout).unwrap();
+    let root = project("shape-error", false);
+    fs::write(
+        root.join("content/posts/broken.md"),
+        "---
+title: [unclosed
+---
+
+body
+",
+    )
+    .unwrap();
+    let view: Value = serde_json::from_slice(&run(&root, &["check", "--json"]).stdout).unwrap();
+    let keys =
+        |value: &Value| -> Vec<String> { value.as_object().unwrap().keys().cloned().collect() };
+    assert_eq!(keys(&view), keys(&ok_view), "the same fields as any report");
+    for key in ["version", "counts", "scope", "acknowledgements"] {
+        assert!(!view[key].is_null(), "{key}: {view}");
+    }
+    assert!(view["error"].is_string(), "{view}");
+    assert_eq!(view["findings"], json!([]));
+    assert_eq!(view["applies"], false);
+    fs::remove_dir_all(&root).unwrap();
+    fs::remove_dir_all(&ok).unwrap();
 }

@@ -874,7 +874,7 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
     } else {
         // After the checks above, whether or not they stopped early, so the
         // findings behind a refusal are listed too.
-        eprint!("{}", readiness.text());
+        eprint!("{}", readiness.text_after(checked.is_err()));
     }
     checked?;
     refused.map_or(Ok(()), Err)
@@ -884,17 +884,15 @@ fn check_command(root: &std::path::Path, json: bool) -> Result<(), String> {
 /// when the site could not be loaded, and the error, if any. Deterministic,
 /// pretty-printed, with a trailing newline.
 fn check_envelope(readiness: Option<&readiness::Readiness>, error: Option<&String>) -> String {
-    let mut view = readiness.map_or_else(
-        || {
-            serde_json::json!({
-                "applies": false,
-                "findings": [],
-                "groups": [],
-                "notReviewed": [],
-            })
-        },
-        readiness::Readiness::view,
-    );
+    let empty;
+    let readiness = match readiness {
+        Some(readiness) => readiness,
+        None => {
+            empty = readiness::Readiness::empty();
+            &empty
+        }
+    };
+    let mut view = readiness.view();
     view["error"] = error.map_or(serde_json::Value::Null, |error| serde_json::json!(error));
     let mut json = serde_json::to_string_pretty(&view).unwrap_or_default();
     json.push('\n');

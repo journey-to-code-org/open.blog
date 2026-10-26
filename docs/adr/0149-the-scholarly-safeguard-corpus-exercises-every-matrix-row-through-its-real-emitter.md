@@ -26,10 +26,13 @@ entry, scholarly disagreement) fail independently, or that none of it leaks priv
   valid document, and refused change operations) and `import.json` (CSL items). Every work, person,
   passage and claim is invented; nothing is an authoritative dataset or a real excerpt.
 - **Every matrix row, through its real emitter.** Each case names the findings it must produce.
-  Prompt rows run through `openblog check --json` and `openblog build` (Rust, `tests/scholarly_safeguards.rs`
-  in the CLI crate); integrity rows run through the owning parser or change operation (core
-  `tests/scholarly_safeguards.rs`); the one row only a post's own review emits
-  (`claims: file-unreadable`) runs through the Admin route. A core test fails when any matrix row has
+  Every prompt row, including `claims: file-unreadable`, runs through
+  `openblog check --json` and `openblog build` (Rust, `tests/scholarly_safeguards.rs` in the CLI
+  crate); integrity rows run through the owning parser or change operation (core
+  `tests/scholarly_safeguards.rs`). The site report once never loaded the claims file, so an
+  unreadable one refused the build without appearing in the report, and the corpus kept that row in
+  an Admin-only layer; the report now reads it with the other files the build reads, and the row runs
+  like every other. A core test fails when any matrix row has
   no case, or a case names a row the matrix lacks.
 - **Each distinction fails independently and can pass.** Every distinction has a case that emits
   findings and a case that emits none, and a case emits exactly what it names, in either direction.

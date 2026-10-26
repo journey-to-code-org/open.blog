@@ -48,6 +48,20 @@ pub struct Readiness {
 }
 
 impl Readiness {
+    /// The report of a site that could not be loaded: nothing found, nothing
+    /// reviewed, in the same shape as any other.
+    pub fn empty() -> Self {
+        Readiness {
+            applies: false,
+            review: PublicationReview::scoped(
+                CompletenessReport::new(Vec::new(), &[]),
+                ReviewScope::Site,
+            ),
+            not_reviewed: Vec::new(),
+            acknowledgements: Acknowledgements::default(),
+        }
+    }
+
     /// How many findings block the next build: a failure of a private file it
     /// reads, which it refuses. Nothing else blocks.
     pub fn blocking(&self) -> usize {
@@ -78,13 +92,17 @@ impl Readiness {
     /// what was not reviewed. Empty when the report has nothing to say, so a
     /// site without research output reads exactly as before.
     pub fn text(&self) -> String {
+        self.text_after(false)
+    }
+
+    /// [`Readiness::text`] for output that follows other checks: when they
+    /// failed, an empty report is silent rather than saying there is nothing
+    /// to review beside a failure.
+    pub fn text_after(&self, checks_failed: bool) -> String {
         let mut text = self.review.text();
-        if text.is_empty() && self.applies && self.not_reviewed.is_empty() {
+        if text.is_empty() && self.applies && self.not_reviewed.is_empty() && !checks_failed {
             // A research site that raised nothing says so, rather than nothing.
-            text.push_str(
-                "Research checks: nothing to review
-",
-            );
+            text.push_str("Research checks: nothing to review\n");
         }
         for item in &self.not_reviewed {
             text.push_str(&format!("research not reviewed: {}\n", item.message));
@@ -175,11 +193,7 @@ pub fn alongside(root: &Path, site: &Site, error: String) -> String {
     if !report.applies || (report.review.findings.is_empty() && report.not_reviewed.is_empty()) {
         return error;
     }
-    format!(
-        "{error}
-{}",
-        text.trim_end()
-    )
+    format!("{error}\n{}", text.trim_end())
 }
 
 /// Everything the research checks say about the site: each owning validator's
@@ -416,6 +430,23 @@ fn exists(root: &Path, file: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_report_is_silent_beside_a_failed_check() {
+        let mut report = Readiness::empty();
+        assert_eq!(report.text(), "", "a site without research stays silent");
+        report.applies = true;
+        assert_eq!(
+            report.text(),
+            "Research checks: nothing to review
+"
+        );
+        assert_eq!(
+            report.text_after(true),
+            "",
+            "never claims nothing to review beside a failure"
+        );
+    }
 
     #[test]
     fn a_file_is_reported_unread_only_when_it_exists() {

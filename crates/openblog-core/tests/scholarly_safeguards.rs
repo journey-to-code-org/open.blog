@@ -158,11 +158,6 @@ fn operation_refused_with(corpus: &Value, name: &str) -> BTreeSet<String> {
         },
     )
     .unwrap();
-    let links_of = |library: &SourceLibrary, notebook: &Notebook| -> String {
-        let _ = (library, notebook);
-        String::new()
-    };
-    let _ = links_of;
     let before = (library.to_json(), notebook.to_json());
     let rows = |findings: Vec<CompletenessFinding>| -> BTreeSet<String> {
         findings

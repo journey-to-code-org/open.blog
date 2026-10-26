@@ -79,11 +79,7 @@ fn citation_findings(body: &str) -> Vec<EvidenceFinding> {
 }
 
 const CITED: &str = "\
-A [@burnet, canonical 514a] place.
-Bad [@Not A Key] syntax.
-Unknown [@nobody] and [@nobody-else] keys.
-A bare article [@bare].
-";
+A [@burnet, canonical 514a] place.\nBad [@Not A Key] syntax.\nUnknown [@nobody] and [@nobody-else] keys.\nA bare article [@bare].\n";
 
 const DRAFT: &str = "The cave and the line.";
 
@@ -294,10 +290,7 @@ fn everything() -> Vec<CompletenessFinding> {
     findings.extend(
         review_post(
             "posts/q.md",
-            "> Quoted.
-> [@grube, chapter 7]
-And [@burnet, page 4].
-",
+            "> Quoted.\n> [@grube, chapter 7]\nAnd [@burnet, page 4].\n",
             1,
             || Ok(Some(&library)),
         )
@@ -943,15 +936,8 @@ fn acknowledgements_go_stale_when_the_source_changes_and_drop_when_resolved() {
 
     // Two advisory findings under one key: an acknowledgement of one leaves
     // the other unacknowledged rather than stale.
-    let doc = frontmatter::parse(
-        "---
-title: T
-profile: research
----
-A[^1] and B[^2].
-",
-    )
-    .expect("front matter");
+    let doc = frontmatter::parse("---\ntitle: T\nprofile: research\n---\nA[^1] and B[^2].\n")
+        .expect("front matter");
     let footnotes: Vec<CompletenessFinding> =
         audit_document("posts/r.md", &doc.front_matter, &doc.body, doc.body_line)
             .iter()
@@ -985,17 +971,9 @@ fn moving_a_finding_keeps_its_acknowledgement_and_changing_what_it_states_does_n
     // The location prompt names lines; inserting a paragraph above the
     // located citation moves them, but the cited keys and locators are the
     // same, so the acknowledgement stays current.
-    let before = location_review(
-        "A [@burnet, canonical 514a] place.
-",
-    );
+    let before = location_review("A [@burnet, canonical 514a] place.\n");
     let ack = Acknowledgement::of(&before).expect("advisory");
-    let moved = location_review(
-        "A new paragraph.
-
-A [@burnet, canonical 514a] place.
-",
-    );
+    let moved = location_review("A new paragraph.\n\nA [@burnet, canonical 514a] place.\n");
     assert_ne!(
         moved.message, before.message,
         "the message names the new line"
@@ -1009,12 +987,7 @@ A [@burnet, canonical 514a] place.
 
     // A real change to the cited locators is a change to what the prompt is
     // about: the acknowledgement goes stale.
-    let relocated = location_review(
-        "A new paragraph.
-
-A [@burnet, canonical 515b] place.
-",
-    );
+    let relocated = location_review("A new paragraph.\n\nA [@burnet, canonical 515b] place.\n");
     let report = CompletenessReport::new([relocated], std::slice::from_ref(&ack));
     assert_eq!(
         report.findings[0].acknowledgement,
@@ -1055,15 +1028,8 @@ fn an_acknowledgement_of_a_post_finding_applies_to_that_post_only() {
     // Two posts with the same post-scoped finding and no id: acknowledging
     // one leaves the other unacknowledged, never acknowledged or stale.
     let audit = |path: &str| {
-        let doc = frontmatter::parse(
-            "---
-title: T
-profile: research
----
-Body.
-",
-        )
-        .expect("front matter");
+        let doc = frontmatter::parse("---\ntitle: T\nprofile: research\n---\nBody.\n")
+            .expect("front matter");
         audit_document(path, &doc.front_matter, &doc.body, doc.body_line)
             .iter()
             .map(CompletenessFinding::from_evidence)

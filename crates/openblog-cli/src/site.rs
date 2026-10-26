@@ -921,8 +921,7 @@ pub fn build(root: &Path, options: &BuildOptions) -> Result<BuildReport, String>
     };
     if readiness.blocking() > 0 {
         return Err(format!(
-            "research readiness: {} finding(s) refuse this build. Nothing was written.
-{}",
+            "research readiness: {} finding(s) refuse this build. Nothing was written.\n{}",
             readiness.blocking(),
             readiness.text().trim_end()
         ));

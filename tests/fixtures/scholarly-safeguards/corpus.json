@@ -2975,11 +2975,10 @@
     },
     {
       "id": "unreadable-claims",
-      "layer": "admin",
       "distinction": [
         "claim"
       ],
-      "summary": "A claims file that cannot be read is named once in a post's own review.",
+      "summary": "A claims file that cannot be read is named once, and stops the next build.",
       "dirs": [
         ".openblog/private/research/claims.json"
       ],
@@ -2990,9 +2989,6 @@
       },
       "files": {
         "content/posts/lanterns.md": "---\ntitle: Lanterns\ndate: 2026-10-01\nprofile: research\ncitations: notes\n---\n\n## Abstract\n\nA note on lanterns [@lanterns-first].\n\n## References\n"
-      },
-      "review": {
-        "path": "posts/lanterns.md"
       },
       "emits": [
         "claims: file-unreadable"
