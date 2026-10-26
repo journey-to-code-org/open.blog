@@ -76,12 +76,14 @@ pub fn rss(site: &Site) -> Result<String, String> {
                 escape::xml(&tag.name)
             ));
         }
-        // A part of a collaborative series names its series as a category whose domain is the
-        // canonical series page (ADR 0041); its place and authors are in the portable content.
+        // A part of a collaborative series names its series as a category in the site's series
+        // taxonomy, whose domain is the series index (ADR 0041). RSS 2.0's `domain` identifies the
+        // taxonomy and is not a link, so the series page itself, the part's place and its authors
+        // are only in the full content.
         if let Some(series) = projection.series() {
             out.push_str(&format!(
                 "<category domain=\"{}\">{}</category>\n",
-                escape::xml(&projection.resolve_link(&series.url)?),
+                escape::xml(&projection.resolve_link("/series/")?),
                 escape::xml(&series.name)
             ));
         }

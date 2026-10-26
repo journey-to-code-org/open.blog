@@ -505,9 +505,7 @@ fn a_shared_reflections_feeds_and_copies_carry_its_series_but_no_collaboration_s
     }
     // The series, the shared part's place and its authors travel with every copy.
     let rss = &public[0];
-    assert!(
-        rss.contains("<category domain=\"https://example.test/series/notes/\">Notes</category>")
-    );
+    assert!(rss.contains("<category domain=\"https://example.test/series/\">Notes</category>"));
     assert!(public[3].contains(
         "Part 2 in the series <a href=\"https://example.test/series/notes/\">Notes</a>. This part is by Ann and Bo. Series contributors: Site Owner, Ann, and Bo."
     ));

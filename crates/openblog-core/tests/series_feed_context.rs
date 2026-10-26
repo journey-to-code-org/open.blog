@@ -13,6 +13,8 @@ use openblog_core::{
 const AUTHOR: &str = r#"{"vocabulary":"crossref","role":"author"}"#;
 const EDITOR: &str = r#"{"vocabulary":"crossref","role":"editor"}"#;
 const SERIES_URL: &str = "https://example.test/series/letters/";
+/// The series index: the taxonomy an RSS series category belongs to.
+const SERIES_INDEX: &str = "https://example.test/series/";
 
 fn config() -> SiteConfig {
     let mut config = SiteConfig::from_json(
@@ -289,8 +291,8 @@ fn feed_items_name_their_series_place_link_and_authors() {
     let files = render::generate(&site, &ThemeSet::new()).unwrap();
     let xml = output(&files, "rss.xml");
 
-    // A collaborative part: its authors, its series as a category linked to the series page, and
-    // the sentence in its full content.
+    // A collaborative part: its authors, its series as a category in the series taxonomy, and the
+    // sentence, with the series link, in its full content.
     let l2 = rss_item(xml, "l2");
     for creator in ["Ann", "Bo", "Cy"] {
         assert!(
@@ -301,7 +303,7 @@ fn feed_items_name_their_series_place_link_and_authors() {
     assert!(!l2.contains("<dc:creator>Dee</dc:creator>"), "{l2}");
     assert!(
         l2.contains(&format!(
-            "<category domain=\"{SERIES_URL}\">Letters</category>"
+            "<category domain=\"{SERIES_INDEX}\">Letters</category>"
         )),
         "{l2}"
     );
@@ -314,7 +316,7 @@ fn feed_items_name_their_series_place_link_and_authors() {
     let l1 = rss_item(xml, "l1");
     assert!(l1.contains("<dc:creator>Site Owner</dc:creator>"), "{l1}");
     assert!(l1.contains(&format!(
-        "<category domain=\"{SERIES_URL}\">Letters</category>"
+        "<category domain=\"{SERIES_INDEX}\">Letters</category>"
     )));
     assert!(
         l1.contains(&format!("<p class=\"ob-series-context\">{CONTEXT_L1}</p>")),
@@ -354,14 +356,16 @@ fn feed_items_name_their_series_place_link_and_authors() {
         "{llms}"
     );
 
-    // A summary-only feed item is still intelligible on its own: series, link, place, authors.
+    // A summary-only RSS item still names its series, but RSS has nowhere else to put the series
+    // link, place or authors: they are only in the full content (and in JSON Feed's extension).
     let mut summary = load(sources(true));
     summary.config.feeds.full_content = false;
     let xml = feeds::rss(&summary).unwrap();
     let l2 = rss_item(&xml, "l2");
     assert!(!l2.contains("<content:encoded>"));
+    assert!(!l2.contains(SERIES_URL), "{l2}");
     assert!(l2.contains(&format!(
-        "<category domain=\"{SERIES_URL}\">Letters</category>"
+        "<category domain=\"{SERIES_INDEX}\">Letters</category>"
     )));
     let feed: serde_json::Value =
         serde_json::from_str(&feeds::json_feed(&summary).unwrap()).unwrap();
@@ -568,7 +572,7 @@ fn hostile_series_and_contributor_names_stay_text_and_the_build_succeeds() {
     let xml = output(&files, "rss.xml");
     let l2 = rss_item(xml, "l2");
     assert!(l2.contains(&format!(
-        "<category domain=\"{SERIES_URL}\">&lt;b&gt;Letters&lt;/b&gt; [x](javascript:alert(1)) &amp; co</category>"
+        "<category domain=\"{SERIES_INDEX}\">&lt;b&gt;Letters&lt;/b&gt; [x](javascript:alert(1)) &amp; co</category>"
     )), "{l2}");
 
     let projection = PortableProjection::for_site(&site, post_of(&site, "l2")).unwrap();

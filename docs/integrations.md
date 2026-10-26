@@ -64,8 +64,10 @@ exporting the body. IDs, dates, ordering, credits and cover URLs retain the same
 A part of a collaborative series (one that holds a post credited to two or more authors) also
 states its series: the full content says "Part 2 in the series Letters" with a link to the
 series page, the part's authors and the series' contributors (never the number of parts, so a
-copy you syndicated does not change each time the series grows); RSS adds a `category` whose `domain`
-is the series page; and JSON Feed adds an `_open_blog.series` object with `title`, `url`, `part`,
+copy you syndicated does not change each time the series grows); RSS adds a `category` with the
+series name whose `domain` is the series index (`/series/`), which identifies the taxonomy and does
+not link the series, so a summary-only RSS item names its series but has no series link, place or
+authors; and JSON Feed adds an `_open_blog.series` object with `title`, `url`, `part`,
 `parts`, `authors` and `contributors`. Every other item is unchanged.
 
 ## Cross-posting

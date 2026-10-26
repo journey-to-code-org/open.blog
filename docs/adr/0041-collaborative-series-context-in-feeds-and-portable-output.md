@@ -40,8 +40,11 @@ series context at all, so adding it everywhere would change every existing feed 
     This part is by Ann, Bo, and Cy. Series contributors: Site Owner, Ann, Bo, Cy, and Dee.</p>`;
   - portable Markdown: the same sentence under `## Series`, after `## Contributions`, with the
     series page as its only link; portable text (JSON Feed `content_text`) follows from it;
-  - RSS: a `<category domain="…/series/letters/">Letters</category>`, so a summary-only item still
-    names and links its series, besides the full content;
+  - RSS: a `<category domain="…/series/">Letters</category>` besides the full content: the series
+    name in the site's series taxonomy, identified by the series index. RSS 2.0's `domain` names a
+    taxonomy and is not a link, so the category does not link the series page. A summary-only RSS
+    item (`feeds.fullContent: false`) therefore names its series but carries no series link, place
+    or authors; those are only in the full content and in JSON Feed;
   - JSON Feed: an `_open_blog.series` extension object with `title`, `url`, `part`, `parts`,
     `authors` and `contributors`, which readers that do not know it ignore;
   - llms-full.txt: `- Series:`, `- Part authors:` and `- Series contributors:` lines among the
@@ -54,7 +57,7 @@ series context at all, so adding it everywhere would change every existing feed 
   part reads the same way. A clause with no named author is left out, never shown empty.
 - **Names stay text.** Series and contributor names are escaped for each format (HTML text, XML,
   Markdown text with `<` and `&` escaped, JSON strings) and never linked; the canonical series page
-  is the only link. The site's base URL resolves it, so it is always an absolute HTTP(S) URL.
+  is the only link (the RSS category's domain is the series index, an identifier). The site's base URL resolves it, so it is always an absolute HTTP(S) URL.
 - **Fail closed.** The series link (with its label), the position, each part author and each
   series contributor are semantic facts of the projection, so a portable HTML, Markdown or text
   artifact that loses or changes any of them fails `ensure_semantics` and the build stops with
