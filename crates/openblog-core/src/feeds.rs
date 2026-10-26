@@ -421,6 +421,16 @@ pub fn llms_full(site: &Site) -> Result<String, String> {
                 out.push_str(&format!("- Source ({}): {name}\n", source.kind.label()));
             }
         }
+        // Readers' Third Perspectives stay on the canonical page: only a link to them, never
+        // their words (ADR 0115, P6.2).
+        if post.capabilities.iter().any(|capability| {
+            capability.id == crate::perspective_publication::THIRD_PERSPECTIVES_CAPABILITY
+        }) {
+            out.push_str(&format!(
+                "- Third Perspectives: on the canonical page, <{}>\n",
+                projection.canonical_url()
+            ));
+        }
         // A shared reflection keeps each round prompt and each author's name and label with the
         // words they belong to; the page's search text is the words alone (ADR 0033).
         let body = match projection.reflection_text()? {

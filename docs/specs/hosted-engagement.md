@@ -91,6 +91,21 @@ purging overwrites text and keeps state and audit events without it. The rules t
 applies (`retentionStep`, `planErasure`, `planUphold`) are checked against
 `tests/fixtures/participation-protection.json`, which the Rust policy generates.
 
+## Third Perspectives
+
+A reader's own reflection on a work (ADRs 0109 to 0115) goes through the same `POST /feedback`
+route, read by its own contract (`web/components/third-perspective.js`, held to the build by
+`tests/fixtures/third-perspective-submissions.json`), into one `openblog_feedback` row of kind
+`third-perspective`. It is opt in behind `supabase/feedback.sql` run again and
+`OPENBLOG_THIRD_PERSPECTIVES_ENABLED`, on top of protection, because every hosted copy has a
+receipt. The row keeps the prompt category, the receipt's digest and the reader's numbered consent
+records in `details`; an approval is taken by `openblog_moderate_third_perspective` and records the
+consent record it covers in `approved_consent`, so a later consent change makes it stale.
+Admin publishes an approved one to `content/third-perspectives.json`, from which builds render
+it; nothing reads the hosted rows to show a page. A receipt's `published` flag for this kind is
+true only while the row is approved at its current revision under an approved consent record that
+agreed to publication while the consent in effect still does (ADR 0115).
+
 ## Testing decisions
 
 - Exercise the Netlify handler through HTTP-shaped events with a fake Supabase fetch seam.

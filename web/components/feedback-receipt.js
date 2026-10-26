@@ -22,10 +22,47 @@ const CLARIFY_REASONS = Object.freeze({
   other: "of something else in it",
 });
 
+const PERSPECTIVE = "third-perspective";
+
+/** What the reader sent, in words: a Third Perspective is their reflection, anything else a note. */
+export function receiptNoun(item) {
+  return item?.kind === PERSPECTIVE ? "reflection" : "note";
+}
+
+/**
+ * A Third Perspective's state, in words (ADR 0115): waiting, asked to clarify, approved and shown
+ * as a reader's reflection, not published, or withdrawn. Pending never reads as published, and
+ * nothing says who decided or why beyond a clarification request's reason.
+ */
+function perspectiveStateText(item, purged) {
+  switch (item.status) {
+    case "pending":
+      return "Waiting for a moderator’s review. It is not published: nothing is shown unless a moderator approves it, and then only as you agreed.";
+    case "clarification": {
+      const why = CLARIFY_REASONS[item.clarification?.reason];
+      return `A moderator asked you to clarify this reflection${why ? ` because ${why}` : ""}. It is not published. Your answer replaces it and goes back for review; what you first wrote is never published.`;
+    }
+    case "approved":
+      if (item.published === null) return "Approved. This page cannot tell whether it is shown on the work’s page now; the author can.";
+      return item.published
+        ? "Approved; it appears on the work’s page as a reader’s reflection, as you agreed, once the site is updated."
+        : "Approved, but not shown: it is published only while your consent allows it and the site takes reflections.";
+    case "rejected":
+      return `Not published: it will not be shown on the work’s page.${purged}`;
+    case "removed":
+      return `Not published any more: it was taken off the work’s page.${purged}`;
+    case "withdrawn":
+      return `You withdrew it, so it is not published.${purged}`;
+    default:
+      return "Its state is not one this page knows.";
+  }
+}
+
 /** What a reader is told about their note's state, in words. */
 export function receiptStateText(item) {
   if (!item || typeof item !== "object") return "";
   const purged = item.purged ? " Its text and your name were deleted; only a private record that it existed and what was decided remains." : "";
+  if (item.kind === PERSPECTIVE) return perspectiveStateText(item, purged);
   switch (item.status) {
     case "pending":
       return "Waiting for the author’s review. Nothing is published unless they approve it.";
@@ -93,16 +130,17 @@ const labelled = (control, id, text) => {
 
 /**
  * The panel a reader sees after sending a note: their receipt, ready to copy, what it is for, and
- * whether the author may ask them to clarify the note through it.
+ * whether the author may ask them to clarify the note through it. `consent` is what the reader
+ * already chose when sending (a Third Perspective asks first), and `noun` names what they sent.
  */
-export function receiptPanel({ endpoint, receipt }) {
+export function receiptPanel({ endpoint, receipt, consent: initialConsent = false, noun = "note" }) {
   counter += 1;
   const prefix = `ob-receipt-${counter}`;
   const panel = make("section", "ob-receipt");
   const title = make("h3", undefined, "Your private receipt");
   title.id = `${prefix}-title`;
   panel.setAttribute("aria-labelledby", title.id);
-  const explain = make("p", undefined, "Keep this receipt to check on your note, answer the author if they ask you to clarify it, or withdraw it and have it deleted. It is shown only once and is the only way to reach your note: nothing is e-mailed to you and nothing is saved in this browser.");
+  const explain = make("p", undefined, `Keep this receipt to check on your ${noun}, answer the author if they ask you to clarify it, or withdraw it and have it deleted. It is shown only once and is the only way to reach your ${noun}: nothing is e-mailed to you and nothing is saved in this browser.`);
   explain.id = `${prefix}-explain`;
   const field = make("input");
   field.type = "text";
@@ -116,8 +154,9 @@ export function receiptPanel({ endpoint, receipt }) {
   status.setAttribute("role", "status");
   const consent = make("input");
   consent.type = "checkbox";
+  consent.checked = initialConsent === true;
   const row = make("p", "ob-receipt-consent");
-  row.append(consent, " ", labelled(consent, `${prefix}-consent`, "The author may ask me to clarify this note through this receipt"));
+  row.append(consent, " ", labelled(consent, `${prefix}-consent`, `The author may ask me to clarify this ${noun} through this receipt`));
   panel.append(title, explain, labelled(field, `${prefix}-field`, "Receipt"), field, copy, row, status);
   let version = 1;
   copy.addEventListener("click", async () => {
@@ -141,11 +180,11 @@ export function receiptPanel({ endpoint, receipt }) {
     if (code === 200 && data.item) {
       version = data.item.version;
       consent.checked = data.item.consent === true;
-      status.textContent = consent.checked ? "Saved: the author may ask you to clarify this note." : "Saved: the author will not ask you to clarify this note.";
+      status.textContent = consent.checked ? `Saved: the author may ask you to clarify this ${noun}.` : `Saved: the author will not ask you to clarify this ${noun}.`;
     } else {
       consent.checked = data.item ? data.item.consent === true : !wanted;
       if (data.item?.version) version = data.item.version;
-      status.textContent = code === 409 ? "Your note changed since you sent it, so this was not saved. Try again." : receiptProblem(code, data.code);
+      status.textContent = code === 409 ? `Your ${noun} changed since you sent it, so this was not saved. Try again.` : receiptProblem(code, data.code);
     }
   });
   return panel;
@@ -155,21 +194,21 @@ export function receiptPanel({ endpoint, receipt }) {
  * A disclosure where a reader enters a receipt to check on a note they sent, answer a
  * clarification request, or withdraw the note and have it deleted.
  */
-export function receiptManager({ endpoint }) {
+export function receiptManager({ endpoint, noun: managed = "note" }) {
   counter += 1;
   const prefix = `ob-receipt-manage-${counter}`;
   const details = make("details", "ob-receipt-manage");
-  details.append(make("summary", undefined, "Check, clarify or withdraw a note you sent"));
+  details.append(make("summary", undefined, `Check, clarify or withdraw a ${managed} you sent`));
   const form = make("form");
   form.noValidate = true;
   const input = make("input");
   input.type = "text";
   input.autocomplete = "off";
   input.spellcheck = false;
-  const hint = make("p", "ob-receipt-hint", "Paste the receipt you were given when you sent the note.");
+  const hint = make("p", "ob-receipt-hint", `Paste the receipt you were given when you sent the ${managed}.`);
   hint.id = `${prefix}-hint`;
   input.setAttribute("aria-describedby", hint.id);
-  const look = make("button", undefined, "Look up my note");
+  const look = make("button", undefined, `Look up my ${managed}`);
   look.type = "submit";
   form.append(labelled(input, `${prefix}-receipt`, "Your receipt"), hint, input, look);
   const status = make("p", "ob-receipt-status");
@@ -182,7 +221,9 @@ export function receiptManager({ endpoint }) {
   const show = (item, message) => {
     result.replaceChildren();
     if (!item) return;
-    const heading = make("h3", undefined, "Your note");
+    const noun = receiptNoun(item);
+    const where = item.kind === PERSPECTIVE ? "the work’s page" : "the post";
+    const heading = make("h3", undefined, `Your ${noun}`);
     heading.id = `${prefix}-note-title`;
     heading.tabIndex = -1;
     const state = make("p", "ob-receipt-state", receiptStateText(item));
@@ -194,14 +235,14 @@ export function receiptManager({ endpoint }) {
       const answer = make("textarea");
       answer.rows = 5;
       answer.value = item.body || "";
-      const answerHint = make("p", "ob-receipt-hint", "Your answer replaces the note and goes back to the author for review.");
+      const answerHint = make("p", "ob-receipt-hint", `Your answer replaces the ${noun} and goes back to ${noun === "note" ? "the author" : "a moderator"} for review.`);
       answerHint.id = `${prefix}-answer-hint`;
       answer.setAttribute("aria-describedby", answerHint.id);
-      const send = make("button", undefined, "Send my clarified note");
+      const send = make("button", undefined, `Send my clarified ${noun}`);
       send.type = "button";
       send.addEventListener("click", async () => {
         if (!answer.value.trim()) {
-          status.textContent = "Write your clarified note first.";
+          status.textContent = `Write your clarified ${noun} first.`;
           answer.focus();
           return;
         }
@@ -209,25 +250,25 @@ export function receiptManager({ endpoint }) {
         status.textContent = "Sending…";
         const { status: code, data } = await call(endpoint, { receipt, action: "clarify", expectedVersion: item.version, body: answer.value, ...(item.details && Object.keys(item.details).length ? { details: item.details } : {}) });
         send.disabled = false;
-        if (code === 200 && data.item) show(data.item, "Thank you. Your clarified note was sent for review.");
+        if (code === 200 && data.item) show(data.item, `Thank you. Your clarified ${noun} was sent for review.`);
         else if (code === 409 && data.item) show(data.item, receiptProblem(code, data.code));
         else {
           status.textContent = code === 422 && data.error ? `Your note could not be sent: ${data.error}.` : receiptProblem(code, data.code);
           answer.focus();
         }
       });
-      result.append(labelled(answer, `${prefix}-answer`, "Your clarified note"), answerHint, answer, send);
+      result.append(labelled(answer, `${prefix}-answer`, `Your clarified ${noun}`), answerHint, answer, send);
     }
     if (!item.purged) {
       const confirm = make("input");
       confirm.type = "checkbox";
-      const withdraw = make("button", undefined, "Withdraw and delete my note");
+      const withdraw = make("button", undefined, `Withdraw and delete my ${noun}`);
       withdraw.type = "button";
       const confirmRow = make("p", "ob-receipt-confirm");
-      confirmRow.append(confirm, " ", labelled(confirm, `${prefix}-confirm`, item.status === "approved" ? "I want this note taken off the post and its text and my name deleted. This cannot be undone." : "I want this note’s text and my name deleted. This cannot be undone."));
+      confirmRow.append(confirm, " ", labelled(confirm, `${prefix}-confirm`, item.status === "approved" ? `I want this ${noun} taken off ${where} and the hosted copy of its text and my name deleted. I understand that copies already published (the site’s history, feeds and the repository’s history) may remain. This cannot be undone.` : `I want this ${noun}’s text and my name deleted. This cannot be undone.`));
       withdraw.addEventListener("click", async () => {
         if (!confirm.checked) {
-          status.textContent = "Confirm that you want the note deleted first.";
+          status.textContent = `Confirm that you want the ${noun} deleted first.`;
           confirm.focus();
           return;
         }
@@ -235,7 +276,7 @@ export function receiptManager({ endpoint }) {
         status.textContent = "Withdrawing…";
         const { status: code, data } = await call(endpoint, { receipt, action: "withdraw", expectedVersion: item.version });
         withdraw.disabled = false;
-        if (code === 200 && data.item) show(data.item, item.status === "approved" ? "Your note was withdrawn and its text and your name deleted. The author has been shown that it must come off the post." : "Your note was withdrawn and its text and your name deleted.");
+        if (code === 200 && data.item) show(data.item, item.status === "approved" ? `Your ${noun} was withdrawn and the hosted copy of its text and your name deleted. The author has been shown that it must come off ${where}. Copies already published (the site’s history, feeds and the repository’s history) may remain.` : `Your ${noun} was withdrawn and its text and your name deleted.`);
         else if (code === 409 && data.item) show(data.item, receiptProblem(code, data.code));
         else {
           // Disabling the button while sending took focus from it: the reader is taken to why.
@@ -261,7 +302,7 @@ export function receiptManager({ endpoint }) {
     }
     receipt = value;
     look.setAttribute("aria-disabled", "true");
-    status.textContent = "Looking up your note…";
+    status.textContent = `Looking up your ${managed}…`;
     const { status: code, data } = await call(endpoint, { receipt, action: "read" });
     look.removeAttribute("aria-disabled");
     if (code === 200 && data.item) show(data.item, "");

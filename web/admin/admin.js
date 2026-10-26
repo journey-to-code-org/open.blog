@@ -299,11 +299,12 @@ export const MODERATION_KINDS = [
   ["source-suggestion", "Suggested sources"],
   ["correction-suggestion", "Suggested corrections"],
   ["alternative-interpretation", "Other interpretations"],
+  ["third-perspective", "Third Perspectives"],
   ["abuse-report", "Abuse reports"],
 ];
 const MODERATION_STATE_NOTES = {
   clarification: "These wait for the reader’s answer through their private receipt. The text asked about can never be approved; you can still reject it.",
-  withdrawn: "Readers took these back through their private receipts, and their text was deleted at once. They are never published and cannot be changed.",
+  withdrawn: "Readers took these back through their private receipts, and the hosted copy of their text was deleted at once. They cannot be changed. A withdrawn reflection that was already published stays on its post until you take it off: the notice above counts them, and each has its own button.",
 };
 
 /** The inbox's address for one state and kind filter. */
@@ -337,7 +338,36 @@ export function moderationRequest(item, action, reason, acknowledged) {
   const request = { source: item.source, id: item.id, action, from: item.status, version: item.version };
   if (reason) request.reason = reason;
   if (action === "approve" && item.passage?.acknowledge && acknowledged) request.acknowledge = item.passage.check;
+  // A Third Perspective's approval binds the text revision and consent record shown (ADR 0111).
+  if (action === "approve" && item.perspective) {
+    request.seenRevision = item.revision;
+    request.seenConsent = item.perspective.consent.number;
+  }
   return request;
+}
+
+/**
+ * What a moderator reads about a Third Perspective beside its text: what it is about, the prompt
+ * the reader chose, the consent in effect (the record an approval binds), and a warning when the
+ * reader's name is one the work credits, which is never shown with it.
+ */
+export function perspectiveLines(item) {
+  const perspective = item?.perspective;
+  if (!perspective) return [];
+  const lines = [];
+  const about = perspective.about === "work" ? "the whole work" : perspective.section ? `the section #${perspective.section}` : "the opening, before the first heading";
+  const check = perspective.check === "stale" ? " That section has changed since the reader read it." : perspective.check === "unknown-work" ? " No post has this address now." : "";
+  lines.push(`About ${about}.${check}`);
+  if (item.details?.categoryLabel) lines.push(`Prompt: ${item.details.categoryLabel} (“${item.details.prompt}”).`);
+  else lines.push("No prompt chosen.");
+  const consent = perspective.consent;
+  const name = consent.showName ? "with their name, if you approve it" : "without their name";
+  const clarify = consent.clarification ? "may be asked to clarify it" : "did not agree to be asked to clarify it";
+  lines.push(consent.publish
+    ? `Consent record ${consent.number}: the reader agrees to publish it ${name}, and ${clarify}. Approving binds this record; if the reader changes it first, you are asked to review again.`
+    : `Consent record ${consent.number}: the reader no longer agrees to publish it.`);
+  if (perspective.nameMatchesCredit) lines.push("The reader’s name matches a name this work credits. It is never shown with the reflection, which always appears as a reader’s.");
+  return lines;
 }
 
 /** What the signed-in account can do with an item, from the role the server resolved. */
@@ -351,13 +381,14 @@ export function moderationRoleLine(role) {
  * Who sent an item, for moderators only. A comment's name is always shown with it; a reader of
  * feedback chose whether to show theirs, and a private name reaches only the site Admin.
  */
-export function moderationReaderLine(reader, source = "feedback") {
+export function moderationReaderLine(reader, source = "feedback", kind = "") {
   if (source === "report") return "Reports are anonymous: nothing about the reader who sent it is kept.";
   if (source === "comment") return reader?.name ? `From ${reader.name}, shown with the comment.` : "From an unnamed commenter.";
   if (reader?.private) return "The reader gave a name that only the site Admin can see.";
   if (!reader?.name) return "From an anonymous reader.";
+  const what = kind === "third-perspective" ? "reflection" : "note";
   return reader.publishName
-    ? `From ${reader.name}, who agreed to show this name if you publish the note.`
+    ? `From ${reader.name}, who agreed to show this name if you publish the ${what}.`
     : `From ${reader.name}. The name stays private: the reader did not agree to show it.`;
 }
 
@@ -366,6 +397,10 @@ export function moderationOutcome(item, action, result) {
   const where = item.post ? `“${item.post.title}”` : item.work;
   if (action === "approve") {
     if (item.source === "comment") return `Approved. The comment is shown on ${where}.`;
+    if (item.perspective) {
+      const approved = `Approved this text under the reader’s consent record ${item.perspective.consent.number}, as a reader’s reflection on ${where}. Nothing was e-mailed.`;
+      return result.published ? `${approved} It is published on the post; rebuild or publish to update the live site.` : `${approved} ${result.publishError || ""}`.trim();
+    }
     return result.published ? `Approved and published on ${where}. Rebuild or publish to update the live site.` : `Approved. ${result.publishError || ""}`.trim();
   }
   if (action === "reject") return "Rejected. Nothing was published.";
@@ -392,11 +427,46 @@ export function moderationOutcome(item, action, result) {
  * unknown.
  */
 export function feedbackPublicationMismatch(item) {
+  if (item.kind === "third-perspective") return perspectivePublicationMismatch(item);
   if (item.status === "approved" && item.published === false) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
   if (item.status === "removed" && item.published === true) return { notice: "Removed, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "rejected" && item.published === true) return { notice: "Rejected, but still on the post.", action: "unpublish", label: "Take it off the post" };
   if (item.status === "withdrawn" && item.published === true) return { notice: "The reader withdrew this note and asked for it to be deleted, but it is still on the post. Take it off now.", action: "unpublish", label: "Take it off the post" };
   return null;
+}
+
+/**
+ * The same for a Third Perspective (ADR 0115): an approved reflection the projection shows that
+ * is not on its post yet, or a published one it no longer shows, most often because the reader
+ * withdrew it through their receipt. `mayBeShown` is whether the hosted copy may be public now.
+ */
+export function perspectivePublicationMismatch(item) {
+  if (item.published === false && item.mayBeShown === true) return { notice: "Approved, but not on the site yet.", action: "publish", label: "Publish on the post" };
+  if (item.published === true && item.mayBeShown === null) return { notice: "It is on the post, but this page cannot tell whether it may stay: the hosted copy cannot say (Third Perspectives are switched off or rolled back). Check it, and take it off if it should not be shown.", action: "unpublish", label: "Take it off the post" };
+  if (item.published !== true || item.mayBeShown !== false) return null;
+  const notice = {
+    withdrawn: "The reader withdrew this reflection through their receipt, and its text and name were deleted, but it is still on the post. Take it off now.",
+    removed: "Removed, but still on the post.",
+    rejected: "Rejected, but still on the post.",
+  }[item.status] || "The reader’s consent or this reflection’s state no longer allows it on the post, but it is still there. Take it off now.";
+  return { notice, action: "unpublish", label: "Take it off the post" };
+}
+
+/**
+ * What the audit of the published Third Perspectives (`engagement/third-perspectives/published`)
+ * says, in words, for the banner shown on every tab (ADR 0115): how many must come off their posts
+ * now, and how many cannot be told because the hosted function does not read their consent.
+ */
+export function perspectiveAuditNotices(audit) {
+  const count = (list) => (Array.isArray(list) ? list.length : 0);
+  const many = (n) => `${n} published reflection${n === 1 ? "" : "s"}`;
+  const notices = [];
+  const off = count(audit?.mustComeOff);
+  const unknown = count(audit?.unknown);
+  if (off) notices.push({ kind: "mustComeOff", text: `${many(off)} must come off ${off === 1 ? "its post" : "their posts"}: the reader withdrew ${off === 1 ? "it" : "them"}, or ${off === 1 ? "its" : "their"} approval or consent no longer allows ${off === 1 ? "it" : "them"}.` });
+  if (unknown) notices.push({ kind: "unknown", text: `${many(unknown)} cannot be checked against the hosted copy, because Third Perspectives are switched off or rolled back there. Look at ${unknown === 1 ? "it" : "each"}, and take off any that should not be shown.` });
+  if (audit?.truncated) notices.push({ kind: "truncated", text: "More reflections are published than one check reads; the first ones were checked." });
+  return notices;
 }
 
 /** The retention dry run's summary, in words: what would expire or be purged, by kind. */
@@ -12553,6 +12623,8 @@ export class ObAdmin extends AdminElement {
     const stateNote = MODERATION_STATE_NOTES[state] ? h("p", { class: "oba-small" }, MODERATION_STATE_NOTES[state]) : null;
     const queue = h("ol", { class: "oba-feedback-list oba-moderation-list", "aria-labelledby": "oba-moderation-queue-title" });
     const more = h("button", { class: "oba-btn", type: "button", hidden: true }, "Show more");
+    // Published reflections that must come off, seen on every tab (ADR 0115).
+    const perspectiveBanner = h("div", { class: "oba-perspective-banner", "data-perspective-banner": "" });
     const publishedStatus = h("p", { class: "oba-small", role: "status", "aria-live": "polite", tabindex: "-1" }, "Loading published feedback…");
     const published = h("ol", { class: "oba-feedback-list", "aria-labelledby": "oba-feedback-published-title" });
     const stateTabs = h(
@@ -12594,6 +12666,33 @@ export class ObAdmin extends AdminElement {
       }
     };
 
+    const loadPerspectiveAudit = async () => {
+      let audit;
+      try {
+        audit = await this.api.call("GET", "engagement/third-perspectives/published");
+      } catch (error) {
+        perspectiveBanner.replaceChildren(h("p", { class: "oba-notice", role: "status" }, `Published reflections could not be checked against the hosted copy. ${error.message}`));
+        return;
+      }
+      const notices = perspectiveAuditNotices(audit);
+      const entry = (item, label) => h("li", {}, `${item.post}: `, h("button", { class: "oba-btn", type: "button", "data-perspective-id": item.id, onClick: async (event) => {
+        event.currentTarget.disabled = true;
+        try {
+          await this.api.call("POST", "engagement/third-perspectives/unpublish", { json: { id: item.id } });
+          await reloadAll("Taken off its post. Rebuild or publish to update the live site.", "ok");
+        } catch (error) {
+          event.currentTarget.disabled = false;
+          announce(queueStatus, error.message, "error");
+          queueStatus.focus();
+        }
+      } }, label));
+      perspectiveBanner.replaceChildren(...notices.map((notice) => h("div", { class: notice.kind === "mustComeOff" ? "oba-notice oba-perspective-must-come-off" : "oba-notice", role: notice.kind === "mustComeOff" ? "alert" : "status", "data-perspective-notice": notice.kind },
+        h("p", {}, h("strong", {}, notice.text)),
+        notice.kind === "mustComeOff" ? h("ul", {}, audit.mustComeOff.map((item) => entry(item, "Take it off the post"))) : null,
+        notice.kind === "unknown" ? h("ul", {}, audit.unknown.map((item) => entry(item, "Take it off the post"))) : null,
+      )));
+    };
+
     // One page of the inbox; `append` keeps what is shown and moves focus to the first new item.
     const loadQueue = async (append = false) => {
       const query = new URLSearchParams({ state });
@@ -12624,7 +12723,7 @@ export class ObAdmin extends AdminElement {
     more.addEventListener("click", () => loadQueue(true));
 
     const reloadAll = async (message, kind_) => {
-      await Promise.all([loadQueue(), loadPublished()]);
+      await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
       if (message) {
         announce(queueStatus, message, kind_);
         queueStatus.focus();
@@ -12647,13 +12746,15 @@ export class ObAdmin extends AdminElement {
         feedbackPassage(item.passage),
         item.purged ? h("p", { class: "oba-notice" }, "Its text, details and any name were deleted. Only the private record of decisions remains.") : null,
         item.report ? h("p", {}, h("strong", {}, "Ground: "), item.report.groundLabel) : null,
-        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : "The reader’s note"),
+        item.purged || (item.source === "report" && !item.body) ? null : h("h4", {}, item.source === "comment" ? "The comment" : item.source === "report" ? "What the reader wrote" : item.perspective ? "The reader’s reflection" : "The reader’s note"),
         item.purged || (item.source === "report" && !item.body) ? null : h("p", { class: "oba-feedback-body" }, item.body),
         item.source === "report" ? reportedItem(item.target) : null,
         item.details?.sourceUrl ? h("p", {}, "Suggested source: ", h("a", { href: item.details.sourceUrl, target: "_blank", rel: "noopener noreferrer nofollow" }, item.details.sourceUrl)) : null,
         item.details?.suggestedText ? h("div", {}, h("p", {}, "Suggested wording:"), h("blockquote", { class: "oba-feedback-body" }, item.details.suggestedText)) : null,
-        h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source)),
+        item.perspective && !item.purged ? h("div", { class: "oba-feedback-passage" }, h("h4", {}, "About this reflection"), perspectiveLines(item).map((line) => h("p", {}, line))) : null,
+        h("p", { class: "oba-small" }, moderationReaderLine(item.reader, item.source, item.kind)),
         feedbackPreview(item.publicPreview),
+        item.perspectivePreview ? h("p", { class: "oba-small oba-feedback-preview" }, `If approved, it is shown as “${item.perspectivePreview.heading}”, received ${item.perspectivePreview.received}.`) : null,
       );
       const actions = h("div", { class: "oba-moderation-actions" });
       let acknowledge = null;
@@ -12730,7 +12831,7 @@ export class ObAdmin extends AdminElement {
         actions.append(h("button", { class: "oba-btn", type: "button", onClick: async () => {
           busy(true);
           try {
-            await this.api.call("POST", `engagement/feedback/${mismatch.action}`, { json: { id: item.id } });
+            await this.api.call("POST", `engagement/${item.kind === "third-perspective" ? "third-perspectives" : "feedback"}/${mismatch.action}`, { json: { id: item.id } });
             await reloadAll(mismatch.action === "publish" ? `Published on ${where}.` : `Taken off ${where}. Rebuild or publish to update the live site.`, "ok");
           } catch (error) {
             busy(false);
@@ -12738,6 +12839,8 @@ export class ObAdmin extends AdminElement {
           }
         } }, mismatch.label));
         card.append(h("p", { class: "oba-notice" }, mismatch.notice));
+      } else if (item.kind === "third-perspective" && item.status === "approved" && item.published === true) {
+        card.append(h("p", { class: "oba-small" }, "Published on the post as a reader’s reflection."));
       } else if (item.source === "feedback" && item.status === "approved" && item.published === true) {
         card.append(h("p", { class: "oba-small" }, "Published on the post. ", h("a", { href: `#oba-published-${item.id}`, onClick: (event) => {
           event.preventDefault();
@@ -12892,6 +12995,7 @@ export class ObAdmin extends AdminElement {
       this.shell(
         "moderation",
         h("p", {}, "Comments, the questions, suggested sources, suggested corrections and other interpretations readers sent about passages, and abuse reports, in one list. Nothing is published until it is approved, approving never changes your post, and a suggested correction stays a suggestion until you decide to edit the post. Nothing here e-mails anyone."),
+        perspectiveBanner,
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-moderation-queue-title" }, h("h2", { id: "oba-moderation-queue-title" }, "Moderation queue"), stateTabs, kindFilter, stateNote, queueStatus, queue, more),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-feedback-published-title" }, h("h2", { id: "oba-feedback-published-title" }, "Published on your posts"), publishedStatus, published),
         h("section", { class: "oba-feedback-section", "aria-labelledby": "oba-retention-title" },
@@ -12900,7 +13004,7 @@ export class ObAdmin extends AdminElement {
           checkRetention, retentionStatus, retentionReport),
       ),
     );
-    await Promise.all([loadQueue(), loadPublished()]);
+    await Promise.all([loadQueue(), loadPublished(), loadPerspectiveAudit()]);
   }
 
   // ---- editor

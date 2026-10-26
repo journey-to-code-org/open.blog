@@ -5,6 +5,44 @@ All notable changes to open.blog are recorded here. Releases follow
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-26
+
+- Approved Third Perspectives now appear on the work's canonical page, in a "Third Perspectives"
+  section after the authors' text: each headed as a reader's reflection, never an author's, with
+  the reader's name only while they agree to show it and never when it looks like a credited
+  name. Approving one in the Moderation inbox writes its public part to
+  `content/third-perspectives.json`, so static builds, CI and a site without its hosted service
+  keep showing it; removing one, or a reader withdrawing it through their receipt, is taken off
+  from its inbox card or from a banner on every tab of the inbox, which counts the published
+  reflections that must come off and says when the hosted copy cannot tell. Withdrawing deletes
+  the hosted copy only, and readers are told that copies already published may remain and that a
+  name they chose to show becomes part of the site's public record. Rolling the hosted opt-in
+  back first means emptying `content/third-perspectives.json`. Readers checking a receipt see whether their reflection is waiting,
+  needs clarifying, is shown, was not published or was withdrawn, and nothing about anyone else.
+  Portable copies, feeds and `llms-full.txt` link to the canonical page for Third Perspectives
+  and never carry the reflections. The no-JavaScript text of the Third Perspective form now wraps
+  its passage revision at 320px.
+- Readers can offer a Third Perspective on a post where `third-perspective` is open in
+  `participation.kinds`: their own reflection on the whole work or one section, with an optional
+  prompt (never a score or a vote). The form asks them to choose whether it may be published,
+  whether their name may be shown and whether they may be asked to clarify it, and sends it for
+  review through the hosted function, always pending, with a private receipt to check on it or
+  take it back. Without JavaScript, without the hosted service, when sending fails, or when the
+  reader does not agree to publish, they get their reflection to copy and send to the author,
+  and nothing they wrote is lost. Moderators approve exactly the text and consent they saw in the
+  Moderation inbox. Nothing is e-mailed. Hosting it takes `supabase/feedback.sql` run again (one
+  new nullable column and one function) and `OPENBLOG_THIRD_PERSPECTIVES_ENABLED=true` with
+  receipts.
+- Defined Third Perspectives, a reader's own reflection on a shared reflection or post, about the
+  whole work or one section. Each one has an optional prompt category (never a score or a side),
+  plain text of up to 4000 characters, and a numbered history of what the reader agreed to publish.
+  The reader can hide their name or take the reflection back at any time. A reflection is public
+  only once a named moderator approves that exact text and consent. It is always shown as a
+  reader's reflection, anonymously unless the reader chose to show a name, and never under the
+  name of the work's authors or group. A private draft, the submitted copy, the approved response
+  and a featured reflection are kept apart. This adds the contract and its checks only; nothing
+  is collected or shown yet.
+
 ## [0.36.0] - 2026-10-26
 
 - Reader participation now has one policy. Comments keep `engagement.comments` and `comments:`
