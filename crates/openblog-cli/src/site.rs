@@ -638,6 +638,55 @@ fn unstored_atlas_warning() -> String {
     )
 }
 
+/// The public comparison projection, when the site opts in to publishing
+/// comparisons (ADR 0128). A site that does not never reads the private
+/// alignments file. The file is read and validated against the library (with
+/// its interpretations) and the notebook exactly as Admin reads it, and a
+/// problem refuses the build before anything is written, naming the file and
+/// ids only; an Admin save, which only loads content, is never stopped by it.
+///
+/// The alignments file is private and Git-ignored, so a build from a clone
+/// finds none and publishes no comparisons: that build is warned in
+/// `warnings`, which `build` and `check` both report.
+pub fn published_comparisons(
+    root: &Path,
+    config: &SiteConfig,
+    warnings: &mut Vec<String>,
+) -> Result<Option<openblog_core::comparison_publication::PublicComparisons>, String> {
+    if !config.comparisons.publish {
+        return Ok(None);
+    }
+    let unpublishable = |error: String| {
+        format!(
+            "passage comparisons cannot be published ({error}); run `openblog check` and repair it, or set `comparisons.publish` to false. Nothing was written."
+        )
+    };
+    let snapshot = crate::alignment_store::load(root, &config.contributors)
+        .map_err(|error| unpublishable(error.to_string()))?;
+    if !snapshot.stored {
+        warnings.push(unstored_comparisons_warning());
+    }
+    openblog_core::comparison_publication::PublicComparisons::project(
+        &snapshot.alignments,
+        openblog_core::comparison_publication::ComparisonInputs {
+            library: &snapshot.library,
+            notebook: &snapshot.notebook,
+            contributors: &config.contributors,
+        },
+    )
+    .map(Some)
+    .map_err(unpublishable)
+}
+
+/// What `build` and `check` say when the site publishes comparisons but this
+/// build cannot read the alignments file.
+fn unstored_comparisons_warning() -> String {
+    format!(
+        "`comparisons.publish` is on, but no alignments file is stored at {}, so /comparisons/ and comparisons.json are published empty. Alignments are private and Git-ignored: only a build that can read them publishes comparisons (`openblog serve` and Admin, or a local `openblog build` you then upload). A CI or static-host build from the repository cannot.",
+        crate::alignment_store::ALIGNMENTS_FILE
+    )
+}
+
 /// Everything a full build or `check` generates, after the guards that keep
 /// private research out of public inputs and generated output.
 pub fn generate_site(
@@ -649,6 +698,7 @@ pub fn generate_site(
     // into static/, a copied notebook): refuse before anything is generated.
     crate::private_guard::refuse_private_research_in_public_inputs(root, &site.config)?;
     site.atlas = published_atlas(root, &site.config, &mut site.warnings)?;
+    site.comparisons = published_comparisons(root, &site.config, &mut site.warnings)?;
     // Published claim evidence that cannot be read refuses the whole output
     // rather than publishing posts without it, as a damaged atlas does
     // (ADR 0075). Only here: an Admin save's validation render is not stopped.
@@ -1840,6 +1890,274 @@ mod tests {
         assert!(error.contains("knowledgeAtlas.publish"), "{error}");
         assert!(!error.contains(ATLAS_MARKER), "{error}");
         assert_eq!(dist_bytes(&root), after, "nothing was written");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    const COMPARISON_MARKER: &str = "ob-private-comparison-61e4";
+
+    /// A project that publishes comparisons. Every value that may be published
+    /// says PUBLIC; every value that may not carries a private marker, including
+    /// the wording of versions whose rights are unknown or reserved.
+    fn project_publishing_comparisons(tag: &str) -> PathBuf {
+        let root = project_with_private_library(tag, r#"{"comparisons":{"publish":true}}"#);
+        let library = format!(
+            r#"{{"version":1,"sources":[
+              {{"id":"republic","kind":"work","title":"PUBLIC Republic","notes":"{PRIVATE_MARKER} note"}},
+              {{"id":"burnet","kind":"edition","of":"republic","title":"PUBLIC Burnet","language":"grc","creators":[{{"name":"PUBLIC John Burnet","role":"editor"}}],"rights":{{"status":"publicDomain","note":"{PRIVATE_MARKER} rights note"}},"identifiers":[{{"scheme":"shelf","value":"{PRIVATE_MARKER}"}}]}},
+              {{"id":"grube","kind":"translation","of":"republic","language":"en","title":"PUBLIC Grube","rights":{{"status":"rightsReserved"}}}},
+              {{"id":"hebrew","kind":"translation","of":"republic","language":"he","title":"PUBLIC המדינה","rights":{{"status":"openLicense","license":"PUBLIC CC-BY-4.0"}}}},
+              {{"id":"unused","kind":"edition","of":"republic","title":"{PRIVATE_MARKER} unused"}}],
+             "interpretations":[
+              {{"id":"mine","kind":"rendering","source":"burnet","language":"en","locators":[{{"kind":"canonical","value":"514a"}}],"text":"PUBLIC rendering","interpreters":[{{"name":"PUBLIC Ada"}}],"rights":{{"status":"ownWork"}},"uncertainty":"{PRIVATE_MARKER} doubt"}}]}}"#
+        );
+        fs::write(root.join(crate::source_store::LIBRARY_FILE), library).unwrap();
+        let notebook = format!(
+            r#"{{"version":1,"passages":[
+              {{"id":"p-{NOTEBOOK_MARKER}","source":"burnet","excerpt":{{"text":"PUBLIC μετὰ ταῦτα","language":"grc"}},"locators":[{{"kind":"canonical","value":"514a"}}]}},
+              {{"id":"p-grube","source":"grube","excerpt":{{"text":"{NOTEBOOK_MARKER} reserved wording","language":"en"}},"locators":[{{"kind":"page","value":"186"}}]}},
+              {{"id":"p-hebrew","source":"hebrew","excerpt":{{"text":"PUBLIC אחר כך <b>bold</b>","language":"he"}}}}],
+             "notes":[{{"id":"n-leak","kind":"question","text":"{NOTEBOOK_MARKER} noted","passages":["p-grube"]}}]}}"#
+        );
+        fs::write(root.join(crate::notebook_store::NOTEBOOK_FILE), notebook).unwrap();
+        let alignments = format!(
+            r#"{{"version":1,"alignments":[
+              {{"id":"cave","label":"PUBLIC The cave","correspondence":"partial","visibility":"approved","members":[
+                {{"source":"burnet","passage":"p-{NOTEBOOK_MARKER}","note":"{COMPARISON_MARKER} member note","normalized":{{"text":"{COMPARISON_MARKER} normalization"}},"tag":"{COMPARISON_MARKER} member extra"}},
+                {{"source":"grube","passage":"p-grube"}},
+                {{"source":"hebrew","passage":"p-hebrew"}},
+                {{"interpretation":"mine"}}],
+               "rationale":"PUBLIC rationale","confidence":"plausible","uncertainty":"PUBLIC doubt",
+               "recordedBy":{{"kind":"named","name":"PUBLIC Concordance"}},
+               "evidence":[{{"source":"burnet","locators":[{{"kind":"page","value":"1"}}],"passage":"p-{NOTEBOOK_MARKER}"}}],
+               "shelf":"{COMPARISON_MARKER} alignment extra"}},
+              {{"id":"hidden","label":"{COMPARISON_MARKER} private label","members":[
+                {{"source":"unused","locators":[{{"kind":"page","value":"1"}}]}},
+                {{"source":"grube","absent":true}}]}}],
+             "workspace":"{COMPARISON_MARKER} top-level extra"}}"#
+        );
+        fs::write(
+            root.join(crate::alignment_store::ALIGNMENTS_FILE),
+            alignments,
+        )
+        .unwrap();
+        root
+    }
+
+    #[test]
+    fn a_site_that_does_not_publish_comparisons_builds_byte_for_byte_as_without_alignments() {
+        let root = project_publishing_comparisons("comparisons-legacy");
+        fs::write(root.join(CONFIG_FILE), "{}").unwrap();
+        let path = root.join(crate::alignment_store::ALIGNMENTS_FILE);
+        let alignments = fs::read(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        production_build(&root);
+        let without = dist_bytes(&root);
+
+        fs::write(&path, &alignments).unwrap();
+        production_build(&root);
+        assert_eq!(
+            dist_bytes(&root),
+            without,
+            "unpublished alignments change nothing"
+        );
+
+        // Off means never read: even a damaged alignments file cannot affect the build.
+        fs::write(&path, "{ not json").unwrap();
+        production_build(&root);
+        assert_eq!(dist_bytes(&root), without);
+        assert!(without.keys().all(|path| !path.contains("comparison")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_build_that_publishes_comparisons_but_cannot_read_alignments_warns() {
+        let root = project_publishing_comparisons("comparisons-unstored");
+        fs::remove_file(root.join(crate::alignment_store::ALIGNMENTS_FILE)).unwrap();
+        let report = production_build(&root);
+        let warning = report
+            .warnings
+            .iter()
+            .find(|warning| warning.contains("comparisons.publish"))
+            .expect("the build warns that it publishes no comparisons");
+        assert!(
+            warning.contains(crate::alignment_store::ALIGNMENTS_FILE),
+            "{warning}"
+        );
+        assert!(warning.contains("published empty") && warning.contains("openblog serve"));
+        let built = dist_bytes(&root);
+        assert!(
+            built.contains_key("comparisons/index.html") && built.contains_key("comparisons.json")
+        );
+
+        // `check` reads the same warnings from the generated site.
+        let (mut site, themes) = load_site(&root, true, None).unwrap();
+        generate_site(&root, &mut site, &themes).unwrap();
+        assert!(site
+            .warnings
+            .iter()
+            .any(|w| w.contains("comparisons.publish")));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn published_comparisons_carry_only_approved_identified_rights_gated_places() {
+        let root = project_publishing_comparisons("comparisons-published");
+        production_build(&root);
+        let built = dist_bytes(&root);
+        for path in [
+            "comparisons/index.html",
+            "comparisons/cave/index.html",
+            "comparisons.json",
+        ] {
+            assert!(built.contains_key(path), "{path}");
+        }
+        assert!(!built.contains_key("comparisons/hidden/index.html"));
+        for (path, bytes) in &built {
+            let text = String::from_utf8_lossy(bytes);
+            for marker in [
+                PRIVATE_MARKER,
+                NOTEBOOK_MARKER,
+                ATLAS_MARKER,
+                COMPARISON_MARKER,
+            ] {
+                assert!(!text.contains(marker), "dist/{path} exposes {marker}");
+            }
+            assert!(
+                !openblog_core::research_bundle::looks_like_private_research(bytes),
+                "dist/{path} carries a copy of private research"
+            );
+        }
+        let json = String::from_utf8_lossy(&built["comparisons.json"]).to_string();
+        for public in [
+            "PUBLIC The cave",
+            "PUBLIC μετὰ ταῦτα",
+            "PUBLIC rationale",
+            "PUBLIC doubt",
+            "PUBLIC Concordance",
+            "PUBLIC Burnet",
+            "PUBLIC John Burnet",
+            "PUBLIC Grube",
+            "PUBLIC CC-BY-4.0",
+            "PUBLIC rendering",
+            "PUBLIC Ada",
+            r#""withheld":"rights""#,
+        ] {
+            assert!(json.contains(public), "the artifact publishes {public}");
+        }
+        let page = String::from_utf8_lossy(&built["comparisons/cave/index.html"]).to_string();
+        assert!(page.contains(
+            "<blockquote lang=\"grc\" dir=\"ltr\"><p>PUBLIC μετὰ ταῦτα</p></blockquote>"
+        ));
+        assert!(page.contains("<blockquote lang=\"he\" dir=\"rtl\"><p>PUBLIC אחר כך &lt;b&gt;bold&lt;/b&gt;</p></blockquote>"));
+        assert!(
+            page.contains(
+                "Wording not shown: the author states this version&#39;s text is under copyright"
+            ) || page.contains(
+                "Wording not shown: the author states this version's text is under copyright"
+            )
+        );
+        assert!(page.contains("Rendering by PUBLIC Ada"));
+        assert!(page.contains("It does not say they mean the same thing"));
+        let article = &page[page
+            .find("<article class=\"ob-page ob-comparison\">")
+            .unwrap()..];
+        let article = &article[..article.find("</article>").unwrap()];
+        assert!(
+            !article.contains("<script"),
+            "the comparison needs no script"
+        );
+        assert!(article.contains("<section class=\"ob-comparison-version\""));
+        let sitemap = String::from_utf8_lossy(&built["sitemap.xml"]).to_string();
+        assert!(sitemap.contains("/comparisons/cave/"));
+        for feed in ["rss.xml", "feed.json"] {
+            if let Some(bytes) = built.get(feed) {
+                assert!(
+                    !String::from_utf8_lossy(bytes).contains("PUBLIC The cave"),
+                    "{feed}"
+                );
+            }
+        }
+
+        // Withdrawing approval is one value in the private file; the next build
+        // drops the comparison and its page.
+        let path = root.join(crate::alignment_store::ALIGNMENTS_FILE);
+        let stored = fs::read_to_string(&path).unwrap();
+        let withdrawn =
+            stored.replacen(r#""visibility":"approved""#, r#""visibility":"private""#, 1);
+        assert_ne!(withdrawn, stored);
+        fs::write(&path, &withdrawn).unwrap();
+        production_build(&root);
+        let after = dist_bytes(&root);
+        assert!(
+            !after.contains_key("comparisons/cave/index.html"),
+            "the page is removed"
+        );
+        assert!(after
+            .values()
+            .all(|bytes| !String::from_utf8_lossy(bytes).contains("PUBLIC The cave")));
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            withdrawn,
+            "the build never edits alignments"
+        );
+
+        // A damaged alignments file refuses the build, names the file only, and
+        // leaves the published site as it was; an Admin-style load is not stopped.
+        fs::write(
+            &path,
+            format!(r#"{{"version":1,"alignments":[{{"id":"{COMPARISON_MARKER}"#),
+        )
+        .unwrap();
+        let error = build(
+            &root,
+            &BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .expect("a damaged published alignments file refuses the build");
+        assert!(
+            error.contains(crate::alignment_store::ALIGNMENTS_FILE),
+            "{error}"
+        );
+        assert!(error.contains("comparisons.publish"), "{error}");
+        assert!(!error.contains(COMPARISON_MARKER), "{error}");
+        assert_eq!(dist_bytes(&root), after, "nothing was written");
+        assert!(
+            load_site(&root, true, None).is_ok(),
+            "loading content is not stopped"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_comparisons_path_is_reserved_only_while_comparisons_are_published() {
+        let root = project_publishing_comparisons("comparisons-reserved");
+        fs::create_dir_all(root.join("content/pages")).unwrap();
+        fs::write(
+            root.join("content/pages/comparisons.md"),
+            "---\ntitle: My comparisons\nslug: comparisons\n---\n\nAn older page.\n",
+        )
+        .unwrap();
+        let error = build(
+            &root,
+            &BuildOptions {
+                include_drafts: false,
+                out_override: None,
+                now: None,
+            },
+        )
+        .err()
+        .expect("the page collides with published comparisons");
+        assert!(error.contains("comparisons"), "{error}");
+        fs::write(root.join(CONFIG_FILE), "{}").unwrap();
+        production_build(&root);
+        assert!(
+            dist_bytes(&root).contains_key("comparisons/index.html"),
+            "the page keeps working"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

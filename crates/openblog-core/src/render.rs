@@ -11,6 +11,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use crate::atlas_publication::{
     self, PublicAtlas, PublicEntry, PublicEvidence, PublicRelationship,
 };
+use crate::comparison_publication::{
+    self, PublicComparison, PublicComparisons, PublicPlace, PublicText, PublicVersion, VersionKind,
+};
 use crate::config::SiteConfig;
 use crate::contributor::{CreditProvenance, ResolvedCredit};
 use crate::escape::{attr, cdata, text};
@@ -47,6 +50,8 @@ const RESERVED: &[&str] = &[
 ];
 /// Reserved, too, while the site publishes its Knowledge Atlas.
 const ATLAS_SEGMENT: &str = "atlas";
+/// Reserved, too, while the site publishes passage comparisons.
+const COMPARISONS_SEGMENT: &str = comparison_publication::COMPARISONS_SEGMENT;
 
 struct Meta<'a> {
     title: String,
@@ -358,6 +363,24 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
             c.apply_base_path(&atlas.to_json()),
         )?;
     }
+    // Passage comparisons, only when the site publishes them (ADR 0128): the
+    // pages and the JSON artifact are both rendered from the one projection.
+    if let Some(comparisons) = &site.comparisons {
+        out.add(
+            url_to_file(comparison_publication::COMPARISONS_URL),
+            r.comparison_index(default_theme, comparisons),
+        )?;
+        for comparison in &comparisons.comparisons {
+            out.add(
+                url_to_file(&comparison.url),
+                r.comparison_page(default_theme, comparisons, comparison),
+            )?;
+        }
+        out.add(
+            comparison_publication::COMPARISONS_JSON_FILE.into(),
+            c.apply_base_path(&comparisons.to_json()),
+        )?;
+    }
     // Claim evidence as data, only while the site publishes it (ADR 0075):
     // the same values each post's section was written from.
     if c.claim_evidence.publish {
@@ -398,6 +421,10 @@ pub fn generate(site: &Site, themes: &ThemeSet) -> Result<Vec<OutputFile>, Strin
         if let Some(atlas) = &site.atlas {
             extra.push(atlas_publication::ATLAS_URL.to_string());
             extra.extend(atlas.entries.iter().map(|entry| entry.url.clone()));
+        }
+        if let Some(comparisons) = &site.comparisons {
+            extra.push(comparison_publication::COMPARISONS_URL.to_string());
+            extra.extend(comparisons.comparisons.iter().map(|c| c.url.clone()));
         }
         out.add("sitemap.xml".into(), feeds::sitemap(site, &extra))?;
         out.add("robots.txt".into(), feeds::robots(site))?;
@@ -517,8 +544,11 @@ fn validate_output_paths(site: &Site) -> Result<(), String> {
     // not a loaded projection, decides: Admin validates a save against a site
     // that never reads the atlas, and must refuse what the next build would.
     let publishes_atlas = site.config.knowledge_atlas.publish;
+    let publishes_comparisons = site.config.comparisons.publish;
     let reserved = |segment: &str| {
-        RESERVED.contains(&segment) || (publishes_atlas && segment == ATLAS_SEGMENT)
+        RESERVED.contains(&segment)
+            || (publishes_atlas && segment == ATLAS_SEGMENT)
+            || (publishes_comparisons && segment == COMPARISONS_SEGMENT)
     };
     for page in &site.pages {
         if reserved(page.slug.as_str()) {
@@ -2415,6 +2445,117 @@ impl<'a> Renderer<'a> {
         }
     }
 
+    fn comparison_index(&self, theme: &Theme, comparisons: &PublicComparisons) -> String {
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<section class=\"ob-section ob-comparisons\">\n",
+        );
+        body.push_str(&self.heading(theme, 1, "Comparisons", "ob-section-heading"));
+        body.push_str(&format!(
+            "\n<p class=\"ob-lede\">{}</p>\n<p>{}</p>\n",
+            text(COMPARISONS_LEDE),
+            text(comparisons.notice)
+        ));
+        if comparisons.comparisons.is_empty() {
+            body.push_str("<p class=\"ob-empty\">No comparisons have been published yet.</p>\n");
+        } else {
+            body.push_str("<ul class=\"ob-archive\">\n");
+            for comparison in &comparisons.comparisons {
+                let count = comparison.versions.len();
+                body.push_str(&format!(
+                    "<li><a href=\"{}\"><bdi>{}</bdi></a> <span class=\"ob-meta\">{count} version{} · {}</span></li>\n",
+                    attr(&comparison.url),
+                    text(&comparison_title(comparisons, comparison)),
+                    if count == 1 { "" } else { "s" },
+                    text(comparison.correspondence_label)
+                ));
+            }
+            body.push_str("</ul>\n");
+        }
+        body.push_str(&format!(
+            "<p class=\"ob-meta\">The same comparisons as data: <a href=\"/{file}\" type=\"application/json\">{file}</a>.</p>\n</section>\n</div>",
+            file = comparison_publication::COMPARISONS_JSON_FILE
+        ));
+        self.simple(
+            theme,
+            "Comparisons",
+            "Passages compared across editions, translations, manuscripts and interpretations, each version identified.",
+            comparison_publication::COMPARISONS_URL,
+            &body,
+        )
+    }
+
+    fn comparison_page(
+        &self,
+        theme: &Theme,
+        comparisons: &PublicComparisons,
+        comparison: &PublicComparison,
+    ) -> String {
+        let title = comparison_title(comparisons, comparison);
+        let mut body = String::from(
+            "<div class=\"ob-container ob-container-reading\">\n<article class=\"ob-page ob-comparison\">\n",
+        );
+        body.push_str(&format!(
+            "<p class=\"ob-eyebrow\"><a href=\"{}\">Comparisons</a></p>\n",
+            comparison_publication::COMPARISONS_URL
+        ));
+        body.push_str(&self.heading(theme, 1, &title, "ob-post-title"));
+        body.push_str("\n<div class=\"ob-prose\">\n");
+        body.push_str(&format!(
+            "<p class=\"ob-comparison-correspondence\"><strong>{}.</strong> {}</p>\n<dl class=\"ob-comparison-facts\">\n",
+            text(comparison.correspondence_label),
+            text(comparisons.notice)
+        ));
+        body.push_str(&format!(
+            "<dt>Aligned by</dt><dd>{}</dd>\n",
+            text(&comparisons.party_text(&comparison.recorded_by, &self.site.config.author.name))
+        ));
+        body.push_str(&format!(
+            "<dt>Confidence</dt><dd>{}: how firmly the aligner holds this reading, not how widely it is accepted.</dd>\n",
+            atlas_publication::confidence_text(comparison.confidence)
+        ));
+        if let Some(rationale) = &comparison.rationale {
+            body.push_str(&format!(
+                "<dt>Why these places are aligned</dt><dd>{}</dd>\n",
+                text(rationale).replace('\n', "<br>")
+            ));
+        }
+        if !comparison.evidence.is_empty() {
+            body.push_str("<dt>Evidence</dt><dd><ul>");
+            for item in &comparison.evidence {
+                body.push_str(&format!(
+                    "<li><cite>{}</cite></li>",
+                    text(&comparisons.evidence_text(item))
+                ));
+            }
+            body.push_str("</ul></dd>\n");
+        }
+        if let Some(uncertainty) = &comparison.uncertainty {
+            body.push_str(&format!(
+                "<dt>Uncertain</dt><dd>{}</dd>\n",
+                text(uncertainty).replace('\n', "<br>")
+            ));
+        }
+        body.push_str("</dl>\n");
+        for (position, version) in comparison.versions.iter().enumerate() {
+            body.push_str(&comparison_version(comparisons, version, position + 1));
+        }
+        body.push_str(&format!(
+            "<p class=\"ob-meta\">{}</p>\n</div>\n</article>\n</div>",
+            text(COMPARISONS_NOTE)
+        ));
+        self.simple(
+            theme,
+            &title,
+            &format!(
+                "{} compared across {} versions, each identified, with wording only where the author states its rights allow.",
+                title,
+                comparison.versions.len()
+            ),
+            &comparison.url,
+            &body,
+        )
+    }
+
     fn simple(
         &self,
         theme: &Theme,
@@ -2432,6 +2573,180 @@ impl<'a> Renderer<'a> {
 const ATLAS_LEDE: &str = "People, works, concepts, movements and events, and the relationships between them that the author has chosen to publish. Each relationship is one party's assertion on cited evidence; contested ones name who disagrees.";
 /// What every atlas entry page says under its relationships.
 const ATLAS_NOTE: &str = "Every relationship here is one party's assertion on cited evidence, published with the author's approval. A contested relationship lists who disagrees. Nothing here claims that scholars agree.";
+
+/// What the comparisons index says before any comparison.
+const COMPARISONS_LEDE: &str = "Passages the author has compared across editions, translations, manuscripts and interpretations. Every version is identified with its locators; its wording is quoted only where the author states that the version's text may be shown.";
+/// What every comparison page says at the end.
+const COMPARISONS_NOTE: &str = "Rights statements are the author's own declarations, not legal judgements. A version whose rights are unknown or reserved is identified and located but not quoted. Interpretations are attributed to whoever made them and are not the text they interpret.";
+
+fn comparison_title(comparisons: &PublicComparisons, comparison: &PublicComparison) -> String {
+    match &comparison.label {
+        Some(label) => label.clone(),
+        None => {
+            let titles: Vec<String> = comparison
+                .versions
+                .iter()
+                .take(3)
+                .map(|version| comparisons.title_of(&version.source))
+                .collect();
+            format!("Comparison of {}", titles.join(", "))
+        }
+    }
+}
+
+/// Wording as a block quotation in its own language and direction. Text is
+/// escaped and line breaks kept; nothing else changes.
+fn comparison_quote(quoted: &PublicText) -> String {
+    let lang = quoted
+        .language
+        .as_deref()
+        .map(|language| format!(" lang=\"{}\"", attr(language)))
+        .unwrap_or_default();
+    format!(
+        "<blockquote{lang} dir=\"{}\"><p>{}</p></blockquote>\n",
+        quoted.dir,
+        text(&quoted.text).replace('\n', "<br>")
+    )
+}
+
+fn capitalized(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// One version's section: its identification, its rights statement, then
+/// each of its places.
+fn comparison_version(
+    comparisons: &PublicComparisons,
+    version: &PublicVersion,
+    number: usize,
+) -> String {
+    let id = format!("comparison-version-{number}");
+    let source = comparisons.source(&version.source);
+    let title = comparisons.title_of(&version.source);
+    let mut out = format!(
+        "<section class=\"ob-comparison-version\" aria-labelledby=\"{id}\" data-version-kind=\"{}\">\n",
+        match version.kind {
+            VersionKind::Source => "source",
+            VersionKind::Interpretation => "interpretation",
+        }
+    );
+    match (&version.kind, &version.interpretation) {
+        (VersionKind::Interpretation, Some(interpretation)) => {
+            out.push_str(&format!(
+                "<h2 id=\"{id}\"><bdi>{}</bdi></h2>\n",
+                text(&comparison_publication::interpretation_heading(
+                    interpretation
+                ))
+            ));
+            out.push_str(&format!(
+                "<p class=\"ob-meta\">An interpretation of <cite><bdi>{}</bdi></cite>, attributed to whoever made it. It is not that text.</p>\n",
+                text(&title)
+            ));
+        }
+        _ => {
+            out.push_str(&format!(
+                "<h2 id=\"{id}\"><bdi>{}</bdi></h2>\n",
+                text(&title)
+            ));
+            if let Some(source) = source {
+                let mut facts = vec![capitalized(source.reference.kind)];
+                if let Some(language) = &source.reference.language {
+                    facts.push(format!("language {language}"));
+                }
+                out.push_str(&format!(
+                    "<p class=\"ob-meta\">{}</p>\n",
+                    text(&facts.join(", "))
+                ));
+                let mut roles: Vec<(String, Vec<String>)> = Vec::new();
+                for creator in &source.reference.creators {
+                    let role = capitalized(creator.role.as_deref().unwrap_or("creator"));
+                    match roles.iter_mut().find(|(known, _)| *known == role) {
+                        Some((_, names)) => names.push(creator.name.clone()),
+                        None => roles.push((role, vec![creator.name.clone()])),
+                    }
+                }
+                for (role, names) in roles {
+                    out.push_str(&format!(
+                        "<p class=\"ob-meta\">{}: <bdi>{}</bdi></p>\n",
+                        text(&role),
+                        text(&names.join("; "))
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(source) = source {
+        out.push_str(&format!(
+            "<p class=\"ob-meta\">Source: <cite><bdi>{}</bdi></cite></p>\n",
+            text(&source.text)
+        ));
+    }
+    out.push_str(&format!(
+        "<p class=\"ob-meta\" data-rights=\"{}\">Rights: <bdi>{}{}</bdi>. This is the author's statement, not a legal judgement.</p>\n",
+        version.rights.status.tag(),
+        text(version.rights.label),
+        version
+            .rights
+            .license
+            .as_deref()
+            .map(|license| format!(" ({})", text(license)))
+            .unwrap_or_default()
+    ));
+    out.push_str(&format!(
+        "<ol class=\"ob-comparison-places\" aria-label=\"Places in {}\">\n",
+        attr(&title)
+    ));
+    for place in &version.places {
+        out.push_str(&comparison_place(version, place));
+    }
+    out.push_str("</ol>\n</section>\n");
+    out
+}
+
+fn comparison_place(version: &PublicVersion, place: &PublicPlace) -> String {
+    let mut out = String::from("<li class=\"ob-comparison-place\">\n");
+    let locators = if place.locators.is_empty() {
+        "none recorded".to_string()
+    } else {
+        crate::bibliography::CitationLocale::En.locators_text(&place.locators)
+    };
+    out.push_str(&format!(
+        "<p class=\"ob-meta\">Where: {}</p>\n",
+        text(&locators)
+    ));
+    if place.absent {
+        out.push_str("<p data-place=\"absent\">Absent: this version lacks the passage.</p>\n");
+    } else if let Some(quoted) = &place.text {
+        out.push_str(&comparison_quote(quoted));
+        if let Some(normalized) = &place.normalized {
+            out.push_str(&format!(
+                "<p class=\"ob-meta\">The author's normalization, not the source text{}:</p>\n",
+                normalized
+                    .note
+                    .as_deref()
+                    .map(|note| format!(" ({})", text(note)))
+                    .unwrap_or_default()
+            ));
+            out.push_str(&comparison_quote(&normalized.text));
+        }
+    } else if let Some(withheld) = place.withheld {
+        out.push_str(&format!(
+            "<p data-place=\"withheld\">{}</p>\n",
+            text(&comparison_publication::withheld_text(
+                withheld,
+                &version.rights
+            ))
+        ));
+    } else {
+        out.push_str("<p data-place=\"unquoted\">No wording is quoted for this place.</p>\n");
+    }
+    out.push_str("</li>\n");
+    out
+}
 
 /// ` · N views` for a page with a known count, else empty.
 fn site_views_text(site: &Site, path: &str) -> String {

@@ -429,7 +429,11 @@ fn run(raw: &[String]) -> Result<(), String> {
                 serve::print_evidence_findings(&findings);
                 println!("{summary}");
             }
-            if let Some((summary, notices)) = check_alignments(&root, &site.config.contributors)? {
+            if let Some((summary, notices)) = check_alignments(
+                &root,
+                &site.config.contributors,
+                site.config.comparisons.publish,
+            )? {
                 for notice in notices {
                     eprintln!("notice: {notice}");
                 }
@@ -985,6 +989,7 @@ fn check_claims(
 fn check_alignments(
     root: &std::path::Path,
     contributors: &std::collections::BTreeMap<String, openblog_core::contributor::Contributor>,
+    publish: bool,
 ) -> Result<Option<(String, Vec<String>)>, String> {
     let snapshot = alignment_store::load(root, contributors).map_err(|error| error.to_string())?;
     if !snapshot.stored {
@@ -1006,9 +1011,15 @@ fn check_alignments(
         .flat_map(|a| &a.members)
         .filter(|m| m.absent)
         .count();
+    let publication = if publish {
+        let approved = set.alignments.iter().filter(|a| a.is_approved()).count();
+        format!("builds publish its {approved} approved comparison(s), quoting wording only where you state a version's rights allow it")
+    } else {
+        "builds never read or publish it".to_string()
+    };
     Ok(Some((
         format!(
-            "OK: private alignments file {} has {} alignment(s) of {} place(s), {} of them recorded as absent; builds never publish it. {}",
+            "OK: private alignments file {} has {} alignment(s) of {} place(s), {} of them recorded as absent; {publication}. {}",
             alignment_store::ALIGNMENTS_FILE,
             set.alignments.len(),
             members,
@@ -1097,7 +1108,7 @@ mod tests {
         ));
         let contributors = std::collections::BTreeMap::new();
         std::fs::create_dir_all(&root).unwrap();
-        assert_eq!(check_alignments(&root, &contributors), Ok(None));
+        assert_eq!(check_alignments(&root, &contributors, false), Ok(None));
         let library = root.join(source_store::LIBRARY_FILE);
         std::fs::create_dir_all(library.parent().unwrap()).unwrap();
         std::fs::write(
@@ -1111,12 +1122,25 @@ mod tests {
             r#"{"version":1,"alignments":[{"id":"a1","label":"ob-secret-label","members":[{"source":"e","locators":[{"kind":"page","value":"1"}]},{"source":"t","absent":true}]}]}"#,
         )
         .unwrap();
-        let (summary, notices) = check_alignments(&root, &contributors).unwrap().unwrap();
+        let (summary, notices) = check_alignments(&root, &contributors, false)
+            .unwrap()
+            .unwrap();
         assert!(
             summary.contains("1 alignment(s) of 2 place(s), 1 of them recorded as absent"),
             "{summary}"
         );
         assert!(summary.contains("does not say they mean the same"));
+        assert!(
+            summary.contains("builds never read or publish it"),
+            "{summary}"
+        );
+        let (published, _) = check_alignments(&root, &contributors, true)
+            .unwrap()
+            .unwrap();
+        assert!(
+            published.contains("builds publish its 0 approved comparison(s)"),
+            "{published}"
+        );
         assert_eq!(notices.len(), 1);
         assert!(notices[0].contains("archived-member") && notices[0].contains("a1"));
         assert!(!summary.contains("ob-secret-label") && !notices[0].contains("ob-secret-label"));
@@ -1125,7 +1149,7 @@ mod tests {
             r#"{"version":1,"alignments":[{"id":"a1","members":[{"source":"w"}]}]}"#,
         )
         .unwrap();
-        let error = check_alignments(&root, &contributors).unwrap_err();
+        let error = check_alignments(&root, &contributors, false).unwrap_err();
         assert!(
             error.starts_with(alignment_store::ALIGNMENTS_FILE),
             "{error}"
