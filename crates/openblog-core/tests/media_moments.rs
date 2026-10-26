@@ -1210,7 +1210,7 @@ fn the_preview_withholds_an_owner_s_part_until_their_moments_are_sealed_to_the_r
     assert!(bo.document.contains("Moments in the sources"));
     assert!(bo
         .document
-        .contains("The Art of Noticing, from 1:02 to 1:10"));
+        .contains("<h3>The Art of Noticing (Video), from 1:02 to 1:10</h3>"));
     assert!(bo.document.contains(
         "<figcaption>The host, in The Art of Noticing (Video), from 1:02 to 1:10</figcaption>"
     ));
@@ -1267,7 +1267,12 @@ fn the_gate_refuses_a_publication_moment_that_no_longer_fits_its_source_once_app
 
 #[test]
 fn a_location_reads_as_plain_words_in_order() {
-    assert_eq!(location_text(&[at("62")]), "at 62");
+    // Timestamps read the way people say them, however they were written (ADR 0076).
+    assert_eq!(location_text(&[at("62")]), "at 1:02");
+    assert_eq!(location_text(&[at("0:01:02")]), "at 1:02");
+    assert_eq!(location_text(&[at("3725.50")]), "at 1:02:05.5");
+    assert_eq!(location_text(&[at("7")]), "at 0:07");
+    assert_eq!(location_text(&[span("0", "90")]), "from 0:00 to 1:30");
     assert_eq!(
         location_text(&[span("1:02", "1:10.5")]),
         "from 1:02 to 1:10.5"
@@ -1555,7 +1560,7 @@ fn the_preview_credits_quotations_precisely_and_shows_rights_guidance_as_escaped
         "<figcaption>{title} (Video), from 1:02 to 1:10</figcaption>"
     )));
     assert!(doc.contains("<blockquote lang=\"pt-BR\">"));
-    assert!(doc.contains("Line one &lt;script&gt;alert(1)&lt;/script&gt;\nLine two"));
+    assert!(doc.contains("Line one &lt;script&gt;alert(1)&lt;/script&gt;<br>Line two"));
     assert!(
         !doc.contains("<script>alert") && !doc.contains("<b>Host") && !doc.contains("<a href=x>")
     );

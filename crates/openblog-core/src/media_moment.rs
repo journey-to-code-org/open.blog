@@ -435,6 +435,27 @@ pub fn timestamp_value(text: &str) -> Option<TimestampValue> {
     })
 }
 
+/// A timestamp as people read it, whichever way it was written: `[h:]mm:ss` with minutes always
+/// shown and hours only when there are any, keeping a decimal fraction, so `62` reads `1:02`,
+/// `0:01:02` reads `1:02` and `3725.5` reads `1:02:05.5`. A value that is not a timestamp is
+/// returned as it is.
+pub fn human_timestamp(value: &str) -> String {
+    let Some(TimestampValue { seconds, fraction }) = timestamp_value(value) else {
+        return value.to_string();
+    };
+    let (hours, minutes, rest) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    let clock = if hours > 0 {
+        format!("{hours}:{minutes:02}:{rest:02}")
+    } else {
+        format!("{minutes}:{rest:02}")
+    };
+    if fraction.is_empty() {
+        clock
+    } else {
+        format!("{clock}.{fraction}")
+    }
+}
+
 /// A moment's locators as plain words, in order: "at 1:02", "from 1:02 to 1:10", "page 3",
 /// "pages 3 to 5", "chapter 2". The values are the participant's checked locator text (no
 /// control, bidirectional or bracket characters), so callers escape it like any other text.
@@ -444,8 +465,10 @@ pub fn location_text(locators: &[Locator]) -> String {
         .map(|locator| {
             let value = &locator.value;
             match (&locator.kind, locator.to.as_deref()) {
-                (LocatorKind::Timestamp, None) => format!("at {value}"),
-                (LocatorKind::Timestamp, Some(to)) => format!("from {value} to {to}"),
+                (LocatorKind::Timestamp, None) => format!("at {}", human_timestamp(value)),
+                (LocatorKind::Timestamp, Some(to)) => {
+                    format!("from {} to {}", human_timestamp(value), human_timestamp(to))
+                }
                 (LocatorKind::Page, None) => format!("page {value}"),
                 (LocatorKind::Page, Some(to)) => format!("pages {value} to {to}"),
                 (kind, None) => format!("{} {value}", kind.as_str()),

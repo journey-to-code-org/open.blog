@@ -243,11 +243,15 @@ const CONVERSATION_CATEGORIES: [&str; 5] = [
     "uncertainty",
 ];
 
-/// Whether an anchor is exactly one the generated conversation block produces:
-/// `continuing-the-conversation`, `conversation-<category>` or `conversation-<category>-<n>`.
+/// Whether an anchor is exactly one a generated block produces: the conversation's
+/// `continuing-the-conversation`, `conversation-<category>` or `conversation-<category>-<n>`, or
+/// the published moments' `moments-in-the-sources` or `moments-in-the-sources-<n>` (ADR 0076).
 /// Nothing else is reserved, so a heading such as "Conversation starters" is fine.
 pub fn is_reserved_anchor(id: &str) -> bool {
     let id = id.trim().to_ascii_lowercase();
+    if crate::published_moment::is_reserved_anchor(&id) {
+        return true;
+    }
     if id == CONVERSATION_ANCHOR {
         return true;
     }
@@ -283,7 +287,7 @@ impl ItemRule {
         match self {
             Self::Markup => "raw HTML, an unsafe link or image address, or Markdown that reaches another item",
             Self::Outline => "a heading above level 5, or one that skips a level (items may only use headings from level 5, one level deeper at a time)",
-            Self::ReservedAnchor => "a heading whose anchor is reserved for the generated conversation (`continuing-the-conversation` or `conversation-<category>[-<n>]`)",
+            Self::ReservedAnchor => "a heading whose anchor is reserved for the generated conversation (`continuing-the-conversation` or `conversation-<category>[-<n>]`) or the published moments (`moments-in-the-sources[-<n>]`)",
         }
     }
 }

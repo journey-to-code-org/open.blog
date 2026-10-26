@@ -268,6 +268,30 @@ authors revealed. Contributors hold it for themselves only, because a proposed m
 a required approver (ADR 0074).
 _Avoid_: EditSynthesis, EditDraft
 
+**Published moment**:
+The public projection of an approved media moment: where it is (the source's title and kind and the
+location, times read like `1:02`), who noted it (a display name), the quotation's words, language and
+quotation attribution, the observation, and the moment link. It has no field for rights, the rights
+note, provenance, ids, intent or seals, so none can be published. The gate appends every moment
+proposed for the piece, in order, after the rest of the Post under "Moments in the sources"; private
+moments never enter (ADR 0076).
+_Avoid_: Embed, clip, player, annotation
+
+**Moment link**:
+The published link of a moment, derived from its source's stored address and never stored: a link
+that starts at the moment where the provider's time parameter is known (YouTube), otherwise the
+original link unchanged, and no link at all when the source has no safe address, so the location
+stays text. Its label names the source and, when it starts there, the time (ADR 0072, 0076).
+_Avoid_: Embed, timestamp URL field
+
+**Moment frame**:
+The closed HTML grammar a Post body carries for published moments (`section`, `figure`, `blockquote`
+with the quotation's `lang`, `figcaption`, a link paragraph) around each observation's own Markdown.
+The page, the preview and portable HTML render it through the production renderer; portable Markdown,
+text and `llms-full.txt` read it back exactly and state the same facts without HTML, and the portable
+semantic check requires every fact in order (ADR 0077).
+_Avoid_: Widget, component, shortcode
+
 **Combined preview**:
 The side-effect-free review of the whole piece an author sees before approving: every author's
 section in order at its exact latest revision (an author who wrote nothing has no section and

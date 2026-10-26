@@ -6821,6 +6821,12 @@ fn prepare_post(
                 "A moment proposed for the piece no longer fits its source: the source was removed or its kind changed. Ask its author to edit the moment or keep it private, then approve again. Nothing was changed.",
             ))
         }
+        Err(AssemblyError::UnsafeMoment) => {
+            return Err(shared_problem(
+                "",
+                "A moment proposed for the piece has an observation that would change how another part of the piece reads, such as a link reference or an unclosed code block. Ask its author to edit the observation, then approve again. Nothing was changed.",
+            ))
+        }
         Err(AssemblyError::RuleUnmet { named, roles }) => {
             return Err(Response::json(
                 409,
@@ -23668,9 +23674,23 @@ series: letters
             assert_eq!(approve_as(&f, who, &id).status, 200);
         }
         assert_eq!(publish_as(&f, &ada, &id).status, 200);
-        // Rendering moments is a later task: nothing of the moment reaches the public post yet.
+        // The approved moment publishes with the piece, credited and linked, and nothing private
+        // about it does: no rights status or provenance, no moment or participant id (ADR 0076).
         let post = published_post(&f, &id).unwrap();
-        assert!(!post.contains("MOMENT") && !post.contains("moment-"));
+        assert!(post.contains("Moments in the sources"));
+        assert!(post.contains("<blockquote><p>MOMENT-QUOTE</p></blockquote>"));
+        assert!(post.contains("MOMENT-PROSE about it."));
+        assert!(post.contains("<figcaption>The host, in "));
+        assert!(post.contains("<p class=\"ob-moment-by\">Noted by Mikey</p>"));
+        for private in [
+            "\"moment-1",
+            "briefQuotation",
+            "transcribed",
+            "\"intent\"",
+            "rightsNote",
+        ] {
+            assert!(!post.contains(private), "the post carries `{private}`");
+        }
         // Once published, the moments are closed like the rest of the piece.
         let revision = moments_revision(&f, &mikey, &id);
         let late = moments_change(

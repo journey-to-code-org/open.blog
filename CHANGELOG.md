@@ -12,13 +12,23 @@ All notable changes to open.blog are recorded here. Releases follow
   writer offers, every author must approve it, and editing it afterwards asks everyone to approve
   again. Times are read the same way every time, a malformed one is refused without losing what
   was typed, and every moment keeps a link to the original source, starting at the moment where
-  the provider allows it. Nothing about moments is published yet.
+  the provider allows it.
 - Quotations in moments are now credited the same precise way everywhere in Admin and the combined
   preview: who said the words, the source and the time or page. Choosing a rights status shows plain
   guidance on what that status states, always as your own statement: open.blog does not check
   rights or decide how words may be used. You can add a one-line rights note for your co-authors,
   such as who gave permission, which is never published. A quotation that names no speaker or runs
   past 300 characters gets a gentle warning as you type, and still saves.
+- Approved moments are now published with the shared reflection, after everything else under
+  "Moments in the sources": where each one is in its source (times read like 1:02), who noted it,
+  the quotation in its own language credited to its speaker, source and time, the author's
+  observation, and a link that opens a YouTube video at the moment or otherwise links to the original
+  source. Nothing is embedded, so a removed or blocked video still leaves the title, the location
+  and the link, and a source without a link keeps its location as text. Portable HTML, Markdown and
+  text, RSS, JSON Feed and llms-full.txt carry the same moments in order, and an export that would
+  drop one is refused. The preview shows each moment exactly as it will be published. Rights
+  statements, rights notes and private moments are never published, and pieces without proposed
+  moments publish exactly as before.
 
 ## [0.30.0] - 2026-10-26
 
