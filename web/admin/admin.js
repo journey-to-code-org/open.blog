@@ -1823,10 +1823,16 @@ export function createDraftResearchPanel({ api, insert, onClose, onClaim, onClai
 
   const renderProblems = () => {
     const parts = [["library", "Sources"], ["notebook", "Passages and notes"], ["atlas", "Atlas entries"], ["comparisons", "Comparisons"]];
+    const failed = (key) => typeof data?.[key]?.error === "string";
+    // Comparisons are read against the sources and the notebook: when either failed, that part's
+    // own notice names the file to repair, and the comparisons blame nothing else.
+    const comparisonsBlocked = failed("library") || failed("notebook") || Boolean(data?.comparisons?.unavailableBecause);
+    const text = (key, label) => {
+      if (key === "comparisons" && comparisonsBlocked) return `${label}: Not offered while ${failed("library") ? "your sources" : "your passages and notes"} cannot be read. Nothing was changed.`;
+      return `${label}: ${data[key].error}${data[key].file ? ` Repair ${data[key].file} by hand.` : ""}`;
+    };
     problems.replaceChildren(
-      ...parts
-        .filter(([key]) => typeof data?.[key]?.error === "string")
-        .map(([key, label]) => h("p", { class: "oba-notice", "data-draft-research-problem": key }, `${label}: ${data[key].error}${data[key].file ? ` Repair ${data[key].file} by hand.` : ""}`)),
+      ...parts.filter(([key]) => failed(key)).map(([key, label]) => h("p", { class: "oba-notice", "data-draft-research-problem": key }, text(key, label))),
     );
   };
 

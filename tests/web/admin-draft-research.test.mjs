@@ -650,6 +650,25 @@ test("a store that cannot be read is reported in its own part and the rest still
   assert.deepEqual(shown(failed.root), []);
 }));
 
+test("comparisons blocked by an unreadable library or notebook never blame the alignments file", withDom(async () => {
+  for (const [part, said] of [["library", "your sources"], ["notebook", "your passages and notes"]]) {
+    const data = DATA();
+    data[part] = { error: "It could not be read, so it is not offered here. Nothing was changed.", file: `.openblog/private/research/${part}.json` };
+    // Even a server that still blamed the alignments file is not repeated.
+    data.comparisons = { error: "The comparisons could not be read. alignments.json: broken", file: ".openblog/private/research/alignments.json" };
+    const { root } = await mountPanel(data);
+    const problem = (key) => root.querySelectorAll("[data-draft-research-problem]").find((node) => node.dataset.draftResearchProblem === key).textContent;
+    const notice = problem("comparisons");
+    assert.equal(notice, `Comparisons: Not offered while ${said} cannot be read. Nothing was changed.`);
+    assert.doesNotMatch(notice, /alignments|Repair/);
+    assert.ok(problem(part).endsWith(`Repair .openblog/private/research/${part}.json by hand.`), problem(part));
+  }
+  const data = DATA();
+  data.comparisons = { error: "The comparisons could not be read, so it is not offered here. Nothing was changed.", file: ".openblog/private/research/alignments.json" };
+  const { root } = await mountPanel(data);
+  assert.match(root.querySelectorAll("[data-draft-research-problem]").find((node) => node.dataset.draftResearchProblem === "comparisons").textContent, /Repair \.openblog\/private\/research\/alignments\.json by hand\./);
+}));
+
 test("the panel builds DOM safely, has no motion, and reflows on narrow screens", () => {
   const start = admin.indexOf("export function createDraftResearchPanel");
   const end = admin.indexOf("/** Child indexes from `root` down to `node`", start);

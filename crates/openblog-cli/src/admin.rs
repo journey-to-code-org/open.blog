@@ -1481,40 +1481,58 @@ fn draft_research(state: &AppState) -> Response {
         }
     };
 
-    let comparisons = match alignment_store::load(&state.root, &contributors) {
-        Ok(snapshot) => {
-            let inputs = ComparisonInputs {
-                library: &snapshot.library,
-                notebook: &snapshot.notebook,
-                contributors: &contributors,
-            };
-            let items: Vec<Json> = snapshot
-                .alignments
-                .alignments
-                .iter()
-                .map(|alignment| {
-                    let approved = alignment.is_approved();
-                    // Published exactly when the build's projection would publish it.
-                    let published = comparisons_published
-                        && approved
-                        && PublicComparison::project(alignment, inputs).is_ok();
-                    json!({
-                        "id": alignment.id,
-                        "label": alignment.label,
-                        "approved": approved,
-                        "url": published.then(|| comparison_url(&alignment.id)),
-                        "interpretations": alignment
-                            .members
-                            .iter()
-                            .filter_map(|member| member.interpretation.as_deref())
-                            .collect::<Vec<_>>(),
+    // Comparisons are read against the library and the notebook. When either part already
+    // failed, that failure is the reason; the alignments file is not blamed or sent for repair.
+    let blocked_by = if library.get("error").is_some() {
+        Some(("library", "the source library"))
+    } else if notebook.get("error").is_some() {
+        Some(("notebook", "the research notebook"))
+    } else {
+        None
+    };
+    let comparisons = if let Some((part, what)) = blocked_by {
+        json!({
+            "error": format!(
+                "The comparisons are not offered while {what} cannot be read. Nothing was changed."
+            ),
+            "unavailableBecause": part,
+        })
+    } else {
+        match alignment_store::load(&state.root, &contributors) {
+            Ok(snapshot) => {
+                let inputs = ComparisonInputs {
+                    library: &snapshot.library,
+                    notebook: &snapshot.notebook,
+                    contributors: &contributors,
+                };
+                let items: Vec<Json> = snapshot
+                    .alignments
+                    .alignments
+                    .iter()
+                    .map(|alignment| {
+                        let approved = alignment.is_approved();
+                        // Published exactly when the build's projection would publish it.
+                        let published = comparisons_published
+                            && approved
+                            && PublicComparison::project(alignment, inputs).is_ok();
+                        json!({
+                            "id": alignment.id,
+                            "label": alignment.label,
+                            "approved": approved,
+                            "url": published.then(|| comparison_url(&alignment.id)),
+                            "interpretations": alignment
+                                .members
+                                .iter()
+                                .filter_map(|member| member.interpretation.as_deref())
+                                .collect::<Vec<_>>(),
+                        })
                     })
-                })
-                .collect();
-            json!({ "publish": comparisons_published, "url": COMPARISONS_URL, "items": items })
-        }
-        Err(error) => {
-            draft_research_problem("The comparisons", alignment_store::ALIGNMENTS_FILE, &error)
+                    .collect();
+                json!({ "publish": comparisons_published, "url": COMPARISONS_URL, "items": items })
+            }
+            Err(error) => {
+                draft_research_problem("The comparisons", alignment_store::ALIGNMENTS_FILE, &error)
+            }
         }
     };
 
@@ -14251,6 +14269,70 @@ mod tests {
             before,
             "nothing is repaired or replaced"
         );
+    }
+
+    #[test]
+    fn draft_research_comparisons_blame_the_part_that_failed_not_the_alignments_file() {
+        for (broken, part, what) in [
+            (
+                crate::source_store::LIBRARY_FILE,
+                "library",
+                "the source library",
+            ),
+            (
+                crate::notebook_store::NOTEBOOK_FILE,
+                "notebook",
+                "the research notebook",
+            ),
+        ] {
+            let f = draft_research_fixture(&format!("draft-research-blocked-{part}"));
+            let session = login_ok(&f);
+            fs::write(f.dir.join(broken), b"{ not json").unwrap();
+            let before = research_files(&f);
+            let response = handle(
+                &f.state,
+                &authed(req("GET", "/admin/api/research/draft"), &session, false),
+            );
+            assert_eq!(response.status, 200);
+            let body = body_json(&response);
+            assert_eq!(body[part]["file"], broken);
+            let comparisons = &body["comparisons"];
+            assert_eq!(
+                comparisons["error"],
+                format!("The comparisons are not offered while {what} cannot be read. Nothing was changed.")
+            );
+            assert_eq!(comparisons["unavailableBecause"], part);
+            assert!(comparisons.get("file").is_none(), "{comparisons}");
+            assert!(
+                !comparisons.to_string().contains("alignments"),
+                "{comparisons}"
+            );
+            assert_eq!(
+                research_files(&f),
+                before,
+                "nothing is repaired or replaced"
+            );
+        }
+
+        // The alignments file itself failing still names it for repair.
+        let f = draft_research_fixture("draft-research-blocked-alignments");
+        let session = login_ok(&f);
+        fs::write(
+            f.dir.join(crate::alignment_store::ALIGNMENTS_FILE),
+            b"{ not json",
+        )
+        .unwrap();
+        let response = handle(
+            &f.state,
+            &authed(req("GET", "/admin/api/research/draft"), &session, false),
+        );
+        let body = body_json(&response);
+        assert_eq!(
+            body["comparisons"]["file"],
+            crate::alignment_store::ALIGNMENTS_FILE
+        );
+        assert!(body["comparisons"].get("unavailableBecause").is_none());
+        assert_eq!(body["notebook"]["passages"][0]["id"], "cave");
     }
 
     #[test]
