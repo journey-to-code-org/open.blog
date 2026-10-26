@@ -1,11 +1,13 @@
 # Knowledge Atlas format
 
 The private Knowledge Atlas holds contextual entries and the attributed relationships between
-them. It is owned by `openblog_core::knowledge_atlas`; decisions are in
-[ADR 0058](../adr/0058-knowledge-atlas-entries-keep-their-kind.md) and
-[ADR 0059](../adr/0059-attributed-evidence-based-relationships.md). Nothing reads or writes an
-atlas file yet, and nothing in it reaches a public page, feed, search index or export until an
-explicit publication projection copies approved items.
+them. It is owned by `openblog_core::knowledge_atlas` and stored by the CLI's `atlas_store`;
+decisions are in [ADR 0058](../adr/0058-knowledge-atlas-entries-keep-their-kind.md),
+[ADR 0059](../adr/0059-attributed-evidence-based-relationships.md),
+[ADR 0060](../adr/0060-private-knowledge-atlas-storage.md) and
+[ADR 0061](../adr/0061-one-lock-order-and-cross-store-research-guards.md). Nothing in it reaches
+a public page, feed, search index, `llms.txt` or export until an explicit publication
+projection copies approved items.
 
 ```json
 {
@@ -69,3 +71,35 @@ entry's approval never makes the atlas invalid.
 
 Unknown fields are preserved at every level; contributor credit fields are refused; diagnostics
 are scoped to collection, index, id and field and never repeat authored text.
+
+## Storage
+
+The atlas is one file, `.openblog/private/research/atlas.json`, in canonical form
+(deterministic pretty JSON, trailing newline). Its **atlas revision** is the SHA-256 of the
+stored bytes, or of the empty atlas while no file exists. Every change names the revision it
+was based on and is refused as a conflict when the file has changed, including by hand edit.
+Changes are validated against the stored source library and notebook, written to a temporary
+file and renamed while holding the atlas, notebook and library locks in that order, so a
+refused or interrupted change leaves the file as it was. A symlinked, damaged, oversized or
+newer-version file is reported with its path and never replaced, and a damaged library or
+notebook blocks atlas changes.
+
+| Operation | Rule |
+| --- | --- |
+| create entry or relationship | Refuses an id any entry or relationship uses. |
+| update entry or relationship | Refuses an unknown id; an entry keeps its kind. |
+| remove entry | Refused while a relationship joins it; reports notes left with an unresolved concept link. |
+| remove relationship | Always allowed. |
+
+Other stores protect it: removing a source-library record the atlas uses (a work entry's
+`source`, evidence, or an attribution) is refused with `still-used`, removing a notebook
+passage atlas evidence points to is refused with `still-linked`, and an atlas that cannot be
+read blocks both removals. A library or notebook edit that would turn a valid atlas invalid
+is refused. `openblog check` validates a stored atlas, prints approved relationships the
+projection would leave out as `notice:` lines that name ids only, and says nothing when there
+is no atlas. The hosted workspace keeps the file durable with the 4 MiB library limit. A copy
+of an atlas inside `content/`, `static/` or a theme stops the build, `serve`, `check` and
+publish.
+
+`Atlas::index` gives sorted lookup tables computed from file order: entries by kind,
+relationships by entry, users by source and users by passage. Nothing is indexed on disk.

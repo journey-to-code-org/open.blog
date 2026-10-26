@@ -10,6 +10,14 @@ All notable changes to open.blog are recorded here. Releases follow
   and that never present a contested relationship as consensus. Research-note concept links now
   have a defined home in concept entries; existing notebooks are unchanged. Nothing reads or writes
   an atlas yet, so no site output changes.
+- The Knowledge Atlas is now stored privately in `.openblog/private/research/atlas.json` and
+  checked by `openblog check`, which also notes approved relationships that stay private
+  because an entry they join is private. Withdrawing an entry's approval is never refused,
+  events can answer, influence and be influenced, and removing a concept your notes link to is
+  allowed and lists those notes. A source or notebook passage the atlas uses cannot be removed
+  until the atlas stops using it, and a copy of the atlas inside `content/`, `static/` or a
+  theme stops the build and publishing. Nothing from the atlas reaches your site, feeds,
+  search, `llms.txt` or exports.
 
 ## [0.27.0] - 2026-10-25
 

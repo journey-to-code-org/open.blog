@@ -597,6 +597,17 @@ The explicit state of a relationship that cites no evidence yet. It can be neith
 approved.
 _Avoid_: Unverified, low confidence
 
+**Projected relationship**:
+An approved relationship whose two entries are both approved, and so the only kind the
+publication projection may copy. An approved relationship touching a private entry stays
+private and is reported as a notice, never refused.
+_Avoid_: Public relationship, approved relationship when a private endpoint is possible
+
+**Atlas revision**:
+The fingerprint of the Knowledge Atlas as stored, which every change must name so that a change
+based on an older read is refused instead of overwriting newer work.
+_Avoid_: Version, which names the file format
+
 ## Admin workspace
 
 **Workspace preferences**:

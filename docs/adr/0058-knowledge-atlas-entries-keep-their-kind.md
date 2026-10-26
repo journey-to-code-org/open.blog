@@ -68,7 +68,8 @@ one identifier space of immutable lowercase slugs.
   applies to the written form. A newer version is refused rather than reinterpreted; control
   and bidirectional override characters are refused in text.
 
-Storage, revision checks and atomic writes (following ADR 0010 and 0035), Admin UI and the
+Storage, revision checks and atomic writes (following ADR 0010 and 0035, decided in
+[ADR 0060](0060-private-knowledge-atlas-storage.md)), Admin UI and the
 publication projection are separate slices.
 
 ## Consequences

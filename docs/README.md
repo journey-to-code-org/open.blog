@@ -77,7 +77,10 @@ citation checks with CSL JSON and BibTeX exports of a post's cited references
 ([ADR 0050](adr/0050-offline-citation-checks-and-portable-bibliography-exports.md)), and the
 [Knowledge Atlas format](specs/knowledge-atlas.md), which keeps people, works, concepts, movements and
 events typed and records every relationship as an attributed, evidence-backed assertion that is
-never presented as consensus.
+never presented as consensus, stored privately beside the notebook
+([ADR 0060](adr/0060-private-knowledge-atlas-storage.md)) with one lock order and guards that
+keep sources and passages it uses from being removed
+([ADR 0061](adr/0061-one-lock-order-and-cross-store-research-guards.md)).
 
 ## Command reference
 
@@ -87,7 +90,7 @@ openblog init [dir] [--title "..."] [--github-pages]
 openblog new "Title" [--series s] [--tags a,b] [--draft] [--recipe]
 openblog build [--drafts] [--out dir]   Write the site to dist/
 openblog serve [--admin] [--drafts] [--host 127.0.0.1] [--port 8080]
-openblog check                          Validate content, themes, and the private source library and notebook, write nothing
+openblog check                          Validate content, themes, and the private source library, notebook and Knowledge Atlas, write nothing
 openblog export <slug> [--format markdown|csl-json|bibtex] [--out path] [--write]
                                         Preview or write portable Markdown, or the post's
                                         cited references as CSL JSON or BibTeX
