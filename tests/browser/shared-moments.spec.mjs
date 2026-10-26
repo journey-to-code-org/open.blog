@@ -185,18 +185,22 @@ test("a moment is captured with the keyboard alone at phone width, and a malform
 test("several media list in source order, and a source with no link keeps the location as text", async ({ page, context }) => {
   await install(context);
   await openPanel(page);
+  const items = panel(page).locator(".oba-moments-list > li");
+  // Every add says the same "Moment added", so wait for this save's own moment to be listed
+  // before typing the next: typing during a save is reset when the save finishes.
   const add = async (source, kind, value, words) => {
+    const before = await items.count();
     await panel(page).getByLabel("Source", { exact: true }).selectOption(source);
     await panel(page).getByLabel("Kind of location").selectOption(kind);
     await panel(page).getByLabel("Location", { exact: true }).fill(value);
     await panel(page).getByLabel("Your observation (Markdown, optional)").fill(words);
     await panel(page).getByRole("button", { name: "Add moment" }).click();
+    await expect(items).toHaveCount(before + 1);
     await expect(panel(page).getByRole("status")).toContainText("Moment added");
   };
   await add("source-3", "timestamp", "5:00", "On the podcast.");
   await add("source-2", "page", "12", "In the book.");
   await add("source-1", "timestamp", "0:30", "On the video.");
-  const items = panel(page).locator(".oba-moments-list > li");
   await expect(items).toHaveCount(3);
   await expect(items.nth(0)).toContainText("A talk on video");
   await expect(items.nth(1)).toContainText("This source has no link. The location is kept with the moment.");
