@@ -19,6 +19,8 @@ use std::time::Duration;
 
 use blake2::{Blake2s256, Digest};
 use openblog_core::accessibility::AuditScope;
+use openblog_core::chronology::{Aspect, ChronoKey, TemporalOrder, MAX_DATINGS, MAX_YEAR};
+use openblog_core::chronology_index::{date_text, ChronologyIndex};
 use openblog_core::citations::{self, PublicLocator};
 use openblog_core::claims;
 use openblog_core::collaboration::{
@@ -1739,6 +1741,90 @@ fn atlas_kinds() -> Json {
                 "acyclic": kind.is_acyclic(),
             }))
             .collect::<Vec<_>>(),
+        // What a dating may date on each owner, so the dating editor offers
+        // only aspects the core accepts and a duration only where one lasts.
+        "aspects": Aspect::ALL
+            .iter()
+            .map(|aspect| json!({
+                "aspect": aspect.as_str(),
+                "durative": aspect.is_durative(),
+                "entries": names(&EntryKind::ALL
+                    .into_iter()
+                    .filter(|kind| aspect.applies_to(*kind))
+                    .collect::<Vec<_>>()),
+                "relationship": *aspect == Aspect::Span,
+            }))
+            .collect::<Vec<_>>(),
+        "orders": TemporalOrder::ALL.iter().map(|order| order.as_str()).collect::<Vec<_>>(),
+        "maxDatings": MAX_DATINGS,
+        "maxYear": MAX_YEAR,
+    })
+}
+
+/// The chronology index for the explorer (ADR 0096, ADR 0097): every dating,
+/// private or approved, in the index's one display order, with its owner, its
+/// stated value read back at its own precision, and the first and last year
+/// it covers (none for an open end, a relative or an unknown dating), plus the
+/// structural prompts. Nothing is chosen, merged or dropped, and this view is
+/// for the author only, like the rest of Admin.
+fn atlas_chronology(atlas: &knowledge_atlas::Atlas) -> Json {
+    let index = ChronologyIndex::of(atlas);
+    let mut found = BTreeMap::new();
+    for (position, entry) in atlas.entries.iter().enumerate() {
+        for (at, dating) in entry.dates.iter().enumerate() {
+            found.insert(
+                dating.id.as_str(),
+                ("entries", position, entry.id.as_str(), at, dating),
+            );
+        }
+    }
+    for (position, relationship) in atlas.relationships.iter().enumerate() {
+        for (at, dating) in relationship.dates.iter().enumerate() {
+            found.insert(
+                dating.id.as_str(),
+                (
+                    "relationships",
+                    position,
+                    relationship.id.as_str(),
+                    at,
+                    dating,
+                ),
+            );
+        }
+    }
+    let timeline: Vec<Json> = index
+        .by_time
+        .iter()
+        .filter_map(|id| found.get(id.as_str()))
+        .map(|(collection, position, owner, at, dating)| {
+            let (placement, start, end) = match dating.key() {
+                ChronoKey::Dated { start, end } => (
+                    "dated",
+                    (start.0 != i32::MIN).then_some(start.0),
+                    (end.0 != i32::MAX).then_some(end.0),
+                ),
+                ChronoKey::Relative => ("relative", None, None),
+                ChronoKey::Unknown => ("unknown", None, None),
+            };
+            json!({
+                "id": dating.id,
+                "owner": owner,
+                "collection": collection,
+                "index": position,
+                "field": format!("dates[{at}]"),
+                "aspect": dating.aspect,
+                "text": date_text(&dating.date),
+                "placement": placement,
+                "startYear": start,
+                "endYear": end,
+                "projected": atlas.is_dating_projected(owner, dating),
+            })
+        })
+        .collect();
+    json!({
+        "timeline": timeline,
+        "prompts": index.prompts,
+        "unlisted": index.unlisted,
     })
 }
 
@@ -1768,6 +1854,7 @@ fn atlas_view(snapshot: &atlas_store::Snapshot) -> Json {
         "entries": atlas.entries,
         "relationships": atlas.relationships,
         "notices": atlas.notices(),
+        "chronology": atlas_chronology(atlas),
         "missingConcepts": atlas.missing_concepts(&snapshot.notebook),
         "kinds": atlas_kinds(),
         "sources": snapshot.library.sources,
@@ -14628,7 +14715,7 @@ mod tests {
     // Every atlas field holds its own sentinel, including approved items: the site
     // does not publish its atlas, so approval alone must not open any surface.
 
-    const ATLAS_SENTINELS: [(&str, &str); 14] = [
+    const ATLAS_SENTINELS: [(&str, &str); 18] = [
         ("entry id", "ob-atlas-entry-id-5309"),
         ("label", "ob-atlas-label-5309"),
         ("alias", "ob-atlas-alias-5309"),
@@ -14646,6 +14733,10 @@ mod tests {
         ),
         ("evidence unknown field", "ob-atlas-evidence-extra-5309"),
         ("top-level unknown field", "ob-atlas-top-extra-5309"),
+        ("dating id", "ob-atlas-dating-id-5309"),
+        ("dating note", "ob-atlas-dating-note-5309"),
+        ("dating party", "ob-atlas-dating-party-5309"),
+        ("dating unknown field", "ob-atlas-dating-extra-5309"),
     ];
 
     fn atlas_leaked(bytes: &[u8]) -> Vec<&'static str> {
@@ -14677,7 +14768,14 @@ mod tests {
         let person = Entry::from_json(json!({
             "id": ATLAS_SENTINELS[0].1, "kind": "person", "label": ATLAS_SENTINELS[1].1,
             "aliases": [ATLAS_SENTINELS[2].1], "summary": ATLAS_SENTINELS[3].1,
-            "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1}))
+            "visibility": "approved", "shelf": ATLAS_SENTINELS[8].1,
+            // An approved, cited dating: published with the atlas (ADR 0099),
+            // except its unknown field.
+            "dates": [{"id": ATLAS_SENTINELS[14].1, "aspect": "birth",
+                "date": {"notBefore": {"year": -428, "circa": true}, "notAfter": {"century": -5}},
+                "assertedBy": {"kind": "named", "name": ATLAS_SENTINELS[16].1},
+                "evidence": [{"source": "slings"}], "note": ATLAS_SENTINELS[15].1,
+                "visibility": "approved", "shelf": ATLAS_SENTINELS[17].1}]}))
         .unwrap();
         let work = Entry::from_json(json!({"id": "politeia", "kind": "work",
             "label": "Politeia", "source": "plato", "visibility": "approved"}))
@@ -14733,8 +14831,11 @@ mod tests {
         assert!(names.iter().any(|name| name.ends_with(".xml")), "a feed");
         for file in &files {
             let name = crate::fsutil::relative(&dist, file);
+            // The timeline component ships with every site like any other
+            // component; it holds no atlas data and no page loads it unless
+            // the site publishes datings.
             assert!(
-                !name.contains("atlas")
+                (!name.contains("atlas") || name == "assets/components/ob-atlas-timeline.js")
                     && (name == crate::fsutil::MARKER || !name.contains(".openblog")),
                 "{name}"
             );
@@ -16117,6 +16218,166 @@ mod tests {
     const HOSTILE_LABEL: &str = "<img src=x onerror=alert(1)> Πλάτων 🙂";
 
     #[test]
+    fn the_atlas_view_carries_the_chronology_index_and_its_prompts_for_the_explorer() {
+        let f = fixture_with_sources("atlas-chronology");
+        let session = login_ok(&f);
+        let empty = atlas(&f, &session);
+        // The dating editor reads which aspects each owner may use from the core.
+        let aspects = empty["kinds"]["aspects"].as_array().unwrap();
+        let birth = aspects.iter().find(|a| a["aspect"] == "birth").unwrap();
+        assert_eq!(birth["entries"], json!(["person"]));
+        assert_eq!(birth["durative"], false);
+        assert_eq!(birth["relationship"], false);
+        let span = aspects.iter().find(|a| a["aspect"] == "span").unwrap();
+        assert_eq!(span["relationship"], true);
+        assert_eq!(span["durative"], true);
+        assert_eq!(
+            empty["kinds"]["orders"],
+            json!(["before", "after", "during"])
+        );
+        assert_eq!(empty["kinds"]["maxDatings"], 20);
+        assert_eq!(
+            empty["chronology"],
+            json!({"timeline": [], "prompts": [], "unlisted": 0}),
+            "an empty atlas has an empty timeline"
+        );
+
+        let dating = |id: &str, aspect: &str, date: Json, party: Json| {
+            json!({"id": id, "aspect": aspect, "date": date, "assertedBy": party,
+                "evidence": [{"source": "slings"}], "note": HOSTILE_LABEL})
+        };
+        let person = json!({"id": "plato", "kind": "person", "label": "Plato", "dates": [
+            dating("plato-born-b", "birth", json!({"at": {"year": -427}}), json!({"kind": "author"})),
+            dating("plato-born-a", "birth", json!({"at": {"year": -428, "circa": true}}),
+                json!({"kind": "named", "name": "Diogenes"})),
+            dating("plato-died", "death", json!({"notAfter": {"century": -6}}), json!({"kind": "author"})),
+            dating("plato-active", "active", json!({"from": {"decade": -390}}), json!({"kind": "author"})),
+            dating("plato-unknown", "death", json!({"unknown": true}), json!({"kind": "source", "source": "plato"})),
+        ]});
+        let (status, created) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": empty["revision"], "entry": person}),
+        );
+        assert_eq!(status, 201, "{created}");
+        let work = json!({"id": "laws", "kind": "work", "label": "Laws", "dates": [
+            dating("laws-after", "composition",
+                json!({"relative": {"order": "after", "entry": "plato", "aspect": "active"}}),
+                json!({"kind": "author"})),
+        ]});
+        let (status, saved) = source_call(
+            &f,
+            &session,
+            "POST",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": created["revision"], "entry": work}),
+        );
+        assert_eq!(status, 201, "{saved}");
+        let chronology = &saved["chronology"];
+        let timeline = chronology["timeline"].as_array().unwrap();
+        let order: Vec<&str> = timeline.iter().map(|d| d["id"].as_str().unwrap()).collect();
+        // Open start first, then by stated day; relative, then unknown, last.
+        assert_eq!(
+            order,
+            [
+                "plato-died",
+                "plato-born-a",
+                "plato-born-b",
+                "plato-active",
+                "laws-after",
+                "plato-unknown"
+            ]
+        );
+        let died = &timeline[0];
+        assert_eq!(died["text"], "not after 6th century BCE");
+        assert_eq!(died["startYear"], Json::Null, "an open start has no year");
+        assert_eq!(died["endYear"], -501);
+        assert_eq!(died["placement"], "dated");
+        assert_eq!(died["collection"], "entries");
+        assert_eq!(died["owner"], "plato");
+        assert_eq!(died["field"], "dates[2]");
+        assert_eq!(timeline[1]["text"], "c. 428 BCE");
+        assert_eq!(timeline[3]["text"], "from the 390s BCE");
+        assert_eq!(timeline[3]["startYear"], -399);
+        assert_eq!(timeline[3]["endYear"], Json::Null);
+        assert_eq!(timeline[4]["placement"], "relative");
+        assert_eq!(timeline[4]["text"], "after `plato` active");
+        assert_eq!(timeline[4]["index"], 1);
+        assert_eq!(timeline[5]["placement"], "unknown");
+        assert_eq!(timeline[5]["projected"], false);
+        // Both competing birth datings are kept; neither is chosen.
+        assert_eq!(
+            timeline.iter().filter(|d| d["aspect"] == "birth").count(),
+            2
+        );
+        // A death that ends before either birth can begin is a prompt, never a verdict.
+        let prompts = chronology["prompts"].as_array().unwrap();
+        let codes: Vec<&str> = prompts
+            .iter()
+            .map(|p| p["code"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            codes,
+            [
+                "outside-lifetime",
+                "death-before-birth",
+                "death-before-birth"
+            ]
+        );
+        assert_eq!(prompts[1]["collection"], "entries");
+        assert_eq!(prompts[1]["id"], "plato");
+        assert_eq!(prompts[1]["field"], "dates[2]");
+        assert_eq!(prompts[1]["datings"], json!(["plato-died", "plato-born-a"]));
+        assert!(prompts
+            .iter()
+            .all(|p| p["message"].as_str().unwrap().contains("check")));
+        assert!(
+            !chronology.to_string().contains(HOSTILE_LABEL),
+            "the index repeats no note"
+        );
+        assert!(
+            !chronology.to_string().contains("Diogenes"),
+            "the index repeats no party name"
+        );
+        assert_eq!(atlas(&f, &session)["chronology"], *chronology);
+
+        // A dating edited in Admin keeps unknown fields at every level, and a
+        // refused one is scoped to its field and leaves the file unchanged.
+        let mut edited = saved["entries"][0].clone();
+        edited["dates"][0]["shelf"] = json!("kept");
+        edited["dates"][0]["date"]["at"]["hint"] = json!(1);
+        edited["dates"][0]["date"]["margin"] = json!(2);
+        let (status, kept) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": saved["revision"], "entry": edited}),
+        );
+        assert_eq!(status, 200, "{kept}");
+        let first = &kept["entry"]["dates"][0];
+        assert_eq!(first["shelf"], "kept");
+        assert_eq!(first["date"]["at"]["hint"], 1);
+        assert_eq!(first["date"]["margin"], 2);
+        let before = stored_atlas(&f).unwrap();
+        let mut year_zero = kept["entry"].clone();
+        year_zero["dates"][1]["date"] = json!({"at": {"year": 0}});
+        let (status, refused) = source_call(
+            &f,
+            &session,
+            "PUT",
+            "/admin/api/research/atlas/entries",
+            json!({"revision": kept["revision"], "entry": year_zero}),
+        );
+        assert_eq!(status, 422, "{refused}");
+        assert_eq!(refused["diagnostics"][0]["field"], "dates[1].date.at.year");
+        assert_eq!(refused["diagnostics"][0]["id"], "plato");
+        assert_eq!(stored_atlas(&f).unwrap(), before);
+    }
+
+    #[test]
     fn knowledge_atlas_api_is_authenticated_csrf_protected_and_revision_checked() {
         let f = fixture_with_sources("atlas-api");
         for (method, path) in [
@@ -16569,7 +16830,7 @@ mod tests {
     // level, private entries, private relationships and relationships to a private
     // entry never appear anywhere, and withdrawing approval removes them all.
 
-    const PUBLISHABLE: [usize; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10];
+    const PUBLISHABLE: [usize; 13] = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 14, 15, 16];
     const NEVER_PUBLIC: [(&str, &str); 3] = [
         ("private entry", "ob-atlas-private-entry-5309"),
         ("private relationship", "ob-atlas-private-relationship-5309"),
@@ -16614,7 +16875,7 @@ mod tests {
         f.state.rebuild().unwrap();
         let dist = f.dir.join("dist");
         let never = |text: &str| -> Vec<&'static str> {
-            let mut found: Vec<&'static str> = [8, 11, 12, 13]
+            let mut found: Vec<&'static str> = [8, 11, 12, 13, 17]
                 .iter()
                 .filter(|&&index| text.contains(ATLAS_SENTINELS[index].1))
                 .map(|&index| ATLAS_SENTINELS[index].0)
@@ -16658,6 +16919,13 @@ mod tests {
                 .unwrap();
         assert!(page.contains("<strong>Contested:</strong>"));
         assert!(page.contains(ATLAS_SENTINELS[10].1) && page.contains(ATLAS_SENTINELS[9].1));
+        // The approved dating is on the entry's page and the timeline, with
+        // its party and note; its unknown field is not (checked above).
+        assert!(page.contains(&format!("id=\"atlas-d-{}\"", ATLAS_SENTINELS[14].1)));
+        assert!(page.contains(ATLAS_SENTINELS[15].1) && page.contains(ATLAS_SENTINELS[16].1));
+        let index = fs::read_to_string(dist.join("atlas/index.html")).unwrap();
+        assert!(index.contains(&format!("id=\"atlas-d-{}\"", ATLAS_SENTINELS[14].1)));
+        assert!(index.contains("/assets/components/ob-atlas-timeline.js"));
 
         // The public server serves the projection, and still never the private file.
         let response = crate::serve::route(&f.state, &req("GET", "/atlas.json"), &dist);

@@ -883,12 +883,115 @@ publication projection may copy. An approved relationship touching a private ent
 private and is reported as a notice, never refused.
 _Avoid_: Public relationship, approved relationship when a private endpoint is possible
 
+**Dating**:
+One party's attributed claim about when one aspect of an atlas entry or relationship happened,
+resting on cited evidence (or explicitly unsourced), with a confidence and a note. It is private
+until approved and is never a fact.
+_Avoid_: Date field, the date of something; a date without who gives it
+
+**Dated aspect**:
+What a dating dates: an entry's `span`, a person's `birth`, `death` or `active` period, a work's
+`composition` or `publication`, a concept's or movement's `emergence`, or the `span` during which
+a relationship held. Only span, active and composition last. The chronology explorer lists one
+item's dated aspect (Plato's birth) as one row holding all its competing datings, and its filters
+show or hide a whole dated aspect, never one of its datings.
+_Avoid_: Event type, role; a timeline bar or merged date range for one aspect
+
+**Date expression**:
+The one form a dating takes: a point (`at`), a duration (`from`/`to`), a date window
+(`notBefore`/`notAfter`), unknown, or a relative dating.
+_Avoid_: Date string, parsed date
+
+**Date precision**:
+How finely a point is stated: day, month, year, decade or century. A point is read back exactly
+as written; nothing rounds, widens or narrows it.
+_Avoid_: Accuracy, granularity guessed from text
+
+**Circa**:
+A point the party gives as approximate. It is kept beside the point and does not move it.
+_Avoid_: Fuzzy date, estimated (when the party did not say so)
+
+**Date window**:
+The time inside which something happened, with an inclusive earliest (`notBefore`) and latest
+(`notAfter`) point; an open end is what "after" or "before" a date means.
+_Avoid_: Range (ambiguous with a duration), terminus as a stored word
+
+**Unknown date**:
+A party's explicit statement that a date is unknown. It is never coerced to a point and sorts
+after every dated item; having no dating at all simply means undated.
+_Avoid_: Null date, year 0, a placeholder year
+
+**Competing datings**:
+Two or more datings of the same aspect, by different parties or as one party's alternatives.
+They stand side by side in file order; nothing prefers, merges or resolves them.
+_Avoid_: Correct date, consensus date, resolved date
+
+**Relative dating**:
+A dating that places an aspect before, after or during another entry's aspect. It is the atlas's
+only temporal relationship: asserted and cited like any dating, never inferred from absolute
+dates, and never a relationship kind or a reason for one.
+_Avoid_: Preceded or contemporary-of relationship; order inferred from years
+
+**Calendar policy**:
+Years are historical BCE/CE years with no year 0. A month and day may name the calendar they
+are stated in (Gregorian or Julian); nothing converts calendars, and points in different
+calendars are compared by year only.
+_Avoid_: Normalized date, proleptic conversion
+
+**Projected dating**:
+An approved, cited dating with no notebook passage whose entry or relationship is published and,
+if relative, whose other entry is approved. Anything else stays private and is reported as a
+notice, never refused.
+_Avoid_: Public date; approved dating when its owner may be private
+
+**Chronology index**:
+Every dating of the atlas, private or approved, placed by the entry or relationship it dates, by
+aspect and on one timeline, in one deterministic display order that does not depend on file
+order. Competing, circa, relative and unknown datings are all kept; nothing is chosen, merged or
+linked by closeness in time. It is for the author's tools and is never published.
+_Avoid_: Canonical timeline, resolved dates, contemporaries
+
+**Chronology prompt**:
+A structural, non-blocking notice that some recorded datings cannot all hold as stated, such as a
+death dated before a birth or relative datings ordering two works both ways round. It names
+dating ids and their stated values, asks the author to check them against the cited evidence, and
+never says which dating is right; only relationships and relative datings someone asserted are
+followed across entries.
+_Avoid_: Chronology error, conflict resolution, verdict, inferred influence
+
+**Chronology explorer**:
+Admin Studio's text view of the chronology index: dated aspects in one display order, grouped by
+century, decade or year at the author's choice, with relative datings as sentences and
+chronology prompts as checks that link to the dating. It is lists and words only, private to the
+author, and never resolves or ranks datings.
+_Avoid_: Timeline chart, canonical chronology, zoomable graph
+
 **Atlas projection**:
 The one public form of the Knowledge Atlas: approved entries and projected relationships, each
 reduced to an explicit allowlist of fields, with the public description of the sources they use.
 Both the atlas pages and `atlas.json` are rendered from it, and nothing public reads the private
 atlas. Withdrawing approval removes an item from the next build.
 _Avoid_: Public atlas export, public graph; filtering the private atlas per surface
+
+**Published dating**:
+A projected dating as the atlas projection publishes it: who dates what, on which cited evidence,
+how firmly and with what note, at the precision stated and read back in words with BCE written
+out. Competing published datings appear side by side, in the chronology's one order, and none is
+preferred.
+_Avoid_: Public date, the date of an entry, resolved date
+
+**Public timeline**:
+The `/atlas/` section that lists every published dating as text, by the century in which each
+dated aspect's earliest dating begins, with aspects not placed in time listed apart. It reads
+completely without JavaScript; its component only filters whole dated aspects and moves focus to
+a period. Order on it never means cause or influence.
+_Avoid_: Timeline chart, canonical chronology, contemporaries list
+
+**Chronology trail**:
+The path a reader follows from one entry to another through published relative datings, one
+asserted, attributed and cited step at a time, each linked both ways. Nothing chains steps, infers
+an order from dates, or turns a step into a relationship.
+_Avoid_: Influence chain, inferred sequence, derived timeline
 
 **Atlas publication switch**:
 The site setting `knowledgeAtlas.publish`. Off by default, when no build reads the atlas at all;

@@ -1974,6 +1974,12 @@ ob-passage-feedback [hidden] {
   border-bottom: var(--ob-border-width) solid var(--ob-color-border);
 }
 
+/* A long unbroken title wraps instead of pushing the page sideways. */
+.ob-archive li > a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Search ---------- */
 
 .ob-search-form {
@@ -2239,4 +2245,27 @@ ob-back-to-top button:hover {
 .ob-moment-quotation figcaption { margin-top: 0.4rem; font-size: 0.9rem; color: var(--ob-color-muted); }
 @media print {
   .ob-moment-link a::after { content: " (" attr(href) ")"; }
+}
+
+/* Knowledge Atlas datings and timeline (ADR 0099, ADR 0100): static lists that read in order
+   without CSS or JavaScript. Competing datings sit side by side where there is room and stack
+   on narrow screens; nothing moves. Print shows the whole timeline without its filters. */
+.ob-atlas-datings { list-style: none; padding: 0; display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.ob-atlas-dating { min-width: 0; overflow-wrap: anywhere; padding: 0.5rem 0.75rem; border: 1px solid var(--ob-color-border); border-radius: var(--ob-radius-sm, 4px); }
+.ob-atlas-dating dl { margin: 0.25rem 0 0; }
+.ob-atlas-dating dd { margin-inline-start: 1rem; }
+.ob-atlas-date { margin: 0; font-weight: 600; }
+.ob-atlas-periods, .ob-atlas-aspects { padding-inline-start: 0; list-style: none; }
+.ob-atlas-aspect { margin: 0 0 1.25rem; min-width: 0; overflow-wrap: anywhere; }
+.ob-atlas-aspect-name { margin-bottom: 0.25rem; font-weight: 600; }
+.ob-atlas-trail li { margin-bottom: 0.5rem; overflow-wrap: anywhere; }
+.ob-atlas-timeline-tools { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; align-items: center; margin: 1rem 0; }
+.ob-atlas-timeline-field { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0; }
+.ob-atlas-timeline-tools select { max-width: 100%; }
+.ob-atlas-timeline-status { flex-basis: 100%; margin: 0; }
+@media print {
+  .ob-atlas-timeline-tools { display: none !important; }
+  .ob-atlas-timeline li[hidden] { display: list-item !important; }
+  .ob-atlas-timeline section[hidden] { display: block !important; }
+  .ob-atlas-dating { break-inside: avoid; }
 }
