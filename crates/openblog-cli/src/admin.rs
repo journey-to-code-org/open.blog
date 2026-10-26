@@ -15875,7 +15875,24 @@ mod tests {
             files.sort();
             files
         };
+        // The post the research leaves out of the projections, quoting a
+        // private notebook passage as a hard-wrapped blockquote: the author's
+        // own published text, which the text guard must not refuse.
+        let quoting = format!(
+            "---
+title: Cave
+date: 2026-10-01
+---
+
+What I read:
+
+> {}
+> {}
+",
+            "ZqxLeak passagehidden sentinel", "words kept private"
+        );
         let f = fixture("boundary-legacy");
+        fs::write(f.dir.join("content/posts/cave.md"), &quoting).unwrap();
         production(&f.dir);
         let legacy = snapshot(&f.dir);
         let seeded = boundary_fixture("boundary-legacy-seeded");
@@ -15886,7 +15903,7 @@ mod tests {
             config.as_object_mut().unwrap().remove(switch);
         }
         fs::write(&config_path, config.to_string()).unwrap();
-        fs::remove_file(seeded.dir.join("content/posts/cave.md")).unwrap();
+        fs::write(seeded.dir.join("content/posts/cave.md"), &quoting).unwrap();
         production(&seeded.dir);
         let with_research = snapshot(&seeded.dir);
         assert_eq!(

@@ -36,6 +36,7 @@ use crate::context_links::{find_context_links, ContextKind};
 use crate::knowledge_atlas::{Atlas, Visibility};
 use crate::model::Post;
 use crate::research_notes::Notebook;
+use crate::shingles::{each_shingle, Form};
 use crate::source_library::SourceLibrary;
 
 /// The version of the serialized [`BoundaryManifest`].
@@ -1229,53 +1230,6 @@ fn never(inputs: &BoundaryInputs<'_>) -> Vec<NeverPublished> {
 
 // ---------------------------------------------------------------- the private text guard
 
-/// How many bytes of text one window of the guard covers. Shorter private
-/// text (an id, a kind, a date) is not guarded by text; the projections'
-/// allowlists keep it out.
-pub const GUARD_WINDOW: usize = 32;
-const BASE: u64 = 1_000_003;
-
-/// Bytes that read the same in HTML, JSON, XML and Markdown output: ASCII
-/// letters, digits and spaces, and every byte of a non-ASCII character.
-/// Anything that an output format escapes or rewrites breaks a window.
-fn safe(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b' ' || byte >= 0x80
-}
-
-fn fold(byte: u8) -> u8 {
-    byte.to_ascii_lowercase()
-}
-
-/// Call `found(start, hash)` for every window of safe bytes in `bytes`, or
-/// only for windows that start a run or a word.
-fn each_window(bytes: &[u8], word_starts_only: bool, mut found: impl FnMut(usize, u64)) {
-    let mut power = 1u64;
-    for _ in 1..GUARD_WINDOW {
-        power = power.wrapping_mul(BASE);
-    }
-    let mut run_start = 0;
-    let mut hash = 0u64;
-    for (index, &byte) in bytes.iter().enumerate() {
-        if !safe(byte) {
-            run_start = index + 1;
-            hash = 0;
-            continue;
-        }
-        let length = index + 1 - run_start;
-        if length > GUARD_WINDOW {
-            let out = u64::from(fold(bytes[index - GUARD_WINDOW]));
-            hash = hash.wrapping_sub(out.wrapping_mul(power));
-        }
-        hash = hash.wrapping_mul(BASE).wrapping_add(u64::from(fold(byte)));
-        if length >= GUARD_WINDOW {
-            let start = index + 1 - GUARD_WINDOW;
-            if !word_starts_only || start == run_start || bytes[start - 1] == b' ' {
-                found(start, hash);
-            }
-        }
-    }
-}
-
 /// Where a piece of private text came from: the file, the record's id when
 /// it has one, and the field, as a JSON path.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -1309,16 +1263,16 @@ impl std::fmt::Display for Leak {
     }
 }
 
-/// The text of every private research file, as windows the build can look
-/// for in its output. Text that a public input or an approved projection
-/// also holds is allowed and dropped, so only text that could have come
-/// from nowhere but private research is guarded.
+/// The text of every private research file, as word shingles the build can
+/// look for in its output (see [`crate::shingles`]). A shingle that a public
+/// input or an approved projection also holds is allowed and dropped, so only
+/// text that could have come from nowhere but private research is guarded.
+/// Text of fewer than [`SHINGLE_WORDS`] words is not guarded by text.
 #[derive(Debug, Default)]
 pub struct PrivateText {
-    texts: Vec<(usize, Vec<u8>)>,
     origins: Vec<PrivateOrigin>,
-    /// Window hash to the texts and offsets it occurs at.
-    windows: HashMap<u64, Vec<(u32, u32)>>,
+    /// Shingle hash to the origin it first occurs in.
+    shingles: HashMap<u64, u32>,
 }
 
 impl PrivateText {
@@ -1337,7 +1291,7 @@ impl PrivateText {
                     id: None,
                     field: "(the whole file)".into(),
                 },
-                bytes.to_vec(),
+                &String::from_utf8_lossy(bytes),
             ),
         }
     }
@@ -1354,7 +1308,7 @@ impl PrivateText {
                         path
                     },
                 },
-                text.as_bytes().to_vec(),
+                text,
             ),
             Value::Array(items) => {
                 for (index, item) in items.iter().enumerate() {
@@ -1380,67 +1334,61 @@ impl PrivateText {
         }
     }
 
-    fn add_text(&mut self, origin: PrivateOrigin, text: Vec<u8>) {
-        if text.len() < GUARD_WINDOW {
-            return;
+    fn add_text(&mut self, origin: PrivateOrigin, text: &str) {
+        let index = self.origins.len() as u32;
+        let before = self.shingles.len();
+        each_shingle(text, Form::Plain, |hash| {
+            self.shingles.entry(hash).or_insert(index);
+        });
+        if self.shingles.len() > before {
+            self.origins.push(origin);
         }
-        let index = self.texts.len() as u32;
-        let mut found = Vec::new();
-        each_window(&text, true, |start, hash| found.push((start as u32, hash)));
-        if found.is_empty() {
-            return;
-        }
-        for (start, hash) in found {
-            self.windows.entry(hash).or_default().push((index, start));
-        }
-        self.texts.push((self.origins.len(), text));
-        self.origins.push(origin);
     }
 
-    /// Allow everything `text` holds: a public input or an approved
-    /// projection's output.
-    pub fn allow(&mut self, text: &[u8]) {
-        if self.windows.is_empty() {
+    /// Allow every shingle of `text` as written: a public input field such
+    /// as a post's text or title.
+    pub fn allow_text(&mut self, text: &str) {
+        self.allow(text, Form::Plain);
+    }
+
+    /// Allow every shingle of a public file or an approved projection's
+    /// output (HTML, JSON, Markdown, plain text).
+    pub fn allow_output(&mut self, text: &str) {
+        self.allow(text, Form::Output);
+    }
+
+    fn allow(&mut self, text: &str, form: Form) {
+        if self.shingles.is_empty() {
             return;
         }
-        each_window(text, false, |_, hash| {
-            self.windows.remove(&hash);
+        each_shingle(text, form, |hash| {
+            self.shingles.remove(&hash);
         });
     }
 
     /// Whether nothing is guarded.
     pub fn is_empty(&self) -> bool {
-        self.windows.is_empty()
+        self.shingles.is_empty()
+    }
+
+    /// How many shingles are still guarded.
+    pub fn guarded(&self) -> usize {
+        self.shingles.len()
     }
 
     /// The first private text `output` carries, if any.
     pub fn find(&self, path: &str, output: &[u8]) -> Option<Leak> {
-        if self.windows.is_empty() {
+        if self.shingles.is_empty() {
             return None;
         }
         let mut leak = None;
-        each_window(output, false, |start, hash| {
-            if leak.is_some() {
-                return;
-            }
-            let Some(candidates) = self.windows.get(&hash) else {
-                return;
-            };
-            let window = &output[start..start + GUARD_WINDOW];
-            for &(text, offset) in candidates {
-                let (origin, bytes) = &self.texts[text as usize];
-                let offset = offset as usize;
-                let private = &bytes[offset..offset + GUARD_WINDOW];
-                if private
-                    .iter()
-                    .zip(window)
-                    .all(|(a, b)| fold(*a) == fold(*b))
-                {
+        each_shingle(&String::from_utf8_lossy(output), Form::Output, |hash| {
+            if leak.is_none() {
+                if let Some(&origin) = self.shingles.get(&hash) {
                     leak = Some(Leak {
                         output: path.to_string(),
-                        origin: self.origins[*origin].clone(),
+                        origin: self.origins[origin as usize].clone(),
                     });
-                    return;
                 }
             }
         });
@@ -1452,43 +1400,100 @@ impl PrivateText {
 mod tests {
     use super::*;
 
+    const SHORT_NOTES: [&str; 2] = [
+        "Check again: Smith (2003) disagrees, see p. 41; the 1987 letter is key.",
+        "I'm not sure Plato's cave is meant literally - ask Dana before publishing.",
+    ];
+
+    fn guarded(texts: &[&str]) -> PrivateText {
+        let mut guard = PrivateText::new();
+        for (index, text) in texts.iter().enumerate() {
+            guard.add_file(
+                Store::Notebook,
+                serde_json::json!({"notes": [{"id": format!("n{index}"), "text": text}]})
+                    .to_string()
+                    .as_bytes(),
+            );
+        }
+        guard
+    }
+
     #[test]
-    fn the_guard_finds_private_text_through_escaping_and_case_but_not_allowed_text() {
+    fn the_guard_finds_private_text_through_wrapping_markup_escaping_and_case() {
         let mut guard = PrivateText::new();
         guard.add_file(
             Store::Notebook,
             br#"{"version":1,"notes":[{"id":"n1","kind":"observation","text":"Private musing about the shadows on the wall of the cave"}],"passages":[{"id":"p1","source":"s","excerpt":{"text":"The wording an approved comparison shows to every reader"}}]}"#,
         );
-        guard.allow(b"{\"text\":\"The wording an approved comparison shows to every reader\"}");
+        guard.allow_output(
+            "{\"text\":\"The wording an approved comparison shows to every reader\"}",
+        );
         assert!(guard
             .find(
                 "comparisons.json",
                 b"<p>The wording an approved comparison shows to every reader</p>"
             )
             .is_none());
-        let leak = guard
-            .find(
-                "index.html",
-                b"<p>&quot;PRIVATE MUSING about the shadows on the wall&quot;</p>",
-            )
-            .unwrap();
-        assert_eq!(leak.output, "index.html");
-        assert_eq!(leak.origin.store, Store::Notebook);
-        assert_eq!(leak.origin.id.as_deref(), Some("n1"));
-        assert_eq!(leak.origin.field, "text");
-        let said = leak.to_string();
-        assert!(!said.contains("musing"), "{said}");
+        for output in [
+            "<p>&quot;PRIVATE MUSING about the shadows on the wall&quot;</p>",
+            "<p>Private musing about
+the <em>shadows</em> on the
+wall of the cave</p>",
+            "<p>Private musing about the <a href=\"/x\">shadows</a> on the wall</p>",
+        ] {
+            let leak = guard.find("index.html", output.as_bytes()).expect(output);
+            assert_eq!(leak.output, "index.html");
+            assert_eq!(leak.origin.store, Store::Notebook);
+            assert_eq!(leak.origin.id.as_deref(), Some("n1"));
+            assert_eq!(leak.origin.field, "text");
+            let said = leak.to_string();
+            assert!(!said.contains("musing"), "{said}");
+        }
         assert!(guard
             .find("other.html", b"<p>A wall, a cave, and shadows.</p>")
             .is_none());
     }
 
     #[test]
-    fn short_text_and_ids_are_not_guarded_by_text() {
+    fn short_and_punctuated_private_notes_are_guarded() {
+        let guard = guarded(&SHORT_NOTES);
+        for (output, id) in [
+            (
+                "<p>Check again: <strong>Smith</strong> (2003) disagrees, see p. 41; the 1987 letter is key.</p>",
+                "n0",
+            ),
+            (
+                "<meta name=\"description\" content=\"I&#39;m not sure Plato&#39;s cave is meant literally - ask Dana before publishing.\">",
+                "n1",
+            ),
+            (
+                r#"{"body":"i\u0027m not sure plato\u2019s cave is meant\nliterally ask dana"}"#,
+                "n1",
+            ),
+        ] {
+            let leak = guard.find("page.html", output.as_bytes()).expect(output);
+            assert_eq!(leak.origin.id.as_deref(), Some(id), "{output}");
+        }
+    }
+
+    #[test]
+    fn allowed_text_is_dropped_shingle_by_shingle() {
+        let mut guard = guarded(&SHORT_NOTES);
+        guard.allow_text("A post quotes it: Check again: Smith (2003) disagrees, see p. 41; the 1987 letter is key.");
+        assert!(guard
+            .find("p.html", b"Check again: Smith (2003) disagrees, see p. 41")
+            .is_none());
+        assert!(guard
+            .find("p.html", b"not sure Plato's cave is meant literally")
+            .is_some());
+    }
+
+    #[test]
+    fn text_shorter_than_a_shingle_and_ids_are_not_guarded_by_text() {
         let mut guard = PrivateText::new();
         guard.add_file(
             Store::Atlas,
-            br#"{"version":2,"entries":[{"id":"plato","label":"Plato"}]}"#,
+            br#"{"version":2,"entries":[{"id":"plato","label":"Plato","note":"ask Dana before publishing"}]}"#,
         );
         assert!(guard.is_empty());
         let mut damaged = PrivateText::new();

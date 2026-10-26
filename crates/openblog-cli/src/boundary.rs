@@ -221,12 +221,48 @@ fn read_capped(path: &Path, cap: u64) -> Option<Vec<u8>> {
 }
 
 const TEXT_EXTENSIONS: &[&str] = &[
-    "md", "markdown", "txt", "html", "htm", "json", "xml", "svg", "csv", "css", "js", "mjs", "yml",
-    "yaml", "toml",
+    "md",
+    "markdown",
+    "txt",
+    "html",
+    "htm",
+    "json",
+    "xml",
+    "svg",
+    "csv",
+    "css",
+    "js",
+    "mjs",
+    "yml",
+    "yaml",
+    "toml",
+    "rss",
+    "atom",
+    "webmanifest",
 ];
 
-/// The guard for this site: every private research file's text, less what a
-/// public input or an approved projection also holds.
+/// Whether a copied static or theme file is text the guard scans: a known
+/// text extension, or none at all (`CNAME`, `_redirects`, `robots`).
+fn scanned_extension(file: &Path) -> bool {
+    match file.extension().and_then(|extension| extension.to_str()) {
+        Some(extension) => TEXT_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()),
+        None => true,
+    }
+}
+
+fn allow_file(guard: &mut PrivateText, path: &Path) {
+    if let Some(bytes) = read_capped(path, MAX_ALLOWED_FILE) {
+        guard.allow_output(&String::from_utf8_lossy(&bytes));
+    }
+}
+
+/// The guard for this site: every private research file's text, less what
+/// THIS build publishes (ADR 0137): the text of the published posts and
+/// pages, the published reader feedback file, the site's own configuration,
+/// the approved projections and the descriptions of the sources they publish.
+/// Drafts, held-back posts, other content files and the static and theme
+/// files are not public input: the static and theme files are copied out, so
+/// they are scanned like any other output.
 fn guard(root: &Path, site: &Site) -> PrivateText {
     let mut guard = PrivateText::new();
     for store in Store::ALL {
@@ -237,62 +273,107 @@ fn guard(root: &Path, site: &Site) -> PrivateText {
     if guard.is_empty() {
         return guard;
     }
-    // Public inputs: the author's own text is public wherever it came from.
     let config = &site.config;
-    if let Some(bytes) = read_capped(&root.join("openblog.json"), MAX_ALLOWED_FILE) {
-        guard.allow(&bytes);
+    // The author's own configuration: the site's title, navigation, authors.
+    allow_file(&mut guard, &root.join("openblog.json"));
+    let content = root.join(&config.paths.content);
+    allow_file(
+        &mut guard,
+        &content.join(openblog_core::feedback_publication::READER_FEEDBACK_FILE),
+    );
+    // The published posts, as written and as rendered.
+    for post in &site.posts {
+        for text in [
+            post.title.as_str(),
+            post.description.as_str(),
+            post.cover_alt.as_str(),
+            post.text.as_str(),
+            post.publication_markdown(),
+        ] {
+            guard.allow_text(text);
+        }
+        if let Some(subtitle) = &post.subtitle {
+            guard.allow_text(subtitle);
+        }
+        guard.allow_output(&post.html);
+        for tag in &post.tags {
+            guard.allow_text(&tag.name);
+        }
+        if let Some(attribution) = &post.shared_attribution {
+            if let Some(question) = &attribution.question {
+                guard.allow_text(question);
+            }
+            if let Some(source) = &attribution.source {
+                guard.allow_text(&source.title);
+            }
+        }
+        allow_file(&mut guard, &content.join(&post.source));
+        // A source's public description is the citation allowlist (ADR 0044),
+        // published with the post that cites it.
+        if let Some(citations) = post.citations() {
+            for reference in &citations.references {
+                allow_reference(&mut guard, reference);
+            }
+        }
     }
+    for page in &site.pages {
+        guard.allow_text(&page.title);
+        guard.allow_text(&page.description);
+        guard.allow_text(&page.text);
+        guard.allow_output(&page.html);
+        allow_file(&mut guard, &content.join(&page.source));
+    }
+    for series in &site.series {
+        guard.allow_text(&series.name);
+        guard.allow_text(&series.description_text);
+        guard.allow_output(&series.description_html);
+        if let Some(source) = &series.source {
+            allow_file(&mut guard, &content.join(source));
+        }
+    }
+    for tag in &site.tags {
+        guard.allow_text(&tag.name);
+    }
+    // Approved projections, as the build renders them.
+    if let Some(atlas) = &site.atlas {
+        guard.allow_output(&atlas.to_json());
+    }
+    if let Some(comparisons) = &site.comparisons {
+        guard.allow_output(&comparisons.to_json());
+    }
+    guard.allow_output(
+        &openblog_core::claim_publication::PublicClaimEvidence::of(&site.posts).to_json(),
+    );
+    guard
+}
+
+fn allow_reference(guard: &mut PrivateText, reference: &openblog_core::citations::PublicReference) {
+    if let Ok(json) = serde_json::to_string(reference) {
+        guard.allow_output(&json);
+    }
+    guard.allow_text(&openblog_core::citations::format_reference(reference));
+}
+
+/// The static and theme files a build copies out, as `(output path, bytes)`:
+/// the files the guard scans because nothing allows their text.
+fn copied_files(root: &Path, config: &openblog_core::SiteConfig) -> Vec<(String, Vec<u8>)> {
     let private = fsutil::PrivateState::of(root);
-    for dir in [
-        &config.paths.content,
-        &config.paths.static_dir,
-        &config.paths.themes,
+    let mut copied = Vec::new();
+    for (dir, prefix) in [
+        (&config.paths.static_dir, ""),
+        (&config.paths.themes, "themes/"),
     ] {
-        for file in fsutil::walk(&root.join(dir)) {
-            let text = file
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| {
-                    TEXT_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
-                });
-            if !text || private.contains(&file) {
+        let base = root.join(dir);
+        for file in fsutil::walk(&base) {
+            if !scanned_extension(&file) || private.contains(&file) {
                 continue;
             }
             if let Some(bytes) = read_capped(&file, MAX_ALLOWED_FILE) {
-                guard.allow(&bytes);
+                copied.push((format!("{prefix}{}", fsutil::relative(&base, &file)), bytes));
             }
         }
     }
-    if let Ok(json) = serde_json::to_string(&config.contributors) {
-        guard.allow(json.as_bytes());
-    }
-    // Approved projections, as the build renders them.
-    for post in &site.posts {
-        guard.allow(post.publication_markdown().as_bytes());
-    }
-    if let Some(atlas) = &site.atlas {
-        guard.allow(atlas.to_json().as_bytes());
-    }
-    if let Some(comparisons) = &site.comparisons {
-        guard.allow(comparisons.to_json().as_bytes());
-    }
-    guard.allow(
-        openblog_core::claim_publication::PublicClaimEvidence::of(&site.posts)
-            .to_json()
-            .as_bytes(),
-    );
-    // A source's public description is the citation allowlist (ADR 0044): it
-    // is published wherever a citation or a projection uses the source.
-    if let Ok(snapshot) = source_store::load_for_build(root, &config.contributors) {
-        for record in &snapshot.library.sources {
-            let reference = openblog_core::citations::public_reference(record);
-            if let Ok(json) = serde_json::to_string(&reference) {
-                guard.allow(json.as_bytes());
-            }
-            guard.allow(openblog_core::citations::format_reference(&reference).as_bytes());
-        }
-    }
-    guard
+    copied
 }
 
 fn ids_at(value: &Value, list: &str) -> Vec<String> {
@@ -376,11 +457,20 @@ pub fn check_output(
         ));
     }
     let guard = guard(root, site);
+    if guard.is_empty() {
+        return Ok(());
+    }
+    let copied = copied_files(root, &site.config);
     let leaks = guard_files(
         &guard,
         files
             .iter()
-            .map(|file| (file.path.as_str(), file.contents.as_bytes())),
+            .map(|file| (file.path.as_str(), file.contents.as_bytes()))
+            .chain(
+                copied
+                    .iter()
+                    .map(|(path, bytes)| (path.as_str(), bytes.as_slice())),
+            ),
     );
     if leaks.is_empty() {
         return Ok(());
@@ -408,7 +498,7 @@ fn leak_refusal(leaks: &[openblog_core::publication_boundary::Leak]) -> String {
         .collect();
     let more = leaks.len().saturating_sub(NAMED_LEAKS);
     format!(
-        "refusing to build: private research would be published: {}{}. No approved projection or public file holds that text, so nothing was written. Approve the item through its projection, or remove the text from what publishes it.",
+        "refusing to build: private research would be published: {}{}. That text appears in a public output but not in any post or page this build publishes, and no approved projection holds it, so nothing was written. Remove it from where that output gets it (a static or theme file, a template or the configuration), or publish it deliberately: write it in a post, or approve the item through its projection. A note or passage is never published by itself.",
         named.join("; "),
         if more > 0 {
             format!(" and {more} more")
@@ -548,6 +638,226 @@ mod tests {
             error.contains("`atlas.json` names the atlas entry `secret`"),
             "{error}"
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    const PASSAGE: &str =
+        "Plato's prisoners are not a metaphor for anything at all, really, said the reader.";
+    const SHORT_NOTES: [&str; 2] = [
+        "Check again: Smith (2003) disagrees, see p. 41; the 1987 letter is key.",
+        "I'm not sure Plato's cave is meant literally - ask Dana before publishing.",
+    ];
+
+    /// A fresh site with a notebook of one passage and two short, punctuated
+    /// notes, and no projection switched on.
+    fn research_site(tag: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("openblog-guard-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        crate::scaffold::init(&root, Some("Guard"), false).unwrap();
+        let research = root.join(".openblog/private/research");
+        fs::create_dir_all(&research).unwrap();
+        fs::write(
+            research.join("sources.json"),
+            r#"{"version":1,"sources":[{"id":"plato","kind":"work","title":"Politeia"}]}"#,
+        )
+        .unwrap();
+        let notebook = serde_json::json!({
+            "version": 1,
+            "passages": [{"id": "p1", "source": "plato", "excerpt": {"text": PASSAGE}}],
+            "notes": [
+                {"id": "n1", "kind": "observation", "text": SHORT_NOTES[0]},
+                {"id": "n2", "kind": "question", "text": SHORT_NOTES[1]},
+            ],
+        });
+        fs::write(research.join("notebook.json"), notebook.to_string()).unwrap();
+        root
+    }
+
+    fn build_into(root: &Path, out: &Path) -> Result<crate::site::BuildReport, String> {
+        crate::site::build(
+            root,
+            &crate::site::BuildOptions {
+                include_drafts: false,
+                out_override: Some(out.to_path_buf()),
+                now: None,
+            },
+        )
+    }
+
+    fn write_post(root: &Path, name: &str, front: &str, body: &str) {
+        fs::write(
+            root.join(format!("content/posts/{name}.md")),
+            format!("---\ntitle: {name}\ndate: 2026-01-07\n{front}---\n\n{body}\n"),
+        )
+        .unwrap();
+    }
+
+    fn tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
+        fsutil::walk(dir)
+            .into_iter()
+            .map(|file| (fsutil::relative(dir, &file), fs::read(&file).unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn a_post_quoting_a_passage_builds_however_it_wraps_emphasises_or_links_it() {
+        let root = research_site("quotes");
+        write_post(
+            &root,
+            "wrapped",
+            "",
+            "> Plato's prisoners are not a metaphor\n> for anything at all, really,\n> said the reader.",
+        );
+        write_post(
+            &root,
+            "emphasis",
+            "",
+            "Plato's prisoners are **not** a metaphor for *anything* at all, really, said the reader.",
+        );
+        write_post(
+            &root,
+            "linked",
+            "",
+            "Plato's prisoners are not a [metaphor](https://example.org/metaphor) for anything at all, really, said the reader.",
+        );
+        write_post(
+            &root,
+            "described",
+            &format!("description: {PASSAGE}\n"),
+            "A post.",
+        );
+        let out = root.join("out");
+        let report = build_into(&root, &out);
+        assert!(report.is_ok(), "{:?}", report.err());
+        // The quote reached the search index, llms.txt and the feeds, which
+        // join its wrapped lines and strip its markup.
+        let files = tree(&out);
+        for path in ["search.json", "llms-full.txt", "rss.xml", "feed.json"] {
+            let (_, bytes) = files.iter().find(|(file, _)| file == path).expect(path);
+            let text = String::from_utf8_lossy(bytes).to_lowercase();
+            assert!(text.contains("prisoners are not a metaphor"), "{path}");
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn short_punctuated_notes_leaked_through_static_or_theme_files_refuse_the_build() {
+        for (tag, path, shown, contents, id) in [
+            (
+                "static-note",
+                "static/notes.txt",
+                "notes.txt",
+                format!("Reminder.\n\n{}\n", SHORT_NOTES[0]),
+                "n1",
+            ),
+            (
+                "static-page",
+                "static/extra.html",
+                "extra.html",
+                format!(
+                    "<meta name=\"description\" content=\"{}\">",
+                    SHORT_NOTES[1].replace('\'', "&#39;")
+                ),
+                "n2",
+            ),
+            (
+                "theme-file",
+                "themes/mine/readme.txt",
+                "themes/mine/readme.txt",
+                SHORT_NOTES[1].replace(" - ", "\n- "),
+                "n2",
+            ),
+        ] {
+            let root = research_site(tag);
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(&file, contents).unwrap();
+            let out = root.join("out");
+            let error = build_into(&root, &out).err().expect(tag);
+            for expected in [
+                "refusing to build",
+                &format!("`{shown}`"),
+                "the research notebook",
+                &format!("`{id}`"),
+                "nothing was written",
+                "write it in a post",
+            ] {
+                assert!(error.contains(expected), "{tag}: {expected}: {error}");
+            }
+            assert!(
+                !error.contains("Smith") && !error.contains("Dana"),
+                "{error}"
+            );
+            assert!(!out.join("index.html").exists(), "{tag}");
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn a_draft_or_unrelated_content_file_does_not_make_private_text_public() {
+        let root = research_site("draft");
+        // A draft quotes the note; the build does not publish the draft, so
+        // its text is not an input that allows anything.
+        write_post(&root, "draft-quote", "draft: true\n", SHORT_NOTES[0]);
+        fs::write(root.join("static/notes.txt"), SHORT_NOTES[0]).unwrap();
+        let out = root.join("out");
+        let error = build_into(&root, &out).err().expect("refused");
+        assert!(
+            error.contains("`notes.txt`") && error.contains("`n1`"),
+            "{error}"
+        );
+        // Published, the same quote is the author's own text.
+        write_post(&root, "draft-quote", "", SHORT_NOTES[0]);
+        let built = build_into(&root, &out);
+        assert!(built.is_ok(), "{:?}", built.err());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_refused_build_leaves_the_output_folder_as_it_was() {
+        let root = research_site("rollback");
+        let out = root.join("out");
+        build_into(&root, &out).unwrap();
+        let before = tree(&out);
+        assert!(!before.is_empty());
+        fs::write(root.join("static/notes.txt"), SHORT_NOTES[1]).unwrap();
+        write_post(
+            &root,
+            "later",
+            "",
+            "A new post that would have been written.",
+        );
+        assert!(build_into(&root, &out).is_err());
+        assert_eq!(tree(&out), before, "nothing was written, nothing removed");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_portable_export_carrying_private_text_is_refused_and_a_quote_is_not() {
+        let root = research_site("export");
+        write_post(&root, "quote", "", &format!("> {PASSAGE}"));
+        let (site, _) = crate::site::load_site(&root, false, None).unwrap();
+        assert_eq!(
+            check_export(&root, &site, "quote.md", &format!("> {PASSAGE}")),
+            Ok(())
+        );
+        let error = check_export(
+            &root,
+            &site,
+            "quote.md",
+            &format!("An export that also says: {}", SHORT_NOTES[0]),
+        )
+        .unwrap_err();
+        for expected in [
+            "refusing to export",
+            "`quote.md`",
+            "`n1`",
+            "no file was written",
+        ] {
+            assert!(error.contains(expected), "{expected}: {error}");
+        }
+        assert!(!error.contains("Smith"), "{error}");
         let _ = fs::remove_dir_all(root);
     }
 

@@ -94,6 +94,7 @@ pub mod scholarly_feedback;
 pub mod search;
 pub mod shared_series;
 pub mod shared_source;
+pub mod shingles;
 pub mod slug;
 pub mod source_interchange;
 pub mod source_library;
