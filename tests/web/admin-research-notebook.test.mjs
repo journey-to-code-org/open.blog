@@ -571,7 +571,7 @@ test("the notebook is reachable from the research tools, the palette, the router
   assert.match(admin, /head === "research"\) await this\.showResearch\(\)/);
   assert.match(admin, /label: "Research notebook", category: "Research"/);
   assert.match(admin, /"data-research-capture": "true", onClick: \(\) => this\.openResearchCapture\(\)/);
-  assert.match(admin, /\["sources", "research", "atlas"\]\.includes\(this\.activeRoute\)/);
+  assert.match(admin, /\["sources", "research", "atlas", "compare"\]\.includes\(this\.activeRoute\)/);
 });
 
 test("capture code never parses text as markup and the dialog hands focus back to the draft", () => {
