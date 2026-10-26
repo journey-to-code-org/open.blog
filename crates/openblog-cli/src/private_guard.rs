@@ -3,7 +3,8 @@
 //! The notebook itself is never read by a build. What can still go wrong is
 //! that its bytes arrive in public input some other way: an exported research
 //! bundle saved into `static/` or `content/`, a copy of the notebook,
-//! Knowledge Atlas or claims file, or a symlink. These guards recognise such files by structure (see
+//! Knowledge Atlas, claims file or alignments file, or a symlink. These guards
+//! recognise such files by structure (see
 //! [`openblog_core::research_bundle::looks_like_private_research`]), not by any
 //! particular words, so a post that quotes the same passage is never flagged,
 //! and they report only the file's path, never its contents.
@@ -98,7 +99,7 @@ pub fn refuse_private_research_in_public_inputs(
         return Ok(());
     }
     Err(format!(
-        "refusing to build: {} look{} like private research (a research export, or a copy of the notebook, Knowledge Atlas or claims file) inside a public folder, so it would be published. Move {} outside content, static and themes; builds never publish private research.",
+        "refusing to build: {} look{} like private research (a research export, or a copy of the notebook, Knowledge Atlas, claims file or alignments file) inside a public folder, so it would be published. Move {} outside content, static and themes; builds never publish private research.",
         found
             .iter()
             .map(|path| format!("`{path}`"))
@@ -286,6 +287,39 @@ mod tests {
         let leaked = openblog_core::OutputFile {
             path: "api/evidence.json".into(),
             contents: claims.into(),
+        };
+        assert!(refuse_private_research_in_output(&[leaked]).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_alignments_file_copy_in_a_public_folder_is_refused_by_structure_alone() {
+        let root = temp_root("alignments");
+        let config = SiteConfig::default();
+        fs::create_dir_all(root.join("static/data")).unwrap();
+        let alignments = r#"{"version":1,"alignments":[{"id":"a1","label":"ob-alignment-secret","members":[{"source":"e","passage":"p"},{"source":"t","absent":true}]}]}"#;
+        fs::write(root.join("static/data/compare.json"), alignments).unwrap();
+        // Public data that merely mentions alignments stays publishable.
+        fs::write(
+            root.join("static/data/alignments.json"),
+            r#"{"version":1,"alignments":[{"id":"x","title":"A layout setting"}]}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(root.join(".openblog/private/research")).unwrap();
+        fs::write(
+            root.join(".openblog/private/research/alignments.json"),
+            alignments,
+        )
+        .unwrap();
+        assert_eq!(
+            public_inputs_with_private_research(&root, &config),
+            ["static/data/compare.json"]
+        );
+        let error = refuse_private_research_in_public_inputs(&root, &config).unwrap_err();
+        assert!(!error.contains("ob-alignment-secret"), "{error}");
+        let leaked = openblog_core::OutputFile {
+            path: "api/compare.json".into(),
+            contents: alignments.into(),
         };
         assert!(refuse_private_research_in_output(&[leaked]).is_err());
         fs::remove_dir_all(root).unwrap();

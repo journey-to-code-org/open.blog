@@ -76,6 +76,61 @@ All notable changes to open.blog are recorded here. Releases follow
 - On a phone or at high zoom (320 pixels wide), Admin's header now wraps instead of making every
   Admin view scroll sideways.
 
+## [0.34.0] - 2026-10-26
+
+- The private source library can now record more about each version of a work: which earlier
+  edition an edition revises, the repository and shelfmark of a manuscript, how many volumes an
+  edition has (so a page names its volume), and your own statement of the rights in a version's
+  text, which is unknown until you state it and is never a legal judgement. Creators can be
+  marked as stated, attributed, uncertain or disputed, and a work can be marked anonymous. The
+  library can also hold private interpretations: your own or someone else's rendering or reading
+  of a place in an exact edition, translation or manuscript, attributed to a contributor or a
+  named person. Contributors named on an interpretation cannot be removed from the registry
+  until it changes. Existing libraries read and save exactly as before, and none of this is
+  published.
+- Editing a creator's name or role in the Admin source form no longer drops its attribution
+  certainty or note, and editing a reference's location keeps its volume. A reference to an edition
+  or manuscript in several volumes now has a Volume field.
+- Building a site no longer fails when an interpretation in the private source library names a
+  contributor who was later removed from the registry; `openblog check` and Admin still report it.
+- The private research area can now hold passage alignments: your record of which places in
+  different editions, translations, manuscripts and interpretations correspond, including one
+  place split across several, several merged into one, and a version that lacks the passage.
+  Each alignment says who aligned the places and on what evidence, keeps the original wording
+  apart from your normalized form of it, and never claims the places mean the same thing. They
+  are stored privately in `.openblog/private/research/alignments.json`, checked by `openblog
+  check`, synced by the hosted workspace, available to Admin through
+  `/admin/api/research/alignments`, and never published. A source, interpretation or passage an
+  alignment uses cannot be removed until the alignment stops using it.
+- Admin Studio has a new **Compare** research tool for reading aligned passages across editions,
+  translations, manuscripts and interpretations, side by side or in a single column (which is also
+  how it reads on a phone). Every place names its version, its editor, translator, scribe or
+  interpreters, and its locator; original wording is shown exactly, right-to-left text keeps its
+  direction, your normalizations appear only when you ask and are labelled, and a version that
+  lacks the passage says so. You can add, edit, reorder, and remove alignments and their places
+  there, with your draft kept if someone else changed the alignment first. Copy and download take
+  only the places you select, carry each version's rights statement, leave out your notes on
+  places unless you tick "Include my notes on places", and ask you to confirm when a version's
+  rights are unchecked or reserved. Nothing is published.
+- A site that publishes its Knowledge Atlas no longer fails to build when an interpretation in the
+  private source library names a contributor who was later removed from the registry.
+- Sites can now publish the passage comparisons you approve. Turn on `comparisons.publish` in
+  `openblog.json`, then tick "Approve this comparison for publication" on an alignment in Admin's
+  Compare tool: the site gains `/comparisons/`, a page for each approved comparison and
+  `/comparisons.json`. Every place names its version, its editor, translator, scribe or
+  interpreters, its locators and the rights statement you recorded. Its wording is quoted exactly,
+  in its own language and direction, only where you state the version's rights as permission, an
+  open licence, the public domain or your own work, and only up to 1,000 characters; a version
+  whose rights are unknown or reserved is identified but never quoted. Interpretations are
+  attributed and kept apart from the text they interpret, your normalizations appear only if you
+  choose, and your notes on places, rights notes and unapproved alignments are never published.
+  Before approving, each place in Compare says what a public page would show; saving rebuilds the
+  site at once, as does changing the rights or wording of a source or passage a published
+  comparison uses, and clearing approval removes the page. Only the interpretations a published
+  comparison uses must be valid for the site to build. The pages need no JavaScript and read on a
+  phone and in print. Sites that do not turn it on are unchanged and never read the alignments
+  file.
+
 ## [0.33.0] - 2026-10-26
 
 - Defined how reader questions, corrections and annotations will point at published text. A

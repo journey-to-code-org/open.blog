@@ -384,15 +384,15 @@ test("every preset applies its toolbelt modules and the open route always stays 
   const content = ["Overview", "Posts", "Pages", "Series", "Shared reflections"];
   const cases = [
     [{ preset: "simple" }, "overview", content],
-    [{ preset: "simple" }, "sources", [...content, "Sources", "Notebook", "Atlas"]],
-    [{ preset: "guided" }, "posts", [...content, "Sources", "Notebook", "Atlas"]],
-    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas"]],
+    [{ preset: "simple" }, "sources", [...content, "Sources", "Notebook", "Atlas", "Compare"]],
+    [{ preset: "guided" }, "posts", [...content, "Sources", "Notebook", "Atlas", "Compare"]],
+    [{ preset: "advanced" }, "overview", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["contributors"] }, "overview", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare"]],
     [{ preset: "simple" }, "analytics", [...content, "Analytics", "Reader feedback"]],
     [{ preset: "simple" }, "feedback", [...content, "Analytics", "Reader feedback"]],
-    [{ preset: "guided" }, "feedback", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas"]],
-    [{ preset: "guided" }, "contributors", [...content, "Sources", "Notebook", "Atlas", "Contributors"]],
-    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Contributors"]],
+    [{ preset: "guided" }, "feedback", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare"]],
+    [{ preset: "guided" }, "contributors", [...content, "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
+    [{ preset: "custom", hiddenModules: ["analytics"] }, "analytics", [...content, "Analytics", "Reader feedback", "Sources", "Notebook", "Atlas", "Compare", "Contributors"]],
   ];
   for (const [preferences, active, expected] of cases) {
     const app = appWith(fakeApi({}));

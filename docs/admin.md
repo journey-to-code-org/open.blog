@@ -254,6 +254,27 @@ citation and choose **Cite**. Press Ctrl+Z or **Undo citation** right after inse
 the draft and caret exactly. Escape closes the dialog without changing anything. See
 [Citation format](specs/citations.md).
 
+### Compare versions of a passage
+
+**Research → Compare** lists your private passage alignments. Open one to read its places in
+each edition, translation, manuscript, or interpretation, side by side or, with **Layout → Single
+column**, one version after another (narrow screens use the same order). Every place shows its
+version, its editor, translator, scribe or interpreters, and its locator. Original wording is
+shown exactly as quoted, in its own language and direction; **Show the author's normalizations**
+adds your normalized form under it, labelled. A version that lacks the passage says **Absent**.
+
+**New alignment** and **Edit alignment** open a form for the label, how the places correspond
+(always phrased as your reading, never "the same"), and the places: a version with a notebook
+passage or locators, a version marked absent, or an interpretation. Reorder places with **Move
+up** and **Move down**. If the alignment changed elsewhere, nothing is saved until you choose
+**Use the stored copy** or **Keep my draft**.
+
+To copy, tick the places you want and choose **Copy selected places** or **Download selected
+places**. Each copied place carries its version, maker, locator, and rights statement. When a
+selected version's rights are not checked or are reserved, confirm that you have read the rights
+statements first; open.blog never decides what you may copy. See
+[Passage alignments format](specs/passage-alignments.md).
+
 ### Test a theme before publishing
 
 The Site preview reports the theme it resolved and renders through the same site model,

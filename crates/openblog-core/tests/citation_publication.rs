@@ -407,6 +407,37 @@ fn markers_never_join_following_text_into_a_link_or_definition() {
 }
 
 #[test]
+fn an_interpretation_naming_a_removed_contributor_never_breaks_a_citing_build() {
+    // The site's registry is empty, so `ada` was removed after she was named.
+    let with_interpretation = LIBRARY.replacen(
+        "\"sources\": [",
+        r#""interpretations": [
+    {"id": "cave-mine", "kind": "reading", "source": "republic-slings-2003",
+     "text": "PRIVATE-MARKER interpretation text",
+     "interpreters": [{"contributor": "ada"}]}
+  ],
+  "sources": ["#,
+        1,
+    );
+    assert!(
+        SourceLibrary::parse(&with_interpretation, &BTreeMap::new()).is_err(),
+        "Admin, the store, and check still refuse the unresolved interpreter"
+    );
+    let site = load(
+        "en",
+        vec![post("posts/cave.md", CITED)],
+        Some(&with_interpretation),
+    )
+    .unwrap_or_else(|errors| panic!("{errors:?}"));
+    let files = build(&site);
+    assert_eq!(files, build(&cited_site(CITED)), "the build is unchanged");
+    for output in files.values() {
+        assert!(!output.contains("interpretation text"));
+        assert!(!output.contains("cave-mine"));
+    }
+}
+
+#[test]
 fn private_library_data_never_reaches_any_output() {
     let site = cited_site(CITED);
     let config = config("en");

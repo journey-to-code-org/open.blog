@@ -611,7 +611,7 @@ export function filterSources(sources, { query = "", kind = "all", archived = "a
 
 /** Records that point at this one, so archiving or editing can say what depends on it. */
 export function sourceDependents(sources, id) {
-  return (Array.isArray(sources) ? sources : []).filter((source) => source.of === id || source.basedOn === id);
+  return (Array.isArray(sources) ? sources : []).filter((source) => source.of === id || source.basedOn === id || source.revises === id);
 }
 
 export function sourceDraft(record = null, kind = "work") {
@@ -631,6 +631,7 @@ export function sourceDraft(record = null, kind = "work") {
     identifiers: (Array.isArray(source.identifiers) ? source.identifiers : []).map((entry) => `${entry?.scheme ?? ""}: ${entry?.value ?? ""}`).join("\n"),
     locationScheme: typeof source.location?.scheme === "string" ? source.location.scheme : "",
     locationValue: typeof source.location?.value === "string" ? source.location.value : "",
+    locationVolume: typeof source.location?.volume === "string" ? source.location.volume : "",
   };
 }
 
@@ -662,6 +663,64 @@ function keepUnchanged(parsed, original, same) {
   return parsed.map((entry, index) => (Array.isArray(original) && original[index] && same(original[index], entry) ? original[index] : entry));
 }
 
+// CSL name parts describe the stored display name, so they no longer apply once it changes.
+const SOURCE_CREATOR_NAME_PARTS = Object.freeze(["family", "given", "dropping-particle", "non-dropping-particle", "suffix"]);
+
+/**
+ * Creators from the text box, each built on the stored creator it edits: the
+ * one with the same name, otherwise the one at the same position. The text box
+ * edits only the name and role, so attribution, note, and unknown fields carry
+ * over; a role removed from the line is removed, and CSL name parts are dropped
+ * when the name itself changes.
+ */
+export function mergeSourceCreators(parsed, original) {
+  const stored = Array.isArray(original) ? original.filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry)) : [];
+  const claimed = new Set();
+  const bases = parsed.map((entry) => {
+    const index = stored.findIndex((candidate, at) => !claimed.has(at) && candidate.name === entry.name);
+    if (index >= 0) claimed.add(index);
+    return index;
+  });
+  return parsed.map((entry, position) => {
+    let index = bases[position];
+    if (index < 0 && position < stored.length && !claimed.has(position)) {
+      index = position;
+      claimed.add(position);
+    }
+    if (index < 0) return entry;
+    const base = stored[index];
+    if (base.name === entry.name && (base.role ?? "") === (entry.role ?? "")) return base;
+    const merged = { ...base, name: entry.name };
+    if (entry.role) merged.role = entry.role;
+    else delete merged.role;
+    if (base.name !== entry.name) for (const part of SOURCE_CREATOR_NAME_PARTS) delete merged[part];
+    return merged;
+  });
+}
+
+/**
+ * The reference location from the form, built on the stored one so its volume
+ * and unknown fields survive an edit; a volume the author cleared is removed.
+ */
+export function mergeSourceLocation(draft, stored) {
+  const scheme = draft.locationScheme || "";
+  const value = String(draft.locationValue || "").trim();
+  const volume = String(draft.locationVolume ?? stored?.volume ?? "").trim();
+  if (!scheme && !value) return undefined;
+  const base = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  if (base.scheme === scheme && base.value === value && (base.volume ?? "") === volume) return base;
+  const location = { ...base, scheme, value };
+  if (volume) location.volume = volume;
+  else delete location.volume;
+  return location;
+}
+
+/** The number of volumes the record a reference points at declares, or 0. */
+export function sourceTargetVolumes(sources, id) {
+  const target = (Array.isArray(sources) ? sources : []).find((source) => source.id === id);
+  return Number.isInteger(target?.volumes) ? target.volumes : 0;
+}
+
 /** The full record to send. Unknown fields of the stored record are carried over unchanged. */
 export function sourceDraftPayload(draft) {
   const original = draft.original || {};
@@ -679,14 +738,13 @@ export function sourceDraftPayload(draft) {
   if (fields.basedOn) set("basedOn", draft.basedOn);
   set("language", draft.language);
   set("issued", draft.issued);
-  const creators = keepUnchanged(parseSourceCreators(draft.creators), original.creators, (a, b) => a.name === b.name && (a.role ?? "") === (b.role ?? ""));
+  const creators = mergeSourceCreators(parseSourceCreators(draft.creators), original.creators);
   if (creators.length) record.creators = creators;
   const identifiers = keepUnchanged(parseSourceIdentifiers(draft.identifiers), original.identifiers, (a, b) => a.scheme === b.scheme && a.value === b.value);
   if (identifiers.length) record.identifiers = identifiers;
-  const locationValue = String(draft.locationValue || "").trim();
-  if (fields.location && (draft.locationScheme || locationValue)) {
-    const stored = original.location;
-    record.location = stored && stored.scheme === draft.locationScheme && stored.value === locationValue ? stored : { scheme: draft.locationScheme, value: locationValue };
+  if (fields.location) {
+    const location = mergeSourceLocation(draft, original.location);
+    if (location) record.location = location;
   }
   return record;
 }
@@ -703,11 +761,15 @@ export function validateSourceDraft(draft, sources = []) {
   if (fields.location && Boolean(draft.locationScheme) !== Boolean(String(draft.locationValue || "").trim())) {
     return { field: "locationValue", message: "Choose a location type and enter its value, or clear both." };
   }
+  if (fields.location && !draft.locationScheme && String(draft.locationVolume || "").trim()) {
+    return { field: "locationVolume", message: "A volume belongs with a location; choose a location type and value, or clear the volume." };
+  }
   return null;
 }
 
 /** Map a server diagnostic's field path (`identifiers[0]`) to the form control that edits it. */
 export function sourceDiagnosticControl(field) {
+  if (String(field || "") === "location.volume") return "locationVolume";
   const name = String(field || "").replace(/\[\d+\].*$/, "").split(".")[0];
   return { creators: "creators", identifiers: "identifiers", location: "locationValue", id: "id", kind: "kind-field", title: "title", of: "of", basedOn: "basedOn", language: "language", issued: "issued" }[name] || "";
 }
@@ -1678,7 +1740,7 @@ export function createCaptureForm({ api, state, entry = null, entryType = "passa
           savedNote = (await send("POST", "research/notes", "note", noteDraftPayload(draft))).note;
         }
         busy = false;
-        onSaved?.({ type: "passage", passage: result.passage, note: savedNote });
+        onSaved?.({ type: "passage", passage: result.passage, note: savedNote, build: result.build });
       } else {
         if (!editing) note.id = suggestEntryId("note", [...state.passages, ...state.notes].map((item) => item.id));
         say("Saving…");
@@ -3332,6 +3394,798 @@ export function createAtlasForm({ api, state, type = "entry", item = null, prefi
     },
     focus() {
       (control(isEntry ? (editing ? "label" : "kind") : "kind") || root.querySelector("input,select,textarea,button"))?.focus();
+    },
+  };
+}
+
+// ---------------------------------------------------------------- comparison workspace
+
+/** How aligned places correspond, in the author's reading. The server's labels replace these when it sends them. */
+export const ALIGNMENT_CORRESPONDENCES = Object.freeze([
+  { value: "corresponding", label: "The author reads these places as corresponding" },
+  { value: "partial", label: "The author reads these places as corresponding in part" },
+  { value: "divergent", label: "The author reads these places as corresponding but differing" },
+]);
+const ALIGNMENT_NOTICE_TEXT = "An alignment records where its author reads these places as corresponding. It does not say they mean the same thing, and no version is treated as authoritative.";
+const MAX_ALIGNMENT_MEMBERS = 32;
+const MAX_ALIGNMENT_RATIONALE_CHARS = 4000;
+const MAX_ALIGNMENT_NORMALIZED_CHARS = 20000;
+/**
+ * Rights statuses that ask the author to confirm before copying: nobody has
+ * checked yet, or the author states the text is under copyright. No status
+ * ever means a use is allowed; the others only skip the extra confirmation.
+ */
+export const RIGHTS_NEEDING_CONFIRMATION = Object.freeze(["unknown", "rightsReserved"]);
+const UNKNOWN_RIGHTS = Object.freeze({ status: "unknown", label: "Rights not checked yet", declared: false });
+const RTL_LANGUAGES = new Set([
+  "acm", "aeb", "ajp", "apc", "ar", "arc", "ary", "arz", "azb", "bal", "ckb", "dv", "fa", "glk", "hbo", "he", "iw", "ji", "jpr", "jrb",
+  "ks", "lrc", "mzn", "nqo", "ota", "phn", "pnb", "prs", "ps", "sam", "sd", "syc", "syr", "ug", "ur", "yi",
+]);
+const RTL_SCRIPTS = new Set([
+  "adlm", "arab", "aran", "armi", "avst", "chrs", "cprt", "elym", "hatr", "hebr", "hung", "khar", "lydi", "mand", "mani", "mend", "merc",
+  "mero", "narb", "nbat", "nkoo", "ougr", "palm", "phli", "phlp", "phnx", "prti", "rohg", "samr", "sarb", "sogd", "sogo", "syrc", "thaa", "yezi",
+]);
+/** Script subtags known to run left to right. Any other script subtag leaves the direction to the browser. */
+const LTR_SCRIPTS = new Set([
+  "ahom", "armn", "bali", "bamu", "batk", "beng", "bopo", "brah", "brai", "bugi", "buhd", "cakm", "cans", "cari", "cham", "cher", "copt",
+  "cyrl", "cyrs", "deva", "dogr", "dsrt", "dupl", "egyp", "ethi", "geok", "geor", "glag", "gong", "gonm", "goth", "gran", "grek", "gujr",
+  "guru", "hang", "hani", "hano", "hans", "hant", "hira", "hmng", "hrkt", "ital", "java", "jpan", "kali", "kana", "kawi", "khmr", "khoj",
+  "knda", "kore", "kthi", "lana", "laoo", "latf", "latg", "latn", "lepc", "limb", "lina", "linb", "lisu", "lyci", "mahj", "maka", "marc",
+  "medf", "mlym", "modi", "mong", "mroo", "mtei", "mult", "mymr", "nagm", "nand", "newa", "nshu", "ogam", "olck", "orkh", "orya", "osge",
+  "osma", "perm", "phag", "plrd", "runr", "saur", "sgnw", "shaw", "shrd", "sidd", "sind", "sinh", "sora", "soyo", "sund", "sylo", "tagb",
+  "takr", "tale", "talu", "taml", "tang", "tavt", "telu", "tfng", "tglg", "thai", "tibt", "tirh", "toto", "ugar", "vaii", "vith", "wara",
+  "wcho", "xpeo", "xsux", "yiii", "zanb",
+]);
+const VERSION_MAKERS = Object.freeze({
+  edition: { role: "editor", one: "Editor", many: "Editors" },
+  translation: { role: "translator", one: "Translator", many: "Translators" },
+  witness: { role: "scribe", one: "Scribe", many: "Scribes" },
+});
+const VERSION_KIND_LABELS = Object.freeze({ work: "Work", edition: "Edition", translation: "Translation", witness: "Witness", reference: "Reference" });
+
+/** A language tag safe to put in a `lang` attribute, or "" for anything else. */
+export function languageTag(value) {
+  const tag = String(value ?? "").trim();
+  return /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,7}$/.test(tag) ? tag : "";
+}
+
+/**
+ * The base direction for text in a language: a script subtag decides first,
+ * then the language. Text with no usable tag, or a script subtag this list
+ * does not know, gets `auto`, so the browser decides from its first strong
+ * character instead of guessing left to right.
+ */
+export function textDirection(language) {
+  const tag = languageTag(language).toLowerCase();
+  if (!tag) return "auto";
+  const [base, ...subtags] = tag.split("-");
+  const script = subtags.find((part) => /^[a-z]{4}$/.test(part));
+  if (script) return RTL_SCRIPTS.has(script) ? "rtl" : LTR_SCRIPTS.has(script) ? "ltr" : "auto";
+  return RTL_LANGUAGES.has(base) ? "rtl" : "ltr";
+}
+
+/** Locators as a reader says them: `canonical 514a, volume 2`. */
+export function locatorText(locators) {
+  return (Array.isArray(locators) ? locators : [])
+    .map((locator) => `${String(locator?.kind ?? "").replace(/^x-csl-/, "").replace(/^x-/, "")} ${locator?.value ?? ""}${locator?.to ? ` to ${locator.to}` : ""}`.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+const certaintyText = (name, certainty, note) => `${name}${certainty || note ? ` (${[certainty, note].filter(Boolean).join(": ")})` : ""}`;
+
+/** Who made a version, in its maker role, saying so when the source names nobody or nothing is recorded. */
+export function versionMakerText(source) {
+  const maker = VERSION_MAKERS[source?.kind];
+  if (!maker) return "";
+  const creators = (Array.isArray(source.creators) ? source.creators : []).filter((creator) => creator && creator.role === maker.role && typeof creator.name === "string");
+  if (creators.length) return `${creators.length === 1 ? maker.one : maker.many}: ${creators.map((creator) => certaintyText(creator.name, creator.attribution, creator.note)).join("; ")}`;
+  if (source.anonymous) return `${maker.one}: anonymous; the source names nobody`;
+  return `${maker.one}: not recorded`;
+}
+
+/** Who made an interpretation, with each name's attribution certainty. */
+export function interpretersText(interpretation) {
+  const interpreters = Array.isArray(interpretation?.interpreters) ? interpretation.interpreters : [];
+  if (!interpreters.length) return interpretation?.anonymous ? "Interpreted by: anonymous; nobody is named" : "Interpreted by: not recorded";
+  const names = interpreters.map((person) => certaintyText(String(person?.display || person?.name || person?.contributor || "Unnamed"), person?.attribution));
+  return `Interpreted by: ${names.join("; ")}${interpretation.anonymous ? " (recorded as anonymous)" : ""}`;
+}
+
+const rightsOf = (value) => (value && typeof value === "object" && typeof value.status === "string" ? value : UNKNOWN_RIGHTS);
+
+/** One line for a rights declaration: the author's statement, a licence name, and the note, never a permission. */
+export function rightsText(rights) {
+  const value = rightsOf(rights);
+  return `${value.label || UNKNOWN_RIGHTS.label}${value.license ? ` (${value.license})` : ""}${value.note ? `. ${value.note}` : ""}`;
+}
+
+const kindLanguage = (kind, language) => `${VERSION_KIND_LABELS[kind] || "Source"}${languageTag(language) ? `, language ${languageTag(language)}` : ""}`;
+
+/**
+ * The comparison of one alignment: one column per version or interpretation,
+ * in the order the author first placed them, each holding that version's
+ * places in member order. Every place carries what identifies it on its own
+ * (version, maker, locator) so it can be read, or copied, out of its column.
+ * Text is passed through exactly; nothing here normalizes or rewrites it.
+ */
+export function comparisonColumns(alignment, context = {}) {
+  const list = (value) => (Array.isArray(value) ? value : []);
+  const sources = list(context.sources);
+  const passages = list(context.passages);
+  const interpretations = list(context.interpretations);
+  const notices = list(context.notices).filter((notice) => notice?.id === alignment?.id);
+  const sourceById = (id) => sources.find((source) => source.id === id) || null;
+  const named = (id) => {
+    const source = sourceById(id);
+    return source ? `${sourceLabel(source)} (${String(source.kind || "").toLowerCase()})` : `${id} (missing)`;
+  };
+  const columns = [];
+  const sourceColumn = (id) => {
+    const source = sourceById(id);
+    const facts = [];
+    if (source) {
+      const chain = list(source.chain);
+      if (chain.length) facts.push({ label: "Realizes", parts: chain.flatMap((link, index) => [index ? ", which realizes " : "", { text: `${String(link.title || link.id)}` }, ` (${link.kind})`]).filter(Boolean) });
+      if (source.basedOn) facts.push({ label: "Made from", parts: [{ text: named(source.basedOn) }] });
+      if (source.revises) facts.push({ label: "Revises", parts: [{ text: named(source.revises) }] });
+      if (source.repository || source.shelfmark) facts.push({ label: "Held at", parts: [{ text: [source.repository, source.shelfmark].filter(Boolean).join(", ") }] });
+      if (Number.isInteger(source.volumes)) facts.push({ label: "Volumes", parts: [String(source.volumes)] });
+      if (source.issued) facts.push({ label: "Issued", parts: [{ text: String(source.issued) }] });
+      if (source.archived) facts.push({ label: "Library", parts: ["Archived"] });
+    }
+    return {
+      key: `source:${id}`,
+      type: "source",
+      id,
+      missing: !source,
+      title: source ? sourceLabel(source) : `Missing source ${id}`,
+      kindText: source ? kindLanguage(source.kind, source.language) : "Not in the library",
+      maker: source ? versionMakerText(source) : "",
+      facts,
+      rights: rightsOf(source?.rightsStatus),
+      places: [],
+    };
+  };
+  const interpretationColumn = (id) => {
+    const interpretation = interpretations.find((item) => item.id === id) || null;
+    const facts = [];
+    if (interpretation) {
+      facts.push({ label: "Interprets", parts: [{ text: named(interpretation.source) }] });
+      if (interpretation.uncertainty) facts.push({ label: "Uncertain", parts: [{ text: interpretation.uncertainty }] });
+    }
+    const kind = interpretation?.kind === "rendering" ? "Rendering" : "Reading";
+    return {
+      key: `interpretation:${id}`,
+      type: "interpretation",
+      id,
+      missing: !interpretation,
+      title: interpretation ? `${kind} ${id}` : `Missing interpretation ${id}`,
+      kindText: interpretation ? `Interpretation (${kind.toLowerCase()})${languageTag(interpretation.language) ? `, language ${languageTag(interpretation.language)}` : ""}` : "Not in the library",
+      maker: interpretation ? interpretersText(interpretation) : "",
+      facts,
+      rights: rightsOf(interpretation?.rightsStatus),
+      places: [],
+      interpretation,
+    };
+  };
+  list(alignment?.members).forEach((member, index) => {
+    const isInterpretation = typeof member?.interpretation === "string";
+    const key = isInterpretation ? `interpretation:${member.interpretation}` : `source:${member?.source}`;
+    let column = columns.find((item) => item.key === key);
+    if (!column) {
+      column = isInterpretation ? interpretationColumn(member.interpretation) : sourceColumn(member?.source);
+      columns.push(column);
+    }
+    const passage = typeof member?.passage === "string" ? passages.find((item) => item.id === member.passage) || null : null;
+    let original = null;
+    if (passage && typeof passage.excerpt?.text === "string") original = { text: passage.excerpt.text, language: languageTag(passage.excerpt.language), from: `notebook passage ${passage.id}` };
+    else if (isInterpretation && column.interpretation) original = { text: String(column.interpretation.text ?? ""), language: languageTag(column.interpretation.language), from: `interpretation ${column.id}` };
+    const locators = list(member?.locators).length ? member.locators : passage ? passage.locators : isInterpretation ? column.interpretation?.locators : [];
+    const normalized = member?.normalized && typeof member.normalized.text === "string" ? { text: member.normalized.text, note: typeof member.normalized.note === "string" ? member.normalized.note : "", language: original?.language || "" } : null;
+    column.places.push({
+      index,
+      absent: Boolean(member?.absent),
+      locator: locatorText(locators),
+      original,
+      missingPassage: typeof member?.passage === "string" && !passage,
+      normalized,
+      note: typeof member?.note === "string" ? member.note : "",
+      notices: notices.filter((notice) => String(notice.field || "").startsWith(`members[${index}]`)).map((notice) => String(notice.message || "")),
+    });
+  });
+  return columns;
+}
+
+/** Columns whose selected places quote text under a status that asks for confirmation before copying. */
+export function rightsToConfirm(columns, selected) {
+  return (Array.isArray(columns) ? columns : []).filter(
+    (column) => RIGHTS_NEEDING_CONFIRMATION.includes(rightsOf(column.rights).status) && column.places.some((place) => selected.has(place.index) && place.original),
+  );
+}
+
+/**
+ * Plain text for the places the author selected, each identified by version,
+ * maker, locator and rights statement, with the original wording exactly as
+ * stored. A normalization is included only when asked for, and labelled; the
+ * author's private notes on places only when `notes` is set.
+ */
+export function comparisonExportText(alignment, columns, selected, { normalized = false, notes = false, correspondence = "", notice = ALIGNMENT_NOTICE_TEXT } = {}) {
+  const lines = [`Alignment: ${alignment?.label || alignment?.id || ""}`];
+  if (correspondence) lines.push(correspondence);
+  lines.push(notice, "");
+  for (const column of Array.isArray(columns) ? columns : []) {
+    for (const place of column.places.filter((item) => selected.has(item.index))) {
+      lines.push(`${column.title} (${column.kindText})`);
+      if (column.maker) lines.push(column.maker);
+      lines.push(`Locator: ${place.locator || "none recorded"}`);
+      lines.push(`Rights: ${rightsText(column.rights)}`);
+      if (place.absent) lines.push("Absent: this version lacks the passage.");
+      else if (place.original) lines.push(`Original wording, from ${place.original.from}:`, place.original.text);
+      else lines.push("No wording quoted for this place.");
+      if (normalized && place.normalized) {
+        lines.push("The author's normalization, not the source text:", place.normalized.text);
+        if (place.normalized.note) lines.push(`Normalized: ${place.normalized.note}`);
+      }
+      if (notes && place.note) lines.push(`Author's note: ${place.note}`);
+      lines.push("");
+    }
+  }
+  lines.push("Private research copied from open.blog Admin. Rights statements are the author's own; open.blog does not decide what is permitted.");
+  return `${lines.join("\n")}\n`;
+}
+
+/** Copy the parts of an alignments response that describe the stored file into the view state. */
+export function applyAlignmentState(state, result) {
+  for (const key of ["revision", "file", "stored", "alignments", "sources", "passages", "interpretations", "notices", "notice", "correspondences", "publication"]) {
+    if (result && result[key] !== undefined) state[key] = result[key];
+  }
+  for (const key of ["alignments", "sources", "passages", "interpretations", "notices"]) if (!Array.isArray(state[key])) state[key] = [];
+  if (!Array.isArray(state.correspondences) || !state.correspondences.length) state.correspondences = ALIGNMENT_CORRESPONDENCES.map((item) => ({ ...item }));
+  if (typeof state.notice !== "string" || !state.notice) state.notice = ALIGNMENT_NOTICE_TEXT;
+  if (!state.publication || typeof state.publication !== "object") state.publication = {};
+  if (!state.publication.places || typeof state.publication.places !== "object") state.publication.places = {};
+  state.publication.publish = state.publication.publish === true;
+  if (typeof state.publication.url !== "string") state.publication.url = "/comparisons/";
+  if (!Number.isInteger(state.publication.maxExcerptChars)) state.publication.maxExcerptChars = 1000;
+  return state;
+}
+
+export function correspondenceLabel(state, value) {
+  const list = Array.isArray(state?.correspondences) && state.correspondences.length ? state.correspondences : ALIGNMENT_CORRESPONDENCES;
+  return (list.find((item) => item.value === (value || "corresponding")) || list[0]).label;
+}
+
+/** Sources a member may name: editions, translations and witnesses, never a work or reference. */
+export function alignableSources(sources) {
+  return (Array.isArray(sources) ? sources : []).filter((source) => ["edition", "translation", "witness"].includes(source?.kind));
+}
+
+/**
+ * A member's draft. `from` is the index of the stored member it edits, or
+ * null for a new place, so a later rebase can find that member again.
+ */
+export function alignmentMemberDraft(record = null, from = null) {
+  const member = record && typeof record === "object" ? record : {};
+  return {
+    original: record ? structuredClone(record) : {},
+    from: record && Number.isInteger(from) ? from : null,
+    type: typeof member.interpretation === "string" ? "interpretation" : "source",
+    source: typeof member.source === "string" ? member.source : "",
+    interpretation: typeof member.interpretation === "string" ? member.interpretation : "",
+    passage: typeof member.passage === "string" ? member.passage : "",
+    locators: formatLocatorLines(member.locators),
+    absent: Boolean(member.absent),
+    normalized: typeof member.normalized?.text === "string" ? member.normalized.text : "",
+    normalizedNote: typeof member.normalized?.note === "string" ? member.normalized.note : "",
+    note: typeof member.note === "string" ? member.note : "",
+  };
+}
+
+export function alignmentDraft(record = null) {
+  const alignment = record && typeof record === "object" ? record : {};
+  const members = Array.isArray(alignment.members) ? alignment.members.map((member, index) => alignmentMemberDraft(member, index)) : [alignmentMemberDraft(), alignmentMemberDraft()];
+  return {
+    original: record ? structuredClone(record) : null,
+    id: typeof alignment.id === "string" ? alignment.id : "",
+    label: typeof alignment.label === "string" ? alignment.label : "",
+    correspondence: ALIGNMENT_CORRESPONDENCES.some((item) => item.value === alignment.correspondence) ? alignment.correspondence : "corresponding",
+    members,
+    rationale: typeof alignment.rationale === "string" ? alignment.rationale : "",
+    confidence: ATLAS_CONFIDENCE.some((item) => item.value === alignment.confidence) ? alignment.confidence : "tentative",
+    uncertainty: typeof alignment.uncertainty === "string" ? alignment.uncertainty : "",
+    recordedBy: atlasAttributionDraft(alignment.recordedBy),
+    approved: alignment.visibility === "approved",
+    publishNormalized: alignment.publishNormalized === true,
+  };
+}
+
+/** One member to send, built on the stored member it edits so unknown fields carry over. Text is sent exactly as typed. */
+export function alignmentMemberPayload(draft) {
+  const original = draft.original || {};
+  const record = { ...original };
+  for (const field of ["source", "interpretation", "passage", "locators", "absent", "normalized", "note"]) delete record[field];
+  if (draft.type === "interpretation") record.interpretation = draft.interpretation;
+  else {
+    record.source = draft.source;
+    if (draft.absent) record.absent = true;
+    else {
+      if (draft.passage) record.passage = draft.passage;
+      const locators = keepUnchanged(parseLocatorLines(draft.locators), original.locators, sameLocator);
+      if (locators.length) record.locators = locators;
+    }
+  }
+  const wording = draft.type === "interpretation" || (!draft.absent && draft.passage);
+  if (wording && String(draft.normalized ?? "").length && String(draft.normalized).trim()) {
+    const normalized = { ...(original.normalized || {}), text: String(draft.normalized) };
+    delete normalized.note;
+    if (String(draft.normalizedNote ?? "").trim()) normalized.note = String(draft.normalizedNote);
+    record.normalized = normalized;
+  }
+  if (String(draft.note ?? "").trim()) record.note = String(draft.note);
+  return record;
+}
+
+/**
+ * What a public comparison page would show for each place, as the server
+ * previews it (ADR 0092). The statuses follow the author's rights statement
+ * and the excerpt limit; none of them is a judgement of what is permitted.
+ */
+export function publicPlaceText(status, maxChars = 1000) {
+  switch (status) {
+    case "shown":
+      return "On a public page: its wording is shown, with the version's rights statement.";
+    case "withheld-rights":
+      return "On a public page: identified and located only, because the version's rights are unknown or reserved.";
+    case "withheld-length":
+      return `On a public page: identified and located only, because its wording is longer than the ${maxChars}-character excerpt limit.`;
+    case "unquoted":
+      return "On a public page: located only; no wording is quoted for it.";
+    case "absent":
+      return "On a public page: recorded as absent from this version.";
+    default:
+      return "";
+  }
+}
+
+/** What a save or removal did to the published site, when the site publishes comparisons. */
+export function comparisonBuildText(build) {
+  if (!build || typeof build !== "object") return "";
+  if (build.ok) return " The published comparisons were rebuilt.";
+  return ` The change is saved, but the site could not be rebuilt: ${String(build.error || "unknown error")}`;
+}
+
+/** The full alignment to send. Evidence and unknown stored fields, which this form does not edit, are carried over. */
+export function alignmentPayload(draft) {
+  const record = { ...(draft.original || {}) };
+  for (const field of ["label", "rationale", "uncertainty"]) delete record[field];
+  record.id = String(draft.id || "").trim();
+  if (String(draft.label ?? "").trim()) record.label = String(draft.label).trim();
+  record.correspondence = draft.correspondence;
+  record.members = draft.members.map(alignmentMemberPayload);
+  if (String(draft.rationale ?? "").trim()) record.rationale = draft.rationale;
+  record.confidence = draft.confidence;
+  if (String(draft.uncertainty ?? "").trim()) record.uncertainty = draft.uncertainty;
+  record.recordedBy = atlasAttributionPayload(draft.recordedBy);
+  record.visibility = draft.approved ? "approved" : "private";
+  delete record.publishNormalized;
+  if (draft.publishNormalized) record.publishNormalized = true;
+  return record;
+}
+
+/** The draft now rests on the newer stored copy: fields it does not edit come from that copy. */
+export function rebaseAlignmentDraft(draft, current) {
+  draft.original = structuredClone(current);
+  draft.recordedBy.original = structuredClone(current.recordedBy || { kind: "author" });
+  const stored = Array.isArray(current.members) ? current.members : [];
+  const claimed = new Set();
+  const twins = new Map();
+  // A member rests on the stored member it was read from while that member is
+  // still the same place; otherwise on the first unclaimed member with the same
+  // identity. Each stored member is claimed once, and a member matches only by
+  // what it was read as, never by what the author has since typed.
+  for (const member of draft.members) {
+    const identity = alignmentMemberIdentity(member.original);
+    if (identity && Number.isInteger(member.from) && member.from < stored.length && alignmentMemberIdentity(stored[member.from]) === identity) {
+      claimed.add(member.from);
+      twins.set(member, member.from);
+    }
+  }
+  for (const member of draft.members) {
+    if (twins.has(member)) continue;
+    const identity = alignmentMemberIdentity(member.original);
+    const index = identity ? stored.findIndex((item, at) => !claimed.has(at) && alignmentMemberIdentity(item) === identity) : -1;
+    if (index >= 0) {
+      claimed.add(index);
+      twins.set(member, index);
+    }
+  }
+  for (const member of draft.members) {
+    const index = twins.get(member);
+    if (index === undefined) member.from = null;
+    else {
+      member.original = structuredClone(stored[index]);
+      member.from = index;
+    }
+  }
+  return draft;
+}
+
+/** What place a stored member is: its version or interpretation, passage and locators. "" for a new member. */
+export function alignmentMemberIdentity(member) {
+  if (!member || typeof member !== "object" || (typeof member.source !== "string" && typeof member.interpretation !== "string")) return "";
+  const locators = (Array.isArray(member.locators) ? member.locators : []).map((locator) => [locator?.kind ?? "", locator?.value ?? "", locator?.to ?? ""]);
+  return JSON.stringify([typeof member.interpretation === "string" ? `i:${member.interpretation}` : `s:${member.source}`, member.passage ?? "", locators]);
+}
+
+/** A quick, advisory check; the server's validation stays authoritative. */
+export function validateAlignmentDraft(draft, { used = [], creating = false, sources = [], passages = [], interpretations = [] } = {}) {
+  if (creating) {
+    if (!validAtlasId(draft.id)) return { field: "id", message: "Use an identifier of lowercase letters, digits and single hyphens, such as cave-opening, at most 64 characters." };
+    if (used.includes(draft.id)) return { field: "id", message: "That identifier is already used by another alignment; choose another." };
+  }
+  if (codePoints(draft.label) > MAX_ATLAS_SHORT_CHARS) return { field: "label", message: `A label is limited to ${MAX_ATLAS_SHORT_CHARS} characters.` };
+  if (draft.members.length > MAX_ALIGNMENT_MEMBERS) return { field: "members", message: `An alignment may have at most ${MAX_ALIGNMENT_MEMBERS} places.` };
+  for (const [index, member] of draft.members.entries()) {
+    const at = `Place ${index + 1}`;
+    if (member.type === "interpretation") {
+      if (!member.interpretation) return { field: `member-${index}-interpretation`, message: `${at}: choose the interpretation.` };
+      if (!interpretations.some((item) => item.id === member.interpretation)) return { field: `member-${index}-interpretation`, message: `${at}: that interpretation is no longer in the library.` };
+    } else {
+      if (!member.source) return { field: `member-${index}-source`, message: `${at}: choose the version this place is in.` };
+      if (!alignableSources(sources).some((source) => source.id === member.source)) return { field: `member-${index}-source`, message: `${at}: choose an edition, translation or witness; a work has no text of its own.` };
+      const locators = member.absent ? [] : parseLocatorLines(member.locators);
+      if (locators.length > MAX_PASSAGE_LOCATORS) return { field: `member-${index}-locators`, message: `${at}: give at most ${MAX_PASSAGE_LOCATORS} locators.` };
+      const bad = locators.findIndex((locator) => !locator.kind || !locator.value);
+      if (bad >= 0) return { field: `member-${index}-locators`, message: `${at}: locator ${bad + 1} must look like page: 514 or canonical: 514a to 520a.` };
+      if (!member.absent && !member.passage && !textLines(member.locators).length) return { field: `member-${index}-locators`, message: `${at}: say where the passage is in this version with locators or a notebook passage, or mark it absent.` };
+      if (!member.absent && member.passage && !passages.some((passage) => passage.id === member.passage && passage.source === member.source)) return { field: `member-${index}-passage`, message: `${at}: that passage was not quoted from this version.` };
+    }
+    if (codePoints(member.normalized) > MAX_ALIGNMENT_NORMALIZED_CHARS) return { field: `member-${index}-normalized`, message: `${at}: a normalization is limited to ${MAX_ALIGNMENT_NORMALIZED_CHARS} characters.` };
+    if (codePoints(member.note) > MAX_ATLAS_SHORT_CHARS) return { field: `member-${index}-note`, message: `${at}: a note is limited to ${MAX_ATLAS_SHORT_CHARS} characters.` };
+  }
+  const versions = new Set(draft.members.map((member) => (member.type === "interpretation" ? `i:${member.interpretation}` : `s:${member.source}`)));
+  const present = draft.members.some((member) => member.type === "interpretation" || !member.absent);
+  if (versions.size < 2 || !present) return { field: "members", message: "An alignment relates places in at least two versions or interpretations, and at least one must have the passage." };
+  if (codePoints(draft.rationale) > MAX_ALIGNMENT_RATIONALE_CHARS) return { field: "rationale", message: `The rationale is limited to ${MAX_ALIGNMENT_RATIONALE_CHARS} characters.` };
+  if (codePoints(draft.uncertainty) > MAX_ATLAS_UNCERTAINTY_CHARS) return { field: "uncertainty", message: `The uncertainty note is limited to ${MAX_ATLAS_UNCERTAINTY_CHARS} characters.` };
+  const party = atlasPartyProblem(draft.recordedBy, sources, "recorded");
+  if (party) return party;
+  return null;
+}
+
+/** Map a server diagnostic's field path to the alignment form control that edits it. */
+export function alignmentDiagnosticControl(field) {
+  const path = String(field || "");
+  const member = path.match(/^members\[(\d+)\](?:\.([A-Za-z]+))?/);
+  if (member) {
+    const [, index, key = ""] = member;
+    if (key === "normalized") return path.endsWith(".note") ? `member-${index}-normalized-note` : `member-${index}-normalized`;
+    return ["source", "interpretation", "passage", "locators", "absent", "note"].includes(key) ? `member-${index}-${key}` : `member-${index}`;
+  }
+  const name = path.replace(/\[\d+\].*$/, "").split(".")[0];
+  if (name === "recordedBy") return path.endsWith("source") ? "recorded-source" : path.endsWith("name") ? "recorded-name" : "recorded";
+  return { id: "id", label: "label", correspondence: "correspondence", members: "members", rationale: "rationale", confidence: "confidence", uncertainty: "uncertainty" }[name] || "";
+}
+
+export function alignmentErrorMessage(error) {
+  const diagnostics = Array.isArray(error?.data?.diagnostics) ? error.data.diagnostics : [];
+  if (!diagnostics.length) return error?.data?.error || error?.message || "The alignment could not be changed.";
+  return diagnostics.map((item) => `${item.field ? `${item.field}: ` : ""}${item.message}`).join(" ");
+}
+
+/**
+ * The editor for one alignment. `state` is the alignments file as last read
+ * and is updated in place after every save or conflict. Nothing is saved
+ * until the author submits; a save that meets a newer file keeps the draft
+ * until the author chooses the stored copy or keeps the draft on top of it.
+ */
+export function createAlignmentForm({ api, state, item = null, idPrefix = "oba-alignment-form", onSaved, onCancel, onRefreshed }) {
+  const editing = Boolean(item);
+  let draft = alignmentDraft(item);
+  let idTouched = false;
+  let busy = false;
+  // null, or { current } once a save met a newer file: the author chooses before anything is sent again.
+  let conflict = null;
+  let touched = false;
+  const root = h("form", { class: "oba-capture-form oba-atlas-form oba-alignment-form", novalidate: true, "data-alignment-form": editing ? "edit" : "new" });
+  const errorBox = h("p", { class: "oba-error", id: `${idPrefix}-error`, role: "alert", hidden: true, tabindex: "-1" });
+  const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+  const control = (name) => root.querySelector(`#${idPrefix}-${name}`);
+  const used = () => (state.alignments || []).map((alignment) => alignment.id);
+  const say = (text, kind = "oba-small") => {
+    status.className = kind;
+    status.textContent = text;
+  };
+  const field = (name, labelText, input, hint) => {
+    input.id = `${idPrefix}-${name}`;
+    if (hint) {
+      input.setAttribute("aria-describedby", `${idPrefix}-${name}-hint`);
+      input.setAttribute("data-hint-id", `${idPrefix}-${name}-hint`);
+    }
+    return h("div", { class: "oba-field", "data-alignment-field": name }, h("label", { for: input.id }, labelText), input, hint ? h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint) : null);
+  };
+  const fail = (message, name = "") => {
+    errorBox.hidden = false;
+    errorBox.textContent = message;
+    const target = name ? control(name) : null;
+    if (target) {
+      target.setAttribute("aria-invalid", "true");
+      target.setAttribute("aria-describedby", [target.getAttribute("data-hint-id"), errorBox.id].filter(Boolean).join(" "));
+      target.focus();
+    } else errorBox.focus();
+  };
+  const clearInvalid = () => {
+    for (const target of root.querySelectorAll("[aria-invalid]")) {
+      target.removeAttribute("aria-invalid");
+      const hint = target.getAttribute("data-hint-id");
+      if (hint) target.setAttribute("aria-describedby", hint);
+      else target.removeAttribute("aria-describedby");
+    }
+  };
+  const rerender = (focusName) => {
+    render();
+    control(focusName)?.focus();
+  };
+  const sourceById = (id) => (state.sources || []).find((source) => source.id === id) || null;
+
+  const partyEditor = () => {
+    const party = draft.recordedBy;
+    const sourceChoices = [...captureSources(state.sources), ...(state.sources || []).filter((source) => source.archived && source.id === party.source)];
+    return h(
+      "fieldset",
+      { class: "oba-atlas-party", id: `${idPrefix}-recorded`, tabindex: "-1" },
+      h("legend", {}, "Recorded by"),
+      h("p", { class: "oba-small" }, "Who reads these places as corresponding: you, a concordance or apparatus in your library, or a named person. It is attribution, not a contributor credit."),
+      ATLAS_ATTRIBUTIONS.map(({ kind, label }) => {
+        const id = `${idPrefix}-recorded-is-${kind}`;
+        return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-recorded-kind`, value: kind, checked: party.kind === kind, onChange: () => { party.kind = kind; rerender(`recorded-is-${kind}`); } }), h("label", { for: id }, label));
+      }),
+      party.kind === "source"
+        ? field("recorded-source", "Source that records the alignment", h("select", { onChange: (event) => { party.source = event.target.value; } }, h("option", { value: "", selected: !party.source }, "Choose a source"), sourceChoices.map((source) => h("option", { value: source.id, selected: party.source === source.id }, `${sourceLabel(source)} (${source.kind})`))))
+        : null,
+      party.kind === "named" ? field("recorded-name", "Who records it", h("input", { type: "text", value: party.name, autocomplete: "off", dir: "auto", onInput: (event) => { party.name = event.target.value; } }), "A person or group outside your library. Stored as text.") : null,
+    );
+  };
+
+  const publicationEditor = () => {
+    const publication = state.publication || {};
+    const where = `${publication.url || "/comparisons/"}${draft.id || "<identifier>"}/`;
+    const check = (name, labelText, checked, onChange, hint) =>
+      h(
+        "div",
+        { "data-alignment-field": name },
+        h("div", { class: "oba-capture-check" }, h("input", { id: `${idPrefix}-${name}`, type: "checkbox", checked, "aria-describedby": `${idPrefix}-${name}-hint`, "data-hint-id": `${idPrefix}-${name}-hint`, onChange: (event) => onChange(event.target.checked) }), h("label", { for: `${idPrefix}-${name}` }, labelText)),
+        h("p", { class: "oba-small", id: `${idPrefix}-${name}-hint` }, hint),
+      );
+    return h(
+      "fieldset",
+      { class: "oba-alignment-publication", id: `${idPrefix}-publication`, tabindex: "-1" },
+      h("legend", {}, "Publication"),
+      check(
+        "approved",
+        "Approve this comparison for publication",
+        draft.approved,
+        (on) => { draft.approved = on; },
+        `Your consent to publish it at ${where} and in comparisons.json once the site turns on comparisons.publish: its label, how the places correspond, who aligned them, confidence, rationale, uncertainty and evidence, and each place's version, makers, locators and rights statement. Wording is shown only where you state a version's rights allow it, and only up to ${publication.maxExcerptChars || 1000} characters a place. Your notes on places are never published. Clearing it removes the comparison from the next build.`,
+      ),
+      check(
+        "publish-normalized",
+        "Also publish my normalizations, labelled",
+        draft.publishNormalized,
+        (on) => { draft.publishNormalized = on; },
+        "Each normalization appears beside the original wording, labelled as yours and not the source text, only where that wording is itself shown.",
+      ),
+    );
+  };
+
+  const memberEditor = (member, index) => {
+    const base = `member-${index}`;
+    const number = index + 1;
+    const versions = alignableSources(state.sources).filter((source) => !source.archived || source.id === member.source);
+    const passages = (state.passages || []).filter((passage) => passage.source === member.source && (!passage.archived || passage.id === member.passage));
+    const interpretations = state.interpretations || [];
+    const typeRadio = (type, label) => {
+      const id = `${idPrefix}-${base}-is-${type}`;
+      return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: `${idPrefix}-${base}-type`, value: type, checked: member.type === type, onChange: () => { member.type = type; rerender(`${base}-is-${type}`); } }), h("label", { for: id }, label));
+    };
+    const wording = member.type === "interpretation" || (!member.absent && member.passage);
+    const move = (offset) => {
+      const target = index + offset;
+      draft.members.splice(target, 0, ...draft.members.splice(index, 1));
+      render();
+      const same = control(`member-${target}-${offset < 0 ? "up" : "down"}`);
+      (same && !same.disabled ? same : control(`member-${target}-${offset < 0 ? "down" : "up"}`) || control(`member-${target}`))?.focus();
+      say(`Place ${number} moved to position ${target + 1}.`);
+    };
+    return h(
+      "fieldset",
+      { class: "oba-alignment-member", id: `${idPrefix}-${base}`, tabindex: "-1", "data-alignment-member": String(index) },
+      h("legend", {}, `Place ${number}`),
+      h("fieldset", { class: "oba-alignment-member-type" }, h("legend", {}, `Place ${number} is in`), typeRadio("source", "A version: an edition, translation or witness"), typeRadio("interpretation", "An interpretation in your library")),
+      member.type === "source"
+        ? [
+            field(`${base}-source`, "Version", h(
+              "select",
+              { onChange: (event) => {
+                member.source = event.target.value;
+                if (member.passage && !(state.passages || []).some((passage) => passage.id === member.passage && passage.source === member.source)) member.passage = "";
+                rerender(`${base}-source`);
+              } },
+              h("option", { value: "", selected: !member.source }, "Choose a version"),
+              versions.map((source) => h("option", { value: source.id, selected: member.source === source.id }, `${sourceLabel(source)} (${source.kind}${source.language ? `, ${source.language}` : ""}${source.archived ? ", archived" : ""})`)),
+            ), "Only editions, translations and witnesses have a text of their own."),
+            h("div", { "data-alignment-field": `${base}-absent` }, h("div", { class: "oba-capture-check" }, h("input", { id: `${idPrefix}-${base}-absent`, type: "checkbox", checked: member.absent, "aria-describedby": `${idPrefix}-${base}-absent-hint`, "data-hint-id": `${idPrefix}-${base}-absent-hint`, onChange: (event) => { member.absent = event.target.checked; rerender(`${base}-absent`); } }), h("label", { for: `${idPrefix}-${base}-absent` }, "This version lacks the passage (absent)")), h("p", { class: "oba-small", id: `${idPrefix}-${base}-absent-hint` }, "An omission, a lost leaf, or a gap. An absent place has no locator or wording.")),
+            member.absent
+              ? null
+              : [
+                  field(`${base}-passage`, "Notebook passage quoting it (optional)", h(
+                    "select",
+                    { onChange: (event) => {
+                      member.passage = event.target.value;
+                      const passage = (state.passages || []).find((candidate) => candidate.id === member.passage);
+                      if (passage && !String(member.locators).trim() && passage.locators?.length) member.locators = formatLocatorLines(passage.locators);
+                      rerender(`${base}-passage`);
+                    } },
+                    h("option", { value: "", selected: !member.passage }, passages.length ? "No passage" : member.source ? "No passages from this version" : "Choose a version first"),
+                    passages.map((passage) => h("option", { value: passage.id, selected: member.passage === passage.id }, `${[...String(passage.excerpt?.text ?? "")].slice(0, 60).join("")} (${passage.id})`)),
+                  ), "Its excerpt is the original wording, shown exactly as quoted. Choosing one fills in its locators."),
+                  field(`${base}-locators`, "Locators", h("textarea", { rows: 2, value: member.locators, spellcheck: "false", onInput: (event) => { member.locators = event.target.value; } }), "Where the place is in this version, one per line, such as canonical: 514a or page: 12. Each version keeps its own."),
+                ],
+          ].flat()
+        : field(`${base}-interpretation`, "Interpretation", h(
+            "select",
+            { onChange: (event) => { member.interpretation = event.target.value; rerender(`${base}-interpretation`); } },
+            h("option", { value: "", selected: !member.interpretation }, interpretations.length ? "Choose an interpretation" : "No interpretations in the library"),
+            interpretations.map((interpretation) => h("option", { value: interpretation.id, selected: member.interpretation === interpretation.id }, `${interpretation.kind === "rendering" ? "Rendering" : "Reading"} of ${sourceById(interpretation.source) ? sourceLabel(sourceById(interpretation.source)) : interpretation.source}, ${interpretersText(interpretation).replace(/^Interpreted by: /, "by ")} (${interpretation.id})`)),
+          ), "Aligned as it is: it already names its source, place and interpreters."),
+      wording
+        ? [
+            field(`${base}-normalized`, "Your normalization (optional)", h("textarea", { rows: 2, value: member.normalized, dir: "auto", onInput: (event) => { member.normalized = event.target.value; } }), "For example composed accents, expanded abbreviations or removed vowel points. Stored exactly as typed and always shown apart from the original."),
+            field(`${base}-normalized-note`, "What you normalized (optional)", h("input", { type: "text", value: member.normalizedNote, autocomplete: "off", dir: "auto", onInput: (event) => { member.normalizedNote = event.target.value; } })),
+          ]
+        : null,
+      field(`${base}-note`, "Note on this place (optional)", h("input", { type: "text", value: member.note, autocomplete: "off", dir: "auto", onInput: (event) => { member.note = event.target.value; } })),
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", id: `${idPrefix}-${base}-up`, "aria-label": `Move place ${number} up`, disabled: index === 0, onClick: () => move(-1) }, "Move up"),
+        h("button", { class: "oba-btn", type: "button", id: `${idPrefix}-${base}-down`, "aria-label": `Move place ${number} down`, disabled: index === draft.members.length - 1, onClick: () => move(1) }, "Move down"),
+        h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-alignment-remove-member": String(index), onClick: () => { draft.members.splice(index, 1); rerender("add-member"); say(`Place ${number} removed.`); } }, `Remove place ${number}`),
+      ),
+    );
+  };
+
+  const fields = () => [
+    editing ? h("p", { class: "oba-small" }, `Identifier: ${draft.id}. It cannot change.`) : null,
+    field("label", "Label (optional)", h("input", { type: "text", value: draft.label, autocomplete: "off", dir: "auto", onInput: (event) => {
+      draft.label = event.target.value;
+      if (!editing && !idTouched) {
+        draft.id = suggestAtlasId(draft.label, used(), "alignment");
+        const idInput = control("id");
+        if (idInput) idInput.value = draft.id;
+      }
+    } }), "Your name for it, such as The cave: opening image. It becomes the public title only if you approve the comparison for publication."),
+    editing ? null : field("id", "Identifier", h("input", { type: "text", value: draft.id, autocomplete: "off", spellcheck: "false", onInput: (event) => { idTouched = true; draft.id = event.target.value.trim(); } }), "Lowercase letters, digits and hyphens. It cannot change later."),
+    field("correspondence", "How the places correspond", h("select", { onChange: (event) => { draft.correspondence = event.target.value; } }, (state.correspondences || ALIGNMENT_CORRESPONDENCES).map((item) => h("option", { value: item.value, selected: draft.correspondence === item.value }, item.label))), "Your reading. There is no choice for “the same”: aligning places never says they mean the same thing."),
+    h(
+      "fieldset",
+      { class: "oba-alignment-members", id: `${idPrefix}-members`, tabindex: "-1" },
+      h("legend", {}, "Places"),
+      h("p", { class: "oba-small" }, "Two or more versions or interpretations, at least one with the passage. Several places may come from one version (a split), and the order is yours."),
+      draft.members.map(memberEditor),
+      h("button", { class: "oba-btn", type: "button", id: `${idPrefix}-add-member`, "data-alignment-add-member": "true", disabled: draft.members.length >= MAX_ALIGNMENT_MEMBERS, onClick: () => { draft.members.push(alignmentMemberDraft()); rerender(`member-${draft.members.length - 1}-source`); } }, "Add a place"),
+    ),
+    field("rationale", "Why you align them (optional)", h("textarea", { rows: 3, value: draft.rationale, dir: "auto", onInput: (event) => { draft.rationale = event.target.value; } })),
+    field("confidence", "Confidence", h("select", { onChange: (event) => { draft.confidence = event.target.value; } }, ATLAS_CONFIDENCE.map((item) => h("option", { value: item.value, selected: draft.confidence === item.value }, item.label))), "How firmly the recorder holds this reading, never how widely it is accepted."),
+    field("uncertainty", "What is uncertain (optional)", h("textarea", { rows: 2, value: draft.uncertainty, dir: "auto", onInput: (event) => { draft.uncertainty = event.target.value; } })),
+    partyEditor(),
+    publicationEditor(),
+  ];
+
+  const conflictNotice = () => {
+    if (!editing) return h("p", { class: "oba-notice", role: "alert", "data-alignment-conflict": "true" }, "The alignments changed after you opened them, so nothing was saved. Your draft is still here; save again to add it to the latest file.");
+    const removed = !conflict.current;
+    return h(
+      "div",
+      { class: "oba-notice", role: "alert", "data-alignment-conflict": "true" },
+      h("p", {}, removed ? "This alignment was removed after you opened it, so nothing was saved. Your draft is still here." : "This alignment was changed after you opened it, so nothing was saved. Your draft is still here. Choose which copy to continue with; nothing is overwritten until you save."),
+      h(
+        "div",
+        { class: "oba-toolbar" },
+        h("button", { class: "oba-btn", type: "button", "data-alignment-conflict-use": "stored", onClick: () => resolveConflict(true) }, removed ? "Discard my draft" : "Use the stored copy"),
+        removed ? null : h("button", { class: "oba-btn", type: "button", "data-alignment-conflict-use": "draft", onClick: () => resolveConflict(false) }, "Keep my draft"),
+      ),
+    );
+  };
+
+  const resolveConflict = (useStored) => {
+    if (!conflict) return;
+    const { current } = conflict;
+    conflict = null;
+    errorBox.hidden = true;
+    clearInvalid();
+    if (useStored) {
+      if (!current) {
+        touched = false;
+        onCancel?.();
+        return;
+      }
+      draft = alignmentDraft(current);
+      touched = false;
+      say("Showing the stored copy.");
+    } else {
+      rebaseAlignmentDraft(draft, current);
+      say("Your draft now rests on the latest copy. Review it, then save.");
+    }
+    rerender("label");
+  };
+
+  const render = () => {
+    const save = h("button", { class: "oba-btn oba-btn-primary", type: "submit", "data-alignment-save": "true", disabled: busy || Boolean(conflict && editing) }, editing ? "Save changes" : "Add alignment");
+    const cancel = h("button", { class: "oba-btn", type: "button", "data-alignment-cancel": "true", onClick: () => onCancel?.() }, "Cancel");
+    root.replaceChildren(...fields(), errorBox, conflict ? conflictNotice() : null, h("div", { class: "oba-toolbar" }, save, cancel), status);
+  };
+
+  const refresh = async () => {
+    applyAlignmentState(state, await api.call("GET", "research/alignments"));
+  };
+
+  root.addEventListener("input", () => { touched = true; });
+  root.addEventListener("change", () => { touched = true; });
+  root.addEventListener("click", (event) => {
+    if (event.target?.tagName === "BUTTON" && event.target.type === "button" && !event.target.dataset?.alignmentCancel && !event.target.dataset?.alignmentConflictUse) touched = true;
+  });
+  root.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    if (conflict && editing) {
+      fail("Choose the stored copy or keep your draft before saving.");
+      return;
+    }
+    errorBox.hidden = true;
+    clearInvalid();
+    conflict = null;
+    const problem = validateAlignmentDraft(draft, { used: used(), creating: !editing, sources: state.sources || [], passages: state.passages || [], interpretations: state.interpretations || [] });
+    if (problem) return fail(problem.message, problem.field);
+    busy = true;
+    root.querySelector("[data-alignment-save]")?.setAttribute("disabled", "");
+    say("Saving…");
+    try {
+      const result = await api.call(editing ? "PUT" : "POST", "research/alignments", { json: { revision: state.revision, alignment: alignmentPayload(draft) } });
+      applyAlignmentState(state, result);
+      busy = false;
+      touched = false;
+      say("");
+      onSaved?.({ item: result.alignment || null, build: result.build });
+    } catch (error) {
+      busy = false;
+      if (error.status === 409 && error.data?.conflict) {
+        try {
+          await refresh();
+        } catch {
+          // The next save reports whatever is wrong.
+        }
+        conflict = { current: error.data.current ?? null };
+        say("Not saved: the alignments changed elsewhere.", "oba-error");
+        render();
+        onRefreshed?.();
+        (editing ? root.querySelector("[data-alignment-conflict-use]") : root.querySelector("[data-alignment-save]"))?.focus();
+        return;
+      }
+      say("Not saved. The stored alignments are unchanged.", "oba-error");
+      render();
+      const first = error.data?.diagnostics?.[0];
+      fail(alignmentErrorMessage(error), first ? alignmentDiagnosticControl(first.field) : "");
+    }
+  });
+
+  render();
+  return {
+    element: root,
+    isDirty: () => touched && !busy,
+    focus() {
+      (control("label") || root.querySelector("input,select,textarea,button"))?.focus();
     },
   };
 }
@@ -6338,7 +7192,7 @@ export class ObAdmin extends AdminElement {
   shownShellModules() {
     const visible = new Set(visibleAdminModules(this.preferences));
     if (["analytics", "contributors"].includes(this.activeRoute)) visible.add(this.activeRoute);
-    if (["sources", "research", "atlas"].includes(this.activeRoute)) visible.add("evidence");
+    if (["sources", "research", "atlas", "compare"].includes(this.activeRoute)) visible.add("evidence");
     if (this.activeRoute === "feedback") visible.add("analytics");
     return visible;
   }
@@ -6487,6 +7341,8 @@ export class ObAdmin extends AdminElement {
         ? { title: "Research notebook", detail: "Capture quoted passages and your own notes about them, privately, tied to your sources." }
       : active === "atlas"
         ? { title: "Knowledge Atlas", detail: "Relate people, works, concepts, movements and events privately, with who asserts each link and on what evidence." }
+      : active === "compare"
+        ? { title: "Compare versions", detail: "Read aligned passages across editions, translations, witnesses and interpretations, side by side or in one column." }
       : active === "contributors"
         ? { title: "Contributors", detail: "Manage reusable public identities for bylines and contribution credits." }
       : active === "shared"
@@ -6519,7 +7375,7 @@ export class ObAdmin extends AdminElement {
         { class: "oba-toolbelt", "aria-label": "Admin tools" },
         toolGroup("Content", ...contentTabs),
         h("div", { class: "oba-progressive-tools", "data-admin-module": "analytics", hidden: !visibleModules.has("analytics") }, toolGroup("Observe", h("a", { class: "oba-tab", "aria-current": active === "analytics" ? "page" : null, href: "#/analytics" }, "Analytics"), h("a", { class: "oba-tab", "aria-current": active === "feedback" ? "page" : null, href: "#/feedback" }, "Reader feedback"))),
-        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"), h("a", { class: "oba-tab", "aria-current": active === "atlas" ? "page" : null, href: "#/atlas" }, "Atlas"))),
+        h("div", { class: "oba-progressive-tools", "data-admin-module": "evidence", hidden: !visibleModules.has("evidence") }, toolGroup("Research", h("a", { class: "oba-tab", "aria-current": active === "sources" ? "page" : null, href: "#/sources" }, "Sources"), h("a", { class: "oba-tab", "aria-current": active === "research" ? "page" : null, href: "#/research" }, "Notebook"), h("a", { class: "oba-tab", "aria-current": active === "atlas" ? "page" : null, href: "#/atlas" }, "Atlas"), h("a", { class: "oba-tab", "aria-current": active === "compare" ? "page" : null, href: "#/compare" }, "Compare"))),
         h("div", { class: "oba-progressive-tools", "data-admin-module-group": "contributors public-site", hidden: !visibleModules.has("contributors") && !visibleModules.has("public-site") }, toolGroup(
           "Site",
           h("a", { class: "oba-tab", "data-admin-module": "contributors", hidden: !visibleModules.has("contributors"), "aria-current": active === "contributors" ? "page" : null, href: "#/contributors" }, "Contributors"),
@@ -6704,6 +7560,7 @@ export class ObAdmin extends AdminElement {
       { label: "Sources", category: "Research", keywords: "library bibliography citations editions translations witnesses references", run: () => go("#/sources") },
       { label: "Research notebook", category: "Research", keywords: "passages notes quotations excerpts observations questions capture", run: () => go("#/research") },
       { label: "Knowledge Atlas", category: "Research", keywords: "atlas people works concepts movements events relationships influence explore", run: () => go("#/atlas") },
+      { label: "Compare versions", category: "Research", keywords: "compare alignments editions translations witnesses interpretations passages side by side", run: () => go("#/compare") },
       { label: "Contributors", category: "Site", keywords: "authors credits orcid identity", run: () => go("#/contributors") },
       { label: "View site", category: "Site", keywords: "public blog", run: () => open("/", "_blank", "noopener") },
       { label: "Advanced tools", category: "Workspace", keywords: "more optional hidden ai assistant research distribution", run: () => this.openAdvancedTools() },
@@ -6865,6 +7722,7 @@ export class ObAdmin extends AdminElement {
       else if (head === "sources") await this.showSources();
       else if (head === "research") await this.showResearch();
       else if (head === "atlas") await this.showAtlas(safeDecodeURIComponent(tail));
+      else if (head === "compare") await this.showCompare(safeDecodeURIComponent(tail));
       else if (head === "shared" && tail === "new") await this.showSharedReflectionForm();
       else if (head === "shared" && tail.startsWith("accept/")) await this.showInvitationAccept(invitationTokenFromHash(location.hash));
       else if (head === "shared") await this.showSharedReflections();
@@ -7362,10 +8220,10 @@ export class ObAdmin extends AdminElement {
       const text = (name, props = {}) =>
         h("input", { type: "text", value: draft[name], autocomplete: "off", onInput: (event) => { draft[name] = event.target.value; touch(); }, ...props });
       const area = (name, rows) => h("textarea", { rows, spellcheck: "false", value: draft[name], onInput: (event) => { draft[name] = event.target.value; touch(); } });
-      const select = (name, options, emptyLabel) =>
+      const select = (name, options, emptyLabel, after) =>
         h(
           "select",
-          { onChange: (event) => { draft[name] = event.target.value; touch(); } },
+          { onChange: (event) => { draft[name] = event.target.value; touch(); after?.(); } },
           emptyLabel ? h("option", { value: "", selected: !draft[name] }, emptyLabel) : null,
           options.map(([value, label]) => h("option", { value, selected: draft[name] === value }, label)),
         );
@@ -7374,6 +8232,13 @@ export class ObAdmin extends AdminElement {
           name,
           sourceRelationOptions(sources, draft.kind, name, draft.id).map((source) => [source.id, `${sourceLabel(source)} (${source.kind})`]),
           name === "of" ? "Choose a source" : "None",
+          // A reference's volume control depends on the record it points at.
+          name === "of" && fields.location
+            ? () => {
+                renderPanel();
+                document.getElementById?.("oba-source-of")?.focus?.();
+              }
+            : undefined,
         );
       const kindControl = h(
         "select",
@@ -7427,6 +8292,9 @@ export class ObAdmin extends AdminElement {
                 { class: "oba-source-location", "data-source-field": "location" },
                 field("locationScheme", "Location type", select("locationScheme", SOURCE_LOCATION_SCHEMES.map((scheme) => [scheme, scheme]), "None")),
                 field("locationValue", "Location", text("locationValue", { spellcheck: "false" }), "For example 514a, 12r, or 1:02:30."),
+                sourceTargetVolumes(sources, draft.of) > 1 || String(draft.locationVolume || "").trim()
+                  ? field("locationVolume", "Volume", text("locationVolume", { spellcheck: "false" }), "Pages and folios restart in each volume, so name the volume, such as 2.")
+                  : null,
               )
             : null,
           field("creators", "Creators (optional)", area("creators", 3), "One per line. Add a role after a bar, such as Plato | author. Creators are descriptive only and are not site contributors."),
@@ -7469,7 +8337,7 @@ export class ObAdmin extends AdminElement {
           this.dirty = false;
           renderList();
           renderPanel();
-          say(`${sourceLabel(result.source)} saved.`, "oba-ok");
+          say(`${sourceLabel(result.source)} saved.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
         } catch (error) {
           if (this.viewVersion !== mountedView) return;
           if (error.status === 409 && error.data?.conflict) {
@@ -7543,7 +8411,7 @@ export class ObAdmin extends AdminElement {
         this.dirty = false;
         renderList();
         renderPanel();
-        say(`${sourceLabel(result.source)} ${archived ? "archived" : "restored"}.`, "oba-ok");
+        say(`${sourceLabel(result.source)} ${archived ? "archived" : "restored"}.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         if (error.status === 409 && error.data?.conflict) {
@@ -7893,7 +8761,7 @@ export class ObAdmin extends AdminElement {
           selected = target;
           refreshSearch();
           renderPanel(true);
-          say("Saved to the private notebook.", "oba-ok");
+          say(`Saved to the private notebook.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
         },
         onCancel: () => close(),
       });
@@ -8020,7 +8888,7 @@ export class ObAdmin extends AdminElement {
         Object.assign(state, { revision: result.revision, sources: result.sources, passages: result.passages, notes: result.notes });
         refreshSearch();
         renderPanel(true);
-        say(archived ? (filters.archived ? "Archived. It stays in the notebook and in exports." : "Archived. It stays in the notebook and in exports; tick Show archived to see it in lists.") : "Restored from the archive.", "oba-ok");
+        say(`${archived ? (filters.archived ? "Archived. It stays in the notebook and in exports." : "Archived. It stays in the notebook and in exports; tick Show archived to see it in lists.") : "Restored from the archive."}${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
       } catch (error) {
         if (this.viewVersion !== mountedView) return;
         say(error.status === 409 ? "Not changed: the notebook changed elsewhere. Reload this view and try again." : `${notebookErrorMessage(error)} The stored notebook is unchanged.`, "oba-error");
@@ -8765,6 +9633,471 @@ export class ObAdmin extends AdminElement {
       ),
     );
     if (selected) panel.querySelector("#oba-atlas-heading")?.focus();
+  }
+
+  // ---- comparison workspace
+
+  async showCompare(focus = "") {
+    let loaded;
+    try {
+      loaded = await this.api.call("GET", "research/alignments");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      // A damaged alignments file (or library or notebook) is reported, never replaced.
+      this.mount(
+        this.shell(
+          "compare",
+          h("p", { class: "oba-error", role: "alert" }, `The alignments could not be read. ${alignmentErrorMessage(error)}`),
+          error.data?.file ? h("p", { class: "oba-small" }, `Repair ${error.data.file} by hand, then reload this view. Nothing was changed.`) : null,
+        ),
+      );
+      return;
+    }
+    const state = applyAlignmentState({}, loaded);
+    const mountedView = this.viewVersion + 1;
+    // How the comparison reads; kept for this visit only, so nothing is written to the browser.
+    const options = { layout: "columns", normalized: false, notes: false, version: "" };
+    let selected = null; // null, or { id: string | null, editing: boolean }
+    let form = null;
+    let busy = false;
+    let chosen = new Set(); // member indexes chosen for copying, never preselected
+    let rightsConfirmed = false;
+
+    const status = h("p", { class: "oba-small", role: "status", "aria-live": "polite" });
+    const undoBox = h("div", { class: "oba-toolbar", "data-compare-undo": "true", hidden: true });
+    const say = (text, kind = "oba-small") => {
+      status.className = kind;
+      status.textContent = text;
+    };
+    const count = h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-compare-count": "true" });
+    const versionFilter = h("select", { id: "oba-compare-version-filter", "aria-controls": "oba-compare-alignments", onChange: (event) => { options.version = event.target.value; renderLists(); } });
+    const layoutRadio = (value, label) => {
+      const id = `oba-compare-layout-${value}`;
+      return h("div", { class: "oba-capture-check" }, h("input", { id, type: "radio", name: "oba-compare-layout", value, checked: options.layout === value, onChange: () => { options.layout = value; renderComparison(); say(value === "columns" ? "Showing versions side by side. On a narrow screen they follow one another in the same order." : "Showing versions in a single column, one after another."); } }), h("label", { for: id }, label));
+    };
+    const layoutControls = h("fieldset", { class: "oba-compare-layout-choice", "data-compare-layout-choice": "true" }, h("legend", {}, "Layout"), layoutRadio("columns", "Side by side"), layoutRadio("sequence", "Single column"));
+    const normalizedToggle = h("div", { class: "oba-capture-check" }, h("input", { id: "oba-compare-normalized", type: "checkbox", "aria-describedby": "oba-compare-normalized-hint", onChange: (event) => { options.normalized = event.target.checked; renderComparison(); } }), h("label", { for: "oba-compare-normalized" }, "Show the author's normalizations"));
+    const list = h("ul", { class: "oba-source-list", id: "oba-compare-alignments", "aria-labelledby": "oba-compare-alignments-heading" });
+    const listNav = h("nav", { "aria-label": "Alignments" });
+    const notices = h("div", { class: "oba-atlas-notices", "data-compare-notices": "true" });
+    const panel = h("section", { class: "oba-source-editor oba-compare-panel", "aria-labelledby": "oba-compare-heading" });
+    const comparisonBox = h("div", { class: "oba-compare-body" });
+    const exportBox = h("section", { class: "oba-compare-export", "aria-labelledby": "oba-compare-export-heading", "data-compare-export": "true" });
+    const newButton = h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-compare-new": "true", onClick: () => open({ id: null, editing: true }) }, "New alignment");
+    const alignmentById = (id) => state.alignments.find((alignment) => alignment.id === id) || null;
+    const sourceById = (id) => state.sources.find((source) => source.id === id) || null;
+    const confirmDiscard = () => !form?.isDirty() || globalThis.confirm?.("Discard the unsaved alignment change?") !== false;
+    const heading = (text) => h("h2", { id: "oba-compare-heading", tabindex: "-1" }, h("bdi", {}, text));
+    const nameOf = (alignment) => alignment.label || `Alignment ${alignment.id}`;
+    const versionKey = (member) => (typeof member.interpretation === "string" ? `interpretation:${member.interpretation}` : `source:${member.source}`);
+    const parts = (items) => items.map((part) => (typeof part === "string" ? part : h("bdi", {}, part.text)));
+
+    const renderNotices = () => {
+      notices.replaceChildren(
+        ...(state.notices.length
+          ? [
+              h(
+                "section",
+                { class: "oba-notice", "aria-labelledby": "oba-compare-notices-heading" },
+                h("h2", { class: "oba-small-heading", id: "oba-compare-notices-heading" }, "Places to check"),
+                h("ul", {}, state.notices.map((notice) => h("li", {}, `Alignment ${notice.id}, ${notice.field}: ${notice.message}`))),
+              ),
+            ]
+          : []),
+      );
+    };
+
+    const renderFilter = () => {
+      const keys = [];
+      for (const alignment of state.alignments) for (const member of alignment.members || []) if (!keys.includes(versionKey(member))) keys.push(versionKey(member));
+      if (options.version && !keys.includes(options.version)) options.version = "";
+      const label = (key) => {
+        const [type, id] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
+        if (type === "interpretation") return `Interpretation ${id}`;
+        const source = sourceById(id);
+        return source ? `${sourceLabel(source)} (${source.kind})` : `${id} (missing)`;
+      };
+      versionFilter.replaceChildren(h("option", { value: "", selected: !options.version }, "All versions"), keys.map((key) => h("option", { value: key, selected: options.version === key }, label(key))));
+    };
+
+    const renderLists = () => {
+      renderFilter();
+      const shown = state.alignments.filter((alignment) => !options.version || (alignment.members || []).some((member) => versionKey(member) === options.version));
+      const total = state.alignments.length;
+      count.textContent = shown.length === total ? `${plural(total, "alignment")}.` : `${shown.length} of ${plural(total, "alignment")} shown.`;
+      const row = (alignment) => {
+        const versions = new Set((alignment.members || []).map(versionKey)).size;
+        const absent = (alignment.members || []).filter((member) => member.absent).length;
+        return h(
+          "li",
+          {},
+          h(
+            "button",
+            { class: "oba-source-item", type: "button", "data-compare-alignment": alignment.id, "aria-current": selected?.id === alignment.id ? "true" : null, onClick: () => open({ id: alignment.id, editing: false }) },
+            h("strong", {}, h("bdi", {}, nameOf(alignment))),
+            h("span", { class: "oba-small" }, `${plural(versions, "version")}${absent ? `, ${absent} absent` : ""} · ${correspondenceLabel(state, alignment.correspondence).replace(/^The author reads these places as /, "")}`),
+          ),
+        );
+      };
+      list.replaceChildren(...(shown.length ? shown.map(row) : [h("li", { class: "oba-notice" }, total ? "No alignment includes this version." : "No alignments yet. Add one to compare a passage across versions.")]));
+      listNav.replaceChildren(h("h2", { class: "oba-small-heading", id: "oba-compare-alignments-heading" }, "Alignments"), list);
+      renderNotices();
+    };
+
+    const fact = (label, value) => [h("dt", {}, label), h("dd", {}, parts(value))];
+
+    const placeItem = (column, place) => {
+      const base = `oba-compare-place-${place.index}`;
+      const fromInterpretation = column.type === "interpretation";
+      return h(
+        "li",
+        { class: "oba-compare-place", "data-compare-place": String(place.index), "data-compare-absent": place.absent ? "true" : null },
+        h("p", { class: "oba-compare-ident", id: `${base}-ident`, "data-compare-ident": "true" }, h("bdi", {}, column.title), ` · ${column.kindText}`, column.maker ? [" · ", h("bdi", {}, column.maker)] : null, " · Locator: ", h("bdi", {}, place.locator || "none recorded")),
+        place.absent
+          ? h("p", { class: "oba-compare-absent", "data-compare-absent-text": "true" }, h("strong", {}, "Absent:"), " this version lacks the passage.")
+          : place.original
+            ? [
+                h("p", { class: "oba-compare-label", id: `${base}-original` }, fromInterpretation ? `Wording of ${place.original.from}, exactly as recorded` : `Original wording, quoted exactly from ${place.original.from}`),
+                h("blockquote", { class: "oba-compare-original", lang: place.original.language || null, dir: textDirection(place.original.language), "data-compare-original": "true" }, place.original.text),
+              ]
+            : h("p", { class: "oba-small" }, place.missingPassage ? "The notebook passage this place names is missing." : "No wording quoted for this place; it is located only."),
+        place.normalized && options.normalized
+          ? [
+              h("p", { class: "oba-compare-label", id: `${base}-normalized` }, "The author's normalization, not the source text"),
+              h("blockquote", { class: "oba-compare-normalized", lang: place.normalized.language || null, dir: textDirection(place.normalized.language), "data-compare-normalized": "true" }, place.normalized.text),
+              place.normalized.note ? h("p", { class: "oba-small" }, "Normalized: ", h("bdi", {}, place.normalized.note)) : null,
+            ]
+          : place.normalized
+            ? h("p", { class: "oba-small" }, "A normalization is recorded. Turn on “Show the author's normalizations” to read it.")
+            : null,
+        place.note ? h("p", { class: "oba-small" }, "Author's note: ", h("bdi", {}, place.note)) : null,
+        (() => {
+          const statuses = selected?.id ? state.publication?.places?.[selected.id] : null;
+          const line = publicPlaceText(Array.isArray(statuses) ? statuses[place.index] : "", state.publication?.maxExcerptChars);
+          return line ? h("p", { class: "oba-small", "data-compare-public": statuses[place.index] }, line) : null;
+        })(),
+        place.notices.map((message) => h("p", { class: "oba-notice", "data-compare-place-notice": "true" }, `Check this place: ${message}`)),
+        h(
+          "div",
+          { class: "oba-capture-check" },
+          h("input", {
+            id: `oba-compare-select-${place.index}`,
+            type: "checkbox",
+            checked: chosen.has(place.index),
+            "aria-describedby": `${base}-ident`,
+            "data-compare-select": String(place.index),
+            onChange: (event) => {
+              if (event.target.checked) chosen.add(place.index);
+              else chosen.delete(place.index);
+              rightsConfirmed = false;
+              renderExport();
+            },
+          }),
+          h("label", { for: `oba-compare-select-${place.index}` }, `Select place ${place.index + 1} for copying`),
+        ),
+      );
+    };
+
+    const versionSection = (column, position) => {
+      const id = `oba-compare-version-${position}`;
+      return h(
+        "section",
+        { class: "oba-compare-version", "aria-labelledby": id, "data-compare-version": column.key, "data-compare-missing": column.missing ? "true" : null },
+        h("h4", { id }, h("bdi", {}, column.title)),
+        column.maker ? h("p", { class: "oba-compare-maker", "data-compare-maker": "true" }, h("bdi", {}, column.maker)) : null,
+        h(
+          "dl",
+          { class: "oba-compare-facts" },
+          fact("Kind", [column.kindText]),
+          column.facts.flatMap((item) => fact(item.label, item.parts)),
+          h("dt", {}, "Rights"),
+          h("dd", { "data-compare-rights": column.rights.status }, h("bdi", {}, rightsText(column.rights))),
+        ),
+        h("ol", { class: "oba-compare-places", "aria-label": `Places in ${column.title}` }, column.places.map((place) => placeItem(column, place))),
+      );
+    };
+
+    const columnsOf = (alignment) => comparisonColumns(alignment, state);
+
+    const renderComparison = () => {
+      const alignment = selected?.id && !selected.editing ? alignmentById(selected.id) : null;
+      if (!alignment) return;
+      const columns = columnsOf(alignment);
+      comparisonBox.replaceChildren(
+        options.layout === "sequence"
+          ? h("ol", { class: "oba-compare-sequence", "data-compare-layout": "sequence" }, columns.map((column, position) => h("li", {}, versionSection(column, position))))
+          : h("div", { class: "oba-compare-columns", "data-compare-layout": "columns" }, columns.map(versionSection)),
+      );
+    };
+
+    const exportError = h("p", { class: "oba-error", id: "oba-compare-export-error", role: "alert", hidden: true, tabindex: "-1" });
+    const exportProblem = (message, target) => {
+      exportError.hidden = false;
+      exportError.textContent = message;
+      (target || exportError).focus();
+    };
+
+    const renderExport = () => {
+      const alignment = selected?.id ? alignmentById(selected.id) : null;
+      if (!alignment) return;
+      const columns = columnsOf(alignment);
+      const places = columns.flatMap((column) => column.places);
+      chosen = new Set([...chosen].filter((index) => places.some((place) => place.index === index)));
+      const toConfirm = rightsToConfirm(columns, chosen);
+      const picked = columns.filter((column) => column.places.some((place) => chosen.has(place.index)));
+      exportError.hidden = true;
+      const selectAll = h("button", { class: "oba-btn", type: "button", "data-compare-select-all": "true", onClick: () => { chosen = new Set(places.map((place) => place.index)); rightsConfirmed = false; renderComparison(); renderExport(); exportBox.querySelector("[data-compare-select-all]")?.focus(); } }, "Select every place");
+      const clear = h("button", { class: "oba-btn", type: "button", "data-compare-clear": "true", onClick: () => { chosen = new Set(); rightsConfirmed = false; renderComparison(); renderExport(); exportBox.querySelector("[data-compare-clear]")?.focus(); } }, "Clear the selection");
+      const confirmBox = toConfirm.length
+        ? h("input", { id: "oba-compare-confirm-rights", type: "checkbox", checked: rightsConfirmed, "aria-describedby": "oba-compare-rights-heading", onChange: (event) => { rightsConfirmed = event.target.checked; } })
+        : null;
+      const fallback = h("div", { "data-compare-fallback": "true", hidden: true });
+      const textOf = () => comparisonExportText(alignment, columns, chosen, { normalized: options.normalized, notes: options.notes, correspondence: correspondenceLabel(state, alignment.correspondence), notice: state.notice });
+      const ready = () => {
+        if (!chosen.size) {
+          exportProblem("Select at least one place first. Nothing was copied.", selectAll);
+          return false;
+        }
+        if (toConfirm.length && !rightsConfirmed) {
+          exportProblem("Confirm that you have read the rights statements first. Nothing was copied.", confirmBox);
+          return false;
+        }
+        exportError.hidden = true;
+        return true;
+      };
+      const copied = `${plural(chosen.size, "place")} with ${chosen.size === 1 ? "its" : "their"} version, maker, locator and rights statement`;
+      const copy = async () => {
+        if (!ready()) return;
+        const text = textOf();
+        try {
+          if (!globalThis.navigator?.clipboard?.writeText) throw new Error("no clipboard");
+          await globalThis.navigator.clipboard.writeText(text);
+          say(`Copied ${copied}.`, "oba-ok");
+        } catch {
+          // The browser refused: show the text to copy by hand instead of losing it.
+          const area = h("textarea", { id: "oba-compare-export-text", rows: 8, readonly: true, value: text, dir: "auto" });
+          fallback.replaceChildren(h("label", { for: "oba-compare-export-text" }, "Selected places as text"), area);
+          fallback.hidden = false;
+          say("Your browser did not allow copying. The text is below: select it and copy it yourself.", "oba-error");
+          area.focus();
+        }
+      };
+      const download = () => {
+        if (!ready()) return;
+        let url = "";
+        try {
+          url = URL.createObjectURL(new Blob([textOf()], { type: "text/plain;charset=utf-8" }));
+        } catch {
+          exportProblem("This browser could not prepare a download. Use Copy instead. Nothing was saved.");
+          return;
+        }
+        const link = h("a", { href: url, download: `alignment-${alignment.id}.txt`, hidden: true }, "Download");
+        exportBox.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+        say(`Downloaded ${copied}.`, "oba-ok");
+      };
+      exportBox.replaceChildren(
+        h("h3", { id: "oba-compare-export-heading" }, "Copy or export"),
+        h("p", { class: "oba-small" }, "Only the places you select are copied, each with its version, maker, locator and rights statement. The text is your private research; copying publishes nothing."),
+        h("p", { class: "oba-small", role: "status", "aria-live": "polite", "data-compare-selection": "true" }, chosen.size ? `${plural(chosen.size, "place")} selected.` : "No places selected."),
+        h("div", { class: "oba-toolbar" }, selectAll, clear),
+        picked.length
+          ? h(
+              "section",
+              { "aria-labelledby": "oba-compare-rights-heading", "data-compare-rights-summary": "true" },
+              h("h4", { id: "oba-compare-rights-heading" }, "Rights statements for the selected places"),
+              h("ul", {}, picked.map((column) => h("li", { "data-compare-rights-item": column.rights.status }, h("bdi", {}, column.title), ": ", h("bdi", {}, rightsText(column.rights))))),
+              h("p", { class: "oba-small" }, "These are the author's own statements, not permission. open.blog does not decide what you may copy."),
+            )
+          : null,
+        h(
+          "div",
+          { "data-compare-include-notes": "true" },
+          h(
+            "div",
+            { class: "oba-capture-check" },
+            h("input", { id: "oba-compare-include-notes", type: "checkbox", checked: options.notes, "aria-describedby": "oba-compare-include-notes-hint", onChange: (event) => { options.notes = event.target.checked; } }),
+            h("label", { for: "oba-compare-include-notes" }, "Include my notes on places"),
+          ),
+          h("p", { class: "oba-small", id: "oba-compare-include-notes-hint" }, "Your notes on places are private research, so they are left out unless you tick this."),
+        ),
+        confirmBox
+          ? h("div", { class: "oba-capture-check", "data-compare-confirm": "true" }, confirmBox, h("label", { for: "oba-compare-confirm-rights" }, `I have read the rights statements. ${toConfirm.length === 1 ? "One version's rights are" : "Some versions' rights are"} not checked or reserved, and copying is my decision.`))
+          : null,
+        exportError,
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          h("button", { class: "oba-btn oba-btn-primary", type: "button", "data-compare-copy": "true", onClick: copy }, "Copy selected places"),
+          h("button", { class: "oba-btn", type: "button", "data-compare-download": "true", onClick: download }, "Download selected places"),
+        ),
+        fallback,
+      );
+    };
+
+    const onSaved = ({ item, build }) => {
+      if (this.viewVersion !== mountedView) return;
+      if (item) selected = { id: item.id, editing: false };
+      // Places may have moved or gone, so a selection made before the edit is not carried over.
+      chosen = new Set();
+      rightsConfirmed = false;
+      renderLists();
+      renderPanel(true);
+      say(`Alignment saved to the private alignments file.${comparisonBuildText(build)}`, build && !build.ok ? "oba-error" : "oba-ok");
+    };
+    const onRefreshed = () => {
+      if (this.viewVersion === mountedView) renderLists();
+    };
+
+    const publicationStatus = (alignment) => {
+      const publication = state.publication || {};
+      const url = `${publication.url || "/comparisons/"}${alignment.id}/`;
+      if (alignment.visibility !== "approved") {
+        return h("p", { class: "oba-small", "data-compare-publication": "private" }, "Private: not published. Approve it in Edit alignment to publish it; each place below says what a public page would show.");
+      }
+      if (!publication.publish) {
+        return h("p", { class: "oba-small", "data-compare-publication": "approved" }, "Approved for publication, but this site does not publish comparisons: nothing is public until comparisons.publish is turned on in openblog.json.");
+      }
+      return h("p", { class: "oba-small", "data-compare-publication": "published" }, "Approved and published at ", h("a", { href: url }, url), ". Rights statements are your own declarations.");
+    };
+
+    const renderAlignment = (alignment) => {
+      const versions = new Set((alignment.members || []).map(versionKey)).size;
+      const confidence = ATLAS_CONFIDENCE.find((item) => item.value === alignment.confidence)?.label || "Tentative";
+      renderComparison();
+      renderExport();
+      panel.replaceChildren(
+        heading(nameOf(alignment)),
+        h("p", { "data-compare-correspondence": alignment.correspondence || "corresponding" }, correspondenceLabel(state, alignment.correspondence), "."),
+        h("p", { class: "oba-small" }, `${plural(versions, "version")} · ${confidence} confidence · Recorded by `, h("bdi", {}, atlasAttributionText(alignment.recordedBy, state.sources)), ` · ID ${alignment.id}`),
+        alignment.rationale ? h("p", {}, "Why: ", h("bdi", {}, alignment.rationale)) : null,
+        alignment.uncertainty ? h("p", {}, "Uncertain: ", h("bdi", {}, alignment.uncertainty)) : null,
+        h("p", { class: "oba-notice", "data-compare-notice": "true" }, state.notice),
+        publicationStatus(alignment),
+        h(
+          "div",
+          { class: "oba-toolbar" },
+          h("button", { class: "oba-btn", type: "button", "data-compare-edit": "true", onClick: () => open({ id: alignment.id, editing: true }) }, "Edit alignment"),
+          h("button", { class: "oba-btn oba-btn-danger", type: "button", "data-compare-remove": "true", onClick: () => remove() }, "Remove alignment"),
+        ),
+        h("section", { class: "oba-compare-comparison", "aria-labelledby": "oba-compare-comparison-heading" }, h("h3", { id: "oba-compare-comparison-heading" }, "Comparison"), comparisonBox),
+        exportBox,
+      );
+    };
+
+    const renderPanel = (moveFocus = false) => {
+      form = null;
+      const alignment = selected?.id ? alignmentById(selected.id) : null;
+      if (selected?.id && !alignment) selected = null;
+      if (!selected) {
+        panel.replaceChildren(
+          heading("Compare versions"),
+          h("p", { class: "oba-notice" }, state.alignments.length ? "Choose an alignment to read its places side by side, or add a new one." : "Add your first alignment: the places in two or more versions that you read as corresponding."),
+          h("p", { class: "oba-small" }, state.notice),
+        );
+      } else if (selected.editing) {
+        form = createAlignmentForm({ api: this.api, state, item: alignment, idPrefix: "oba-alignment", onSaved, onRefreshed, onCancel: () => (alignment ? open({ id: alignment.id, editing: false }) : close()) });
+        panel.replaceChildren(
+          heading(alignment ? `Edit ${nameOf(alignment)}` : "New alignment"),
+          h("p", { class: "oba-small" }, "Private unless you approve it for publication below. Aligning places records where you read them as corresponding, never that they mean the same thing."),
+          form.element,
+        );
+      } else renderAlignment(alignment);
+      if (moveFocus) panel.querySelector("#oba-compare-heading")?.focus();
+    };
+
+    const open = (target) => {
+      if (!confirmDiscard()) return;
+      if (target.id !== selected?.id) {
+        chosen = new Set();
+        rightsConfirmed = false;
+      }
+      selected = target;
+      say("");
+      undoBox.hidden = true;
+      renderLists();
+      renderPanel(true);
+    };
+    const close = () => {
+      if (!confirmDiscard()) return;
+      selected = null;
+      renderLists();
+      renderPanel();
+      newButton.focus();
+    };
+
+    const remove = async () => {
+      if (busy || !selected?.id) return;
+      if (globalThis.confirm?.("Remove this alignment? It is deleted from the private alignments file.") === false) return;
+      busy = true;
+      try {
+        const result = await this.api.call("DELETE", "research/alignments", { json: { revision: state.revision, id: selected.id } });
+        if (this.viewVersion !== mountedView) return;
+        applyAlignmentState(state, result);
+        selected = null;
+        chosen = new Set();
+        renderLists();
+        renderPanel();
+        say(`Removed from the private alignments file.${comparisonBuildText(result.build)}`, result.build && !result.build.ok ? "oba-error" : "oba-ok");
+        const removed = result.removed;
+        if (removed) {
+          undoBox.replaceChildren(h("button", { class: "oba-btn", type: "button", "data-compare-undo-remove": removed.id, onClick: () => undo(removed) }, `Undo removing ${nameOf(removed)}`));
+          undoBox.hidden = false;
+          undoBox.querySelector("button")?.focus();
+        } else newButton.focus();
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(error.status === 409 ? "Not removed: the alignments changed elsewhere. Reload this view and try again." : `Not removed. ${alignmentErrorMessage(error)} The stored alignments are unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    const undo = async (removed) => {
+      if (busy) return;
+      busy = true;
+      try {
+        const result = await this.api.call("POST", "research/alignments", { json: { revision: state.revision, alignment: removed } });
+        if (this.viewVersion !== mountedView) return;
+        applyAlignmentState(state, result);
+        undoBox.hidden = true;
+        selected = { id: removed.id, editing: false };
+        renderLists();
+        renderPanel(true);
+        say("The alignment is back.", "oba-ok");
+      } catch (error) {
+        if (this.viewVersion !== mountedView) return;
+        say(`Not restored. ${alignmentErrorMessage(error)} The stored alignments are unchanged.`, "oba-error");
+      } finally {
+        busy = false;
+      }
+    };
+
+    if (focus && alignmentById(focus)) selected = { id: focus, editing: false };
+    renderLists();
+    renderPanel();
+    this.mount(
+      this.shell(
+        "compare",
+        h("section", { class: "oba-contributor-intro" }, h("p", {}, "Read the places you aligned across editions, translations, witnesses and interpretations, side by side or one after another, with who made each version and what you know of its rights."), h("p", { class: "oba-small" }, `Private author research stored in ${state.file}. It never reaches the public site, and saving here changes only that file.`)),
+        h(
+          "div",
+          { class: "oba-toolbar oba-source-filters oba-compare-controls" },
+          h("div", { class: "oba-field" }, h("label", { for: "oba-compare-version-filter" }, "Show alignments with"), versionFilter),
+          layoutControls,
+          h("div", { class: "oba-field" }, normalizedToggle, h("p", { class: "oba-small", id: "oba-compare-normalized-hint" }, "Shown under the original, labelled. The original wording is always shown.")),
+          newButton,
+        ),
+        count,
+        status,
+        undoBox,
+        notices,
+        h("div", { class: "oba-source-layout", id: "oba-compare-lists" }, listNav, panel),
+      ),
+    );
+    if (selected) panel.querySelector("#oba-compare-heading")?.focus();
   }
 
   // ---- shared reflections

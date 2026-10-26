@@ -47,22 +47,62 @@ data and is written back as an absent field.
 | `basedOn` | translation | Optional edition, witness, or translation the translation was made from; it must belong to the same work and must not lead back to the translation. |
 | `language` | every record | Language tag such as `en` or `grc`. Required on a translation. |
 | `issued` | every record | Authored date text, kept as written. |
-| `creators` | every record | `{ "name", "role"? }`, where role is `author`, `editor`, `translator`, `compiler`, `scribe`, or `other`. Descriptive only; never a contributor reference. |
+| `creators` | every record | `{ "name", "role"?, "attribution"?, "note"? }`, where role is `author`, `editor`, `translator`, `compiler`, `scribe`, or `other`, and attribution is `stated`, `attributed`, `uncertain`, or `disputed`. Descriptive only; never a contributor reference. |
 | `identifiers` | every record | `{ "scheme", "value" }`. `doi`, `isbn`, `issn`, and `url` are checked offline; other schemes need a lowercase slug name. Values must not start or end with whitespace. |
 | `archived` | every record | Optional `true`. Hides the record from everyday lists and keeps it in place; records that point at it still resolve. `false` is written as an absent field. |
-| `location` | reference | `{ "scheme", "value" }` with scheme `page`, `folio`, `line`, `section`, `chapter`, `canonical`, or `timestamp`. Pages cannot point at a work; folios need a witness; timestamps are seconds or `h:mm:ss`. |
+| `location` | reference | `{ "scheme", "value", "volume"? }` with scheme `page`, `folio`, `line`, `section`, `chapter`, `canonical`, or `timestamp`. Pages cannot point at a work; folios need a witness; timestamps are seconds or `h:mm:ss`. A page or folio in a record with more than one volume needs `volume`, and a numeric volume must be within the declared count. |
+| `revises` | edition | Optional earlier edition of the same text (the same `of`) that this edition revises. Revisions may not loop. ([ADR 0084](../adr/0084-version-lineage-witness-identity-and-volumes.md)) |
+| `repository`, `shelfmark` | witness | Optional text identifying one held copy. No two witnesses share both. CSL `archive` and `archive_location` are never read as these. |
+| `volumes` | edition, witness | Optional whole number of volumes, 1 to 10,000. |
+| `rights` | edition, translation, witness | Optional `{ "status", "note"?, "license"? }`: the author's own declaration, never a legal determination. Status is `unknown`, `rightsReserved`, `permission`, `openLicense`, `publicDomain`, or `ownWork`; `license` only with `openLicense`. A version without one reads as `unknown`, and nothing inherits a status. ([ADR 0085](../adr/0085-rights-are-the-authors-declaration-per-version.md)) |
+| `anonymous` | all but reference | Optional `true`: the source names no maker. A creator in the record's maker role (author, editor, translator, or scribe for a work, edition, translation, or witness) whose attribution is stated or absent contradicts it (`conflicting-attribution`). ([ADR 0086](../adr/0086-attribution-uncertainty-is-explicit.md)) |
 
 `credit`, `credits`, `contributor`, and `contributors` are rejected as field names at any
-depth of a record, including inside creators, identifiers, locations, and unknown fields,
-and beside `sources` at the library level. A `.credits.json` sidecar is rejected as a
-library.
+depth of a record, including inside creators, identifiers, locations, rights, and unknown
+fields, and beside `sources` at the library level. A `.credits.json` sidecar is rejected as a
+library. The one exception is an interpreter's `contributor` key below.
+
+## Interpretations
+
+An optional top-level `interpretations` array holds attributed renderings and readings of
+places in the library's versions ([ADR 0087](../adr/0087-attributed-interpretations-live-in-the-source-library.md)).
+They are private research: never sources, never cited, never exported as bibliography, and
+never read by a build: a build parses the library without validating them, so a problem in an
+interpretation never fails a build. An empty array is written as an absent field.
+
+```json
+"interpretations": [
+  { "id": "cave-514a-mine", "kind": "rendering", "source": "republic-slings-2003",
+    "locators": [{ "kind": "canonical", "value": "514a" }], "language": "en",
+    "text": "Next, compare our nature in its education and its lack of it to this.",
+    "interpreters": [{ "contributor": "ada" }], "rights": { "status": "ownWork" } }
+]
+```
+
+| Field | Rule |
+| --- | --- |
+| `id` | Required slug, unique among interpretations and distinct from every source identifier. |
+| `kind` | Required. `rendering` (a translation of one place) or `reading` (what it means). Neither is a library `translation`. |
+| `source` | Required. An edition, translation, or witness; a reading may also name a work. Never a reference, a contributor, or another interpretation. |
+| `locators` | Up to eight notebook locators (`kind`, `value`, `to`?). Required on a rendering. Pages cannot address a work; folios need a witness. |
+| `language` | Language tag. Required on a rendering. |
+| `text` | Required, at most 20,000 characters; line breaks allowed, other control characters and bidirectional overrides refused. Stored exactly as written. |
+| `interpreters` | Up to sixteen, each exactly one of `{ "contributor": key }` (must exist in the contributor registry) or `{ "name": text }`, with optional `attribution`. Required unless `anonymous`. |
+| `anonymous` | Optional `true`. An interpreter with a stated or absent attribution contradicts it. |
+| `rights` | Optional rights declaration, as on a version. |
+| `uncertainty` | Optional one-line note. |
+
+A source an interpretation uses cannot be removed (`still-used`), and Admin refuses to remove a
+contributor an interpretation names. Sources and interpretations that a
+[passage alignment](passage-alignments.md) uses cannot be removed either. Interpretation diagnostics have no `index` or `sourceId`;
+their `field` path starts with `interpretations[n]`.
 
 ## Limits and diagnostics
 
 A library may be at most 4 MiB, measured both on the text that is read and on its
 canonical written form, so every library that parses can be written back, read again, and
-shrunk. It may hold at most 10,000 records; text fields are limited to 1,000
-characters without control characters. A version other than 1 is refused without being
+shrunk. It may hold at most 10,000 records and 10,000 interpretations; text fields are
+limited to 1,000 characters without control characters. A version other than 1 is refused without being
 reinterpreted.
 
 Each diagnostic has a stable kebab-case `code`, the record's zero-based `index` and
@@ -128,17 +168,20 @@ items.
 | `issued` | `issued` text: `date-parts` as `2003`, `1968-05`, `1810-03-07`, or `2003/2005`; `literal` and `raw` verbatim |
 | `DOI`, `ISBN`, `ISSN`, `URL`, `PMID`, `PMCID` | `identifiers` (several ISBNs or ISSNs are separated by `, `) |
 | `container-title`, `publisher`, `edition`, `volume`, `page`, and similar text or numbers | `csl` field, verbatim |
-| `custom["openblog-*"]` | kind, `of`, `basedOn`, `location`, `archived`, unknown fields, and full creator and identifier lists |
+| `custom["openblog-*"]` | kind, `of`, `basedOn`, `location`, `archived`, `anonymous`, `revises`, `repository`, `shelfmark`, `volumes`, `rights`, unknown fields, and full creator and identifier lists |
 | `note`, `abstract`, `annote`, `keyword` | never imported |
 | anything else | reported as unsupported |
 
 A matching id merges rather than replaces: stated title, language, date, relationships,
 location, and archived flag are replaced; creators and identifiers are added when missing;
-unknown fields are overlaid; everything else is kept. An import never changes a kind and
+a matching creator's attribution and note are filled in when the library has none, and a
+different attribution or note is a `conflicting-attribution` conflict; unknown fields are
+overlaid; everything else is kept. An import never changes a kind and
 never removes anything. A shared DOI, ISBN, ISSN, PMID, or PMCID under a different id, or
 two items with one id, is a conflict.
 
 `GET /admin/api/sources/export?format=csl-json|bibtex` returns `content`, `filename`,
 `revision`, `count`, and `losses`. Both are deterministic for a library revision. CSL JSON
-keeps everything (`custom` holds what CSL cannot express). BibTeX is keyed by source id and
+keeps every record (`custom` holds what CSL cannot express); interpretations are private
+research, not bibliography, and are not exported. BibTeX is keyed by source id and
 lists in `losses`, per source and field, what an entry omits.

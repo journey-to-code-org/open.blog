@@ -80,6 +80,27 @@ pub struct SiteConfig {
     /// posts they are about. Omitted from the written file while it is off.
     #[serde(skip_serializing_if = "ClaimEvidenceConfig::is_off")]
     pub claim_evidence: ClaimEvidenceConfig,
+    /// Opt-in publication of approved passage comparisons. Omitted from the
+    /// written file while it is off.
+    #[serde(skip_serializing_if = "ComparisonsConfig::is_off")]
+    pub comparisons: ComparisonsConfig,
+}
+
+/// Whether builds publish approved passage comparisons (ADR 0092). Off by
+/// default: the build then never reads the private alignments file. On, it
+/// publishes `/comparisons/` pages and `/comparisons.json` holding only
+/// approved alignments, with each place's wording only where the author
+/// states the version's text may be displayed.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ComparisonsConfig {
+    pub publish: bool,
+}
+
+impl ComparisonsConfig {
+    fn is_off(&self) -> bool {
+        !self.publish
+    }
 }
 
 /// Whether builds publish approved claim evidence (ADR 0075). Off by default:
@@ -379,6 +400,7 @@ impl Default for SiteConfig {
             syndication: SyndicationConfig::default(),
             knowledge_atlas: KnowledgeAtlasConfig::default(),
             claim_evidence: ClaimEvidenceConfig::default(),
+            comparisons: ComparisonsConfig::default(),
         }
     }
 }

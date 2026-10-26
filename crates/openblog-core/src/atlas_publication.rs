@@ -756,7 +756,7 @@ fn public_point(point: &Point) -> PublicPoint {
     public
 }
 
-fn public_party(party: &Attribution) -> PublicParty {
+pub(crate) fn public_party(party: &Attribution) -> PublicParty {
     PublicParty {
         kind: party.kind,
         source: party.source.clone(),
@@ -764,7 +764,7 @@ fn public_party(party: &Attribution) -> PublicParty {
     }
 }
 
-fn public_evidence(evidence: &[Evidence]) -> Vec<PublicEvidence> {
+pub(crate) fn public_evidence(evidence: &[Evidence]) -> Vec<PublicEvidence> {
     evidence
         .iter()
         .map(|item| PublicEvidence {

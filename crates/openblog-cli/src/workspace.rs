@@ -22,6 +22,8 @@ const NOTEBOOK_PATH: &str = ".openblog/private/research/notebook.json";
 const ATLAS_PATH: &str = ".openblog/private/research/atlas.json";
 /// Private claims and evidence links share the library limit as well.
 const CLAIMS_PATH: &str = ".openblog/private/research/claims.json";
+/// Private passage alignments share the library limit as well.
+const ALIGNMENTS_PATH: &str = ".openblog/private/research/alignments.json";
 const MAX_TOTAL: usize = 64 * 1024 * 1024;
 const MAX_MANIFEST: usize = 8 * 1024 * 1024;
 const BUCKET: &str = "openblog-workspace";
@@ -263,6 +265,7 @@ impl Policy {
             NOTEBOOK_PATH.into(),
             ATLAS_PATH.into(),
             CLAIMS_PATH.into(),
+            ALIGNMENTS_PATH.into(),
             ".openblog/pending-tracks".into(),
             ".openblog/trash".into(),
         ]
@@ -281,6 +284,7 @@ impl Policy {
                 | NOTEBOOK_PATH
                 | ATLAS_PATH
                 | CLAIMS_PATH
+                | ALIGNMENTS_PATH
         ) {
             return true;
         }
@@ -328,7 +332,15 @@ impl Policy {
     }
 
     fn text_limit(&self, path: &str) -> usize {
-        if [LIBRARY_PATH, NOTEBOOK_PATH, ATLAS_PATH, CLAIMS_PATH].contains(&path) {
+        if [
+            LIBRARY_PATH,
+            NOTEBOOK_PATH,
+            ATLAS_PATH,
+            CLAIMS_PATH,
+            ALIGNMENTS_PATH,
+        ]
+        .contains(&path)
+        {
             MAX_LIBRARY_TEXT
         } else {
             MAX_TEXT
@@ -1289,6 +1301,9 @@ mod tests {
             ".openblog/private/research/claims.json/extra",
             ".openblog/private/research/claims.json.lock",
             ".openblog/private/research/claims.json.1-2.tmp",
+            ".openblog/private/research/alignments.json/extra",
+            ".openblog/private/research/alignments.json.lock",
+            ".openblog/private/research/alignments.json.1-2.tmp",
             "content/../.git/config",
             "content/posts/../../secret.md",
             "content\\posts\\escape.md",
@@ -1372,6 +1387,22 @@ mod tests {
         let files = policy.scan(&fixture.0).unwrap();
         assert_eq!(files[ATLAS_PATH], body.as_bytes());
         fs::write(&atlas, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
+        assert!(policy.scan(&fixture.0).is_err());
+    }
+
+    #[test]
+    fn alignments_file_is_durable_and_allowed_up_to_the_library_limit() {
+        let fixture = Fixture::new();
+        let alignments = fixture.0.join(ALIGNMENTS_PATH);
+        fs::create_dir_all(alignments.parent().unwrap()).unwrap();
+        let body = format!("{{\"pad\":\"{}\"}}", "x".repeat(3 * 1024 * 1024));
+        fs::write(&alignments, &body).unwrap();
+        let policy = policy();
+        assert!(policy.allowed(ALIGNMENTS_PATH));
+        assert_eq!(policy.text_limit(ALIGNMENTS_PATH), MAX_LIBRARY_TEXT);
+        let files = policy.scan(&fixture.0).unwrap();
+        assert_eq!(files[ALIGNMENTS_PATH], body.as_bytes());
+        fs::write(&alignments, "x".repeat(MAX_LIBRARY_TEXT + 1)).unwrap();
         assert!(policy.scan(&fixture.0).is_err());
     }
 
