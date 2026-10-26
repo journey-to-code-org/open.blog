@@ -661,6 +661,12 @@ test("the protection schema is additive, private and opt-in, and its rollback dr
   assert.match(feedback, /add constraint openblog_feedback_purged_never_public check \(purged_at is null or status <> 'approved'\)/);
   assert.match(feedback, /\(p_withdraw and status in \('pending', 'clarification', 'approved'\)\)\s+or \(not p_withdraw and status in \('rejected', 'removed', 'withdrawn'\)\)/);
   assert.doesNotMatch(baseSchema, /purged_at|receipt|abuse/);
+  // An upheld report's removal names the report in the item's audit event, through one new nullable column each.
+  assert.match(added, /alter table public\.openblog_comment_events\s+add column if not exists related uuid;/);
+  assert.match(feedback, /alter table public\.openblog_feedback_events\s+add column if not exists related uuid;/);
+  const uphold = added.match(/create or replace function public\.openblog_uphold_report\([\s\S]*?\$\$;/)[0];
+  assert.match(uphold, /insert into public\.openblog_comment_events\s+\([^)]*, related\)\s+values \([^;]*, p_id\);/);
+  assert.match(uphold, /insert into public\.openblog_feedback_events\s+\([^)]*, related\)\s+values \([^;]*, p_id\);/);
 
   const undo = statementsOf(protectionRollback);
   assert.deepEqual(undo.match(/\b(drop|alter|revoke)\b[^;]*;/g).map((statement) => statement.replace(/\s+/g, " ").trim()), [
@@ -673,8 +679,10 @@ test("the protection schema is additive, private and opt-in, and its rollback dr
     "drop table if exists public.openblog_abuse_reports;",
     "revoke delete on public.openblog_comment_events from service_role;",
     "drop trigger if exists openblog_comment_events_keep_recent on public.openblog_comment_events;",
+    "alter table public.openblog_comment_events drop column if exists related;",
     "revoke delete on public.openblog_feedback_events from service_role;",
     "drop trigger if exists openblog_feedback_events_keep_recent on public.openblog_feedback_events;",
+    "alter table public.openblog_feedback_events drop column if exists related;",
     "drop function if exists public.openblog_keep_recent_audit_events();",
     "alter table public.openblog_comments drop constraint if exists openblog_comments_purged_never_public;",
     "alter table public.openblog_comments drop column if exists purged_at;",

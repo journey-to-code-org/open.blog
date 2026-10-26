@@ -256,6 +256,11 @@ begin
       add constraint openblog_feedback_purged_never_public check (purged_at is null or status <> 'approved');
   end if;
 end $$;
+-- The abuse report an upheld-report removal came from, so the note's audit
+-- event and the report's name each other (ADR 0103). Null on every other
+-- event, and on every event recorded before the column existed.
+alter table public.openblog_feedback_events
+  add column if not exists related uuid;
 
 -- A deletion request or a retention purge, in one statement, only while the
 -- note is at the version both Admin (or the reader's receipt) and the

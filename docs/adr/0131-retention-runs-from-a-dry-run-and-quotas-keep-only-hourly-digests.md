@@ -63,6 +63,9 @@ address that is the same every hour and day, kept for 48 hours. Hosted storage i
   - `openblog_feedback`: `receipt_hash text` (a 64-hex-digit digest, nullable) with the partial
     unique index `openblog_feedback_receipt`, `purged_at timestamptz` and the check
     `openblog_feedback_purged_never_public`.
+  - `openblog_comment_events` and `openblog_feedback_events`: `related uuid` (nullable), the abuse
+    report an `upheld-report` removal came from, so the item's event and the report's name each
+    other; null on every other event.
   - New private tables `openblog_abuse_reports` (no reporter identity) and the insert-and-retention
     `openblog_abuse_report_events`, row level security on, public roles revoked.
   - Functions `openblog_moderate_report`, `openblog_uphold_report`, `openblog_purge_comment`,

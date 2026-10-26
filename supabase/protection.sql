@@ -13,7 +13,9 @@
 -- uphold reports. It lets the service role delete audit events, which only
 -- the retention job does, once they are older than the site's audit period,
 -- and adds a trigger to each audit table that refuses to delete any event
--- recorded in the last day, whoever asks.
+-- recorded in the last day, whoever asks. It adds one nullable column to
+-- openblog_comment_events, naming the abuse report an upheld-report removal
+-- came from.
 -- It does not rename, drop or rewrite any existing table, column, function
 -- or row: every comment keeps its text and state, and public reads, which
 -- use `status`, see exactly what they saw before. Running it twice changes
@@ -97,6 +99,12 @@ create index if not exists openblog_abuse_report_events_item
 alter table public.openblog_abuse_report_events enable row level security;
 revoke all on public.openblog_abuse_report_events from public, anon, authenticated, service_role;
 grant select, insert, delete on public.openblog_abuse_report_events to service_role;
+
+-- The abuse report an upheld-report removal came from, so the comment's
+-- audit event and the report's name each other (ADR 0103). Null on every
+-- other event, and on every event recorded before the column existed.
+alter table public.openblog_comment_events
+  add column if not exists related uuid;
 
 -- The retention job deletes audit events older than the site's audit
 -- period (ADR 0103); nothing else deletes them. The service role may
@@ -245,8 +253,8 @@ begin
       )
       select to_jsonb(changed) into removed from changed;
       insert into public.openblog_comment_events
-        (site_id, comment_id, action, from_status, to_status, reason, actor, actor_role, at, version)
-      values (p_site_id, report.target_id, 'remove', 'approved', 'removed', 'upheld-report', p_actor, p_actor_role, p_at, (removed->>'version')::integer);
+        (site_id, comment_id, action, from_status, to_status, reason, actor, actor_role, at, version, related)
+      values (p_site_id, report.target_id, 'remove', 'approved', 'removed', 'upheld-report', p_actor, p_actor_role, p_at, (removed->>'version')::integer, p_id);
     else
       with changed as (
         update public.openblog_feedback
@@ -257,9 +265,9 @@ begin
       )
       select to_jsonb(changed) into removed from changed;
       insert into public.openblog_feedback_events
-        (site_id, feedback_id, action, from_status, to_status, reason, actor, at, version, kind, item_revision, actor_role)
+        (site_id, feedback_id, action, from_status, to_status, reason, actor, at, version, kind, item_revision, actor_role, related)
       values (p_site_id, report.target_id, 'remove', 'approved', 'removed', 'upheld-report', p_actor, p_at,
-              (removed->>'version')::integer, removed->>'kind', (removed->>'item_revision')::integer, p_actor_role);
+              (removed->>'version')::integer, removed->>'kind', (removed->>'item_revision')::integer, p_actor_role, p_id);
     end if;
   end if;
   return jsonb_build_object('report', to_jsonb(report), 'target', removed);
