@@ -28,9 +28,38 @@ edited, or an author could acknowledge once and never see a new problem under th
   It holds no note, no person and no time, so it has nothing private to leak. Its JSON refuses
   unknown fields, so a stored record cannot claim more (there is no `resolved`).
 - **The fingerprint.** A 128-bit BLAKE2s digest, as 32 hexadecimal characters, of the key, the
-  related objects and the message. Lines, columns and indexes are left out because they move
-  with unrelated edits. Messages name ids, counts and stated values, so the fingerprint changes
-  exactly when what the finding says about its object changes.
+  related objects and the finding's structured, position-free `facts`: the ids, keys, locators,
+  identifiers and stated values its validator reports for that code. The message is never an
+  input. Messages embed positions (`citation-location-review` lists line numbers,
+  `claim-anchor-moved` names a byte offset), so hashing them made an acknowledgement go stale
+  whenever a paragraph was added above, and any copy edit to a message template would have
+  staled every acknowledgement at once. Lines, columns and indexes are left out for the same
+  reason. Each validator states its facts beside its message, and they are never serialized:
+
+  | Finding | Facts |
+  | --- | --- |
+  | `citation-location-review` | each located citation's key and locators in its canonical `[@key, ...]` form, in reading order; not the lines |
+  | `citation-syntax`, `citation-unresolved` | the citation diagnostic's code and key |
+  | `citation-identifier-unpublished` | the key, scheme and value |
+  | `citation-reference-incomplete` | the key (the missing detail is the key's field) |
+  | `doi-invalid`, `license-url-invalid` | the stated value |
+  | `footnote-unresolved` | the footnote label |
+  | `reference-link-review` | the reference's own text |
+  | `doi-link-non-preferred` | the link |
+  | `claim-anchor-moved`, `-stale`, `-ambiguous`, `claim-evidence-missing` | nothing beyond the key; no byte offset |
+  | `claim-post-missing` | the post slug the claim names |
+  | `claim-support-only`, `claim-contradiction-undiscussed` | the supporting or contradicting link ids |
+  | link findings | the link's source; for `claim-passage-archived` the passage; for `claim-location-unreviewed` the source, the link's locators, and its passage with that passage's locators; for `claim-rationale-missing` the source and relation |
+  | atlas and claims `private-endpoint`, `undisclosed-contradiction`, `unpublished-datings` | the private claim, entry or dating ids they name |
+  | `stale-locator` | the member's locators, the passage and the passage's locators |
+  | `archived-member` | the archived passage or source |
+  | chronology prompts | each dating's id, aspect and stated date |
+  | `withheld-rights`, `withheld-length` | the version's rights status and license and the place's locators |
+  | refusing errors | nothing beyond the key: they cannot be acknowledged |
+
+  So inserting a line above a located citation keeps its acknowledgement current, and citing a
+  different locator, re-locating a passage, archiving a source or changing a dating's stated
+  value makes it stale.
 - **Only advisory findings can be acknowledged.** `Acknowledgement::of` returns nothing for a
   finding whose gate refuses something: integrity and privacy failures are fixed, never
   acknowledged. A stored acknowledgement that names one is not applied.
@@ -58,8 +87,11 @@ edited, or an author could acknowledge once and never see a new problem under th
 - An author can set aside a prompt they have considered, and see it again as soon as it says
   something new.
 - Acknowledging is reversible: removing the record restores the finding's unacknowledged state.
-- Because the key leaves out positions, an acknowledgement survives edits elsewhere in a post,
-  and because the fingerprint includes the message, it does not survive a change to the finding.
+- Because neither the key nor the fingerprint holds a position or the message, an
+  acknowledgement survives edits elsewhere in a post and changes to message wording, and because
+  the fingerprint holds the facts, it does not survive a change to what the finding is about.
+- A validator that adds a code must state its facts; a finding with none is fingerprinted by its
+  key and related objects alone.
 
 ## Domain language
 

@@ -893,18 +893,99 @@ A[^1] and B[^2].
     assert!(states.contains(&Some(AcknowledgementState::Current)));
 }
 
+fn location_review(body: &str) -> CompletenessFinding {
+    CompletenessFinding::from_evidence(
+        citation_findings(body)
+            .iter()
+            .find(|f| f.code == EvidenceCode::CitationLocationReview)
+            .expect("located citation"),
+    )
+}
+
+#[test]
+fn moving_a_finding_keeps_its_acknowledgement_and_changing_what_it_states_does_not() {
+    // The location prompt names lines; inserting a paragraph above the
+    // located citation moves them, but the cited keys and locators are the
+    // same, so the acknowledgement stays current.
+    let before = location_review(
+        "A [@burnet, canonical 514a] place.
+",
+    );
+    let ack = Acknowledgement::of(&before).expect("advisory");
+    let moved = location_review(
+        "A new paragraph.
+
+A [@burnet, canonical 514a] place.
+",
+    );
+    assert_ne!(
+        moved.message, before.message,
+        "the message names the new line"
+    );
+    assert_eq!(moved.fingerprint(), before.fingerprint());
+    let report = CompletenessReport::new([moved], std::slice::from_ref(&ack));
+    assert_eq!(
+        report.findings[0].acknowledgement,
+        Some(AcknowledgementState::Current)
+    );
+
+    // A real change to the cited locators is a change to what the prompt is
+    // about: the acknowledgement goes stale.
+    let relocated = location_review(
+        "A new paragraph.
+
+A [@burnet, canonical 515b] place.
+",
+    );
+    let report = CompletenessReport::new([relocated], std::slice::from_ref(&ack));
+    assert_eq!(
+        report.findings[0].acknowledgement,
+        Some(AcknowledgementState::Stale)
+    );
+
+    // A claim's words moving in the draft (`claim-anchor-moved` names a byte
+    // offset) keeps the acknowledgement too.
+    let moved_anchor = |draft: &str| {
+        let library = library();
+        let notebook = notebook(&library);
+        let set = claims(&library, &notebook);
+        let drafts = BTreeMap::from([("cave".to_string(), draft.to_string())]);
+        let paths = BTreeMap::from([("cave".to_string(), "posts/cave.md".to_string())]);
+        review_claims(
+            &set,
+            &ReviewContext {
+                drafts: &drafts,
+                paths: &paths,
+                claims_file: ".openblog/private/research/claims.json",
+                library: &library,
+                notebook: &notebook,
+            },
+        )
+        .iter()
+        .find(|f| f.code == EvidenceCode::ClaimAnchorMoved)
+        .map(CompletenessFinding::from_evidence)
+        .expect("moved anchor")
+    };
+    let first = moved_anchor("Intro. The cave and the line.");
+    let later = moved_anchor("A longer introduction. The cave and the line.");
+    assert_ne!(first.message, later.message);
+    assert_eq!(first.fingerprint(), later.fingerprint());
+}
+
 #[test]
 fn an_acknowledgement_of_a_post_finding_applies_to_that_post_only() {
     // Two posts with the same post-scoped finding and no id: acknowledging
     // one leaves the other unacknowledged, never acknowledged or stale.
     let audit = |path: &str| {
-        let doc = frontmatter::parse("---
+        let doc = frontmatter::parse(
+            "---
 title: T
 profile: research
 ---
 Body.
-")
-            .expect("front matter");
+",
+        )
+        .expect("front matter");
         audit_document(path, &doc.front_matter, &doc.body, doc.body_line)
             .iter()
             .map(CompletenessFinding::from_evidence)
@@ -956,6 +1037,7 @@ fn serialization_is_compatible_and_versioned() {
             claim: "c1".into(),
             link: Some("l1".into()),
         }),
+        facts: Vec::new(),
     };
     assert_eq!(
         serde_json::to_string(&finding).unwrap(),

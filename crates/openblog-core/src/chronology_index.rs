@@ -88,6 +88,11 @@ pub struct ChronologyPrompt {
     /// Every dating the prompt is about, the scoped one first.
     pub datings: Vec<String>,
     pub message: String,
+    /// Each of those datings' id, aspect and stated date, in the same
+    /// order: what the prompt says, without positions or sentences, for an
+    /// author's acknowledgement (ADR 0145). Never serialized.
+    #[serde(skip)]
+    pub facts: Vec<String>,
 }
 
 impl fmt::Display for ChronologyPrompt {
@@ -469,10 +474,20 @@ impl<'a> Builder<'a> {
             .iter()
             .position(|d| d.id == subject.id)
             .unwrap_or_default();
+        let stated = |d: &Dating| {
+            format!(
+                "{} {} {}",
+                d.id,
+                d.aspect.as_str(),
+                serde_json::to_string(&d.date).unwrap_or_default()
+            )
+        };
         let mut datings = vec![subject.id.clone()];
+        let mut facts = vec![stated(subject)];
         for other in others {
             if !datings.contains(&other.id) {
                 datings.push(other.id.clone());
+                facts.push(stated(other));
             }
         }
         self.prompts.push(ChronologyPrompt {
@@ -483,6 +498,7 @@ impl<'a> Builder<'a> {
             field: format!("dates[{position}]"),
             datings,
             message,
+            facts,
         });
     }
 

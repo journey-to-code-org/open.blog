@@ -29,7 +29,7 @@ use crate::research::{
     EvidenceCode as Code, EvidenceFinding, EvidenceObject, EvidenceOutcome as Outcome,
     EvidenceSource,
 };
-use crate::research_notes::Notebook;
+use crate::research_notes::{Locator, Notebook, Passage};
 use crate::source_library::SourceLibrary;
 
 /// What a review reads besides the claims file.
@@ -116,6 +116,7 @@ impl Place<'_> {
                 claim: self.claim.to_string(),
                 link: self.link.map(str::to_string),
             }),
+            facts: Vec::new(),
         }
     }
 }
@@ -150,7 +151,7 @@ fn review_claim(
                 claim.post
             ),
             "Save the post with that slug, or edit the claim in Evidence Studio to name the post it is about.",
-        ));
+        ).with_facts([claim.post.as_str()]));
     } else if let Some(check) = anchor_status(claim, context.drafts) {
         let (code, message, repair) = match check {
             AnchorCheck::Verified => (None, String::new(), ""),
@@ -184,6 +185,11 @@ fn review_claim(
         ));
     }
     let counts = set.counts(id);
+    let linked = |relation: Relation| {
+        set.links_of(id)
+            .filter(move |link| link.relation == relation)
+            .map(|link| link.id.as_str())
+    };
     let total = counts.supports + counts.contradicts + counts.contextualizes;
     if total == 0 {
         findings.push(place.finding(
@@ -204,7 +210,7 @@ fn review_claim(
                 if total == 1 { "" } else { "s" }
             ),
             "If the doubt comes from a source, link it as contradicting or contextualizing evidence in Evidence Studio; if not, nothing needs to change.",
-        ));
+        ).with_facts(linked(Relation::Supports)));
     }
     if counts.contradicts > 0 && claim.uncertainty.is_none() {
         findings.push(place.finding(
@@ -218,7 +224,7 @@ fn review_claim(
                 if counts.contradicts == 1 { "it" } else { "them" }
             ),
             "Discuss the contradicting evidence in the post, then record how in the claim's uncertainty note in Evidence Studio.",
-        ));
+        ).with_facts(linked(Relation::Contradicts)));
     }
 }
 
@@ -248,7 +254,7 @@ fn review_link(
             "reviewState",
             format!("Evidence link `{id}` was suggested rather than recorded by you, and nobody has reviewed it, so it is not your reading of source `{source}` yet."),
             "Read the source, then set the link's review state to reviewed in Evidence Studio, or remove the link.",
-        ));
+        ).with_facts([source.as_str()]));
     }
     if context
         .library
@@ -261,7 +267,7 @@ fn review_link(
             "evidence.source",
             format!("Evidence link `{id}` rests on source `{source}`, which is archived in your library."),
             "Decide whether the link should still rest on it: restore the source in Sources, link a current one, or remove the link.",
-        ));
+        ).with_facts([source.as_str()]));
     }
     if let Some(passage) = passage.filter(|passage| passage.archived) {
         findings.push(place.finding(
@@ -273,7 +279,7 @@ fn review_link(
                 passage.id
             ),
             "Decide whether the link should still point to it: restore the passage in the notebook, choose another, or remove it from the link.",
-        ));
+        ).with_facts([passage.id.as_str()]));
     }
     let located =
         !link.evidence.locators.is_empty() || passage.is_some_and(|p| !p.locators.is_empty());
@@ -284,7 +290,7 @@ fn review_link(
             "evidence.locators",
             format!("Evidence link `{id}` names source `{source}` but no page or other location in it, so the passage the link rests on cannot be found again from the record."),
             "If the link rests on a particular passage, add where it is, such as page: 514, in Evidence Studio.",
-        ));
+        ).with_facts([source.as_str()]));
     } else if link.review_state == ReviewState::Unreviewed && !suggested {
         findings.push(place.finding(
             Code::ClaimLocationUnreviewed,
@@ -292,7 +298,7 @@ fn review_link(
             "reviewState",
             format!("Evidence link `{id}` gives a location in source `{source}`. open.blog checked only that the location is well formed and fits the source; nobody has recorded checking that the passage is there."),
             "Compare the location with the source, then set the link's review state to location checked or reviewed in Evidence Studio.",
-        ));
+        ).with_facts(location_facts(link, passage)));
     }
     if link.rationale.is_none() {
         let reading = match link.relation {
@@ -309,8 +315,20 @@ fn review_link(
                 claim.id
             ),
             "Add a rationale to the link in Evidence Studio.",
-        ));
+        ).with_facts([source.as_str(), reading]));
     }
+}
+
+/// What a link's location is: its source, its own locators and its passage
+/// with that passage's locators, in record order.
+fn location_facts(link: &EvidenceLink, passage: Option<&Passage>) -> Vec<String> {
+    let mut facts = vec![link.evidence.source.clone()];
+    facts.extend(link.evidence.locators.iter().map(Locator::stated));
+    if let Some(passage) = passage {
+        facts.push(format!("passage {}", passage.id));
+        facts.extend(passage.locators.iter().map(Locator::stated));
+    }
+    facts
 }
 
 #[cfg(test)]

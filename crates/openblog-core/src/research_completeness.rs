@@ -457,6 +457,12 @@ pub struct CompletenessFinding {
     pub message: String,
     /// The validator's repair, or the check's next action when it gives none.
     pub repair: String,
+    /// The position-free facts the validator stated: the keys, locators,
+    /// identifiers, ids and stated values the finding is about, never a
+    /// line, byte offset or sentence. The fingerprint is built from them.
+    /// Never serialized, so nothing here can reach any output.
+    #[serde(skip)]
+    pub facts: Vec<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -767,6 +773,7 @@ pub fn matrix() -> Vec<MatrixRow> {
 }
 
 impl CompletenessFinding {
+    #[allow(clippy::too_many_arguments)]
     fn mapped(
         code: String,
         spec: Spec,
@@ -775,6 +782,7 @@ impl CompletenessFinding {
         related: Vec<ObjectRef>,
         message: String,
         repair: Option<String>,
+        facts: Vec<String>,
     ) -> Self {
         Self {
             validator: spec.check.owner(),
@@ -789,6 +797,7 @@ impl CompletenessFinding {
             repair: repair
                 .filter(|repair| !repair.is_empty())
                 .unwrap_or_else(|| spec.check.action().to_string()),
+            facts,
         }
     }
 
@@ -825,6 +834,7 @@ impl CompletenessFinding {
             related,
             finding.message.clone(),
             Some(finding.repair.clone()),
+            finding.facts.clone(),
         )
     }
 
@@ -854,6 +864,7 @@ impl CompletenessFinding {
             Vec::new(),
             diagnostic.message.clone(),
             None,
+            diagnostic.facts.clone(),
         )
     }
 
@@ -879,6 +890,7 @@ impl CompletenessFinding {
                 .collect(),
             prompt.message.clone(),
             None,
+            prompt.facts.clone(),
         )
     }
 
@@ -904,6 +916,7 @@ impl CompletenessFinding {
             Vec::new(),
             diagnostic.message.clone(),
             None,
+            Vec::new(),
         )
     }
 
@@ -928,6 +941,7 @@ impl CompletenessFinding {
             Vec::new(),
             diagnostic.message.clone(),
             None,
+            Vec::new(),
         )
     }
 
@@ -966,6 +980,13 @@ impl CompletenessFinding {
                         related.clone(),
                         withheld_text(withheld, &version.rights),
                         None,
+                        std::iter::once(kebab(&version.rights.status))
+                            .chain(version.rights.license.clone())
+                            .chain(place.locators.iter().map(|locator| match &locator.to {
+                                Some(to) => format!("{} {} to {to}", locator.kind, locator.value),
+                                None => format!("{} {}", locator.kind, locator.value),
+                            }))
+                            .collect(),
                     ));
                 }
             }
@@ -989,10 +1010,13 @@ impl CompletenessFinding {
     }
 
     /// A fingerprint of what the finding says about its object: the key, the
-    /// related objects and the message. When any of them changes (a source
-    /// revision moves a locator, a dating's stated value changes, another
-    /// located citation appears) an acknowledgement of the old finding no
-    /// longer matches it.
+    /// related objects and the validator's position-free facts. When any of
+    /// them changes (a source revision moves a passage's locators, a
+    /// dating's stated value changes, another located citation appears, a
+    /// cited locator changes) an acknowledgement of the old finding no
+    /// longer matches it. The message is never an input, so a line number
+    /// or byte offset it names, or a change to its wording, never makes an
+    /// acknowledgement stale.
     pub fn fingerprint(&self) -> String {
         let mut hasher = Blake2s256::new();
         let key = self.key();
@@ -1004,7 +1028,7 @@ impl CompletenessFinding {
             key.id,
             key.field,
             self.related,
-            self.message,
+            self.facts,
         ]);
         hasher.update(parts.to_string().as_bytes());
         hasher.finalize()[..16]
@@ -1015,7 +1039,8 @@ impl CompletenessFinding {
 
     /// The total order of the contract: by file, object and place, then
     /// category, outcome, validator, check and code, then message, related
-    /// objects and repair, so equal findings, and only those, compare equal.
+    /// objects, repair, gate and facts, so equal findings, and only those,
+    /// compare equal.
     fn order(&self, other: &Self) -> Ordering {
         let a = &self.scope;
         let b = &other.scope;
@@ -1034,6 +1059,7 @@ impl CompletenessFinding {
             .then(self.related.cmp(&other.related))
             .then(self.repair.cmp(&other.repair))
             .then(self.gate.cmp(&other.gate))
+            .then(self.facts.cmp(&other.facts))
     }
 }
 

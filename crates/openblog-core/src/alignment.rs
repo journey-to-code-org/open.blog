@@ -674,14 +674,25 @@ impl AlignmentSet {
                                 "these locators no longer match passage `{}`, which may have been re-located since it was aligned; check the place and update one of them",
                                 passage.id
                             ),
+                        )
+                        .with_facts(
+                            member
+                                .locators
+                                .iter()
+                                .map(Locator::stated)
+                                .chain([format!("passage {}", passage.id)])
+                                .chain(passage.locators.iter().map(Locator::stated)),
                         ));
                     }
                     if passage.archived {
-                        notices.push(report(
-                            Code::ArchivedMember,
-                            format!("members[{position}].passage"),
-                            format!("passage `{}` is archived", passage.id),
-                        ));
+                        notices.push(
+                            report(
+                                Code::ArchivedMember,
+                                format!("members[{position}].passage"),
+                                format!("passage `{}` is archived", passage.id),
+                            )
+                            .with_facts([passage.id.as_str()]),
+                        );
                     }
                 }
                 if let Some(record) = member
@@ -690,11 +701,14 @@ impl AlignmentSet {
                     .and_then(|id| links.library.get(id))
                 {
                     if record.archived {
-                        notices.push(report(
-                            Code::ArchivedMember,
-                            format!("members[{position}].source"),
-                            format!("source `{}` is archived", record.id),
-                        ));
+                        notices.push(
+                            report(
+                                Code::ArchivedMember,
+                                format!("members[{position}].source"),
+                                format!("source `{}` is archived", record.id),
+                            )
+                            .with_facts([record.id.as_str()]),
+                        );
                     }
                 }
             }
@@ -802,6 +816,7 @@ pub fn unknown(id: &str) -> AtlasDiagnostic {
         id: Some(id.into()),
         field: None,
         message: format!("no alignment has the id `{id}`"),
+        facts: Vec::new(),
     }
 }
 

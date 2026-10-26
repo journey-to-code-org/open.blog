@@ -244,6 +244,7 @@ fn anchor_problem(
         id: Some(id.into()),
         field: Some(field.into()),
         message,
+        facts: Vec::new(),
     }
 }
 
@@ -275,6 +276,7 @@ pub fn check_claim_anchor(
                 "no saved post has the slug `{}`, so the anchor cannot be checked; save the post first",
                 claim.post
             ),
+            facts: Vec::new(),
         });
     };
     match anchor.check(draft) {
@@ -973,7 +975,8 @@ impl ClaimSet {
                         "the claim `{}` is private, so this approved link stays out of public output until the claim is approved",
                         link.claim
                     ),
-                ));
+                )
+                .with_facts([link.claim.as_str()]));
             } else if link.relation == Relation::Supports && withheld.contains(link.claim.as_str())
             {
                 notices.push(item_diagnostic(
@@ -986,7 +989,8 @@ impl ClaimSet {
                         "the claim `{}` has a contradicting link that is still private, so this support stays out of public output until that link is approved too",
                         link.claim
                     ),
-                ));
+                )
+                .with_facts([link.claim.as_str()]));
             }
         }
         relabel(notices)
@@ -1157,6 +1161,7 @@ fn unknown(collection: &'static str, id: &str) -> AtlasDiagnostic {
         id: Some(id.into()),
         field: None,
         message: format!("nothing in {collection} has the id `{id}`"),
+        facts: Vec::new(),
     }
 }
 

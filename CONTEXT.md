@@ -1118,9 +1118,11 @@ stale when what the finding says changes.
 _Avoid_: Dismissal, resolution, waiver; acknowledging an integrity or privacy failure
 
 **Finding fingerprint**:
-A digest of a finding's validator, code, object, field, related objects and message, leaving out
-lines and positions, so it changes exactly when what the finding says about its object changes.
-_Avoid_: Finding id, revision
+A digest of a finding's validator, code, object, file, id, field, related objects and the
+structured facts its validator states for that code (cited keys and locators, source and passage
+ids, identifier values, stated dates), never its message, lines or positions, so it changes
+exactly when what the finding is about changes and not when text moves or wording is edited.
+_Avoid_: Finding id, revision; hashing the message
 
 ## Reader participation
 
